@@ -9,13 +9,15 @@ import { Input } from '@/components/ui/input';
 import { formatDateFull, formatWeight, formatDuration } from '@/lib/utils';
 import { getExerciseById } from '@/data/exercises';
 import type { WorkoutSession, WorkoutStatus, DayOfWeek } from '@/types';
-import { CalendarIcon, DumbbellIcon, ActivityIcon, ClockIcon } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { CalendarIcon, DumbbellIcon, ActivityIcon, ClockIcon, UndoIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function HistoryPage() {
   const [data, update] = useAppData();
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [incompleteDialogOpen, setIncompleteDialogOpen] = useState(false);
 
   // Get the session for the selected date
   const selectedSession = useMemo(() => {
@@ -110,6 +112,33 @@ export default function HistoryPage() {
       }),
     }));
     toast.success('Set updated');
+  };
+
+  const handleMarkIncomplete = () => {
+    if (!selectedSession) return;
+    update(prev => ({
+      ...prev,
+      sessions: prev.sessions.map(session => {
+        if (session.id !== selectedSession.id) return session;
+        return {
+          ...session,
+          status: 'not_started' as WorkoutStatus,
+          completedAt: null,
+          startedAt: null,
+          totalVolume: 0,
+          sets: session.sets.map(set => ({
+            ...set,
+            status: 'pending' as const,
+            actualReps: null,
+            weight: null,
+            rpe: null,
+          })),
+        };
+      }),
+    }));
+    setIncompleteDialogOpen(false);
+    setSheetOpen(false);
+    toast.success('Workout marked as incomplete — you can redo it');
   };
 
   const getStatusBadge = (status: WorkoutStatus) => {
@@ -238,6 +267,18 @@ export default function HistoryPage() {
                   </div>
                 )}
 
+                {/* Mark Incomplete */}
+                {(selectedSession.status === 'completed' || selectedSession.status === 'partial') && (
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start text-destructive border-destructive/30 hover:bg-destructive/10"
+                    onClick={() => setIncompleteDialogOpen(true)}
+                  >
+                    <UndoIcon className="size-4" />
+                    Mark as Incomplete
+                  </Button>
+                )}
+
                 {/* Notes */}
                 {selectedSession.notes && (
                   <div className="flex flex-col gap-1">
@@ -299,6 +340,26 @@ export default function HistoryPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Mark Incomplete Confirmation Dialog */}
+      <Dialog open={incompleteDialogOpen} onOpenChange={setIncompleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mark Workout as Incomplete?</DialogTitle>
+            <DialogDescription>
+              This will reset all sets and clear your recorded weights and reps for this workout. You can redo it from scratch.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIncompleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleMarkIncomplete}>
+              Mark Incomplete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
