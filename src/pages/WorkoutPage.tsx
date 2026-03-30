@@ -53,6 +53,7 @@ import {
   Trophy,
   SkipForward,
   Timer,
+  UndoIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -79,6 +80,7 @@ export default function WorkoutPage() {
   // State for current session
   const [session, setSession] = useState<WorkoutSession | null>(null);
   const [showSummaryDialog, setShowSummaryDialog] = useState(false);
+  const [showRedoDialog, setShowRedoDialog] = useState(false);
   const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
   const [workoutNotes, setWorkoutNotes] = useState('');
 
@@ -265,6 +267,31 @@ export default function WorkoutPage() {
     }
   };
 
+  // Redo workout (mark as incomplete)
+  const handleRedoWorkout = () => {
+    if (!session) return;
+    const resetSession: WorkoutSession = {
+      ...session,
+      status: 'not_started',
+      startedAt: null,
+      completedAt: null,
+      totalVolume: 0,
+      notes: '',
+      sets: session.sets.map((set) => ({
+        ...set,
+        status: 'pending' as const,
+        actualReps: null,
+        weight: null,
+        rpe: null,
+      })),
+    };
+    setSession(resetSession);
+    saveSession(resetSession);
+    setWorkoutNotes('');
+    setShowRedoDialog(false);
+    toast.success('Workout reset — start fresh!');
+  };
+
   if (!session) {
     return (
       <div className="container mx-auto px-4 py-6">
@@ -315,10 +342,21 @@ export default function WorkoutPage() {
               </Button>
             )}
             {session.status === 'completed' && (
-              <Badge variant="default" className="px-4 py-2">
-                <CheckCircle2 className="mr-2 h-4 w-4" />
-                Completed
-              </Badge>
+              <div className="flex items-center gap-3 w-full">
+                <Badge variant="default" className="px-4 py-2">
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  Completed
+                </Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                  onClick={() => setShowRedoDialog(true)}
+                >
+                  <UndoIcon className="mr-2 h-4 w-4" />
+                  Redo Workout
+                </Button>
+              </div>
             )}
           </div>
         </div>
@@ -567,6 +605,26 @@ export default function WorkoutPage() {
         session={session}
         useMetric={settings.useMetric}
       />
+
+      {/* Redo Workout Confirmation Dialog */}
+      <Dialog open={showRedoDialog} onOpenChange={setShowRedoDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Redo This Workout?</DialogTitle>
+            <DialogDescription>
+              This will clear all your recorded sets, weights, and reps for today's workout so you can start over.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRedoDialog(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleRedoWorkout}>
+              Redo Workout
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
