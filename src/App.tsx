@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useTheme } from '@/hooks/useTheme';
-import { loadData } from '@/services/storage';
+import { useAppData } from '@/hooks/useLocalStorage';
 import AppLayout from '@/components/layout/AppLayout';
 import DashboardPage from '@/pages/DashboardPage';
 import WorkoutPage from '@/pages/WorkoutPage';
@@ -14,7 +14,7 @@ import OnboardingPage from '@/pages/OnboardingPage';
 
 function App() {
   const { theme } = useTheme();
-  const data = loadData();
+  const [data] = useAppData();
   const isOnboardingComplete = data.settings.onboardingComplete;
 
   useEffect(() => {
