@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { useTheme } from '@/hooks/useTheme';
 import { Card } from '@/components/ui/card';
@@ -17,7 +16,6 @@ import { DumbbellIcon, CheckCircleIcon, InfoIcon } from 'lucide-react';
 export default function OnboardingPage() {
   const [, update] = useAppData();
   const { theme, setTheme } = useTheme();
-  const navigate = useNavigate();
   const [step, setStep] = useState(1);
 
   // Form state
@@ -62,8 +60,9 @@ export default function OnboardingPage() {
     // Apply theme
     setTheme(selectedTheme);
 
-    // Navigate to dashboard
-    navigate('/dashboard');
+    // Full reload so App re-reads onboardingComplete from localStorage
+    window.location.replace('#/dashboard');
+    window.location.reload();
   };
 
   const canProceedStep2 = startDate && currentWeight && parseFloat(currentWeight) > 0;
