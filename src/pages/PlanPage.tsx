@@ -31,10 +31,10 @@ export default function PlanPage() {
   };
 
   return (
-    <div className="container mx-auto py-8 px-4 space-y-8">
+    <div className="space-y-6 pb-4">
       {/* Header */}
       <div>
-        <h1 className="text-4xl font-bold tracking-tight">90-Day Program</h1>
+        <h1 className="text-2xl sm:text-4xl font-bold tracking-tight">90-Day Program</h1>
         <p className="text-muted-foreground mt-2">
           Your complete 12-week transformation journey
         </p>
@@ -63,7 +63,7 @@ export default function PlanPage() {
                 </div>
                 <CardDescription>Weeks {startWeek}-{endWeek}</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-2">
+              <CardContent className="space-y-2 px-4 pb-4">
                 <p className="text-sm text-muted-foreground">{phase.description}</p>
                 <div className="pt-2">
                   <div className="flex items-center gap-2 text-sm">
@@ -83,11 +83,11 @@ export default function PlanPage() {
 
       {/* 12-Week Grid */}
       <div>
-        <h2 className="text-2xl font-semibold mb-4 flex items-center gap-2">
+        <h2 className="text-xl sm:text-2xl font-semibold mb-4 flex items-center gap-2">
           <Calendar className="h-6 w-6" />
           12-Week Overview
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {Array.from({ length: 12 }, (_, i) => i + 1).map((week) => {
             const phase = getPhaseForWeek(week);
             const phaseInfo = PHASES.find(p => p.phase === phase);
@@ -140,8 +140,8 @@ export default function PlanPage() {
 
       {/* Weekly Split View */}
       <div>
-        <h2 className="text-2xl font-semibold mb-4">Weekly Training Split</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <h2 className="text-xl sm:text-2xl font-semibold mb-4">Weekly Training Split</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {weeklyPlan.map((day) => (
             <Card key={day.dayOfWeek} className={day.isRestDay ? 'bg-muted/50' : ''}>
               <CardHeader className="pb-3">
@@ -168,7 +168,7 @@ export default function PlanPage() {
 
       {/* Progression Logic */}
       <div>
-        <h2 className="text-2xl font-semibold mb-4">Program Progression</h2>
+        <h2 className="text-xl sm:text-2xl font-semibold mb-4">Program Progression</h2>
         <Accordion className="w-full">
           <AccordionItem value="foundation">
             <AccordionTrigger className="text-lg">

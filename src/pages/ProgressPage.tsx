@@ -112,10 +112,10 @@ export default function ProgressPage() {
   });
 
   return (
-    <div className="container mx-auto py-8 px-4 space-y-8">
+    <div className="space-y-6 pb-4">
       {/* Header */}
       <div>
-        <h1 className="text-4xl font-bold tracking-tight">Progress Tracking</h1>
+        <h1 className="text-2xl sm:text-4xl font-bold tracking-tight">Progress Tracking</h1>
         <p className="text-muted-foreground mt-2">
           Track your journey and celebrate your wins
         </p>
@@ -182,7 +182,7 @@ export default function ProgressPage() {
           </CardHeader>
           <CardContent>
             {workoutsPerWeekData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
+              <ResponsiveContainer width="100%" height={220} className="sm:h-[300px]">
                 <BarChart data={workoutsPerWeekData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="week" className="text-xs" />
@@ -198,7 +198,7 @@ export default function ProgressPage() {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+              <div className="h-[220px] sm:h-[300px] flex items-center justify-center text-muted-foreground">
                 No workout data yet
               </div>
             )}
@@ -213,7 +213,7 @@ export default function ProgressPage() {
           </CardHeader>
           <CardContent>
             {weeklyVolumeData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
+              <ResponsiveContainer width="100%" height={220} className="sm:h-[300px]">
                 <LineChart data={weeklyVolumeData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="week" className="text-xs" />
@@ -229,7 +229,7 @@ export default function ProgressPage() {
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+              <div className="h-[220px] sm:h-[300px] flex items-center justify-center text-muted-foreground">
                 No volume data yet
               </div>
             )}
@@ -250,7 +250,7 @@ export default function ProgressPage() {
           </CardHeader>
           <CardContent>
             {bodyweightData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
+              <ResponsiveContainer width="100%" height={220} className="sm:h-[300px]">
                 <LineChart data={bodyweightData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="date" className="text-xs" />
@@ -266,7 +266,7 @@ export default function ProgressPage() {
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+              <div className="h-[220px] sm:h-[300px] flex items-center justify-center text-muted-foreground">
                 No weight data yet
               </div>
             )}
@@ -284,7 +284,7 @@ export default function ProgressPage() {
           </CardHeader>
           <CardContent>
             {waistData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
+              <ResponsiveContainer width="100%" height={220} className="sm:h-[300px]">
                 <LineChart data={waistData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="date" className="text-xs" />
@@ -300,7 +300,7 @@ export default function ProgressPage() {
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+              <div className="h-[220px] sm:h-[300px] flex items-center justify-center text-muted-foreground">
                 No waist data yet
               </div>
             )}
@@ -364,7 +364,7 @@ export default function ProgressPage() {
             </div>
           </div>
 
-          <Button onClick={handleSaveMetric} className="mt-4 w-full md:w-auto">
+          <Button onClick={handleSaveMetric} className="mt-4 w-full md:w-auto h-11 md:h-10">
             <Plus className="h-4 w-4 mr-2" />
             Save Metrics
           </Button>

@@ -189,7 +189,7 @@ export default function HistoryPage() {
 
       {/* Day Detail Sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent side="right" className="overflow-y-auto">
+        <SheetContent side="right" className="overflow-y-auto w-full sm:w-[400px]">
           {selectedSession ? (
             <>
               <SheetHeader>
@@ -335,22 +335,24 @@ function EditableSet({
         <div className="flex items-center gap-1 flex-1">
           <Input
             type="number"
+            inputMode="numeric"
             value={weight}
             onChange={(e) => setWeight(e.target.value)}
-            className="h-7 text-xs"
+            className="h-9 text-sm"
             placeholder="Weight"
           />
           <span className="text-xs">x</span>
           <Input
             type="number"
+            inputMode="numeric"
             value={reps}
             onChange={(e) => setReps(e.target.value)}
-            className="h-7 text-xs"
+            className="h-9 text-sm"
             placeholder="Reps"
           />
         </div>
-        <Button size="xs" onClick={handleSave}>Save</Button>
-        <Button size="xs" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+        <Button size="sm" onClick={handleSave}>Save</Button>
+        <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
       </div>
     );
   }

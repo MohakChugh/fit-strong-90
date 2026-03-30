@@ -85,11 +85,11 @@ export default function DashboardPage() {
     MOTIVATIONAL_LINES[Math.floor(Math.random() * MOTIVATIONAL_LINES.length)];
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-7xl">
-      <div className="space-y-6">
+    <div className="space-y-4 pb-4">
+      <div className="space-y-4">
         {/* Header */}
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground">{motivationalLine}</p>
         </div>
 
@@ -174,7 +174,7 @@ export default function DashboardPage() {
                   </div>
                 ) : (
                   <Link to="/workout">
-                    <Button size="lg" className="w-full" variant="default">
+                    <Button size="lg" className="w-full h-12" variant="default">
                       <PlayCircle className="mr-2 h-5 w-5" />
                       {todaySession?.status === 'in_progress' ? 'Continue Workout' : 'Start Workout'}
                     </Button>
@@ -186,11 +186,11 @@ export default function DashboardPage() {
         </Card>
 
         {/* Weekly Stats Row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-2 px-4 pt-3">
               <CardDescription className="text-xs">Workouts This Week</CardDescription>
-              <CardTitle className="text-3xl">{weeklyStats.workouts}/6</CardTitle>
+              <CardTitle className="text-2xl">{weeklyStats.workouts}/6</CardTitle>
             </CardHeader>
             <CardContent>
               <Progress value={(weeklyStats.workouts / 6) * 100} className="h-1" />
@@ -198,9 +198,9 @@ export default function DashboardPage() {
           </Card>
 
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-2 px-4 pt-3">
               <CardDescription className="text-xs">Weekly Volume</CardDescription>
-              <CardTitle className="text-3xl">
+              <CardTitle className="text-2xl">
                 {Math.round(weeklyStats.totalVolume / 1000)}
                 <span className="text-base text-muted-foreground ml-1">k</span>
               </CardTitle>
@@ -213,9 +213,9 @@ export default function DashboardPage() {
           </Card>
 
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-2 px-4 pt-3">
               <CardDescription className="text-xs">Total Sets</CardDescription>
-              <CardTitle className="text-3xl">{weeklyStats.totalSets}</CardTitle>
+              <CardTitle className="text-2xl">{weeklyStats.totalSets}</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-xs text-muted-foreground">{weeklyStats.totalReps} reps completed</p>
@@ -223,9 +223,9 @@ export default function DashboardPage() {
           </Card>
 
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-2 px-4 pt-3">
               <CardDescription className="text-xs">Current Streak</CardDescription>
-              <CardTitle className="text-3xl flex items-center">
+              <CardTitle className="text-2xl flex items-center">
                 {streak}
                 <Flame className="ml-2 h-6 w-6 text-orange-500" />
               </CardTitle>

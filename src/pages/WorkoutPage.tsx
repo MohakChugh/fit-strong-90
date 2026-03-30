@@ -278,12 +278,12 @@ export default function WorkoutPage() {
   const progress = totalSets > 0 ? (completedSets / totalSets) * 100 : 0;
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-5xl pb-24">
-      <div className="space-y-6">
+    <div className="space-y-4 pb-4">
+      <div className="space-y-4">
         {/* Header */}
         <div className="space-y-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">{todayPlan.label}</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{todayPlan.label}</h1>
             <p className="text-muted-foreground">
               {formatDate(today)} • Week {currentWeek} • {phaseInfo?.name} Phase
             </p>
@@ -303,13 +303,13 @@ export default function WorkoutPage() {
           {/* Control Buttons */}
           <div className="flex flex-wrap gap-3">
             {session.status === 'not_started' && (
-              <Button onClick={handleStartWorkout} size="lg">
+              <Button onClick={handleStartWorkout} size="lg" className="w-full h-12">
                 <PlayCircle className="mr-2 h-5 w-5" />
                 Start Workout
               </Button>
             )}
             {session.status === 'in_progress' && (
-              <Button onClick={handleCompleteWorkout} size="lg" variant="default">
+              <Button onClick={handleCompleteWorkout} size="lg" variant="default" className="w-full h-12">
                 <CheckCircle2 className="mr-2 h-5 w-5" />
                 Complete Workout
               </Button>
@@ -343,7 +343,7 @@ export default function WorkoutPage() {
               <AccordionItem
                 key={exercise.id}
                 value={exercise.id}
-                className="border rounded-lg px-4 bg-card"
+                className="border rounded-lg px-4 bg-card scroll-mt-20"
               >
                 <AccordionTrigger className="hover:no-underline">
                   <div className="flex items-center gap-3 text-left">
@@ -388,65 +388,70 @@ export default function WorkoutPage() {
                   </a>
 
                   {/* Sets Table */}
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 text-xs font-medium text-muted-foreground pb-2 border-b">
-                      <div className="w-8"></div>
-                      <div>Set</div>
-                      <div>Reps</div>
-                      <div>Weight</div>
-                      <div className="w-16">Done</div>
-                    </div>
-
+                  <div className="space-y-3">
                     {exerciseSets.map((set) => (
                       <div
                         key={set.id}
-                        className="grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 items-center"
+                        className="flex flex-col sm:grid sm:grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 p-3 rounded-lg border bg-muted/30"
                       >
-                        <div className="w-8 text-sm font-medium text-muted-foreground">
-                          {set.setNumber}
+                        <div className="flex items-center justify-between sm:contents">
+                          <div className="text-sm font-semibold text-muted-foreground">
+                            Set {set.setNumber}
+                          </div>
+                          <div className="text-xs text-muted-foreground sm:hidden">
+                            Target: {set.plannedReps} reps
+                          </div>
+                          <div className="hidden sm:block text-sm text-muted-foreground">
+                            Target: {set.plannedReps}
+                          </div>
                         </div>
-                        <div className="text-sm text-muted-foreground">
-                          Target: {set.plannedReps}
+                        <div className="grid grid-cols-2 gap-2 sm:contents">
+                          <div className="space-y-1">
+                            <Label className="text-xs sm:hidden">Reps</Label>
+                            <Input
+                              type="number"
+                              inputMode="numeric"
+                              placeholder={set.plannedReps.toString()}
+                              value={set.actualReps || ''}
+                              onChange={(e) =>
+                                handleSetUpdate(
+                                  set.id,
+                                  'actualReps',
+                                  e.target.value ? parseInt(e.target.value) : null
+                                )
+                              }
+                              className="h-11 sm:h-9 text-base sm:text-sm"
+                              disabled={session.status === 'completed'}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs sm:hidden">Weight</Label>
+                            <Input
+                              type="number"
+                              inputMode="numeric"
+                              placeholder="0"
+                              value={set.weight || ''}
+                              onChange={(e) =>
+                                handleSetUpdate(
+                                  set.id,
+                                  'weight',
+                                  e.target.value ? parseFloat(e.target.value) : null
+                                )
+                              }
+                              className="h-11 sm:h-9 text-base sm:text-sm"
+                              disabled={session.status === 'completed'}
+                            />
+                          </div>
                         </div>
-                        <div>
-                          <Input
-                            type="number"
-                            placeholder={set.plannedReps.toString()}
-                            value={set.actualReps || ''}
-                            onChange={(e) =>
-                              handleSetUpdate(
-                                set.id,
-                                'actualReps',
-                                e.target.value ? parseInt(e.target.value) : null
-                              )
-                            }
-                            className="h-9 text-sm"
-                            disabled={session.status === 'completed'}
-                          />
-                        </div>
-                        <div>
-                          <Input
-                            type="number"
-                            placeholder="0"
-                            value={set.weight || ''}
-                            onChange={(e) =>
-                              handleSetUpdate(
-                                set.id,
-                                'weight',
-                                e.target.value ? parseFloat(e.target.value) : null
-                              )
-                            }
-                            className="h-9 text-sm"
-                            disabled={session.status === 'completed'}
-                          />
-                        </div>
-                        <div className="w-16 flex justify-center">
+                        <div className="flex items-center justify-between sm:justify-center">
+                          <Label className="text-xs sm:hidden">Completed</Label>
                           <Checkbox
                             checked={set.status === 'completed'}
                             onCheckedChange={(checked) =>
                               handleSetComplete(set.id, checked as boolean)
                             }
                             disabled={session.status === 'completed'}
+                            className="h-6 w-6 sm:h-4 sm:w-4"
                           />
                         </div>
                       </div>
@@ -525,7 +530,7 @@ export default function WorkoutPage() {
 
       {/* Rest Timer (Fixed at Bottom) */}
       {showTimer && timer.isRunning && (
-        <div className="fixed bottom-4 right-4 z-50">
+        <div className="fixed bottom-20 lg:bottom-4 left-0 right-0 lg:left-auto lg:right-4 lg:w-auto z-50 px-4 lg:px-0">
           <Card className="shadow-lg border-2">
             <CardContent className="p-4 flex items-center gap-3">
               <div className="rounded-full bg-primary/10 p-2">
@@ -569,10 +574,10 @@ export default function WorkoutPage() {
 // Rest Day View Component
 function RestDayView({ plan: _plan }: { plan: any }) {
   return (
-    <div className="container mx-auto px-4 py-6 max-w-3xl">
+    <div className="space-y-6 pb-4">
       <div className="space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Rest & Recovery</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Rest & Recovery</h1>
           <p className="text-muted-foreground">{formatDate(new Date())}</p>
         </div>
 

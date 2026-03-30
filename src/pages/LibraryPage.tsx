@@ -71,11 +71,11 @@ export default function LibraryPage() {
   };
 
   return (
-    <div className="container mx-auto py-8 px-4 space-y-8">
+    <div className="space-y-6 pb-4">
       {/* Header */}
       <div>
-        <h1 className="text-4xl font-bold tracking-tight flex items-center gap-3">
-          <Dumbbell className="h-10 w-10" />
+        <h1 className="text-2xl sm:text-4xl font-bold tracking-tight flex items-center gap-3">
+          <Dumbbell className="h-8 w-8 sm:h-10 sm:w-10" />
           Exercise Library
         </h1>
         <p className="text-muted-foreground mt-2">
@@ -90,7 +90,7 @@ export default function LibraryPage() {
           placeholder="Search exercises by name, muscle, or equipment..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-10"
+          className="pl-10 h-11"
         />
       </div>
 
@@ -98,9 +98,9 @@ export default function LibraryPage() {
       <div>
         <label className="text-sm font-medium mb-2 block">Category</label>
         <Tabs value={selectedCategory} onValueChange={(v) => setSelectedCategory(v as MuscleGroup | 'all')}>
-          <TabsList className="grid w-full grid-cols-3 md:grid-cols-9 gap-1 h-auto">
+          <TabsList className="flex w-full overflow-x-auto gap-1 h-auto p-1">
             {CATEGORIES.map(cat => (
-              <TabsTrigger key={cat.value} value={cat.value} className="capitalize">
+              <TabsTrigger key={cat.value} value={cat.value} className="capitalize whitespace-nowrap">
                 {cat.label}
               </TabsTrigger>
             ))}

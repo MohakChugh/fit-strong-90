@@ -120,7 +120,7 @@ export default function AppLayout() {
       <div className={cn('lg:transition-all lg:duration-300', sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-60')}>
         {/* Sticky Header */}
         <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-          <div className="flex h-14 items-center justify-between px-4 sm:px-6 lg:px-8">
+          <div className="flex h-12 sm:h-14 items-center justify-between px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -157,21 +157,21 @@ export default function AppLayout() {
       </div>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-50 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-        <div className="flex items-center justify-around h-16 px-2">
+      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-50 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 pb-safe">
+        <div className="flex items-center justify-around h-18 px-2">
           {mobileNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
                 cn(
-                  'flex flex-col items-center justify-center gap-1 flex-1 h-full rounded-lg transition-colors',
-                  'hover:bg-accent/50',
+                  'flex flex-col items-center justify-center gap-1 flex-1 h-full rounded-lg transition-all',
+                  'hover:bg-accent/50 active:scale-95',
                   isActive ? 'text-primary' : 'text-muted-foreground'
                 )
               }
             >
-              <item.icon className="h-5 w-5" />
+              <item.icon className="h-6 w-6" />
               <span className="text-[10px] font-medium">{item.label}</span>
             </NavLink>
           ))}
@@ -180,11 +180,11 @@ export default function AppLayout() {
           <Sheet open={moreMenuOpen} onOpenChange={setMoreMenuOpen}>
             <SheetTrigger
               className={cn(
-                'flex flex-col items-center justify-center gap-1 flex-1 h-full rounded-lg transition-colors',
-                'hover:bg-accent/50 text-muted-foreground'
+                'flex flex-col items-center justify-center gap-1 flex-1 h-full rounded-lg transition-all',
+                'hover:bg-accent/50 active:scale-95 text-muted-foreground'
               )}
             >
-              <MoreHorizontal className="h-5 w-5" />
+              <MoreHorizontal className="h-6 w-6" />
               <span className="text-[10px] font-medium">More</span>
             </SheetTrigger>
             <SheetContent side="bottom" className="h-auto">

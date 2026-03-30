@@ -97,7 +97,7 @@ export default function OnboardingPage() {
 
         {/* Step 1: Welcome */}
         {step === 1 && (
-          <Card className="p-6">
+          <Card className="p-4 sm:p-6">
             <div className="flex flex-col items-center text-center gap-6">
               <div className="size-16 rounded-full bg-primary/10 flex items-center justify-center">
                 <DumbbellIcon className="size-8 text-primary" />
@@ -117,7 +117,7 @@ export default function OnboardingPage() {
                 </AlertDescription>
               </Alert>
 
-              <Button size="lg" className="w-full" onClick={handleNext}>
+              <Button size="lg" className="w-full h-12" onClick={handleNext}>
                 Get Started
               </Button>
             </div>
@@ -126,7 +126,7 @@ export default function OnboardingPage() {
 
         {/* Step 2: Basic Info */}
         {step === 2 && (
-          <Card className="p-6">
+          <Card className="p-4 sm:p-6">
             <div className="flex flex-col gap-6">
               <div>
                 <h2 className="text-2xl font-bold mb-2">Basic Information</h2>
@@ -143,6 +143,7 @@ export default function OnboardingPage() {
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
+                    className="h-11"
                   />
                   <span className="text-xs text-muted-foreground">
                     Choose today or a future date to begin
@@ -155,10 +156,12 @@ export default function OnboardingPage() {
                     <Input
                       id="weight"
                       type="number"
+                      inputMode="numeric"
                       step="0.1"
                       placeholder="70"
                       value={currentWeight}
                       onChange={(e) => setCurrentWeight(e.target.value)}
+                      className="h-11"
                     />
                   </div>
                   <div className="flex flex-col gap-2 w-24 mt-6">
@@ -182,6 +185,7 @@ export default function OnboardingPage() {
                     placeholder="e.g., Lose 5kg fat, build strength"
                     value={targetGoal}
                     onChange={(e) => setTargetGoal(e.target.value)}
+                    className="h-11"
                   />
                   <span className="text-xs text-muted-foreground">
                     What do you want to achieve? (optional)
@@ -207,7 +211,7 @@ export default function OnboardingPage() {
 
         {/* Step 3: Preferences */}
         {step === 3 && (
-          <Card className="p-6">
+          <Card className="p-4 sm:p-6">
             <div className="flex flex-col gap-6">
               <div>
                 <h2 className="text-2xl font-bold mb-2">Preferences</h2>
@@ -279,7 +283,7 @@ export default function OnboardingPage() {
 
         {/* Step 4: Ready */}
         {step === 4 && (
-          <Card className="p-6">
+          <Card className="p-4 sm:p-6">
             <div className="flex flex-col items-center text-center gap-6">
               <div className="size-16 rounded-full bg-primary/10 flex items-center justify-center">
                 <CheckCircleIcon className="size-8 text-primary" />
@@ -332,7 +336,7 @@ export default function OnboardingPage() {
               </div>
 
               <div className="w-full flex flex-col gap-2">
-                <Button size="lg" className="w-full" onClick={handleComplete}>
+                <Button size="lg" className="w-full h-12" onClick={handleComplete}>
                   Begin Your Journey
                 </Button>
                 <Button variant="ghost" size="sm" onClick={handleBack}>
