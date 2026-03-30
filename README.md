@@ -1,73 +1,49 @@
-# React + TypeScript + Vite
+# FitStrong 90
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A 90-day fitness transformation tracker built as a polished, frontend-only web app. Track workouts, monitor progress, and follow a structured 3-phase program from Foundation through Strength.
 
-Currently, two official plugins are available:
+## Live App
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+**[https://MohakChugh.github.io/fit-strong-90/](https://MohakChugh.github.io/fit-strong-90/)**
 
-## React Compiler
+## Features
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- 90-day structured program with 3 phases: Foundation, Hypertrophy, Strength
+- 6-day training split (Back, Chest, Legs, Shoulders, Arms, Core+Cardio)
+- Per-set tracking with weight, reps, and RPE
+- Rest timer
+- Exercise library with instructions and YouTube demos
+- Progress charts (volume, bodyweight, waist, PRs)
+- Workout history calendar
+- Data export/import (JSON)
+- Light and dark mode
+- Fully offline - all data stored in browser localStorage
+- Mobile-responsive design
 
-## Expanding the ESLint configuration
+## Tech Stack
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- React 19 + TypeScript
+- Vite
+- Tailwind CSS v4
+- shadcn/ui
+- Recharts
+- React Router (hash routing)
+- localStorage for persistence
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Development
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Build
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
+npm run preview
 ```
+
+## Deployment
+
+Deployed automatically to GitHub Pages via GitHub Actions on push to `main`.
