@@ -119,7 +119,7 @@ export default function AppLayout() {
       {/* Main Content Area */}
       <div className={cn('lg:transition-all lg:duration-300', sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-60')}>
         {/* Sticky Header */}
-        <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 pt-safe">
           <div className="flex h-12 sm:h-14 items-center justify-between px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
               <div>
