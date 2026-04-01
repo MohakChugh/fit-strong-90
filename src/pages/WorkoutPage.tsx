@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { useTimer } from '@/hooks/useTimer';
 import {
-  getCurrentDayOfWeek,
+  getDayOfWeekFromDate,
   getWeekNumber,
   getPhaseForWeek,
   generateId,
@@ -60,22 +61,27 @@ import { toast } from 'sonner';
 export default function WorkoutPage() {
   const [data, updateData] = useAppData();
   const { settings, sessions, personalRecords } = data;
+  const [searchParams] = useSearchParams();
 
-  // Current workout info
-  const today = new Date().toISOString().split('T')[0];
-  const todayDayOfWeek = getCurrentDayOfWeek();
-  const todayPlan = getDayPlan(todayDayOfWeek);
-  const currentWeek = getWeekNumber(settings.startDate, today);
-  const currentPhase = getPhaseForWeek(currentWeek);
-  const phaseInfo = getPhaseInfo(currentWeek);
+  // Support ?date=YYYY-MM-DD for logging past workouts
+  const actualToday = new Date().toISOString().split('T')[0];
+  const workoutDate = searchParams.get('date') || actualToday;
+  const isPastWorkout = workoutDate !== actualToday;
 
-  // Check if today is a rest day
-  if (todayPlan.isRestDay) {
-    return <RestDayView plan={todayPlan} />;
+  // Workout info for the target date
+  const dayOfWeek = getDayOfWeekFromDate(workoutDate);
+  const dayPlan = getDayPlan(dayOfWeek);
+  const weekNumber = getWeekNumber(settings.startDate, workoutDate);
+  const phase = getPhaseForWeek(weekNumber);
+  const phaseInfo = getPhaseInfo(weekNumber);
+
+  // Check if target date is a rest day
+  if (dayPlan.isRestDay) {
+    return <RestDayView plan={dayPlan} />;
   }
 
-  // Get active exercises for today
-  const activeExercises = getActiveExercisesForPhase(todayPlan, currentPhase);
+  // Get active exercises for the target date
+  const activeExercises = getActiveExercisesForPhase(dayPlan, phase);
 
   // State for current session
   const [session, setSession] = useState<WorkoutSession | null>(null);
@@ -90,7 +96,7 @@ export default function WorkoutPage() {
 
   // Initialize or restore session
   useEffect(() => {
-    const existingSession = sessions.find((s) => s.date === today);
+    const existingSession = sessions.find((s) => s.date === workoutDate);
 
     if (existingSession) {
       setSession(existingSession);
@@ -99,11 +105,11 @@ export default function WorkoutPage() {
       // Create new session
       const newSession: WorkoutSession = {
         id: generateId(),
-        date: today,
-        dayOfWeek: todayDayOfWeek,
-        muscleGroup: todayPlan.muscleGroup,
-        phase: currentPhase,
-        week: currentWeek,
+        date: workoutDate,
+        dayOfWeek: dayOfWeek,
+        muscleGroup: dayPlan.muscleGroup,
+        phase: phase,
+        week: weekNumber,
         status: 'not_started',
         sets: [],
         startedAt: null,
@@ -114,7 +120,7 @@ export default function WorkoutPage() {
 
       // Generate sets for each exercise
       activeExercises.forEach((exercise) => {
-        const { sets, reps } = getExerciseSetsAndReps(exercise, currentPhase);
+        const { sets, reps } = getExerciseSetsAndReps(exercise, phase);
         for (let i = 1; i <= sets; i++) {
           newSession.sets.push({
             id: generateId(),
@@ -131,7 +137,7 @@ export default function WorkoutPage() {
 
       setSession(newSession);
     }
-  }, [today, todayDayOfWeek, todayPlan, currentPhase, currentWeek, activeExercises, sessions]);
+  }, [workoutDate, dayOfWeek, dayPlan, phase, weekNumber, activeExercises, sessions]);
 
   // Save session to storage
   const saveSession = (updatedSession: WorkoutSession) => {
@@ -230,7 +236,7 @@ export default function WorkoutPage() {
                 exerciseId: set.exerciseId,
                 weight: set.weight!,
                 reps: set.actualReps!,
-                date: today,
+                date: workoutDate,
                 volume,
               };
 
@@ -309,10 +315,18 @@ export default function WorkoutPage() {
       <div className="space-y-4">
         {/* Header */}
         <div className="space-y-4">
+          {isPastWorkout && (
+            <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-sm">
+              <Clock className="h-4 w-4 text-amber-500 flex-shrink-0" />
+              <span className="text-amber-700 dark:text-amber-400">
+                Logging workout for <strong>{formatDate(workoutDate)}</strong>
+              </span>
+            </div>
+          )}
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{todayPlan.label}</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{dayPlan.label}</h1>
             <p className="text-muted-foreground">
-              {formatDate(today)} • Week {currentWeek} • {phaseInfo?.name} Phase
+              {formatDate(workoutDate)} • Week {weekNumber} • {phaseInfo?.name} Phase
             </p>
           </div>
 
@@ -612,7 +626,7 @@ export default function WorkoutPage() {
           <DialogHeader>
             <DialogTitle>Redo This Workout?</DialogTitle>
             <DialogDescription>
-              This will clear all your recorded sets, weights, and reps for today's workout so you can start over.
+              This will clear all your recorded sets, weights, and reps for this workout so you can start over.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

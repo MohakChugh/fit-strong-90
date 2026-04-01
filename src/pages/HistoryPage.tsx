@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { Calendar } from '@/components/ui/calendar';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
@@ -10,11 +11,14 @@ import { formatDateFull, formatWeight, formatDuration } from '@/lib/utils';
 import { getExerciseById } from '@/data/exercises';
 import type { WorkoutSession, WorkoutStatus, DayOfWeek } from '@/types';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { CalendarIcon, DumbbellIcon, ActivityIcon, ClockIcon, UndoIcon } from 'lucide-react';
+import { getDayOfWeekFromDate } from '@/lib/utils';
+import { getDayPlan } from '@/data/program';
+import { CalendarIcon, DumbbellIcon, ActivityIcon, ClockIcon, UndoIcon, PencilIcon, PlusCircleIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function HistoryPage() {
   const [data, update] = useAppData();
+  const navigate = useNavigate();
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [incompleteDialogOpen, setIncompleteDialogOpen] = useState(false);
@@ -267,7 +271,19 @@ export default function HistoryPage() {
                   </div>
                 )}
 
-                {/* Mark Incomplete */}
+                {/* Edit / Redo actions */}
+                {(selectedSession.status === 'not_started' || selectedSession.status === 'in_progress') && (
+                  <Button
+                    className="w-full justify-start"
+                    onClick={() => {
+                      setSheetOpen(false);
+                      navigate(`/workout?date=${selectedSession.date}`);
+                    }}
+                  >
+                    <PencilIcon className="size-4" />
+                    Continue Tracking
+                  </Button>
+                )}
                 {(selectedSession.status === 'completed' || selectedSession.status === 'partial') && (
                   <Button
                     variant="outline"
@@ -331,12 +347,43 @@ export default function HistoryPage() {
               </div>
             </>
           ) : (
-            <>
-              <SheetHeader>
-                <SheetTitle>{selectedDate ? formatDateFull(selectedDate) : 'No Date Selected'}</SheetTitle>
-                <SheetDescription>No workout recorded for this day</SheetDescription>
-              </SheetHeader>
-            </>
+            (() => {
+              const dateStr = selectedDate ? selectedDate.toISOString().split('T')[0] : null;
+              const dayOfWeek = dateStr ? getDayOfWeekFromDate(dateStr) : null;
+              const plan = dayOfWeek ? getDayPlan(dayOfWeek) : null;
+              const isRestDay = plan?.isRestDay ?? true;
+              const isFuture = dateStr ? dateStr > new Date().toISOString().split('T')[0] : false;
+
+              return (
+                <>
+                  <SheetHeader>
+                    <SheetTitle>{selectedDate ? formatDateFull(selectedDate) : 'No Date Selected'}</SheetTitle>
+                    <SheetDescription>
+                      {isRestDay
+                        ? 'Rest day — no workout scheduled'
+                        : 'No workout recorded for this day'}
+                    </SheetDescription>
+                  </SheetHeader>
+                  {dateStr && !isRestDay && !isFuture && (
+                    <div className="mt-4">
+                      <Button
+                        className="w-full"
+                        onClick={() => {
+                          setSheetOpen(false);
+                          navigate(`/workout?date=${dateStr}`);
+                        }}
+                      >
+                        <PlusCircleIcon className="size-4 mr-2" />
+                        Log Workout
+                      </Button>
+                      <p className="text-xs text-muted-foreground mt-2 text-center">
+                        Track what you did on {plan?.label}
+                      </p>
+                    </div>
+                  )}
+                </>
+              );
+            })()
           )}
         </SheetContent>
       </Sheet>

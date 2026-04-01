@@ -14,9 +14,16 @@ export function cn(...inputs: ClassValue[]) {
  * Get the current day of week
  */
 export function getCurrentDayOfWeek(): DayOfWeek {
+  return getDayOfWeekFromDate(new Date().toISOString().split('T')[0]);
+}
+
+/**
+ * Get the day of week from a date string (YYYY-MM-DD)
+ */
+export function getDayOfWeekFromDate(dateStr: string): DayOfWeek {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  const today = new Date();
-  return days[today.getDay()];
+  const date = new Date(dateStr + 'T00:00:00');
+  return days[date.getDay()];
 }
 
 /**
