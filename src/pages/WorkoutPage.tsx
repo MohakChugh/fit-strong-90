@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { useTimer } from '@/hooks/useTimer';
