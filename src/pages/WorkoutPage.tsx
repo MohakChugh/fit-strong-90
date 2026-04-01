@@ -455,7 +455,6 @@ export default function WorkoutPage() {
         {/* Exercise List */}
         <Accordion
           className="space-y-4"
-          type="multiple"
           value={activeExerciseId ? [activeExerciseId] : []}
           onValueChange={(value) => {
             const newValue = Array.isArray(value) && value.length > 0 ? value[value.length - 1] : null;
@@ -606,7 +605,7 @@ export default function WorkoutPage() {
                         step={1}
                         value={[exerciseRpe ?? 5]}
                         onValueChange={(values) => {
-                          const rpe = values[0];
+                          const rpe = Array.isArray(values) ? values[0] : values;
                           // Apply RPE to all sets of this exercise
                           if (!session) return;
                           const updatedSets = session.sets.map((s) =>
