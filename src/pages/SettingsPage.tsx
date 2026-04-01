@@ -22,6 +22,7 @@ import {
   UploadIcon,
   TrashIcon,
   AlertTriangleIcon,
+  FlameIcon,
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -135,7 +136,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 p-4 pb-20 md:p-6">
+    <div className="flex flex-col gap-6 pb-4">
       {/* Header */}
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-bold">Settings</h1>
@@ -196,6 +197,51 @@ export default function SettingsPage() {
               step={15}
               value={[data.settings.defaultRestSeconds]}
               onValueChange={handleRestTimerChange}
+            />
+          </div>
+        </div>
+      </Card>
+
+      {/* Warmup & Cooldown Settings */}
+      <Card className="p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <FlameIcon className="size-5 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Warmup & Cooldown</h2>
+        </div>
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="warmup-toggle">Enable Warmup Routine</Label>
+              <span className="text-sm text-muted-foreground">Stretching & light cardio before workout</span>
+            </div>
+            <Switch
+              id="warmup-toggle"
+              checked={data.settings.warmupEnabled ?? false}
+              onCheckedChange={(checked) => {
+                update(prev => ({
+                  ...prev,
+                  settings: { ...prev.settings, warmupEnabled: checked },
+                }));
+                toast.success(checked ? 'Warmup enabled' : 'Warmup disabled');
+              }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="cooldown-toggle">Enable Cooldown Routine</Label>
+              <span className="text-sm text-muted-foreground">Stretching after workout</span>
+            </div>
+            <Switch
+              id="cooldown-toggle"
+              checked={data.settings.cooldownEnabled ?? false}
+              onCheckedChange={(checked) => {
+                update(prev => ({
+                  ...prev,
+                  settings: { ...prev.settings, cooldownEnabled: checked },
+                }));
+                toast.success(checked ? 'Cooldown enabled' : 'Cooldown disabled');
+              }}
             />
           </div>
         </div>

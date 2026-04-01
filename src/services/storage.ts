@@ -7,7 +7,7 @@ import type {
 } from '@/types';
 
 const STORAGE_KEY = 'fit-strong-90-data';
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 
 // Default settings
 const DEFAULT_SETTINGS: UserSettings = {
@@ -27,6 +27,11 @@ const DEFAULT_SETTINGS: UserSettings = {
     saturday: 'core',
     sunday: 'rest',
   },
+  warmupEnabled: false,
+  cooldownEnabled: false,
+  defaultWarmupExercises: ['hip-opener-stretch', 'hamstring-stretch', 'treadmill-walk'],
+  defaultCooldownExercises: ['thoracic-opener', 'breathing-cooldown'],
+  supersetRestSeconds: 20,
 };
 
 const DEFAULT_DATA: AppData = {
@@ -222,10 +227,20 @@ export function resetData(): void {
  * Migrate data from older versions
  */
 function migrateData(data: AppData): AppData {
-  // For future migrations
-  // Currently no migrations needed as this is version 1
-  return {
-    ...data,
-    version: CURRENT_VERSION,
-  };
+  let migrated = { ...data };
+
+  // v1 → v2: Add warmup/cooldown/superset settings (all optional fields, no data loss)
+  if (migrated.version < 2) {
+    migrated.settings = {
+      ...migrated.settings,
+      warmupEnabled: migrated.settings.warmupEnabled ?? false,
+      cooldownEnabled: migrated.settings.cooldownEnabled ?? false,
+      defaultWarmupExercises: migrated.settings.defaultWarmupExercises ?? ['hip-opener-stretch', 'hamstring-stretch', 'treadmill-walk'],
+      defaultCooldownExercises: migrated.settings.defaultCooldownExercises ?? ['thoracic-opener', 'breathing-cooldown'],
+      supersetRestSeconds: migrated.settings.supersetRestSeconds ?? 20,
+    };
+  }
+
+  migrated.version = CURRENT_VERSION;
+  return migrated;
 }

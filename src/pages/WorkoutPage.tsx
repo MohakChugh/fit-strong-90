@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { useTimer } from '@/hooks/useTimer';
+import { useSupersetTimer } from '@/hooks/useSupersetTimer';
 import {
   getDayOfWeekFromDate,
   getWeekNumber,
@@ -11,6 +12,7 @@ import {
   formatDate,
   calculateVolume,
   detectPR,
+  cn,
 } from '@/lib/utils';
 import {
   getDayPlan,
@@ -21,7 +23,7 @@ import {
   getPhaseInfo,
 } from '@/data/program';
 import { getExerciseById } from '@/data/exercises';
-import type { WorkoutSession, SetStatus, MuscleGroup } from '@/types';
+import type { WorkoutSession, SetStatus, MuscleGroup, WarmupCooldownEntry, WorkoutPhase, SupersetGroup } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -58,6 +60,11 @@ import {
   Timer,
   UndoIcon,
   ArrowLeftRight,
+  Flame,
+  Snowflake,
+  Link2,
+  Link2Off,
+  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -92,6 +99,17 @@ export default function WorkoutPage() {
   const [showSwapDialog, setShowSwapDialog] = useState(false);
   const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
   const [workoutNotes, setWorkoutNotes] = useState('');
+
+  // Warmup/Cooldown state
+  const [workoutPhase, setWorkoutPhase] = useState<WorkoutPhase>('main');
+  const [warmupEntries, setWarmupEntries] = useState<WarmupCooldownEntry[]>([]);
+  const [cooldownEntries, setCooldownEntries] = useState<WarmupCooldownEntry[]>([]);
+
+  // Superset state
+  const [supersetGroups, setSupersetGroups] = useState<SupersetGroup[]>([]);
+  const [showSupersetDialog, setShowSupersetDialog] = useState(false);
+  const [supersetSelection, setSupersetSelection] = useState<string[]>([]);
+  const supersetTimer = useSupersetTimer();
 
   // Ref for stable access to activeExerciseId in handlers
   const activeExerciseIdRef = useRef(activeExerciseId);
@@ -165,6 +183,75 @@ export default function WorkoutPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planKey]);
 
+  // Initialize warmup/cooldown entries from session or defaults
+  useEffect(() => {
+    if (!session) return;
+    if (session.warmup && session.warmup.length > 0) {
+      setWarmupEntries(session.warmup);
+    } else {
+      const defaultIds = settings.defaultWarmupExercises ?? ['hip-opener-stretch', 'hamstring-stretch', 'treadmill-walk'];
+      setWarmupEntries(defaultIds.map(id => ({ exerciseId: id, completed: false })));
+    }
+    if (session.cooldown && session.cooldown.length > 0) {
+      setCooldownEntries(session.cooldown);
+    } else {
+      const defaultIds = settings.defaultCooldownExercises ?? ['thoracic-opener', 'breathing-cooldown'];
+      setCooldownEntries(defaultIds.map(id => ({ exerciseId: id, completed: false })));
+    }
+    // Initialize superset groups
+    if (session.supersetGroups && session.supersetGroups.length > 0) {
+      setSupersetGroups(session.supersetGroups);
+    } else {
+      setSupersetGroups([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id]);
+
+  // Helper: get superset group for an exercise
+  const getSupersetForExercise = (exerciseId: string): SupersetGroup | undefined => {
+    return supersetGroups.find(g => g.exerciseIds.includes(exerciseId));
+  };
+
+  // Create a superset from selected exercises
+  const handleCreateSuperset = () => {
+    if (supersetSelection.length < 2) {
+      toast.error('Select at least 2 exercises for a superset');
+      return;
+    }
+    const restSeconds = settings.supersetRestSeconds ?? 20;
+    const newGroup: SupersetGroup = {
+      id: generateId(),
+      exerciseIds: supersetSelection,
+      restBetweenSeconds: restSeconds,
+      restAfterRoundSeconds: restSeconds * 2,
+    };
+    const updatedGroups = [...supersetGroups, newGroup];
+    setSupersetGroups(updatedGroups);
+    if (session) {
+      const updatedSession = { ...session, supersetGroups: updatedGroups };
+      setSession(updatedSession);
+      saveSession(updatedSession);
+    }
+    setSupersetSelection([]);
+    setShowSupersetDialog(false);
+    toast.success('Superset created!');
+  };
+
+  // Remove a superset group
+  const handleRemoveSuperset = (groupId: string) => {
+    const updatedGroups = supersetGroups.filter(g => g.id !== groupId);
+    setSupersetGroups(updatedGroups);
+    if (session) {
+      const updatedSession = { ...session, supersetGroups: updatedGroups };
+      setSession(updatedSession);
+      saveSession(updatedSession);
+    }
+    if (supersetTimer.activeGroup?.id === groupId) {
+      supersetTimer.endSuperset();
+    }
+    toast.info('Superset removed');
+  };
+
   // Save session to storage
   const saveSession = (updatedSession: WorkoutSession) => {
     updateData((prev) => ({
@@ -175,17 +262,52 @@ export default function WorkoutPage() {
     }));
   };
 
-  // Start workout
+  // Start workout (may route through warmup first)
   const handleStartWorkout = () => {
     if (!session) return;
+    const now = new Date().toISOString();
     const updatedSession = {
       ...session,
       status: 'in_progress' as const,
-      startedAt: new Date().toISOString(),
+      startedAt: now,
     };
     setSession(updatedSession);
     saveSession(updatedSession);
-    toast.success("Workout started! Let's do this!");
+
+    if (settings.warmupEnabled) {
+      setWorkoutPhase('warmup');
+      toast.success('Warmup started! Get your body ready.');
+    } else {
+      setWorkoutPhase('main');
+      toast.success("Workout started! Let's do this!");
+    }
+  };
+
+  // Complete warmup → transition to main workout
+  const handleCompleteWarmup = () => {
+    if (!session) return;
+    const updatedSession = { ...session, warmup: warmupEntries };
+    setSession(updatedSession);
+    saveSession(updatedSession);
+    setWorkoutPhase('main');
+    toast.success("Warmup done! Let's lift!");
+  };
+
+  // Skip warmup
+  const handleSkipWarmup = () => {
+    setWorkoutPhase('main');
+    toast.info('Warmup skipped');
+  };
+
+  // Complete cooldown → finish workout
+  const handleCompleteCooldown = () => {
+    finishWorkout();
+  };
+
+  // Skip cooldown
+  const handleSkipCooldown = () => {
+    setWorkoutPhase('main');
+    finishWorkout();
   };
 
   // Complete set
@@ -202,11 +324,17 @@ export default function WorkoutPage() {
 
     // Start rest timer using the exerciseId directly (avoids stale closure)
     if (checked) {
-      const exercise = activeExercises.find((ex) => ex.exerciseId === exerciseId);
-      if (exercise) {
-        timer.reset(exercise.restSeconds);
-        timer.start();
-        setShowTimer(true);
+      const supersetGroup = getSupersetForExercise(exerciseId);
+      if (supersetGroup && supersetTimer.isActive) {
+        // Use superset timer — auto-advance to next exercise
+        supersetTimer.completeSet();
+      } else {
+        const exercise = activeExercises.find((ex) => ex.exerciseId === exerciseId);
+        if (exercise) {
+          timer.reset(exercise.restSeconds);
+          timer.start();
+          setShowTimer(true);
+        }
       }
     }
   };
@@ -238,8 +366,21 @@ export default function WorkoutPage() {
     toast.info('Exercise skipped');
   };
 
-  // Complete workout
+  // Complete workout (may route through cooldown first)
   const handleCompleteWorkout = () => {
+    if (!session) return;
+
+    if (settings.cooldownEnabled && workoutPhase === 'main') {
+      setWorkoutPhase('cooldown');
+      toast.info('Time for cooldown! Stretch it out.');
+      return;
+    }
+
+    finishWorkout();
+  };
+
+  // Finalize the workout (called after cooldown or directly)
+  const finishWorkout = () => {
     if (!session) return;
 
     const completedSets = session.sets.filter((s) => s.status === 'completed');
@@ -285,11 +426,14 @@ export default function WorkoutPage() {
       completedAt: new Date().toISOString(),
       notes: workoutNotes,
       totalVolume,
+      warmup: warmupEntries.some(e => e.completed) ? warmupEntries : session.warmup,
+      cooldown: cooldownEntries.some(e => e.completed) ? cooldownEntries : session.cooldown,
     };
 
     setSession(updatedSession);
     saveSession(updatedSession);
     setShowSummaryDialog(true);
+    setWorkoutPhase('main');
 
     if (newPRs.length > 0) {
       toast.success(`New PR${newPRs.length > 1 ? 's' : ''}! ${newPRs.join(', ')}`, {
@@ -450,7 +594,159 @@ export default function WorkoutPage() {
               </div>
             )}
           </div>
+
+          {/* Superset Controls */}
+          {session.status === 'in_progress' && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSupersetSelection([]);
+                  setShowSupersetDialog(true);
+                }}
+              >
+                <Link2 className="h-4 w-4 mr-1" />
+                Create Superset
+              </Button>
+              {supersetGroups.map((group) => {
+                const names = group.exerciseIds
+                  .map(id => getExerciseById(id)?.name?.split(' ')[0] ?? id)
+                  .join(' + ');
+                const isActive = supersetTimer.activeGroup?.id === group.id;
+                return (
+                  <div key={group.id} className="flex items-center gap-1">
+                    <Button
+                      variant={isActive ? 'default' : 'secondary'}
+                      size="sm"
+                      onClick={() => {
+                        if (isActive) {
+                          supersetTimer.endSuperset();
+                        } else {
+                          supersetTimer.startSuperset(group);
+                        }
+                      }}
+                    >
+                      <Zap className="h-3 w-3 mr-1" />
+                      {names}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => handleRemoveSuperset(group.id)}
+                    >
+                      <Link2Off className="h-3 w-3" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
+
+        {/* Warmup Section */}
+        {workoutPhase === 'warmup' && session.status === 'in_progress' && (
+          <Card className="border-2 border-orange-500/30 bg-orange-500/5">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Flame className="h-5 w-5 text-orange-500" />
+                Warmup
+              </CardTitle>
+              <CardDescription>Get your body ready before lifting</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {warmupEntries.map((entry, idx) => {
+                const exercise = getExerciseById(entry.exerciseId);
+                if (!exercise) return null;
+                const isTimed = exercise.category === 'cardio';
+                return (
+                  <div key={entry.exerciseId} className="flex items-center gap-3 p-3 rounded-lg border bg-card">
+                    <Checkbox
+                      checked={entry.completed}
+                      onCheckedChange={(checked) => {
+                        setWarmupEntries(prev => prev.map((e, i) =>
+                          i === idx ? { ...e, completed: checked as boolean } : e
+                        ));
+                      }}
+                      className="h-5 w-5"
+                    />
+                    <div className="flex-1">
+                      <span className="text-sm font-medium">{exercise.name}</span>
+                      {isTimed && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <Input
+                            type="number"
+                            inputMode="numeric"
+                            placeholder="5"
+                            value={entry.durationSeconds ? Math.round(entry.durationSeconds / 60) : ''}
+                            onChange={(e) => {
+                              const mins = parseInt(e.target.value) || 0;
+                              setWarmupEntries(prev => prev.map((en, i) =>
+                                i === idx ? { ...en, durationSeconds: mins * 60 } : en
+                              ));
+                            }}
+                            className="h-8 w-16 text-sm"
+                          />
+                          <span className="text-xs text-muted-foreground">min</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="flex gap-2 pt-2">
+                <Button onClick={handleCompleteWarmup} className="flex-1">
+                  Done, Start Workout
+                </Button>
+                <Button variant="outline" onClick={handleSkipWarmup}>
+                  Skip
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Cooldown Section */}
+        {workoutPhase === 'cooldown' && session.status === 'in_progress' && (
+          <Card className="border-2 border-blue-500/30 bg-blue-500/5">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Snowflake className="h-5 w-5 text-blue-500" />
+                Cooldown
+              </CardTitle>
+              <CardDescription>Wind down and stretch</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {cooldownEntries.map((entry, idx) => {
+                const exercise = getExerciseById(entry.exerciseId);
+                if (!exercise) return null;
+                return (
+                  <div key={entry.exerciseId} className="flex items-center gap-3 p-3 rounded-lg border bg-card">
+                    <Checkbox
+                      checked={entry.completed}
+                      onCheckedChange={(checked) => {
+                        setCooldownEntries(prev => prev.map((e, i) =>
+                          i === idx ? { ...e, completed: checked as boolean } : e
+                        ));
+                      }}
+                      className="h-5 w-5"
+                    />
+                    <span className="text-sm font-medium">{exercise.name}</span>
+                  </div>
+                );
+              })}
+              <div className="flex gap-2 pt-2">
+                <Button onClick={handleCompleteCooldown} className="flex-1">
+                  Finish Workout
+                </Button>
+                <Button variant="outline" onClick={handleSkipCooldown}>
+                  Skip
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Exercise List */}
         <Accordion
@@ -474,11 +770,18 @@ export default function WorkoutPage() {
             const exerciseRpe =
               exerciseSets.find((s) => s.rpe !== null)?.rpe ?? null;
 
+            const inSuperset = getSupersetForExercise(exercise.id);
+            const isSupersetActive = supersetTimer.isActive && supersetTimer.currentExerciseId === exercise.id;
+
             return (
               <AccordionItem
                 key={exercise.id}
                 value={exercise.id}
-                className="border rounded-lg px-4 bg-card scroll-mt-20"
+                className={cn(
+                  'border rounded-lg px-4 bg-card scroll-mt-20',
+                  inSuperset && 'border-l-4 border-l-violet-500',
+                  isSupersetActive && 'ring-2 ring-violet-500/50'
+                )}
               >
                 <AccordionTrigger className="hover:no-underline">
                   <div className="flex items-center gap-3 text-left">
@@ -705,6 +1008,89 @@ export default function WorkoutPage() {
           </Card>
         </div>
       )}
+
+      {/* Superset Timer */}
+      {supersetTimer.isActive && supersetTimer.isResting && (
+        <div className="fixed bottom-20 lg:bottom-4 left-0 right-0 lg:left-auto lg:right-4 lg:w-auto z-50 px-4 lg:px-0">
+          <Card className="shadow-lg border-2 border-violet-500/50">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="rounded-full bg-violet-500/10 p-2">
+                <Zap className="h-5 w-5 text-violet-500" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Superset Rest</p>
+                <p className="text-2xl font-bold font-mono">{supersetTimer.formatted}</p>
+                {supersetTimer.nextExerciseId && (
+                  <p className="text-xs text-violet-600 dark:text-violet-400">
+                    Next: {getExerciseById(supersetTimer.nextExerciseId)?.name}
+                  </p>
+                )}
+              </div>
+              <Button size="sm" variant="outline" onClick={supersetTimer.skipRest}>
+                <SkipForward className="h-4 w-4 mr-1" />
+                Skip
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Superset Creation Dialog */}
+      <Dialog open={showSupersetDialog} onOpenChange={setShowSupersetDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="h-5 w-5" />
+              Create Superset
+            </DialogTitle>
+            <DialogDescription>
+              Select 2-3 exercises to perform back-to-back with short rest between them.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 py-2 max-h-[60vh] overflow-y-auto">
+            {activeExercises.map((workoutExercise) => {
+              const exercise = getExerciseById(workoutExercise.exerciseId);
+              if (!exercise) return null;
+              const alreadyInSuperset = getSupersetForExercise(exercise.id);
+              const isSelected = supersetSelection.includes(exercise.id);
+              return (
+                <Button
+                  key={exercise.id}
+                  variant={isSelected ? 'default' : 'outline'}
+                  className="w-full justify-start h-12 text-left"
+                  disabled={!!alreadyInSuperset}
+                  onClick={() => {
+                    if (isSelected) {
+                      setSupersetSelection(prev => prev.filter(id => id !== exercise.id));
+                    } else if (supersetSelection.length < 3) {
+                      setSupersetSelection(prev => [...prev, exercise.id]);
+                    }
+                  }}
+                >
+                  <Dumbbell className="h-4 w-4 mr-2 flex-shrink-0" />
+                  <span className="truncate">{exercise.name}</span>
+                  {alreadyInSuperset && (
+                    <Badge variant="outline" className="ml-auto text-xs">In superset</Badge>
+                  )}
+                  {isSelected && (
+                    <Badge variant="secondary" className="ml-auto text-xs">
+                      #{supersetSelection.indexOf(exercise.id) + 1}
+                    </Badge>
+                  )}
+                </Button>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSupersetDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateSuperset} disabled={supersetSelection.length < 2}>
+              Create ({supersetSelection.length} selected)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Summary Dialog */}
       <WorkoutSummaryDialog

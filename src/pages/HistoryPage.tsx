@@ -145,6 +145,21 @@ export default function HistoryPage() {
     toast.success('Workout marked as incomplete — you can redo it');
   };
 
+  const handleDurationSave = (sessionId: string, durationMinutes: number) => {
+    update(prev => ({
+      ...prev,
+      sessions: prev.sessions.map(session => {
+        if (session.id !== sessionId) return session;
+        const startedAt = session.startedAt || `${session.date}T06:00:00`;
+        const completedAt = new Date(
+          new Date(startedAt).getTime() + durationMinutes * 60000
+        ).toISOString();
+        return { ...session, startedAt, completedAt };
+      }),
+    }));
+    toast.success('Duration updated');
+  };
+
   const getStatusBadge = (status: WorkoutStatus) => {
     const variants: Record<WorkoutStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline', label: string }> = {
       completed: { variant: 'default', label: 'Completed' },
@@ -158,7 +173,7 @@ export default function HistoryPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 p-4 pb-20 md:p-6">
+    <div className="flex flex-col gap-6 pb-4">
       {/* Header */}
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-bold">Workout History</h1>
@@ -255,21 +270,11 @@ export default function HistoryPage() {
                   </span>
                 </div>
 
-                {/* Duration */}
-                {selectedSession.startedAt && selectedSession.completedAt && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Duration</span>
-                    <span className="text-sm font-semibold">
-                      {formatDuration(
-                        Math.floor(
-                          (new Date(selectedSession.completedAt).getTime() -
-                            new Date(selectedSession.startedAt).getTime()) /
-                            1000
-                        )
-                      )}
-                    </span>
-                  </div>
-                )}
+                {/* Duration (editable) */}
+                <EditableDuration
+                  session={selectedSession}
+                  onSave={handleDurationSave}
+                />
 
                 {/* Edit / Redo actions */}
                 {(selectedSession.status === 'not_started' || selectedSession.status === 'in_progress') && (
@@ -300,6 +305,38 @@ export default function HistoryPage() {
                   <div className="flex flex-col gap-1">
                     <span className="text-sm text-muted-foreground">Notes</span>
                     <p className="text-sm bg-muted p-2 rounded-md">{selectedSession.notes}</p>
+                  </div>
+                )}
+
+                {/* Warmup/Cooldown Summary */}
+                {selectedSession.warmup && selectedSession.warmup.some(e => e.completed) && (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm text-muted-foreground">Warmup</span>
+                    <div className="flex flex-wrap gap-1">
+                      {selectedSession.warmup.filter(e => e.completed).map(entry => {
+                        const ex = getExerciseById(entry.exerciseId);
+                        return ex ? (
+                          <Badge key={entry.exerciseId} variant="outline" className="text-xs">
+                            {ex.name}{entry.durationSeconds ? ` (${Math.round(entry.durationSeconds / 60)}m)` : ''}
+                          </Badge>
+                        ) : null;
+                      })}
+                    </div>
+                  </div>
+                )}
+                {selectedSession.cooldown && selectedSession.cooldown.some(e => e.completed) && (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm text-muted-foreground">Cooldown</span>
+                    <div className="flex flex-wrap gap-1">
+                      {selectedSession.cooldown.filter(e => e.completed).map(entry => {
+                        const ex = getExerciseById(entry.exerciseId);
+                        return ex ? (
+                          <Badge key={entry.exerciseId} variant="outline" className="text-xs">
+                            {ex.name}
+                          </Badge>
+                        ) : null;
+                      })}
+                    </div>
                   </div>
                 )}
 
@@ -489,6 +526,82 @@ function EditableSet({
           <Badge variant="outline" className="text-xs">{set.status}</Badge>
         )}
       </div>
+    </div>
+  );
+}
+
+// EditableDuration component for editing past workout duration
+function EditableDuration({
+  session,
+  onSave,
+}: {
+  session: WorkoutSession;
+  onSave: (sessionId: string, durationMinutes: number) => void;
+}) {
+  const hasDuration = session.startedAt && session.completedAt;
+  const currentMinutes = hasDuration
+    ? Math.round(
+        (new Date(session.completedAt!).getTime() - new Date(session.startedAt!).getTime()) / 60000
+      )
+    : 0;
+
+  const [editing, setEditing] = useState(false);
+  const [minutes, setMinutes] = useState(currentMinutes.toString());
+
+  useEffect(() => {
+    setMinutes(currentMinutes.toString());
+  }, [currentMinutes]);
+
+  const handleSave = () => {
+    const mins = parseInt(minutes, 10);
+    if (!mins || mins <= 0) return;
+    onSave(session.id, mins);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">Duration</span>
+        <div className="flex items-center gap-1 flex-1 justify-end">
+          <Input
+            type="number"
+            inputMode="numeric"
+            value={minutes}
+            onChange={(e) => setMinutes(e.target.value)}
+            className="h-8 w-20 text-sm text-right"
+            placeholder="min"
+          />
+          <span className="text-xs text-muted-foreground">min</span>
+        </div>
+        <Button size="sm" className="h-8" onClick={handleSave}>Save</Button>
+        <Button size="sm" variant="ghost" className="h-8" onClick={() => setEditing(false)}>Cancel</Button>
+      </div>
+    );
+  }
+
+  if (hasDuration) {
+    return (
+      <div
+        className="flex items-center justify-between cursor-pointer hover:bg-muted rounded-md p-1 -mx-1 transition-colors"
+        onClick={() => setEditing(true)}
+      >
+        <span className="text-sm text-muted-foreground">Duration</span>
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-semibold">{formatDuration(currentMinutes * 60)}</span>
+          <PencilIcon className="size-3 text-muted-foreground" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-sm text-muted-foreground">Duration</span>
+      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditing(true)}>
+        <ClockIcon className="size-3 mr-1" />
+        Add Duration
+      </Button>
     </div>
   );
 }

@@ -863,6 +863,26 @@ export const exercises: Exercise[] = [
     category: 'cardio'
   },
   {
+    id: 'treadmill-walk',
+    name: 'Treadmill Walk',
+    primaryMuscles: ['cardiovascular system', 'legs'],
+    secondaryMuscles: ['glutes', 'calves'],
+    equipment: 'Treadmill',
+    instructions: [
+      'Set treadmill to a comfortable walking pace (3-4 km/h)',
+      'Walk with upright posture and natural arm swing',
+      'Use as a warmup before weight training',
+      'Aim for 5-10 minutes to raise body temperature'
+    ],
+    commonMistakes: [
+      'Walking too fast — this is a warmup, not cardio training',
+      'Holding onto handrails which reduces core engagement'
+    ],
+    youtubeSearchQuery: 'treadmill warmup walk before weights',
+    difficulty: 'beginner',
+    category: 'cardio'
+  },
+  {
     id: 'stationary-bike',
     name: 'Stationary Bike',
     primaryMuscles: ['cardiovascular system', 'quads'],

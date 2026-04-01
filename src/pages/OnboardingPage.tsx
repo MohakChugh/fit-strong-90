@@ -72,7 +72,7 @@ export default function OnboardingPage() {
   const phaseInfo = PHASES.find(p => p.phase === currentPhase);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4 pt-safe">
       <div className="w-full max-w-lg">
         {/* Progress Bar */}
         <div className="mb-6">

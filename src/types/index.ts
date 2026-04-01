@@ -4,6 +4,20 @@ export type MuscleGroup = 'back' | 'chest' | 'legs' | 'shoulders' | 'arms' | 'co
 export type Difficulty = 'beginner' | 'intermediate' | 'advanced';
 export type WorkoutStatus = 'not_started' | 'in_progress' | 'completed' | 'skipped' | 'partial';
 export type SetStatus = 'pending' | 'completed' | 'skipped';
+export type WorkoutPhase = 'warmup' | 'main' | 'cooldown';
+
+export interface WarmupCooldownEntry {
+  exerciseId: string;
+  completed: boolean;
+  durationSeconds?: number; // for timed exercises like treadmill
+}
+
+export interface SupersetGroup {
+  id: string;
+  exerciseIds: string[];       // 2-3 exercises
+  restBetweenSeconds: number;  // rest between exercises in group
+  restAfterRoundSeconds: number; // rest after completing one round
+}
 
 export interface Exercise {
   id: string;
@@ -63,6 +77,9 @@ export interface WorkoutSession {
   completedAt: string | null;
   notes: string;
   totalVolume: number;
+  warmup?: WarmupCooldownEntry[];
+  cooldown?: WarmupCooldownEntry[];
+  supersetGroups?: SupersetGroup[];
 }
 
 export interface PersonalRecord {
@@ -89,6 +106,11 @@ export interface UserSettings {
   theme: 'light' | 'dark' | 'system';
   onboardingComplete: boolean;
   gymDays: Record<DayOfWeek, MuscleGroup | 'rest'>;
+  warmupEnabled?: boolean;
+  cooldownEnabled?: boolean;
+  defaultWarmupExercises?: string[];
+  defaultCooldownExercises?: string[];
+  supersetRestSeconds?: number;
 }
 
 export interface AppData {
