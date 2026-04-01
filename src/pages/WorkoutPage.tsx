@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { useTimer } from '@/hooks/useTimer';
@@ -14,12 +14,14 @@ import {
 } from '@/lib/utils';
 import {
   getDayPlan,
+  getDayPlanByMuscleGroup,
+  getTrainingDays,
   getActiveExercisesForPhase,
   getExerciseSetsAndReps,
   getPhaseInfo,
 } from '@/data/program';
 import { getExerciseById } from '@/data/exercises';
-import type { WorkoutSession, SetStatus } from '@/types';
+import type { WorkoutSession, SetStatus, MuscleGroup } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -55,54 +57,77 @@ import {
   SkipForward,
   Timer,
   UndoIcon,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function WorkoutPage() {
   const [data, updateData] = useAppData();
   const { settings, sessions, personalRecords } = data;
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // Support ?date=YYYY-MM-DD for logging past workouts
+  // Support ?date=YYYY-MM-DD and ?override=<muscleGroup>
   const actualToday = new Date().toISOString().split('T')[0];
   const workoutDate = searchParams.get('date') || actualToday;
+  const overrideMuscle = searchParams.get('override') as MuscleGroup | null;
   const isPastWorkout = workoutDate !== actualToday;
 
-  // Workout info for the target date
+  // Resolve the day plan: override muscle group or default for the date
   const dayOfWeek = getDayOfWeekFromDate(workoutDate);
-  const dayPlan = getDayPlan(dayOfWeek);
+  const defaultDayPlan = getDayPlan(dayOfWeek);
+  const dayPlan = overrideMuscle
+    ? getDayPlanByMuscleGroup(overrideMuscle) || defaultDayPlan
+    : defaultDayPlan;
   const weekNumber = getWeekNumber(settings.startDate, workoutDate);
   const phase = getPhaseForWeek(weekNumber);
   const phaseInfo = getPhaseInfo(weekNumber);
 
-  // Check if target date is a rest day
-  if (dayPlan.isRestDay) {
-    return <RestDayView plan={dayPlan} />;
-  }
-
-  // Get active exercises for the target date
+  // Get active exercises
   const activeExercises = getActiveExercisesForPhase(dayPlan, phase);
 
-  // State for current session
+  // State
   const [session, setSession] = useState<WorkoutSession | null>(null);
   const [showSummaryDialog, setShowSummaryDialog] = useState(false);
   const [showRedoDialog, setShowRedoDialog] = useState(false);
+  const [showSwapDialog, setShowSwapDialog] = useState(false);
   const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
   const [workoutNotes, setWorkoutNotes] = useState('');
+
+  // Ref for stable access to activeExerciseId in handlers
+  const activeExerciseIdRef = useRef(activeExerciseId);
+  activeExerciseIdRef.current = activeExerciseId;
 
   // Rest timer
   const timer = useTimer(settings.defaultRestSeconds);
   const [showTimer, setShowTimer] = useState(false);
 
+  // Check if target date is a rest day (only when no override)
+  if (dayPlan.isRestDay && !overrideMuscle) {
+    return <RestDayView />;
+  }
+
+  // Build a stable key for the current plan to detect when we need to create a new session
+  const planKey = `${workoutDate}-${dayPlan.muscleGroup}`;
+
   // Initialize or restore session
   useEffect(() => {
-    const existingSession = sessions.find((s) => s.date === workoutDate);
+    const existingSession = sessions.find(
+      (s) => s.date === workoutDate && s.muscleGroup === dayPlan.muscleGroup
+    );
 
     if (existingSession) {
       setSession(existingSession);
       setWorkoutNotes(existingSession.notes || '');
     } else {
-      // Create new session
+      // Remove any old session for this date with a different muscle group (swap scenario)
+      const oldSessionForDate = sessions.find((s) => s.date === workoutDate);
+      if (oldSessionForDate) {
+        updateData((prev) => ({
+          ...prev,
+          sessions: prev.sessions.filter((s) => s.date !== workoutDate),
+        }));
+      }
+
       const newSession: WorkoutSession = {
         id: generateId(),
         date: workoutDate,
@@ -118,7 +143,6 @@ export default function WorkoutPage() {
         totalVolume: 0,
       };
 
-      // Generate sets for each exercise
       activeExercises.forEach((exercise) => {
         const { sets, reps } = getExerciseSetsAndReps(exercise, phase);
         for (let i = 1; i <= sets; i++) {
@@ -136,8 +160,10 @@ export default function WorkoutPage() {
       });
 
       setSession(newSession);
+      setWorkoutNotes('');
     }
-  }, [workoutDate, dayOfWeek, dayPlan, phase, weekNumber, activeExercises, sessions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planKey]);
 
   // Save session to storage
   const saveSession = (updatedSession: WorkoutSession) => {
@@ -159,11 +185,11 @@ export default function WorkoutPage() {
     };
     setSession(updatedSession);
     saveSession(updatedSession);
-    toast.success('Workout started! Let\'s do this!');
+    toast.success("Workout started! Let's do this!");
   };
 
   // Complete set
-  const handleSetComplete = (setId: string, checked: boolean) => {
+  const handleSetComplete = (setId: string, exerciseId: string, checked: boolean) => {
     if (!session) return;
     const updatedSets = session.sets.map((set) =>
       set.id === setId
@@ -174,9 +200,9 @@ export default function WorkoutPage() {
     setSession(updatedSession);
     saveSession(updatedSession);
 
-    // Start rest timer when a set is completed
-    if (checked && activeExerciseId) {
-      const exercise = activeExercises.find((ex) => ex.exerciseId === activeExerciseId);
+    // Start rest timer using the exerciseId directly (avoids stale closure)
+    if (checked) {
+      const exercise = activeExercises.find((ex) => ex.exerciseId === exerciseId);
       if (exercise) {
         timer.reset(exercise.restSeconds);
         timer.start();
@@ -219,7 +245,6 @@ export default function WorkoutPage() {
     const completedSets = session.sets.filter((s) => s.status === 'completed');
     const totalVolume = calculateVolume(completedSets);
 
-    // Check for PRs
     const newPRs: string[] = [];
     completedSets.forEach((set) => {
       if (set.weight !== null && set.actualReps !== null) {
@@ -228,9 +253,10 @@ export default function WorkoutPage() {
           const exercise = getExerciseById(set.exerciseId);
           if (exercise) {
             newPRs.push(exercise.name);
-            // Save PR
             updateData((prev) => {
-              const existingPR = prev.personalRecords.find((pr) => pr.exerciseId === set.exerciseId);
+              const existingPR = prev.personalRecords.find(
+                (pr) => pr.exerciseId === set.exerciseId
+              );
               const volume = set.weight! * set.actualReps!;
               const newPR = {
                 exerciseId: set.exerciseId,
@@ -239,7 +265,6 @@ export default function WorkoutPage() {
                 date: workoutDate,
                 volume,
               };
-
               return {
                 ...prev,
                 personalRecords: existingPR
@@ -273,7 +298,7 @@ export default function WorkoutPage() {
     }
   };
 
-  // Redo workout (mark as incomplete)
+  // Redo workout
   const handleRedoWorkout = () => {
     if (!session) return;
     const resetSession: WorkoutSession = {
@@ -298,6 +323,27 @@ export default function WorkoutPage() {
     toast.success('Workout reset — start fresh!');
   };
 
+  // Swap workout to a different muscle group
+  const handleSwapWorkout = (muscleGroup: string) => {
+    // Remove existing session for this date before swapping
+    if (session) {
+      updateData((prev) => ({
+        ...prev,
+        sessions: prev.sessions.filter((s) => s.id !== session.id),
+      }));
+    }
+
+    const params = new URLSearchParams(searchParams);
+    params.set('override', muscleGroup);
+    if (workoutDate !== actualToday) {
+      params.set('date', workoutDate);
+    }
+    setSearchParams(params, { replace: true });
+    setSession(null);
+    setShowSwapDialog(false);
+    toast.success(`Switched to ${muscleGroup.charAt(0).toUpperCase() + muscleGroup.slice(1)} workout`);
+  };
+
   if (!session) {
     return (
       <div className="container mx-auto px-4 py-6">
@@ -306,15 +352,16 @@ export default function WorkoutPage() {
     );
   }
 
-  const completedSets = session.sets.filter((s) => s.status === 'completed').length;
+  const completedSetsCount = session.sets.filter((s) => s.status === 'completed').length;
   const totalSets = session.sets.length;
-  const progress = totalSets > 0 ? (completedSets / totalSets) * 100 : 0;
+  const progress = totalSets > 0 ? (completedSetsCount / totalSets) * 100 : 0;
+  const isSwapped = overrideMuscle && overrideMuscle !== defaultDayPlan.muscleGroup;
 
   return (
     <div className="space-y-4 pb-4">
       <div className="space-y-4">
-        {/* Header */}
-        <div className="space-y-4">
+        {/* Banners */}
+        <div className="space-y-2">
           {isPastWorkout && (
             <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-sm">
               <Clock className="h-4 w-4 text-amber-500 flex-shrink-0" />
@@ -323,18 +370,43 @@ export default function WorkoutPage() {
               </span>
             </div>
           )}
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{dayPlan.label}</h1>
-            <p className="text-muted-foreground">
-              {formatDate(workoutDate)} • Week {weekNumber} • {phaseInfo?.name} Phase
-            </p>
+          {isSwapped && (
+            <div className="flex items-center gap-2 rounded-lg bg-blue-500/10 border border-blue-500/30 p-3 text-sm">
+              <ArrowLeftRight className="h-4 w-4 text-blue-500 flex-shrink-0" />
+              <span className="text-blue-700 dark:text-blue-400">
+                Swapped from {defaultDayPlan.label} → <strong>{dayPlan.label}</strong>
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Header */}
+        <div className="space-y-4">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{dayPlan.label}</h1>
+              <p className="text-muted-foreground">
+                {formatDate(workoutDate)} • Week {weekNumber} • {phaseInfo?.name} Phase
+              </p>
+            </div>
+            {session.status !== 'completed' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowSwapDialog(true)}
+                className="flex-shrink-0"
+              >
+                <ArrowLeftRight className="h-4 w-4 mr-1" />
+                Swap
+              </Button>
+            )}
           </div>
 
           {/* Progress Bar */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">
-                {completedSets} of {totalSets} sets completed
+                {completedSetsCount} of {totalSets} sets completed
               </span>
               <span className="font-medium">{Math.round(progress)}%</span>
             </div>
@@ -350,7 +422,12 @@ export default function WorkoutPage() {
               </Button>
             )}
             {session.status === 'in_progress' && (
-              <Button onClick={handleCompleteWorkout} size="lg" variant="default" className="w-full h-12">
+              <Button
+                onClick={handleCompleteWorkout}
+                size="lg"
+                variant="default"
+                className="w-full h-12"
+              >
                 <CheckCircle2 className="mr-2 h-5 w-5" />
                 Complete Workout
               </Button>
@@ -378,9 +455,10 @@ export default function WorkoutPage() {
         {/* Exercise List */}
         <Accordion
           className="space-y-4"
+          type="multiple"
           value={activeExerciseId ? [activeExerciseId] : []}
           onValueChange={(value) => {
-            const newValue = Array.isArray(value) && value.length > 0 ? value[0] : null;
+            const newValue = Array.isArray(value) && value.length > 0 ? value[value.length - 1] : null;
             setActiveExerciseId(newValue);
           }}
         >
@@ -389,7 +467,13 @@ export default function WorkoutPage() {
             if (!exercise) return null;
 
             const exerciseSets = session.sets.filter((s) => s.exerciseId === exercise.id);
-            const completedExerciseSets = exerciseSets.filter((s) => s.status === 'completed').length;
+            const completedExerciseSets = exerciseSets.filter(
+              (s) => s.status === 'completed'
+            ).length;
+
+            // Get the highest RPE set for this exercise to show in the slider
+            const exerciseRpe =
+              exerciseSets.find((s) => s.rpe !== null)?.rpe ?? null;
 
             return (
               <AccordionItem
@@ -409,7 +493,7 @@ export default function WorkoutPage() {
                           exerciseSets.length > 0 && (
                             <Badge variant="secondary" className="text-xs">
                               <CheckCircle2 className="mr-1 h-3 w-3" />
-                              Complete
+                              Done
                             </Badge>
                           )}
                       </div>
@@ -439,7 +523,7 @@ export default function WorkoutPage() {
                     Watch demo on YouTube
                   </a>
 
-                  {/* Sets Table */}
+                  {/* Sets */}
                   <div className="space-y-3">
                     {exerciseSets.map((set) => (
                       <div
@@ -464,7 +548,7 @@ export default function WorkoutPage() {
                               type="number"
                               inputMode="numeric"
                               placeholder={set.plannedReps.toString()}
-                              value={set.actualReps || ''}
+                              value={set.actualReps ?? ''}
                               onChange={(e) =>
                                 handleSetUpdate(
                                   set.id,
@@ -482,7 +566,7 @@ export default function WorkoutPage() {
                               type="number"
                               inputMode="numeric"
                               placeholder="0"
-                              value={set.weight || ''}
+                              value={set.weight ?? ''}
                               onChange={(e) =>
                                 handleSetUpdate(
                                   set.id,
@@ -500,7 +584,7 @@ export default function WorkoutPage() {
                           <Checkbox
                             checked={set.status === 'completed'}
                             onCheckedChange={(checked) =>
-                              handleSetComplete(set.id, checked as boolean)
+                              handleSetComplete(set.id, exercise.id, checked as boolean)
                             }
                             disabled={session.status === 'completed'}
                             className="h-6 w-6 sm:h-4 sm:w-4"
@@ -510,17 +594,28 @@ export default function WorkoutPage() {
                     ))}
                   </div>
 
-                  {/* RPE Slider (optional) */}
-                  {session.status === 'in_progress' && (
+                  {/* RPE Slider (per exercise) */}
+                  {session.status !== 'completed' && (
                     <div className="space-y-2 pt-2">
                       <Label className="text-sm">
-                        RPE (Rate of Perceived Exertion) - Optional
+                        RPE: {exerciseRpe ?? '—'}/10
                       </Label>
                       <Slider
                         min={1}
                         max={10}
                         step={1}
-                        defaultValue={[7]}
+                        value={[exerciseRpe ?? 5]}
+                        onValueChange={(values) => {
+                          const rpe = values[0];
+                          // Apply RPE to all sets of this exercise
+                          if (!session) return;
+                          const updatedSets = session.sets.map((s) =>
+                            s.exerciseId === exercise.id ? { ...s, rpe } : s
+                          );
+                          const updatedSession = { ...session, sets: updatedSets };
+                          setSession(updatedSession);
+                          saveSession(updatedSession);
+                        }}
                         className="w-full"
                       />
                       <div className="flex justify-between text-xs text-muted-foreground">
@@ -531,7 +626,7 @@ export default function WorkoutPage() {
                     </div>
                   )}
 
-                  {/* Notes */}
+                  {/* Exercise Notes */}
                   <div className="space-y-2">
                     <Label className="text-sm">Exercise Notes</Label>
                     <Textarea
@@ -542,7 +637,7 @@ export default function WorkoutPage() {
                     />
                   </div>
 
-                  {/* Action Buttons */}
+                  {/* Skip Button */}
                   {session.status !== 'completed' && (
                     <div className="flex gap-2">
                       <Button
@@ -569,7 +664,7 @@ export default function WorkoutPage() {
           </CardHeader>
           <CardContent>
             <Textarea
-              placeholder="Today's workout felt..."
+              placeholder="This workout felt..."
               value={workoutNotes}
               onChange={(e) => setWorkoutNotes(e.target.value)}
               className="resize-none"
@@ -580,7 +675,7 @@ export default function WorkoutPage() {
         </Card>
       </div>
 
-      {/* Rest Timer (Fixed at Bottom) */}
+      {/* Rest Timer */}
       {showTimer && timer.isRunning && (
         <div className="fixed bottom-20 lg:bottom-4 left-0 right-0 lg:left-auto lg:right-4 lg:w-auto z-50 px-4 lg:px-0">
           <Card className="shadow-lg border-2">
@@ -620,13 +715,13 @@ export default function WorkoutPage() {
         useMetric={settings.useMetric}
       />
 
-      {/* Redo Workout Confirmation Dialog */}
+      {/* Redo Confirmation */}
       <Dialog open={showRedoDialog} onOpenChange={setShowRedoDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Redo This Workout?</DialogTitle>
             <DialogDescription>
-              This will clear all your recorded sets, weights, and reps for this workout so you can start over.
+              This will clear all your recorded sets, weights, and reps so you can start over.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -639,12 +734,101 @@ export default function WorkoutPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Swap Workout Dialog */}
+      <SwapWorkoutDialog
+        open={showSwapDialog}
+        onOpenChange={setShowSwapDialog}
+        currentMuscleGroup={dayPlan.muscleGroup}
+        onSwap={handleSwapWorkout}
+        hasExistingProgress={session.status !== 'not_started'}
+      />
     </div>
   );
 }
 
-// Rest Day View Component
-function RestDayView({ plan: _plan }: { plan: any }) {
+// ─── Swap Workout Dialog ────────────────────────────────────────────────────
+
+function SwapWorkoutDialog({
+  open,
+  onOpenChange,
+  currentMuscleGroup,
+  onSwap,
+  hasExistingProgress,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  currentMuscleGroup: MuscleGroup;
+  onSwap: (muscleGroup: string) => void;
+  hasExistingProgress: boolean;
+}) {
+  const trainingDays = getTrainingDays();
+
+  const muscleGroupIcons: Record<string, string> = {
+    back: '🔙',
+    chest: '💪',
+    legs: '🦵',
+    shoulders: '🏋️',
+    arms: '💪',
+    core: '🧘',
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ArrowLeftRight className="h-5 w-5" />
+            Swap Workout
+          </DialogTitle>
+          <DialogDescription>
+            {hasExistingProgress
+              ? 'Swapping will discard your current progress for this workout.'
+              : 'Choose a different workout for today.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-2 py-2">
+          {trainingDays.map((day) => {
+            const isCurrent = day.muscleGroup === currentMuscleGroup;
+            return (
+              <Button
+                key={day.muscleGroup}
+                variant={isCurrent ? 'secondary' : 'outline'}
+                className="w-full justify-start h-12 text-left"
+                disabled={isCurrent}
+                onClick={() => onSwap(day.muscleGroup)}
+              >
+                <span className="mr-3 text-lg">{muscleGroupIcons[day.muscleGroup] || '🏋️'}</span>
+                <div className="flex flex-col items-start">
+                  <span className="font-medium">{day.label}</span>
+                  <span className="text-xs text-muted-foreground capitalize">
+                    {day.exercises.length} exercises
+                  </span>
+                </div>
+                {isCurrent && (
+                  <Badge variant="outline" className="ml-auto text-xs">
+                    Current
+                  </Badge>
+                )}
+              </Button>
+            );
+          })}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" className="w-full" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Rest Day View ──────────────────────────────────────────────────────────
+
+function RestDayView() {
   return (
     <div className="space-y-6 pb-4">
       <div className="space-y-6">
@@ -696,7 +880,8 @@ function RestDayView({ plan: _plan }: { plan: any }) {
   );
 }
 
-// Workout Summary Dialog Component
+// ─── Workout Summary Dialog ─────────────────────────────────────────────────
+
 function WorkoutSummaryDialog({
   open,
   onOpenChange,

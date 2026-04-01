@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { Calendar } from '@/components/ui/calendar';
@@ -428,6 +428,12 @@ function EditableSet({
   const [editing, setEditing] = useState(false);
   const [weight, setWeight] = useState(set.weight?.toString() || '0');
   const [reps, setReps] = useState(set.actualReps?.toString() || '0');
+
+  // Re-sync local state when the set prop changes (e.g. after external save)
+  useEffect(() => {
+    setWeight(set.weight?.toString() || '0');
+    setReps(set.actualReps?.toString() || '0');
+  }, [set.weight, set.actualReps]);
 
   const handleSave = () => {
     const weightNum = parseFloat(weight) || 0;

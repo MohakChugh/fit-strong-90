@@ -635,6 +635,20 @@ export const weeklyPlan: DayPlan[] = [
 ];
 
 /**
+ * Get all non-rest day plans (for swap workout picker)
+ */
+export const getTrainingDays = (): DayPlan[] => {
+  return weeklyPlan.filter(day => !day.isRestDay);
+};
+
+/**
+ * Get a day plan by muscle group (for workout swaps)
+ */
+export const getDayPlanByMuscleGroup = (muscleGroup: string): DayPlan | undefined => {
+  return weeklyPlan.find(day => day.muscleGroup === muscleGroup && !day.isRestDay);
+};
+
+/**
  * Get the day plan for a specific day of week
  */
 export const getDayPlan = (dayOfWeek: DayOfWeek): DayPlan => {
