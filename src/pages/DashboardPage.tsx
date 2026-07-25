@@ -1,7 +1,11 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import {
   getCurrentDayOfWeek,
+  getDayOfWeekFromDate,
+  toDateString,
+  todayString,
   getWeekNumber,
   getPhaseForWeek,
   calculateStreak,
@@ -9,7 +13,7 @@ import {
   formatWeight,
   formatDate,
 } from '@/lib/utils';
-import { getDayPlan, getPhaseInfo } from '@/data/program';
+import { getDayPlan, getPhaseInfo, getWorkoutsPerPhase } from '@/data/program';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -45,7 +49,7 @@ export default function DashboardPage() {
   const { settings, sessions } = data;
 
   // Current week and phase
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayString();
   const currentWeek = getWeekNumber(settings.startDate, today);
   const currentPhase = getPhaseForWeek(currentWeek);
   const phaseInfo = getPhaseInfo(currentWeek);
@@ -62,27 +66,26 @@ export default function DashboardPage() {
   // Tomorrow's workout
   const tomorrowDate = new Date();
   tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrowDayOfWeek = [
-    'sunday',
-    'monday',
-    'tuesday',
-    'wednesday',
-    'thursday',
-    'friday',
-    'saturday',
-  ][tomorrowDate.getDay()] as any;
-  const tomorrowPlan = getDayPlan(tomorrowDayOfWeek);
+  const tomorrowDateStr = toDateString(tomorrowDate);
+  const tomorrowPlan = getDayPlan(getDayOfWeekFromDate(tomorrowDateStr));
 
-  // Phase progress (30 workouts per phase - 6 days/week * 4-5 weeks)
+  // Phase progress. Count only sessions inside this phase's week range, and use
+  // the program's own workout total so this can't drift from the Progress page.
+  const [phaseStartWeek, phaseEndWeek] = phaseInfo.weeks;
   const completedWorkoutsInPhase = sessions.filter(
-    (s) => s.status === 'completed' && s.phase === currentPhase
+    (s) =>
+      s.status === 'completed' &&
+      s.week >= phaseStartWeek &&
+      s.week <= phaseEndWeek
   ).length;
-  const totalWorkoutsInPhase = 24; // 6 workouts/week * 4 weeks
+  const totalWorkoutsInPhase = getWorkoutsPerPhase(currentPhase);
   const phaseProgress = Math.min((completedWorkoutsInPhase / totalWorkoutsInPhase) * 100, 100);
 
-  // Random motivational line
-  const motivationalLine =
-    MOTIVATIONAL_LINES[Math.floor(Math.random() * MOTIVATIONAL_LINES.length)];
+  // Random motivational line, chosen once per mount (Math.random() during
+  // render is impure and would reshuffle on every re-render).
+  const [motivationalLine] = useState(
+    () => MOTIVATIONAL_LINES[Math.floor(Math.random() * MOTIVATIONAL_LINES.length)]
+  );
 
   return (
     <div className="space-y-4 pb-4">
@@ -293,7 +296,7 @@ export default function DashboardPage() {
               <CardTitle className="text-lg">Tomorrow</CardTitle>
             </div>
             <CardDescription>
-              {formatDate(tomorrowDate.toISOString().split('T')[0])}
+              {formatDate(tomorrowDateStr)}
             </CardDescription>
           </CardHeader>
           <CardContent>

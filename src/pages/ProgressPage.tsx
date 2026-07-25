@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { getExerciseById } from '@/data/exercises';
-import { getWeekNumber, formatDate, formatWeight, calculateStreak } from '@/lib/utils';
+import { getWeekNumber, formatDate, formatWeight, calculateStreak, todayString, TOTAL_WEEKS, TRAINING_DAYS_PER_WEEK } from '@/lib/utils';
 import type { BodyMetric } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 export default function ProgressPage() {
   const [data, updateData] = useAppData();
   const [newMetric, setNewMetric] = useState<Partial<BodyMetric>>({
-    date: new Date().toISOString().split('T')[0],
+    date: todayString(),
     weight: null,
     waist: null,
     notes: '',
@@ -24,21 +24,26 @@ export default function ProgressPage() {
   const currentStreak = calculateStreak(data.sessions);
   const totalWorkouts = data.sessions.filter(s => s.status === 'completed').length;
 
-  // Workouts per week chart data
-  const workoutsPerWeekData = Array.from({ length: 12 }, (_, i) => {
+  const currentWeek = getWeekNumber(data.settings.startDate);
+
+  // Workouts per week chart data.
+  // Show every week up to the current one, plus any later week that has data.
+  // Compare week NUMBERS, not the `W1`/`W10` labels: string ordering would put
+  // "W10" before "W9" and silently include future weeks.
+  const workoutsPerWeekData = Array.from({ length: TOTAL_WEEKS }, (_, i) => {
     const week = i + 1;
     const count = data.sessions.filter(s => s.week === week && s.status === 'completed').length;
-    return { week: `W${week}`, count };
-  }).filter(d => d.count > 0 || d.week <= `W${getWeekNumber(data.settings.startDate)}`);
+    return { week, label: `W${week}`, count };
+  }).filter(d => d.count > 0 || d.week <= currentWeek);
 
   // Weekly volume chart data
-  const weeklyVolumeData = Array.from({ length: 12 }, (_, i) => {
+  const weeklyVolumeData = Array.from({ length: TOTAL_WEEKS }, (_, i) => {
     const week = i + 1;
     const volume = data.sessions
       .filter(s => s.week === week && s.status === 'completed')
       .reduce((sum, s) => sum + s.totalVolume, 0);
-    return { week: `W${week}`, volume: Math.round(volume) };
-  }).filter(d => d.volume > 0 || d.week <= `W${getWeekNumber(data.settings.startDate)}`);
+    return { week, label: `W${week}`, volume: Math.round(volume) };
+  }).filter(d => d.volume > 0 || d.week <= currentWeek);
 
   // Bodyweight trend data
   const bodyweightData = [...data.bodyMetrics]
@@ -65,7 +70,7 @@ export default function ProgressPage() {
     }
 
     const metric: BodyMetric = {
-      date: newMetric.date || new Date().toISOString().split('T')[0],
+      date: newMetric.date || todayString(),
       weight: newMetric.weight || null,
       waist: newMetric.waist || null,
       notes: newMetric.notes || '',
@@ -90,7 +95,7 @@ export default function ProgressPage() {
 
     // Reset form
     setNewMetric({
-      date: new Date().toISOString().split('T')[0],
+      date: todayString(),
       weight: null,
       waist: null,
       notes: '',
@@ -107,7 +112,7 @@ export default function ProgressPage() {
     const completed = data.sessions.filter(
       s => s.week >= start && s.week <= end && s.status === 'completed'
     ).length;
-    const expected = 6 * (end - start + 1); // 6 training days per week
+    const expected = TRAINING_DAYS_PER_WEEK * (end - start + 1);
     return { ...p, completed, expected, percentage: Math.round((completed / expected) * 100) };
   });
 
@@ -155,7 +160,7 @@ export default function ProgressPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">Week {getWeekNumber(data.settings.startDate)}</p>
+            <p className="text-3xl font-bold">Week {currentWeek}</p>
           </CardContent>
         </Card>
 
@@ -185,7 +190,7 @@ export default function ProgressPage() {
               <ResponsiveContainer width="100%" height={220} className="sm:h-[300px]">
                 <BarChart data={workoutsPerWeekData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="week" className="text-xs" />
+                  <XAxis dataKey="label" className="text-xs" />
                   <YAxis className="text-xs" />
                   <RechartsTooltip
                     contentStyle={{
@@ -216,7 +221,7 @@ export default function ProgressPage() {
               <ResponsiveContainer width="100%" height={220} className="sm:h-[300px]">
                 <LineChart data={weeklyVolumeData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="week" className="text-xs" />
+                  <XAxis dataKey="label" className="text-xs" />
                   <YAxis className="text-xs" />
                   <RechartsTooltip
                     contentStyle={{

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { useTimer } from '@/hooks/useTimer';
@@ -7,6 +7,7 @@ import {
   getDayOfWeekFromDate,
   getWeekNumber,
   getPhaseForWeek,
+  todayString,
   generateId,
   formatWeight,
   formatDate,
@@ -74,7 +75,7 @@ export default function WorkoutPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Support ?date=YYYY-MM-DD and ?override=<muscleGroup>
-  const actualToday = new Date().toISOString().split('T')[0];
+  const actualToday = todayString();
   const workoutDate = searchParams.get('date') || actualToday;
   const overrideMuscle = searchParams.get('override') as MuscleGroup | null;
   const isPastWorkout = workoutDate !== actualToday;
@@ -111,24 +112,25 @@ export default function WorkoutPage() {
   const [supersetSelection, setSupersetSelection] = useState<string[]>([]);
   const supersetTimer = useSupersetTimer();
 
-  // Ref for stable access to activeExerciseId in handlers
-  const activeExerciseIdRef = useRef(activeExerciseId);
-  activeExerciseIdRef.current = activeExerciseId;
+  // Per-exercise notes, keyed by exerciseId
+  const [exerciseNotes, setExerciseNotes] = useState<Record<string, string>>({});
 
   // Rest timer
   const timer = useTimer(settings.defaultRestSeconds);
   const [showTimer, setShowTimer] = useState(false);
 
-  // Check if target date is a rest day (only when no override)
-  if (dayPlan.isRestDay && !overrideMuscle) {
-    return <RestDayView />;
-  }
+  // A rest day with no override has no workout to track. This is computed here
+  // but NOT returned on yet: every hook below must run on every render, or React
+  // sees a different hook count when the day flips (e.g. tab left open overnight).
+  const isRestDayView = dayPlan.isRestDay && !overrideMuscle;
 
   // Build a stable key for the current plan to detect when we need to create a new session
   const planKey = `${workoutDate}-${dayPlan.muscleGroup}`;
 
   // Initialize or restore session
   useEffect(() => {
+    if (isRestDayView) return;
+
     const existingSession = sessions.find(
       (s) => s.date === workoutDate && s.muscleGroup === dayPlan.muscleGroup
     );
@@ -204,8 +206,14 @@ export default function WorkoutPage() {
     } else {
       setSupersetGroups([]);
     }
+    setExerciseNotes(session.exerciseNotes ?? {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id]);
+
+  // All hooks are registered above this point. Safe to bail out now.
+  if (isRestDayView) {
+    return <RestDayView />;
+  }
 
   // Helper: get superset group for an exercise
   const getSupersetForExercise = (exerciseId: string): SupersetGroup | undefined => {
@@ -330,12 +338,24 @@ export default function WorkoutPage() {
         supersetTimer.completeSet();
       } else {
         const exercise = activeExercises.find((ex) => ex.exerciseId === exerciseId);
-        if (exercise) {
-          timer.reset(exercise.restSeconds);
-          timer.start();
-          setShowTimer(true);
-        }
+        // Per-exercise rest from the program wins (heavy compounds need longer);
+        // the user's default is the fallback when the plan doesn't specify one.
+        const restSeconds = exercise?.restSeconds || settings.defaultRestSeconds;
+        timer.reset(restSeconds);
+        timer.start();
+        setShowTimer(true);
       }
+    }
+  };
+
+  // Update a per-exercise note and persist it on the session
+  const handleExerciseNoteChange = (exerciseId: string, note: string) => {
+    const updatedNotes = { ...exerciseNotes, [exerciseId]: note };
+    setExerciseNotes(updatedNotes);
+    if (session) {
+      const updatedSession = { ...session, exerciseNotes: updatedNotes };
+      setSession(updatedSession);
+      saveSession(updatedSession);
     }
   };
 
@@ -428,6 +448,7 @@ export default function WorkoutPage() {
       totalVolume,
       warmup: warmupEntries.some(e => e.completed) ? warmupEntries : session.warmup,
       cooldown: cooldownEntries.some(e => e.completed) ? cooldownEntries : session.cooldown,
+      exerciseNotes,
     };
 
     setSession(updatedSession);
@@ -452,6 +473,7 @@ export default function WorkoutPage() {
       completedAt: null,
       totalVolume: 0,
       notes: '',
+      exerciseNotes: {},
       sets: session.sets.map((set) => ({
         ...set,
         status: 'pending' as const,
@@ -463,6 +485,7 @@ export default function WorkoutPage() {
     setSession(resetSession);
     saveSession(resetSession);
     setWorkoutNotes('');
+    setExerciseNotes({});
     setShowRedoDialog(false);
     toast.success('Workout reset — start fresh!');
   };
@@ -933,6 +956,8 @@ export default function WorkoutPage() {
                     <Label className="text-sm">Exercise Notes</Label>
                     <Textarea
                       placeholder={workoutExercise.notes}
+                      value={exerciseNotes[exercise.id] ?? ''}
+                      onChange={(e) => handleExerciseNoteChange(exercise.id, e.target.value)}
                       className="resize-none text-sm"
                       rows={2}
                       disabled={session.status === 'completed'}

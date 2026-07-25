@@ -9,7 +9,7 @@ import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { cn, formatDateFull, getWeekNumber, getPhaseForWeek } from '@/lib/utils';
+import { cn, formatDateFull, getWeekNumber, getPhaseForWeek, todayString } from '@/lib/utils';
 import { PHASES } from '@/data/program';
 import { DumbbellIcon, CheckCircleIcon, InfoIcon, UploadIcon } from 'lucide-react';
 import { importData } from '@/services/storage';
@@ -21,7 +21,7 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(1);
 
   // Form state
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(todayString());
   const [currentWeight, setCurrentWeight] = useState('');
   const [targetGoal, setTargetGoal] = useState('');
   const [useMetric, setUseMetric] = useState(true);
@@ -93,7 +93,7 @@ export default function OnboardingPage() {
 
   const canProceedStep2 = startDate && currentWeight && parseFloat(currentWeight) > 0;
 
-  const weekNumber = getWeekNumber(startDate, new Date().toISOString().split('T')[0]);
+  const weekNumber = getWeekNumber(startDate, todayString());
   const currentPhase = getPhaseForWeek(weekNumber);
   const phaseInfo = PHASES.find(p => p.phase === currentPhase);
 

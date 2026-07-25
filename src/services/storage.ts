@@ -227,7 +227,7 @@ export function resetData(): void {
  * Migrate data from older versions
  */
 function migrateData(data: AppData): AppData {
-  let migrated = { ...data };
+  const migrated = { ...data };
 
   // v1 → v2: Add warmup/cooldown/superset settings (all optional fields, no data loss)
   if (migrated.version < 2) {

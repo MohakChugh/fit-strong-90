@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { Calendar } from '@/components/ui/calendar';
@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { formatDateFull, formatWeight, formatDuration } from '@/lib/utils';
+import { formatDateFull, formatWeight, formatDuration, toDateString, todayString, parseDateString } from '@/lib/utils';
 import { getExerciseById } from '@/data/exercises';
 import type { WorkoutSession, WorkoutStatus, DayOfWeek } from '@/types';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -26,7 +26,7 @@ export default function HistoryPage() {
   // Get the session for the selected date
   const selectedSession = useMemo(() => {
     if (!selectedDate) return null;
-    const dateStr = selectedDate.toISOString().split('T')[0];
+    const dateStr = toDateString(selectedDate);
     return data.sessions.find(s => s.date === dateStr);
   }, [selectedDate, data.sessions]);
 
@@ -58,7 +58,7 @@ export default function HistoryPage() {
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
     const thisMonthSessions = completed.filter(s => {
-      const sessionDate = new Date(s.date);
+      const sessionDate = parseDateString(s.date);
       return sessionDate.getMonth() === currentMonth && sessionDate.getFullYear() === currentYear;
     });
 
@@ -77,7 +77,7 @@ export default function HistoryPage() {
     const skipped: Date[] = [];
 
     data.sessions.forEach(session => {
-      const date = new Date(session.date + 'T00:00:00');
+      const date = parseDateString(session.date);
       if (session.status === 'completed') {
         completed.push(date);
       } else if (session.status === 'partial') {
@@ -385,11 +385,11 @@ export default function HistoryPage() {
             </>
           ) : (
             (() => {
-              const dateStr = selectedDate ? selectedDate.toISOString().split('T')[0] : null;
+              const dateStr = selectedDate ? toDateString(selectedDate) : null;
               const dayOfWeek = dateStr ? getDayOfWeekFromDate(dateStr) : null;
               const plan = dayOfWeek ? getDayPlan(dayOfWeek) : null;
               const isRestDay = plan?.isRestDay ?? true;
-              const isFuture = dateStr ? dateStr > new Date().toISOString().split('T')[0] : false;
+              const isFuture = dateStr ? dateStr > todayString() : false;
 
               return (
                 <>
@@ -463,14 +463,16 @@ function EditableSet({
   onSave: (sessionId: string, setId: string, weight: number, reps: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [weight, setWeight] = useState(set.weight?.toString() || '0');
-  const [reps, setReps] = useState(set.actualReps?.toString() || '0');
+  const [weight, setWeight] = useState('0');
+  const [reps, setReps] = useState('0');
 
-  // Re-sync local state when the set prop changes (e.g. after external save)
-  useEffect(() => {
+  // Seed the draft from props when editing starts, so it can never drift from
+  // the saved set. (Avoids syncing via an effect, which cascades renders.)
+  const startEditing = () => {
     setWeight(set.weight?.toString() || '0');
     setReps(set.actualReps?.toString() || '0');
-  }, [set.weight, set.actualReps]);
+    setEditing(true);
+  };
 
   const handleSave = () => {
     const weightNum = parseFloat(weight) || 0;
@@ -511,7 +513,7 @@ function EditableSet({
   return (
     <div
       className="flex items-center justify-between p-2 rounded-md hover:bg-muted cursor-pointer transition-colors"
-      onClick={() => set.status === 'completed' && setEditing(true)}
+      onClick={() => set.status === 'completed' && startEditing()}
     >
       <span className="text-xs text-muted-foreground">Set {setNumber}</span>
       <div className="flex items-center gap-2">
@@ -546,11 +548,13 @@ function EditableDuration({
     : 0;
 
   const [editing, setEditing] = useState(false);
-  const [minutes, setMinutes] = useState(currentMinutes.toString());
+  const [minutes, setMinutes] = useState('0');
 
-  useEffect(() => {
+  // Seed the draft when editing starts rather than syncing via an effect.
+  const startEditing = () => {
     setMinutes(currentMinutes.toString());
-  }, [currentMinutes]);
+    setEditing(true);
+  };
 
   const handleSave = () => {
     const mins = parseInt(minutes, 10);
@@ -584,7 +588,7 @@ function EditableDuration({
     return (
       <div
         className="flex items-center justify-between cursor-pointer hover:bg-muted rounded-md p-1 -mx-1 transition-colors"
-        onClick={() => setEditing(true)}
+        onClick={startEditing}
       >
         <span className="text-sm text-muted-foreground">Duration</span>
         <div className="flex items-center gap-1">
@@ -598,7 +602,7 @@ function EditableDuration({
   return (
     <div className="flex items-center justify-between">
       <span className="text-sm text-muted-foreground">Duration</span>
-      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditing(true)}>
+      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={startEditing}>
         <ClockIcon className="size-3 mr-1" />
         Add Duration
       </Button>

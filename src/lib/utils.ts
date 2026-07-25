@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { format } from "date-fns"
 import type { DayOfWeek, Phase, WorkoutSession, WorkoutSet, PersonalRecord } from "@/types"
 
 export function cn(...inputs: ClassValue[]) {
@@ -10,11 +11,41 @@ export function cn(...inputs: ClassValue[]) {
 // Date Utilities
 // ============================================================================
 
+/** Total weeks in the program. Phases are 4 weeks each. */
+export const TOTAL_WEEKS = 12;
+
+/** Training days per week (Sunday is a rest day). */
+export const TRAINING_DAYS_PER_WEEK = 6;
+
+/**
+ * Convert a Date to a 'YYYY-MM-DD' string using the LOCAL calendar date.
+ *
+ * Never use `date.toISOString().split('T')[0]` for this: toISOString converts
+ * to UTC first, so for any user behind UTC it yields the previous day.
+ */
+export function toDateString(date: Date): string {
+  return format(date, 'yyyy-MM-dd');
+}
+
+/**
+ * Today's date as a local 'YYYY-MM-DD' string
+ */
+export function todayString(): string {
+  return toDateString(new Date());
+}
+
+/**
+ * Parse a 'YYYY-MM-DD' string as local midnight (not UTC midnight)
+ */
+export function parseDateString(dateStr: string): Date {
+  return new Date(dateStr + 'T00:00:00');
+}
+
 /**
  * Get the current day of week
  */
 export function getCurrentDayOfWeek(): DayOfWeek {
-  return getDayOfWeekFromDate(new Date().toISOString().split('T')[0]);
+  return getDayOfWeekFromDate(todayString());
 }
 
 /**
@@ -22,8 +53,7 @@ export function getCurrentDayOfWeek(): DayOfWeek {
  */
 export function getDayOfWeekFromDate(dateStr: string): DayOfWeek {
   const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  const date = new Date(dateStr + 'T00:00:00');
-  return days[date.getDay()];
+  return days[parseDateString(dateStr).getDay()];
 }
 
 /**
@@ -51,20 +81,32 @@ export function formatDateFull(date: string | Date): string {
 }
 
 /**
- * Get the week number (1-indexed) from the start date
+ * Get the program week number (1-indexed) for a date, clamped to 1..TOTAL_WEEKS.
+ *
+ * The start date itself is day 0, which is week 1. Day 7 is week 2.
+ * Dates before the start date clamp to week 1; dates past the end of the
+ * program clamp to TOTAL_WEEKS so downstream phase lookups never fail.
  */
 export function getWeekNumber(startDate: string, currentDate?: string): number {
-  const start = new Date(startDate);
-  const current = currentDate ? new Date(currentDate) : new Date();
+  if (!startDate) return 1;
 
-  const diffTime = current.getTime() - start.getTime();
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  const start = parseDateString(startDate);
+  const current = parseDateString(currentDate ?? todayString());
 
-  return Math.floor(diffDays / 7) + 1;
+  if (isNaN(start.getTime()) || isNaN(current.getTime())) return 1;
+
+  const diffDays = Math.floor(
+    (current.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+  );
+  const week = Math.floor(diffDays / 7) + 1;
+
+  return Math.min(Math.max(week, 1), TOTAL_WEEKS);
 }
 
 /**
- * Get the phase for a given week number
+ * Get the phase for a given week number.
+ *
+ * Total, so it never throws: out-of-range weeks clamp to the nearest phase.
  */
 export function getPhaseForWeek(week: number): Phase {
   if (week <= 4) return 'foundation';
@@ -73,34 +115,10 @@ export function getPhaseForWeek(week: number): Phase {
 }
 
 /**
- * Check if a date string is today
+ * Check if a date string (YYYY-MM-DD) is today
  */
 export function isToday(dateStr: string): boolean {
-  const today = new Date();
-  const date = new Date(dateStr);
-
-  return (
-    date.getFullYear() === today.getFullYear() &&
-    date.getMonth() === today.getMonth() &&
-    date.getDate() === today.getDate()
-  );
-}
-
-/**
- * Get an array of ISO date strings between two dates
- */
-export function getDaysInRange(start: string, end: string): string[] {
-  const days: string[] = [];
-  const startDate = new Date(start);
-  const endDate = new Date(end);
-
-  const current = new Date(startDate);
-  while (current <= endDate) {
-    days.push(current.toISOString().split('T')[0]);
-    current.setDate(current.getDate() + 1);
-  }
-
-  return days;
+  return dateStr === todayString();
 }
 
 // ============================================================================
@@ -125,15 +143,14 @@ export function calculateStreak(sessions: WorkoutSession[]): number {
   // Sort sessions by date (newest first)
   const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
 
+  const today = parseDateString(todayString());
+
   let streak = 0;
-  let currentDate = new Date();
-  currentDate.setHours(0, 0, 0, 0);
-
   for (const session of sorted) {
-    const sessionDate = new Date(session.date);
-    sessionDate.setHours(0, 0, 0, 0);
-
-    const daysDiff = Math.floor((currentDate.getTime() - sessionDate.getTime()) / (1000 * 60 * 60 * 24));
+    const sessionDate = parseDateString(session.date);
+    const daysDiff = Math.floor(
+      (today.getTime() - sessionDate.getTime()) / (1000 * 60 * 60 * 24)
+    );
 
     // If this is the next expected day and the workout was completed
     if (daysDiff === streak && session.status === 'completed') {
@@ -152,18 +169,18 @@ export function calculateStreak(sessions: WorkoutSession[]): number {
  */
 export function getWorkoutsThisWeek(sessions: WorkoutSession[]): WorkoutSession[] {
   const now = new Date();
+
   const startOfWeek = new Date(now);
   startOfWeek.setDate(now.getDate() - now.getDay()); // Sunday
-  startOfWeek.setHours(0, 0, 0, 0);
-
   const endOfWeek = new Date(startOfWeek);
   endOfWeek.setDate(startOfWeek.getDate() + 6);
-  endOfWeek.setHours(23, 59, 59, 999);
 
-  return sessions.filter(session => {
-    const sessionDate = new Date(session.date);
-    return sessionDate >= startOfWeek && sessionDate <= endOfWeek;
-  });
+  // Compare as 'YYYY-MM-DD' strings: lexicographic order matches chronological
+  // order for this format, and it avoids any timezone parsing entirely.
+  const start = toDateString(startOfWeek);
+  const end = toDateString(endOfWeek);
+
+  return sessions.filter(session => session.date >= start && session.date <= end);
 }
 
 /**

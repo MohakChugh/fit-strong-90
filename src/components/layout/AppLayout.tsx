@@ -18,7 +18,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/co
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useAppData } from '@/hooks/useLocalStorage';
-import { getCurrentDayOfWeek, formatDate, getWeekNumber } from '@/lib/utils';
+import { getCurrentDayOfWeek, formatDate, getWeekNumber, todayString } from '@/lib/utils';
 import { getDayPlan, getPhaseInfo } from '@/data/program';
 
 const navItems = [
@@ -43,10 +43,10 @@ export default function AppLayout() {
   const currentDay = getCurrentDayOfWeek();
   const dayPlan = getDayPlan(currentDay);
   const week = data.settings.startDate
-    ? getWeekNumber(data.settings.startDate, new Date().toISOString().split('T')[0])
+    ? getWeekNumber(data.settings.startDate, todayString())
     : 1;
   const phaseInfo = getPhaseInfo(week);
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayString();
 
   return (
     <div className="min-h-screen bg-background">

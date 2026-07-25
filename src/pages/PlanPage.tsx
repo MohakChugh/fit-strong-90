@@ -1,5 +1,5 @@
 import { useAppData } from '@/hooks/useLocalStorage';
-import { getWeekNumber, getPhaseForWeek } from '@/lib/utils';
+import { getWeekNumber, getPhaseForWeek, TOTAL_WEEKS } from '@/lib/utils';
 import { PHASES, weeklyPlan } from '@/data/program';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -88,7 +88,7 @@ export default function PlanPage() {
           12-Week Overview
         </h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {Array.from({ length: 12 }, (_, i) => i + 1).map((week) => {
+          {Array.from({ length: TOTAL_WEEKS }, (_, i) => i + 1).map((week) => {
             const phase = getPhaseForWeek(week);
             const phaseInfo = PHASES.find(p => p.phase === phase);
             const completedWorkouts = getWeekStats(week);

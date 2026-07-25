@@ -80,6 +80,8 @@ export interface WorkoutSession {
   warmup?: WarmupCooldownEntry[];
   cooldown?: WarmupCooldownEntry[];
   supersetGroups?: SupersetGroup[];
+  /** Per-exercise notes, keyed by exerciseId */
+  exerciseNotes?: Record<string, string>;
 }
 
 export interface PersonalRecord {

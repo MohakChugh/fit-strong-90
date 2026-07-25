@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { useTheme } from '@/hooks/useTheme';
 import { exportData, importData, resetData } from '@/services/storage';
+import { todayString } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -92,7 +93,7 @@ export default function SettingsPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `fitstrong90-backup-${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `fitstrong90-backup-${todayString()}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -198,6 +199,10 @@ export default function SettingsPage() {
               value={[data.settings.defaultRestSeconds]}
               onValueChange={handleRestTimerChange}
             />
+            <span className="text-sm text-muted-foreground">
+              Used when an exercise has no rest time of its own. The program sets
+              longer rests for heavy compound lifts.
+            </span>
           </div>
         </div>
       </Card>

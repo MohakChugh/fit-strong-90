@@ -1,4 +1,9 @@
 import type { DayPlan, Phase, DayOfWeek, WorkoutExercise } from '@/types';
+import { getPhaseForWeek, TRAINING_DAYS_PER_WEEK } from '@/lib/utils';
+
+// Date/week helpers live in @/lib/utils — re-exported here so existing callers
+// that import them from the program module keep working against one source.
+export { getPhaseForWeek, getWeekNumber, getDayOfWeekFromDate } from '@/lib/utils';
 
 export const PHASES: {
   phase: Phase;
@@ -660,19 +665,6 @@ export const getDayPlan = (dayOfWeek: DayOfWeek): DayPlan => {
 };
 
 /**
- * Get the current phase based on week number (1-12)
- */
-export const getPhaseForWeek = (week: number): Phase => {
-  if (week < 1 || week > 12) {
-    throw new Error('Week must be between 1 and 12');
-  }
-
-  if (week <= 4) return 'foundation';
-  if (week <= 8) return 'hypertrophy';
-  return 'strength';
-};
-
-/**
  * Get the sets and reps for an exercise in a specific phase
  */
 export const getExerciseSetsAndReps = (
@@ -709,31 +701,20 @@ export const getActiveExercisesForPhase = (
 };
 
 /**
- * Get phase info for a week number
+ * Get phase info for a week number.
+ *
+ * Always resolves to a phase, so callers can rely on a non-undefined result.
  */
 export const getPhaseInfo = (week: number) => {
   const phase = getPhaseForWeek(week);
-  return PHASES.find(p => p.phase === phase);
+  return PHASES.find(p => p.phase === phase)!;
 };
 
 /**
- * Calculate which week of the program a date falls into based on start date
+ * Number of scheduled workouts in a phase (used for adherence percentages)
  */
-export const getWeekNumber = (startDate: string, currentDate: string): number => {
-  const start = new Date(startDate);
-  const current = new Date(currentDate);
-  const diffTime = Math.abs(current.getTime() - start.getTime());
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  const week = Math.ceil(diffDays / 7);
-  return Math.min(Math.max(week, 1), 12); // Clamp between 1 and 12
-};
-
-/**
- * Get day of week from date string
- */
-export const getDayOfWeekFromDate = (dateString: string): DayOfWeek => {
-  const date = new Date(dateString);
-  const dayIndex = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
-  const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  return days[dayIndex];
+export const getWorkoutsPerPhase = (phase: Phase): number => {
+  const info = PHASES.find(p => p.phase === phase)!;
+  const [startWeek, endWeek] = info.weeks;
+  return TRAINING_DAYS_PER_WEEK * (endWeek - startWeek + 1);
 };
