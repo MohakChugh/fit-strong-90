@@ -52,6 +52,7 @@ export default function AppLayout() {
     <div className="min-h-screen bg-background">
       {/* Desktop Sidebar */}
       <aside
+        style={{ viewTransitionName: 'app-shell' }}
         className={cn(
           'hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-50 lg:flex lg:flex-col',
           'bg-card border-r border-border transition-all duration-300',
@@ -86,6 +87,7 @@ export default function AppLayout() {
             <NavLink
               key={item.to}
               to={item.to}
+              viewTransition
               className={({ isActive }) =>
                 cn(
                   'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all',
@@ -119,7 +121,10 @@ export default function AppLayout() {
       {/* Main Content Area */}
       <div className={cn('lg:transition-all lg:duration-300', sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-60')}>
         {/* Sticky Header */}
-        <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 pt-safe">
+        <header
+          style={{ viewTransitionName: 'app-header' }}
+          className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 pt-safe"
+        >
           <div className="flex h-12 sm:h-14 items-center justify-between px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
               <div>
@@ -157,12 +162,16 @@ export default function AppLayout() {
       </div>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-50 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 pb-safe">
+      <nav
+        style={{ viewTransitionName: 'app-nav' }}
+        className="lg:hidden fixed bottom-0 inset-x-0 z-50 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 pb-safe"
+      >
         <div className="flex items-center justify-around h-18 px-2">
           {mobileNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
+              viewTransition
               className={({ isActive }) =>
                 cn(
                   'flex flex-col items-center justify-center gap-1 flex-1 h-full rounded-lg transition-all',
@@ -197,6 +206,7 @@ export default function AppLayout() {
                   <NavLink
                     key={item.to}
                     to={item.to}
+                    viewTransition
                     onClick={() => setMoreMenuOpen(false)}
                     className={({ isActive }) =>
                       cn(

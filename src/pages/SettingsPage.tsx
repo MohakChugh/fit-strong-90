@@ -137,7 +137,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 pb-4">
+    <div className="flex flex-col gap-6 pb-4 stagger-children">
       {/* Header */}
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-bold">Settings</h1>

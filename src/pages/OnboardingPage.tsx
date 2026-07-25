@@ -122,7 +122,7 @@ export default function OnboardingPage() {
 
         {/* Step 1: Welcome */}
         {step === 1 && (
-          <Card className="p-4 sm:p-6">
+          <Card className="p-4 sm:p-6 animate-scale-in">
             <div className="flex flex-col items-center text-center gap-6">
               <div className="size-16 rounded-full bg-primary/10 flex items-center justify-center">
                 <DumbbellIcon className="size-8 text-primary" />
@@ -155,7 +155,7 @@ export default function OnboardingPage() {
 
         {/* Step 2: Basic Info */}
         {step === 2 && (
-          <Card className="p-4 sm:p-6">
+          <Card className="p-4 sm:p-6 animate-scale-in">
             <div className="flex flex-col gap-6">
               <div>
                 <h2 className="text-2xl font-bold mb-2">Basic Information</h2>
@@ -240,7 +240,7 @@ export default function OnboardingPage() {
 
         {/* Step 3: Preferences */}
         {step === 3 && (
-          <Card className="p-4 sm:p-6">
+          <Card className="p-4 sm:p-6 animate-scale-in">
             <div className="flex flex-col gap-6">
               <div>
                 <h2 className="text-2xl font-bold mb-2">Preferences</h2>
@@ -312,7 +312,7 @@ export default function OnboardingPage() {
 
         {/* Step 4: Ready */}
         {step === 4 && (
-          <Card className="p-4 sm:p-6">
+          <Card className="p-4 sm:p-6 animate-scale-in">
             <div className="flex flex-col items-center text-center gap-6">
               <div className="size-16 rounded-full bg-primary/10 flex items-center justify-center">
                 <CheckCircleIcon className="size-8 text-primary" />

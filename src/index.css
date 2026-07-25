@@ -81,6 +81,11 @@
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.708 0 0);
+
+    /* Exercise form animations */
+    --exercise-figure: oklch(0.35 0 0);
+    --exercise-equipment: oklch(0.62 0 0);
+    --exercise-emphasis: oklch(0.62 0.18 25);
 }
 
 .dark {
@@ -115,6 +120,11 @@
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
+
+    /* Exercise form animations */
+    --exercise-figure: oklch(0.88 0 0);
+    --exercise-equipment: oklch(0.58 0 0);
+    --exercise-emphasis: oklch(0.70 0.19 25);
 }
 
 @layer base {
@@ -162,4 +172,206 @@ input[type="number"], input[type="text"], input[type="date"] {
 /* Smooth scrolling */
 * {
   scroll-behavior: smooth;
+}
+
+/* ==========================================================================
+   Motion system
+   --------------------------------------------------------------------------
+   All animation is CSS-driven so it runs on the compositor rather than the
+   JS main thread. Only `transform` and `opacity` are animated, which are the
+   two properties the browser can composite without layout or paint.
+
+   Every animation here is disabled under prefers-reduced-motion at the
+   bottom of this file.
+   ========================================================================== */
+
+@theme inline {
+  /* Shared easings. `--ease-out-back` gives a slight overshoot that reads as
+     "springy" without needing a physics library. */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+@keyframes fs-rise-in {
+  from { opacity: 0; transform: translate3d(0, 12px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes fs-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fs-scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes fs-slide-in-left {
+  from { opacity: 0; transform: translate3d(-10px, 0, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+/* Celebratory pop, used for PR badges and completion states */
+@keyframes fs-pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+
+/* Soft attention pulse for active timers */
+@keyframes fs-pulse-ring {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.75; transform: scale(1.04); }
+}
+
+/* Progress bars and rings sweeping up to their value */
+@keyframes fs-sweep {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+.animate-rise-in {
+  animation: fs-rise-in 0.45s var(--ease-out-quart) both;
+}
+
+.animate-fade-in {
+  animation: fs-fade-in 0.3s var(--ease-out-quart) both;
+}
+
+.animate-scale-in {
+  animation: fs-scale-in 0.35s var(--ease-out-back) both;
+}
+
+.animate-slide-in-left {
+  animation: fs-slide-in-left 0.35s var(--ease-out-quart) both;
+}
+
+.animate-pop {
+  animation: fs-pop 0.4s var(--ease-out-back);
+}
+
+.animate-pulse-ring {
+  animation: fs-pulse-ring 2s var(--ease-in-out-soft) infinite;
+}
+
+/*
+  Staggered entrance. Children of `.stagger-children` fade up in sequence.
+  Capped at 12 so a long list does not end up with a visibly slow tail; the
+  13th child onward simply shares the last delay.
+*/
+.stagger-children > * {
+  animation: fs-rise-in 0.45s var(--ease-out-quart) both;
+}
+.stagger-children > *:nth-child(1)  { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2)  { animation-delay: 40ms; }
+.stagger-children > *:nth-child(3)  { animation-delay: 80ms; }
+.stagger-children > *:nth-child(4)  { animation-delay: 120ms; }
+.stagger-children > *:nth-child(5)  { animation-delay: 160ms; }
+.stagger-children > *:nth-child(6)  { animation-delay: 200ms; }
+.stagger-children > *:nth-child(7)  { animation-delay: 240ms; }
+.stagger-children > *:nth-child(8)  { animation-delay: 280ms; }
+.stagger-children > *:nth-child(9)  { animation-delay: 320ms; }
+.stagger-children > *:nth-child(10) { animation-delay: 360ms; }
+.stagger-children > *:nth-child(11) { animation-delay: 400ms; }
+.stagger-children > *:nth-child(n+12) { animation-delay: 440ms; }
+
+/* Press feedback. Applied to tappable surfaces that are not <Button>,
+   which already has its own active state. */
+.press-feedback {
+  transition: transform 0.15s var(--ease-out-quart);
+}
+.press-feedback:active {
+  transform: scale(0.975);
+}
+
+/* Card hover lift, desktop only — there is no hover on touch. */
+@media (hover: hover) and (pointer: fine) {
+  .hover-lift {
+    transition:
+      transform 0.25s var(--ease-out-quart),
+      box-shadow 0.25s var(--ease-out-quart);
+  }
+  .hover-lift:hover {
+    transform: translate3d(0, -2px, 0);
+    box-shadow: 0 8px 24px -8px oklch(0 0 0 / 18%);
+  }
+}
+
+/* ==========================================================================
+   Page transitions (native View Transitions API)
+   --------------------------------------------------------------------------
+   React Router drives these via `viewTransition` on navigation. Browsers
+   without support simply navigate instantly with no visual regression.
+   ========================================================================== */
+
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root) {
+    animation: fs-fade-in 0.2s var(--ease-out-quart) reverse;
+  }
+
+  ::view-transition-new(root) {
+    animation: fs-rise-in 0.32s var(--ease-out-quart);
+  }
+
+  /* The persistent shell must not cross-fade with the page body, or the
+     sidebar and bottom nav visibly flicker on every navigation. */
+  ::view-transition-group(app-shell),
+  ::view-transition-old(app-shell),
+  ::view-transition-new(app-shell),
+  ::view-transition-group(app-nav),
+  ::view-transition-old(app-nav),
+  ::view-transition-new(app-nav),
+  ::view-transition-group(app-header),
+  ::view-transition-old(app-header),
+  ::view-transition-new(app-header) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+}
+
+/* ==========================================================================
+   Accessibility: honour the OS "reduce motion" setting.
+   Content still appears, it just appears instantly instead of moving.
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .stagger-children > *,
+  .animate-rise-in,
+  .animate-fade-in,
+  .animate-scale-in,
+  .animate-slide-in-left {
+    animation-delay: 0ms !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .press-feedback:active {
+    transform: none;
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+
+  /*
+    SVG SMIL <animate> is not affected by CSS animation overrides, so the
+    exercise figures are paused via JS (see useReducedMotion). This rule is a
+    belt-and-braces fallback for the CSS-driven parts of those SVGs.
+  */
+  .exercise-anim * {
+    animation: none !important;
+    transition: none !important;
+  }
 }

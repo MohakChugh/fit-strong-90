@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { exercises, getExercisesByCategory } from '@/data/exercises';
+import { ExerciseAnimation } from '@/components/exercise/ExerciseAnimation';
 import type { MuscleGroup, Difficulty } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -39,6 +40,9 @@ export default function LibraryPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<MuscleGroup | 'all'>('all');
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty | 'all'>('all');
+  // Only the expanded card animates; 45 concurrent SVG animations would drop
+  // frames on mid-range phones.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const filteredExercises = useMemo(() => {
     let filtered = exercises;
@@ -138,7 +142,7 @@ export default function LibraryPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {filteredExercises.map((exercise) => (
-            <Card key={exercise.id}>
+            <Card key={exercise.id} className="animate-rise-in hover-lift">
               <CardHeader>
                 <div className="flex items-start justify-between gap-2">
                   <CardTitle className="text-xl">{exercise.name}</CardTitle>
@@ -163,12 +167,27 @@ export default function LibraryPage() {
                   <p className="text-sm">{exercise.equipment}</p>
                 </div>
 
-                <Accordion>
+                <Accordion
+                  value={expandedId === exercise.id ? ['details'] : []}
+                  onValueChange={(value) => {
+                    const open = Array.isArray(value) && value.length > 0;
+                    setExpandedId(open ? exercise.id : null);
+                  }}
+                >
                   <AccordionItem value="details" className="border-0">
                     <AccordionTrigger className="text-sm font-medium py-2">
                       View Details
                     </AccordionTrigger>
                     <AccordionContent className="space-y-4 pt-2">
+                      {/* Animated form demo */}
+                      <div className="h-40 w-full rounded-lg border bg-muted/20">
+                        <ExerciseAnimation
+                          exerciseId={exercise.id}
+                          playing={expandedId === exercise.id}
+                          label={`Animated form demonstration for ${exercise.name}`}
+                        />
+                      </div>
+
                       {/* Instructions */}
                       <div>
                         <p className="text-sm font-semibold mb-2">Instructions</p>

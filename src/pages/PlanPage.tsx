@@ -41,7 +41,7 @@ export default function PlanPage() {
       </div>
 
       {/* Phase Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 stagger-children">
         {PHASES.map((phase) => {
           const isCurrentPhase = phase.phase === currentPhase;
           const [startWeek, endWeek] = phase.weeks;
@@ -87,7 +87,7 @@ export default function PlanPage() {
           <Calendar className="h-6 w-6" />
           12-Week Overview
         </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 stagger-children">
           {Array.from({ length: TOTAL_WEEKS }, (_, i) => i + 1).map((week) => {
             const phase = getPhaseForWeek(week);
             const phaseInfo = PHASES.find(p => p.phase === phase);
@@ -141,7 +141,7 @@ export default function PlanPage() {
       {/* Weekly Split View */}
       <div>
         <h2 className="text-xl sm:text-2xl font-semibold mb-4">Weekly Training Split</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 stagger-children">
           {weeklyPlan.map((day) => (
             <Card key={day.dayOfWeek} className={day.isRestDay ? 'bg-muted/50' : ''}>
               <CardHeader className="pb-3">

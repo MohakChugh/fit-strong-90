@@ -97,7 +97,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Today's Workout Card */}
-        <Card className="border-2 shadow-lg">
+        <Card className="border-2 shadow-lg animate-scale-in">
           <CardHeader>
             <div className="flex items-start justify-between">
               <div className="space-y-1">
@@ -163,7 +163,7 @@ export default function DashboardPage() {
             ) : (
               <>
                 {todaySession?.status === 'completed' ? (
-                  <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-4">
+                  <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-4 animate-scale-in">
                     <div className="flex items-center gap-2 mb-2">
                       <CheckCircle2 className="h-5 w-5 text-green-600" />
                       <p className="font-semibold text-green-700 dark:text-green-400">
@@ -176,7 +176,7 @@ export default function DashboardPage() {
                     </p>
                   </div>
                 ) : (
-                  <Link to="/workout">
+                  <Link to="/workout" viewTransition className="block press-feedback">
                     <Button size="lg" className="w-full h-12" variant="default">
                       <PlayCircle className="mr-2 h-5 w-5" />
                       {todaySession?.status === 'in_progress' ? 'Continue Workout' : 'Start Workout'}
@@ -189,7 +189,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* Weekly Stats Row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger-children">
           <Card>
             <CardHeader className="pb-2 px-4 pt-3">
               <CardDescription className="text-xs">Workouts This Week</CardDescription>
@@ -264,7 +264,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* Health Reminders */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 stagger-children">
           <Alert className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
             <Heart className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             <AlertDescription className="text-sm">

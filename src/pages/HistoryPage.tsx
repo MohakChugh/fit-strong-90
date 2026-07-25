@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatDateFull, formatWeight, formatDuration, toDateString, todayString, parseDateString } from '@/lib/utils';
 import { getExerciseById } from '@/data/exercises';
+import { ExerciseAnimation } from '@/components/exercise/ExerciseAnimation';
 import type { WorkoutSession, WorkoutStatus, DayOfWeek } from '@/types';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { getDayOfWeekFromDate } from '@/lib/utils';
@@ -183,7 +184,7 @@ export default function HistoryPage() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 stagger-children">
         <Card className="p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
             <DumbbellIcon className="size-4" />
@@ -220,7 +221,7 @@ export default function HistoryPage() {
       </div>
 
       {/* Calendar */}
-      <Card className="p-4">
+      <Card className="p-4 animate-rise-in">
         <Calendar
           mode="single"
           selected={selectedDate}
@@ -361,7 +362,16 @@ export default function HistoryPage() {
                         return (
                           <Card key={exerciseId} className="p-3">
                             <div className="flex flex-col gap-2">
-                              <div className="font-medium text-sm">{exercise.name}</div>
+                              <div className="flex items-center gap-2">
+                                <div className="h-12 w-12 shrink-0 rounded-md bg-muted/30">
+                                  <ExerciseAnimation
+                                    exerciseId={exerciseId}
+                                    playing={false}
+                                    label={`Form reference for ${exercise.name}`}
+                                  />
+                                </div>
+                                <div className="font-medium text-sm">{exercise.name}</div>
+                              </div>
                               <div className="flex flex-col gap-2">
                                 {sets.map((set, idx) => (
                                   <EditableSet
@@ -512,7 +522,7 @@ function EditableSet({
 
   return (
     <div
-      className="flex items-center justify-between p-2 rounded-md hover:bg-muted cursor-pointer transition-colors"
+      className="flex items-center justify-between p-2 rounded-md hover:bg-muted cursor-pointer transition-colors press-feedback"
       onClick={() => set.status === 'completed' && startEditing()}
     >
       <span className="text-xs text-muted-foreground">Set {setNumber}</span>
@@ -587,7 +597,7 @@ function EditableDuration({
   if (hasDuration) {
     return (
       <div
-        className="flex items-center justify-between cursor-pointer hover:bg-muted rounded-md p-1 -mx-1 transition-colors"
+        className="flex items-center justify-between cursor-pointer hover:bg-muted rounded-md p-1 -mx-1 transition-colors press-feedback"
         onClick={startEditing}
       >
         <span className="text-sm text-muted-foreground">Duration</span>

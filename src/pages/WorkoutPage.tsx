@@ -24,6 +24,7 @@ import {
   getPhaseInfo,
 } from '@/data/program';
 import { getExerciseById } from '@/data/exercises';
+import { ExerciseAnimation } from '@/components/exercise/ExerciseAnimation';
 import type { WorkoutSession, SetStatus, MuscleGroup, WarmupCooldownEntry, WorkoutPhase, SupersetGroup } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -530,7 +531,7 @@ export default function WorkoutPage() {
         {/* Banners */}
         <div className="space-y-2">
           {isPastWorkout && (
-            <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-sm">
+            <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-sm animate-slide-in-left">
               <Clock className="h-4 w-4 text-amber-500 flex-shrink-0" />
               <span className="text-amber-700 dark:text-amber-400">
                 Logging workout for <strong>{formatDate(workoutDate)}</strong>
@@ -538,7 +539,7 @@ export default function WorkoutPage() {
             </div>
           )}
           {isSwapped && (
-            <div className="flex items-center gap-2 rounded-lg bg-blue-500/10 border border-blue-500/30 p-3 text-sm">
+            <div className="flex items-center gap-2 rounded-lg bg-blue-500/10 border border-blue-500/30 p-3 text-sm animate-slide-in-left">
               <ArrowLeftRight className="h-4 w-4 text-blue-500 flex-shrink-0" />
               <span className="text-blue-700 dark:text-blue-400">
                 Swapped from {defaultDayPlan.label} → <strong>{dayPlan.label}</strong>
@@ -601,7 +602,7 @@ export default function WorkoutPage() {
             )}
             {session.status === 'completed' && (
               <div className="flex items-center gap-3 w-full">
-                <Badge variant="default" className="px-4 py-2">
+                <Badge variant="default" className="px-4 py-2 animate-pop">
                   <CheckCircle2 className="mr-2 h-4 w-4" />
                   Completed
                 </Badge>
@@ -670,7 +671,7 @@ export default function WorkoutPage() {
 
         {/* Warmup Section */}
         {workoutPhase === 'warmup' && session.status === 'in_progress' && (
-          <Card className="border-2 border-orange-500/30 bg-orange-500/5">
+          <Card className="border-2 border-orange-500/30 bg-orange-500/5 animate-scale-in">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Flame className="h-5 w-5 text-orange-500" />
@@ -684,7 +685,7 @@ export default function WorkoutPage() {
                 if (!exercise) return null;
                 const isTimed = exercise.category === 'cardio';
                 return (
-                  <div key={entry.exerciseId} className="flex items-center gap-3 p-3 rounded-lg border bg-card">
+                  <div key={entry.exerciseId} className="flex items-center gap-3 p-3 rounded-lg border bg-card animate-rise-in">
                     <Checkbox
                       checked={entry.completed}
                       onCheckedChange={(checked) => {
@@ -694,6 +695,13 @@ export default function WorkoutPage() {
                       }}
                       className="h-5 w-5"
                     />
+                    <div className="h-14 w-14 shrink-0 rounded-md bg-muted/30">
+                      <ExerciseAnimation
+                        exerciseId={entry.exerciseId}
+                        playing={!entry.completed}
+                        label={`Form demonstration for ${exercise.name}`}
+                      />
+                    </div>
                     <div className="flex-1">
                       <span className="text-sm font-medium">{exercise.name}</span>
                       {isTimed && (
@@ -732,7 +740,7 @@ export default function WorkoutPage() {
 
         {/* Cooldown Section */}
         {workoutPhase === 'cooldown' && session.status === 'in_progress' && (
-          <Card className="border-2 border-blue-500/30 bg-blue-500/5">
+          <Card className="border-2 border-blue-500/30 bg-blue-500/5 animate-scale-in">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Snowflake className="h-5 w-5 text-blue-500" />
@@ -745,7 +753,7 @@ export default function WorkoutPage() {
                 const exercise = getExerciseById(entry.exerciseId);
                 if (!exercise) return null;
                 return (
-                  <div key={entry.exerciseId} className="flex items-center gap-3 p-3 rounded-lg border bg-card">
+                  <div key={entry.exerciseId} className="flex items-center gap-3 p-3 rounded-lg border bg-card animate-rise-in">
                     <Checkbox
                       checked={entry.completed}
                       onCheckedChange={(checked) => {
@@ -755,6 +763,13 @@ export default function WorkoutPage() {
                       }}
                       className="h-5 w-5"
                     />
+                    <div className="h-14 w-14 shrink-0 rounded-md bg-muted/30">
+                      <ExerciseAnimation
+                        exerciseId={entry.exerciseId}
+                        playing={!entry.completed}
+                        label={`Form demonstration for ${exercise.name}`}
+                      />
+                    </div>
                     <span className="text-sm font-medium">{exercise.name}</span>
                   </div>
                 );
@@ -837,16 +852,29 @@ export default function WorkoutPage() {
                 </AccordionTrigger>
 
                 <AccordionContent className="pt-4 space-y-4">
-                  {/* YouTube Link */}
-                  <a
-                    href={`https://www.youtube.com/results?search_query=${encodeURIComponent(exercise.youtubeSearchQuery)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    Watch demo on YouTube
-                  </a>
+                  {/* Form demo: animates only while this exercise is expanded */}
+                  <div className="flex items-center gap-4 rounded-lg border bg-muted/20 p-3">
+                    <div className="h-24 w-24 shrink-0">
+                      <ExerciseAnimation
+                        exerciseId={exercise.id}
+                        playing={activeExerciseId === exercise.id}
+                        label={`Animated form demonstration for ${exercise.name}`}
+                      />
+                    </div>
+                    <div className="min-w-0 space-y-1.5">
+                      <p className="text-xs font-medium text-muted-foreground">Form guide</p>
+                      <p className="text-sm">{exercise.instructions[2] ?? exercise.instructions[0]}</p>
+                      <a
+                        href={`https://www.youtube.com/results?search_query=${encodeURIComponent(exercise.youtubeSearchQuery)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Watch demo on YouTube
+                      </a>
+                    </div>
+                  </div>
 
                   {/* Sets */}
                   <div className="space-y-3">
@@ -1005,7 +1033,7 @@ export default function WorkoutPage() {
       {/* Rest Timer */}
       {showTimer && timer.isRunning && (
         <div className="fixed bottom-20 lg:bottom-4 left-0 right-0 lg:left-auto lg:right-4 lg:w-auto z-50 px-4 lg:px-0">
-          <Card className="shadow-lg border-2">
+          <Card className="shadow-lg border-2 animate-scale-in">
             <CardContent className="p-4 flex items-center gap-3">
               <div className="rounded-full bg-primary/10 p-2">
                 <Timer className="h-5 w-5 text-primary" />
@@ -1037,7 +1065,7 @@ export default function WorkoutPage() {
       {/* Superset Timer */}
       {supersetTimer.isActive && supersetTimer.isResting && (
         <div className="fixed bottom-20 lg:bottom-4 left-0 right-0 lg:left-auto lg:right-4 lg:w-auto z-50 px-4 lg:px-0">
-          <Card className="shadow-lg border-2 border-violet-500/50">
+          <Card className="shadow-lg border-2 border-violet-500/50 animate-scale-in">
             <CardContent className="p-4 flex items-center gap-3">
               <div className="rounded-full bg-violet-500/10 p-2">
                 <Zap className="h-5 w-5 text-violet-500" />
