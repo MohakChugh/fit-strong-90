@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
-import { cn, todayString } from '@/lib/utils';
+import { cn, todayString, LB_PER_KG } from '@/lib/utils';
 import { ChipGroup, YesNo } from './ChipGroup';
 import { ShieldAlertIcon, ArrowLeftIcon, ArrowRightIcon, CheckIcon } from 'lucide-react';
 
@@ -37,7 +37,6 @@ const DAY_SHORT: Record<DayOfWeek, string> = {
   monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed', thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun',
 };
 
-const LB_PER_KG = 2.20462;
 
 export function ProfileWizard({ mode, initial, onComplete, onCancel }: Props) {
   const [step, setStep] = useState(1);

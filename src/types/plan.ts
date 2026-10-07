@@ -258,6 +258,8 @@ export interface StepLog {
   kind: Step['kind'];
   completed: boolean;
   skipped?: boolean;
+  /** Entered part-way through ("cool-down only" after a low), so not counted as done. */
+  partial?: boolean;
   /** Strength sets. */
   reps?: number;
   weightKg?: number | null;

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import { buildSessionPlan } from '@/engine/session';
 import { getCoaching } from '@/data/coaching';
-import { catchUpText, scriptFor } from './script';
+import { catchUpText, scriptFor, setupLines } from './script';
 import { segmentsFor } from '@/engine/timing';
 import type { SessionPlan, Step } from '@/types/plan';
 
@@ -84,5 +84,37 @@ describe('narration script', () => {
         if (seg.side) expect(text.toLowerCase()).toContain(seg.side);
       }
     }
+  });
+});
+
+describe('setup lines', () => {
+  const rx = { sets: 1, targetReps: 10, rir: 2 };
+  it('says "1 set", "1 round" and "1 carry", not "1 sets"', () => {
+    const say = (r: Parameters<typeof setupLines>[2]) => setupLines('goblet-squat', 'Goblet Squat', r, undefined, 'detailed').map(l => l.text).join(' ');
+    expect(say(rx)).toContain('1 set of 10.');
+    expect(say({ ...rx, holdSeconds: 20 })).toContain('1 round of 20 second holds');
+    expect(say({ ...rx, carrySeconds: 30 })).toContain('1 carry of 30 seconds');
+    expect(say({ ...rx, sets: 3 })).toContain('3 sets of 10.');
+  });
+});
+
+describe('narration when there is no cardio to do', () => {
+  const profile = createDefaultProfile({ equipment: 'homeNone' });
+  const plan = buildSessionPlan({ profile, date: '2026-10-08', startDate: START, sessions: [], checkIn: { date: '2026-10-08', urgentSymptoms: false, news: ['footProblem'], sleep: 'gt7', energy: 4 } });
+  const all = plan.steps.flatMap(s => cuesFor(profile, plan, s)).map(c => c.say ?? c.text).join(' ');
+
+  it('never sends the user to a machine or promises cardio', () => {
+    expect(plan.cardio).toBeNull();
+    expect(all).not.toMatch(/treadmill|bike|elliptical|minutes of cardio|for your cardio/i);
+  });
+
+  it('welcomes once, introduces the seated flow and ends it without sending anyone to a station', () => {
+    expect(all.match(/Welcome\./g)).toHaveLength(1);
+    expect(all).toMatch(/seated and floor flow/i);
+    const end = plan.steps[plan.steps.length - 2];
+    expect(end).toMatchObject({ kind: 'talk', topic: 'transition', title: 'Flow complete' });
+    const closing = cuesFor(profile, plan, end).map(c => c.text).join(' ');
+    expect(closing).toMatch(/flow done/i);
+    expect(closing).not.toMatch(/first station/i);
   });
 });

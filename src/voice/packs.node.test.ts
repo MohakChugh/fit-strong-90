@@ -19,6 +19,19 @@ describe('recorded voice packs', () => {
     expect(deployed.every(id => VOICE_PACKS.some(p => p.id === id))).toBe(true);
   });
 
+  // Every sentence the coach can say is recorded in every pack, so nothing falls
+  // back to the robotic device voice. Run the catalogue and render-all.sh after
+  // changing any script line.
+  it('records every catalogue sentence in every pack, and ships each clip', () => {
+    for (const id of deployed) {
+      const m = read(id);
+      const missing = lines.filter(l => !(clipKey(l) in m.lines));
+      expect(missing, id).toEqual([]);
+      const absent = Object.keys(m.lines).filter(k => !fs.existsSync(`public/voice/${id}/${k}.${m.format}`));
+      expect(absent, id).toEqual([]);
+    }
+  });
+
   /**
    * The planner sizes steps with `estimate × pace` (engine/speech.ts) and the
    * narrator fits lines into gaps; both must match what the voice really does,

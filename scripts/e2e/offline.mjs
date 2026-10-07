@@ -21,16 +21,25 @@ await page.evaluate(() => {
 });
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(2500);
-await page.goto(`${BASE}#/library`, { waitUntil: 'networkidle' });
-await page.waitForTimeout(1500);
+// Only Today has been opened online: every other screen must still open offline.
 const reg = await page.evaluate(() => navigator.serviceWorker.getRegistration().then(r => !!r?.active));
 await ctx.setOffline(true);
 await page.goto(BASE, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(2500);
 const text = await page.evaluate(() => document.body.innerText.slice(0, 120).replace(/\n/g, ' | '));
 await page.screenshot({ path: '/tmp/fit-offline.png' });
-const ok = reg && /Today|Start|Mon|Tue|Wed|Thu|Fri|Sat|Sun/.test(text) && errs.length === 0;
-console.log(`service worker active: ${reg} | offline page: ${text} | page errors: ${errs.length}`);
+const screen = async (route, expect) => {
+  await page.evaluate(r => { location.hash = r; }, route);
+  await page.waitForTimeout(2500);
+  const t = await page.evaluate(() => document.body.innerText.replace(/\n/g, ' | '));
+  const seen = expect.test(t);
+  console.log(`offline ${route}: ${seen ? 'opens' : 'FAILED'} (${t.slice(0, 80)})`);
+  return seen;
+};
+const library = await screen('#/library', /Showing \d+ of \d+/);
+const session = await screen('#/session', /Start/);
+const ok = reg && library && session && /Today|Start|Mon|Tue|Wed|Thu|Fri|Sat|Sun/.test(text) && errs.length === 0;
+console.log(`service worker active: ${reg} | offline page: ${text} | page errors: ${errs.length}`, errs.slice(0, 2));
 console.log(ok ? 'offline ok' : 'OFFLINE FAILED');
 await b.close();
 process.exit(ok ? 0 : 1);

@@ -82,6 +82,16 @@ describe('60-minute budget', () => {
     });
   }
 
+  it('replaces cardio with a seated and floor flow when nothing suitable is to hand, and still lasts an hour', () => {
+    const s = plan({ equipment: 'homeNone' }, DATES.upperB, { news: ['footProblem'] });
+    expect(s.cardio).toBeNull();
+    expect(s.steps.some(x => x.kind === 'cardio')).toBe(false);
+    expect(s.changes.join(' ')).toMatch(/no cardio today/i);
+    expect(s.totalSeconds).toBeGreaterThanOrEqual(3600 - 120);
+    expect(s.totalSeconds).toBeLessThanOrEqual(3600 + 120);
+    expect(s.blockStarts.wrapUp).toBe(3540);
+  });
+
   it('fills every strength slot, even for the most restricted home profile (Review Focus #3)', () => {
     for (const date of Object.values(DATES).slice(0, 6)) {
       const s = plan(PROFILES.everythingAtHome, date);

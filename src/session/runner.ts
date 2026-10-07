@@ -29,6 +29,12 @@ export interface RunnerState {
   logs: StepLog[];
   startedAt?: number;
   finishedAt?: number;
+  /** Time actually spent running, excluding pauses and time the app was closed. */
+  activeMs?: number;
+  /** Clock time the current running stretch began (unset while not running). */
+  runningSince?: number;
+  /** After a low only the cool-down is allowed (spec §4.6): going back stops here. */
+  coolDownFrom?: { index: number; segment: number };
 }
 
 export type RunnerAction =
@@ -40,7 +46,9 @@ export type RunnerAction =
   | { type: 'previous'; now: number }
   | { type: 'addTime'; now: number; seconds: number }
   | { type: 'log'; entry: StepLog }
-  | { type: 'finish'; now: number };
+  | { type: 'finish'; now: number }
+  /** Jump forward into a later step at one of its segments ("cool-down only" after a low). */
+  | { type: 'seek'; now: number; index: number; segment: number };
 
 export function initialState(plan: SessionPlan): RunnerState {
   return { planId: plan.id, date: plan.date, status: 'ready', index: 0, stepStartedAt: 0, visit: 0, extraMs: {}, logs: [] };
@@ -82,10 +90,22 @@ function completeStep(state: RunnerState, step: Step, at: number, skipped = fals
     at,
     ...('exerciseId' in step && step.exerciseId ? { exerciseId: step.exerciseId } : {}),
     ...(step.kind === 'set' ? { reps: step.holdSeconds || step.carrySeconds ? 1 : step.reps, weightKg: step.load.kg } : {}),
-    ...(skipped ? { skipped: true } : {}),
   };
-  // Keep anything the user logged (actual reps, weight, answers).
-  return upsertLog(state.logs, { ...base, ...existing, completed: existing?.completed ?? !skipped, at });
+  // Keep anything the user logged (actual reps, weight, answers). A step run
+  // to its end is done, whatever an earlier log said (a weight changed mid-set,
+  // a skip the user came back to); one entered part-way is not. A skipped step
+  // stays done only if it already was.
+  const kept: Partial<StepLog> = { ...existing };
+  delete kept.skipped;
+  const completed = skipped ? existing?.completed === true : !existing?.partial;
+  const entry: StepLog = { ...base, ...kept, completed, at, ...(skipped ? { skipped: true } : {}) };
+  const i = state.logs.findIndex(l => l.stepId === step.id);
+  return i < 0 ? [...state.logs, entry] : state.logs.map((l, j) => (j === i ? entry : l));
+}
+
+/** A safety check that holds the session until it is answered, rather than timing out. */
+function awaitsAnswer(step: Step, state: RunnerState): boolean {
+  return step.kind === 'checkpoint' && step.question === 'glucose' && !state.logs.some(l => l.stepId === step.id && l.answer);
 }
 
 export function createRunner(plan: SessionPlan) {
@@ -96,17 +116,22 @@ export function createRunner(plan: SessionPlan) {
     const logs = step ? completeStep(state, step, now, skipped) : state.logs;
     const nextIndex = state.index + 1;
     if (nextIndex >= steps.length) {
-      return { ...state, logs, index: steps.length - 1, status: 'done', finishedAt: now, pausedAt: undefined };
+      // `from` is when the plan's last step ended: a phone that wakes later still finished on time.
+      return { ...state, logs, index: steps.length - 1, status: 'done', finishedAt: from, pausedAt: undefined };
     }
     return { ...state, logs, index: nextIndex, stepStartedAt: from, visit: nextVisit(state) };
   };
 
   function reduce(state: RunnerState, action: RunnerAction): RunnerState {
+    return trackActive(state, apply(state, action), action);
+  }
+
+  function apply(state: RunnerState, action: RunnerAction): RunnerState {
     if (steps.length === 0) return { ...state, status: 'done' };
     switch (action.type) {
       case 'start':
         if (state.status !== 'ready') return state;
-        return { ...state, status: 'running', stepStartedAt: action.now, startedAt: action.now, visit: nextVisit(state) };
+        return { ...state, status: 'running', stepStartedAt: action.now, startedAt: action.now, visit: nextVisit(state), activeMs: 0 };
 
       case 'pause':
         if (state.status !== 'running') return state;
@@ -126,7 +151,7 @@ export function createRunner(plan: SessionPlan) {
           const step = steps[s.index];
           const dur = stepDurationMs(step, s);
           const elapsed = action.now - s.stepStartedAt;
-          if (elapsed < dur) break;
+          if (elapsed < dur || awaitsAnswer(step, s)) break;
           s = advance(s, action.now, s.stepStartedAt + dur);
           if (s.status === 'done') break;
         }
@@ -135,6 +160,9 @@ export function createRunner(plan: SessionPlan) {
 
       case 'next': {
         if (state.status === 'done' || state.status === 'ready') return state;
+        // The glucose check before cardio is answered, not skipped: both of its
+        // buttons carry on, and either says whether cardio is safe.
+        if (awaitsAnswer(steps[state.index], state)) return state;
         const s = advance(state, action.now, action.now, action.reason === 'skip');
         return s.status === 'paused' ? { ...s, pausedAt: action.now } : s;
       }
@@ -143,12 +171,19 @@ export function createRunner(plan: SessionPlan) {
         if (state.status === 'ready') return state;
         const elapsed = elapsedInStep(state, action.now);
         // Within the first 3 seconds go back a step; otherwise restart this one.
-        const index = elapsed < 3000 && state.index > 0 ? state.index - 1 : state.index;
+        let index = elapsed < 3000 && state.index > 0 ? state.index - 1 : state.index;
+        // After a low, never back before the cool-down: it restarts instead.
+        const floor = state.coolDownFrom;
+        const atFloor = !!floor && index <= floor.index;
+        if (atFloor) index = floor.index;
+        const offset = atFloor ? segmentsWithExtra(steps[index], state).slice(0, floor.segment).reduce((t, x) => t + x.ms, 0) : 0;
         return {
           ...state,
           index,
+          // A step entered again from its start is done in full; the cool-down after a low stays partial.
+          logs: atFloor ? state.logs : state.logs.map(l => (l.stepId === steps[index].id && l.partial ? { ...l, partial: undefined } : l)),
           status: state.status === 'done' ? 'running' : state.status,
-          stepStartedAt: action.now,
+          stepStartedAt: action.now - offset,
           visit: nextVisit(state),
           pausedAt: state.status === 'paused' ? action.now : undefined,
           finishedAt: undefined,
@@ -182,10 +217,60 @@ export function createRunner(plan: SessionPlan) {
 
       case 'finish':
         return { ...state, status: 'done', finishedAt: action.now, pausedAt: undefined };
+
+      case 'seek': {
+        if (state.status !== 'running' && state.status !== 'paused') return state;
+        if (action.index < state.index || action.index >= steps.length) return state;
+        let s = state;
+        while (s.index < action.index) {
+          s = advance(s, action.now, action.now, true);
+          if (s.status === 'done') return s;
+        }
+        const target = steps[s.index];
+        const segs = segmentsWithExtra(target, s);
+        const seg = Math.min(Math.max(0, action.segment), segs.length - 1);
+        const offset = segs.slice(0, seg).reduce((t, x) => t + x.ms, 0);
+        const logs = seg > 0
+          ? upsertLog(s.logs, { stepId: target.id, kind: target.kind, completed: false, partial: true, at: action.now, ...('exerciseId' in target && target.exerciseId ? { exerciseId: target.exerciseId } : {}) })
+          : s.logs;
+        return { ...s, logs, coolDownFrom: { index: s.index, segment: seg }, stepStartedAt: action.now - offset, ...(s.status === 'paused' ? { pausedAt: action.now } : {}) };
+      }
     }
   }
 
   return { reduce };
+}
+
+/**
+ * Running time is summed across pauses: each stretch from (re)starting to
+ * pausing or finishing. A run saved before this was tracked has no
+ * `runningSince`, so it keeps the older estimate in logging.ts.
+ */
+function trackActive(prev: RunnerState, next: RunnerState, action: RunnerAction): RunnerState {
+  if (next === prev || !('now' in action)) return next;
+  const was = prev.status === 'running';
+  const is = next.status === 'running';
+  if (was && !is && prev.runningSince !== undefined) {
+    const end = next.status === 'done' && next.finishedAt !== undefined ? Math.min(action.now, next.finishedAt) : action.now;
+    return { ...next, activeMs: (prev.activeMs ?? 0) + Math.max(0, end - prev.runningSince), runningSince: undefined };
+  }
+  if (!was && is) return { ...next, runningSince: action.now };
+  return next;
+}
+
+/**
+ * Where "cool-down only" goes after a low (spec §4.6): the cool-down part of
+ * the cardio still ahead, else the wrap-up. Never the warm-up or the intervals.
+ */
+export function coolDownTarget(plan: SessionPlan, from: number, segment = 0): { index: number; segment: number } | null {
+  for (let i = from; i < plan.steps.length; i++) {
+    const step = plan.steps[i];
+    if (step.kind !== 'cardio') continue;
+    const cool = segmentsFor(step).findIndex(s => s.intensity === 'cooldown');
+    if (cool >= 0 && (i > from || cool > segment)) return { index: i, segment: cool };
+  }
+  const wrap = plan.steps.findIndex((s, i) => i > from && s.block === 'wrapUp');
+  return wrap >= 0 ? { index: wrap, segment: 0 } : null;
 }
 
 function locate(step: Step, state: RunnerState, elapsed: number) {

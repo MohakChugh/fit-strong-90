@@ -6,7 +6,7 @@
 
 import type { SessionPlan } from '@/types/plan';
 import { stepSeconds } from '@/engine/timing';
-import type { RunnerState } from './runner';
+import { position, type RunnerState } from './runner';
 
 const KEY = 'fit-strong-90-guided';
 /** Older progress than this is offered as "discard", not "resume". */
@@ -19,11 +19,13 @@ export interface SavedProgress {
   savedAt: number;
   /** Session-clock time when saved (the runner's time domain). */
   clockAt: number;
+  /** The run's History record id, so a resumed run updates its own record. */
+  sessionId?: string;
 }
 
-export function saveProgress(plan: SessionPlan, state: RunnerState, clockAt: number, savedAt = Date.now()): void {
+export function saveProgress(plan: SessionPlan, state: RunnerState, clockAt: number, savedAt = Date.now(), sessionId?: string): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ plan, state, savedAt, clockAt } satisfies SavedProgress));
+    localStorage.setItem(KEY, JSON.stringify({ plan, state, savedAt, clockAt, ...(sessionId ? { sessionId } : {}) } satisfies SavedProgress));
   } catch {
     // Storage full or unavailable: the session still runs; only resume is lost.
   }
@@ -37,6 +39,22 @@ export function loadProgress(now = Date.now()): SavedProgress | null {
     if (!saved.plan || !saved.state || saved.state.status === 'done') return null;
     if (now - saved.savedAt > RESUME_WINDOW_MS) return null;
     return saved;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Progress too old to resume. Its work still belongs in History, so it is
+ * handed back for banking rather than silently ignored.
+ */
+export function loadExpiredProgress(now = Date.now()): SavedProgress | null {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as SavedProgress;
+    if (!saved.plan || !saved.state || saved.state.status === 'done') return null;
+    return now - saved.savedAt > RESUME_WINDOW_MS ? saved : null;
   } catch {
     return null;
   }
@@ -77,8 +95,17 @@ export function clearProgress(): void {
  * Re-anchor a saved state to "now": a running session resumes paused at the
  * same point within its step, so nothing is skipped while the app was closed.
  */
-export function rehydrate(state: RunnerState, clockAt: number, now: number): RunnerState {
+export function rehydrate(state: RunnerState, clockAt: number, now: number, plan?: SessionPlan): RunnerState {
   if (state.status === 'ready' || state.status === 'done') return state;
   const elapsedAtSave = (state.status === 'paused' && state.pausedAt !== undefined ? state.pausedAt : clockAt) - state.stepStartedAt;
-  return { ...state, status: 'paused', pausedAt: now, stepStartedAt: now - Math.max(0, elapsedAtSave) };
+  // Running time stops at the last save: the time the app was closed isn't training.
+  // A run saved by an older build kept no running time, so start from the
+  // estimate it would have been logged with.
+  const legacy = state.activeMs === undefined && state.startedAt !== undefined && plan
+    ? Math.min(clockAt - state.startedAt, position(plan, state, clockAt).sessionElapsedMs)
+    : undefined;
+  const active = state.status === 'running' && state.runningSince !== undefined
+    ? { activeMs: (state.activeMs ?? 0) + Math.max(0, clockAt - state.runningSince), runningSince: undefined }
+    : legacy !== undefined ? { activeMs: Math.max(0, legacy) } : {};
+  return { ...state, ...active, status: 'paused', pausedAt: now, stepStartedAt: now - Math.max(0, elapsedAtSave) };
 }

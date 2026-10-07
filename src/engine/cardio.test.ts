@@ -20,6 +20,17 @@ function ctxFor(p: ProfileInput, focus: DayFocus = 'upperB', patch: Partial<Read
   };
 }
 
+describe('cardio with nothing suitable to hand', () => {
+  it('never prescribes a machine the user does not have', () => {
+    const c = ctxFor({ equipment: 'homeNone' }, 'upperB', { modifiers: ['FOOT'] });
+    expect(c.conditions.foot).toBe(true);
+    // No machines, and a foot problem rules out walking: no cardio rather than a bike that isn't there.
+    expect(pickModality(c)).toBeNull();
+    expect(cardioPlan(c)).toBeNull();
+    expect(cardioBlock(c)).toEqual([]);
+  });
+});
+
 describe('cardio block', () => {
   it('always fills its budget exactly', () => {
     for (const p of [{}, { equipment: 'homeNone' } as ProfileInput, { health: { peripheralNeuropathy: 'yes' } } as ProfileInput]) {
@@ -33,7 +44,7 @@ describe('cardio block', () => {
   it('caps hot-day work at 8 minutes and gives the rest back as cool-down', () => {
     const c = ctxFor({}, 'upperB', { modifiers: ['HEAT'] });
     const plan = cardioPlan(c);
-    expect(plan.seconds).toBeLessThanOrEqual(480);
+    expect(plan?.seconds).toBeLessThanOrEqual(480);
     const steps = cardioBlock(c);
     expect(totalSeconds(steps)).toBe(BUDGET);
     const step = steps[0];
@@ -66,7 +77,7 @@ describe('cardio block', () => {
     ]) {
       const c = ctxFor({}, 'upperB', patch);
       expect(intervalsAllowed(c).ok, JSON.stringify(patch)).toBe(false);
-      expect(cardioPlan(c).format).toBe('zone2');
+      expect(cardioPlan(c)?.format).toBe('zone2');
     }
   });
 

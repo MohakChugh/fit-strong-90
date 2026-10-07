@@ -317,6 +317,12 @@ describe('ketones', () => {
     const r = evalWith(sglt2, { glucose: { value: 110, unit: 'mg/dL' }, ketones: { value: 1.8, kind: 'blood' } });
     expect(r.outcome).toBe('red');
   });
+
+  it('acts on a ketone reading entered without any glucose reading', () => {
+    expect(evalWith(sglt2, { ketones: { value: 3.2, kind: 'blood' } }).outcome).toBe('urgent');
+    expect(evalWith(sglt2, { ketones: { value: 1.8, kind: 'blood' } }).outcome).toBe('red');
+    expect(evalWith(sglt2, { ketones: { value: 0.2, kind: 'blood' } }).outcome).toBe('green');
+  });
 });
 
 describe('answers outlive profile edits', () => {

@@ -3,7 +3,7 @@ import type { AppData } from '@/types';
 import { createDefaultProfile } from '@/profile/defaults';
 import { buildSessionPlan } from '@/engine/session';
 import { createRunner, initialState, type RunnerState } from './runner';
-import { toWorkoutSession, newRecords, withGuidedSession, activeSeconds } from './logging';
+import { toWorkoutSession, newRecords, withGuidedSession, activeSeconds, bankProgress } from './logging';
 
 const profile = createDefaultProfile({ pain: { areas: ['lowerBack'] }, ladder: { hinge: 2, squat: 2 } });
 const plan = buildSessionPlan({ profile, date: '2026-10-09', startDate: '2026-09-28', sessions: [] });
@@ -72,11 +72,71 @@ describe('toWorkoutSession', () => {
     expect(w.completedAt).toBeNull();                                     // ended early
   });
 
+  it('does not count a run skipped from start to finish as a session done', () => {
+    let s = runner.reduce(initialState(plan), { type: 'start', now: 0 });
+    for (let i = 0; i < plan.steps.length && s.status !== 'done'; i++) s = runner.reduce(s, { type: 'next', now: 1000 + i, reason: 'skip' });
+    expect(s.status).toBe('done');
+    const w = toWorkoutSession(plan, s, { sessionId: 'g8' });
+    expect(w.status).toBe('skipped');
+    expect(w.completedAt).toBeNull();
+  });
+
+  it('counts a run that reached the end with most of the work skipped as partial', () => {
+    let s = runner.reduce(initialState(plan), { type: 'start', now: 0 });
+    s = runner.reduce(s, { type: 'tick', now: 120_000 });   // the first couple of minutes, done
+    for (let i = 0; i < plan.steps.length && s.status !== 'done'; i++) s = runner.reduce(s, { type: 'next', now: 130_000 + i, reason: 'skip' });
+    expect(toWorkoutSession(plan, s, { sessionId: 'g9' }).status).toBe('partial');
+  });
+
+  it('records the time actually spent, without pauses or the unfinished rest of a step', () => {
+    let s = runner.reduce(initialState(plan), { type: 'start', now: 0 });
+    s = runner.reduce(s, { type: 'pause', now: 10_000 });
+    s = runner.reduce(s, { type: 'resume', now: 610_000 });
+    s = runner.reduce(s, { type: 'finish', now: 620_000 });
+    expect(toWorkoutSession(plan, s, { sessionId: 'g10' }).durationSeconds).toBe(20);
+  });
+
   it('records when a finished session actually ended, and how long it took', () => {
     const state = finishedRun();
     const done = toWorkoutSession(plan, state, { sessionId: 'g7' });
     expect(new Date(done.completedAt!).getTime()).toBe(state.finishedAt);
     expect(done.durationSeconds).toBe(activeSeconds(plan, state));
+  });
+});
+
+describe('bankProgress', () => {
+  const empty: AppData = {
+    version: 3, settings: {} as AppData['settings'], sessions: [], bodyMetrics: [], personalRecords: [], checkIns: [], profile,
+  };
+  it('saves the work of progress that can no longer be resumed', () => {
+    let s = runner.reduce(initialState(plan), { type: 'start', now: 0 });
+    s = runner.reduce(s, { type: 'tick', now: 400_000 });
+    s = runner.reduce(s, { type: 'pause', now: 400_000 });
+    const data = bankProgress(empty, { plan, state: s }, 'old-1');
+    expect(data.sessions).toHaveLength(1);
+    expect(data.sessions[0]).toMatchObject({ id: 'old-1', status: 'partial', guided: true });
+  });
+  it('keeps the time spent in the banked record', () => {
+    let s = runner.reduce(initialState(plan), { type: 'start', now: 0 });
+    s = runner.reduce(s, { type: 'tick', now: 400_000 });
+    s = runner.reduce(s, { type: 'pause', now: 400_000 });
+    expect(bankProgress(empty, { plan, state: s, clockAt: 400_000 }, 'old-3').sessions[0].durationSeconds).toBe(400);
+    // Saved while still running: the stretch up to the save counts too.
+    const running = runner.reduce(runner.reduce(initialState(plan), { type: 'start', now: 0 }), { type: 'tick', now: 300_000 });
+    expect(bankProgress(empty, { plan, state: running, clockAt: 300_000 }, 'old-4').sessions[0].durationSeconds).toBe(300);
+  });
+
+  it('is not wiped out when another guided run that day is saved', () => {
+    let s = runner.reduce(initialState(plan), { type: 'start', now: 0 });
+    s = runner.reduce(runner.reduce(s, { type: 'tick', now: 400_000 }), { type: 'pause', now: 400_000 });
+    const banked = bankProgress(empty, { plan, state: s, clockAt: 400_000 }, 'banked');
+    const later = withGuidedSession(banked, toWorkoutSession(plan, finishedRun(), { sessionId: 'second-run' }));
+    expect(later.sessions.map(x => x.id).sort()).toEqual(['banked', 'second-run']);
+  });
+
+  it('leaves History alone when nothing was done', () => {
+    const s = runner.reduce(initialState(plan), { type: 'start', now: 0 });
+    expect(bankProgress(empty, { plan, state: s }, 'old-2')).toBe(empty);
   });
 });
 
@@ -97,7 +157,7 @@ describe('withGuidedSession', () => {
     expect(data.sessions[0]).toMatchObject({ id: 'g-same', status: 'completed', painAfter: 3 });
   });
 
-  it('replaces an unfinished session for the same day and keeps other days', () => {
+  it('replaces an empty unfinished record for the same day and keeps other days', () => {
     const partial = toWorkoutSession(plan, runner.reduce(initialState(plan), { type: 'start', now: 0 }), { sessionId: 'g-part' });
     const other = { ...partial, id: 'g-old', date: '2026-10-08' };
     const finished = toWorkoutSession(plan, finishedRun(), { sessionId: 'g-done' });

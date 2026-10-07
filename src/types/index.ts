@@ -148,6 +148,8 @@ export interface AppData {
   profile?: UserProfile;
   /** v3: daily check-ins with the readiness the app computed. */
   checkIns?: CheckInRecord[];
+  /** Workouts swapped in on the Workout page, by date (YYYY-MM-DD). No key means the scheduled focus. */
+  focusOverrides?: Record<string, DayFocus>;
 }
 
 export type { UserProfile } from './profile';

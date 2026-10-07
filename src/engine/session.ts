@@ -81,6 +81,16 @@ function planId(date: string, focus: DayFocus, kind: string, r: Readiness): stri
   return `${date}:${focus}:${kind}:${r.outcome}:${[...r.modifiers].sort().join('')}`;
 }
 
+/**
+ * A mobility block standing in for cardio: its opening introduces the flow
+ * instead of welcoming the user a second time, and its end closes the flow.
+ */
+function seatedFlow(steps: Step[]): Step[] {
+  return steps.map(s => (s.kind !== 'talk' ? s
+    : s.topic === 'welcome' ? { ...s, block: 'mobility' as const, title: 'Seated and floor flow', topic: 'blockIntro' as const }
+      : s.topic === 'transition' ? { ...s, title: 'Flow complete' } : s));
+}
+
 export function buildSessionPlan(input: PlanInput): SessionPlan {
   const { profile, date } = input;
   const readiness = input.checkIn
@@ -127,10 +137,12 @@ export function buildSessionPlan(input: PlanInput): SessionPlan {
       mode: 'deload', budgetSeconds: kind === 'restDay' ? 900 : 600, idPrefix: 'c',
     });
     const steps = [...mobility, ...cardio, wrapUp(60)];
-    if (kind === 'recovery') changes.push('Recovery session: gentle mobility, nerve glides and an easy walk. No lifting today.');
+    if (kind === 'recovery') changes.push(cardio.length
+      ? 'Recovery session: gentle mobility, nerve glides and an easy walk. No lifting today.'
+      : 'Recovery session: gentle mobility and nerve glides. No lifting today, and no walking with a foot problem.');
     return {
       ...base, id: planId(date, focus, kind, readiness), kind, steps, exercises: [],
-      cardio: { modality: (cardio[0] as Extract<Step, { kind: 'cardio' }>).exerciseId, format: 'easy', seconds: stepSeconds(cardio[0]) },
+      cardio: cardio.length ? { modality: (cardio[0] as Extract<Step, { kind: 'cardio' }>).exerciseId, format: 'easy', seconds: stepSeconds(cardio[0]) } : null,
       blockStarts: blockStartsOf(steps), totalSeconds: steps.reduce((s, x) => s + stepSeconds(x), 0), changes, warnings,
     };
   }
@@ -179,17 +191,22 @@ export function buildSessionPlan(input: PlanInput): SessionPlan {
   const cardioBudget = budget.cardio - (glucoseCheck ? 30 : 0);
   const cplan = cardioPlan({ ...cardioCtx, budgetSeconds: cardioBudget });
   const fit = fitStrength(planned, {
-    slots, backProfile, budgetSeconds: budget.strength, nextTitle: getMeta(cplan.modality)?.name ?? 'cardio', idPrefix: 's', speech,
+    slots, backProfile, budgetSeconds: budget.strength, nextTitle: (cplan && getMeta(cplan.modality)?.name) ?? 'cardio', idPrefix: 's', speech,
   });
   changes.push(...fit.cuts);
   warnings.push(...fit.warnings);
 
-  const cardioSteps: Step[] = [
-    ...(glucoseCheck ? [{ kind: 'checkpoint' as const, id: 'c-glucose', block: 'cardio' as const, title: 'Glucose check', question: 'glucose' as const, seconds: 30 }] : []),
-    ...cardioBlock({ ...cardioCtx, budgetSeconds: cardioBudget }),
-  ];
+  // Nothing to do cardio on without standing (a foot problem, no machine): an
+  // easy seated and floor flow takes its place, so the session still ends on time.
+  const cardioSteps: Step[] = cplan
+    ? [
+      ...(glucoseCheck ? [{ kind: 'checkpoint' as const, id: 'c-glucose', block: 'cardio' as const, title: 'Glucose check', question: 'glucose' as const, seconds: 30 }] : []),
+      ...cardioBlock({ ...cardioCtx, budgetSeconds: cardioBudget }),
+    ]
+    : seatedFlow(mobilityBlock({ dayType: 'core', profile, readiness, conditions, equipment, week, budgetSeconds: budget.cardio, coverage, idPrefix: 'c', speech }));
+  if (!cplan) changes.push('No cardio today: with a foot problem and no bike or other machine to hand, an easy seated and floor mobility flow takes its place.');
   const interval = intervalsAllowed({ ...cardioCtx, budgetSeconds: cardioBudget });
-  if (cplan.format !== 'intervals' && !interval.ok && ['upperB', 'upperC', 'pull', 'push'].includes(focus) && interval.reason) {
+  if (cplan && cplan.format !== 'intervals' && !interval.ok && ['upperB', 'upperC', 'pull', 'push'].includes(focus) && interval.reason) {
     changes.push(`Steady cardio instead of intervals: ${interval.reason}.`);
   }
 

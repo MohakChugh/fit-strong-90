@@ -26,6 +26,8 @@ export interface LogOptions {
  */
 export function activeSeconds(plan: SessionPlan, state: RunnerState): number | undefined {
   if (state.startedAt === undefined || state.finishedAt === undefined) return undefined;
+  if (state.activeMs !== undefined) return Math.round(state.activeMs / 1000);
+  // Runs saved before the runner tracked active time: an estimate.
   const covered = position(plan, state, state.finishedAt).sessionElapsedMs;
   return Math.round(Math.min(state.finishedAt - state.startedAt, covered) / 1000);
 }
@@ -65,14 +67,21 @@ export function toWorkoutSession(plan: SessionPlan, state: RunnerState, opts: Lo
   }
 
   // "Finish now", the low-glucose exit and an abandoned session all leave the
-  // runner at `done`, so only a run that consumed the last step counts as
-  // completed — otherwise five minutes would feed the streak and phase progress
-  // as a full session (Review Focus #2).
+  // runner at `done`, so a session counts as completed only when the run got to
+  // the end AND at least half of the exercise time was actually done. Otherwise
+  // five minutes, or skipping straight through, would feed the streak and phase
+  // progress as a full session (Review Focus #2).
   const lastStep = plan.steps[plan.steps.length - 1];
   const reachedEnd = state.status === 'done' && !!lastStep && logById.has(lastStep.id);
+  const work = plan.steps.filter(s => s.kind === 'hold' || s.kind === 'drill' || s.kind === 'cardio' || (s.kind === 'set' && !s.ramp));
+  const plannedWork = work.reduce((t, s) => t + stepSeconds(s), 0);
+  const doneWork = work.filter(s => logById.get(s.id)?.completed).reduce((t, s) => t + stepSeconds(s), 0);
+  const status: WorkoutSession['status'] = doneWork === 0
+    ? (state.status === 'done' ? 'skipped' : 'in_progress')
+    : reachedEnd && doneWork * 2 >= plannedWork ? 'completed' : 'partial';
   const seconds = activeSeconds(plan, state);
   const startedAt = state.startedAt ? new Date(state.startedAt).toISOString() : null;
-  const completedAt = reachedEnd && state.finishedAt !== undefined
+  const completedAt = status === 'completed' && state.finishedAt !== undefined
     ? new Date(state.finishedAt).toISOString()
     : null;
 
@@ -83,7 +92,7 @@ export function toWorkoutSession(plan: SessionPlan, state: RunnerState, opts: Lo
     muscleGroup: focusMuscleGroup(plan.focus),
     phase: plan.phase,
     week: plan.week,
-    status: reachedEnd ? 'completed' : sets.some(s => s.status === 'completed') || mobility.length > 0 ? 'partial' : 'in_progress',
+    status,
     sets,
     startedAt,
     completedAt,
@@ -113,7 +122,10 @@ export function toWorkoutSession(plan: SessionPlan, state: RunnerState, opts: Lo
  * in-session symptom checkpoint steps that track down (spec §6.6, §4.5).
  */
 export function withGuidedSession(data: AppData, session: WorkoutSession): AppData {
-  const sessions = [session, ...data.sessions.filter(s => s.id !== session.id && !(s.date === session.date && s.guided && s.status !== 'completed'))]
+  // Each run keeps its own record (a resumed run carries its id), so another
+  // run on the same day with real work in it, such as work banked before a
+  // swap, is never removed. An empty unfinished record that day is replaced.
+  const sessions = [session, ...data.sessions.filter(s => s.id !== session.id && !(s.date === session.date && s.guided && s.status === 'in_progress'))]
     .sort((a, b) => b.date.localeCompare(a.date));
   return {
     ...data,
@@ -121,6 +133,26 @@ export function withGuidedSession(data: AppData, session: WorkoutSession): AppDa
     personalRecords: mergeRecords(data.personalRecords, newRecords(session, data.personalRecords)),
     ...(data.profile ? { profile: { ...data.profile, ladder: updateLadder(data.profile.ladder, sessions, session.date) } } : {}),
   };
+}
+
+/**
+ * Bank unfinished progress (another day's, or too old to resume) into History,
+ * unless nothing was done or that day already has a finished guided session.
+ */
+export function bankProgress(data: AppData, saved: { plan: SessionPlan; state: RunnerState; clockAt?: number }, sessionId: string): AppData {
+  // Close the run where it was last saved, so its time spent is kept.
+  const at = saved.clockAt ?? saved.state.pausedAt ?? saved.state.startedAt;
+  const state: RunnerState = saved.state.finishedAt !== undefined || at === undefined ? saved.state : {
+    ...saved.state,
+    finishedAt: at,
+    ...(saved.state.status === 'running' && saved.state.runningSince !== undefined
+      ? { activeMs: (saved.state.activeMs ?? 0) + Math.max(0, at - saved.state.runningSince), runningSince: undefined }
+      : {}),
+  };
+  const session = toWorkoutSession(saved.plan, state, { sessionId });
+  if (session.status === 'in_progress') return data;
+  if (data.sessions.some(s => s.date === session.date && s.guided && s.status === 'completed')) return data;
+  return withGuidedSession(data, session);
 }
 
 function mergeRecords(existing: PersonalRecord[], fresh: PersonalRecord[]): PersonalRecord[] {

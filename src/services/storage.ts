@@ -7,11 +7,12 @@ import type {
   DayOfWeek,
 } from '@/types';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
+import { calculateVolume, deriveRecords, displayToCm, displayToKg } from '@/lib/utils';
 
 /** Every localStorage key this app owns starts with this (see `resetData`). */
 const KEY_PREFIX = 'fit-strong-90';
 const STORAGE_KEY = `${KEY_PREFIX}-data`;
-export const CURRENT_VERSION = 3;
+export const CURRENT_VERSION = 4;
 
 // Default settings
 const DEFAULT_SETTINGS: UserSettings = {
@@ -236,6 +237,17 @@ export function resetData(): void {
 }
 
 /**
+ * "Reset All Data": clear everything, then reload onto onboarding. Every
+ * mounted `useAppData`, App's route gate included, still holds the old data,
+ * so only a full reload drops it, as import and finishing onboarding do.
+ */
+export function resetAndRestart(loc: Pick<Location, 'replace' | 'reload'> = window.location): void {
+  resetData();
+  loc.replace('#/onboarding');
+  loc.reload();
+}
+
+/**
  * Migrate data from older versions
  */
 export function migrateData(data: AppData): AppData {
@@ -281,6 +293,34 @@ export function migrateData(data: AppData): AppData {
         needsHealthReview: true,
       });
     }
+  }
+
+  // v3 → v4: weights are stored in kilograms. Manual sets used to be saved as
+  // typed, so an imperial user's were pounds; guided sessions always logged
+  // kilograms. Metric users' data is already right and stays untouched.
+  if (from < 4 && migrated.settings.useMetric === false) {
+    migrated.sessions = migrated.sessions.map(s => {
+      if (s.guided === true) return s;
+      const sets = s.sets.map(set => (set.weight === null ? set : { ...set, weight: displayToKg(set.weight, false) }));
+      return { ...s, sets, totalVolume: calculateVolume(sets) };
+    });
+    migrated.personalRecords = deriveRecords(migrated.sessions, migrated.personalRecords);
+    // Settings saved bodyweight as typed, while onboarding and the profile
+    // saved kg: the profile says which one this is.
+    const cw = migrated.settings.currentWeight;
+    const kg = migrated.profile?.weightKg;
+    // Within 10 % of the profile weight in kg it was kg; within 10 % once read as
+    // pounds it was pounds (the two differ 2.2-fold, so they can't be confused).
+    const near = (a: number) => Math.abs(a - (kg ?? 0)) <= 0.1 * (kg ?? 0);
+    if (cw && kg && !near(cw) && near(displayToKg(cw, false))) {
+      migrated.settings = { ...migrated.settings, currentWeight: Math.round(displayToKg(cw, false) * 100) / 100 };
+    }
+    // Body metrics were saved as typed too: pounds and inches.
+    migrated.bodyMetrics = migrated.bodyMetrics.map(m => ({
+      ...m,
+      weight: m.weight === null ? null : displayToKg(m.weight, false),
+      waist: m.waist === null ? null : displayToCm(m.waist, false),
+    }));
   }
 
   // Fill any fields missing from a stored or imported profile (older builds,

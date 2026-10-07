@@ -75,8 +75,27 @@ export class CueScheduler {
   }
 
   setNarrator(n: Narrator): void {
+    // A line so far only shown as a caption (the voice pack arrived after
+    // Start) is said again in the new voice; a line a voice began is not.
+    const redo = this.current && this.narrator.kind === 'captions' ? this.current.cue : null;
     this.stop();
     this.narrator = n;
+    if (redo) {
+      this.spoken.delete(this.key(redo.id));
+      this.queue = [...this.queue, redo].sort((a, b) => a.startAt - b.startAt || a.priority - b.priority);
+    }
+  }
+
+  /**
+   * Jumped to a new point of the session ("cool-down only"): everything the
+   * clock has already passed is out of date, but there is no gap to explain,
+   * so no catch-up line. Safety cues stay.
+   */
+  skipPast(now: number): void {
+    this.horizon = Math.max(this.horizon, now - this.staleOnReturnMs);
+    for (const c of this.queue.filter(c => c.priority > 0 && c.startAt < this.horizon)) this.consume(c);
+    if (this.current && this.current.cue.priority > 0) this.stop();
+    this.lastTickAt = now;
   }
 
   setMuted(m: boolean): void {

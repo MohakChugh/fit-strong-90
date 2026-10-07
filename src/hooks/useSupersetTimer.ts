@@ -1,112 +1,92 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useReducer, useCallback, useEffect } from 'react';
 import { formatDuration } from '@/lib/utils';
 import type { SupersetGroup } from '@/types';
+import { countdown, secondsLeft, startCountdown, tickCountdown, type Countdown } from './useTimer';
 
-interface SupersetTimerState {
+export interface SupersetState {
   activeGroup: SupersetGroup | null;
   currentExerciseIndex: number;
-  isResting: boolean;
-  restSeconds: number;
-  isActive: boolean;
+  /** The rest before the next exercise, while one is running. */
+  rest: Countdown | null;
+}
+
+export type SupersetAction =
+  | { type: 'start'; group: SupersetGroup }
+  | { type: 'completeSet'; now: number }
+  | { type: 'tick'; now: number }
+  | { type: 'skipRest' }
+  | { type: 'end' };
+
+export const SUPERSET_IDLE: SupersetState = { activeGroup: null, currentExerciseIndex: 0, rest: null };
+
+/** On to the next exercise, back to the first after the last. */
+function advance(state: SupersetState): SupersetState {
+  if (!state.activeGroup) return state;
+  return { ...state, rest: null, currentExerciseIndex: (state.currentExerciseIndex + 1) % state.activeGroup.exerciseIds.length };
+}
+
+export function supersetReducer(state: SupersetState, action: SupersetAction): SupersetState {
+  switch (action.type) {
+    case 'start':
+      return { ...SUPERSET_IDLE, activeGroup: action.group };
+    case 'end':
+      return SUPERSET_IDLE;
+    case 'skipRest':
+      return advance(state);
+    case 'completeSet': {
+      const group = state.activeGroup;
+      if (!group) return state;
+      // Finishing the last exercise of a round earns the after-round rest.
+      const roundDone = (state.currentExerciseIndex + 1) % group.exerciseIds.length === 0;
+      const seconds = roundDone ? group.restAfterRoundSeconds : group.restBetweenSeconds;
+      return seconds > 0 ? { ...state, rest: startCountdown(countdown(seconds), action.now) } : advance(state);
+    }
+    case 'tick': {
+      if (!state.rest) return state;
+      const rest = tickCountdown(state.rest, action.now);
+      if (rest.endsAt === null) return advance(state);
+      return rest === state.rest ? state : { ...state, rest };
+    }
+  }
 }
 
 export function useSupersetTimer() {
-  const [state, setState] = useState<SupersetTimerState>({
-    activeGroup: null,
-    currentExerciseIndex: 0,
-    isResting: false,
-    restSeconds: 0,
-    isActive: false,
-  });
-  const intervalRef = useRef<number | null>(null);
+  const [state, dispatch] = useReducer(supersetReducer, SUPERSET_IDLE);
+  const isResting = state.rest !== null;
 
-  const startSuperset = useCallback((group: SupersetGroup) => {
-    setState({
-      activeGroup: group,
-      currentExerciseIndex: 0,
-      isResting: false,
-      restSeconds: 0,
-      isActive: true,
-    });
-  }, []);
+  const startSuperset = useCallback((group: SupersetGroup) => dispatch({ type: 'start', group }), []);
+  const completeSet = useCallback(() => dispatch({ type: 'completeSet', now: Date.now() }), []);
+  const skipRest = useCallback(() => dispatch({ type: 'skipRest' }), []);
+  const endSuperset = useCallback(() => dispatch({ type: 'end' }), []);
 
-  const completeSet = useCallback(() => {
-    setState((prev) => {
-      if (!prev.activeGroup || !prev.isActive) return prev;
-      // Start rest timer before moving to next exercise
-      return {
-        ...prev,
-        isResting: true,
-        restSeconds: prev.activeGroup.restBetweenSeconds,
-      };
-    });
-  }, []);
-
-  const skipRest = useCallback(() => {
-    setState((prev) => {
-      if (!prev.activeGroup || !prev.isActive) return prev;
-      const nextIndex = (prev.currentExerciseIndex + 1) % prev.activeGroup.exerciseIds.length;
-      return {
-        ...prev,
-        isResting: false,
-        restSeconds: 0,
-        currentExerciseIndex: nextIndex,
-      };
-    });
-  }, []);
-
-  const endSuperset = useCallback(() => {
-    setState({
-      activeGroup: null,
-      currentExerciseIndex: 0,
-      isResting: false,
-      restSeconds: 0,
-      isActive: false,
-    });
-  }, []);
-
-  // Countdown timer for rest periods
+  // Countdown for rest periods, from the clock (see `Countdown`).
   useEffect(() => {
-    if (state.isResting && state.restSeconds > 0) {
-      intervalRef.current = window.setInterval(() => {
-        setState((prev) => {
-          if (prev.restSeconds <= 1) {
-            // Rest complete, advance to next exercise
-            if (!prev.activeGroup) return { ...prev, isResting: false, restSeconds: 0 };
-            const nextIndex = (prev.currentExerciseIndex + 1) % prev.activeGroup.exerciseIds.length;
-            return {
-              ...prev,
-              isResting: false,
-              restSeconds: 0,
-              currentExerciseIndex: nextIndex,
-            };
-          }
-          return { ...prev, restSeconds: prev.restSeconds - 1 };
-        });
-      }, 1000);
-    } else if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-
+    if (!isResting) return;
+    const tick = () => dispatch({ type: 'tick', now: Date.now() });
+    const onVisible = () => { if (document.visibilityState === 'visible') tick(); };
+    const id = window.setInterval(tick, 250);
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [state.isResting, state.restSeconds]);
+  }, [isResting]);
 
-  const currentExerciseId = state.activeGroup?.exerciseIds[state.currentExerciseIndex] ?? null;
-  const nextExerciseIndex = state.activeGroup
-    ? (state.currentExerciseIndex + 1) % state.activeGroup.exerciseIds.length
-    : 0;
-  const nextExerciseId = state.activeGroup?.exerciseIds[nextExerciseIndex] ?? null;
+  const group = state.activeGroup;
+  const restSeconds = state.rest ? secondsLeft(state.rest.leftMs) : 0;
+  const currentExerciseId = group?.exerciseIds[state.currentExerciseIndex] ?? null;
+  const nextExerciseIndex = group ? (state.currentExerciseIndex + 1) % group.exerciseIds.length : 0;
+  const nextExerciseId = group?.exerciseIds[nextExerciseIndex] ?? null;
 
   return {
-    ...state,
+    activeGroup: group,
+    currentExerciseIndex: state.currentExerciseIndex,
+    isActive: group !== null,
+    isResting,
+    restSeconds,
     currentExerciseId,
     nextExerciseId,
-    formatted: formatDuration(state.restSeconds),
+    formatted: formatDuration(restSeconds),
     startSuperset,
     completeSet,
     skipRest,
