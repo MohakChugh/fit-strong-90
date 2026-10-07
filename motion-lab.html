@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Motion lab (dev only)</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: linear-gradient(160deg, #f3efe9, #e3e8ef); font: 13px system-ui, sans-serif; }
+      #grid { display: grid; grid-template-columns: repeat(var(--cols, 1), 1fr); gap: 6px; padding: 6px; height: calc(100% - 12px); }
+      .cell { position: relative; background: linear-gradient(170deg, #f8f6f2, #e7ebf1); border-radius: 10px; overflow: hidden; }
+      .cell span { position: absolute; left: 8px; top: 6px; color: #334; font-weight: 600; z-index: 1; }
+    </style>
+  </head>
+  <body>
+    <div id="grid"></div>
+    <script type="module" src="/src/motion/lab.ts"></script>
+  </body>
+</html>

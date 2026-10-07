@@ -1,278 +1,143 @@
-import { useAppData } from '@/hooks/useLocalStorage';
-import { getWeekNumber, getPhaseForWeek, TOTAL_WEEKS } from '@/lib/utils';
-import { PHASES, weeklyPlan } from '@/data/program';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Calendar, TrendingUp, Target } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useGuided } from '@/hooks/useGuided';
+import { TOTAL_WEEKS, getDayOfWeekFromDate, getPhaseForWeek } from '@/lib/utils';
+import { PHASES } from '@/data/program';
+import { focusLabel, isHeavyFocus, weekFocus, WEEK } from '@/engine/templates';
+import { modeFor } from '@/engine/dosage';
+import { blockMinutes } from '@/components/today/blocks';
+import { Card } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
+import { CalendarDays, ChevronRight, Layers } from 'lucide-react';
 
-const MUSCLE_GROUP_COLORS: Record<string, string> = {
-  back: 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20',
-  chest: 'bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20',
-  legs: 'bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20',
-  shoulders: 'bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/20',
-  arms: 'bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20',
-  core: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20',
-  mobility: 'bg-gray-500/10 text-gray-700 dark:text-gray-400 border-gray-500/20',
-  cardio: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/20',
+/** Main-lift dosing per phase (spec §4.3). */
+const PHASE_DOSE: Record<string, string> = {
+  foundation: 'Main lifts 3 × 8–10 at an easy-to-moderate effort, 3 s down. Learn the patterns.',
+  hypertrophy: 'Main lifts 3–4 × 6–10, a little harder, 2 s down. Build muscle.',
+  strength: 'Main lifts 3–5 × 4–6 (5–8 for spinal lifts until cleared). Build strength.',
 };
 
-export default function PlanPage() {
-  const [data] = useAppData();
-  const currentWeek = getWeekNumber(data.settings.startDate);
-  const currentPhase = getPhaseForWeek(currentWeek);
+const BLOCKS = [
+  { key: 'mobility', label: 'Stretch & mobility', color: 'var(--block-mobility)' },
+  { key: 'strength', label: 'Strength', color: 'var(--block-strength)' },
+  { key: 'cardio', label: 'Cardio', color: 'var(--block-cardio)' },
+] as const;
 
-  // Calculate completed workouts per week
-  const getWeekStats = (week: number) => {
-    const sessionCount = data.sessions.filter(
-      s => s.week === week && s.status === 'completed'
-    ).length;
-    return sessionCount;
-  };
+export default function PlanPage() {
+  const { data, profile, plan, date } = useGuided();
+  const week = weekFocus(profile);
+  const today = getDayOfWeekFromDate(date);
+  const minutes = blockMinutes(plan);
+  const currentPhase = getPhaseForWeek(plan.week);
+  const doneInWeek = (w: number) => data.sessions.filter(s => s.week === w && s.status === 'completed').length;
 
   return (
-    <div className="space-y-6 pb-4">
-      {/* Header */}
+    <div className="flex flex-col gap-6 pb-4">
       <div>
-        <h1 className="text-2xl sm:text-4xl font-bold tracking-tight">90-Day Program</h1>
-        <p className="text-muted-foreground mt-2">
-          Your complete 12-week transformation journey
+        <h1 className="text-2xl font-bold tracking-tight sm:text-4xl">Your plan</h1>
+        <p className="mt-1 text-muted-foreground">
+          12 weeks, rebuilt every day from your profile, check-in and progress.
         </p>
       </div>
 
-      {/* Phase Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 stagger-children">
-        {PHASES.map((phase) => {
-          const isCurrentPhase = phase.phase === currentPhase;
-          const [startWeek, endWeek] = phase.weeks;
-          const totalWorkouts = data.sessions.filter(
-            s => s.week >= startWeek && s.week <= endWeek && s.status === 'completed'
-          ).length;
+      {/* Today */}
+      <Link to="/dashboard" viewTransition className="press-feedback">
+        <Card className="flex flex-col gap-3 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Today</p>
+              <p className="font-semibold">{plan.label}</p>
+            </div>
+            <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+          </div>
+          {minutes.total > 0 ? (
+            <>
+              <div className="flex h-3 overflow-hidden rounded-full" aria-hidden>
+                {BLOCKS.map(b => minutes[b.key] > 0 && (
+                  <div key={b.key} style={{ flexGrow: minutes[b.key], background: b.color }} />
+                ))}
+              </div>
+              <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                {BLOCKS.map(b => minutes[b.key] > 0 && (
+                  <li key={b.key} className="flex items-center gap-1.5">
+                    <span className="size-2.5 rounded-full" style={{ background: b.color }} aria-hidden />
+                    {b.label} {Math.round(minutes[b.key] / 60)} min
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">Rest today. A gentle walk after meals still helps.</p>
+          )}
+        </Card>
+      </Link>
 
+      {/* This week */}
+      <section className="flex flex-col gap-3">
+        <h2 className="flex items-center gap-2 text-xl font-semibold"><CalendarDays className="size-5" /> This week</h2>
+        <ul className="flex flex-col divide-y rounded-xl border bg-card">
+          {WEEK.map(day => {
+            const focus = week[day];
+            const rest = focus === 'rest';
+            return (
+              <li key={day} className={cn('flex min-h-14 items-center gap-3 px-4 py-2', day === today && 'bg-primary/5')}>
+                <span className={cn('w-10 shrink-0 text-sm font-semibold capitalize', day === today && 'text-primary')}>{day.slice(0, 3)}</span>
+                <span className="min-w-0 flex-1">
+                  <span className={cn('block text-sm font-medium', rest && 'text-muted-foreground')}>{focusLabel(focus)}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {rest ? (profile.restDayMobility ? 'Optional 15-min mobility' : 'Walk after meals') : 'Stretch · strength · cardio'}
+                  </span>
+                </span>
+                {day === today && <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">Today</span>}
+                {day !== today && isHeavyFocus(focus) && (
+                  <span className="shrink-0 rounded-full border border-[var(--block-strength)]/50 px-2 py-0.5 text-xs font-medium">Heavy</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        <p className="text-xs text-muted-foreground">
+          Heavy squat and hinge days are kept apart so your back recovers between them.
+        </p>
+      </section>
+
+      {/* 12 weeks */}
+      <section className="flex flex-col gap-3">
+        <h2 className="flex items-center gap-2 text-xl font-semibold"><Layers className="size-5" /> 12 weeks</h2>
+        {PHASES.map(p => {
+          const [from, to] = p.weeks;
+          const isCurrent = p.phase === currentPhase;
           return (
-            <Card
-              key={phase.phase}
-              className={isCurrentPhase ? 'border-primary shadow-md' : ''}
-            >
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-xl">{phase.name}</CardTitle>
-                  {isCurrentPhase && (
-                    <Badge variant="default">Current</Badge>
-                  )}
-                </div>
-                <CardDescription>Weeks {startWeek}-{endWeek}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2 px-4 pb-4">
-                <p className="text-sm text-muted-foreground">{phase.description}</p>
-                <div className="pt-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Target className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-medium">{phase.focus}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm mt-2">
-                    <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                    <span>{totalWorkouts} workouts completed</span>
-                  </div>
-                </div>
-              </CardContent>
+            <Card key={p.phase} className={cn('flex flex-col gap-3 p-4', isCurrent && 'border-primary')}>
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 className="font-semibold">{p.name}</h3>
+                <span className="text-xs text-muted-foreground">Weeks {from}–{to}</span>
+              </div>
+              <p className="text-sm text-muted-foreground">{PHASE_DOSE[p.phase]}</p>
+              <ol className="grid grid-cols-4 gap-2">
+                {Array.from({ length: to - from + 1 }, (_, i) => from + i).filter(w => w <= TOTAL_WEEKS).map(w => {
+                  const mode = modeFor(w);
+                  const done = doneInWeek(w);
+                  return (
+                    <li key={w} aria-current={w === plan.week ? 'step' : undefined}
+                      className={cn('flex min-h-14 flex-col items-center justify-center rounded-lg border px-1 text-center',
+                        w === plan.week ? 'border-primary bg-primary/10' : w < plan.week ? 'bg-muted/50' : '')}>
+                      <span className="text-sm font-semibold">Wk {w}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {mode === 'deload' ? 'Deload' : mode === 'taper' ? 'Taper' : done > 0 ? `${done} done` : ' '}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
             </Card>
           );
         })}
-      </div>
-
-      {/* 12-Week Grid */}
-      <div>
-        <h2 className="text-xl sm:text-2xl font-semibold mb-4 flex items-center gap-2">
-          <Calendar className="h-6 w-6" />
-          12-Week Overview
-        </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 stagger-children">
-          {Array.from({ length: TOTAL_WEEKS }, (_, i) => i + 1).map((week) => {
-            const phase = getPhaseForWeek(week);
-            const phaseInfo = PHASES.find(p => p.phase === phase);
-            const completedWorkouts = getWeekStats(week);
-            const isCurrent = week === currentWeek;
-            const isPast = week < currentWeek;
-            const isFuture = week > currentWeek;
-
-            return (
-              <Card
-                key={week}
-                className={
-                  isCurrent
-                    ? 'border-primary border-2 shadow-lg'
-                    : isPast
-                    ? 'opacity-75'
-                    : ''
-                }
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">Week {week}</CardTitle>
-                    {isCurrent && (
-                      <Badge variant="default" className="text-xs">Now</Badge>
-                    )}
-                    {isFuture && (
-                      <Badge variant="outline" className="text-xs">Upcoming</Badge>
-                    )}
-                  </div>
-                  <CardDescription>{phaseInfo?.name} Phase</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-sm text-muted-foreground">
-                    {completedWorkouts > 0 ? (
-                      <span className="text-primary font-medium">
-                        {completedWorkouts} workout{completedWorkouts !== 1 ? 's' : ''} completed
-                      </span>
-                    ) : isPast ? (
-                      <span className="text-muted-foreground">No workouts</span>
-                    ) : (
-                      <span className="text-muted-foreground">Not started</span>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Weekly Split View */}
-      <div>
-        <h2 className="text-xl sm:text-2xl font-semibold mb-4">Weekly Training Split</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 stagger-children">
-          {weeklyPlan.map((day) => (
-            <Card key={day.dayOfWeek} className={day.isRestDay ? 'bg-muted/50' : ''}>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base capitalize">{day.dayOfWeek}</CardTitle>
-                <CardDescription>{day.label}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <Badge
-                    variant="outline"
-                    className={MUSCLE_GROUP_COLORS[day.muscleGroup]}
-                  >
-                    {day.muscleGroup}
-                  </Badge>
-                  <p className="text-sm text-muted-foreground">
-                    {day.isRestDay ? 'Optional mobility' : `${day.exercises.length} exercises`}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-
-      {/* Progression Logic */}
-      <div>
-        <h2 className="text-xl sm:text-2xl font-semibold mb-4">Program Progression</h2>
-        <Accordion className="w-full">
-          <AccordionItem value="foundation">
-            <AccordionTrigger className="text-lg">
-              <div className="flex items-center gap-2">
-                <Badge variant="outline">Weeks 1-4</Badge>
-                <span>Foundation Phase</span>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent>
-              <div className="space-y-4 pt-2">
-                <p className="text-muted-foreground">
-                  Build proper form and movement patterns with machine-supported exercises.
-                </p>
-                <div className="grid gap-2">
-                  <div className="flex gap-2">
-                    <span className="font-semibold min-w-20">Sets:</span>
-                    <span className="text-muted-foreground">3 sets per exercise</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="font-semibold min-w-20">Reps:</span>
-                    <span className="text-muted-foreground">12-15 reps (moderate weight)</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="font-semibold min-w-20">Focus:</span>
-                    <span className="text-muted-foreground">Perfect form, control, mind-muscle connection</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="font-semibold min-w-20">Equipment:</span>
-                    <span className="text-muted-foreground">Primarily machines, some dumbbells</span>
-                  </div>
-                </div>
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-
-          <AccordionItem value="hypertrophy">
-            <AccordionTrigger className="text-lg">
-              <div className="flex items-center gap-2">
-                <Badge variant="outline">Weeks 5-8</Badge>
-                <span>Hypertrophy Phase</span>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent>
-              <div className="space-y-4 pt-2">
-                <p className="text-muted-foreground">
-                  Increase muscle size with progressive overload and more free weight exercises.
-                </p>
-                <div className="grid gap-2">
-                  <div className="flex gap-2">
-                    <span className="font-semibold min-w-20">Sets:</span>
-                    <span className="text-muted-foreground">4 sets per exercise</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="font-semibold min-w-20">Reps:</span>
-                    <span className="text-muted-foreground">8-12 reps (moderate-heavy weight)</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="font-semibold min-w-20">Focus:</span>
-                    <span className="text-muted-foreground">Volume, time under tension, progressive overload</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="font-semibold min-w-20">Equipment:</span>
-                    <span className="text-muted-foreground">More free weights, barbells introduced</span>
-                  </div>
-                </div>
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-
-          <AccordionItem value="strength">
-            <AccordionTrigger className="text-lg">
-              <div className="flex items-center gap-2">
-                <Badge variant="outline">Weeks 9-12</Badge>
-                <span>Strength Phase</span>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent>
-              <div className="space-y-4 pt-2">
-                <p className="text-muted-foreground">
-                  Build maximal strength and power with compound movements and heavy weights.
-                </p>
-                <div className="grid gap-2">
-                  <div className="flex gap-2">
-                    <span className="font-semibold min-w-20">Sets:</span>
-                    <span className="text-muted-foreground">4-5 sets per exercise</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="font-semibold min-w-20">Reps:</span>
-                    <span className="text-muted-foreground">5-8 reps (heavy weight)</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="font-semibold min-w-20">Focus:</span>
-                    <span className="text-muted-foreground">Maximal strength, power, compound lifts</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="font-semibold min-w-20">Equipment:</span>
-                    <span className="text-muted-foreground">Heavy barbells, squat/deadlift focus</span>
-                  </div>
-                </div>
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </div>
+        <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+          <li><span className="font-medium text-foreground">Deload weeks 4 and 8:</span> half the sets, easier effort and easy cardio, so you come back stronger.</li>
+          <li><span className="font-medium text-foreground">Week 12:</span> a lighter taper and re-tests on spine-friendly lifts only. No one-rep maxes.</li>
+          <li><span className="font-medium text-foreground">Progress:</span> when every set reaches the top of the rep range, the next session adds the smallest step.</li>
+        </ul>
+      </section>
     </div>
   );
 }

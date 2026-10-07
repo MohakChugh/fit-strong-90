@@ -1,252 +1,199 @@
-import { useState, useMemo } from 'react';
-import { exercises, getExercisesByCategory } from '@/data/exercises';
-import { ExerciseAnimation } from '@/components/exercise/ExerciseAnimation';
-import type { MuscleGroup, Difficulty } from '@/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { exercises, getExerciseById } from '@/data/exercises';
+import { getMeta, nameOf } from '@/data/catalog';
+import { getCoaching } from '@/data/coaching';
+import type { CatalogMeta, MobilityRegion, Pattern } from '@/types/catalog';
+import { ChipGroup } from '@/components/profile/ChipGroup';
+import { ExerciseFigure } from '@/components/exercise/ExerciseFigure';
+import { FormDemo } from '@/components/motion/FormDemo';
+import { CoachingDetails } from '@/components/session/InfoSheet';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Button } from '@/components/ui/button';
-import { Search, Dumbbell, AlertCircle, ExternalLink } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { AlertCircle, ChevronRight, LibraryIcon, Search } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
-const DIFFICULTY_COLORS: Record<Difficulty, string> = {
-  beginner: 'bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20',
-  intermediate: 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-500/20',
-  advanced: 'bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20',
+type Kind = 'all' | CatalogMeta['kind'];
+interface Area { value: string; label: string; match: (m: CatalogMeta) => boolean }
+
+const KINDS: { value: Kind; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'mobility', label: 'Stretch & mobility' },
+  { value: 'strength', label: 'Strength' },
+  { value: 'cardio', label: 'Cardio' },
+];
+
+const regions = (value: string, label: string, r: MobilityRegion[]): Area =>
+  ({ value, label, match: m => m.kind === 'mobility' && m.regions.some(x => r.includes(x)) });
+const patterns = (value: string, label: string, p: Pattern[]): Area =>
+  ({ value, label, match: m => m.kind === 'strength' && m.patterns.some(x => p.includes(x)) });
+
+const AREAS: Partial<Record<Kind, Area[]>> = {
+  mobility: [
+    regions('neck', 'Neck', ['neck']),
+    regions('shoulders', 'Shoulders & arms', ['shoulders', 'armsWrists']),
+    regions('upperBack', 'Upper back', ['thoracic', 'lats']),
+    regions('chest', 'Chest', ['chest']),
+    regions('torso', 'Torso', ['torso']),
+    regions('lowerBack', 'Lower back', ['lowerBack']),
+    regions('hips', 'Hips & glutes', ['hipFlexors', 'glutes', 'adductors']),
+    regions('legs', 'Legs', ['hamstrings', 'quads', 'calves']),
+    { value: 'nerve', label: 'Nerve glides', match: m => m.kind === 'mobility' && m.mode === 'slider' },
+  ],
+  strength: [
+    patterns('squat', 'Squat', ['squat']),
+    patterns('hinge', 'Hinge', ['hinge', 'backExtension']),
+    patterns('lunge', 'Lunge & step-up', ['lunge']),
+    patterns('push', 'Push', ['hPush', 'vPush', 'chestFly']),
+    patterns('pull', 'Pull', ['hPull', 'vPull', 'rearDelt']),
+    patterns('core', 'Core', ['antiExtension', 'antiRotation', 'antiLateral', 'rotation']),
+    patterns('carry', 'Carries', ['carry']),
+    patterns('shoulders', 'Shoulders', ['sideDelt', 'rearDelt']),
+    patterns('arms', 'Arms', ['biceps', 'triceps']),
+    patterns('legs', 'Hamstrings & calves', ['kneeFlexion', 'calf']),
+  ],
 };
 
-const CATEGORIES: Array<{ value: MuscleGroup | 'all'; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'back', label: 'Back' },
-  { value: 'chest', label: 'Chest' },
-  { value: 'legs', label: 'Legs' },
-  { value: 'shoulders', label: 'Shoulders' },
-  { value: 'arms', label: 'Arms' },
-  { value: 'core', label: 'Core' },
-  { value: 'cardio', label: 'Cardio' },
-  { value: 'mobility', label: 'Mobility' },
-];
+const BACK_NOTE = {
+  modify: 'Modify for your back',
+  avoidWhenIrritable: 'Skip on flare-up days',
+  excluded: 'Not used in plans',
+} as const;
 
-const DIFFICULTY_FILTERS: Array<{ value: Difficulty | 'all'; label: string }> = [
-  { value: 'all', label: 'All Levels' },
-  { value: 'beginner', label: 'Beginner' },
-  { value: 'intermediate', label: 'Intermediate' },
-  { value: 'advanced', label: 'Advanced' },
-];
+/** "30 s hold · each side, sore side first" from the catalogue dose. */
+function doseLine(m: CatalogMeta | undefined): string {
+  if (m?.kind !== 'mobility') return m?.kind === 'cardio' ? 'Cardio' : 'Strength';
+  const d = m.dose;
+  const amount = d.holdSeconds ? `${d.holdSeconds} s hold` : `${d.reps} ${m.mode === 'breathing' ? 'breaths' : 'slow reps'}`;
+  const sets = d.sets > 1 ? ` × ${d.sets}` : '';
+  const sides = d.sides === 'each' ? ' · each side' : d.sides === 'affectedFirst' ? ' · each side, sore side first' : '';
+  return `${amount}${sets}${sides}`;
+}
 
 export default function LibraryPage() {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<MuscleGroup | 'all'>('all');
-  const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty | 'all'>('all');
-  // Only the expanded card animates; 45 concurrent SVG animations would drop
-  // frames on mid-range phones.
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [params] = useSearchParams();
+  const [query, setQuery] = useState('');
+  const [kind, setKind] = useState<Kind>('all');
+  const [area, setArea] = useState('all');
+  // ?ex=<id> opens an exercise directly (deep link from the session or Today).
+  const [openId, setOpenId] = useState<string | null>(() => params.get('ex'));
 
-  const filteredExercises = useMemo(() => {
-    let filtered = exercises;
+  const list = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const areaDef = AREAS[kind]?.find(a => a.value === area);
+    return exercises.filter(ex => {
+      const m = getMeta(ex.id);
+      if (!m || (kind !== 'all' && m.kind !== kind) || (areaDef && !areaDef.match(m))) return false;
+      return !q || [ex.name, ex.equipment, ...ex.primaryMuscles, ...ex.secondaryMuscles].some(t => t.toLowerCase().includes(q));
+    });
+  }, [query, kind, area]);
 
-    // Filter by category
-    if (selectedCategory !== 'all') {
-      filtered = getExercisesByCategory(selectedCategory);
-    }
-
-    // Filter by difficulty
-    if (selectedDifficulty !== 'all') {
-      filtered = filtered.filter(ex => ex.difficulty === selectedDifficulty);
-    }
-
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(ex =>
-        ex.name.toLowerCase().includes(query) ||
-        ex.primaryMuscles.some(m => m.toLowerCase().includes(query)) ||
-        ex.equipment.toLowerCase().includes(query)
-      );
-    }
-
-    return filtered;
-  }, [searchQuery, selectedCategory, selectedDifficulty]);
-
-  const openYouTube = (query: string) => {
-    window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`, '_blank');
-  };
+  const open = openId ? getExerciseById(openId) : undefined;
+  const openMeta = openId ? getMeta(openId) : undefined;
+  const openCoaching = openId ? getCoaching(openId) : undefined;
+  const related: [string, string | undefined][] = openMeta?.kind === 'strength'
+    ? [['Easier', openMeta.regressionId], ['Harder', openMeta.progressionId]]
+    : openMeta?.kind === 'mobility' ? [['On flare-up days', openMeta.irritableSwap]] : [];
+  const areas = AREAS[kind];
+  // Focus the sheet itself on open: the first link sits near the end and would scroll the sheet down.
+  const sheetRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="space-y-6 pb-4">
-      {/* Header */}
+    <div className="flex flex-col gap-5 pb-4">
       <div>
-        <h1 className="text-2xl sm:text-4xl font-bold tracking-tight flex items-center gap-3">
-          <Dumbbell className="h-8 w-8 sm:h-10 sm:w-10" />
-          Exercise Library
+        <h1 className="flex items-center gap-3 text-2xl font-bold tracking-tight sm:text-4xl">
+          <LibraryIcon className="size-7 sm:size-9" />
+          Library
         </h1>
-        <p className="text-muted-foreground mt-2">
-          {exercises.length} exercises with detailed instructions and alternatives
+        <p className="mt-1 text-muted-foreground">
+          {exercises.length} stretches, exercises and cardio sessions, each with step-by-step coaching.
         </p>
       </div>
 
-      {/* Search Bar */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search exercises by name, muscle, or equipment..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-10 h-11"
-        />
+        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input placeholder="Search name, muscle, equipment" aria-label="Search the library"
+          value={query} onChange={e => setQuery(e.target.value)} className="h-11 pl-10 text-base sm:text-sm" />
       </div>
 
-      {/* Category Filter */}
-      <div>
-        <label className="text-sm font-medium mb-2 block">Category</label>
-        <Tabs value={selectedCategory} onValueChange={(v) => setSelectedCategory(v as MuscleGroup | 'all')}>
-          <TabsList className="flex w-full overflow-x-auto gap-1 h-auto p-1">
-            {CATEGORIES.map(cat => (
-              <TabsTrigger key={cat.value} value={cat.value} className="capitalize whitespace-nowrap">
-                {cat.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-      </div>
+      <ChipGroup label="Type" options={KINDS} value={[kind]} onChange={([v]) => { setKind(v); setArea('all'); }} />
+      {areas && (
+        <ChipGroup label={kind === 'mobility' ? 'Body area' : 'Movement'} options={[{ value: 'all', label: 'All' }, ...areas]}
+          value={[area]} onChange={([v]) => setArea(v)} />
+      )}
 
-      {/* Difficulty Filter */}
-      <div>
-        <label className="text-sm font-medium mb-2 block">Difficulty Level</label>
-        <Tabs value={selectedDifficulty} onValueChange={(v) => setSelectedDifficulty(v as Difficulty | 'all')}>
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 gap-1">
-            {DIFFICULTY_FILTERS.map(diff => (
-              <TabsTrigger key={diff.value} value={diff.value}>
-                {diff.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-      </div>
+      <p className="text-sm text-muted-foreground" aria-live="polite">
+        Showing {list.length} of {exercises.length}
+      </p>
 
-      {/* Results Count */}
-      <div className="text-sm text-muted-foreground">
-        Showing {filteredExercises.length} exercise{filteredExercises.length !== 1 ? 's' : ''}
-      </div>
-
-      {/* Exercise Cards */}
-      {filteredExercises.length === 0 ? (
+      {list.length === 0 ? (
         <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            No exercises found matching your filters. Try adjusting your search or filters.
-          </AlertDescription>
+          <AlertCircle className="size-4" />
+          <AlertDescription>Nothing matches. Try another search or filter.</AlertDescription>
         </Alert>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {filteredExercises.map((exercise) => (
-            <Card key={exercise.id} className="animate-rise-in hover-lift">
-              <CardHeader>
-                <div className="flex items-start justify-between gap-2">
-                  <CardTitle className="text-xl">{exercise.name}</CardTitle>
-                  <Badge
-                    variant="outline"
-                    className={DIFFICULTY_COLORS[exercise.difficulty]}
-                  >
-                    {exercise.difficulty}
-                  </Badge>
-                </div>
-                <CardDescription className="flex items-center gap-2 flex-wrap">
-                  {exercise.primaryMuscles.map((muscle, idx) => (
-                    <Badge key={idx} variant="secondary" className="text-xs">
-                      {muscle}
-                    </Badge>
-                  ))}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Equipment</p>
-                  <p className="text-sm">{exercise.equipment}</p>
-                </div>
-
-                <Accordion
-                  value={expandedId === exercise.id ? ['details'] : []}
-                  onValueChange={(value) => {
-                    const open = Array.isArray(value) && value.length > 0;
-                    setExpandedId(open ? exercise.id : null);
-                  }}
-                >
-                  <AccordionItem value="details" className="border-0">
-                    <AccordionTrigger className="text-sm font-medium py-2">
-                      View Details
-                    </AccordionTrigger>
-                    <AccordionContent className="space-y-4 pt-2">
-                      {/* Animated form demo */}
-                      <div className="h-40 w-full rounded-lg border bg-muted/20">
-                        <ExerciseAnimation
-                          exerciseId={exercise.id}
-                          playing={expandedId === exercise.id}
-                          label={`Animated form demonstration for ${exercise.name}`}
-                        />
-                      </div>
-
-                      {/* Instructions */}
-                      <div>
-                        <p className="text-sm font-semibold mb-2">Instructions</p>
-                        <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
-                          {exercise.instructions.map((instruction, idx) => (
-                            <li key={idx}>{instruction}</li>
-                          ))}
-                        </ol>
-                      </div>
-
-                      {/* Common Mistakes */}
-                      {exercise.commonMistakes.length > 0 && (
-                        <div>
-                          <p className="text-sm font-semibold mb-2 flex items-center gap-2">
-                            <AlertCircle className="h-4 w-4 text-yellow-500" />
-                            Common Mistakes
-                          </p>
-                          <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
-                            {exercise.commonMistakes.map((mistake, idx) => (
-                              <li key={idx}>{mistake}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {/* Alternatives */}
-                      <div className="space-y-2">
-                        {exercise.beginnerAlternative && (
-                          <div>
-                            <p className="text-xs font-medium text-muted-foreground">Beginner Alternative</p>
-                            <p className="text-sm">{exercise.beginnerAlternative}</p>
-                          </div>
-                        )}
-                        {exercise.advancedAlternative && (
-                          <div>
-                            <p className="text-xs font-medium text-muted-foreground">Advanced Alternative</p>
-                            <p className="text-sm">{exercise.advancedAlternative}</p>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* YouTube Demo Button */}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openYouTube(exercise.youtubeSearchQuery)}
-                        className="w-full"
-                      >
-                        <ExternalLink className="h-4 w-4 mr-2" />
-                        Watch Demo on YouTube
-                      </Button>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {list.map(ex => {
+            const status = getCoaching(ex.id)?.backSafety.status;
+            return (
+              <li key={ex.id}>
+                <button type="button" onClick={() => setOpenId(ex.id)}
+                  className="flex min-h-16 w-full items-center gap-3 rounded-xl border bg-card p-3 text-left transition-colors hover:bg-muted/50 press-feedback focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+                  <ExerciseFigure exerciseId={ex.id} compact className="size-12 shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-semibold leading-tight">{ex.name}</span>
+                    <span className="block truncate text-sm text-muted-foreground first-letter:uppercase">{ex.primaryMuscles.slice(0, 3).join(' · ')}</span>
+                    {status && status !== 'ok' && (
+                      <span className={cn('block text-xs font-medium', status === 'modify' ? 'text-amber-700 dark:text-amber-400' : 'text-[var(--safety)]')}>
+                        {BACK_NOTE[status]}
+                      </span>
+                    )}
+                  </span>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       )}
+
+      <Sheet open={!!open} onOpenChange={o => { if (!o) setOpenId(null); }}>
+        <SheetContent ref={sheetRef} initialFocus={sheetRef} side="bottom" className="max-h-[90dvh] overflow-y-auto rounded-t-2xl pb-safe focus:outline-none">
+          {open && (
+            <>
+              <SheetHeader className="pr-12 text-left">
+                <SheetTitle className="text-xl">{open.name}</SheetTitle>
+                <SheetDescription>{doseLine(openMeta)}{open.equipment ? ` · ${open.equipment}` : ''}</SheetDescription>
+              </SheetHeader>
+              <div className="flex flex-col gap-5 px-4 pb-6">
+                <FormDemo exerciseId={open.id} className="h-64 [@media(max-height:640px)]:h-44" />
+                {open.tips && open.tips.length > 0 && (
+                  <section>
+                    <h3 className="mb-2 text-sm font-semibold">Key cues</h3>
+                    <ul className="flex flex-wrap gap-2">
+                      {open.tips.map(t => <li key={t} className="rounded-full bg-muted px-3 py-1.5 text-sm">{t}</li>)}
+                    </ul>
+                  </section>
+                )}
+                {related.some(([, id]) => id) && (
+                  <div className="flex flex-wrap gap-2">
+                    {related.map(([label, id]) => id && (
+                      <button key={label} type="button" onClick={() => setOpenId(id)}
+                        className="min-h-11 rounded-full border px-4 text-left text-sm hover:bg-muted press-feedback">
+                        <span className="text-muted-foreground">{label}:</span> <span className="font-medium">{nameOf(id)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {openCoaching ? <CoachingDetails c={openCoaching} /> : (
+                  <p className="text-sm text-muted-foreground">This one is no longer used in plans. It stays here so your history keeps its name.</p>
+                )}
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

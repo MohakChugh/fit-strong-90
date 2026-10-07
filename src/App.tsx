@@ -1,16 +1,21 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useTheme } from '@/hooks/useTheme';
 import { useAppData } from '@/hooks/useLocalStorage';
 import AppLayout from '@/components/layout/AppLayout';
 import DashboardPage from '@/pages/DashboardPage';
-import WorkoutPage from '@/pages/WorkoutPage';
-import PlanPage from '@/pages/PlanPage';
-import LibraryPage from '@/pages/LibraryPage';
-import ProgressPage from '@/pages/ProgressPage';
-import HistoryPage from '@/pages/HistoryPage';
-import SettingsPage from '@/pages/SettingsPage';
-import OnboardingPage from '@/pages/OnboardingPage';
+
+// Today loads with the app; every other page (and its libraries, like the
+// charts on Progress) loads the first time it's opened.
+const WorkoutPage = lazy(() => import('@/pages/WorkoutPage'));
+const PlanPage = lazy(() => import('@/pages/PlanPage'));
+const LibraryPage = lazy(() => import('@/pages/LibraryPage'));
+const ProgressPage = lazy(() => import('@/pages/ProgressPage'));
+const HistoryPage = lazy(() => import('@/pages/HistoryPage'));
+const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
+const OnboardingPage = lazy(() => import('@/pages/OnboardingPage'));
+const SessionPage = lazy(() => import('@/pages/SessionPage'));
+const ProfilePage = lazy(() => import('@/pages/ProfilePage'));
 
 function App() {
   const { theme } = useTheme();
@@ -31,6 +36,7 @@ function App() {
   }, [theme]);
 
   return (
+    <Suspense fallback={<div className="min-h-dvh bg-background" aria-busy="true" />}>
     <Routes>
       {/* Onboarding Route - No Layout */}
       <Route
@@ -48,6 +54,10 @@ function App() {
           {/* Root redirect */}
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
+          {/* Full-screen guided session and profile editing (no app chrome) */}
+          <Route path="/session" element={<SessionPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+
           {/* App Routes with Layout */}
           <Route element={<AppLayout />}>
             <Route path="/dashboard" element={<DashboardPage />} />
@@ -64,6 +74,7 @@ function App() {
         </>
       )}
     </Routes>
+    </Suspense>
   );
 }
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -19,7 +19,9 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { getCurrentDayOfWeek, formatDate, getWeekNumber, todayString } from '@/lib/utils';
-import { getDayPlan, getPhaseInfo } from '@/data/program';
+import { focusLabel, weekFocus } from '@/engine/templates';
+import { modeFor } from '@/engine/dosage';
+import { getPhaseInfo } from '@/data/program';
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -40,13 +42,11 @@ export default function AppLayout() {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [data] = useAppData();
 
-  const currentDay = getCurrentDayOfWeek();
-  const dayPlan = getDayPlan(currentDay);
-  const week = data.settings.startDate
-    ? getWeekNumber(data.settings.startDate, todayString())
-    : 1;
-  const phaseInfo = getPhaseInfo(week);
   const today = todayString();
+  const week = getWeekNumber(data.settings.startDate, today);
+  const focus = data.profile ? weekFocus(data.profile)[getCurrentDayOfWeek()] : 'rest';
+  const mode = modeFor(week);
+  const phaseInfo = { name: `${getPhaseInfo(week).name}${mode === 'normal' ? '' : mode === 'deload' ? ' · deload' : ' · taper'}` };
 
   return (
     <div className="min-h-screen bg-background">
@@ -106,7 +106,7 @@ export default function AppLayout() {
         </nav>
 
         {/* Phase Badge */}
-        {!sidebarCollapsed && phaseInfo && (
+        {!sidebarCollapsed && (
           <div className="p-4 border-t border-border">
             <div className="space-y-2">
               <div className="text-xs text-muted-foreground">Current Phase</div>
@@ -132,32 +132,23 @@ export default function AppLayout() {
                   <h1 className="text-sm font-semibold">
                     {formatDate(today)}
                   </h1>
-                  {!dayPlan.isRestDay && (
-                    <>
-                      <span className="text-muted-foreground">-</span>
-                      <span className="text-sm text-muted-foreground">{dayPlan.label}</span>
-                    </>
-                  )}
-                  {dayPlan.isRestDay && (
-                    <>
-                      <span className="text-muted-foreground">-</span>
-                      <span className="text-sm text-muted-foreground">Rest Day</span>
-                    </>
-                  )}
+                  <span className="text-muted-foreground">-</span>
+                  <span className="text-sm text-muted-foreground">{focusLabel(focus)}</span>
                 </div>
               </div>
             </div>
-            {phaseInfo && (
-              <Badge variant="outline" className="hidden sm:inline-flex">
-                {phaseInfo.name} • Week {week}
-              </Badge>
-            )}
+            <Badge variant="outline" className="hidden sm:inline-flex">
+              {phaseInfo.name} • Week {week}
+            </Badge>
           </div>
         </header>
 
         {/* Page Content */}
         <main className="p-4 sm:p-6 lg:p-8 pb-24 lg:pb-8">
-          <Outlet />
+          {/* Pages load on first visit; the header and navigation stay put meanwhile. */}
+          <Suspense fallback={<div className="min-h-[60dvh]" aria-busy="true" />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
 

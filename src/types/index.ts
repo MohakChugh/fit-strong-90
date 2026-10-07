@@ -1,6 +1,13 @@
+import type { UserProfile } from './profile';
+import type { CheckInRecord } from './checkin';
+import type { DayFocus } from './plan';
+
 export type Phase = 'foundation' | 'hypertrophy' | 'strength';
 export type DayOfWeek = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
-export type MuscleGroup = 'back' | 'chest' | 'legs' | 'shoulders' | 'arms' | 'core' | 'cardio' | 'mobility';
+export type MuscleGroup =
+  | 'back' | 'chest' | 'legs' | 'shoulders' | 'arms' | 'core' | 'cardio' | 'mobility'
+  // Guided-plan day types (movement-pattern split)
+  | 'upper' | 'lower' | 'fullBody';
 export type Difficulty = 'beginner' | 'intermediate' | 'advanced';
 export type WorkoutStatus = 'not_started' | 'in_progress' | 'completed' | 'skipped' | 'partial';
 export type SetStatus = 'pending' | 'completed' | 'skipped';
@@ -26,6 +33,8 @@ export interface Exercise {
   secondaryMuscles: string[];
   equipment: string;
   instructions: string[];
+  /** Short cues spoken during the set or hold. */
+  tips?: string[];
   commonMistakes: string[];
   beginnerAlternative?: string;
   advancedAlternative?: string;
@@ -53,6 +62,8 @@ export interface WorkoutExercise {
   notes: string;
   difficulty: Difficulty;
   targetMuscles: string[];
+  /** What `reps` counts: reps (default) or seconds for holds and carries. */
+  unit?: 'reps' | 'seconds';
   phaseOverrides?: Partial<Record<Phase, { sets: number; reps: number }>>;
 }
 
@@ -82,6 +93,18 @@ export interface WorkoutSession {
   supersetGroups?: SupersetGroup[];
   /** Per-exercise notes, keyed by exerciseId */
   exerciseNotes?: Record<string, string>;
+  /** Guided-session fields (absent for manually logged workouts). */
+  guided?: boolean;
+  focus?: DayFocus;
+  planId?: string;
+  mobility?: { exerciseId: string; seconds: number }[];
+  cardio?: { modality: string; minutes: number; format: string };
+  checkIn?: CheckInRecord;
+  /** Back or leg pain after the session, 0–10. */
+  painAfter?: number;
+  /** Answers to in-session symptom checkpoints, keyed by exercise id. */
+  symptomChecks?: Record<string, 'better' | 'same' | 'worse'>;
+  durationSeconds?: number;
 }
 
 export interface PersonalRecord {
@@ -121,4 +144,11 @@ export interface AppData {
   sessions: WorkoutSession[];
   bodyMetrics: BodyMetric[];
   personalRecords: PersonalRecord[];
+  /** v3: guided-training profile (absent until onboarding or migration). */
+  profile?: UserProfile;
+  /** v3: daily check-ins with the readiness the app computed. */
+  checkIns?: CheckInRecord[];
 }
+
+export type { UserProfile } from './profile';
+export type { CheckInRecord, DailyCheckIn, Readiness } from './checkin';

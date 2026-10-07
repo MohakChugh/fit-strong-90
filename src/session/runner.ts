@@ -1,0 +1,237 @@
+/**
+ * Session runner: a pure reducer over a SessionPlan plus a position selector.
+ * Elapsed time is derived from clock anchors, so any gap between ticks
+ * (background tab, screen lock) resolves to the right step and segment.
+ */
+
+import type { Segment, SessionPlan, Step, StepLog } from '@/types/plan';
+import { segmentsFor } from '@/engine/timing';
+
+export type RunnerStatus = 'ready' | 'running' | 'paused' | 'done';
+
+export interface RunnerState {
+  planId: string;
+  /** Plan date (YYYY-MM-DD); resumes keep logging to this date. */
+  date: string;
+  status: RunnerStatus;
+  index: number;
+  /** Clock time the current step started, shifted forward by pauses. */
+  stepStartedAt: number;
+  /**
+   * Bumped every time a step is entered (start, next, previous, auto-advance).
+   * The narrator keys "already said" by it, so repeating a step speaks it again
+   * while merely re-anchoring the schedule does not (spec §7.3).
+   */
+  visit: number;
+  pausedAt?: number;
+  /** Extra milliseconds added to a step's segments: stepId → segmentIndex → ms. */
+  extraMs: Record<string, Record<number, number>>;
+  logs: StepLog[];
+  startedAt?: number;
+  finishedAt?: number;
+}
+
+export type RunnerAction =
+  | { type: 'start'; now: number }
+  | { type: 'pause'; now: number }
+  | { type: 'resume'; now: number }
+  | { type: 'tick'; now: number }
+  | { type: 'next'; now: number; reason?: 'skip' | 'doneEarly' }
+  | { type: 'previous'; now: number }
+  | { type: 'addTime'; now: number; seconds: number }
+  | { type: 'log'; entry: StepLog }
+  | { type: 'finish'; now: number };
+
+export function initialState(plan: SessionPlan): RunnerState {
+  return { planId: plan.id, date: plan.date, status: 'ready', index: 0, stepStartedAt: 0, visit: 0, extraMs: {}, logs: [] };
+}
+
+/** Entering a step: a saved state from an older version may not have a visit yet. */
+const nextVisit = (state: RunnerState): number => (state.visit ?? 0) + 1;
+
+export function segmentsWithExtra(step: Step, state: Pick<RunnerState, 'extraMs'>): { segment: Segment; ms: number }[] {
+  const extra = state.extraMs[step.id] ?? {};
+  return segmentsFor(step).map((segment, i) => ({ segment, ms: segment.seconds * 1000 + (extra[i] ?? 0) }));
+}
+
+export function stepDurationMs(step: Step, state: Pick<RunnerState, 'extraMs'>): number {
+  return segmentsWithExtra(step, state).reduce((s, x) => s + x.ms, 0);
+}
+
+/** Elapsed time within the current step (frozen while paused). */
+function elapsedInStep(state: RunnerState, now: number): number {
+  if (state.status === 'ready') return 0;
+  const at = state.status === 'paused' && state.pausedAt !== undefined ? state.pausedAt : now;
+  return Math.max(0, at - state.stepStartedAt);
+}
+
+function upsertLog(logs: StepLog[], entry: StepLog): StepLog[] {
+  const i = logs.findIndex(l => l.stepId === entry.stepId);
+  if (i < 0) return [...logs, entry];
+  const copy = [...logs];
+  copy[i] = { ...copy[i], ...entry };
+  return copy;
+}
+
+function completeStep(state: RunnerState, step: Step, at: number, skipped = false): StepLog[] {
+  const existing = state.logs.find(l => l.stepId === step.id);
+  const base: StepLog = {
+    stepId: step.id,
+    kind: step.kind,
+    completed: !skipped,
+    at,
+    ...('exerciseId' in step && step.exerciseId ? { exerciseId: step.exerciseId } : {}),
+    ...(step.kind === 'set' ? { reps: step.holdSeconds || step.carrySeconds ? 1 : step.reps, weightKg: step.load.kg } : {}),
+    ...(skipped ? { skipped: true } : {}),
+  };
+  // Keep anything the user logged (actual reps, weight, answers).
+  return upsertLog(state.logs, { ...base, ...existing, completed: existing?.completed ?? !skipped, at });
+}
+
+export function createRunner(plan: SessionPlan) {
+  const steps = plan.steps;
+
+  const advance = (state: RunnerState, now: number, from: number, skipped = false): RunnerState => {
+    const step = steps[state.index];
+    const logs = step ? completeStep(state, step, now, skipped) : state.logs;
+    const nextIndex = state.index + 1;
+    if (nextIndex >= steps.length) {
+      return { ...state, logs, index: steps.length - 1, status: 'done', finishedAt: now, pausedAt: undefined };
+    }
+    return { ...state, logs, index: nextIndex, stepStartedAt: from, visit: nextVisit(state) };
+  };
+
+  function reduce(state: RunnerState, action: RunnerAction): RunnerState {
+    if (steps.length === 0) return { ...state, status: 'done' };
+    switch (action.type) {
+      case 'start':
+        if (state.status !== 'ready') return state;
+        return { ...state, status: 'running', stepStartedAt: action.now, startedAt: action.now, visit: nextVisit(state) };
+
+      case 'pause':
+        if (state.status !== 'running') return state;
+        return { ...state, status: 'paused', pausedAt: action.now };
+
+      case 'resume': {
+        if (state.status !== 'paused' || state.pausedAt === undefined) return state;
+        const paused = action.now - state.pausedAt;
+        return { ...state, status: 'running', pausedAt: undefined, stepStartedAt: state.stepStartedAt + paused };
+      }
+
+      case 'tick': {
+        if (state.status !== 'running') return state;
+        let s = state;
+        // Catch up across as many steps as the elapsed time covers.
+        for (let guard = 0; guard < steps.length; guard++) {
+          const step = steps[s.index];
+          const dur = stepDurationMs(step, s);
+          const elapsed = action.now - s.stepStartedAt;
+          if (elapsed < dur) break;
+          s = advance(s, action.now, s.stepStartedAt + dur);
+          if (s.status === 'done') break;
+        }
+        return s;
+      }
+
+      case 'next': {
+        if (state.status === 'done' || state.status === 'ready') return state;
+        const s = advance(state, action.now, action.now, action.reason === 'skip');
+        return s.status === 'paused' ? { ...s, pausedAt: action.now } : s;
+      }
+
+      case 'previous': {
+        if (state.status === 'ready') return state;
+        const elapsed = elapsedInStep(state, action.now);
+        // Within the first 3 seconds go back a step; otherwise restart this one.
+        const index = elapsed < 3000 && state.index > 0 ? state.index - 1 : state.index;
+        return {
+          ...state,
+          index,
+          status: state.status === 'done' ? 'running' : state.status,
+          stepStartedAt: action.now,
+          visit: nextVisit(state),
+          pausedAt: state.status === 'paused' ? action.now : undefined,
+          finishedAt: undefined,
+        };
+      }
+
+      case 'addTime': {
+        if (state.status !== 'running' && state.status !== 'paused') return state;
+        const step = steps[state.index];
+        const pos = locate(step, state, elapsedInStep(state, action.now));
+        /*
+         * Where "+15 s" goes. Tempo is not negotiable: a rep's phases drive the
+         * timer ring ("Rep 1 · lower 3 s"), the rep counting and the 3D demo, so
+         * adding the time inside one would turn a 3 s lowering into an 18 s one.
+         *   · rep phase (inside a set) → the next step, which is the rest after
+         *     the set: "+15 s" mid-set means you want longer before the next one
+         *   · anything else (hold, carry, prep, rest, switch, cardio, talk) →
+         *     that segment, so the hold, the setup or the rest simply lasts longer
+         */
+        const target = pos.segment.kind === 'rep'
+          ? { step: steps[state.index + 1], segmentIndex: 0 }
+          : { step, segmentIndex: pos.segmentIndex };
+        if (!target.step) return state; // last step of the session: nowhere sensible to put it
+        const perStep = { ...(state.extraMs[target.step.id] ?? {}) };
+        perStep[target.segmentIndex] = (perStep[target.segmentIndex] ?? 0) + action.seconds * 1000;
+        return { ...state, extraMs: { ...state.extraMs, [target.step.id]: perStep } };
+      }
+
+      case 'log':
+        return { ...state, logs: upsertLog(state.logs, action.entry) };
+
+      case 'finish':
+        return { ...state, status: 'done', finishedAt: action.now, pausedAt: undefined };
+    }
+  }
+
+  return { reduce };
+}
+
+function locate(step: Step, state: RunnerState, elapsed: number) {
+  const segs = segmentsWithExtra(step, state);
+  let t = 0;
+  for (let i = 0; i < segs.length; i++) {
+    if (elapsed < t + segs[i].ms || i === segs.length - 1) {
+      return { segmentIndex: i, segment: segs[i].segment, segmentStart: t, segmentMs: segs[i].ms };
+    }
+    t += segs[i].ms;
+  }
+  return { segmentIndex: 0, segment: segs[0].segment, segmentStart: 0, segmentMs: segs[0].ms };
+}
+
+export interface Position {
+  step: Step;
+  stepIndex: number;
+  segment: Segment;
+  segmentIndex: number;
+  segmentElapsedMs: number;
+  segmentRemainingMs: number;
+  stepElapsedMs: number;
+  stepRemainingMs: number;
+  /** Progress through the plan's timeline (not wall time). */
+  sessionElapsedMs: number;
+  sessionTotalMs: number;
+}
+
+export function position(plan: SessionPlan, state: RunnerState, now: number): Position {
+  const stepIndex = Math.min(state.index, plan.steps.length - 1);
+  const step = plan.steps[stepIndex];
+  const dur = stepDurationMs(step, state);
+  const stepElapsedMs = state.status === 'done' ? dur : Math.min(dur, elapsedInStep(state, now));
+  const loc = locate(step, state, stepElapsedMs);
+  const before = plan.steps.slice(0, stepIndex).reduce((s, x) => s + stepDurationMs(x, state), 0);
+  const total = plan.steps.reduce((s, x) => s + stepDurationMs(x, state), 0);
+  return {
+    step,
+    stepIndex,
+    segment: loc.segment,
+    segmentIndex: loc.segmentIndex,
+    segmentElapsedMs: Math.min(loc.segmentMs, stepElapsedMs - loc.segmentStart),
+    segmentRemainingMs: Math.max(0, loc.segmentMs - (stepElapsedMs - loc.segmentStart)),
+    stepElapsedMs,
+    stepRemainingMs: Math.max(0, dur - stepElapsedMs),
+    sessionElapsedMs: before + stepElapsedMs,
+    sessionTotalMs: total,
+  };
+}
