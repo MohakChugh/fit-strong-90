@@ -198,14 +198,20 @@ function glucoseRules(p: UserProfile, c: DailyCheckIn, d: DerivedHealth): Contri
   const diabetesKnown = d.diabetic || p.health.diabetes === 'prediabetes';
   if (!diabetesKnown) return [];
   const g = c.glucose;
+  // A ketone reading counts on its own, whatever the glucose: an SGLT2
+  // inhibitor can cause ketoacidosis at a normal level.
+  const ketonesAlone = (): Contribution[] => (c.ketones ? ketoneRules(c, 0, d) : []);
   if (!g) {
-    return d.hypoRisk
-      ? [{ outcome: 'amber', modifiers: ['HYPO', 'INT'], reason: R('noReading', 'No glucose reading: moderate effort, fast carbs within reach, and a check before cardio.', 'amber') }]
-      : [];
+    return [
+      ...(d.hypoRisk
+        ? [{ outcome: 'amber' as const, modifiers: ['HYPO' as const, 'INT' as const], reason: R('noReading', 'No glucose reading: moderate effort, fast carbs within reach, and a check before cardio.', 'amber') }]
+        : []),
+      ...ketonesAlone(),
+    ];
   }
   const sanity = glucoseSanity(g.value, g.unit);
   if (sanity === 'ambiguousLow') {
-    return [{
+    return [...ketonesAlone(), {
       outcome: 'red',
       reason: R('severeLow', `A reading of ${g.value} is a severe low: treat it now with 15 g of fast carbs, then eat. No exercise today.`, 'red'),
       actions: [
@@ -215,7 +221,7 @@ function glucoseRules(p: UserProfile, c: DailyCheckIn, d: DerivedHealth): Contri
     }];
   }
   if (sanity !== 'ok') {
-    return [{
+    return [...ketonesAlone(), {
       outcome: d.hypoRisk ? 'amber' : 'green',
       modifiers: d.hypoRisk ? ['HYPO', 'INT'] : [],
       reason: R('readingCheck', 'That glucose reading looks unusual: check the unit and measure again.', d.hypoRisk ? 'amber' : 'green'),

@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { useTheme } from '@/hooks/useTheme';
-import { exportData, importData, resetData } from '@/services/storage';
-import { todayString } from '@/lib/utils';
+import { exportData, importData, resetAndRestart } from '@/services/storage';
+import { displayToKg, kgToDisplay, todayString } from '@/lib/utils';
 import { createDefaultProfile } from '@/profile/defaults';
 import { packName } from '@/voice/packs';
 import type { VoiceSettings } from '@/types/profile';
@@ -36,8 +36,8 @@ import {
 export default function SettingsPage() {
   const [data, update] = useAppData();
   const { theme, setTheme } = useTheme();
-  const navigate = useNavigate();
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [weightDraft, setWeightDraft] = useState<string | null>(null);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const voice = (data.profile ?? createDefaultProfile()).voice;
 
@@ -59,12 +59,16 @@ export default function SettingsPage() {
     toast.success('Start date updated');
   };
 
+  // Bodyweight is stored in kg (as onboarding and the profile write it) and
+  // shown in the user's unit; the profile's copy moves with it.
   const handleCurrentWeightChange = (value: string) => {
-    const weight = parseFloat(value);
-    if (!isNaN(weight)) {
+    const typed = parseFloat(value);
+    if (!isNaN(typed)) {
+      const kg = Math.round(displayToKg(typed, data.settings.useMetric) * 100) / 100;
       update(prev => ({
         ...prev,
-        settings: { ...prev.settings, currentWeight: weight },
+        settings: { ...prev.settings, currentWeight: kg },
+        ...(prev.profile ? { profile: { ...prev.profile, weightKg: kg } } : {}),
       }));
       toast.success('Weight updated');
     }
@@ -150,11 +154,7 @@ export default function SettingsPage() {
     input.click();
   };
 
-  const handleReset = () => {
-    resetData();
-    toast.success('All data has been reset');
-    navigate('/onboarding');
-  };
+  const handleReset = () => resetAndRestart();
 
   return (
     <div className="flex flex-col gap-6 pb-4 stagger-children">
@@ -217,8 +217,10 @@ export default function SettingsPage() {
               id="current-weight"
               type="number"
               step="0.1"
-              value={data.settings.currentWeight}
-              onChange={(e) => handleCurrentWeightChange(e.target.value)}
+              // A draft while typing: converting each keystroke would round "1" before the "80" arrives.
+              value={weightDraft ?? (data.settings.currentWeight ? String(kgToDisplay(data.settings.currentWeight, data.settings.useMetric)) : '')}
+              onChange={(e) => setWeightDraft(e.target.value)}
+              onBlur={() => { if (weightDraft !== null) handleCurrentWeightChange(weightDraft); setWeightDraft(null); }}
             />
           </div>
 

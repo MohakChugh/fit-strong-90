@@ -85,6 +85,18 @@ export function chunkText(text: string, max = 140): string[] {
   return out;
 }
 
+/**
+ * Unlock device speech: call synchronously inside a tap. iOS ignores speech
+ * until one utterance starts in a gesture, and the voice list may not have
+ * loaded yet, so this needs only the engine, not a chosen voice.
+ */
+export function primeSpeech(synth: SpeechSynthesis | undefined = typeof window !== 'undefined' ? window.speechSynthesis : undefined): void {
+  if (!synth || typeof SpeechSynthesisUtterance === 'undefined' || synth.speaking) return;
+  const u = new SpeechSynthesisUtterance(' ');
+  u.volume = 0;
+  synth.speak(u);
+}
+
 export class SpeechNarrator implements Narrator {
   readonly kind = 'speech' as const;
   voice: SpeechSynthesisVoice | null = null;
@@ -142,6 +154,7 @@ export class SpeechNarrator implements Narrator {
       u.rate = this.rate;
       u.pitch = 1;
       let settled = false;
+      let started = false;
       const done = (r: PlayResult) => {
         if (settled) return;
         settled = true;
@@ -149,15 +162,20 @@ export class SpeechNarrator implements Narrator {
         this.live.delete(u);
         resolve(r);
       };
+      u.onstart = () => { started = true; };
       u.onend = () => done('ended');
       u.onerror = (e: SpeechSynthesisErrorEvent | Event) => {
         const err = (e as SpeechSynthesisErrorEvent).error;
-        done(err === 'interrupted' || err === 'canceled' ? 'aborted' : 'failed');
+        // Our own stop() is an abort; anything else that kills a line before it
+        // starts (the OS cancelling it) means it was never heard.
+        const ours = gen !== this.generation;
+        done((err === 'interrupted' || err === 'canceled') && (ours || started) ? 'aborted' : 'failed');
       };
-      // Watchdog: events get lost (GC, suspension, queued after cancel()).
+      // Watchdog: events get lost (GC, suspension, queued after cancel()). A
+      // line that never even started (speech still locked) was not heard.
       const watchdog = setTimeout(() => {
         if (gen === this.generation && this.synth.speaking) this.synth.cancel();
-        done('ended');
+        done(started ? 'ended' : 'failed');
       }, this.estimateMs(text) * 1.5 + 2500);
       this.live.add(u);
       this.synth.speak(u);

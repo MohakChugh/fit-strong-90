@@ -23,11 +23,25 @@ export interface VoiceManifest {
   lines: Record<string, number>;
 }
 
-/** Why the coach went quiet: blocked needs a tap, failed demotes the voice. */
-export type VoiceTrouble = 'blocked' | 'failed';
+/**
+ * Why the coach went quiet: blocked needs a tap, failed demotes the voice to
+ * the phone's own, silent means neither could speak (captions only).
+ */
+export type VoiceTrouble = 'blocked' | 'failed' | 'silent';
 
-/** A tiny silent WAV, played inside the Start tap to unlock audio on iOS. */
-const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+/** 20 ms of silent 8-bit WAV, played inside a tap to unlock audio on iOS (not zero-length, which a decoder may refuse). */
+const SILENCE = 'data:audio/wav;base64,UklGRsQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YaAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA';
+
+/**
+ * Unlock an <audio> element: call synchronously inside a tap. iOS lets an
+ * element that has played once in a gesture play again later, so the session
+ * keeps one element and unlocks it on Start even before the voice pack arrives.
+ * Returns whether the browser allowed it (false only for a refusal).
+ */
+export function primeAudio(audio: HTMLAudioElement): Promise<boolean> {
+  audio.src = SILENCE;
+  return audio.play().then(() => true, (err: unknown) => (err as { name?: string } | null)?.name !== 'NotAllowedError');
+}
 
 /** Playback must have started by now, or the clip is treated as failed (spec §7.3). */
 const STALL_MS = 1500;
@@ -113,13 +127,17 @@ export class ClipNarrator implements Narrator {
 
   /** Call synchronously inside a user gesture (iOS blocks audio otherwise). */
   unlock(): void {
-    this.audio.src = SILENCE;
-    // Rejected even inside a tap: the user needs to be asked to turn audio on.
-    void this.audio.play().then(() => this.report(null)).catch(() => this.report('blocked'));
+    // A line is playing or loading: the element is already unlocked, and
+    // swapping in silence would cut it off.
+    if (this.current) return;
+    // Refused even inside a tap: the user needs to be asked to turn audio on.
+    // Any other rejection (a clip superseding the silence) is not a block.
+    void primeAudio(this.audio).then(ok => this.report(ok ? null : 'blocked'));
   }
 
   async say(text: string, signal: AbortSignal): Promise<PlayResult> {
     const sentences = splitSentences(text);
+    let unheard = false;
     for (const [i, s] of sentences.entries()) {
       if (signal.aborted) return 'aborted';
       const key = clipKey(s);
@@ -127,9 +145,15 @@ export class ClipNarrator implements Narrator {
       // Nothing was heard: pass the line down the chain rather than skipping it.
       const r = recorded === 'failed' ? await this.speakFallback(s, signal) : recorded;
       if (r === 'aborted') return 'aborted';
+      // Captions are silent too. A block stays reported: one tap fixes it.
+      const voiced = recorded !== 'failed' || (r !== 'failed' && !!this.fallback && this.fallback.kind !== 'captions');
+      if (!voiced) {
+        unheard = true;
+        if (this.trouble !== 'blocked') this.report('silent');
+      }
       if (i < sentences.length - 1 && (await this.wait(this.gapMs, signal)) === 'aborted') return 'aborted';
     }
-    return 'ended';
+    return unheard ? 'failed' : 'ended';
   }
 
   stop(): void {
@@ -163,11 +187,14 @@ export class ClipNarrator implements Narrator {
         clearTimeout(stall);
         a.onended = null;
         a.onerror = null;
+        a.onplaying = null;
         signal.removeEventListener('abort', onAbort);
         if (this.current === cancel) this.current = null;
         if (r === 'failed') {
           try { a.pause(); } catch { /* ignore */ }
-          this.report(blocked ? 'blocked' : 'failed');
+          // A block lasts until sound actually plays (or a tap unlocks it): a
+          // later load error mustn't hide the button that fixes it.
+          this.report(blocked || this.trouble === 'blocked' ? 'blocked' : 'failed');
         } else if (r === 'ended') {
           this.report(null);
         }
@@ -177,12 +204,17 @@ export class ClipNarrator implements Narrator {
       const onAbort = () => { try { a.pause(); } catch { /* ignore */ } finish('aborted'); };
       this.current = cancel;
       signal.addEventListener('abort', onAbort, { once: true });
+      let started = false;
       a.onended = () => finish('ended');
       a.onerror = () => finish('failed');
+      // Sound is actually coming out: any earlier "tap to turn the voice on" is stale.
+      a.onplaying = () => { started = true; this.report(null); };
       // Watchdog: never stall a session on a lost "ended" event.
       const watchdog = setTimeout(() => finish('ended'), (this.manifest.lines[key] ?? 4000) + 2500);
-      // Health check: playback that never starts falls through to the next narrator.
-      const stall = setTimeout(() => { if (a.paused && !a.currentTime) finish('failed'); }, STALL_MS);
+      // Health check: playback that never starts falls through to the next
+      // narrator. `paused` turns false as soon as play() is called, even while
+      // the clip is still buffering, so judge by progress instead.
+      const stall = setTimeout(() => { if (!started && !a.currentTime) finish('failed'); }, STALL_MS);
       a.src = this.urls.get(key) ?? `${this.baseUrl}${key}.${this.manifest.format}`;
       a.currentTime = 0;
       void a.play().catch((err: unknown) => {

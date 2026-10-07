@@ -93,7 +93,7 @@ export function TodayCard({ plan, checkIn, todaySession, resumeMinutesLeft, earl
           </Button>
         ) : (
           <Button className="h-14 text-base w-full" onClick={onStart}>
-            <PlayIcon /> {checkIn ? 'Start session' : 'Check in & start'}
+            <PlayIcon /> {checkIn?.readiness.recheckMinutes ? 'Re-check glucose & start' : checkIn ? 'Start session' : 'Check in & start'}
           </Button>
         )}
 

@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import type { DailyCheckIn, GlucoseTrend, NewsItem, Readiness, SymptomReach } from '@/types/checkin';
+import type { CheckInRecord, DailyCheckIn, GlucoseTrend, NewsItem, Readiness, SymptomReach } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { deriveHealth } from '@/engine/health';
 import { glucoseSanity, toMgdl } from '@/engine/readiness';
@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import type { ChipOption } from '@/components/profile/ChipGroup';
 import { ChipGroup, YesNo } from '@/components/profile/ChipGroup';
 import { OutcomeBanner } from './OutcomeBanner';
+import { initialBp, submitBlocked, submitsGlucose } from './form';
 import { cn } from '@/lib/utils';
 
 interface Props {
@@ -22,7 +23,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   profile: UserProfile;
   date: string;
-  initial?: DailyCheckIn;
+  initial?: CheckInRecord;
   onSave: (c: DailyCheckIn) => Readiness;
   onStart: () => void;
 }
@@ -50,6 +51,9 @@ const URINE_KETONES: ChipOption<string>[] = [
   { value: '80', label: 'Large' },
 ];
 
+/** When a recheck is due; only ever called from the submit tap. */
+const minutesFromNow = (minutes: number) => Date.now() + minutes * 60_000;
+
 export function CheckInSheet({ open, onOpenChange, profile, date, initial, onSave, onStart }: Props) {
   const h = profile.health;
   const d = deriveHealth(h);
@@ -69,10 +73,12 @@ export function CheckInSheet({ open, onOpenChange, profile, date, initial, onSav
   const [trend, setTrend] = useState<GlucoseTrend>(initial?.glucose?.trend ?? 'flat');
   const [rapid, setRapid] = useState(initial?.glucose?.rapidInsulinLast2h ?? false);
   const [ketones, setKetones] = useState(initial?.ketones ? String(initial.ketones.value) : '');
-  const [bp, setBp] = useState({ s1: '', d1: '', s2: '', d2: '' });
+  const [bp, setBp] = useState(() => initialBp(initial?.bp));
   const [sleep, setSleep] = useState<DailyCheckIn['sleep']>(initial?.sleep ?? 'gt7');
   const [energy, setEnergy] = useState<DailyCheckIn['energy']>(initial?.energy ?? 4);
   const [result, setResult] = useState<Readiness | null>(null);
+  // A low at check-in needs a new reading before anything else.
+  const [needsReading, setNeedsReading] = useState(!!initial?.readiness.recheckMinutes);
   const [recheckEnds, setRecheckEnds] = useState<number | null>(null);
   const [remaining, setRemaining] = useState(0);
 
@@ -106,7 +112,7 @@ export function CheckInSheet({ open, onOpenChange, profile, date, initial, onSav
       sleep,
       energy,
       ...(back ? { back: { pain, ...(sciatica ? { legPain, reach } : {}), newNeuro, caudaEquinaFlag: cauda } } : {}),
-      ...(glucoseValue !== undefined && sanity === 'ok'
+      ...(glucoseValue !== undefined && submitsGlucose(sanity)
         ? { glucose: { value: glucoseValue, unit, ...(h.glucoseMonitor === 'cgm' ? { trend } : {}), ...(h.insulin !== 'none' ? { rapidInsulinLast2h: rapid } : {}) } }
         : {}),
       ...(needKetones && ketones ? { ketones: { value: Number(ketones), kind: urineKetones ? 'urine' as const : 'blood' as const } } : {}),
@@ -114,11 +120,13 @@ export function CheckInSheet({ open, onOpenChange, profile, date, initial, onSav
     };
     const r = onSave(c);
     setResult(r);
-    setRecheckEnds(r.recheckMinutes ? Date.now() + r.recheckMinutes * 60_000 : null);
+    setNeedsReading(!!r.recheckMinutes);
+    setRecheckEnds(r.recheckMinutes ? minutesFromNow(r.recheckMinutes) : null);
     if (!r.recheckMinutes) setRemaining(0);
   };
 
-  const canStart = result && ['green', 'amber', 'recovery'].includes(result.outcome) && remaining === 0;
+  // A treat-and-recheck outcome needs a new reading, not just the timer running out.
+  const canStart = result && ['green', 'amber', 'recovery'].includes(result.outcome) && !result.recheckMinutes;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -235,7 +243,8 @@ export function CheckInSheet({ open, onOpenChange, profile, date, initial, onSav
               onChange={([v]) => setEnergy(Number(v) as DailyCheckIn['energy'])} />
 
             {/* An ambiguous low must still be submittable: the engine treats it as a low. */}
-            <Button className="h-14 text-base" disabled={sanity === 'implausible' || sanity === 'suspectUnit'} onClick={submit}>See today’s plan</Button>
+            {needsReading && glucoseValue === undefined && <p className="text-sm font-medium">Enter your new glucose reading to carry on.</p>}
+            <Button className="h-14 text-base" disabled={!!submitBlocked({ sanity, needsReading, hasReading: glucoseValue !== undefined })} onClick={submit}>See today’s plan</Button>
             <p className="text-xs text-muted-foreground">
               General information, not medical advice. Stop and seek help if you feel chest pain, severe breathlessness, faintness or new weakness.
             </p>
@@ -243,11 +252,17 @@ export function CheckInSheet({ open, onOpenChange, profile, date, initial, onSav
         ) : (
           <div className="flex flex-col gap-4 px-4 pb-6">
             <OutcomeBanner readiness={result} />
-            {remaining > 0 && (
+            {!!result.recheckMinutes && (
               <div className="rounded-xl border p-4 text-center">
-                <p className="text-sm text-muted-foreground">Treat and re-check</p>
-                <p className="text-4xl font-bold tabular-nums">{Math.floor(remaining / 60000)}:{String(Math.floor(remaining / 1000) % 60).padStart(2, '0')}</p>
-                <Button variant="outline" className="mt-3 h-11 w-full" onClick={() => { setResult(null); setRecheckEnds(null); setRemaining(0); }}>
+                {remaining > 0 ? (
+                  <>
+                    <p className="text-sm text-muted-foreground">Treat and re-check</p>
+                    <p className="text-4xl font-bold tabular-nums">{Math.floor(remaining / 60000)}:{String(Math.floor(remaining / 1000) % 60).padStart(2, '0')}</p>
+                  </>
+                ) : (
+                  <p className="text-sm font-medium">Time to re-check. The session starts once the new reading is in range.</p>
+                )}
+                <Button variant={remaining > 0 ? 'outline' : 'default'} className="mt-3 h-11 w-full" onClick={() => { setResult(null); setRecheckEnds(null); setRemaining(0); }}>
                   Enter a new reading
                 </Button>
               </div>

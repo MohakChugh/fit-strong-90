@@ -3,7 +3,7 @@ import { chunkText, rankVoices, pickVoice, SpeechNarrator, type VoiceLike } from
 import { CaptionNarrator, type Narrator, type PlayResult } from './narrator';
 import { CueScheduler, type TimedCue } from './scheduler';
 import { estimateSpeechMs, PLANNER_RATE } from './estimate';
-import { ClipNarrator, type VoiceManifest, type VoiceTrouble } from './clips';
+import { ClipNarrator, primeAudio, type VoiceManifest, type VoiceTrouble } from './clips';
 import { clipKey } from './sentences';
 
 describe('chunkText', () => {
@@ -30,18 +30,20 @@ describe('voice ranking', () => {
 });
 
 /** A fake speechSynthesis that can be told to never fire onend. */
-function fakeSynth(opts: { fireEnd: boolean }) {
+function fakeSynth(opts: { fireEnd: boolean; silent?: boolean }) {
   const spoken: string[] = [];
   const synth = {
     speaking: false,
     getVoices: () => [],
     cancel: vi.fn(),
-    speak(u: { text: string; onend?: () => void }) {
+    speak(u: { text: string; onstart?: () => void; onend?: () => void }) {
       spoken.push(u.text);
+      if (opts.silent) return; // e.g. iOS before speech was unlocked: nothing, not even an error
+      setTimeout(() => u.onstart?.(), 1);
       if (opts.fireEnd) setTimeout(() => u.onend?.(), 10);
     },
   };
-  class Utt { text: string; rate = 1; pitch = 1; volume = 1; lang = ''; voice = null; onend?: () => void; onerror?: () => void; constructor(t: string) { this.text = t; } }
+  class Utt { text: string; rate = 1; pitch = 1; volume = 1; lang = ''; voice = null; onstart?: () => void; onend?: () => void; onerror?: () => void; constructor(t: string) { this.text = t; } }
   return { synth: synth as unknown as SpeechSynthesis, Utt: Utt as unknown as typeof SpeechSynthesisUtterance, spoken };
 }
 
@@ -61,6 +63,16 @@ describe('SpeechNarrator', () => {
     const p = n.say('Hold, and keep breathing.', new AbortController().signal);
     await vi.advanceTimersByTimeAsync(10_000);
     await expect(p).resolves.toBe('ended');
+    vi.useRealTimers();
+  });
+
+  it('reports a line the engine never started as failed, not spoken', async () => {
+    vi.useFakeTimers();
+    const { synth, Utt } = fakeSynth({ fireEnd: false, silent: true });
+    const n = new SpeechNarrator(synth, 1, Utt);
+    const p = n.say('Hold, and keep breathing.', new AbortController().signal);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(p).resolves.toBe('failed');
     vi.useRealTimers();
   });
 
@@ -342,5 +354,167 @@ describe('ClipNarrator audio health (spec §7.3)', () => {
     // 0.72 is Kokoro's speed knob and overstates every line by a third.
     expect(n.estimateMs('Three, two, one.')).toBe(Math.round(estimateSpeechMs('Three, two, one.', PLANNER_RATE) * 0.87));
     expect(n.estimateMs('Three, two, one.')).toBeLessThan(estimateSpeechMs('Three, two, one.', 0.72));
+  });
+});
+
+/**
+ * An <audio> element that plays only once it has been played inside a tap,
+ * like iOS. `tap()` runs code as if inside a user gesture.
+ */
+function gatedAudio() {
+  let inGesture = false;
+  let unlocked = false;
+  const a: Record<string, unknown> = { src: '', currentTime: 0, preload: '', paused: true, onended: null, onerror: null, onplaying: null, pause() { a.paused = true; } };
+  a.play = () => {
+    if (!unlocked && !inGesture) return Promise.reject(Object.assign(new Error('gesture required'), { name: 'NotAllowedError' }));
+    unlocked = true;
+    a.paused = false;
+    setTimeout(() => { a.currentTime = 0.2; (a.onplaying as (() => void) | null)?.(); }, 1);
+    setTimeout(() => (a.onended as (() => void) | null)?.(), 5);
+    return Promise.resolve();
+  };
+  const tap = (f: () => void) => { inGesture = true; try { f(); } finally { inGesture = false; } };
+  return { el: a as unknown as HTMLAudioElement, tap };
+}
+
+describe('voice start (the first tap must unlock the voice that plays later)', () => {
+  it('a voice pack that arrives after the tap still plays through the element unlocked in that tap', async () => {
+    const { el, tap } = gatedAudio();
+    tap(() => primeAudio(el));
+    // The pack's manifest arrives later, outside any gesture.
+    const trouble: (VoiceTrouble | null)[] = [];
+    const n = new ClipNarrator(manifest({ [clipKey(LINE)]: 2207 }), '/voice/af_heart/', { audio: el, fallback: new FakeNarrator(true), onTrouble: t => trouble.push(t) });
+    expect(await n.say(LINE, new AbortController().signal)).toBe('ended');
+    expect(trouble).toEqual([]);
+  });
+
+  it('without that, the same late voice is refused (the bug)', async () => {
+    const { el } = gatedAudio();
+    const trouble: (VoiceTrouble | null)[] = [];
+    const n = new ClipNarrator(manifest({ [clipKey(LINE)]: 2207 }), '/voice/af_heart/', { audio: el, fallback: new FakeNarrator(true), onTrouble: t => trouble.push(t) });
+    await n.say(LINE, new AbortController().signal);
+    expect(trouble).toEqual(['blocked']);
+  });
+});
+
+describe('ClipNarrator health, continued', () => {
+  it('falls through when a clip is stuck buffering (playing, but no progress)', async () => {
+    vi.useFakeTimers();
+    const a = fakeAudio('plays');
+    // play() is accepted, `paused` flips to false, and nothing ever loads.
+    (a as unknown as { play: () => Promise<void> }).play = () => { (a as unknown as { paused: boolean }).paused = false; return new Promise(() => {}); };
+    const trouble: (VoiceTrouble | null)[] = [];
+    const fb = new FakeNarrator(true);
+    const n = new ClipNarrator(manifest({ [clipKey(LINE)]: 2207 }), '/voice/af_heart/', { audio: a, fallback: fb, onTrouble: t => trouble.push(t) });
+    const p = n.say(LINE, new AbortController().signal);
+    await vi.advanceTimersByTimeAsync(1600);
+    await p;
+    expect(fb.said).toEqual([LINE]);
+    expect(trouble).toEqual(['failed']);
+    vi.useRealTimers();
+  });
+
+  it('does not cut off a line when asked to unlock while it plays (earphone Play)', async () => {
+    const { el, tap } = gatedAudio();
+    tap(() => primeAudio(el));
+    const n = new ClipNarrator(manifest({ [clipKey(LINE)]: 2207 }), '/voice/af_heart/', { audio: el });
+    const p = n.say(LINE, new AbortController().signal);
+    await new Promise(r => setTimeout(r, 0));
+    const playing = el.src;
+    n.unlock();
+    expect(el.src).toBe(playing);
+    expect(await p).toBe('ended');
+  });
+
+  it('does not report "blocked" when a pending unlock is superseded by a clip', async () => {
+    const a = fakeAudio('plays');
+    (a as unknown as { play: () => Promise<void> }).play = () => Promise.reject(Object.assign(new Error('interrupted'), { name: 'AbortError' }));
+    const trouble: (VoiceTrouble | null)[] = [];
+    const n = new ClipNarrator(manifest({}), '/voice/af_heart/', { audio: a, onTrouble: t => trouble.push(t) });
+    n.unlock();
+    await new Promise(r => setTimeout(r, 0));
+    expect(trouble).toEqual([]);
+  });
+
+  it('reports "silent" when neither the recording nor the fallback voice could speak', async () => {
+    const trouble: (VoiceTrouble | null)[] = [];
+    const failing: Narrator = { kind: 'speech', estimateMs: () => 100, stop: () => {}, say: () => Promise.resolve('failed') };
+    const n = new ClipNarrator(manifest({}), '/voice/af_heart/', { audio: fakeAudio('plays'), fallback: failing, onTrouble: t => trouble.push(t) });
+    expect(await n.say('Welcome back.', new AbortController().signal)).toBe('failed');
+    expect(trouble).toEqual(['silent']);
+  });
+});
+
+describe('CueScheduler, voice arriving mid-line', () => {
+  it('says a line again in the new voice when it had only been shown as a caption', () => {
+    const s = new CueScheduler(new CaptionNarrator(1));
+    s.load([cue('welcome', 0, 1, 'Welcome. Today is lower body.')], { epoch: 1, stepId: 'a' });
+    s.tick(0, 'a');
+    const voice = new FakeNarrator();
+    s.setNarrator(voice);
+    // The step's cues are reloaded for the new voice's pace, as the hook does.
+    s.load([cue('welcome', 0, 1, 'Welcome. Today is lower body.')], { epoch: 1, stepId: 'a' });
+    s.tick(500, 'a');
+    expect(voice.said).toEqual(['Welcome. Today is lower body.']);
+  });
+
+  it('does not repeat a line a real voice had already started', () => {
+    const first = new FakeNarrator();
+    const s = new CueScheduler(first);
+    s.load([cue('welcome', 0, 1, 'Welcome.')], { epoch: 1, stepId: 'a' });
+    s.tick(0, 'a');
+    const second = new FakeNarrator();
+    s.setNarrator(second);
+    s.load([cue('welcome', 0, 1, 'Welcome.')], { epoch: 1, stepId: 'a' });
+    s.tick(500, 'a');
+    expect(second.said).toEqual([]);
+  });
+});
+
+describe('CueScheduler.skipPast ("cool-down only")', () => {
+  it('drops lines the jump passed, keeps the ones ahead, and says no catch-up line', () => {
+    const n = new FakeNarrator();
+    const s = new CueScheduler(n, { catchUpLine: () => 'Welcome back.' });
+    s.load([cue('warm', 0, 1, 'Easy warm-up.'), cue('cool', 100_000, 1, 'Cool-down now.')], { epoch: 1, stepId: 'c' });
+    s.skipPast(100_000);
+    s.tick(100_000, 'c');
+    expect(n.said).toEqual(['Cool-down now.']);
+  });
+});
+
+describe('ClipNarrator health, second review', () => {
+  it('keeps "blocked" (and so the tap-to-fix button) when the fallback voice also fails', async () => {
+    const trouble: (VoiceTrouble | null)[] = [];
+    const failing: Narrator = { kind: 'speech', estimateMs: () => 100, stop: () => {}, say: () => Promise.resolve('failed') };
+    const n = new ClipNarrator(manifest({ [clipKey(LINE)]: 2207 }), '/voice/af_heart/', { audio: fakeAudio('blocked'), fallback: failing, onTrouble: t => trouble.push(t) });
+    await n.say(LINE, new AbortController().signal);
+    expect(trouble).toEqual(['blocked']);
+  });
+
+  it('reports "silent" when only captions are left to fall back on', async () => {
+    const trouble: (VoiceTrouble | null)[] = [];
+    const n = new ClipNarrator(manifest({}), '/voice/af_heart/', { audio: fakeAudio('plays'), fallback: new CaptionNarrator(1, ((f: () => void) => setTimeout(f, 0)) as unknown as typeof setTimeout), onTrouble: t => trouble.push(t) });
+    await n.say('Welcome back.', new AbortController().signal);
+    expect(trouble).toEqual(['silent']);
+  });
+});
+
+describe('voice health, final review', () => {
+  it('keeps "blocked" through a later load error until sound actually plays', async () => {
+    const trouble: (VoiceTrouble | null)[] = [];
+    const ctl = { mode: 'blocked' as AudioMode };
+    const n = new ClipNarrator(manifest({ [clipKey(LINE)]: 2207 }), '/voice/af_heart/', { audio: fakeAudio(ctl), fallback: new FakeNarrator(true), onTrouble: t => trouble.push(t) });
+    await n.say(LINE, new AbortController().signal);
+    ctl.mode = 'error';
+    await n.say(LINE, new AbortController().signal);
+    expect(trouble).toEqual(['blocked']);
+  });
+
+  it('treats a line the system cancelled before it started as unheard', async () => {
+    const synth = { speaking: false, getVoices: () => [], cancel: vi.fn(),
+      speak(u: { onerror?: (e: unknown) => void }) { setTimeout(() => u.onerror?.({ error: 'canceled' }), 1); } };
+    class Utt { text: string; rate = 1; pitch = 1; volume = 1; lang = ''; voice = null; onstart?: () => void; onend?: () => void; onerror?: (e: unknown) => void; constructor(t: string) { this.text = t; } }
+    const n = new SpeechNarrator(synth as unknown as SpeechSynthesis, 1, Utt as unknown as typeof SpeechSynthesisUtterance);
+    expect(await n.say('Hold.', new AbortController().signal)).toBe('failed');
   });
 });

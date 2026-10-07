@@ -12,8 +12,8 @@ import { saveProgress, clearProgress } from '@/session/persistence';
 import { catchUpText, scriptFor } from '@/session/script';
 import { CueScheduler, type TimedCue } from '@/voice/scheduler';
 import { CaptionNarrator, type Narrator } from '@/voice/narrator';
-import { SpeechNarrator, loadVoices, pickVoice } from '@/voice/speech';
-import { ClipNarrator, loadManifest, type VoiceTrouble } from '@/voice/clips';
+import { SpeechNarrator, loadVoices, pickVoice, primeSpeech } from '@/voice/speech';
+import { ClipNarrator, loadManifest, primeAudio, type VoiceTrouble } from '@/voice/clips';
 import { getCoaching } from '@/data/coaching';
 import { exposureCounter } from '@/engine/speech';
 import type { WorkoutSession } from '@/types';
@@ -26,6 +26,8 @@ export interface GuidedSessionOptions {
   sessions: WorkoutSession[];
   /** Resume from saved progress. */
   resumeState?: RunnerState;
+  /** The run's History record id, saved with its progress so a resume updates the same record. */
+  sessionId?: string;
 }
 
 /**
@@ -74,7 +76,7 @@ export function anchorCues(
   });
 }
 
-export function useGuidedSession({ plan, profile, sessions, resumeState }: GuidedSessionOptions) {
+export function useGuidedSession({ plan, profile, sessions, resumeState, sessionId }: GuidedSessionOptions) {
   const clock = useMemo(() => createClock({ timescale: devTimescale(import.meta.env.DEV, window.location.href) }), []);
   const runner = useMemo(() => createRunner(plan), [plan]);
   const [state, dispatch] = useReducer(runner.reduce, resumeState ?? initialState(plan));
@@ -92,8 +94,13 @@ export function useGuidedSession({ plan, profile, sessions, resumeState }: Guide
   const narratorRef = useRef<Narrator>(captionsRef.current);
   const speechRef = useRef<SpeechNarrator | null>(null);
   const clipRef = useRef<ClipNarrator | null>(null);
-  /** Audio and speech only unlock inside a tap; remember that one has happened. */
-  const gestured = useRef(false);
+  /**
+   * The one <audio> element the recorded voice plays through. Phones unlock an
+   * element only inside a tap, and the voice pack often arrives after Start, so
+   * the element exists first and is unlocked by the tap; the pack attaches later.
+   */
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const sessionAudio = () => (audioRef.current ??= new Audio());
   const stateRef = useRef(state);
   const catchUpRef = useRef<(now: number, awayMs: number) => string | null>(() => null);
   const schedulerRef = useRef<CueScheduler | null>(null);
@@ -121,13 +128,11 @@ export function useGuidedSession({ plan, profile, sessions, resumeState }: Guide
     void loadManifest(baseUrl, controller.signal).then(manifest => {
       if (!manifest || controller.signal.aborted) return;
       const clip = new ClipNarrator(manifest, baseUrl, {
+        audio: sessionAudio(),
         fallback: speechRef.current ?? captionsRef.current,
         onTrouble: setVoiceTrouble,
       });
       clipRef.current = clip;
-      // The pack usually arrives after the Start tap: unlock now, or iOS keeps
-      // the whole hour silent because playback never began inside a gesture.
-      if (gestured.current) clip.unlock();
       swapNarrator(clip, packName(pack));
       // Prefetch this session's lines so playback never waits on the network.
       const texts = plan.steps.flatMap(step => scriptFor(step, { profile, plan, coaching: getCoaching, exposures: exposureCounter(sessions) })
@@ -200,13 +205,13 @@ export function useGuidedSession({ plan, profile, sessions, resumeState }: Guide
   useEffect(() => {
     if (state.status === 'ready') return;
     if (state.status === 'done') { clearProgress(); return; }
-    const save = () => saveProgress(plan, stateRef.current, clock.now());
+    const save = () => saveProgress(plan, stateRef.current, clock.now(), Date.now(), sessionId);
     save();
     const id = window.setInterval(save, 5000);
     const onHide = () => { if (document.visibilityState === 'hidden') save(); };
     document.addEventListener('visibilitychange', onHide);
     return () => { window.clearInterval(id); document.removeEventListener('visibilitychange', onHide); };
-  }, [state.status, state.index, plan, clock]);
+  }, [state.status, state.index, plan, clock, sessionId]);
 
   useWakeLock(state.status === 'running' || state.status === 'paused');
 
@@ -222,39 +227,56 @@ export function useGuidedSession({ plan, profile, sessions, resumeState }: Guide
     return catchUpText(p.step, p.segment.side);
   };
 
-  const act = useMemo(() => ({
-    /** Must run inside the Start tap so iOS allows audio and speech. */
-    start: () => {
-      gestured.current = true;
+  const act = useMemo(() => {
+    /**
+     * Inside every tap: phones allow audio and speech to start only from a
+     * gesture. Unlocks the session's audio element whether or not the voice
+     * pack has arrived, the device voice (the fallback) too, and applies the
+     * chosen mix with music the same way on Start and on Resume.
+     */
+    const prime = () => {
       setAudioSession(profile.voice.mode);
-      clipRef.current?.unlock();
-      if (!clipRef.current) speechRef.current?.unlock(' ');
-      dispatch({ type: 'start', now: clock.now() });
-    },
-    pause: () => dispatch({ type: 'pause', now: clock.now() }),
-    resume: () => {
-      gestured.current = true;
-      if (clipRef.current) clipRef.current.unlock(); else speechRef.current?.unlock(' ');
-      const t = clock.now();
-      const pausedAt = stateRef.current.pausedAt;
-      dispatch({ type: 'resume', now: t });
-      // A long pause is a gap like a locked screen: out-of-date cues go, one
-      // catch-up line comes. Runs before the reload, so the drop applies to it.
-      scheduler.resync(t, pausedAt === undefined ? 0 : Math.max(0, t - pausedAt));
-    },
-    /** For a "Tap to resume audio" prompt: must run inside the tap. */
-    unlockAudio: () => {
-      gestured.current = true;
-      setAudioSession(profile.voice.mode);
-      if (clipRef.current) clipRef.current.unlock(); else speechRef.current?.unlock(' ');
-    },
-    next: (reason?: 'skip' | 'doneEarly') => dispatch({ type: 'next', now: clock.now(), reason }),
-    previous: () => dispatch({ type: 'previous', now: clock.now() }),
-    addTime: (seconds = 15) => dispatch({ type: 'addTime', now: clock.now(), seconds }),
-    log: (entry: Omit<StepLog, 'at'>) => dispatch({ type: 'log', entry: { ...entry, at: clock.now() } }),
-    finish: () => dispatch({ type: 'finish', now: clock.now() }),
-    setMuted,
-  }), [clock, profile.voice.mode, scheduler]);
+      if (clipRef.current) clipRef.current.unlock();
+      else void primeAudio(sessionAudio());
+      primeSpeech();
+    };
+    return {
+      /** Must run inside the Start tap so iOS allows audio and speech. */
+      start: () => {
+        prime();
+        dispatch({ type: 'start', now: clock.now() });
+      },
+      pause: () => dispatch({ type: 'pause', now: clock.now() }),
+      resume: () => {
+        // Only a paused session resumes: earphone Play while running must not
+        // touch the audio (unlocking would cut off the line being spoken).
+        if (stateRef.current.status !== 'paused') return;
+        prime();
+        const t = clock.now();
+        const pausedAt = stateRef.current.pausedAt;
+        dispatch({ type: 'resume', now: t });
+        // A long pause is a gap like a locked screen: out-of-date cues go, one
+        // catch-up line comes. Runs before the reload, so the drop applies to it.
+        scheduler.resync(t, pausedAt === undefined ? 0 : Math.max(0, t - pausedAt));
+      },
+      /** For a "Tap to resume audio" prompt: must run inside the tap. */
+      unlockAudio: prime,
+      /** "Cool-down only" after a low: jump there and carry on, dropping the lines it skipped. */
+      seek: (target: { index: number; segment: number }) => {
+        prime();
+        const t = clock.now();
+        dispatch({ type: 'seek', now: t, ...target });
+        if (stateRef.current.status === 'paused') dispatch({ type: 'resume', now: t });
+        scheduler.skipPast(t);
+      },
+      next: (reason?: 'skip' | 'doneEarly') => dispatch({ type: 'next', now: clock.now(), reason }),
+      previous: () => dispatch({ type: 'previous', now: clock.now() }),
+      addTime: (seconds = 15) => dispatch({ type: 'addTime', now: clock.now(), seconds }),
+      log: (entry: Omit<StepLog, 'at'>) => dispatch({ type: 'log', entry: { ...entry, at: clock.now() } }),
+      finish: () => dispatch({ type: 'finish', now: clock.now() }),
+      setMuted,
+    };
+  }, [clock, profile.voice.mode, scheduler]);
 
   // Earphone / lock-screen buttons where supported.
   useEffect(() => {

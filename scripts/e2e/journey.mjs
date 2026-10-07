@@ -115,6 +115,9 @@ for (const [w, h] of VIEWPORTS) {
     for (let t = 0; t < realSeconds; t += every) {
       await page.waitForTimeout(every * 1000);
       if (await page.getByRole('heading', { name: 'Session complete' }).count()) break;
+      // The glucose check before cardio waits for an answer, as a person gives it.
+      const glucoseOk = page.getByRole('button', { name: /Glucose is fine/ });
+      if (await glucoseOk.count()) await glucoseOk.click();
       const title = (await page.locator('h1').first().textContent().catch(() => 'step')) ?? 'step';
       await shot(`run-${t}s-${title.replace(/[^a-z0-9]+/gi, '-').slice(0, 30)}`, { wait: 50 });
     }

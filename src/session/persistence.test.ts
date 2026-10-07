@@ -14,7 +14,7 @@ globalThis.localStorage = {
   get length() { return store.size; },
 } as Storage;
 
-const { saveProgress, loadProgress, clearProgress, minutesLeft, resumeOffer, RESUME_WINDOW_MS } = await import('./persistence');
+const { saveProgress, loadProgress, loadExpiredProgress, clearProgress, minutesLeft, resumeOffer, RESUME_WINDOW_MS } = await import('./persistence');
 
 const profile = createDefaultProfile({ pain: { areas: ['lowerBack'] } });
 const planFor = (date: string) => buildSessionPlan({ profile, date, startDate: '2026-09-28', sessions: [] });
@@ -62,6 +62,15 @@ describe('resumeOffer', () => {
     saveProgress(p.plan, p.state, p.clockAt, Date.now() - RESUME_WINDOW_MS - 1);
     expect(loadProgress()).toBeNull();
     expect(resumeOffer('2026-10-09')).toEqual({ kind: 'none' });
+  });
+
+  it('keeps progress too old to resume so its work can still be saved to History', () => {
+    const p = progress(today, 4);
+    saveProgress(p.plan, p.state, p.clockAt, Date.now() - RESUME_WINDOW_MS - 1);
+    expect(loadExpiredProgress()?.state.index).toBe(4);
+    // Resumable progress is not "expired".
+    saveProgress(p.plan, p.state, p.clockAt);
+    expect(loadExpiredProgress()).toBeNull();
   });
 });
 

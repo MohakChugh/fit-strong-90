@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { useTimer } from '@/hooks/useTimer';
 import { useSupersetTimer } from '@/hooks/useSupersetTimer';
+import { focusOverrideFor, planFor } from '@/hooks/useGuided';
 import {
   getDayOfWeekFromDate,
   parseDateString,
@@ -12,16 +13,21 @@ import {
   formatDate,
   calculateVolume,
   detectPR,
+  deriveRecords,
+  finishedStatus,
+  kgToDisplay,
+  displayToKg,
   cn,
 } from '@/lib/utils';
 import { getPhaseInfo } from '@/data/program';
 import { getExerciseById } from '@/data/exercises';
-import { buildSessionPlan } from '@/engine/session';
 import { focusLabel, weekFocus } from '@/engine/templates';
 import { createDefaultProfile } from '@/profile/defaults';
 import { manualDayPlan, swapOptions } from '@/session/manual';
+import { clearProgress, loadProgress } from '@/session/persistence';
+import { bankProgress } from '@/session/logging';
 import { ExerciseFigure } from '@/components/exercise/ExerciseFigure';
-import type { WorkoutSession, SetStatus, WarmupCooldownEntry, WorkoutPhase, SupersetGroup, WorkoutExercise, DayOfWeek } from '@/types';
+import type { WorkoutSession, SetStatus, WarmupCooldownEntry, WorkoutPhase, SupersetGroup, WorkoutExercise, DayOfWeek, CheckInRecord } from '@/types';
 import type { DayFocus, SessionPlan } from '@/types/plan';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -72,9 +78,9 @@ import { toast } from 'sonner';
 export default function WorkoutPage() {
   const [data, updateData] = useAppData();
   const { settings, sessions, personalRecords } = data;
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
 
-  // Support ?date=YYYY-MM-DD and ?focus=<DayFocus> (a swapped workout)
+  // Support ?date=YYYY-MM-DD (logging a past day)
   const actualToday = todayString();
   // The URL is user-editable: accept only a real YYYY-MM-DD that isn't in the future.
   const dateParam = searchParams.get('date') ?? '';
@@ -83,24 +89,18 @@ export default function WorkoutPage() {
     : actualToday;
   const isPastWorkout = workoutDate !== actualToday;
 
-  // The day's generated plan, the same one the guided session runs.
+  // The day's generated plan, the same one the guided session runs (same profile as `useGuided`).
   const profile = useMemo(
-    () => data.profile ?? createDefaultProfile({ weightKg: settings.currentWeight || 0 }),
+    () => data.profile ?? createDefaultProfile({ weightKg: settings.currentWeight || 0, needsHealthReview: true }),
     [data.profile, settings.currentWeight],
   );
   const options = swapOptions(profile);
-  // Likewise, only accept a focus the swap dialog offers.
-  const overrideFocus = options.find(o => o.focus === searchParams.get('focus'))?.focus ?? null;
+  // A swap is stored per date, so Today and the guided session run it too.
+  const overrideFocus = focusOverrideFor(data, profile, workoutDate) ?? null;
   const defaultFocus = weekFocus(profile)[getDayOfWeekFromDate(workoutDate)];
   const checkIn = data.checkIns?.find(c => c.date === workoutDate);
   const plan = useMemo(
-    () => buildSessionPlan({
-      profile, date: workoutDate, startDate: settings.startDate,
-      sessions: sessions.filter(s => s.date < workoutDate),
-      recentCheckIns: (data.checkIns ?? []).filter(c => c.date < workoutDate),
-      ...(checkIn ? { checkIn } : {}),
-      ...(overrideFocus ? { focusOverride: overrideFocus } : {}),
-    }),
+    () => planFor(data, profile, workoutDate),
     // Built once per date and focus: logging sets must never reshuffle today's exercises.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [profile, workoutDate, overrideFocus, settings.startDate, checkIn],
@@ -289,6 +289,14 @@ export default function WorkoutPage() {
   };
 
   // Start workout (may route through warmup first)
+  // Back to a partly done or skipped workout: it can be logged and finished again.
+  const handleResumeWorkout = () => {
+    if (!session) return;
+    const reopened: WorkoutSession = { ...session, status: 'in_progress', completedAt: null };
+    setSession(reopened);
+    saveSession(reopened);
+  };
+
   const handleStartWorkout = () => {
     if (!session) return;
     const now = new Date().toISOString();
@@ -417,60 +425,34 @@ export default function WorkoutPage() {
     finishWorkout();
   };
 
+  // Records come from each exercise's best set, so a later, lighter set can't replace a heavier one.
+  const refreshRecords = () => {
+    updateData((prev) => ({ ...prev, personalRecords: deriveRecords(prev.sessions, prev.personalRecords) }));
+  };
+
   // Finalize the workout (called after cooldown or directly)
   const finishWorkout = () => {
     if (!session) return;
 
-    const completedSets = session.sets.filter((s) => s.status === 'completed');
-    const totalVolume = calculateVolume(completedSets);
-
-    const newPRs: string[] = [];
-    completedSets.forEach((set) => {
-      if (set.weight !== null && set.actualReps !== null) {
-        const isPR = detectPR(set.exerciseId, set.weight, set.actualReps, personalRecords);
-        if (isPR) {
-          const exercise = getExerciseById(set.exerciseId);
-          if (exercise) {
-            newPRs.push(exercise.name);
-            updateData((prev) => {
-              const existingPR = prev.personalRecords.find(
-                (pr) => pr.exerciseId === set.exerciseId
-              );
-              const volume = set.weight! * set.actualReps!;
-              const newPR = {
-                exerciseId: set.exerciseId,
-                weight: set.weight!,
-                reps: set.actualReps!,
-                date: workoutDate,
-                volume,
-              };
-              return {
-                ...prev,
-                personalRecords: existingPR
-                  ? prev.personalRecords.map((pr) =>
-                      pr.exerciseId === set.exerciseId ? newPR : pr
-                    )
-                  : [...prev.personalRecords, newPR],
-              };
-            });
-          }
-        }
-      }
-    });
-
     const updatedSession: WorkoutSession = {
       ...session,
-      status: 'completed',
+      status: finishedStatus(session.sets),
       completedAt: new Date().toISOString(),
       notes: workoutNotes,
-      totalVolume,
+      totalVolume: calculateVolume(session.sets),
       warmup: warmupEntries.some(e => e.completed) ? warmupEntries : session.warmup,
       cooldown: cooldownEntries.some(e => e.completed) ? cooldownEntries : session.cooldown,
       exerciseNotes,
     };
 
+    // Named in the toast: exercises whose best set today beats the record.
+    const newPRs = deriveRecords([updatedSession], [])
+      .filter((r) => detectPR(r.exerciseId, r.weight, r.reps, personalRecords))
+      .map((r) => getExerciseById(r.exerciseId)?.name ?? r.exerciseId);
+
     setSession(updatedSession);
     saveSession(updatedSession);
+    refreshRecords();
     setShowSummaryDialog(true);
     setWorkoutPhase('main');
 
@@ -502,6 +484,8 @@ export default function WorkoutPage() {
     };
     setSession(resetSession);
     saveSession(resetSession);
+    // A record set by the cleared sets goes with them.
+    refreshRecords();
     setWorkoutNotes('');
     setExerciseNotes({});
     setShowRedoDialog(false);
@@ -510,21 +494,25 @@ export default function WorkoutPage() {
 
   // Swap to another workout from the user's week
   const handleSwapWorkout = (focus: DayFocus) => {
-    // Remove existing session for this date before swapping
-    if (session) {
-      updateData((prev) => ({
+    // An unfinished guided session for this day belongs to the old workout:
+    // bank its work in History, so the guided session starts the new one.
+    const saved = loadProgress();
+    if (saved?.plan.date === workoutDate) {
+      updateData(prev => bankProgress(prev, saved, saved.sessionId ?? `guided-${workoutDate}-${generateId()}`));
+      clearProgress();
+    }
+    updateData((prev) => {
+      // Swapping back to the scheduled workout drops the override.
+      const focusOverrides = { ...prev.focusOverrides };
+      if (focus === defaultFocus) delete focusOverrides[workoutDate];
+      else focusOverrides[workoutDate] = focus;
+      return {
         ...prev,
-        sessions: prev.sessions.filter((s) => s.id !== session.id),
-      }));
-    }
-
-    const params = new URLSearchParams(searchParams);
-    if (focus === defaultFocus) params.delete('focus');
-    else params.set('focus', focus);
-    if (workoutDate !== actualToday) {
-      params.set('date', workoutDate);
-    }
-    setSearchParams(params, { replace: true });
+        // Remove existing session for this date before swapping
+        sessions: session ? prev.sessions.filter((s) => s.id !== session.id) : prev.sessions,
+        focusOverrides,
+      };
+    });
     setSession(null);
     setShowSwapDialog(false);
     toast.success(`Switched to ${focusLabel(focus)}`);
@@ -546,7 +534,7 @@ export default function WorkoutPage() {
       && (plan.readiness.outcome === 'green' || plan.readiness.outcome === 'amber');
     return (
       <>
-        <RestDayView plan={plan} date={workoutDate} isToday={!isPastWorkout} hasCheckIn={!!checkIn}
+        <RestDayView plan={plan} date={workoutDate} isToday={!isPastWorkout} checkIn={checkIn}
           onTrainAnyway={canTrain ? () => setShowSwapDialog(true) : undefined} />
         {swapDialog}
       </>
@@ -616,7 +604,7 @@ export default function WorkoutPage() {
           </div>
 
           {!isPastWorkout && session.status === 'not_started' && (
-            <GuidedLink plan={plan} hasCheckIn={!!checkIn} />
+            <GuidedLink plan={plan} checkIn={checkIn} />
           )}
 
           {plan.changes.length > 0 && (
@@ -654,6 +642,25 @@ export default function WorkoutPage() {
                 <CheckCircle2 className="mr-2 h-5 w-5" />
                 Complete Workout
               </Button>
+            )}
+            {/* Finished with sets undone: say so, and let the user pick it back up. */}
+            {(session.status === 'partial' || session.status === 'skipped') && (
+              <div className="flex flex-wrap items-center gap-3 w-full">
+                <Badge variant="secondary" className="px-4 py-2">{session.status === 'partial' ? 'Partly done' : 'Skipped'}</Badge>
+                <Button size="sm" onClick={handleResumeWorkout}>
+                  <PlayCircle className="mr-2 h-4 w-4" />
+                  Resume Workout
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                  onClick={() => setShowRedoDialog(true)}
+                >
+                  <UndoIcon className="mr-2 h-4 w-4" />
+                  Redo Workout
+                </Button>
+              </div>
             )}
             {session.status === 'completed' && (
               <div className="flex items-center gap-3 w-full">
@@ -962,12 +969,12 @@ export default function WorkoutPage() {
                               type="number"
                               inputMode="numeric"
                               placeholder="0"
-                              value={set.weight ?? ''}
+                              value={set.weight === null ? '' : kgToDisplay(set.weight, settings.useMetric)}
                               onChange={(e) =>
                                 handleSetUpdate(
                                   set.id,
                                   'weight',
-                                  e.target.value ? parseFloat(e.target.value) : null
+                                  e.target.value ? displayToKg(parseFloat(e.target.value), settings.useMetric) : null
                                 )
                               }
                               className="h-11 sm:h-9 text-base sm:text-sm"
@@ -1074,7 +1081,8 @@ export default function WorkoutPage() {
       </div>
 
       {/* Rest Timer */}
-      {showTimer && timer.isRunning && (
+      {/* Stays up while paused, so a paused rest can be resumed. */}
+      {showTimer && timer.seconds > 0 && (
         <div className="fixed bottom-20 lg:bottom-4 left-0 right-0 lg:left-auto lg:right-4 lg:w-auto z-50 px-4 lg:px-0">
           <Card className="shadow-lg border-2 animate-scale-in">
             <CardContent className="p-4 flex items-center gap-3">
@@ -1086,8 +1094,8 @@ export default function WorkoutPage() {
                 <p className="text-2xl font-bold font-mono">{timer.formatted}</p>
               </div>
               <div className="flex gap-2">
-                <Button size="icon" variant="ghost" onClick={timer.pause}>
-                  <PauseCircle className="h-5 w-5" />
+                <Button size="icon" variant="ghost" aria-label={timer.isRunning ? 'Pause rest' : 'Resume rest'} onClick={timer.isRunning ? timer.pause : timer.start}>
+                  {timer.isRunning ? <PauseCircle className="h-5 w-5" /> : <PlayCircle className="h-5 w-5" />}
                 </Button>
                 <Button
                   size="icon"
@@ -1271,14 +1279,16 @@ function trackedExercise(id: string, session: WorkoutSession): WorkoutExercise {
 }
 
 /** Start the voice-guided version of today: stretching, this workout, then cardio. */
-function GuidedLink({ plan, hasCheckIn }: { plan: SessionPlan; hasCheckIn: boolean }) {
+function GuidedLink({ plan, checkIn }: { plan: SessionPlan; checkIn?: CheckInRecord }) {
   if (plan.steps.length === 0) return null;
+  // A low glucose at check-in needs a new reading before the session starts.
+  const ready = !!checkIn && !checkIn.readiness.recheckMinutes;
   return (
-    <Link to={hasCheckIn ? '/session' : '/dashboard?checkin=1'} viewTransition
+    <Link to={ready ? '/session' : '/dashboard?checkin=1'} viewTransition
       className={cn(buttonVariants({ size: 'lg' }), 'h-auto min-h-14 w-full flex-col gap-0.5 whitespace-normal py-2 text-center text-base')}>
       <span className="flex items-center gap-2">
         <Headphones className="h-5 w-5" />
-        {hasCheckIn ? 'Start guided session' : 'Check in & start guided session'}
+        {ready ? 'Start guided session' : checkIn ? 'Re-check glucose & start guided session' : 'Check in & start guided session'}
       </span>
       <span className="text-xs font-normal opacity-90">
         {Math.round(plan.totalSeconds / 60)} min with voice: stretch, lift, then cardio
@@ -1356,11 +1366,11 @@ function SwapWorkoutDialog({
 
 // ─── Rest Day View ──────────────────────────────────────────────────────────
 
-function RestDayView({ plan, date, isToday, hasCheckIn, onTrainAnyway }: {
+function RestDayView({ plan, date, isToday, checkIn, onTrainAnyway }: {
   plan: SessionPlan;
   date: string;
   isToday: boolean;
-  hasCheckIn: boolean;
+  checkIn?: CheckInRecord;
   /** Offered on scheduled rest days when today's readiness allows lifting. */
   onTrainAnyway?: () => void;
 }) {
@@ -1394,7 +1404,7 @@ function RestDayView({ plan, date, isToday, hasCheckIn, onTrainAnyway }: {
               </ul>
             )}
 
-            {isToday && <GuidedLink plan={plan} hasCheckIn={hasCheckIn} />}
+            {isToday && <GuidedLink plan={plan} checkIn={checkIn} />}
             {onTrainAnyway && (
               <Button variant="outline" className="h-12 w-full" onClick={onTrainAnyway}>
                 <Dumbbell className="h-4 w-4 mr-2" />

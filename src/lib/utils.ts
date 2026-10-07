@@ -1,7 +1,7 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 import { format } from "date-fns"
-import type { DayOfWeek, Phase, WorkoutSession, WorkoutSet, PersonalRecord } from "@/types"
+import type { AppData, DayOfWeek, Phase, WorkoutSession, WorkoutSet, WorkoutStatus, PersonalRecord } from "@/types"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -235,16 +235,94 @@ export function detectPR(
   return !currentPR || volume > currentPR.volume;
 }
 
+/**
+ * Personal records rebuilt from the logged sets: each exercise's best completed
+ * set by volume (weight × reps, the measure `detectPR` uses), the earliest on a
+ * tie. A record for an exercise no session logs, such as an imported one, is kept.
+ */
+export function deriveRecords(sessions: WorkoutSession[], existing: PersonalRecord[]): PersonalRecord[] {
+  const logged = new Set<string>();
+  const best = new Map<string, PersonalRecord>();
+  for (const session of [...sessions].sort((a, b) => a.date.localeCompare(b.date))) {
+    for (const set of session.sets) {
+      logged.add(set.exerciseId);
+      if (set.status !== 'completed' || !set.weight || !set.actualReps) continue;
+      const volume = set.weight * set.actualReps;
+      if (volume <= (best.get(set.exerciseId)?.volume ?? 0)) continue;
+      best.set(set.exerciseId, { exerciseId: set.exerciseId, weight: set.weight, reps: set.actualReps, date: session.date, volume });
+    }
+  }
+  return [...existing.filter(r => !logged.has(r.exerciseId)), ...best.values()];
+}
+
+/**
+ * Change one session, then refresh what its sets feed: the session's volume
+ * and the personal records.
+ */
+export function editSession(data: AppData, sessionId: string, edit: (session: WorkoutSession) => WorkoutSession): AppData {
+  const sessions = data.sessions.map(s => {
+    if (s.id !== sessionId) return s;
+    const edited = edit(s);
+    return { ...edited, totalVolume: calculateVolume(edited.sets) };
+  });
+  return { ...data, sessions, personalRecords: deriveRecords(sessions, data.personalRecords) };
+}
+
+// ============================================================================
+// Weight Units
+// ============================================================================
+
+/** Pounds per kilogram. Weights are stored in kilograms; pounds exist only on screen. */
+/**
+ * A finished manual workout counts as completed once at least half its sets
+ * were done, like a guided one; some done is partial, none is skipped. A
+ * "Finish" tap with nothing logged must not feed the streak.
+ */
+export function finishedStatus(sets: WorkoutSet[]): WorkoutStatus {
+  const done = sets.filter(s => s.status === 'completed').length;
+  if (done === 0) return 'skipped';
+  return done * 2 >= sets.length ? 'completed' : 'partial';
+}
+
+export const LB_PER_KG = 2.20462;
+
+/**
+ * A stored weight (kg) in the user's unit, rounded for display: to 0.1 lb, or
+ * to 0.01 kg so plate steps like 1.25 kg survive.
+ */
+export function kgToDisplay(kg: number, useMetric: boolean): number {
+  return useMetric ? Math.round(kg * 100) / 100 : Math.round(kg * LB_PER_KG * 10) / 10;
+}
+
+/**
+ * A weight typed in the user's unit, in kilograms for storage. Not rounded, so
+ * the pounds typed are exactly the pounds shown back.
+ */
+export function displayToKg(value: number, useMetric: boolean): number {
+  return useMetric ? value : value / LB_PER_KG;
+}
+
+export const CM_PER_IN = 2.54;
+
+/** A stored measurement (cm) in the user's unit, to 0.1 cm or 0.1 inch. */
+export function cmToDisplay(cm: number, useMetric: boolean): number {
+  return Math.round((useMetric ? cm : cm / CM_PER_IN) * 10) / 10;
+}
+
+/** A measurement typed in the user's unit, in centimetres for storage. */
+export function displayToCm(value: number, useMetric: boolean): number {
+  return useMetric ? value : value * CM_PER_IN;
+}
+
 // ============================================================================
 // Format Utilities
 // ============================================================================
 
 /**
- * Format weight with unit
+ * Format a stored weight (kg) in the user's unit
  */
-export function formatWeight(weight: number, useMetric: boolean): string {
-  const unit = useMetric ? 'kg' : 'lbs';
-  return `${weight} ${unit}`;
+export function formatWeight(kg: number, useMetric: boolean): string {
+  return `${kgToDisplay(kg, useMetric)} ${useMetric ? 'kg' : 'lbs'}`;
 }
 
 /**

@@ -34,7 +34,7 @@ const ROTATION: Partial<Record<DayFocus, CardioModality[]>> = {
 };
 const DEFAULT_ROTATION: CardioModality[] = ['treadmill-walk', 'recumbent-bike', 'elliptical', 'brisk-walking'];
 
-export function pickModality(ctx: CardioContext): CardioModality {
+export function pickModality(ctx: CardioContext): CardioModality | null {
   const c = ctx.conditions;
   let order = [...(ROTATION[ctx.focus] ?? DEFAULT_ROTATION)];
   if (c.neuropathy || c.foot) order = ['recumbent-bike', 'stationary-bike', ...order];
@@ -46,9 +46,10 @@ export function pickModality(ctx: CardioContext): CardioModality {
     if (meta.ladder && c.ladder[meta.ladder.track] < meta.ladder.level) continue;
     return id;
   }
-  // No machines and no weight-bearing allowed: seated cycling is not available either,
-  // so fall back to an easy walk only when standing is allowed.
-  return c.foot ? 'recumbent-bike' : 'brisk-walking';
+  // No machine to hand and no weight-bearing allowed: there is no cardio to do,
+  // so say so rather than prescribe a bike that isn't there. Standing is
+  // otherwise always possible, so an easy walk is the last resort.
+  return c.foot ? null : 'brisk-walking';
 }
 
 /** Interval days: one per week in Foundation (Upper B), two later (Upper B and Upper C). */
@@ -74,8 +75,9 @@ export function intervalsAllowed(ctx: CardioContext): { ok: boolean; reason?: st
   return { ok: true };
 }
 
-export function cardioPlan(ctx: CardioContext): CardioPlan {
+export function cardioPlan(ctx: CardioContext): CardioPlan | null {
   const modality = pickModality(ctx);
+  if (!modality) return null;
   const wantIntervals = intervalDay(ctx.focus, ctx.week) && getCardio(modality)?.intervals;
   const format: CardioPlan['format'] = wantIntervals && intervalsAllowed(ctx).ok ? 'intervals' : 'zone2';
   const seconds = ctx.readiness.modifiers.includes('HEAT') ? Math.min(ctx.budgetSeconds, 480) : ctx.budgetSeconds;
@@ -84,6 +86,7 @@ export function cardioPlan(ctx: CardioContext): CardioPlan {
 
 export function cardioBlock(ctx: CardioContext): Step[] {
   const plan = cardioPlan(ctx);
+  if (!plan) return [];
   const cool = ctx.readiness.modifiers.includes('COOL');
   const total = plan.seconds;
   const parts: CardioStep['parts'] = [];

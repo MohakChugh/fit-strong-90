@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
+import fs from 'node:fs'
+import crypto from 'node:crypto'
 import type { Plugin } from 'vite'
 
 /**
@@ -40,9 +42,31 @@ const securityMeta = (): Plugin => ({
   ],
 })
 
+/**
+ * Fill the service worker's precache list with every built asset and the 3D
+ * models, so an installed app opens any screen offline, not only the ones it
+ * happened to load while online. The list's hash names the cache, so each
+ * deploy installs fresh files and drops the old ones.
+ */
+const precacheList = (base: string): Plugin => ({
+  name: 'precache-list',
+  apply: 'build',
+  writeBundle(options, bundle) {
+    const dir = options.dir ?? 'dist';
+    const assets = Object.keys(bundle).filter(f => !f.endsWith('.map') && f !== 'index.html' && f !== 'sw.js');
+    const models = fs.readdirSync(path.join(dir, 'models')).filter(f => f.endsWith('.bin')).map(f => `models/${f}`);
+    const urls = [...assets, ...models].sort().map(f => base + f);
+    const build = crypto.createHash('sha256').update(urls.join('\n')).digest('hex').slice(0, 12);
+    const sw = path.join(dir, 'sw.js');
+    const src = fs.readFileSync(sw, 'utf8');
+    if (!src.includes('[/* __PRECACHE__ */]') || !src.includes("'__BUILD__'")) throw new Error('sw.js is missing its precache placeholders');
+    fs.writeFileSync(sw, src.replace('[/* __PRECACHE__ */]', JSON.stringify(urls)).replace("'__BUILD__'", JSON.stringify(build)));
+  },
+})
+
 export default defineConfig({
   base: '/fit-strong-90/',
-  plugins: [react(), tailwindcss(), securityMeta()],
+  plugins: [react(), tailwindcss(), securityMeta(), precacheList('/fit-strong-90/')],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

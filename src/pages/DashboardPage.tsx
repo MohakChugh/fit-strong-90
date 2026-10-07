@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useGuided } from '@/hooks/useGuided';
 import {
@@ -7,12 +7,15 @@ import {
   calculateStreak,
   getWeeklyStats,
   formatWeight,
+  kgToDisplay,
   formatDate,
+  generateId,
 } from '@/lib/utils';
 import { getPhaseInfo } from '@/data/program';
 import { weekFocus, focusLabel } from '@/engine/templates';
 import { deriveHealth } from '@/engine/health';
-import { clearProgress, resumeOffer } from '@/session/persistence';
+import { clearProgress, loadExpiredProgress, resumeOffer } from '@/session/persistence';
+import { bankProgress } from '@/session/logging';
 import { TodayCard } from '@/components/today/TodayCard';
 import { CheckInSheet } from '@/components/checkin/CheckInSheet';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +23,7 @@ import { Progress } from '@/components/ui/progress';
 import { Flame, Calendar, Droplets, Moon, HeartPulse, Footprints, ClipboardEditIcon, ChevronRightIcon } from 'lucide-react';
 
 export default function DashboardPage() {
-  const { data, profile, date, checkIn, plan, saveCheckIn } = useGuided();
+  const { data, update, profile, date, checkIn, plan, saveCheckIn } = useGuided();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   // ?checkin=1 (from the Workout page) opens the check-in straight away.
@@ -48,10 +51,19 @@ export default function DashboardPage() {
   const phaseTotal = daysPerWeek * (phaseEnd - phaseStart + 1);
   const phaseProgress = Math.min((doneInPhase / phaseTotal) * 100, 100);
 
+  // A low glucose needs a new reading before the session, not just a timer.
   const start = () => {
-    if (checkIn) navigate('/session', { viewTransition: true });
+    if (checkIn && !checkIn.readiness.recheckMinutes) navigate('/session', { viewTransition: true });
     else setSheetOpen(true);
   };
+
+  // Progress too old to resume still holds real work: keep it in History.
+  useEffect(() => {
+    const old = loadExpiredProgress();
+    if (!old) return;
+    update(prev => bankProgress(prev, old, old.sessionId ?? `guided-${old.plan.date}-${generateId()}`));
+    clearProgress();
+  }, [update]);
 
   return (
     <div className="flex flex-col gap-4 pb-4">
@@ -112,7 +124,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="pb-2 px-4 pt-3">
             <CardDescription className="text-xs">Volume this week</CardDescription>
-            <CardTitle className="text-2xl">{Math.round(weeklyStats.totalVolume / 1000)}<span className="text-base text-muted-foreground ml-1">k</span></CardTitle>
+            <CardTitle className="text-2xl">{Math.round(kgToDisplay(weeklyStats.totalVolume, settings.useMetric) / 1000)}<span className="text-base text-muted-foreground ml-1">k</span></CardTitle>
           </CardHeader>
           <CardContent><p className="text-xs text-muted-foreground">{formatWeight(weeklyStats.totalVolume, settings.useMetric)}</p></CardContent>
         </Card>

@@ -10,13 +10,13 @@ import type { RunnerState } from '@/session/runner';
 import { useGuided } from '@/hooks/useGuided';
 import { useGuidedSession } from '@/hooks/useGuidedSession';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
-import { loadProgress, rehydrate, clearProgress, type SavedProgress } from '@/session/persistence';
-import { segmentsWithExtra } from '@/session/runner';
-import { toWorkoutSession, withGuidedSession, activeSeconds } from '@/session/logging';
+import { loadProgress, loadExpiredProgress, rehydrate, clearProgress, type SavedProgress } from '@/session/persistence';
+import { coolDownTarget, segmentsWithExtra } from '@/session/runner';
+import { toWorkoutSession, withGuidedSession, activeSeconds, bankProgress } from '@/session/logging';
 import { getCoaching } from '@/data/coaching';
 import { nameOf } from '@/data/catalog';
 import { deriveHealth } from '@/engine/health';
-import { generateId } from '@/lib/utils';
+import { displayToKg, generateId, kgToDisplay } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { blockMinutes } from '@/components/today/blocks';
@@ -50,11 +50,12 @@ export default function SessionPage() {
     const saved = loadProgress();
     const id = (p: SessionPlan) => `guided-${p.date}-${generateId()}`;
     if (saved && (params.get('resume') === '1' || saved.plan.date === todayPlan.date)) {
-      return { plan: saved.plan, resumeState: rehydrate(saved.state, saved.clockAt, Date.now()), sessionId: id(saved.plan) };
+      return { plan: saved.plan, resumeState: rehydrate(saved.state, saved.clockAt, Date.now(), saved.plan), sessionId: saved.sessionId ?? id(saved.plan) };
     }
-    // Progress from another day survives here only until the first autosave of
-    // this run, so bank its work before it goes (Review Focus #3).
-    return { plan: todayPlan, sessionId: id(todayPlan), ...(saved ? { stale: saved } : {}) };
+    // Progress from another day, or too old to resume, survives here only until
+    // the first autosave of this run, so bank its work before it goes (Review Focus #3).
+    const old = saved ?? loadExpiredProgress();
+    return { plan: todayPlan, sessionId: id(todayPlan), ...(old ? { stale: old } : {}) };
   });
 
   const saveSession = (state: RunnerState, painAfter?: number) => {
@@ -64,10 +65,8 @@ export default function SessionPage() {
 
   useEffect(() => {
     if (!stale) return;
-    const rescued = toWorkoutSession(stale.plan, stale.state, { sessionId: `guided-${stale.plan.date}-${generateId()}` });
     // Nothing logged means nothing to lose, and History stays clean.
-    if (rescued.status === 'in_progress') return;
-    update(prev => (prev.sessions.some(s => s.date === rescued.date && s.guided && s.status === 'completed') ? prev : withGuidedSession(prev, rescued)));
+    update(prev => bankProgress(prev, stale, stale.sessionId ?? `guided-${stale.plan.date}-${generateId()}`));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stale]);
 
@@ -89,10 +88,26 @@ export default function SessionPage() {
     );
   }
 
+  // A low glucose needs a new reading before a fresh start (spec §4.6); a
+  // session already under way resumes as it was.
+  if (!resumeState && checkIn?.readiness.recheckMinutes) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center p-6 pt-safe pb-safe">
+        <div className="max-w-sm text-center flex flex-col gap-4">
+          <h1 className="text-2xl font-bold">Re-check your glucose first</h1>
+          <p>Your check-in asked you to treat and re-check before starting. Enter the new reading, and the session starts once it is in range.</p>
+          <Button className="h-12" onClick={() => navigate('/dashboard?checkin=1')}>Enter a new reading</Button>
+          <Button variant="outline" className="h-12" onClick={() => navigate('/dashboard')}>Back to Today</Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Player
       plan={plan}
       resumeState={resumeState}
+      sessionId={sessionId}
       profile={profile}
       sessions={data.sessions}
       useMetric={data.settings.useMetric}
@@ -105,6 +120,7 @@ export default function SessionPage() {
 interface PlayerProps {
   plan: SessionPlan;
   resumeState?: RunnerState;
+  sessionId: string;
   profile: ReturnType<typeof useGuided>['profile'];
   sessions: ReturnType<typeof useGuided>['data']['sessions'];
   useMetric: boolean;
@@ -112,8 +128,8 @@ interface PlayerProps {
   onSave: (state: RunnerState, painAfter?: number) => void;
 }
 
-function Player({ plan, resumeState, profile, sessions, useMetric, onExit, onSave }: PlayerProps) {
-  const g = useGuidedSession({ plan, profile, sessions, resumeState });
+function Player({ plan, resumeState, sessionId, profile, sessions, useMetric, onExit, onSave }: PlayerProps) {
+  const g = useGuidedSession({ plan, profile, sessions, resumeState, sessionId });
   const reduced = useReducedMotion();
   const [infoOpen, setInfoOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
@@ -138,7 +154,7 @@ function Player({ plan, resumeState, profile, sessions, useMetric, onExit, onSav
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status]);
 
-  if (state.status === 'ready') return <StartScreen plan={plan} voiceName={g.voiceName} muted={g.muted} setMuted={act.setMuted} onStart={act.start} onExit={onExit} />;
+  if (state.status === 'ready') return <StartScreen plan={plan} voiceName={g.voiceName} muted={g.muted} setMuted={act.setMuted} mix={mixesWithMusic(profile)} onStart={act.start} onExit={onExit} />;
   if (state.status === 'done') return <Summary plan={plan} state={state} onSave={onSave} onExit={onExit} />;
 
   const paused = state.status === 'paused';
@@ -176,6 +192,14 @@ function Player({ plan, resumeState, profile, sessions, useMetric, onExit, onSav
           The recorded voice couldn’t play, so your phone’s own voice is reading the steps.
         </p>
       )}
+      {g.voiceTrouble === 'silent' && !g.muted && (
+        <p role="status" className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-xs text-muted-foreground">
+          The coach’s voice isn’t playing on this phone right now. Follow the captions below.
+        </p>
+      )}
+      {paused && mixesWithMusic(profile) && (
+        <p className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-xs text-muted-foreground">{SILENT_SWITCH_NOTE}</p>
+      )}
 
       {/* Main */}
       <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pt-2 landscape:flex-row landscape:gap-4">
@@ -205,7 +229,9 @@ function Player({ plan, resumeState, profile, sessions, useMetric, onExit, onSav
                 <p className="text-2xl font-bold">{seg.repPhase === 'lift' ? 'Exhale · lift' : seg.repPhase === 'lower' ? 'Inhale · lower' : 'Pause'}</p>
               )}
               {step.kind === 'cardio' && <CardioHint intensity={seg.intensity} />}
-              <p className="text-sm text-muted-foreground">Step ends in {fmt(pos.stepRemainingMs)}</p>
+              <p className="text-sm text-muted-foreground">
+                {step.kind === 'checkpoint' && step.question === 'glucose' && pos.stepRemainingMs === 0 ? 'Answer to carry on' : `Step ends in ${fmt(pos.stepRemainingMs)}`}
+              </p>
             </div>
           </div>
 
@@ -255,18 +281,22 @@ function Player({ plan, resumeState, profile, sessions, useMetric, onExit, onSav
       </Dialog>
 
       <LowGlucoseDialog open={lowOpen} onOpenChange={setLowOpen}
-        onRecovered={() => { setLowOpen(false); skipToCooldown(plan, pos.stepIndex, act); }}
+        onRecovered={() => {
+          setLowOpen(false);
+          const target = coolDownTarget(plan, pos.stepIndex, pos.segmentIndex);
+          if (target) act.seek(target); else act.finish();
+        }}
         onEnd={() => { setLowOpen(false); g.stopVoice(); act.finish(); }} />
     </div>
   );
 }
 
-function skipToCooldown(plan: SessionPlan, from: number, act: ReturnType<typeof useGuidedSession>['act']) {
-  const target = plan.steps.findIndex((s, i) => i > from && (s.block === 'cardio' || s.block === 'wrapUp'));
-  const steps = target < 0 ? 0 : target - from;
-  for (let i = 0; i < steps; i++) act.next('skip');
-  act.resume();
-}
+/**
+ * "Play over my music" uses the iPhone's mixing audio category, which the
+ * silent switch and screen lock both mute (WebKit maps it to Ambient).
+ */
+const mixesWithMusic = (profile: { voice: { mode: string } }) => profile.voice.mode === 'overMusic' && typeof navigator !== 'undefined' && 'audioSession' in navigator;
+const SILENT_SWITCH_NOTE = 'Playing over your music: switch silent mode off, or the coach can’t be heard.';
 
 /** Exercise the figure demonstrates: the current one, or the next one during rests and talks. */
 function demoIdFor(plan: SessionPlan, index: number): string | undefined {
@@ -336,8 +366,6 @@ function Stepper({ label, value, onChange, step, suffix }: { label: string; valu
   );
 }
 
-const LB = 2.20462;
-
 function SetPanel({ step, state, useMetric, onLog, onDone }: { step: SetStep; state: RunnerState; useMetric: boolean; onLog: ReturnType<typeof useGuidedSession>['act']['log']; onDone: () => void }) {
   const log = state.logs.find(l => l.stepId === step.id);
   const kg = log?.weightKg ?? step.load.kg;
@@ -346,8 +374,8 @@ function SetPanel({ step, state, useMetric, onLog, onDone }: { step: SetStep; st
     <div className="flex flex-col gap-2">
       {showWeight && (
         <Stepper label={step.load.note === 'firstTime' && kg === null ? 'Weight (find yours)' : 'Weight'}
-          value={kg === null ? 0 : Math.round((useMetric ? kg : kg * LB) * 10) / 10} step={useMetric ? 2.5 : 5} suffix={useMetric ? ' kg' : ' lb'}
-          onChange={v => onLog({ stepId: step.id, kind: 'set', completed: log?.completed ?? false, reps: log?.reps ?? step.reps, weightKg: useMetric ? v : Math.round((v / LB) * 10) / 10, exerciseId: step.exerciseId })} />
+          value={kg === null ? 0 : kgToDisplay(kg, useMetric)} step={useMetric ? 2.5 : 5} suffix={useMetric ? ' kg' : ' lb'}
+          onChange={v => onLog({ stepId: step.id, kind: 'set', completed: log?.completed ?? false, reps: log?.reps ?? step.reps, weightKg: displayToKg(v, useMetric), exerciseId: step.exerciseId })} />
       )}
       <Button variant="outline" className="h-12 text-base" onClick={onDone}><CheckIcon /> Done — next</Button>
     </div>
@@ -367,8 +395,8 @@ function RestPanel({ plan, index, state, useMetric, onLog }: { plan: SessionPlan
       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Log the set you just did</p>
       {!prev.holdSeconds && !prev.carrySeconds && <Stepper label="Reps" value={reps} step={1} onChange={v => onLog({ ...base, reps: v, weightKg: kg })} />}
       {prev.load.note !== 'bodyweight' && (
-        <Stepper label="Weight" value={kg === null ? 0 : Math.round((useMetric ? kg : kg * LB) * 10) / 10} step={useMetric ? 2.5 : 5} suffix={useMetric ? ' kg' : ' lb'}
-          onChange={v => onLog({ ...base, reps, weightKg: useMetric ? v : Math.round((v / LB) * 10) / 10 })} />
+        <Stepper label="Weight" value={kg === null ? 0 : kgToDisplay(kg, useMetric)} step={useMetric ? 2.5 : 5} suffix={useMetric ? ' kg' : ' lb'}
+          onChange={v => onLog({ ...base, reps, weightKg: displayToKg(v, useMetric) })} />
       )}
       {next && <p className="text-sm">Next: <span className="font-semibold">{next.kind === 'set' && next.exerciseId === prev.exerciseId ? `Set ${next.set} of ${next.of}` : nameOf((next as { exerciseId: string }).exerciseId)}</span></p>}
     </div>
@@ -422,7 +450,7 @@ function LowGlucoseDialog({ open, onOpenChange, onRecovered, onEnd }: { open: bo
   );
 }
 
-function StartScreen({ plan, voiceName, muted, setMuted, onStart, onExit }: { plan: SessionPlan; voiceName: string | null; muted: boolean; setMuted: (m: boolean) => void; onStart: () => void; onExit: () => void }) {
+function StartScreen({ plan, voiceName, muted, setMuted, mix, onStart, onExit }: { plan: SessionPlan; voiceName: string | null; muted: boolean; setMuted: (m: boolean) => void; mix: boolean; onStart: () => void; onExit: () => void }) {
   const m = blockMinutes(plan);
   const first = useMemo(() => plan.steps.find(s => s.kind === 'hold' || s.kind === 'drill'), [plan]);
   return (
@@ -457,6 +485,7 @@ function StartScreen({ plan, voiceName, muted, setMuted, onStart, onExit }: { pl
           <div className="flex-1">
             <p className="font-medium">{muted ? 'Captions only' : voiceName ? `Voice: ${voiceName}` : 'Voice: captions until a voice loads'}</p>
             <p className="text-muted-foreground">Put your earphones in and keep the screen on.</p>
+            {mix && !muted && <p className="text-muted-foreground">{SILENT_SWITCH_NOTE}</p>}
           </div>
           <Button variant="outline" className="h-11" onClick={() => setMuted(!muted)}>{muted ? 'Unmute' : 'Mute'}</Button>
         </div>

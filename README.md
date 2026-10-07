@@ -49,6 +49,7 @@ sh scripts/voice/render-all.sh                      # Kokoro-82M voice packs →
 npm test                                            # engine, voice, motion and data tests
 npm run e2e -- --viewports=320x568,390x844          # full journey with screenshots (needs npm run dev)
 node scripts/e2e/autoplay.mjs --url=http://127.0.0.1:5173/fit-strong-90/ --coalesce=300   # every 3D demo starts by itself
+node scripts/e2e/voice-start.mjs --url=http://127.0.0.1:5173/fit-strong-90/ --delay=6500   # the coach's voice starts on the first tap, even on a slow network
 ```
 
 How the 3D clips are authored and checked: [docs/motion/authoring.md](docs/motion/authoring.md).

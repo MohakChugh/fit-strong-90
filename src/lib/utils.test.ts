@@ -12,11 +12,20 @@ import {
   getWorkoutsThisWeek,
   calculateVolume,
   detectPR,
+  deriveRecords,
+  editSession,
   formatDuration,
+  formatWeight,
+  kgToDisplay,
+  displayToKg,
+  LB_PER_KG,
+  cmToDisplay,
+  displayToCm,
+  finishedStatus,
   TOTAL_WEEKS,
 } from './utils';
 import { getPhaseInfo, getWorkoutsPerPhase, PHASES } from '@/data/program';
-import type { WorkoutSession, WorkoutSet } from '@/types';
+import type { AppData, PersonalRecord, WorkoutSession, WorkoutSet } from '@/types';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -446,6 +455,115 @@ describe('detectPR', () => {
   });
 });
 
+const record = (exerciseId: string, weight: number, reps: number, date: string): PersonalRecord =>
+  ({ exerciseId, weight, reps, date, volume: weight * reps });
+
+describe('deriveRecords', () => {
+  it("takes a workout's best set, not its last qualifying one", () => {
+    // Record 500, then sets of 600 and 550: replacing it set by set ended on 550.
+    const sessions = [
+      makeSession({ id: 'old', date: '2026-03-02', sets: [makeSet({ id: 'a', weight: 50 })] }),
+      makeSession({ id: 'new', date: '2026-03-09', sets: [makeSet({ id: 'b', weight: 60 }), makeSet({ id: 'c', weight: 55 })] }),
+    ];
+    expect(deriveRecords(sessions, [record('lat-pulldown', 50, 10, '2026-03-02')]))
+      .toEqual([record('lat-pulldown', 60, 10, '2026-03-09')]);
+  });
+
+  it('keeps the earliest set on a tie, as detectPR never replaces an equal record', () => {
+    const sessions = [
+      makeSession({ id: 'later', date: '2026-03-09', sets: [makeSet({ id: 'b', weight: 100, actualReps: 5 })] }),
+      makeSession({ id: 'first', date: '2026-03-02', sets: [makeSet({ id: 'a', weight: 50, actualReps: 10 })] }),
+    ];
+    expect(deriveRecords(sessions, [])).toEqual([record('lat-pulldown', 50, 10, '2026-03-02')]);
+  });
+
+  it('ignores pending, skipped and weightless sets', () => {
+    const sessions = [makeSession({
+      sets: [
+        makeSet({ id: 'a', weight: 40 }),
+        makeSet({ id: 'b', weight: 90, status: 'pending' }),
+        makeSet({ id: 'c', weight: 90, status: 'skipped' }),
+        makeSet({ id: 'd', exerciseId: 'plank', weight: null }),
+      ],
+    })];
+    expect(deriveRecords(sessions, [])).toEqual([record('lat-pulldown', 40, 10, '2026-03-02')]);
+  });
+
+  it('keeps a record for an exercise no session logs, such as an imported one', () => {
+    const imported = record('deadlift', 120, 5, '2025-12-01');
+    const sessions = [makeSession({ sets: [makeSet({ id: 'a' })] })];
+    expect(deriveRecords(sessions, [imported])).toEqual([imported, record('lat-pulldown', 50, 10, '2026-03-02')]);
+  });
+
+  it('drops a record once no logged set supports it', () => {
+    const cleared = makeSession({ sets: [makeSet({ id: 'a', weight: null, actualReps: null, status: 'pending' })] });
+    expect(deriveRecords([cleared], [record('lat-pulldown', 50, 10, '2026-03-02')])).toEqual([]);
+  });
+});
+
+describe('editSession', () => {
+  const appData = (sessions: WorkoutSession[], personalRecords: PersonalRecord[]): AppData =>
+    ({ version: 4, settings: {} as AppData['settings'], sessions, bodyMetrics: [], personalRecords });
+  const setWeight = (weight: number) => (s: WorkoutSession) => ({ ...s, sets: s.sets.map(x => ({ ...x, weight })) });
+
+  it('recomputes the volume and the record after a set is edited', () => {
+    // 50×10 edited to 60×10 used to keep showing volume 500.
+    const data = appData([makeSession({ id: 's', sets: [makeSet({ id: 'a' })], totalVolume: 500 })], [record('lat-pulldown', 50, 10, '2026-03-02')]);
+    const edited = editSession(data, 's', setWeight(60));
+    expect(edited.sessions[0].totalVolume).toBe(600);
+    expect(edited.personalRecords).toEqual([record('lat-pulldown', 60, 10, '2026-03-02')]);
+  });
+
+  it('lowers the record when the edit lowers the best set', () => {
+    const data = appData([makeSession({ id: 's', sets: [makeSet({ id: 'a', weight: 60 })], totalVolume: 600 })], [record('lat-pulldown', 60, 10, '2026-03-02')]);
+    expect(editSession(data, 's', setWeight(50)).personalRecords).toEqual([record('lat-pulldown', 50, 10, '2026-03-02')]);
+  });
+
+  it('marking a session incomplete clears its volume and falls back to the next best record', () => {
+    const data = appData([
+      makeSession({ id: 'best', date: '2026-03-09', sets: [makeSet({ id: 'a', weight: 70 })], totalVolume: 700 }),
+      makeSession({ id: 'earlier', date: '2026-03-02', sets: [makeSet({ id: 'b', weight: 50 })], totalVolume: 500 }),
+    ], [record('lat-pulldown', 70, 10, '2026-03-09')]);
+    const reset = editSession(data, 'best', s => ({
+      ...s, status: 'not_started', sets: s.sets.map(x => ({ ...x, status: 'pending', weight: null, actualReps: null })),
+    }));
+    expect(reset.sessions[0].totalVolume).toBe(0);
+    expect(reset.sessions[1]).toBe(data.sessions[1]);
+    expect(reset.personalRecords).toEqual([record('lat-pulldown', 50, 10, '2026-03-02')]);
+  });
+});
+
+describe('weight units', () => {
+  it('uses 2.20462 lb per kg', () => {
+    expect(LB_PER_KG).toBe(2.20462);
+  });
+
+  it('shows back exactly the pounds that were typed, through kilogram storage', () => {
+    for (let tenths = 0; tenths <= 10_000; tenths++) {
+      const lb = tenths / 10;
+      expect(kgToDisplay(displayToKg(lb, false), false)).toBe(lb);
+    }
+  });
+
+  it('stores pounds as kilograms and rounds displayed pounds to one decimal', () => {
+    expect(displayToKg(100, false)).toBeCloseTo(45.359, 3);
+    expect(kgToDisplay(50, false)).toBe(110.2);
+    expect(kgToDisplay(41.25, false)).toBe(90.9);
+  });
+
+  it('leaves kilograms as typed, showing them without float noise', () => {
+    expect(displayToKg(41.25, true)).toBe(41.25);
+    expect(kgToDisplay(41.25, true)).toBe(41.25);
+    expect(kgToDisplay(22.7 * 3, true)).toBe(68.1);
+  });
+
+  it('formats a stored kilogram weight in the user unit', () => {
+    // A guided 50 kg set used to read "50 lbs" in History.
+    expect(formatWeight(50, false)).toBe('110.2 lbs');
+    expect(formatWeight(50, true)).toBe('50 kg');
+  });
+});
+
 describe('isToday', () => {
   it('is true for today and false for other days', () => {
     atLocalTime('2026-03-30T22:00:00');
@@ -460,5 +578,23 @@ describe('formatDuration', () => {
     expect(formatDuration(9)).toBe('0:09');
     expect(formatDuration(90)).toBe('1:30');
     expect(formatDuration(600)).toBe('10:00');
+  });
+});
+
+describe('measurement units', () => {
+  it('stores inches as centimetres and shows them back to 0.1 inch', () => {
+    expect(displayToCm(34, false)).toBeCloseTo(86.36, 6);
+    expect(cmToDisplay(displayToCm(34, false), false)).toBe(34);
+    expect(cmToDisplay(86.36, true)).toBe(86.4);
+    expect(displayToCm(86, true)).toBe(86);
+  });
+});
+
+describe('finishedStatus', () => {
+  const set = (status: 'completed' | 'skipped' | 'pending') => ({ id: status, exerciseId: 'x', setNumber: 1, plannedReps: 10, actualReps: 10, weight: 20, status, rpe: null });
+  it('does not count a manual workout with nothing done as completed', () => {
+    expect(finishedStatus([set('skipped'), set('pending')])).toBe('skipped');
+    expect(finishedStatus([set('completed'), set('skipped'), set('skipped')])).toBe('partial');
+    expect(finishedStatus([set('completed'), set('completed'), set('skipped')])).toBe('completed');
   });
 });

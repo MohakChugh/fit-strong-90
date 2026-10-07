@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { getExerciseById } from '@/data/exercises';
-import { getWeekNumber, formatDate, formatWeight, calculateStreak, todayString, TOTAL_WEEKS, TRAINING_DAYS_PER_WEEK } from '@/lib/utils';
+import { getWeekNumber, formatDate, formatWeight, kgToDisplay, displayToKg, cmToDisplay, displayToCm, calculateStreak, todayString, TOTAL_WEEKS, TRAINING_DAYS_PER_WEEK } from '@/lib/utils';
 import type { BodyMetric } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -36,13 +36,13 @@ export default function ProgressPage() {
     return { week, label: `W${week}`, count };
   }).filter(d => d.count > 0 || d.week <= currentWeek);
 
-  // Weekly volume chart data
+  // Weekly volume chart data (stored in kg, charted in the user's unit)
   const weeklyVolumeData = Array.from({ length: TOTAL_WEEKS }, (_, i) => {
     const week = i + 1;
     const volume = data.sessions
       .filter(s => s.week === week && s.status === 'completed')
       .reduce((sum, s) => sum + s.totalVolume, 0);
-    return { week, label: `W${week}`, volume: Math.round(volume) };
+    return { week, label: `W${week}`, volume: Math.round(kgToDisplay(volume, data.settings.useMetric)) };
   }).filter(d => d.volume > 0 || d.week <= currentWeek);
 
   // Bodyweight trend data
@@ -51,7 +51,7 @@ export default function ProgressPage() {
     .sort((a, b) => a.date.localeCompare(b.date))
     .map(m => ({
       date: formatDate(m.date),
-      weight: m.weight,
+      weight: kgToDisplay(m.weight!, data.settings.useMetric),
     }));
 
   // Waist measurement trend data
@@ -60,7 +60,7 @@ export default function ProgressPage() {
     .sort((a, b) => a.date.localeCompare(b.date))
     .map(m => ({
       date: formatDate(m.date),
-      waist: m.waist,
+      waist: cmToDisplay(m.waist!, data.settings.useMetric),
     }));
 
   const handleSaveMetric = () => {
@@ -71,8 +71,9 @@ export default function ProgressPage() {
 
     const metric: BodyMetric = {
       date: newMetric.date || todayString(),
-      weight: newMetric.weight || null,
-      waist: newMetric.waist || null,
+      // Stored in kg and cm, whatever unit they were typed in.
+      weight: newMetric.weight ? displayToKg(newMetric.weight, data.settings.useMetric) : null,
+      waist: newMetric.waist ? displayToCm(newMetric.waist, data.settings.useMetric) : null,
       notes: newMetric.notes || '',
     };
 
@@ -400,7 +401,7 @@ export default function ProgressPage() {
                     </div>
                     <div className="text-right">
                       <Badge variant="secondary" className="mb-1">
-                        {Math.round(pr.volume)} {data.settings.useMetric ? 'kg' : 'lbs'}
+                        {Math.round(kgToDisplay(pr.volume, data.settings.useMetric))} {data.settings.useMetric ? 'kg' : 'lbs'}
                       </Badge>
                       <p className="text-xs text-muted-foreground">{formatDate(pr.date)}</p>
                     </div>

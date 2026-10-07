@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { formatDateFull, formatWeight, formatDuration, toDateString, todayString, parseDateString } from '@/lib/utils';
+import { formatDateFull, formatWeight, formatDuration, toDateString, todayString, parseDateString, editSession, kgToDisplay, displayToKg } from '@/lib/utils';
 import { getExerciseById } from '@/data/exercises';
 import { ExerciseFigure } from '@/components/exercise/ExerciseFigure';
 import { sessionSeconds } from '@/session/logging';
@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { getDayOfWeekFromDate } from '@/lib/utils';
 import { focusLabel, weekFocus } from '@/engine/templates';
 import { createDefaultProfile } from '@/profile/defaults';
+import { focusOverrideFor } from '@/hooks/useGuided';
 import { CalendarIcon, DumbbellIcon, ActivityIcon, ClockIcon, UndoIcon, PencilIcon, PlusCircleIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -97,52 +98,32 @@ export default function HistoryPage() {
     setSheetOpen(true);
   };
 
+  // `weight` is in kg. Volume and personal records follow the edited sets.
   const handleSaveEdit = (sessionId: string, setId: string, weight: number, reps: number) => {
-    update(prev => ({
-      ...prev,
-      sessions: prev.sessions.map(session => {
-        if (session.id !== sessionId) return session;
-
-        return {
-          ...session,
-          sets: session.sets.map(set => {
-            if (set.id !== setId) return set;
-            return {
-              ...set,
-              weight,
-              actualReps: reps,
-            };
-          }),
-        };
-      }),
-    }));
+    update(prev => editSession(prev, sessionId, session => ({
+      ...session,
+      sets: session.sets.map(set => (set.id === setId ? { ...set, weight, actualReps: reps } : set)),
+    })));
     toast.success('Set updated');
   };
 
   const handleMarkIncomplete = () => {
     if (!selectedSession) return;
-    update(prev => ({
-      ...prev,
-      sessions: prev.sessions.map(session => {
-        if (session.id !== selectedSession.id) return session;
-        return {
-          ...session,
-          status: 'not_started' as WorkoutStatus,
-          completedAt: null,
-          startedAt: null,
-          // The recorded length goes too, or History keeps showing it.
-          durationSeconds: undefined,
-          totalVolume: 0,
-          sets: session.sets.map(set => ({
-            ...set,
-            status: 'pending' as const,
-            actualReps: null,
-            weight: null,
-            rpe: null,
-          })),
-        };
-      }),
-    }));
+    update(prev => editSession(prev, selectedSession.id, session => ({
+      ...session,
+      status: 'not_started' as WorkoutStatus,
+      completedAt: null,
+      startedAt: null,
+      // The recorded length goes too, or History keeps showing it.
+      durationSeconds: undefined,
+      sets: session.sets.map(set => ({
+        ...set,
+        status: 'pending' as const,
+        actualReps: null,
+        weight: null,
+        rpe: null,
+      })),
+    })));
     setIncompleteDialogOpen(false);
     setSheetOpen(false);
     toast.success('Workout marked as incomplete — you can redo it');
@@ -392,7 +373,9 @@ export default function HistoryPage() {
             (() => {
               const dateStr = selectedDate ? toDateString(selectedDate) : null;
               const dayOfWeek = dateStr ? getDayOfWeekFromDate(dateStr) : null;
-              const focus = dayOfWeek ? weekFocus(data.profile ?? createDefaultProfile())[dayOfWeek] : 'rest';
+              const profile = data.profile ?? createDefaultProfile();
+              // A workout swapped in on the Workout page counts for that day here too.
+              const focus = dateStr && dayOfWeek ? focusOverrideFor(data, profile, dateStr) ?? weekFocus(profile)[dayOfWeek] : 'rest';
               const isRestDay = focus === 'rest';
               const isFuture = dateStr ? dateStr > todayString() : false;
 
@@ -473,8 +456,9 @@ function EditableSet({
 
   // Seed the draft from props when editing starts, so it can never drift from
   // the saved set. (Avoids syncing via an effect, which cascades renders.)
+  const shownWeight = set.weight === null ? 0 : kgToDisplay(set.weight, useMetric);
   const startEditing = () => {
-    setWeight(set.weight?.toString() || '0');
+    setWeight(shownWeight.toString());
     setReps(set.actualReps?.toString() || '0');
     setEditing(true);
   };
@@ -482,7 +466,9 @@ function EditableSet({
   const handleSave = () => {
     const weightNum = parseFloat(weight) || 0;
     const repsNum = parseInt(reps, 10) || 0;
-    onSave(sessionId, set.id, weightNum, repsNum);
+    // An untouched weight keeps its exact kg rather than a rounded round trip.
+    const kg = set.weight !== null && weightNum === shownWeight ? set.weight : displayToKg(weightNum, useMetric);
+    onSave(sessionId, set.id, kg, repsNum);
     setEditing(false);
   };
 

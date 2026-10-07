@@ -101,7 +101,7 @@ export function VoiceSettingsCard({ voice, onChange }: { voice: VoiceSettings; o
 
         <ChipGroup label="With your own music" options={MODES} value={[voice.mode]}
           onChange={([m]) => onChange({ mode: m })}
-          hint="Over my music lowers your music while the coach speaks (iPhone and iPad, iOS 16.4 or later)." />
+          hint="Over my music keeps your music playing under the coach. On iPhone and iPad the coach then follows the silent switch, so keep silent mode off to hear it." />
 
         <div className="flex items-center justify-between gap-3">
           <div className="flex flex-col gap-1">

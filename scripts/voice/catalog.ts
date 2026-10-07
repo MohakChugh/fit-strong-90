@@ -32,6 +32,12 @@ const PROFILES: ProfileInput[] = [
   { trainingDays: ['monday', 'wednesday', 'friday'] }, { trainingDays: ['monday', 'tuesday', 'thursday', 'friday'] },
   { trainingDays: ['monday', 'tuesday', 'thursday', 'friday', 'saturday'] },
   { trainingDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] },
+  // No machines: with a foot problem there is no cardio, and every schedule's
+  // day names appear in that welcome.
+  { equipment: 'homeNone', trainingDays: ['monday', 'wednesday', 'friday'] },
+  { equipment: 'homeNone', trainingDays: ['monday', 'tuesday', 'thursday', 'friday'] },
+  { equipment: 'homeNone', trainingDays: ['monday', 'tuesday', 'thursday', 'friday', 'saturday'] },
+  { equipment: 'homeNone', trainingDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] },
 ];
 const CHECKINS: Partial<DailyCheckIn>[] = [
   {},
@@ -40,6 +46,7 @@ const CHECKINS: Partial<DailyCheckIn>[] = [
   { back: { pain: 7, newNeuro: false, caudaEquinaFlag: false } },
   { bp: { sys: 150, dia: 92 } }, { bp: { sys: 165, dia: 101 } },
   { sleep: 'lt5' }, { news: ['hot'] }, { news: ['dizzy'] }, { news: ['footProblem'] },
+  { news: ['footProblem'], back: { pain: 6, newNeuro: false, caudaEquinaFlag: false } },
   { glucose: { value: 110, unit: 'mg/dL' } }, { glucose: { value: 80, unit: 'mg/dL' } },
 ];
 const WEEKS = [1, 2, 4, 5, 6, 8, 9, 10, 12];

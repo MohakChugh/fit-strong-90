@@ -87,10 +87,11 @@ export interface SetupRx {
 /** Lines spoken during a strength setup step, in order (shared with the planner's timing). */
 export function setupLines(exerciseId: string, name: string, rx: SetupRx | undefined, c: Coaching | undefined, detail: Detail): { priority: Priority; text: string; short?: string }[] {
   const unilateral = getStrength(exerciseId)?.unilateral ?? false;
+  const count = (one: string, many: string) => `${rx?.sets} ${rx?.sets === 1 ? one : many}`;
   const volume = !rx ? ''
-    : rx.holdSeconds ? `${rx.sets} rounds of ${rx.holdSeconds} second holds${unilateral ? ' on each side' : ''}.`
-      : rx.carrySeconds ? `${rx.sets} carries of ${rx.carrySeconds} seconds${unilateral ? ' per hand' : ''}.`
-        : `${rx.sets} sets of ${rx.targetReps}${unilateral ? ' on each side' : ''}.`;
+    : rx.holdSeconds ? `${count('round', 'rounds')} of ${rx.holdSeconds} second holds${unilateral ? ' on each side' : ''}.`
+      : rx.carrySeconds ? `${count('carry', 'carries')} of ${rx.carrySeconds} seconds${unilateral ? ' per hand' : ''}.`
+        : `${count('set', 'sets')} of ${rx.targetReps}${unilateral ? ' on each side' : ''}.`;
   const load = rx?.load;
   const loadLine = !load ? '' : load.note === 'firstTime'
     ? 'Pick a weight you could lift a few more times than asked, then log it after the first set.'
@@ -233,9 +234,12 @@ function talkCues(step: Extract<Step, { kind: 'talk' }>, ctx: ScriptContext, hyp
   const cues: Cue[] = [];
   const add = (priority: Priority, text: string, offsetMs = 0) => cues.push({ id: `${step.id}-${cues.length}`, text, priority, seg: 0, offsetMs });
   if (step.topic === 'welcome') {
+    // No cardio to do (a foot problem, no machine): say what takes its place.
     const kind = p.kind === 'full'
-      ? `Today is ${p.label}: fifteen minutes of mobility, then strength, then ${Math.round((p.cardio?.seconds ?? 720) / 60)} minutes of cardio.`
-      : p.kind === 'recovery' ? 'Today is a gentle recovery session: mobility, nerve glides and an easy walk.' : 'Today is an easy mobility and walking session.';
+      ? `Today is ${p.label}: fifteen minutes of mobility, then strength, then ${p.cardio ? `${Math.round(p.cardio.seconds / 60)} minutes of cardio` : 'an easy seated and floor flow in place of cardio'}.`
+      : p.kind === 'recovery'
+        ? (p.cardio ? 'Today is a gentle recovery session: mobility, nerve glides and an easy walk.' : 'Today is a gentle recovery session: mobility and nerve glides.')
+        : (p.cardio ? 'Today is an easy mobility and walking session.' : 'Today is an easy mobility session.');
     add(1, `Welcome. ${kind}`);
     add(2, 'I will guide every step. Pause any time with the button or your earphones. Stop if pain travels down your leg, or if you feel dizzy, short of breath or unwell.', 1500);
     if (p.changes.length) {
@@ -244,9 +248,12 @@ function talkCues(step: Extract<Step, { kind: 'talk' }>, ctx: ScriptContext, hyp
         say: 'I have adjusted today’s plan for how you feel. The details are on your screen.' });
     }
     if (health.hypoRisk) add(0, 'Keep fast-acting carbs within reach. If you feel shaky, sweaty or confused, tap I feel low.', 4000);
+  } else if (step.topic === 'blockIntro') {
+    add(1, 'No cardio today, so an easy seated and floor flow takes its place. Stay seated or on the floor the whole time.');
   } else if (step.topic === 'transition') {
-    if (step.block === 'mobility') add(1, 'Mobility complete. Nicely done. Take a sip of water and walk to your first station. Rise slowly if you were on the floor.');
-    else add(1, `Strength complete. Great work. Head to the ${nameOf(p.cardio?.modality ?? 'treadmill-walk').toLowerCase()} for your cardio.`);
+    const last = p.steps[p.steps.indexOf(step) + 1]?.block === 'wrapUp';
+    if (step.block === 'mobility') add(1, last ? 'That is the flow done. Rise slowly if you were on the floor.' : 'Mobility complete. Nicely done. Take a sip of water and walk to your first station. Rise slowly if you were on the floor.');
+    else add(1, p.cardio ? `Strength complete. Great work. Head to the ${nameOf(p.cardio.modality).toLowerCase()} for your cardio.` : 'Strength complete. Great work. Next, an easy seated and floor flow in place of cardio.');
   } else if (step.topic === 'wrapUp') {
     const reminders = [
       health.hypoRisk ? 'Check your glucose now and again within ninety minutes. Lows can happen up to a day later, often overnight.' : '',

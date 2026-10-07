@@ -56,4 +56,9 @@ describe('loadAdvice', () => {
     expect(loadAdvice({ kg: null, note: 'firstTime' }, true)).toMatch(/First time/);
     expect(loadAdvice({ kg: null, note: 'bodyweight' }, false)).toBe('Bodyweight.');
   });
+
+  it('converts the suggested kilograms for imperial users', () => {
+    // Used to read "Add a little: 40 lbs." for a 40 kg suggestion.
+    expect(loadAdvice({ kg: 40, note: 'increase' }, false)).toBe('Add a little: 88.2 lbs.');
+  });
 });
