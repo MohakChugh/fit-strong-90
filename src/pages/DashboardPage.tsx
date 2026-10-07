@@ -1,319 +1,172 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useAppData } from '@/hooks/useLocalStorage';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useGuided } from '@/hooks/useGuided';
 import {
-  getCurrentDayOfWeek,
   getDayOfWeekFromDate,
   toDateString,
-  todayString,
-  getWeekNumber,
-  getPhaseForWeek,
   calculateStreak,
   getWeeklyStats,
   formatWeight,
   formatDate,
 } from '@/lib/utils';
-import { getDayPlan, getPhaseInfo, getWorkoutsPerPhase } from '@/data/program';
+import { getPhaseInfo } from '@/data/program';
+import { weekFocus, focusLabel } from '@/engine/templates';
+import { deriveHealth } from '@/engine/health';
+import { clearProgress, resumeOffer } from '@/session/persistence';
+import { TodayCard } from '@/components/today/TodayCard';
+import { CheckInSheet } from '@/components/checkin/CheckInSheet';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Separator } from '@/components/ui/separator';
-import {
-  Dumbbell,
-  Flame,
-  Calendar,
-  Heart,
-  Droplets,
-  Moon,
-  Activity,
-  CheckCircle2,
-  Clock,
-  PlayCircle,
-} from 'lucide-react';
-
-const MOTIVATIONAL_LINES = [
-  "Every rep counts. Let's make today legendary.",
-  'Consistency beats perfection. Show up and do the work.',
-  'Your future self will thank you for starting today.',
-  'Progress is built one workout at a time.',
-  'The only bad workout is the one you skip.',
-  'Strength is earned, not given. Time to earn it.',
-  'Transform your body, transform your life.',
-  'Champions are made in the gym when no one is watching.',
-];
+import { Flame, Calendar, Droplets, Moon, HeartPulse, Footprints, ClipboardEditIcon, ChevronRightIcon } from 'lucide-react';
 
 export default function DashboardPage() {
-  const [data] = useAppData();
+  const { data, profile, date, checkIn, plan, saveCheckIn } = useGuided();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  // ?checkin=1 (from the Workout page) opens the check-in straight away.
+  const [sheetOpen, setSheetOpen] = useState(() => params.get('checkin') === '1');
   const { settings, sessions } = data;
+  const phaseInfo = getPhaseInfo(plan.week);
+  const health = deriveHealth(profile.health);
 
-  // Current week and phase
-  const today = todayString();
-  const currentWeek = getWeekNumber(settings.startDate, today);
-  const currentPhase = getPhaseForWeek(currentWeek);
-  const phaseInfo = getPhaseInfo(currentWeek);
+  const todaySession = sessions.find(s => s.date === date && s.guided) ?? sessions.find(s => s.date === date);
 
-  // Today's workout info
-  const todayDayOfWeek = getCurrentDayOfWeek();
-  const todayPlan = getDayPlan(todayDayOfWeek);
-  const todaySession = sessions.find((s) => s.date === today);
+  const [offer, setOffer] = useState(() => resumeOffer(date));
+  const discardEarlier = () => { clearProgress(); setOffer({ kind: 'none' }); };
 
-  // Weekly stats
   const weeklyStats = getWeeklyStats(sessions);
   const streak = calculateStreak(sessions);
+  const daysPerWeek = profile.trainingDays.length || 6;
 
-  // Tomorrow's workout
-  const tomorrowDate = new Date();
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrowDateStr = toDateString(tomorrowDate);
-  const tomorrowPlan = getDayPlan(getDayOfWeekFromDate(tomorrowDateStr));
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = toDateString(tomorrow);
+  const tomorrowFocus = weekFocus(profile)[getDayOfWeekFromDate(tomorrowStr)];
 
-  // Phase progress. Count only sessions inside this phase's week range, and use
-  // the program's own workout total so this can't drift from the Progress page.
-  const [phaseStartWeek, phaseEndWeek] = phaseInfo.weeks;
-  const completedWorkoutsInPhase = sessions.filter(
-    (s) =>
-      s.status === 'completed' &&
-      s.week >= phaseStartWeek &&
-      s.week <= phaseEndWeek
-  ).length;
-  const totalWorkoutsInPhase = getWorkoutsPerPhase(currentPhase);
-  const phaseProgress = Math.min((completedWorkoutsInPhase / totalWorkoutsInPhase) * 100, 100);
+  const [phaseStart, phaseEnd] = phaseInfo.weeks;
+  const doneInPhase = sessions.filter(s => s.status === 'completed' && s.week >= phaseStart && s.week <= phaseEnd).length;
+  const phaseTotal = daysPerWeek * (phaseEnd - phaseStart + 1);
+  const phaseProgress = Math.min((doneInPhase / phaseTotal) * 100, 100);
 
-  // Random motivational line, chosen once per mount (Math.random() during
-  // render is impure and would reshuffle on every re-render).
-  const [motivationalLine] = useState(
-    () => MOTIVATIONAL_LINES[Math.floor(Math.random() * MOTIVATIONAL_LINES.length)]
-  );
+  const start = () => {
+    if (checkIn) navigate('/session', { viewTransition: true });
+    else setSheetOpen(true);
+  };
 
   return (
-    <div className="space-y-4 pb-4">
-      <div className="space-y-4">
-        {/* Header */}
-        <div className="space-y-2">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">{motivationalLine}</p>
-        </div>
+    <div className="flex flex-col gap-4 pb-4">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Today</h1>
+        <p className="text-sm text-muted-foreground">{formatDate(date)} · {phaseInfo.name} phase, week {plan.week}</p>
+      </header>
 
-        {/* Today's Workout Card */}
-        <Card className="border-2 shadow-lg animate-scale-in">
-          <CardHeader>
-            <div className="flex items-start justify-between">
-              <div className="space-y-1">
-                <CardTitle className="text-2xl">
-                  {todayPlan.isRestDay ? 'Rest & Recovery' : `Today's Workout`}
-                </CardTitle>
-                <CardDescription className="text-base">
-                  {formatDate(today)} • {todayPlan.label}
-                </CardDescription>
-              </div>
-              {todaySession && (
-                <Badge
-                  variant={
-                    todaySession.status === 'completed'
-                      ? 'default'
-                      : todaySession.status === 'in_progress'
-                        ? 'secondary'
-                        : 'outline'
-                  }
-                  className="capitalize"
-                >
-                  {todaySession.status === 'in_progress' ? (
-                    <>
-                      <Clock className="mr-1 h-3 w-3" />
-                      In Progress
-                    </>
-                  ) : todaySession.status === 'completed' ? (
-                    <>
-                      <CheckCircle2 className="mr-1 h-3 w-3" />
-                      Completed
-                    </>
-                  ) : (
-                    todaySession.status.replace('_', ' ')
-                  )}
-                </Badge>
-              )}
+      {profile.needsHealthReview && (
+        <Link to="/profile" viewTransition className="press-feedback">
+          <Card className="flex flex-row items-center gap-3 p-4 border-[var(--block-strength)]/50 bg-[var(--block-strength)]/10">
+            <ClipboardEditIcon className="size-5 shrink-0" />
+            <div className="flex-1 text-sm">
+              <p className="font-semibold">Finish your health profile</p>
+              <p className="text-muted-foreground">Two minutes, so every session adapts to your back, glucose and blood pressure.</p>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Dumbbell className="h-5 w-5 text-muted-foreground" />
-                <span className="font-medium capitalize">{todayPlan.muscleGroup}</span>
-              </div>
-              <Separator orientation="vertical" className="h-5" />
-              <div className="flex items-center gap-2">
-                <Activity className="h-5 w-5 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">
-                  Week {currentWeek} • {phaseInfo?.name}
-                </span>
-              </div>
-            </div>
-
-            {todayPlan.isRestDay ? (
-              <div className="rounded-lg bg-muted/50 p-4 space-y-2">
-                <p className="text-sm font-medium">
-                  Today is your rest day. Take time to recover and recharge.
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Optional: Light stretching, foam rolling, or a gentle walk.
-                </p>
-              </div>
-            ) : (
-              <>
-                {todaySession?.status === 'completed' ? (
-                  <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-4 animate-scale-in">
-                    <div className="flex items-center gap-2 mb-2">
-                      <CheckCircle2 className="h-5 w-5 text-green-600" />
-                      <p className="font-semibold text-green-700 dark:text-green-400">
-                        Workout Complete!
-                      </p>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Great job! You completed {todaySession.sets.filter((s) => s.status === 'completed').length} sets
-                      with a total volume of {formatWeight(todaySession.totalVolume, settings.useMetric)}.
-                    </p>
-                  </div>
-                ) : (
-                  <Link to="/workout" viewTransition className="block press-feedback">
-                    <Button size="lg" className="w-full h-12" variant="default">
-                      <PlayCircle className="mr-2 h-5 w-5" />
-                      {todaySession?.status === 'in_progress' ? 'Continue Workout' : 'Start Workout'}
-                    </Button>
-                  </Link>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Weekly Stats Row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger-children">
-          <Card>
-            <CardHeader className="pb-2 px-4 pt-3">
-              <CardDescription className="text-xs">Workouts This Week</CardDescription>
-              <CardTitle className="text-2xl">{weeklyStats.workouts}/6</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Progress value={(weeklyStats.workouts / 6) * 100} className="h-1" />
-            </CardContent>
+            <ChevronRightIcon className="size-5 shrink-0" />
           </Card>
+        </Link>
+      )}
 
-          <Card>
-            <CardHeader className="pb-2 px-4 pt-3">
-              <CardDescription className="text-xs">Weekly Volume</CardDescription>
-              <CardTitle className="text-2xl">
-                {Math.round(weeklyStats.totalVolume / 1000)}
-                <span className="text-base text-muted-foreground ml-1">k</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground">
-                {formatWeight(weeklyStats.totalVolume, settings.useMetric)} total
-              </p>
-            </CardContent>
-          </Card>
+      <TodayCard
+        plan={plan}
+        checkIn={checkIn}
+        todaySession={todaySession}
+        resumeMinutesLeft={offer.kind === 'today' ? offer.minutesLeft : undefined}
+        earlier={offer.kind === 'earlier' ? offer : undefined}
+        onStart={start}
+        onResume={() => navigate('/session?resume=1', { viewTransition: true })}
+        onDiscardEarlier={discardEarlier}
+      />
 
-          <Card>
-            <CardHeader className="pb-2 px-4 pt-3">
-              <CardDescription className="text-xs">Total Sets</CardDescription>
-              <CardTitle className="text-2xl">{weeklyStats.totalSets}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground">{weeklyStats.totalReps} reps completed</p>
-            </CardContent>
-          </Card>
+      <CheckInSheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        profile={profile}
+        date={date}
+        initial={checkIn}
+        onSave={saveCheckIn}
+        onStart={() => { setSheetOpen(false); navigate('/session', { viewTransition: true }); }}
+      />
 
-          <Card>
-            <CardHeader className="pb-2 px-4 pt-3">
-              <CardDescription className="text-xs">Current Streak</CardDescription>
-              <CardTitle className="text-2xl flex items-center">
-                {streak}
-                <Flame className="ml-2 h-6 w-6 text-orange-500" />
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground">
-                {streak === 1 ? 'day' : 'days'} in a row
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Adherence Progress */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger-children">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Phase Progress</CardTitle>
-            <CardDescription>
-              {phaseInfo?.name} Phase • Week {currentWeek} of {phaseInfo?.weeks[1]}
-            </CardDescription>
+          <CardHeader className="pb-2 px-4 pt-3">
+            <CardDescription className="text-xs">Sessions this week</CardDescription>
+            <CardTitle className="text-2xl">{weeklyStats.workouts}/{daysPerWeek}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">
-                  {completedWorkoutsInPhase} of {totalWorkoutsInPhase} workouts completed
-                </span>
-                <span className="font-medium">{Math.round(phaseProgress)}%</span>
-              </div>
-              <Progress value={phaseProgress} className="h-2" />
-            </div>
-            <p className="text-sm text-muted-foreground">{phaseInfo?.description}</p>
-          </CardContent>
+          <CardContent><Progress value={(weeklyStats.workouts / daysPerWeek) * 100} className="h-1" /></CardContent>
         </Card>
-
-        {/* Health Reminders */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 stagger-children">
-          <Alert className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
-            <Heart className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-            <AlertDescription className="text-sm">
-              <span className="font-medium">Blood Sugar:</span> Check levels before and after your
-              workout.
-            </AlertDescription>
-          </Alert>
-
-          <Alert className="border-cyan-200 bg-cyan-50/50 dark:border-cyan-900 dark:bg-cyan-950/20">
-            <Droplets className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
-            <AlertDescription className="text-sm">
-              <span className="font-medium">Hydration:</span> Aim for 8+ glasses of water today.
-            </AlertDescription>
-          </Alert>
-
-          <Alert className="border-purple-200 bg-purple-50/50 dark:border-purple-900 dark:bg-purple-950/20">
-            <Moon className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-            <AlertDescription className="text-sm">
-              <span className="font-medium">Sleep:</span> Target 7-9 hours for optimal recovery.
-            </AlertDescription>
-          </Alert>
-        </div>
-
-        {/* Tomorrow Preview */}
         <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Calendar className="h-5 w-5" />
-              <CardTitle className="text-lg">Tomorrow</CardTitle>
-            </div>
-            <CardDescription>
-              {formatDate(tomorrowDateStr)}
-            </CardDescription>
+          <CardHeader className="pb-2 px-4 pt-3">
+            <CardDescription className="text-xs">Streak</CardDescription>
+            <CardTitle className="text-2xl flex items-center">{streak}<Flame className="ml-2 h-6 w-6 text-[var(--block-strength)]" /></CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-3">
-              <div className="rounded-full bg-primary/10 p-3">
-                <Dumbbell className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="font-medium">{tomorrowPlan.label}</p>
-                <p className="text-sm text-muted-foreground capitalize">
-                  {tomorrowPlan.isRestDay ? 'Rest & Recovery' : tomorrowPlan.muscleGroup}
-                </p>
-              </div>
-            </div>
-          </CardContent>
+          <CardContent><p className="text-xs text-muted-foreground">{streak === 1 ? 'day' : 'days'} in a row</p></CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2 px-4 pt-3">
+            <CardDescription className="text-xs">Volume this week</CardDescription>
+            <CardTitle className="text-2xl">{Math.round(weeklyStats.totalVolume / 1000)}<span className="text-base text-muted-foreground ml-1">k</span></CardTitle>
+          </CardHeader>
+          <CardContent><p className="text-xs text-muted-foreground">{formatWeight(weeklyStats.totalVolume, settings.useMetric)}</p></CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2 px-4 pt-3">
+            <CardDescription className="text-xs">Sets this week</CardDescription>
+            <CardTitle className="text-2xl">{weeklyStats.totalSets}</CardTitle>
+          </CardHeader>
+          <CardContent><p className="text-xs text-muted-foreground">{weeklyStats.totalReps} reps</p></CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Phase progress</CardTitle>
+          <CardDescription>{phaseInfo.name} · week {plan.week} of {phaseEnd}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">{doneInPhase} of {phaseTotal} sessions</span>
+            <span className="font-medium">{Math.round(phaseProgress)}%</span>
+          </div>
+          <Progress value={phaseProgress} className="h-2" />
+          <p className="text-sm text-muted-foreground">{phaseInfo.description}</p>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 stagger-children">
+        {health.diabetic && (
+          <Tip icon={HeartPulse} title="Glucose">
+            {health.hypoRisk ? 'Check before you start and before cardio; carry fast-acting carbs.' : 'A short walk after meals lowers the after-meal rise.'}
+          </Tip>
+        )}
+        <Tip icon={Footprints} title="Walk after meals">10 to 15 minutes after your biggest meal helps your back and your glucose.</Tip>
+        <Tip icon={Droplets} title="Hydration">Sip water between blocks; more on hot days.</Tip>
+        <Tip icon={Moon} title="Sleep">Seven to nine hours makes tomorrow’s session feel easier.</Tip>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2"><Calendar className="h-5 w-5" /><CardTitle className="text-lg">Tomorrow</CardTitle></div>
+          <CardDescription>{formatDate(tomorrowStr)}</CardDescription>
+        </CardHeader>
+        <CardContent><p className="font-medium">{focusLabel(tomorrowFocus)}</p></CardContent>
+      </Card>
     </div>
+  );
+}
+
+function Tip({ icon: Icon, title, children }: { icon: typeof Moon; title: string; children: React.ReactNode }) {
+  return (
+    <Card className="flex flex-row gap-3 p-3">
+      <Icon className="size-5 shrink-0 mt-0.5 text-muted-foreground" />
+      <p className="text-sm"><span className="font-semibold">{title}:</span> {children}</p>
+    </Card>
   );
 }

@@ -1,12 +1,11 @@
-import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { useTimer } from '@/hooks/useTimer';
 import { useSupersetTimer } from '@/hooks/useSupersetTimer';
 import {
   getDayOfWeekFromDate,
-  getWeekNumber,
-  getPhaseForWeek,
+  parseDateString,
   todayString,
   generateId,
   formatWeight,
@@ -15,20 +14,18 @@ import {
   detectPR,
   cn,
 } from '@/lib/utils';
-import {
-  getDayPlan,
-  getDayPlanByMuscleGroup,
-  getTrainingDays,
-  getActiveExercisesForPhase,
-  getExerciseSetsAndReps,
-  getPhaseInfo,
-} from '@/data/program';
+import { getPhaseInfo } from '@/data/program';
 import { getExerciseById } from '@/data/exercises';
-import { ExerciseAnimation } from '@/components/exercise/ExerciseAnimation';
-import type { WorkoutSession, SetStatus, MuscleGroup, WarmupCooldownEntry, WorkoutPhase, SupersetGroup } from '@/types';
+import { buildSessionPlan } from '@/engine/session';
+import { focusLabel, weekFocus } from '@/engine/templates';
+import { createDefaultProfile } from '@/profile/defaults';
+import { manualDayPlan, swapOptions } from '@/session/manual';
+import { ExerciseFigure } from '@/components/exercise/ExerciseFigure';
+import type { WorkoutSession, SetStatus, WarmupCooldownEntry, WorkoutPhase, SupersetGroup, WorkoutExercise, DayOfWeek } from '@/types';
+import type { DayFocus, SessionPlan } from '@/types/plan';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -67,6 +64,8 @@ import {
   Link2,
   Link2Off,
   Zap,
+  Headphones,
+  BookOpen,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -75,24 +74,43 @@ export default function WorkoutPage() {
   const { settings, sessions, personalRecords } = data;
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Support ?date=YYYY-MM-DD and ?override=<muscleGroup>
+  // Support ?date=YYYY-MM-DD and ?focus=<DayFocus> (a swapped workout)
   const actualToday = todayString();
-  const workoutDate = searchParams.get('date') || actualToday;
-  const overrideMuscle = searchParams.get('override') as MuscleGroup | null;
+  // The URL is user-editable: accept only a real YYYY-MM-DD that isn't in the future.
+  const dateParam = searchParams.get('date') ?? '';
+  const workoutDate = /^\d{4}-\d{2}-\d{2}$/.test(dateParam) && !isNaN(parseDateString(dateParam).getTime()) && dateParam <= actualToday
+    ? dateParam
+    : actualToday;
   const isPastWorkout = workoutDate !== actualToday;
 
-  // Resolve the day plan: override muscle group or default for the date
-  const dayOfWeek = getDayOfWeekFromDate(workoutDate);
-  const defaultDayPlan = getDayPlan(dayOfWeek);
-  const dayPlan = overrideMuscle
-    ? getDayPlanByMuscleGroup(overrideMuscle) || defaultDayPlan
-    : defaultDayPlan;
-  const weekNumber = getWeekNumber(settings.startDate, workoutDate);
-  const phase = getPhaseForWeek(weekNumber);
+  // The day's generated plan, the same one the guided session runs.
+  const profile = useMemo(
+    () => data.profile ?? createDefaultProfile({ weightKg: settings.currentWeight || 0 }),
+    [data.profile, settings.currentWeight],
+  );
+  const options = swapOptions(profile);
+  // Likewise, only accept a focus the swap dialog offers.
+  const overrideFocus = options.find(o => o.focus === searchParams.get('focus'))?.focus ?? null;
+  const defaultFocus = weekFocus(profile)[getDayOfWeekFromDate(workoutDate)];
+  const checkIn = data.checkIns?.find(c => c.date === workoutDate);
+  const plan = useMemo(
+    () => buildSessionPlan({
+      profile, date: workoutDate, startDate: settings.startDate,
+      sessions: sessions.filter(s => s.date < workoutDate),
+      recentCheckIns: (data.checkIns ?? []).filter(c => c.date < workoutDate),
+      ...(checkIn ? { checkIn } : {}),
+      ...(overrideFocus ? { focusOverride: overrideFocus } : {}),
+    }),
+    // Built once per date and focus: logging sets must never reshuffle today's exercises.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [profile, workoutDate, overrideFocus, settings.startDate, checkIn],
+  );
+  const dayPlan = useMemo(() => manualDayPlan(plan, settings.useMetric), [plan, settings.useMetric]);
+  const dayOfWeek = dayPlan.dayOfWeek;
+  const weekNumber = plan.week;
+  const phase = plan.phase;
   const phaseInfo = getPhaseInfo(weekNumber);
-
-  // Get active exercises
-  const activeExercises = getActiveExercisesForPhase(dayPlan, phase);
+  const activeExercises = dayPlan.exercises;
 
   // State
   const [session, setSession] = useState<WorkoutSession | null>(null);
@@ -120,32 +138,34 @@ export default function WorkoutPage() {
   const timer = useTimer(settings.defaultRestSeconds);
   const [showTimer, setShowTimer] = useState(false);
 
-  // A rest day with no override has no workout to track. This is computed here
+  // A rest, recovery or stop day has no strength work to track. This is computed here
   // but NOT returned on yet: every hook below must run on every render, or React
   // sees a different hook count when the day flips (e.g. tab left open overnight).
-  const isRestDayView = dayPlan.isRestDay && !overrideMuscle;
+  const isRestDayView = dayPlan.isRestDay;
 
   // Build a stable key for the current plan to detect when we need to create a new session
-  const planKey = `${workoutDate}-${dayPlan.muscleGroup}`;
+  const planKey = `${workoutDate}-${plan.focus}`;
 
   // Initialize or restore session
   useEffect(() => {
     if (isRestDayView) return;
 
+    // Manual tracking never touches a guided session's log.
     const existingSession = sessions.find(
-      (s) => s.date === workoutDate && s.muscleGroup === dayPlan.muscleGroup
+      (s) => s.date === workoutDate && !s.guided &&
+        (s.focus ? s.focus === plan.focus : s.muscleGroup === dayPlan.muscleGroup)
     );
 
     if (existingSession) {
       setSession(existingSession);
       setWorkoutNotes(existingSession.notes || '');
     } else {
-      // Remove any old session for this date with a different muscle group (swap scenario)
-      const oldSessionForDate = sessions.find((s) => s.date === workoutDate);
-      if (oldSessionForDate) {
+      // Drop an untouched manual session left over from a swap; never one with progress.
+      const stale = sessions.find((s) => s.date === workoutDate && !s.guided && s.status === 'not_started');
+      if (stale) {
         updateData((prev) => ({
           ...prev,
-          sessions: prev.sessions.filter((s) => s.date !== workoutDate),
+          sessions: prev.sessions.filter((s) => s.id !== stale.id),
         }));
       }
 
@@ -154,6 +174,7 @@ export default function WorkoutPage() {
         date: workoutDate,
         dayOfWeek: dayOfWeek,
         muscleGroup: dayPlan.muscleGroup,
+        focus: plan.focus,
         phase: phase,
         week: weekNumber,
         status: 'not_started',
@@ -165,13 +186,12 @@ export default function WorkoutPage() {
       };
 
       activeExercises.forEach((exercise) => {
-        const { sets, reps } = getExerciseSetsAndReps(exercise, phase);
-        for (let i = 1; i <= sets; i++) {
+        for (let i = 1; i <= exercise.sets; i++) {
           newSession.sets.push({
             id: generateId(),
             exerciseId: exercise.exerciseId,
             setNumber: i,
-            plannedReps: reps,
+            plannedReps: exercise.reps,
             actualReps: null,
             weight: null,
             status: 'pending',
@@ -211,10 +231,7 @@ export default function WorkoutPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id]);
 
-  // All hooks are registered above this point. Safe to bail out now.
-  if (isRestDayView) {
-    return <RestDayView />;
-  }
+  // All hooks are registered above this point.
 
   // Helper: get superset group for an exercise
   const getSupersetForExercise = (exerciseId: string): SupersetGroup | undefined => {
@@ -491,8 +508,8 @@ export default function WorkoutPage() {
     toast.success('Workout reset — start fresh!');
   };
 
-  // Swap workout to a different muscle group
-  const handleSwapWorkout = (muscleGroup: string) => {
+  // Swap to another workout from the user's week
+  const handleSwapWorkout = (focus: DayFocus) => {
     // Remove existing session for this date before swapping
     if (session) {
       updateData((prev) => ({
@@ -502,15 +519,39 @@ export default function WorkoutPage() {
     }
 
     const params = new URLSearchParams(searchParams);
-    params.set('override', muscleGroup);
+    if (focus === defaultFocus) params.delete('focus');
+    else params.set('focus', focus);
     if (workoutDate !== actualToday) {
       params.set('date', workoutDate);
     }
     setSearchParams(params, { replace: true });
     setSession(null);
     setShowSwapDialog(false);
-    toast.success(`Switched to ${muscleGroup.charAt(0).toUpperCase() + muscleGroup.slice(1)} workout`);
+    toast.success(`Switched to ${focusLabel(focus)}`);
   };
+
+  const swapDialog = (
+    <SwapWorkoutDialog
+      open={showSwapDialog}
+      onOpenChange={setShowSwapDialog}
+      options={options}
+      current={plan.focus}
+      onSwap={handleSwapWorkout}
+      hasExistingProgress={!!session && session.status !== 'not_started'}
+    />
+  );
+
+  if (isRestDayView) {
+    const canTrain = (plan.focus === 'rest' || plan.focus === 'activeRecovery')
+      && (plan.readiness.outcome === 'green' || plan.readiness.outcome === 'amber');
+    return (
+      <>
+        <RestDayView plan={plan} date={workoutDate} isToday={!isPastWorkout} hasCheckIn={!!checkIn}
+          onTrainAnyway={canTrain ? () => setShowSwapDialog(true) : undefined} />
+        {swapDialog}
+      </>
+    );
+  }
 
   if (!session) {
     return (
@@ -523,7 +564,11 @@ export default function WorkoutPage() {
   const completedSetsCount = session.sets.filter((s) => s.status === 'completed').length;
   const totalSets = session.sets.length;
   const progress = totalSets > 0 ? (completedSetsCount / totalSets) * 100 : 0;
-  const isSwapped = overrideMuscle && overrideMuscle !== defaultDayPlan.muscleGroup;
+  const isSwapped = overrideFocus !== null && overrideFocus !== defaultFocus;
+  // Render what the session holds, so a plan rebuilt after a check-in or a
+  // profile change never hides sets that were already created or logged.
+  const shownExercises: WorkoutExercise[] = [...new Set(session.sets.map(s => s.exerciseId))]
+    .map(id => activeExercises.find(e => e.exerciseId === id) ?? trackedExercise(id, session));
 
   return (
     <div className="space-y-4 pb-4">
@@ -542,7 +587,7 @@ export default function WorkoutPage() {
             <div className="flex items-center gap-2 rounded-lg bg-blue-500/10 border border-blue-500/30 p-3 text-sm animate-slide-in-left">
               <ArrowLeftRight className="h-4 w-4 text-blue-500 flex-shrink-0" />
               <span className="text-blue-700 dark:text-blue-400">
-                Swapped from {defaultDayPlan.label} → <strong>{dayPlan.label}</strong>
+                Swapped from {focusLabel(defaultFocus)} → <strong>{dayPlan.label}</strong>
               </span>
             </div>
           )}
@@ -554,7 +599,7 @@ export default function WorkoutPage() {
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{dayPlan.label}</h1>
               <p className="text-muted-foreground">
-                {formatDate(workoutDate)} • Week {weekNumber} • {phaseInfo?.name} Phase
+                {formatDate(workoutDate)} • Week {weekNumber} • {phaseInfo?.name} Phase{plan.mode !== 'normal' ? ` (${plan.mode})` : ''}
               </p>
             </div>
             {session.status !== 'completed' && (
@@ -569,6 +614,16 @@ export default function WorkoutPage() {
               </Button>
             )}
           </div>
+
+          {!isPastWorkout && session.status === 'not_started' && (
+            <GuidedLink plan={plan} hasCheckIn={!!checkIn} />
+          )}
+
+          {plan.changes.length > 0 && (
+            <ul className="flex flex-col gap-1 rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+              {plan.changes.slice(0, 3).map(c => <li key={c}>{c}</li>)}
+            </ul>
+          )}
 
           {/* Progress Bar */}
           <div className="space-y-2">
@@ -695,13 +750,7 @@ export default function WorkoutPage() {
                       }}
                       className="h-5 w-5"
                     />
-                    <div className="h-14 w-14 shrink-0 rounded-md bg-muted/30">
-                      <ExerciseAnimation
-                        exerciseId={entry.exerciseId}
-                        playing={!entry.completed}
-                        label={`Form demonstration for ${exercise.name}`}
-                      />
-                    </div>
+                    <ExerciseFigure exerciseId={entry.exerciseId} compact className="size-14 shrink-0" />
                     <div className="flex-1">
                       <span className="text-sm font-medium">{exercise.name}</span>
                       {isTimed && (
@@ -763,13 +812,7 @@ export default function WorkoutPage() {
                       }}
                       className="h-5 w-5"
                     />
-                    <div className="h-14 w-14 shrink-0 rounded-md bg-muted/30">
-                      <ExerciseAnimation
-                        exerciseId={entry.exerciseId}
-                        playing={!entry.completed}
-                        label={`Form demonstration for ${exercise.name}`}
-                      />
-                    </div>
+                    <ExerciseFigure exerciseId={entry.exerciseId} compact className="size-14 shrink-0" />
                     <span className="text-sm font-medium">{exercise.name}</span>
                   </div>
                 );
@@ -793,11 +836,13 @@ export default function WorkoutPage() {
           onValueChange={(value) => {
             const newValue = Array.isArray(value) && value.length > 0 ? value[value.length - 1] : null;
             setActiveExerciseId(newValue);
+            if (newValue) keepInView(newValue);
           }}
         >
-          {activeExercises.map((workoutExercise) => {
+          {shownExercises.map((workoutExercise) => {
             const exercise = getExerciseById(workoutExercise.exerciseId);
             if (!exercise) return null;
+            const unit = workoutExercise.unit === 'seconds' ? 's' : ' reps';
 
             const exerciseSets = session.sets.filter((s) => s.exerciseId === exercise.id);
             const completedExerciseSets = exerciseSets.filter(
@@ -815,6 +860,7 @@ export default function WorkoutPage() {
               <AccordionItem
                 key={exercise.id}
                 value={exercise.id}
+                data-exercise={exercise.id}
                 className={cn(
                   'border rounded-lg px-4 bg-card scroll-mt-20',
                   inSuperset && 'border-l-4 border-l-violet-500',
@@ -837,41 +883,38 @@ export default function WorkoutPage() {
                             </Badge>
                           )}
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        {workoutExercise.targetMuscles.map((muscle) => (
-                          <Badge key={muscle} variant="outline" className="text-xs capitalize">
-                            {muscle}
-                          </Badge>
-                        ))}
-                        <Badge variant="outline" className="text-xs capitalize">
-                          {exercise.difficulty}
-                        </Badge>
-                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {workoutExercise.sets} × {workoutExercise.reps}{unit}
+                        {workoutExercise.targetMuscles.length > 0 && ` · ${workoutExercise.targetMuscles.join(', ')}`}
+                      </p>
                     </div>
                   </div>
                 </AccordionTrigger>
 
                 <AccordionContent className="pt-4 space-y-4">
-                  {/* Form demo: animates only while this exercise is expanded */}
-                  <div className="flex items-center gap-4 rounded-lg border bg-muted/20 p-3">
-                    <div className="h-24 w-24 shrink-0">
-                      <ExerciseAnimation
-                        exerciseId={exercise.id}
-                        playing={activeExerciseId === exercise.id}
-                        label={`Animated form demonstration for ${exercise.name}`}
-                      />
-                    </div>
-                    <div className="min-w-0 space-y-1.5">
-                      <p className="text-xs font-medium text-muted-foreground">Form guide</p>
-                      <p className="text-sm">{exercise.instructions[2] ?? exercise.instructions[0]}</p>
+                  {/* Form demo: the 3D viewer animates only while this exercise is expanded */}
+                  <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3">
+                    <ExerciseFigure exerciseId={exercise.id} playing={activeExerciseId === exercise.id} className="h-40" />
+                    {workoutExercise.notes && <p className="text-sm">{workoutExercise.notes}</p>}
+                    {exercise.tips && exercise.tips.length > 0 && (
+                      <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                        {exercise.tips.slice(0, 3).map(t => <li key={t}>{t}</li>)}
+                      </ul>
+                    )}
+                    <div className="flex flex-wrap gap-x-5">
+                      <Link to={`/library?ex=${exercise.id}`} viewTransition
+                        className="inline-flex min-h-11 items-center gap-2 text-sm text-primary hover:underline">
+                        <BookOpen className="h-4 w-4" />
+                        How to do it
+                      </Link>
                       <a
                         href={`https://www.youtube.com/results?search_query=${encodeURIComponent(exercise.youtubeSearchQuery)}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
+                        className="inline-flex min-h-11 items-center gap-2 text-sm text-primary hover:underline"
                       >
                         <ExternalLink className="h-4 w-4" />
-                        Watch demo on YouTube
+                        Watch on YouTube
                       </a>
                     </div>
                   </div>
@@ -888,15 +931,15 @@ export default function WorkoutPage() {
                             Set {set.setNumber}
                           </div>
                           <div className="text-xs text-muted-foreground sm:hidden">
-                            Target: {set.plannedReps} reps
+                            Target: {set.plannedReps}{unit}
                           </div>
                           <div className="hidden sm:block text-sm text-muted-foreground">
-                            Target: {set.plannedReps}
+                            Target: {set.plannedReps}{unit}
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2 sm:contents">
                           <div className="space-y-1">
-                            <Label className="text-xs sm:hidden">Reps</Label>
+                            <Label className="text-xs sm:hidden">{unit === 's' ? 'Seconds' : 'Reps'}</Label>
                             <Input
                               type="number"
                               inputMode="numeric"
@@ -983,7 +1026,7 @@ export default function WorkoutPage() {
                   <div className="space-y-2">
                     <Label className="text-sm">Exercise Notes</Label>
                     <Textarea
-                      placeholder={workoutExercise.notes}
+                      placeholder="How did it feel?"
                       value={exerciseNotes[exercise.id] ?? ''}
                       onChange={(e) => handleExerciseNoteChange(exercise.id, e.target.value)}
                       className="resize-none text-sm"
@@ -1101,7 +1144,7 @@ export default function WorkoutPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-2 py-2 max-h-[60vh] overflow-y-auto">
-            {activeExercises.map((workoutExercise) => {
+            {shownExercises.map((workoutExercise) => {
               const exercise = getExerciseById(workoutExercise.exerciseId);
               if (!exercise) return null;
               const alreadyInSuperset = getSupersetForExercise(exercise.id);
@@ -1174,14 +1217,73 @@ export default function WorkoutPage() {
       </Dialog>
 
       {/* Swap Workout Dialog */}
-      <SwapWorkoutDialog
-        open={showSwapDialog}
-        onOpenChange={setShowSwapDialog}
-        currentMuscleGroup={dayPlan.muscleGroup}
-        onSwap={handleSwapWorkout}
-        hasExistingProgress={session.status !== 'not_started'}
-      />
+      {swapDialog}
     </div>
+  );
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Opening an exercise folds away the one open above it, which would carry the
+ * one just tapped up off the screen. Hold it in place while the panels move,
+ * then scroll it up under the header if its demo still isn't fully in view.
+ */
+function keepInView(id: string) {
+  const item = document.querySelector<HTMLElement>(`[data-exercise="${CSS.escape(id)}"]`);
+  if (!item) return;
+  let top = item.getBoundingClientRect().top, frames = 0, moved = performance.now(), taken = false;
+  // A finger or wheel taking over the scroll ends the hold.
+  const take = () => { taken = true; };
+  const input = ['touchstart', 'wheel'] as const;
+  const release = () => input.forEach(e => window.removeEventListener(e, take));
+  const hold = () => {
+    if (frames === 0) input.forEach(e => window.addEventListener(e, take, { passive: true }));
+    if (taken) return release();
+    const shift = item.getBoundingClientRect().top - top;
+    if (Math.abs(shift) > 0.5) {
+      window.scrollBy({ top: shift, behavior: 'instant' });
+      top = item.getBoundingClientRect().top;
+      moved = performance.now();
+    }
+    // Counted in frames as well as time: on a busy phone the fold can start late.
+    if (++frames < 10 || performance.now() - moved < 400) { requestAnimationFrame(hold); return; }
+    release();
+    const demo = item.querySelector('[data-slot="accordion-content"] [role="img"]')?.getBoundingClientRect();
+    if (demo && (demo.top < 0 || demo.bottom > window.innerHeight)) item.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
+  requestAnimationFrame(hold);
+}
+
+/** A logged exercise the current plan no longer lists (plan rebuilt, or an older session). */
+function trackedExercise(id: string, session: WorkoutSession): WorkoutExercise {
+  const sets = session.sets.filter(s => s.exerciseId === id);
+  const ex = getExerciseById(id);
+  return {
+    exerciseId: id,
+    sets: sets.length,
+    reps: sets[0]?.plannedReps ?? 10,
+    restSeconds: 0,
+    notes: '',
+    difficulty: ex?.difficulty ?? 'beginner',
+    targetMuscles: ex?.primaryMuscles.slice(0, 3) ?? [],
+  };
+}
+
+/** Start the voice-guided version of today: stretching, this workout, then cardio. */
+function GuidedLink({ plan, hasCheckIn }: { plan: SessionPlan; hasCheckIn: boolean }) {
+  if (plan.steps.length === 0) return null;
+  return (
+    <Link to={hasCheckIn ? '/session' : '/dashboard?checkin=1'} viewTransition
+      className={cn(buttonVariants({ size: 'lg' }), 'h-auto min-h-14 w-full flex-col gap-0.5 whitespace-normal py-2 text-center text-base')}>
+      <span className="flex items-center gap-2">
+        <Headphones className="h-5 w-5" />
+        {hasCheckIn ? 'Start guided session' : 'Check in & start guided session'}
+      </span>
+      <span className="text-xs font-normal opacity-90">
+        {Math.round(plan.totalSeconds / 60)} min with voice: stretch, lift, then cardio
+      </span>
+    </Link>
   );
 }
 
@@ -1190,27 +1292,18 @@ export default function WorkoutPage() {
 function SwapWorkoutDialog({
   open,
   onOpenChange,
-  currentMuscleGroup,
+  options,
+  current,
   onSwap,
   hasExistingProgress,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  currentMuscleGroup: MuscleGroup;
-  onSwap: (muscleGroup: string) => void;
+  options: { focus: DayFocus; day?: DayOfWeek }[];
+  current: DayFocus;
+  onSwap: (focus: DayFocus) => void;
   hasExistingProgress: boolean;
 }) {
-  const trainingDays = getTrainingDays();
-
-  const muscleGroupIcons: Record<string, string> = {
-    back: '🔙',
-    chest: '💪',
-    legs: '🦵',
-    shoulders: '🏋️',
-    arms: '💪',
-    core: '🧘',
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -1222,27 +1315,24 @@ function SwapWorkoutDialog({
           <DialogDescription>
             {hasExistingProgress
               ? 'Swapping will discard your current progress for this workout.'
-              : 'Choose a different workout for today.'}
+              : 'Choose another workout from your week.'}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-2 py-2">
-          {trainingDays.map((day) => {
-            const isCurrent = day.muscleGroup === currentMuscleGroup;
+        <div className="flex flex-col gap-2 py-2 max-h-[60vh] overflow-y-auto">
+          {options.map(({ focus, day }) => {
+            const isCurrent = focus === current;
             return (
               <Button
-                key={day.muscleGroup}
+                key={focus}
                 variant={isCurrent ? 'secondary' : 'outline'}
-                className="w-full justify-start h-12 text-left"
+                className="w-full justify-start h-auto min-h-12 py-2 text-left"
                 disabled={isCurrent}
-                onClick={() => onSwap(day.muscleGroup)}
+                onClick={() => onSwap(focus)}
               >
-                <span className="mr-3 text-lg">{muscleGroupIcons[day.muscleGroup] || '🏋️'}</span>
-                <div className="flex flex-col items-start">
-                  <span className="font-medium">{day.label}</span>
-                  <span className="text-xs text-muted-foreground capitalize">
-                    {day.exercises.length} exercises
-                  </span>
+                <div className="flex min-w-0 flex-col items-start">
+                  <span className="font-medium whitespace-normal">{focusLabel(focus)}</span>
+                  {day && <span className="text-xs text-muted-foreground capitalize">Usually {day}</span>}
                 </div>
                 {isCurrent && (
                   <Badge variant="outline" className="ml-auto text-xs">
@@ -1266,13 +1356,27 @@ function SwapWorkoutDialog({
 
 // ─── Rest Day View ──────────────────────────────────────────────────────────
 
-function RestDayView() {
+function RestDayView({ plan, date, isToday, hasCheckIn, onTrainAnyway }: {
+  plan: SessionPlan;
+  date: string;
+  isToday: boolean;
+  hasCheckIn: boolean;
+  /** Offered on scheduled rest days when today's readiness allows lifting. */
+  onTrainAnyway?: () => void;
+}) {
+  const stop = plan.kind === 'none' && plan.focus !== 'rest';
+  const title = stop ? 'Rest today' : plan.kind === 'recovery' ? 'Recovery day' : 'Rest & Recovery';
+  const lead = stop
+    ? 'Today’s check-in says your body needs rest. No lifting today.'
+    : plan.kind === 'recovery'
+      ? 'No lifting today. Gentle mobility, nerve glides and an easy walk help you recover.'
+      : 'Your body rebuilds on rest days. Hydrate, walk after meals and sleep well.';
   return (
     <div className="space-y-6 pb-4">
       <div className="space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Rest & Recovery</h1>
-          <p className="text-muted-foreground">{formatDate(new Date())}</p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{title}</h1>
+          <p className="text-muted-foreground">{formatDate(date)}</p>
         </div>
 
         <Card className="border-2">
@@ -1281,12 +1385,22 @@ function RestDayView() {
               <div className="inline-flex items-center justify-center rounded-full bg-primary/10 p-4 mb-2">
                 <Clock className="h-8 w-8 text-primary" />
               </div>
-              <h2 className="text-xl font-semibold">Today is your rest day</h2>
-              <p className="text-muted-foreground max-w-md mx-auto">
-                Your body needs time to recover and rebuild. Use today to recharge, hydrate, and
-                prepare for your next workout.
-              </p>
+              <p className="text-muted-foreground max-w-md mx-auto">{lead}</p>
             </div>
+
+            {plan.changes.length > 0 && (
+              <ul className="flex flex-col gap-1 rounded-lg bg-muted/50 p-3 text-sm">
+                {plan.changes.map(c => <li key={c}>{c}</li>)}
+              </ul>
+            )}
+
+            {isToday && <GuidedLink plan={plan} hasCheckIn={hasCheckIn} />}
+            {onTrainAnyway && (
+              <Button variant="outline" className="h-12 w-full" onClick={onTrainAnyway}>
+                <Dumbbell className="h-4 w-4 mr-2" />
+                Do a workout anyway
+              </Button>
+            )}
 
             <Separator className="my-6" />
 
@@ -1295,15 +1409,11 @@ function RestDayView() {
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-                  <span>Light stretching or yoga (10-15 minutes)</span>
+                  <span>Gentle stretching, staying out of pain (10-15 minutes)</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-                  <span>Foam rolling for tight muscles</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-                  <span>Gentle walk (20-30 minutes)</span>
+                  <span>A 15-20 minute walk after meals, which also helps blood sugar</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />

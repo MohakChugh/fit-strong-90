@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Downloaded MakeHuman assets (rebuilt by scripts/character/build.mjs)
+scripts/character/.cache/

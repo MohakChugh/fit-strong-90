@@ -9,11 +9,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatDateFull, formatWeight, formatDuration, toDateString, todayString, parseDateString } from '@/lib/utils';
 import { getExerciseById } from '@/data/exercises';
-import { ExerciseAnimation } from '@/components/exercise/ExerciseAnimation';
+import { ExerciseFigure } from '@/components/exercise/ExerciseFigure';
+import { sessionSeconds } from '@/session/logging';
 import type { WorkoutSession, WorkoutStatus, DayOfWeek } from '@/types';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { getDayOfWeekFromDate } from '@/lib/utils';
-import { getDayPlan } from '@/data/program';
+import { focusLabel, weekFocus } from '@/engine/templates';
+import { createDefaultProfile } from '@/profile/defaults';
 import { CalendarIcon, DumbbellIcon, ActivityIcon, ClockIcon, UndoIcon, PencilIcon, PlusCircleIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -43,13 +45,11 @@ export default function HistoryPage() {
     const mostConsistentDay = Object.entries(dayCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
 
     // Calculate average duration
+    // Prefer the time actually spent: a session paused overnight has a wall-clock
+    // span of hours but only its active minutes count.
     const durationsInSeconds = completed
-      .filter(s => s.startedAt && s.completedAt)
-      .map(s => {
-        const start = new Date(s.startedAt!).getTime();
-        const end = new Date(s.completedAt!).getTime();
-        return Math.floor((end - start) / 1000);
-      });
+      .map(sessionSeconds)
+      .filter((n): n is number => n !== undefined);
     const avgDuration = durationsInSeconds.length > 0
       ? Math.floor(durationsInSeconds.reduce((a, b) => a + b, 0) / durationsInSeconds.length)
       : 0;
@@ -130,6 +130,8 @@ export default function HistoryPage() {
           status: 'not_started' as WorkoutStatus,
           completedAt: null,
           startedAt: null,
+          // The recorded length goes too, or History keeps showing it.
+          durationSeconds: undefined,
           totalVolume: 0,
           sets: session.sets.map(set => ({
             ...set,
@@ -146,17 +148,14 @@ export default function HistoryPage() {
     toast.success('Workout marked as incomplete — you can redo it');
   };
 
+  // An edited duration is stored as the session's length, leaving the recorded
+  // start and finish times alone.
   const handleDurationSave = (sessionId: string, durationMinutes: number) => {
     update(prev => ({
       ...prev,
-      sessions: prev.sessions.map(session => {
-        if (session.id !== sessionId) return session;
-        const startedAt = session.startedAt || `${session.date}T06:00:00`;
-        const completedAt = new Date(
-          new Date(startedAt).getTime() + durationMinutes * 60000
-        ).toISOString();
-        return { ...session, startedAt, completedAt };
-      }),
+      sessions: prev.sessions.map(session => (session.id === sessionId
+        ? { ...session, startedAt: session.startedAt || `${session.date}T06:00:00`, durationSeconds: Math.max(0, Math.round(durationMinutes * 60)) }
+        : session)),
     }));
     toast.success('Duration updated');
   };
@@ -238,17 +237,19 @@ export default function HistoryPage() {
 
       {/* Day Detail Sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent side="right" className="overflow-y-auto w-full sm:w-[400px]">
+        <SheetContent side="right" className="overflow-y-auto data-[side=right]:w-full sm:data-[side=right]:w-[400px] pb-safe">
           {selectedSession ? (
             <>
               <SheetHeader>
                 <SheetTitle>{formatDateFull(selectedSession.date)}</SheetTitle>
                 <SheetDescription>
-                  {selectedSession.muscleGroup.charAt(0).toUpperCase() + selectedSession.muscleGroup.slice(1)} Day
+                  {selectedSession.focus
+                    ? focusLabel(selectedSession.focus)
+                    : `${selectedSession.muscleGroup.charAt(0).toUpperCase() + selectedSession.muscleGroup.slice(1)} Day`}
                 </SheetDescription>
               </SheetHeader>
 
-              <div className="flex flex-col gap-4 mt-4">
+              <div className="flex flex-col gap-4 px-4 pb-6">
                 {/* Status Badge */}
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Status</span>
@@ -363,13 +364,7 @@ export default function HistoryPage() {
                           <Card key={exerciseId} className="p-3">
                             <div className="flex flex-col gap-2">
                               <div className="flex items-center gap-2">
-                                <div className="h-12 w-12 shrink-0 rounded-md bg-muted/30">
-                                  <ExerciseAnimation
-                                    exerciseId={exerciseId}
-                                    playing={false}
-                                    label={`Form reference for ${exercise.name}`}
-                                  />
-                                </div>
+                                <ExerciseFigure exerciseId={exerciseId} compact className="size-12 shrink-0" />
                                 <div className="font-medium text-sm">{exercise.name}</div>
                               </div>
                               <div className="flex flex-col gap-2">
@@ -397,8 +392,8 @@ export default function HistoryPage() {
             (() => {
               const dateStr = selectedDate ? toDateString(selectedDate) : null;
               const dayOfWeek = dateStr ? getDayOfWeekFromDate(dateStr) : null;
-              const plan = dayOfWeek ? getDayPlan(dayOfWeek) : null;
-              const isRestDay = plan?.isRestDay ?? true;
+              const focus = dayOfWeek ? weekFocus(data.profile ?? createDefaultProfile())[dayOfWeek] : 'rest';
+              const isRestDay = focus === 'rest';
               const isFuture = dateStr ? dateStr > todayString() : false;
 
               return (
@@ -412,7 +407,7 @@ export default function HistoryPage() {
                     </SheetDescription>
                   </SheetHeader>
                   {dateStr && !isRestDay && !isFuture && (
-                    <div className="mt-4">
+                    <div className="px-4">
                       <Button
                         className="w-full"
                         onClick={() => {
@@ -424,7 +419,7 @@ export default function HistoryPage() {
                         Log Workout
                       </Button>
                       <p className="text-xs text-muted-foreground mt-2 text-center">
-                        Track what you did on {plan?.label}
+                        Track what you did on {focusLabel(focus)}
                       </p>
                     </div>
                   )}
@@ -550,12 +545,9 @@ function EditableDuration({
   session: WorkoutSession;
   onSave: (sessionId: string, durationMinutes: number) => void;
 }) {
-  const hasDuration = session.startedAt && session.completedAt;
-  const currentMinutes = hasDuration
-    ? Math.round(
-        (new Date(session.completedAt!).getTime() - new Date(session.startedAt!).getTime()) / 60000
-      )
-    : 0;
+  const seconds = sessionSeconds(session);
+  const hasDuration = seconds !== undefined;
+  const currentMinutes = Math.round((seconds ?? 0) / 60);
 
   const [editing, setEditing] = useState(false);
   const [minutes, setMinutes] = useState('0');

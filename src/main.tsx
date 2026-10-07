@@ -6,9 +6,10 @@ import { Toaster } from '@/components/ui/sonner'
 import App from './App'
 import './index.css'
 
-if ('serviceWorker' in navigator) {
+// Production only: in dev a cached module would mask code changes.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/fit-strong-90/sw.js').catch(() => {})
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {})
   })
 }
 

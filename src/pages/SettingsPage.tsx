@@ -1,9 +1,14 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { useTheme } from '@/hooks/useTheme';
 import { exportData, importData, resetData } from '@/services/storage';
 import { todayString } from '@/lib/utils';
+import { createDefaultProfile } from '@/profile/defaults';
+import { packName } from '@/voice/packs';
+import type { VoiceSettings } from '@/types/profile';
+import { VoiceSettingsCard } from '@/components/profile/VoiceSettingsCard';
+import { ChipGroup } from '@/components/profile/ChipGroup';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +29,8 @@ import {
   TrashIcon,
   AlertTriangleIcon,
   FlameIcon,
+  HeartPulseIcon,
+  ChevronRightIcon,
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -31,6 +38,18 @@ export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const voice = (data.profile ?? createDefaultProfile()).voice;
+
+  // Voice settings live on the profile; a legacy user without one gets a default
+  // profile that still asks for the health review on Today.
+  const handleVoiceChange = (patch: Partial<VoiceSettings>) => {
+    update(prev => {
+      const profile = prev.profile ?? createDefaultProfile({ weightKg: prev.settings.currentWeight || 0, needsHealthReview: true });
+      return { ...prev, profile: { ...profile, voice: { ...profile.voice, ...patch } } };
+    });
+    if (patch.pack) toast.success(`Coach voice: ${packName(patch.pack)}`);
+  };
 
   const handleStartDateChange = (value: string) => {
     update(prev => ({
@@ -87,6 +106,7 @@ export default function SettingsPage() {
   };
 
   const handleExport = () => {
+    setExportDialogOpen(false);
     try {
       const json = exportData();
       const blob = new Blob([json], { type: 'application/json' });
@@ -145,6 +165,32 @@ export default function SettingsPage() {
           Manage your app preferences and data
         </p>
       </div>
+
+      {/* Profile & health */}
+      <Link to="/profile" viewTransition className="press-feedback">
+        <Card className="flex flex-row items-center gap-3 p-4">
+          <HeartPulseIcon className="size-5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <h2 className="font-semibold">Profile & health</h2>
+            <p className="text-sm text-muted-foreground">
+              Training days, equipment, back and nerve symptoms, diabetes and blood pressure
+            </p>
+          </div>
+          <ChevronRightIcon className="size-5 shrink-0 text-muted-foreground" />
+        </Card>
+      </Link>
+
+      <VoiceSettingsCard voice={voice} onChange={handleVoiceChange} />
+
+      <Card className="p-4">
+        <ChipGroup label="Demo figure" hint="The body the 3D form demos use."
+          options={[{ value: 'female', label: 'Female' }, { value: 'male', label: 'Male' }]}
+          value={[data.profile?.figure ?? 'male']}
+          onChange={([figure]) => update(prev => {
+            const profile = prev.profile ?? createDefaultProfile({ weightKg: prev.settings.currentWeight || 0, needsHealthReview: true });
+            return { ...prev, profile: { ...profile, figure: figure as 'male' | 'female' } };
+          })} />
+      </Card>
 
       {/* Program Settings */}
       <Card className="p-4">
@@ -297,7 +343,7 @@ export default function SettingsPage() {
           <h2 className="text-lg font-semibold">Data Management</h2>
         </div>
         <div className="flex flex-col gap-3">
-          <Button variant="outline" className="w-full justify-start" onClick={handleExport}>
+          <Button variant="outline" className="w-full justify-start" onClick={() => setExportDialogOpen(true)}>
             <DownloadIcon className="size-4" />
             Export Data
           </Button>
@@ -323,9 +369,13 @@ export default function SettingsPage() {
         <AlertTriangleIcon className="size-4" />
         <AlertTitle>Health Disclaimer</AlertTitle>
         <AlertDescription>
-          This app is for tracking and general fitness guidance only, not medical advice. If you have diabetes,
-          please consult your doctor before starting any exercise program. For concerns about erectile dysfunction
-          or sexual health, please speak with a healthcare professional.
+          <ul className="list-disc space-y-1 pl-4">
+            <li>General information, not medical advice.</li>
+            <li>Stop and get help for chest pain, faintness or severe breathlessness; the app can’t detect emergencies.</li>
+            <li>The app never changes medication or insulin doses.</li>
+            <li>Meters, CGMs and cuffs can be wrong (CGMs lag during exercise), so treat symptoms.</li>
+            <li>Clinician-set targets replace the defaults (the profile has fields for them).</li>
+          </ul>
         </AlertDescription>
       </Alert>
 
@@ -350,14 +400,39 @@ export default function SettingsPage() {
         </div>
       </Card>
 
+      {/* Export warning: the file leaves the device unencrypted (spec §10.2) */}
+      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Export your data?</DialogTitle>
+            <DialogDescription>
+              The file holds your profile, your health answers (back and nerve symptoms,
+              diabetes, blood pressure), every daily check-in and every session.
+              It is plain, unencrypted JSON, so keep it somewhere you trust and
+              think twice before sharing it or putting it in cloud storage.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExportDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleExport}>
+              <DownloadIcon className="size-4" />
+              Download
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Reset Confirmation Dialog */}
       <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reset All Data?</DialogTitle>
             <DialogDescription>
-              This will permanently delete all your workout history, body metrics, and personal records.
-              This action cannot be undone.
+              This permanently deletes everything this app stores on the device: your
+              profile and health answers, check-ins, workout history, body metrics,
+              personal records and any session still in progress. It cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
