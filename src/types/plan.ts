@@ -227,6 +227,22 @@ export interface CardioPlan {
   seconds: number;
 }
 
+/** The body area a Stretch routine favours (Move → Stretch). */
+export type StretchFocus = 'backHips' | 'neckShoulders' | 'hipsLegs' | 'wholeBody';
+
+/**
+ * Stretch lengths. No 5: every mobility block opens with the same spine and
+ * core basics (raise, cat-cow, the direction drill, the McGill three), which
+ * alone run past six minutes, so a five-minute routine cannot be built by the
+ * shared machinery.
+ */
+export type StretchMinutes = 10 | 15;
+
+export interface StretchSpec {
+  focus: StretchFocus;
+  minutes: StretchMinutes;
+}
+
 export interface SessionPlan {
   id: string;
   /** YYYY-MM-DD the plan was built for. */
@@ -239,7 +255,10 @@ export interface SessionPlan {
   label: string;
   mobilityDayType: MobilityDayType;
   readiness: Readiness;
-  kind: 'full' | 'recovery' | 'restDay' | 'none';
+  /** `stretch` is a Stretch routine: never the day's programme workout. */
+  kind: 'full' | 'recovery' | 'restDay' | 'stretch' | 'none';
+  /** What was asked for, on a Stretch plan. */
+  stretch?: StretchSpec;
   steps: Step[];
   exercises: PlannedExercise[];
   cardio: CardioPlan | null;

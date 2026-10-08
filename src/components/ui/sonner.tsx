@@ -1,9 +1,10 @@
-import { useTheme } from "next-themes"
+import { useTheme } from "@/hooks/useTheme"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme()
+  // The app's own setting, so a toast matches a theme chosen in You.
+  const { theme } = useTheme()
 
   return (
     <Sonner

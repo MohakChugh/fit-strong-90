@@ -84,6 +84,18 @@ export interface SetupRx {
   load?: { kg: number | null; note: string };
 }
 
+/**
+ * What the coach says about today's weight, by the planner's note. Exported so
+ * the voice catalogue records every one: a returning person's notes only
+ * appear with a history, which the catalogue's plans do not have.
+ */
+export const LOAD_LINES = {
+  firstTime: 'Pick a weight you could lift a few more times than asked, then log it after the first set.',
+  increase: 'You earned a little more weight today. The new weight is on your screen.',
+  decrease: 'Go a little lighter today. The weight is on your screen.',
+  same: 'Same weight as last time.',
+} as const;
+
 /** Lines spoken during a strength setup step, in order (shared with the planner's timing). */
 export function setupLines(exerciseId: string, name: string, rx: SetupRx | undefined, c: Coaching | undefined, detail: Detail): { priority: Priority; text: string; short?: string }[] {
   const unilateral = getStrength(exerciseId)?.unilateral ?? false;
@@ -93,11 +105,9 @@ export function setupLines(exerciseId: string, name: string, rx: SetupRx | undef
       : rx.carrySeconds ? `${count('carry', 'carries')} of ${rx.carrySeconds} seconds${unilateral ? ' per hand' : ''}.`
         : `${count('set', 'sets')} of ${rx.targetReps}${unilateral ? ' on each side' : ''}.`;
   const load = rx?.load;
-  const loadLine = !load ? '' : load.note === 'firstTime'
-    ? 'Pick a weight you could lift a few more times than asked, then log it after the first set.'
-    : load.note === 'increase' ? 'You earned a little more weight today. The new weight is on your screen.'
-      : load.note === 'decrease' ? 'Go a little lighter today. The weight is on your screen.'
-        : load.note === 'same' && load.kg ? 'Same weight as last time.' : '';
+  const loadLine = !load ? ''
+    : load.note === 'firstTime' || load.note === 'increase' || load.note === 'decrease' ? LOAD_LINES[load.note]
+      : load.note === 'same' && load.kg ? LOAD_LINES.same : '';
   const lines: { priority: Priority; text: string; short?: string }[] = [{ priority: 1, text: `Next: ${name}.` }];
   if (detail !== 'minimal' && c) {
     lines.push({ priority: 2, text: join(detail === 'detailed' ? c.summary : '', ...(detail === 'detailed' ? c.setup : c.setup.slice(0, 2))), short: c.setup[0] });
@@ -235,8 +245,11 @@ function talkCues(step: Extract<Step, { kind: 'talk' }>, ctx: ScriptContext, hyp
   const add = (priority: Priority, text: string, offsetMs = 0) => cues.push({ id: `${step.id}-${cues.length}`, text, priority, seg: 0, offsetMs });
   if (step.topic === 'welcome') {
     // No cardio to do (a foot problem, no machine): say what takes its place.
+    // No minutes: they are on the screen, and every spoken variant must be in
+    // the recorded packs, which a number per plan would multiply past
+    // covering (an unrecorded line falls back to the device's voice).
     const kind = p.kind === 'full'
-      ? `Today is ${p.label}: fifteen minutes of mobility, then strength, then ${p.cardio ? `${Math.round(p.cardio.seconds / 60)} minutes of cardio` : 'an easy seated and floor flow in place of cardio'}.`
+      ? `Today is ${p.label}: mobility, then strength, then ${p.cardio ? 'cardio' : 'an easy seated and floor flow in place of cardio'}.`
       : p.kind === 'recovery'
         ? (p.cardio ? 'Today is a gentle recovery session: mobility, nerve glides and an easy walk.' : 'Today is a gentle recovery session: mobility and nerve glides.')
         : (p.cardio ? 'Today is an easy mobility and walking session.' : 'Today is an easy mobility session.');

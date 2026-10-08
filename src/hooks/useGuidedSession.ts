@@ -6,9 +6,9 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { SessionPlan, StepLog } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
-import { createRunner, initialState, position, segmentsWithExtra, type RunnerState } from '@/session/runner';
+import { coolDownTarget, createRunner, initialState, position, segmentsWithExtra, type RunnerState } from '@/session/runner';
 import { createClock, devTimescale } from '@/session/clock';
-import { saveProgress, clearProgress } from '@/session/persistence';
+import { saveProgress } from '@/session/persistence';
 import { catchUpText, scriptFor } from '@/session/script';
 import { CueScheduler, type TimedCue } from '@/voice/scheduler';
 import { CaptionNarrator, type Narrator } from '@/voice/narrator';
@@ -28,6 +28,28 @@ export interface GuidedSessionOptions {
   resumeState?: RunnerState;
   /** The run's History record id, saved with its progress so a resume updates the same record. */
   sessionId?: string;
+  /** Step ids today's restrictions refuse: the runner never enters them. */
+  refused?: ReadonlySet<string>;
+  /**
+   * Asked before every resume — the on-screen button, the exit dialog,
+   * earphone or lock-screen Play, and the way on after a question. Starting
+   * again after a pause is a restart (re-audit round 3 B03): return false to
+   * stay paused.
+   */
+  mayResume?: () => boolean;
+  /**
+   * There has been a low in this run. From then on every resume goes to the
+   * cool-down only, wherever the run stands and whichever way it is resumed
+   * (spec §4.6, scan M-02): never back to strength or the cardio's work.
+   */
+  coolDownOnly?: () => boolean;
+  /**
+   * A safety question is on screen — a stop, a reading or check-in the
+   * session waits on, or a hold. Earphone and lock-screen Play, Next and
+   * Previous are then taken and do nothing: only answering it on screen moves
+   * the session (scan X2-04).
+   */
+  held?: boolean;
 }
 
 /**
@@ -76,10 +98,22 @@ export function anchorCues(
   });
 }
 
-export function useGuidedSession({ plan, profile, sessions, resumeState, sessionId }: GuidedSessionOptions) {
+export function useGuidedSession({ plan, profile, sessions, resumeState, sessionId, refused, mayResume, coolDownOnly, held = false }: GuidedSessionOptions) {
   const clock = useMemo(() => createClock({ timescale: devTimescale(import.meta.env.DEV, window.location.href) }), []);
-  const runner = useMemo(() => createRunner(plan), [plan]);
+  const runner = useMemo(() => createRunner(plan, refused), [plan, refused]);
+  const mayResumeRef = useRef(mayResume);
+  mayResumeRef.current = mayResume;
+  const coolDownOnlyRef = useRef(coolDownOnly);
+  coolDownOnlyRef.current = coolDownOnly;
+  const heldRef = useRef(held);
+  heldRef.current = held;
   const [state, dispatch] = useReducer(runner.reduce, resumeState ?? initialState(plan));
+  // Today's restrictions can change under the run: a stop leaves the movement
+  // out, and the back check about it goes with it. A step that is now refused
+  // is passed over at once, paused or not, so it is never shown or asked
+  // (scan J2-02). Every runner action passes over refused steps; this one
+  // changes nothing else.
+  useEffect(() => { dispatch({ type: 'tick', now: clock.now() }); }, [runner, clock]);
   const [now, setNow] = useState(() => clock.now());
   const [caption, setCaption] = useState('');
   const [speaking, setSpeaking] = useState(false);
@@ -204,7 +238,11 @@ export function useGuidedSession({ plan, profile, sessions, resumeState, session
   stateRef.current = state;
   useEffect(() => {
     if (state.status === 'ready') return;
-    if (state.status === 'done') { clearProgress(); return; }
+    // A finished run is saved as finished, and kept until the session record
+    // is durably stored (the player clears it then). If that save never
+    // happens — the phone locks on the summary, the write fails — the next
+    // start banks it into History instead of losing the hour.
+    if (state.status === 'done') { saveProgress(plan, stateRef.current, clock.now(), Date.now(), sessionId); return; }
     const save = () => saveProgress(plan, stateRef.current, clock.now(), Date.now(), sessionId);
     save();
     const id = window.setInterval(save, 5000);
@@ -240,6 +278,17 @@ export function useGuidedSession({ plan, profile, sessions, resumeState, session
       else void primeAudio(sessionAudio());
       primeSpeech();
     };
+    /**
+     * Where a run goes after a low, if it is not there yet (spec §4.6): the
+     * cool-down part of the cardio still ahead, else the closing talk, or
+     * `finish` when nothing of either is left.
+     */
+    const coolDown = (t: number): { index: number; segment: number } | 'finish' | undefined => {
+      const s = stateRef.current;
+      if (s.coolDownFrom || !coolDownOnlyRef.current?.()) return undefined;
+      const at = position(plan, s, t, refused);
+      return coolDownTarget(plan, at.stepIndex, at.segmentIndex, refused) ?? 'finish';
+    };
     return {
       /** Must run inside the Start tap so iOS allows audio and speech. */
       start: () => {
@@ -251,24 +300,38 @@ export function useGuidedSession({ plan, profile, sessions, resumeState, session
         // Only a paused session resumes: earphone Play while running must not
         // touch the audio (unlocking would cut off the line being spoken).
         if (stateRef.current.status !== 'paused') return;
+        // Starting again is asked about every time, whichever button did it.
+        if (mayResumeRef.current && !mayResumeRef.current()) return;
         prime();
         const t = clock.now();
+        // After a low in this run, every way back goes to the cool-down only:
+        // the lines it passes over are dropped, not caught up on (scan M-02).
+        const to = coolDown(t);
+        if (to === 'finish') { dispatch({ type: 'finish', now: t }); return; }
+        if (to) {
+          dispatch({ type: 'seek', now: t, ...to });
+          dispatch({ type: 'resume', now: t });
+          scheduler.skipPast(t);
+          return;
+        }
         const pausedAt = stateRef.current.pausedAt;
         dispatch({ type: 'resume', now: t });
         // A long pause is a gap like a locked screen: out-of-date cues go, one
         // catch-up line comes. Runs before the reload, so the drop applies to it.
         scheduler.resync(t, pausedAt === undefined ? 0 : Math.max(0, t - pausedAt));
       },
+      /**
+       * A paused run reopened after a low: moved, still paused, to its
+       * cool-down, so nothing before it is shown or can be stepped back to.
+       */
+      toCoolDown: () => {
+        if (stateRef.current.status !== 'paused') return;
+        const t = clock.now();
+        const to = coolDown(t);
+        if (to && to !== 'finish') dispatch({ type: 'seek', now: t, ...to });
+      },
       /** For a "Tap to resume audio" prompt: must run inside the tap. */
       unlockAudio: prime,
-      /** "Cool-down only" after a low: jump there and carry on, dropping the lines it skipped. */
-      seek: (target: { index: number; segment: number }) => {
-        prime();
-        const t = clock.now();
-        dispatch({ type: 'seek', now: t, ...target });
-        if (stateRef.current.status === 'paused') dispatch({ type: 'resume', now: t });
-        scheduler.skipPast(t);
-      },
       next: (reason?: 'skip' | 'doneEarly') => dispatch({ type: 'next', now: clock.now(), reason }),
       previous: () => dispatch({ type: 'previous', now: clock.now() }),
       addTime: (seconds = 15) => dispatch({ type: 'addTime', now: clock.now(), seconds }),
@@ -276,21 +339,31 @@ export function useGuidedSession({ plan, profile, sessions, resumeState, session
       finish: () => dispatch({ type: 'finish', now: clock.now() }),
       setMuted,
     };
-  }, [clock, profile.voice.mode, scheduler]);
+  }, [clock, profile.voice.mode, scheduler, plan, refused]);
 
-  // Earphone / lock-screen buttons where supported.
+  // Earphone / lock-screen buttons where supported, while there is a session
+  // to control: once it is done they go, so nothing outside the screen can
+  // reach a finished run (scan M-03).
+  const done = state.status === 'done';
   useEffect(() => {
     const ms = navigator.mediaSession;
-    if (!ms) return;
+    if (!ms || done) return;
     const set = (a: MediaSessionAction, h: MediaSessionActionHandler | null) => { try { ms.setActionHandler(a, h); } catch { /* unsupported */ } };
-    set('play', () => act.resume());
+    // Under a safety question a stray earphone tap, a headset reconnecting or
+    // lock-screen Play is acknowledged and changes nothing (scan X2-04). The
+    // handler stays registered, so the system has nothing of its own to play.
+    const unlessHeld = (f: () => void) => () => {
+      if (!heldRef.current) { f(); return; }
+      try { ms.playbackState = 'paused'; } catch { /* ignore */ }
+    };
+    set('play', unlessHeld(() => act.resume()));
     set('pause', () => act.pause());
-    set('nexttrack', () => act.next('skip'));
-    set('previoustrack', () => act.previous());
+    set('nexttrack', unlessHeld(() => act.next('skip')));
+    set('previoustrack', unlessHeld(() => act.previous()));
     return () => { (['play', 'pause', 'nexttrack', 'previoustrack'] as const).forEach(a => set(a, null)); };
-  }, [act]);
+  }, [act, done]);
 
-  const pos = position(plan, state, state.status === 'running' ? now : clock.now());
+  const pos = position(plan, state, state.status === 'running' ? now : clock.now(), refused);
 
   useEffect(() => {
     const ms = navigator.mediaSession;

@@ -313,3 +313,15 @@ describe('persistence: run identity and older saves', () => {
     expect(done.activeMs).toBe(15_000);
   });
 });
+
+describe('a finished run (scan M-03)', () => {
+  it('stays finished: Previous, from the screen or an earphone, changes nothing', () => {
+    const done = runner.reduce(start(), { type: 'finish', now: T0 + 60_000 });
+    expect(done.status).toBe('done');
+    for (const dt of [500, 10_000]) expect(runner.reduce(done, { type: 'previous', now: T0 + 60_000 + dt })).toBe(done);
+    // Before it ends, Previous still steps back or restarts the step.
+    const moved = runner.reduce(runner.reduce(start(), { type: 'next', now: T0 + 1000 }), { type: 'previous', now: T0 + 2000 });
+    expect(moved.index).toBe(0);
+    expect(moved.status).toBe('running');
+  });
+});

@@ -36,10 +36,22 @@ const CSP = [
 const securityMeta = (): Plugin => ({
   name: 'security-meta',
   apply: 'build',
-  transformIndexHtml: () => [
-    { tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content: CSP }, injectTo: 'head-prepend' },
-    { tag: 'meta', attrs: { name: 'referrer', content: 'strict-origin-when-cross-origin' }, injectTo: 'head-prepend' },
-  ],
+  transformIndexHtml: {
+    // Last, so the hash covers the inline script exactly as it ships.
+    order: 'post',
+    handler: (html) => {
+      // index.html's one inline script sets dark mode before the first paint.
+      // Allow exactly that script by its hash, computed here so it can never
+      // go stale, rather than loosening script-src for everything.
+      const hashes = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
+        .map(([, body]) => `'sha256-${crypto.createHash('sha256').update(body).digest('base64')}'`)
+      const csp = CSP.replace("script-src 'self'", ["script-src 'self'", ...hashes].join(' '))
+      return [
+        { tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content: csp }, injectTo: 'head-prepend' },
+        { tag: 'meta', attrs: { name: 'referrer', content: 'strict-origin-when-cross-origin' }, injectTo: 'head-prepend' },
+      ]
+    },
+  },
 })
 
 /**

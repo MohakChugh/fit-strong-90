@@ -10,7 +10,7 @@ describe('deriveHealth', () => {
     [{ diabetes: 'type2' }, { hypoRisk: false, ketoneRisk: false }],
     [{ diabetes: 'type2', sglt2i: true }, { hypoRisk: false, ketoneRisk: true }],
     [{ diabetes: 'type1', insulin: 'injections_or_pump' }, { hypoRisk: true, ketoneRisk: true }],
-    [{ diabetes: 'none', insulin: 'injections_or_pump' }, { hypoRisk: false, ketoneRisk: false }],
+    [{ diabetes: 'none', insulin: 'injections_or_pump', medicinesReviewed: true }, { hypoRisk: false, ketoneRisk: false }],
   ] as const)('%o → %o', (h, expected) => {
     expect(deriveHealth({ ...DEFAULT_HEALTH, ...h })).toMatchObject(expected);
   });
