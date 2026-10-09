@@ -161,7 +161,8 @@ describe('1. safety comes first', () => {
     const low = checkIn({ outcome: 'red', disposition: 'hold', recheckMinutes: 15, recheckAt: at(TODAY, '09:15').toISOString(), awaitingReading: true });
     const r = recommend(input({ permissions, checkIns: [low] }));
     expect(r).toMatchObject({ kind: 'recheck', title: 'Re-check your glucose', reason: 'Glucose 62 mg/dL is low. Treat it first.' });
-    expect(r.detail).toBe('Check again and add the new reading.');
+    // When it is due comes first; the gate's words are the reason (scan J2-03).
+    expect(r.detail).toBe(`Re-check at ${timeOf(at(TODAY, '09:15'))}, then enter the new reading.`);
     expect(r.action).toEqual({ label: 'Enter a new reading', to: HREF.checkIn('guided') });
   });
 

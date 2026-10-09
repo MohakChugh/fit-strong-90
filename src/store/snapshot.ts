@@ -25,6 +25,7 @@ import type { DayFocus } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import { compareObservations, type Observation } from '@/health/observation';
 import { doc, type Db, type Doc, type Rows, type StoreFailure, type StoreName, type TxHandle } from './db';
+import { readingKey } from './project';
 
 export interface Snapshot {
   /** Moves on every commit; equal revisions mean equal contents. */
@@ -145,13 +146,11 @@ function mergeSessions(list: readonly WorkoutSession[], puts: readonly WorkoutSe
  * in the settings, so a backup carries them. The same settings back when
  * nothing about them changes.
  */
-function withDeleted(
-  settings: UserSettings | undefined,
-  gone: { observations: readonly string[]; sessions: readonly string[] },
-  written: { observations: readonly string[]; sessions: readonly string[] },
-): UserSettings | undefined {
+type Ids = { observations: readonly string[]; sessions: readonly string[]; readings: readonly string[] };
+
+function withDeleted(settings: UserSettings | undefined, gone: Ids, written: Ids): UserSettings | undefined {
   const was = settings?.deleted;
-  if (!was && gone.observations.length === 0 && gone.sessions.length === 0) return settings;
+  if (!was && gone.observations.length === 0 && gone.sessions.length === 0 && gone.readings.length === 0) return settings;
   const step = (list: readonly string[] | undefined, add: readonly string[], back: readonly string[]) => {
     const out = new Set(list);
     for (const id of back) out.delete(id);
@@ -160,13 +159,27 @@ function withDeleted(
   };
   const observations = step(was?.observations, gone.observations, written.observations);
   const sessions = step(was?.sessions, gone.sessions, written.sessions);
+  const readings = step(was?.readings, gone.readings, written.readings);
   const same = (a: readonly string[] | undefined, b: readonly string[] | undefined) =>
     (a?.length ?? 0) === (b?.length ?? 0) && (a ?? []).every((id, i) => id === b?.[i]);
-  if (same(observations, was?.observations) && same(sessions, was?.sessions)) return settings;
+  if (same(observations, was?.observations) && same(sessions, was?.sessions) && same(readings, was?.readings)) return settings;
   const next = { ...(settings ?? {}) } as UserSettings;
-  if (observations || sessions) next.deleted = { ...(observations ? { observations } : {}), ...(sessions ? { sessions } : {}) };
-  else delete next.deleted;
+  if (observations || sessions || readings) {
+    next.deleted = { ...(observations ? { observations } : {}), ...(sessions ? { sessions } : {}), ...(readings ? { readings } : {}) };
+  } else delete next.deleted;
   return next;
+}
+
+/** The check-in readings among these, as what was measured (R5-01). */
+function keysOf(list: readonly Observation[]): string[] {
+  return list.map(readingKey).filter((key): key is string => key !== undefined);
+}
+
+/** The records with these ids, looked up once: only for a change that deletes, which is rare. */
+function withIds(list: readonly Observation[], ids: readonly string[]): Observation[] {
+  if (ids.length === 0) return [];
+  const wanted = new Set(ids);
+  return list.filter(o => wanted.has(o.id));
 }
 
 /**
@@ -199,10 +212,13 @@ export function prepare(base: Snapshot, change: Change): Prepared {
     }
   }
 
+  // A check-in reading is also remembered by what was measured, which a merge
+  // and every later lift go by (R5-01).
   settings = withDeleted(
     settings,
-    { observations: removes, sessions: sessionRemoves },
-    { observations: puts.map(o => o.id), sessions: sessionPuts.map(s => s.id) },
+    { observations: removes, sessions: sessionRemoves, readings: keysOf(withIds(from.observations, removes)) },
+    // Only the readings a put is not already remembering as deleted need looking at.
+    { observations: puts.map(o => o.id), sessions: sessionPuts.map(s => s.id), readings: settings?.deleted?.readings?.length ? keysOf(puts) : [] },
   );
 
   let content = from.content;

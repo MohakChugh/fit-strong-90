@@ -25,7 +25,7 @@ import type { Permission, PermissionInput } from '@/engine/permission';
 import type { CheckInRecord } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { arrivalGate, liveGate, startGate } from '@/session/gate';
-import { profileOnlyReadiness } from '@/engine/readiness';
+import { answeredCheckIn, profileOnlyReadiness } from '@/engine/readiness';
 import { effectiveCheckIns, pendingCheckInsVersion, subscribePendingCheckIns } from '@/components/checkin/pending';
 import { createDefaultProfile } from '@/profile/defaults';
 import { toDateString } from '@/lib/utils';
@@ -100,9 +100,11 @@ function mayCarry(record: CheckInRecord, profile: UserProfile): boolean {
 
 /**
  * The days the engine's rules can reach on `today` (C2-05), in their order:
- * today itself; the last earlier check-in, whose answers stand until a newer
- * one answers them (and which is yesterday's, when there is one, for "two
- * days running"); the last day with a reach, for symptoms spreading; every
+ * today itself; the latest earlier day (yesterday's, when there is one, for
+ * "two days running"); the last record that answered the check-in, whose
+ * answers stand until a newer one answers them, past any day holding only
+ * readings or a report (R5-07); the last day with a reach, for symptoms
+ * spreading; every
  * day with a serious reading the engine carries; and every day holding
  * answers about readings. The engine reads nothing else, so the answers are
  * the same as from the whole history — at the cost of a handful of days, not
@@ -111,15 +113,19 @@ function mayCarry(record: CheckInRecord, profile: UserProfile): boolean {
 export function reachableHistory(checkIns: readonly CheckInRecord[], today: string, profile: UserProfile): CheckInRecord[] {
   const keep = new Set<CheckInRecord>();
   let last: CheckInRecord | undefined;
+  let lastAnswered: CheckInRecord | undefined;
   let lastReach: CheckInRecord | undefined;
   for (const c of checkIns) {
     if (c.date > today) continue;
     if (c.date === today) { keep.add(c); continue; }
     if (!last || c.date >= last.date) last = c;
+    // The check-in whose answers stand, past any day with only readings or a report (R5-07).
+    if (answeredCheckIn(c) && (!lastAnswered || c.date >= lastAnswered.date)) lastAnswered = c;
     if (c.back?.reach && (!lastReach || c.date >= lastReach.date)) lastReach = c;
     if (c.resolutions?.length || mayCarry(c, profile)) keep.add(c);
   }
   if (last) keep.add(last);
+  if (lastAnswered) keep.add(lastAnswered);
   if (lastReach) keep.add(lastReach);
   return checkIns.filter(c => keep.has(c));
 }

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { CandyIcon, HeartPulseIcon, PersonStandingIcon } from 'lucide-react';
 import { Group } from '@/components/hig/List';
 import { PERMISSION_TEXT } from '@/engine/permission';
-import { CANNOT_SWALLOW } from '@/engine/readiness';
+import { CANNOT_SWALLOW, glucoseLevel } from '@/engine/readiness';
 import type { GlucoseEntry, GlucoseReading, GlucoseUnit } from '@/types/checkin';
 import { Segmented } from '@/components/checkin/parts';
 import { typedReading } from '@/walk/low';
@@ -57,9 +57,9 @@ export function EmergencyGuidance() {
  * told to be treated "now" again (X2-13). Sources: clinical-tracking-protocols.md
  * H-HYPO (treat, re-check 15 minutes after, never resume just because a reading
  * crosses 70), E-HYPO (help when the person cannot safely treat it themselves),
- * and board D29(3).
+ * and board D29(3). The level is said in the person's unit (scan X2-19).
  */
-export function LowGuidance({ advice }: { advice?: { title: string; lines: string[] } }) {
+export function LowGuidance({ advice, unit }: { advice?: { title: string; lines: string[] }; unit: GlucoseUnit }) {
   return (
     <Group header="After the low" footer="General information, not medical advice. Follow your care team’s plan if it says something different.">
       {advice && (
@@ -73,7 +73,7 @@ export function LowGuidance({ advice }: { advice?: { title: string; lines: strin
         <Emergency />
       </Item>
       <Item icon={<PersonStandingIcon />} title="This walk has ended">
-        <p>Do not set off again just because a reading is back above 70. Wait until you feel well, and tell your care team if lows keep happening.</p>
+        <p>{`Do not set off again just because a reading is back above ${glucoseLevel(70, unit)}. Wait until you feel well, and tell your care team if lows keep happening.`}</p>
       </Item>
     </Group>
   );

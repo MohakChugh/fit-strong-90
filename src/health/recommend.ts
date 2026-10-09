@@ -498,7 +498,8 @@ function safety(ctx: Context, suggestion: Recommendation): Recommendation | unde
     return {
       kind: 'recheck',
       title: 'Re-check your glucose',
-      detail: recheck.release ?? recheckWhen(ctx) ?? '',
+      // When it is due comes first: the release is the reason's own words (scan J2-03).
+      detail: recheckWhen(ctx) ?? recheck.release ?? '',
       reason: reasonsOf(recheck),
       action: { label: 'Enter a new reading', to: HREF.checkIn(recheck.mode) },
     };

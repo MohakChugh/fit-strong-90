@@ -28,10 +28,16 @@ const PROFILES: ProfileInput[] = [
   { ladder: { hinge: 4, squat: 4 } },
   { health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', clearance: 'vigorous' } },
   { health: { diabetes: 'type1', insulin: 'injections_or_pump', highHypoRisk: true, glucoseMonitor: 'cgm', clearance: 'vigorous' } },
+  // The glucose check before cardio names its level in the person's unit (script.ts).
+  { health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', clearance: 'vigorous', glucoseUnit: 'mmol/L' } },
+  { health: { diabetes: 'type1', insulin: 'injections_or_pump', highHypoRisk: true, glucoseMonitor: 'cgm', clearance: 'vigorous', glucoseUnit: 'mmol/L' } },
   { health: { diabetes: 'type2', sglt2i: true, currentlyActive: false } },
   { health: { hypertension: 'treated', betaBlocker: true, diuretic: true } },
   { health: { diabetes: 'type2', peripheralNeuropathy: 'yes', retinopathy: 'moderate', clearance: 'moderate' } },
   { health: { retinopathy: 'severe_or_proliferative', kidneyDisease: 'ckd', dizzyOnStandingOrAutonomicNeuropathy: true } },
+  // Water is said three ways (script.ts): a recorded fluid limit, none, and
+  // the question not answered yet, which most profiles here leave it.
+  { health: { fluidRestriction: true } }, { health: { fluidRestriction: false } },
   { equipment: 'homeDumbbells' }, { equipment: 'homeNone', pain: { areas: ['lowerBack'] } },
   { sessionMinutes: 45 }, { sessionMinutes: 75 },
   { trainingDays: ['monday', 'wednesday', 'friday'] }, { trainingDays: ['monday', 'tuesday', 'thursday', 'friday'] },

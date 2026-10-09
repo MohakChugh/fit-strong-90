@@ -99,3 +99,31 @@ describe('cardio block', () => {
     }
   });
 });
+
+// Contract H-DIZZY and Codex re-audit F13, as the rest line says it: told
+// there is a fluid limit, the hot day's spare cool-down never says to drink;
+// told there is none it may; not told, only unless there is a limit.
+describe('the hot day’s spare cool-down follows the fluid limit', () => {
+  const FOCI: DayFocus[] = ['lowerA', 'upperA', 'lowerB', 'upperB', 'lowerC', 'upperC'];
+  const labels = (health: ProfileInput['health']) => FOCI.flatMap(focus => {
+    const steps = cardioBlock(ctxFor({ health: { medicinesReviewed: true, ...health } }, focus, { modifiers: ['HEAT'] }));
+    return steps.flatMap(s => (s.kind === 'cardio' ? s.parts.map(p => p.label) : []));
+  });
+
+  it.each([
+    ['a recorded fluid limit', { fluidRestriction: true }],
+    ['an unsure answer about one', { fluidRestriction: 'unsure' }],
+    ['kidney disease', { kidneyDisease: 'ckd' }],
+  ] as [string, ProfileInput['health']][])('with %s no part says drink', (_, health) => {
+    const all = labels(health);
+    expect(all).toContain('Easy cool-down, cool off and keep to your fluid plan');
+    expect(all.filter(l => /drink|water|\bsip\b/i.test(l))).toEqual([]);
+  });
+
+  it('with no fluid limit it says drink; not asked yet, only unless there is a limit', () => {
+    expect(labels({ fluidRestriction: false })).toContain('Easy cool-down, cool off and drink');
+    const unknown = labels({});
+    expect(unknown).toContain('Easy cool-down, cool off and drink unless you have a fluid limit');
+    expect(unknown.filter(l => /drink/i.test(l) && !l.includes('unless you have a fluid limit'))).toEqual([]);
+  });
+});

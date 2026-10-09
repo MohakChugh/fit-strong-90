@@ -147,17 +147,22 @@ export interface BpReading {
  * (board D29(3), re-audit decision 3). It stays in force until the person
  * says what happened to it; a later ordinary reading is not an answer.
  */
-export type EpisodeKind = 'extremeGlucose' | 'severeBp' | 'ketones' | 'severeLow' | 'redFlag' | 'foot';
+export type EpisodeKind = 'extremeGlucose' | 'severeBp' | 'ketones' | 'severeLow' | 'redFlag' | 'foot' | 'news';
+
+/** A red flag or a foot problem, by what was reported (scan X2-02, X2-03, R5-01). */
+export type RedFlag = 'newWeakness' | 'backFever' | 'backSudden' | 'footProblem' | 'hotSwollenFoot';
 
 /**
  * How an earlier serious reading, red flag or foot problem was settled.
- * - `mistake` — a reading typed wrongly, so it never happened.
+ * - `mistake` — a reading typed wrongly, or a flag ticked by mistake, so it
+ *   never happened.
  * - `assessed` — a clinician has seen it. For a reading: no emergency call,
  *   and still no exercise on the day of the answer. For a red flag or a foot
  *   problem: their advice now applies (scan X2-02, X2-03).
- * - `resolved` — it was real and it is over: a symptom that has gone, a sore
- *   that has healed, or a reading more than a day old that was dealt with at
- *   the time (X2-10). Never an answer to a reading less than a day old.
+ * - `resolved` — it was real and it is over: a sore that has healed, or a
+ *   reading more than a day old that was dealt with at the time (X2-10).
+ *   Never an answer to a reading less than a day old, nor to a red flag or a
+ *   hot, swollen foot, which need a clinician (R5-01).
  */
 export type EpisodeResolution = 'mistake' | 'assessed' | 'resolved';
 
@@ -172,7 +177,11 @@ export interface EpisodeAnswer {
   kind: EpisodeKind;
   /** The readings it settles, by the ids the engine gives them (`Readiness.episodes`). */
   readings: string[];
-  /** `reopened` takes back an earlier answer: the readings are unresolved again. The latest answer counts. */
+  /**
+   * `reopened` takes back an earlier answer: the readings are unresolved again.
+   * The latest answer counts. The app adds one itself when an item an answer
+   * released is reported again the same day, dated just after that answer.
+   */
   resolution: EpisodeResolution | 'reopened';
   /** When the answer was given (ISO 8601). */
   at: string;
@@ -187,6 +196,8 @@ export interface EpisodeReading {
   settled?: EpisodeResolution;
   /** More than about a day old: asked whether it was settled, and "dealt with at the time" is an answer (X2-10). */
   old?: true;
+  /** The answers that settle it, when not every one does: a red flag needs a clinician, a sore may also heal (R5-01). */
+  accepts?: EpisodeResolution[];
 }
 
 /** The serious readings of one kind that the sheet must ask about. */
@@ -308,6 +319,20 @@ export interface DailyCheckIn {
    * carry `logged` readings to the gates. Never stored, and never a check-in.
    */
   readingsOnly?: true;
+  /**
+   * Red flags and foot problems said earlier today and unticked since
+   * (R5-01): a later answer is about now, and releases nothing. Each stays
+   * until its own release is given in `resolutions`, as on the days after.
+   */
+  flagsEarlier?: RedFlag[];
+  /**
+   * News that ends exercise for the day it is said — fainting, a high glucose
+   * that will not come down, vomiting with diabetes, a low that needed help —
+   * said earlier today and unticked since. A later answer is about now and
+   * releases none of it; each holds for the rest of the day unless it is
+   * answered as ticked by mistake in `resolutions`, as a red flag is (R5-01).
+   */
+  newsEarlier?: NewsItem[];
   /** Absent when not answered. */
   sleep?: 'lt5' | '5to7' | 'gt7';
   /** Absent when not answered. */

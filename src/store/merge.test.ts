@@ -98,6 +98,69 @@ describe('two devices each with a check-in the same day (D-02)', () => {
   });
 });
 
+describe('a correction made on one device, merged into another (R5-02)', () => {
+  it('replaces the older copy, even when it corrects the time', async () => {
+    const a = await device();
+    await saveCheckIn(a.store, checkIn(62, `${DAY}T08:30:00.000+05:30`, 124, 78));
+    const b = await device();
+    expect((await b.store.importRecord(await a.backup(), 'replace')).ok).toBe(true);
+
+    const reading = a.store.getState().observations.find(o => o.kind === 'glucose')!;
+    expect((await a.store.editObservation(reading.id, { at: `${DAY}T09:00:00.000+05:30` })).ok).toBe(true);
+    expect((await b.store.importRecord(await a.backup(), 'merge')).ok).toBe(true);
+    expect(glucose(b.store.getState().observations)).toEqual([[62, '09:00']]);
+
+    // A reading named by its device is one reading wherever it is: even a
+    // correction of both its number and its time replaces the older copy.
+    expect((await a.store.editObservation(reading.id, { value: 64, at: `${DAY}T09:15:00.000+05:30` })).ok).toBe(true);
+    expect((await b.store.importRecord(await a.backup(), 'merge')).ok).toBe(true);
+    expect(glucose(b.store.getState().observations)).toEqual([[64, '09:15']]);
+  });
+
+  it('replaces it under a shared old-style id too, when the correction changed only the time or only the number', async () => {
+    const at = (time: string) => `${DAY}T${time}:00.000+05:30`;
+    const old = { id: `checkIn:${DAY}:glucose`, kind: 'glucose', at: at('08:30'), day: DAY, value: 62, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', context: `checkIn:${DAY}` } as Observation;
+    const file = async (o: Observation) => {
+      const { TRANSFER_FORMAT } = await import('./transfer');
+      return { format: TRANSFER_FORMAT, version: 1, exportedAt: at('20:00'), schemaVersion: 5, observations: [o], sessions: [], checkIns: [], personalRecords: [], bodyMetrics: [], focusOverrides: {}, contentState: [] };
+    };
+    for (const corrected of [{ ...old, at: at('09:00'), editedAt: at('10:00') }, { ...old, value: 65, editedAt: at('10:00') }]) {
+      const b = await device();
+      await b.store.importRecord(await file(old), 'replace');
+      expect((await b.store.importRecord(await file(corrected), 'merge')).ok).toBe(true);
+      expect(glucose(b.store.getState().observations)).toEqual([[corrected.value, corrected.at.slice(11, 16)]]);
+    }
+  });
+
+  it('a device whose name happens to be all digits is a device, not an old shared number', async () => {
+    const at = (time: string) => `${DAY}T${time}:00.000+05:30`;
+    const { TRANSFER_FORMAT } = await import('./transfer');
+    const file = (o: Observation) => ({ format: TRANSFER_FORMAT, version: 1, exportedAt: at('20:00'), schemaVersion: 5, observations: [o], sessions: [], checkIns: [], personalRecords: [], bodyMetrics: [], focusOverrides: {}, contentState: [] });
+    const reading = (event: string) => ({ id: `${event}:glucose`, kind: 'glucose', at: at('08:30'), day: DAY, value: 62, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', context: `checkIn:${DAY}` }) as Observation;
+    // A copy of the app is named by ten hex digits, and about one in a hundred gets decimal ones only.
+    const cases: [string, (string | number)[][]][] = [
+      [`checkIn:${DAY}#0123456789`, [[64, '09:15']]],
+      [`checkIn:${DAY}#12345678901`, [[64, '09:15']]],
+      // Numbered per day, as before D-02: two devices' readings under one id.
+      [`checkIn:${DAY}#1`, [[62, '08:30'], [64, '09:15']]],
+      [`checkIn:${DAY}#12`, [[62, '08:30'], [64, '09:15']]],
+    ];
+    for (const [event, held] of cases) {
+      const b = await device();
+      const mine = reading(event);
+      await b.store.importRecord(file(mine), 'replace');
+      expect((await b.store.importRecord(file({ ...mine, value: 64, at: at('09:15'), editedAt: at('10:00') }), 'merge')).ok).toBe(true);
+      expect(glucose(b.store.getState().observations)).toEqual(held);
+    }
+    // And deleted, it is remembered by its id, as any device's reading is.
+    const b = await device();
+    const mine = reading(`checkIn:${DAY}#0123456789`);
+    await b.store.setSettings({ deleted: { observations: [mine.id] } });
+    expect((await b.store.importRecord(file(mine), 'merge')).ok).toBe(true);
+    expect(glucose(b.store.getState().observations)).toEqual([]);
+  });
+});
+
 describe('readings that share an id from before ids were unique (D-02)', () => {
   /** A file as an older version exported it: the day's first check-in reading named `checkIn:<day>:<kind>`. */
   const legacy = (value: number, time: string, sys: number, dia: number) => {
@@ -178,6 +241,40 @@ describe('readings that share an id from before ids were unique (D-02)', () => {
       expect(glucose(held)).toEqual([[160, '18:30'], [62, '08:30']]);
       expect(pressures(held)).toEqual([[124, 78, '08:30'], [150, 95, '18:30']]);
     }
+  });
+
+  it('a reading deleted here does not take another device’s reading under the same old id with it (R5-01)', async () => {
+    const a = await device();
+    await a.store.importRecord(await fileOf(legacy(62, '08:30', 124, 78)), 'replace');
+    const mine = a.store.getState().observations.find(o => o.kind === 'glucose')!;
+    expect((await a.store.removeObservation(mine.id)).ok).toBe(true);
+    const merged = await a.store.importRecord(await fileOf(legacy(160, '18:30', 150, 95)), 'merge');
+    expect(merged.ok).toBe(true);
+    expect(glucose(a.store.getState().observations)).toEqual([[160, '18:30']]);
+    // And the deleted one stays deleted when this device's own older backup comes back.
+    await a.store.importRecord(await fileOf(legacy(62, '08:30', 124, 78)), 'merge');
+    expect(glucose(a.store.getState().observations)).toEqual([[160, '18:30']]);
+  });
+
+  it('a reading kept under a new name and deleted since comes out of the file’s record too (R5-01)', async () => {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const a = await device();
+    const { removeCheckInReading } = await import('@/components/checkin/pending');
+    const profile = createDefaultProfile({ weightKg: 80, health: { diabetes: 'type2', metformin: true, medicinesReviewed: true, glucoseMonitor: 'meter' } });
+    await a.store.setProfile(profile);
+    await a.store.importRecord(await fileOf(legacy(62, '08:30', 124, 78)), 'replace');
+    const evening = `${DAY}T18:30:00.000+05:30`;
+    const file = { ...(await fileOf(legacy(160, '18:30', 150, 95))), checkIns: [checkIn(160, evening, 150, 95)] };
+    expect((await a.store.importRecord(file, 'merge')).ok).toBe(true);
+    const theirs = a.store.getState().observations.find(o => o.kind === 'glucose' && o.value === 160)!;
+    expect(theirs.id).not.toBe(`checkIn:${DAY}:glucose`);
+    const deps = { profile, update: a.store.update, date: DAY };
+    expect(await removeCheckInReading({ kind: 'glucose', at: evening, value: 160, unit: 'mg/dL' }, [theirs.id], deps)).toMatchObject({ matched: true, stored: true });
+
+    // The file still names it under the old shared id, which this device's own reading holds.
+    expect((await a.store.importRecord(file, 'merge', { onConflict: 'takeFile' })).ok).toBe(true);
+    expect(glucose(a.store.getState().observations)).toEqual([[62, '08:30']]);
+    expect(a.store.getState().checkIns.find(c => c.date === DAY)?.glucose).toBeUndefined();
   });
 
   it('adds them once however often the same file is merged', async () => {
@@ -265,5 +362,148 @@ describe('a merge of an older backup and what was deleted since (D-06)', () => {
     // Back on the device, it is no longer remembered as deleted.
     const preview = a.store.previewRecord(older);
     expect(preview.ok && preview.deletedHere).toBe(0);
+  });
+});
+
+describe('a reading deleted from a check-in, and an older backup merged (R5-01)', () => {
+  const at = `${DAY}T08:30:00.000+05:30`;
+  const typo: CheckInRecord = { ...checkIn(600, at, 124, 78), energy: 4 };
+
+  /** Delete the 600 the way Track does: out of the day's record and the series in one write. */
+  async function deleteTypo(d: Awaited<ReturnType<typeof device>>) {
+    const { withReadingRemoved } = await import('@/components/checkin/pending');
+    const id = d.store.getState().observations.find(o => o.kind === 'glucose')!.id;
+    const removed = await d.store.update(previous => ({
+      ...previous,
+      checkIns: (previous.checkIns ?? []).map(c => (c.date === DAY ? (withReadingRemoved(c, { kind: 'glucose', at, value: 600, unit: 'mg/dL' }) ?? c) as CheckInRecord : c)),
+    }), { removeObservations: [id] });
+    expect(removed.ok).toBe(true);
+  }
+
+  it('takes the deleted reading out of the file’s record as well, so no later save brings it back', async () => {
+    const a = await device();
+    await saveCheckIn(a.store, typo);
+    const older = await a.backup();
+    await deleteTypo(a);
+    expect(glucose(a.store.getState().observations)).toEqual([]);
+
+    // The file's record of that day is taken over the device's.
+    expect((await a.store.importRecord(older, 'merge', { onConflict: 'takeFile' })).ok).toBe(true);
+    expect(glucose(a.store.getState().observations)).toEqual([]);
+    expect(a.store.getState().checkIns.find(c => c.date === DAY)?.glucose).toBeUndefined();
+
+    // Then that day's check-in is saved again with another change.
+    await saveCheckIn(a.store, { ...a.store.getState().checkIns.find(c => c.date === DAY)!, energy: 2 });
+    expect(glucose(a.store.getState().observations)).toEqual([]);
+  });
+
+  it('works the day’s readiness out again without it, as deleting it in Track does', async () => {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const { evaluateCheckIn } = await import('@/engine/readiness');
+    const a = await device();
+    const profile = createDefaultProfile({ weightKg: 80, health: { diabetes: 'type2', metformin: true, medicinesReviewed: true, glucoseMonitor: 'meter' } });
+    await a.store.setProfile(profile);
+    await saveCheckIn(a.store, typo);
+    const older = await a.backup();
+    await deleteTypo(a);
+    // The device's record of the day differs in more than the reading, so the file's is taken.
+    await saveCheckIn(a.store, { ...a.store.getState().checkIns.find(c => c.date === DAY)!, energy: 2 });
+    await a.store.importRecord(older, 'merge', { onConflict: 'takeFile' });
+    const day = a.store.getState().checkIns.find(c => c.date === DAY)!;
+    expect(day.energy).toBe(4);
+    expect(day.glucose).toBeUndefined();
+    const { readiness, ...plain } = day;
+    expect(readiness).toEqual(evaluateCheckIn(profile, plain, []));
+  });
+
+  it('merging the same file again finds nothing to disagree about, and changes nothing', async () => {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const a = await device();
+    await a.store.setProfile(createDefaultProfile({ weightKg: 80, health: { diabetes: 'type2', metformin: true, medicinesReviewed: true, glucoseMonitor: 'meter' } }));
+    await saveCheckIn(a.store, typo);
+    const older = await a.backup();
+    await deleteTypo(a);
+    await saveCheckIn(a.store, { ...a.store.getState().checkIns.find(c => c.date === DAY)!, energy: 2 });
+    // Taken without the deleted reading, and with its readiness worked out again.
+    expect((await a.store.importRecord(older, 'merge', { onConflict: 'takeFile' })).ok).toBe(true);
+    const { checkIns, observations } = a.store.getState();
+    expect(checkIns.find(c => c.date === DAY)).toMatchObject({ energy: 4 });
+
+    const none = { observations: 0, sessions: 0, checkIns: 0, personalRecords: 0, bodyMetrics: 0, focusOverrides: 0, contentState: 0 };
+    expect(a.store.previewRecord(older)).toMatchObject({ conflicts: none });
+    for (const onConflict of ['keepDevice', 'takeFile'] as const) {
+      const again = await a.store.importRecord(older, 'merge', { onConflict });
+      expect(again.ok && again.value.conflicts).toEqual(none);
+      expect(a.store.getState().checkIns).toEqual(checkIns);
+      expect(a.store.getState().observations).toEqual(observations);
+    }
+  });
+
+  it('a device that learns of the deletion from a later backup keeps it out of an older one too', async () => {
+    const a = await device();
+    await saveCheckIn(a.store, typo);
+    const older = await a.backup();
+    await deleteTypo(a);
+    const later = await a.backup();
+
+    const b = await device();
+    await b.store.setSettings({ theme: 'dark' });
+    await b.store.importRecord(later, 'merge');
+    expect((await b.store.importRecord(older, 'merge', { onConflict: 'takeFile' })).ok).toBe(true);
+    expect(glucose(b.store.getState().observations)).toEqual([]);
+    expect(b.store.getState().checkIns.find(c => c.date === DAY)?.glucose).toBeUndefined();
+  });
+
+  it('stays deleted when it was corrected before it was deleted, whichever record of the day the merge keeps', async () => {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    for (const onConflict of ['keepDevice', 'takeFile'] as const) {
+      const a = await device();
+      const { correctCheckInGlucose, removeCheckInReading } = await import('@/components/checkin/pending');
+      const profile = createDefaultProfile({ weightKg: 80, health: { diabetes: 'type2', metformin: true, medicinesReviewed: true, glucoseMonitor: 'meter' } });
+      await a.store.setProfile(profile);
+      await saveCheckIn(a.store, typo);
+      const older = await a.backup();
+      const deps = { profile, update: a.store.update, date: DAY };
+      const id = a.store.getState().observations.find(o => o.kind === 'glucose')!.id;
+      // 600 corrected to 60 in Track, then deleted: one reading, one id, throughout.
+      expect(await correctCheckInGlucose({ at, was: { value: 600, unit: 'mg/dL' }, to: { value: 60, unit: 'mg/dL' } }, deps)).toMatchObject({ matched: true, stored: true });
+      expect(a.store.getState().observations.filter(o => o.kind === 'glucose').map(o => [o.id, o.value])).toEqual([[id, 60]]);
+      expect(await removeCheckInReading({ kind: 'glucose', at, value: 60, unit: 'mg/dL' }, [id], deps)).toMatchObject({ matched: true, stored: true });
+      expect(glucose(a.store.getState().observations)).toEqual([]);
+
+      // The backup still says 600, which no deletion of the 60 named by number.
+      expect((await a.store.importRecord(older, 'merge', { onConflict })).ok).toBe(true);
+      expect(glucose(a.store.getState().observations)).toEqual([]);
+      expect(a.store.getState().checkIns.find(c => c.date === DAY)?.glucose).toBeUndefined();
+    }
+  });
+
+  it('stays deleted when this device remembers it by its id alone, as the previous version did', async () => {
+    for (const onConflict of ['keepDevice', 'takeFile'] as const) {
+      const a = await device();
+      await saveCheckIn(a.store, typo);
+      const older = await a.backup();
+      const id = a.store.getState().observations.find(o => o.kind === 'glucose')!.id;
+      await deleteTypo(a);
+      await a.store.setSettings({ deleted: { observations: [id] } });
+      expect(a.store.getState().settings.deleted).toEqual({ observations: [id] });
+
+      expect((await a.store.importRecord(older, 'merge', { onConflict })).ok).toBe(true);
+      expect(glucose(a.store.getState().observations)).toEqual([]);
+      expect(a.store.getState().checkIns.find(c => c.date === DAY)?.glucose).toBeUndefined();
+    }
+  });
+
+  it('never lifts a deleted reading back out of a record that still names it', async () => {
+    const a = await device();
+    await saveCheckIn(a.store, typo);
+    // Deleted from the series alone, as before Track also took it out of the record.
+    const id = a.store.getState().observations.find(o => o.kind === 'glucose')!.id;
+    expect((await a.store.removeObservation(id)).ok).toBe(true);
+    await saveCheckIn(a.store, { ...a.store.getState().checkIns.find(c => c.date === DAY)!, energy: 2 });
+    expect(glucose(a.store.getState().observations)).toEqual([]);
+    // A new reading at another time is a new reading.
+    await saveCheckIn(a.store, { ...a.store.getState().checkIns.find(c => c.date === DAY)!, glucose: { value: 110, unit: 'mg/dL', measuredAt: `${DAY}T12:00:00.000+05:30` } });
+    expect(glucose(a.store.getState().observations)).toEqual([[110, '12:00']]);
   });
 });

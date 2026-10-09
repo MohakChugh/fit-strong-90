@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { DailyCheckIn, EmergencyFlag, EpisodeKind, GlucoseTrend, NewsItem, SymptomReach, UrineKetoneCategory } from '@/types/checkin';
+import type { DailyCheckIn, EmergencyFlag, EpisodeKind, EpisodeResolution, GlucoseTrend, NewsItem, SymptomReach, UrineKetoneCategory } from '@/types/checkin';
 import type { CheckInRecord } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { permission, type Mode } from '@/engine/permission';
@@ -139,6 +139,7 @@ const EPISODE_HEADER: Record<EpisodeKind, string> = {
   ketones: 'That ketone reading from earlier',
   redFlag: 'What you reported earlier',
   foot: 'Your foot, as you reported it earlier',
+  news: 'What you said earlier today',
 };
 
 /**
@@ -147,9 +148,21 @@ const EPISODE_HEADER: Record<EpisodeKind, string> = {
  * a day old can also have been dealt with at the time. A symptom can have
  * been checked, or have gone; a foot problem can have healed or been cleared.
  */
-function episodeAnswers(kind: EpisodeKind, old: boolean): { choice: EpisodeChoice; label: string }[] {
-  if (kind === 'redFlag') return [{ choice: 'open', label: 'Not checked yet, and still there' }, { choice: 'assessed', label: 'A clinician has checked it' }, { choice: 'resolved', label: 'It has gone' }];
-  if (kind === 'foot') return [{ choice: 'open', label: 'Not healed yet' }, { choice: 'resolved', label: 'It has healed' }, { choice: 'assessed', label: 'A clinician has cleared it' }];
+function episodeAnswers(kind: EpisodeKind, old: boolean, accepts?: EpisodeResolution[]): { choice: EpisodeChoice; label: string }[] {
+  // Only the answers that settle it are offered: a red flag or a hot, swollen
+  // foot needs a clinician; a sore may also heal (R5-01).
+  if (kind === 'redFlag' || kind === 'foot') {
+    const settles = accepts ?? ['assessed', 'mistake'];
+    const said: Record<EpisodeResolution, string> = {
+      assessed: kind === 'foot' ? 'A clinician has cleared it' : 'A clinician has checked it',
+      resolved: 'It has healed',
+      mistake: 'I ticked it by mistake',
+    };
+    const open = kind === 'redFlag' ? 'Not checked yet' : settles.includes('resolved') ? 'Not healed yet' : 'Not cleared yet';
+    return [{ choice: 'open', label: open }, ...settles.map(choice => ({ choice, label: said[choice] }))];
+  }
+  // An answer that ends the day happened, or was ticked by mistake: nothing else releases it.
+  if (kind === 'news') return [{ choice: 'open', label: 'It happened' }, { choice: 'mistake', label: 'I ticked it by mistake' }];
   return [
     { choice: 'open', label: 'Not settled yet' },
     ...(old ? [{ choice: 'resolved' as const, label: 'It was dealt with at the time' }] : []),
@@ -163,8 +176,9 @@ const EPISODE_NOTE: Record<EpisodeKind, string> = {
   severeLow: 'A later, higher reading does not settle it on its own.',
   severeBp: 'A later, lower reading does not settle it on its own.',
   ketones: 'A later, lower reading does not settle it on its own.',
-  redFlag: 'Something still there is not new, so it is asked about until it has been checked or has gone.',
-  foot: 'No walking or standing exercise until it has healed or a clinician has cleared it.',
+  redFlag: 'It stays until a clinician has checked it, even once it has gone.',
+  foot: 'No walking until a clinician has cleared it, or a sore has healed.',
+  news: 'It ends exercise for the rest of today, even once it has passed.',
 };
 
 export function CheckInBody({ profile, date, initial, onSave, onStart, startLabel, mode = 'guided', recent }: Props) {
@@ -362,7 +376,7 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
             const choice = episodeChoice(form, { kind: e.kind, readings: [r] });
             return (
               <Group key={r.id} header={`${EPISODE_HEADER[e.kind]}: ${r.label}`} footer={EPISODE_NOTE[e.kind]}>
-                {episodeAnswers(e.kind, r.old === true).map(({ choice: answer, label }) => (
+                {episodeAnswers(e.kind, r.old === true, r.accepts).map(({ choice: answer, label }) => (
                   <CheckRow key={answer} prominent={answer === 'open'} label={label} checked={choice === answer}
                     onToggle={() => setForm(f => answerEpisode(f, e.kind, [r.id], answer, new Date(), openedAt))} />
                 ))}

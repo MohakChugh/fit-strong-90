@@ -139,7 +139,11 @@ export interface Reconciled {
 }
 
 type Cardio = Extract<Step, { kind: 'cardio' }>;
-const hard = (c: Cardio) => c.parts.some(p => p.intensity === 'fast' || p.intensity === 'tempo');
+/** How hard each part is meant to be; a cool-down is no effort at all. */
+const EFFORT: Record<Cardio['parts'][number]['intensity'], number> = { cooldown: 0, easy: 1, zone2: 2, tempo: 3, fast: 4 };
+const work = (c: Cardio) => c.parts.filter(p => p.intensity !== 'cooldown');
+const peak = (c: Cardio) => Math.max(0, ...work(c).map(p => EFFORT[p.intensity]));
+const workSeconds = (c: Cardio) => work(c).reduce((t, p) => t + p.seconds, 0);
 const coolSeconds = (c: Cardio) => c.parts.filter(p => p.intensity === 'cooldown').reduce((t, p) => t + p.seconds, 0);
 
 /** Keys that line a saved step up with the step a plan built now would have in its place. */
@@ -167,9 +171,9 @@ function keysOf(steps: readonly Step[]): string[] {
  *
  * - **Kept** when it still meets today's caps (reps, reps in reserve, hold
  *   time, the cues that must be said) and the fresh plan does the same work.
- * - **Re-dosed** from the fresh plan when it does not: intervals become the
- *   steady cardio the builder now gives, a short cool-down the longer one,
- *   a heavy set today's capped set, with today's cues.
+ * - **Re-dosed** from the fresh plan when it does not: harder or longer
+ *   cardio becomes the dose the builder now gives (R5-04), a short cool-down
+ *   the longer one, a heavy set today's capped set, with today's cues.
  * - **Refused** when the fresh plan has no equivalent: excluded movements, a
  *   ladder level no longer open, cardio there is no longer a safe machine for.
  *   The runner then passes over it, before and after the current step.
@@ -202,7 +206,10 @@ export function reconcilePlan(saved: SessionPlan, index: number, fresh: SessionP
     }
     if (i < index || st.kind === 'setup' || !twin) return st;
     if (st.kind === 'cardio' && twin.kind === 'cardio') {
-      const exceeds = (hard(st) && !hard(twin)) || coolSeconds(twin) > coolSeconds(st) || (conditions.foot && twin.exerciseId !== st.exerciseId);
+      // More effort, more work or less cool-down than today's builder gives
+      // is more than today allows (R5-04): the fresh dose runs instead.
+      const exceeds = peak(st) > peak(twin) || workSeconds(st) > workSeconds(twin) || coolSeconds(twin) > coolSeconds(st)
+        || (conditions.foot && twin.exerciseId !== st.exerciseId);
       if (!exceeds) return st;
       changedCardio = true;
       return { ...twin, id: st.id };

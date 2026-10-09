@@ -21,7 +21,7 @@ import type {
 import type { UserProfile } from '@/types/profile';
 import { deriveHealth } from '@/engine/health';
 import { checkedIn } from '@/engine/permission';
-import { evaluateCheckIn, glucoseSanity, profileOnlyReadiness, toMgdl, type GlucoseSanity } from '@/engine/readiness';
+import { endsTheDay, evaluateCheckIn, flagsIn, glucoseSanity, profileOnlyReadiness, reopenedByReport, toMgdl, type GlucoseSanity } from '@/engine/readiness';
 
 /**
  * Which glucose readings reach the readiness engine: plausible ones, and an
@@ -258,7 +258,11 @@ function formPartials(bp: BpFields, stamp: string): BpPartialReading[] {
   for (const [s, d, at] of rows) {
     const sys = s.trim() ? Number(s) : undefined;
     const dia = d.trim() ? Number(d) : undefined;
-    if ((sys === undefined) === (dia === undefined)) continue;
+    if (sys === undefined && dia === undefined) continue;
+    // Two numbers are a reading, judged by the engine as typed, even when one
+    // cannot be used (R5-06); a box that is not a number at all leaves the
+    // other to count alone, as an empty one does.
+    if (sys !== undefined && dia !== undefined && Number.isFinite(sys) && Number.isFinite(dia)) continue;
     const severeSys = sys !== undefined && Number.isFinite(sys) && sys >= 180 && sys <= 300;
     const severeDia = dia !== undefined && Number.isFinite(dia) && dia >= 120 && dia <= 200;
     if (severeSys) out.push({ sys, at: at ?? stamp });
@@ -382,6 +386,12 @@ export function answerEpisode(
 // ─── What blocks saving ─────────────────────────────────────────────────────
 
 const plausibleBp = (r: BpReading) => r.sys >= 40 && r.sys <= 300 && r.dia >= 20 && r.dia <= 200;
+/** One box holds a usable number that is severe on its own (180 or more on top, 120 or more below). */
+const severeHalf = (s: string, d: string) => {
+  const sys = s.trim() ? Number(s) : Number.NaN;
+  const dia = d.trim() ? Number(d) : Number.NaN;
+  return (Number.isFinite(sys) && sys >= 180 && sys <= 300) || (Number.isFinite(dia) && dia >= 120 && dia <= 200);
+};
 
 function sameGlucose(a: GlucoseReading | undefined, value: number, unit: GlucoseUnit, at: string | null, confirmed = false): boolean {
   return !!a && a.value === value && a.unit === unit && (a.measuredAt ?? null) === at && (a.unitConfirmed === true) === confirmed;
@@ -406,6 +416,9 @@ export function submitBlocked(form: CheckInForm, ctx: { profile: UserProfile; pr
   if (v.bp) {
     for (const [s, d] of [[form.bp.s1, form.bp.d1], [form.bp.s2, form.bp.d2]] as const) {
       if (!s.trim() && !d.trim()) continue;
+      // A usable severe number is evidence the gate must see, whatever the other
+      // box holds (R5-06): it is saved as it is, and the reading is asked again there.
+      if (severeHalf(s, d)) continue;
       if (!s.trim() || !d.trim()) return 'Enter both blood pressure numbers, or clear the reading.';
       const r = { sys: Number(s), dia: Number(d) };
       if (!Number.isFinite(r.sys) || !Number.isFinite(r.dia) || !plausibleBp(r)) return 'Check the blood pressure reading.';
@@ -662,8 +675,24 @@ export function carryForward(saved: DailyCheckIn | undefined, next: DailyCheckIn
     .filter(r => !complete.some(c => (r.sys !== undefined && c.sys === r.sys) || (r.dia !== undefined && c.dia === r.dia))), samePartial);
   const provoked = [...new Set([...(saved.provoked ?? []), ...(next.provoked ?? [])])];
   const lowSymptomsAt = next.lowSymptomsAt ?? saved.lowSymptomsAt;
+  // A red flag or foot problem said earlier today is not released by a later
+  // answer about now (R5-01): it stays as said, until its own release.
+  const reported = flagsIn(next);
+  const flagsEarlier = [...new Set([...(next.flagsEarlier ?? []), ...(saved.flagsEarlier ?? []), ...flagsIn(saved)])].filter(f => !reported.includes(f));
+  // Nor is an answer that ends the day, such as fainting: it holds for the
+  // rest of it, unless it is answered as ticked by mistake.
+  const newsEarlier = [...new Set([...(next.newsEarlier ?? []), ...(saved.newsEarlier ?? []), ...saved.news.filter(endsTheDay)])].filter(n => !next.news.includes(n));
+  // Either, ticked again after an answer released it, is a new report: that
+  // answer no longer settles it, and it is asked about again by name.
+  const reopened = reopenedByReport(saved, next);
+  const { flagsEarlier: _flags, newsEarlier: _news, ...rest } = next;
+  void _flags;
+  void _news;
   return {
-    ...next,
+    ...rest,
+    ...(reopened.length ? { resolutions: [...(next.resolutions ?? []), ...reopened] } : {}),
+    ...(flagsEarlier.length ? { flagsEarlier } : {}),
+    ...(newsEarlier.length ? { newsEarlier } : {}),
     ...(glucoseEarlier.length ? { glucoseEarlier } : {}),
     ...(ketonesEarlier.length ? { ketonesEarlier } : {}),
     ...(bpEarlier.length ? { bpEarlier } : {}),

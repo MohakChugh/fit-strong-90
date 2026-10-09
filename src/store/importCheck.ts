@@ -75,7 +75,9 @@ const SETTINGS_SPEC: Spec = {
   habits: HABIT_SPEC,
   statusPeriods: listOf(shape({ kind: oneOf('flare', 'unwell', 'away'), from: day, to: day, planShift: oneOf('moved', 'kept') }, ['kind', 'from'])),
   walkDefaults: shape({ gps: bool, steps: bool }, ['gps', 'steps']),
-  deleted: shape({ observations: listOf(text), sessions: listOf(text) }),
+  // List by list: one that cannot be read must not take the others with it,
+  // or an older backup could bring back what they keep deleted (D-06, R5-01).
+  deleted: { observations: listOf(text), sessions: listOf(text), readings: listOf(text) },
 };
 
 const HEALTH: Check = shape({

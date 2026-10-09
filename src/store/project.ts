@@ -97,6 +97,24 @@ export interface CheckInContext {
    * reading of that kind is revised in place.
    */
   readings?: 'append' | 'correct';
+  /**
+   * What was deleted, by `readingKey` (R5-01). A record restored from an
+   * older backup, or kept from before a deletion took the reading out of it,
+   * can still name a reading the person deleted; it is not lifted back.
+   */
+  deleted?: ReadonlySet<string>;
+}
+
+/**
+ * A check-in reading as what was measured: the day's check-in, the kind,
+ * the moment and the number, whatever its id (R5-01). The same reading gets
+ * a different id on another device, or after a reload, but never this.
+ * `undefined` for a record that is not a check-in reading.
+ */
+export function readingKey(o: Pick<Observation, 'kind' | 'at' | 'value' | 'context'> & { unit?: string }): string | undefined {
+  const day = checkInDayOf(o);
+  if (day === undefined) return undefined;
+  return `${day}|${o.kind}|${Date.parse(o.at)}|${o.value}${o.kind === 'glucose' ? `|${o.unit}` : ''}`;
 }
 
 interface Single { kind: 'glucose' | 'backPain' | 'legPain'; value: number; unit?: string; at?: string }
@@ -285,6 +303,8 @@ export function liftCheckIn(record: CheckInRecord, ctx: CheckInContext): Lifted 
       }
     }
 
+    // Measured at a known moment, a reading the person deleted is not brought back.
+    if (s.at !== undefined && ctx.deleted?.has(readingKey({ kind: s.kind, at: s.at, value: s.value, unit, context })!)) continue;
     tryPush(s.kind, () => {
       const event = free([s.kind]);
       return [newObservation({
@@ -323,6 +343,11 @@ export function liftCheckIn(record: CheckInRecord, ctx: CheckInContext): Lifted 
       continue;
     }
 
+    if (p.at !== undefined && ctx.deleted !== undefined) {
+      const half = (kind: 'bloodPressureSystolic' | 'bloodPressureDiastolic', value: number) =>
+        ctx.deleted!.has(readingKey({ kind, at: p.at!, value, context: bpContext(checkInEventId(day, 0)) })!);
+      if (half('bloodPressureSystolic', p.sys) || half('bloodPressureDiastolic', p.dia)) continue;
+    }
     // Both halves or neither: a lone systolic is a reading nobody can read.
     tryPush('bloodPressureSystolic', () => {
       const event = free(['bloodPressureSystolic', 'bloodPressureDiastolic']);

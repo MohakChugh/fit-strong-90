@@ -20,7 +20,7 @@ import type { UserProfile } from '@/types/profile';
 import type {
   BackLight, BpPartialReading, BpReading, DailyCheckIn, Disposition, EmergencyFlag, EpisodeAnswer, EpisodeKind,
   EpisodeReading, EpisodeResolution, EpisodeSummary, GlucoseEntry, GlucoseUnit, KetoneReading, Mode, Modifier, NewsItem,
-  Outcome, Readiness, Reason, SymptomReach, UrineKetoneCategory,
+  Outcome, Readiness, Reason, RedFlag, SymptomReach, UrineKetoneCategory,
 } from '@/types/checkin';
 import { DISPOSITION_ORDER, OUTCOME_ORDER } from '@/types/checkin';
 import type { HealthProfile } from '@/types/profile';
@@ -74,6 +74,8 @@ interface Contribution {
   oral?: string[];
   /** Getting ready to exercise: dropped when the answer is no exercise today or an emergency. */
   prep?: string[];
+  /** A hold that says no exercise today, whatever its release (scan J2-14): no exercise preparation beside it. */
+  endsDay?: true;
   notices?: string[];
   recheckMinutes?: number;
   recheckAt?: string;
@@ -168,33 +170,43 @@ const byAt = (list: readonly BpReading[]): BpReading[] => [...list].sort((a, b) 
 
 /**
  * The day as every rule must read it: its check-in's readings and the ones
- * logged in Track (`logged`), in one timeline. The newest reading is the
- * current one, whichever screen took it, so a 50 logged after a 140 check-in
- * holds movement and a fresh Track reading counts for the 30-minute rule.
- * Everything older is an earlier reading of the day, so a serious one still
- * counts and carries. The record itself is never changed: what the person
- * answered in the check-in stays theirs.
+ * logged in Track (`logged`), in one timeline, in the order they were taken.
+ * The newest reading is the current one, whichever screen took it and in
+ * whatever order it was entered: a 50 logged after a 140 check-in holds
+ * movement, a fresh Track reading counts for the 30-minute rule, and a 140
+ * timed 09:00 entered after a 320 timed 09:10 does not clear it (R5-03). An
+ * untimed current reading keeps its place, since nothing says another came
+ * after it. Everything older is an earlier reading of the day, so a serious
+ * one still counts and carries.
+ *
+ * Reading the result again changes nothing (R5-08): the logged readings are
+ * folded in once and `logged` is not kept, and a reading the record already
+ * holds is not added a second time. The record itself is never changed: what
+ * the person answered in the check-in stays theirs.
  */
 export function withLogged(c: DailyCheckIn): DailyCheckIn {
-  const glucose = c.logged?.glucose ?? [];
-  const pressure = c.logged?.bp ?? [];
-  if (!glucose.length && !pressure.length) return c;
-  let out: DailyCheckIn = c;
+  const { logged, ...plain } = c;
+  const ownGlucose = [...(plain.glucoseEarlier ?? []), plain.glucose, plain.glucoseDisplay].filter((x): x is GlucoseEntry => !!x);
+  const held = new Set(ownGlucose.map(e => glucoseReadingId(e, c.date)));
+  const glucose = (logged?.glucose ?? []).filter(e => !held.has(glucoseReadingId(e, c.date)));
+  const ownBp: BpReading[] = [...(plain.bpReadings ?? (plain.bp ? [plain.bp] : [])), ...(plain.bpEarlier ?? [])];
+  const pressure = (logged?.bp ?? []).filter(r => !ownBp.some(o => o.sys === r.sys && o.dia === r.dia && o.at === r.at));
+  let out: DailyCheckIn = plain;
   if (glucose.length) {
-    const own: GlucoseEntry[] = [c.glucose, c.glucoseDisplay].filter((x): x is GlucoseEntry => !!x);
+    const own: GlucoseEntry[] = [plain.glucose, plain.glucoseDisplay].filter((x): x is GlucoseEntry => !!x);
     const ownLatest = Math.max(-Infinity, ...own.map(e => time(e.measuredAt) ?? -Infinity));
     const sorted = byMeasured(glucose);
     const newest = sorted.at(-1)!;
     if ((time(newest.measuredAt) ?? -Infinity) > ownLatest) {
-      const { glucoseDisplay: _shown, ...rest } = c;
+      const { glucoseDisplay: _shown, ...rest } = plain;
       void _shown;
-      out = { ...rest, glucose: newest, glucoseEarlier: byMeasured([...(c.glucoseEarlier ?? []), ...own, ...sorted.slice(0, -1)]) };
+      out = { ...rest, glucose: newest, glucoseEarlier: byMeasured([...(plain.glucoseEarlier ?? []), ...own, ...sorted.slice(0, -1)]) };
     } else {
-      out = { ...c, glucoseEarlier: byMeasured([...(c.glucoseEarlier ?? []), ...sorted]) };
+      out = { ...plain, glucoseEarlier: byMeasured([...(plain.glucoseEarlier ?? []), ...sorted]) };
     }
   }
   if (pressure.length) {
-    const own: BpReading[] = c.bpReadings?.length ? c.bpReadings : c.bp ? [c.bp] : [];
+    const own: BpReading[] = plain.bpReadings?.length ? plain.bpReadings : plain.bp ? [plain.bp] : [];
     const ownLatest = Math.max(-Infinity, ...own.map(r => time(r.at) ?? -Infinity));
     const newer = pressure.filter(r => (time(r.at) ?? -Infinity) > ownLatest);
     const older = pressure.filter(r => !newer.includes(r));
@@ -202,7 +214,33 @@ export function withLogged(c: DailyCheckIn): DailyCheckIn {
       ? { ...out, bpReadings: byAt(newer), bpEarlier: byAt([...(out.bpEarlier ?? []), ...own, ...older]) }
       : { ...out, bpEarlier: byAt([...(out.bpEarlier ?? []), ...older]) };
   }
-  return out;
+  return latestTaken(out);
+}
+
+/**
+ * The glucose reading taken last in the current place (R5-03): one entered
+ * after it but timed before it is an earlier reading. Kept as entered when
+ * the current reading has no time. The earlier readings are oldest first
+ * whatever order they were entered in: the re-check rules count from the
+ * first low, and a 58 timed 09:00 typed after a 60 at 09:20 is the first.
+ */
+function latestTaken(record: DailyCheckIn): DailyCheckIn {
+  const c = record.glucoseEarlier ? { ...record, glucoseEarlier: byMeasured(record.glucoseEarlier) } : record;
+  const current = [c.glucose, c.glucoseDisplay].filter((x): x is GlucoseEntry => !!x);
+  const times = current.map(e => time(e.measuredAt));
+  if (!current.length || times.some(t => t === undefined)) return c;
+  const at = Math.max(...(times as number[]));
+  const later = (c.glucoseEarlier ?? []).filter(e => (time(e.measuredAt) ?? -Infinity) > at);
+  if (!later.length) return c;
+  const newest = byMeasured(later).at(-1)!;
+  const { glucose: _g, glucoseDisplay: _d, ...rest } = c;
+  void _g;
+  void _d;
+  return {
+    ...rest,
+    ...('display' in newest ? { glucoseDisplay: newest } : { glucose: newest }),
+    glucoseEarlier: byMeasured([...(c.glucoseEarlier ?? []).filter(e => e !== newest), ...current]),
+  };
 }
 
 // ─── Emergency answers ──────────────────────────────────────────────────────
@@ -379,9 +417,32 @@ function backRules(c: DailyCheckIn, recent: DailyCheckIn[]): Contribution[] {
 
 // ─── Anything else today ────────────────────────────────────────────────────
 
+/**
+ * Answers that end exercise for the day they are said, each a `today`:
+ * fainting, a high glucose that will not come down, vomiting with diabetes,
+ * and a low that needed help. Said earlier today and unticked since
+ * (`newsEarlier`), each still holds for the rest of the day, as a red flag
+ * does (R5-01): a later answer is about now and releases nothing, and only
+ * "I ticked it by mistake" does. Named in the words they were ticked in.
+ */
+const DAY_ENDING = {
+  fainted: 'Fainted today, and back to normal now',
+  highNotFalling: 'A high glucose that won’t come down with your usual plan',
+  vomiting: 'Vomiting, or can’t keep fluids down',
+  lowSevere: 'A low in the last 24 hours that needed someone’s help',
+} as const satisfies Partial<Record<NewsItem, string>>;
+type DayEnding = keyof typeof DAY_ENDING;
+export const endsTheDay = (n: NewsItem): n is DayEnding => Object.hasOwn(DAY_ENDING, n);
+
+/** Those said earlier on the record's day and unticked since. Vomiting ends the day only with diabetes; without, it is a rest until it settles. */
+const newsSaidEarlier = (c: DailyCheckIn, d: DerivedHealth): DayEnding[] =>
+  [...new Set(Array.isArray(c.newsEarlier) ? c.newsEarlier : [])].filter(endsTheDay).filter(n => !c.news.includes(n) && (n !== 'vomiting' || d.diabetic));
+
 function newsRules(p: UserProfile, c: DailyCheckIn, d: DerivedHealth, recorded: readonly string[] = []): Contribution[] {
   const out: Contribution[] = [];
-  const has = (n: NewsItem) => c.news.includes(n);
+  const answers = c.resolutions ?? [];
+  const earlier: NewsItem[] = newsSaidEarlier(c, d).filter(n => settledAs(newsReadingId(c.date, n), answers) !== 'mistake');
+  const has = (n: NewsItem) => c.news.includes(n) || earlier.includes(n);
   const limit = fluidLimit(p.health);
 
   if (has('unwell')) {
@@ -509,6 +570,7 @@ const formatNumber = (v: number) => String(Math.round(v * 10) / 10);
  * way their meter says it.
  */
 const level = (mg: number, unit: GlucoseUnit) => (unit === 'mmol/L' ? `${(mg / MGDL_PER_MMOL).toFixed(1)} mmol/L` : `${formatNumber(mg)} mg/dL`);
+export { level as glucoseLevel };
 /** The level 1 band, "from 54 to 69 mg/dL", in the person's unit. */
 const lowBand = (unit: GlucoseUnit) => (unit === 'mmol/L' ? `from ${level(54, unit).replace(' mmol/L', '')} to under ${level(70, unit)}` : 'from 54 to 69 mg/dL');
 
@@ -734,7 +796,7 @@ function glucoseRules(p: UserProfile, c: DailyCheckIn, d: DerivedHealth, ketones
     const stillLow = !!latest && isLow(latest);
     out.push({
       outcome: 'red', disposition: 'hold', release: RELEASE.tomorrow,
-      reason: R('lowRepeat', 'Your glucose was still under 70 when you re-checked, or went low again after recovering. That ends exercise for today. Keep treating it by your plan, and tell your care team if lows keep happening.', 'red', 'hold'),
+      reason: R('lowRepeat', `Your glucose was still under ${level(70, u)} when you re-checked, or went low again after recovering. That ends exercise for today. Keep treating it by your plan, and tell your care team if lows keep happening.`, 'red', 'hold'),
       oral: stillLow ? [TREAT] : [],
       ...(stillLow && latest?.t !== undefined ? { recheckAt: plusMinutes(latest.t, RECHECK_MINUTES) } : {}),
     });
@@ -1006,8 +1068,12 @@ function ketoneRules(c: DailyCheckIn): { contributions: Contribution[]; level?: 
 
 // ─── Blood pressure ─────────────────────────────────────────────────────────
 
-const validBp = (r: BpReading) => Number.isFinite(r.sys) && Number.isFinite(r.dia) && r.sys >= 40 && r.sys <= 300 && r.dia >= 20 && r.dia <= 200;
+const sysUsable = (n: number) => Number.isFinite(n) && n >= 40 && n <= 300;
+const diaUsable = (n: number) => Number.isFinite(n) && n >= 20 && n <= 200;
+const validBp = (r: BpReading) => sysUsable(r.sys) && diaUsable(r.dia);
 const severe = (r: BpReading) => r.sys >= 180 || r.dia >= 120;
+/** What can be used of a reading whose other number cannot, such as 190/10: a top number of 190 (R5-06). */
+const usableHalf = (r: BpReading): BpPartialReading => ({ ...(sysUsable(r.sys) ? { sys: r.sys } : {}), ...(diaUsable(r.dia) ? { dia: r.dia } : {}), ...(r.at ? { at: r.at } : {}) });
 
 /** What was severe in one reading: the number at or over its line, or both. */
 const severeIn = (r: BpReading) => (r.sys >= 180 && r.dia >= 120 ? `${r.sys}/${r.dia}` : r.sys >= 180 ? `top number ${r.sys}` : `bottom number ${r.dia}`);
@@ -1051,8 +1117,18 @@ function fluidLine(p: UserProfile, sentence: string): string {
 const BP_EMERGENCY_SIGNS = 'chest or back pain, breathlessness, confusion, weakness, numbness, a change in vision or trouble speaking';
 
 function bpRules(p: UserProfile, c: DailyCheckIn): Contribution[] {
-  // Each reading is judged on its own, before any average (contract, boundary tests).
-  const all: BpReading[] = c.bpReadings?.length ? c.bpReadings : c.bp ? [c.bp] : [];
+  const answers = c.resolutions ?? [];
+  // A reading the person said they typed wrongly never happened (round 3 B01).
+  const live = (r: BpReading) => settledAs(bpReadingId(r, c.date), answers) !== 'mistake';
+  // Each reading is judged on its own, before any average (contract, boundary
+  // tests). One taken after the readings the record holds as current is
+  // current too, whatever order they were entered in (R5-03); with no time on
+  // the current ones, nothing says another came after them.
+  const own: BpReading[] = c.bpReadings?.length ? c.bpReadings : c.bp ? [c.bp] : [];
+  const ownTimes = own.map(r => time(r.at));
+  const ownLatest = own.length && ownTimes.every(t => t !== undefined) ? Math.max(...(ownTimes as number[])) : undefined;
+  const later = ownLatest === undefined ? [] : (c.bpEarlier ?? []).filter(r => (time(r.at) ?? -Infinity) > ownLatest && live(r));
+  const all: BpReading[] = [...own, ...later];
   const out: Contribution[] = [];
   if (all.some(r => !validBp(r))) {
     out.push({
@@ -1061,14 +1137,17 @@ function bpRules(p: UserProfile, c: DailyCheckIn): Contribution[] {
     });
   }
   const readings = all.filter(validBp);
-  const answers = c.resolutions ?? [];
-  // A reading the person said they typed wrongly never happened (round 3 B01).
-  const live = (r: BpReading) => settledAs(bpReadingId(r, c.date), answers) !== 'mistake';
-  const earlierSevere = (c.bpEarlier ?? []).filter(r => validBp(r) && severe(r) && live(r));
+  const earlierSevere = (c.bpEarlier ?? []).filter(r => !later.includes(r) && validBp(r) && severe(r) && live(r));
   const severeNow = readings.filter(severe);
   // One severe number with the other box empty (B07): it counts on its own,
-  // and the missing half is never invented.
-  const partial = (c.bpPartial ?? []).filter(r => severePartial(r) && settledAs(bpPartialId(r, c.date), answers) !== 'mistake');
+  // and the missing half is never invented. So does a usable severe number in
+  // a reading whose other number cannot be used, such as 190/10 (R5-06), and
+  // still once the reading has been replaced, as a valid 190/100 would. Like
+  // a half-entered reading, it does not confirm another: a typo corrected to
+  // 190/100 is one measurement, not two.
+  const halves: BpPartialReading[] = all.filter(r => !validBp(r)).map(usableHalf).filter(severePartial);
+  const earlierHalves = (c.bpEarlier ?? []).filter(r => !later.includes(r) && !validBp(r) && severePartial(usableHalf(r)) && live(r));
+  const partial = [...(c.bpPartial ?? []).filter(r => severePartial(r) && settledAs(bpPartialId(r, c.date), answers) !== 'mistake'), ...halves];
   const dizzy = c.news.includes('dizzy') || c.news.includes('fainted');
   // New numbness or weakness reported in the back questions of the same
   // check-in is one of the signs the severe reading's own message names (E-BP, scan X2-06).
@@ -1077,7 +1156,7 @@ function bpRules(p: UserProfile, c: DailyCheckIn): Contribution[] {
   const acute = c.bpSymptoms === true || b?.suddenSevere === true || newNerve
     || (c.emergency ?? []).some(f => f === 'chest' || f === 'stroke' || f === 'breathless');
 
-  if (severeNow.length || earlierSevere.length || partial.length) {
+  if (severeNow.length || earlierSevere.length || partial.length || earlierHalves.length) {
     /**
      * One severe episode, across every reading of the day and whichever save
      * each arrived in (Codex re-audit F09). A repeat that confirms it need not
@@ -1091,9 +1170,9 @@ function bpRules(p: UserProfile, c: DailyCheckIn): Contribution[] {
      */
     const complete = [...earlierSevere, ...severeNow];
     const worst = [...complete].sort((a, b) => Math.max(b.sys - 180, b.dia - 120) - Math.max(a.sys - 180, a.dia - 120))[0];
-    const named = worst ? which(worst, 180, 120) : partialNamed(partial[0]);
+    const named = worst ? which(worst, 180, 120) : partialNamed(partial[0] ?? usableHalf(earlierHalves[0]));
     const confirmed = complete.length >= 2;
-    const seen = !severeNow.length && !partial.length && earlierSevere.every(r => settledAs(bpReadingId(r, c.date), answers) === 'assessed');
+    const seen = !severeNow.length && !partial.length && [...earlierSevere, ...earlierHalves].every(r => settledAs(bpReadingId(r, c.date), answers) === 'assessed');
     if (acute) {
       out.push({
         outcome: 'urgent', disposition: 'emergency',
@@ -1119,7 +1198,7 @@ function bpRules(p: UserProfile, c: DailyCheckIn): Contribution[] {
       });
     } else if (severeNow.length || partial.length) {
       out.push({
-        outcome: 'red', disposition: 'hold', unresolved: 'severeBp',
+        outcome: 'red', disposition: 'hold', unresolved: 'severeBp', endsDay: true,
         release: 'Sit quietly for 5 minutes and measure again. No exercise today either way.',
         reason: R('bpSevereUnconfirmed', `${named}: no exercise today. Sit quietly for 5 minutes and measure again; if it is still this high, contact your clinician today. Call emergency services if you get ${BP_EMERGENCY_SIGNS}.`, 'red', 'hold'),
       });
@@ -1138,7 +1217,7 @@ function bpRules(p: UserProfile, c: DailyCheckIn): Contribution[] {
     const over = readings.find(r => r.sys >= stop);
     if (over) {
       out.push({
-        outcome: 'red', disposition: 'hold', release: RELEASE.clinician,
+        outcome: 'red', disposition: 'hold', release: RELEASE.clinician, endsDay: true,
         reason: R('bpClinicianLimit', `Your top number is ${over.sys}, at or above the ${stop} your clinician set as your limit: no exercise today. Talk to your clinician.`, 'red', 'hold'),
       });
     }
@@ -1174,7 +1253,7 @@ function bpRules(p: UserProfile, c: DailyCheckIn): Contribution[] {
   if (low) {
     out.push(dizzy
       ? {
-        outcome: 'red', disposition: 'hold', release: 'Once the dizziness has passed, change today’s answers.',
+        outcome: 'red', disposition: 'hold', release: 'Once the dizziness has passed, change today’s answers.', endsDay: true,
         reason: R('lowBpDizzy', 'Low blood pressure with dizziness: sit or lie down. No exercise today; tell your clinician if it happens again.', 'red', 'hold'),
         oral: [fluidLimit(p.health) === 'limited'
           ? 'Keep to your fluid plan; do not drink extra.'
@@ -1231,8 +1310,8 @@ interface SeriousReading {
   day: string;
 }
 
-/** A carried item: a serious reading, or a red flag or foot problem said in a check-in (X2-02, X2-03). */
-type Carried = SeriousReading & { settled?: EpisodeResolution; old?: true };
+/** A carried item: a serious reading, or a red flag or foot problem said in a check-in (X2-02, X2-03), with the answers that settle it (R5-01). */
+type Carried = SeriousReading & { settled?: EpisodeResolution; old?: true; accepts?: EpisodeResolution[] };
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -1270,7 +1349,7 @@ function seriousReadings(record: DailyCheckIn, answers: readonly EpisodeAnswer[]
     if (atLeast(g, 600)) out.push({ kind: 'extremeGlucose', disposition: 'emergency', ...base });
     else if (isSevereLow(g)) out.push({ kind: 'severeLow', disposition: 'today', ...base });
   }
-  if (c.news.includes('lowSevere')) {
+  if (c.news.includes('lowSevere') || (Array.isArray(c.newsEarlier) && c.newsEarlier.includes('lowSevere'))) {
     const id = newsReadingId(c.date, 'lowSevere');
     if (live(id)) out.push({ kind: 'severeLow', id, label: `A low that needed help${when(undefined, c.date, today) || ' today'}`, disposition: 'today', day: c.date });
   }
@@ -1306,8 +1385,22 @@ const FLAGS = {
   backSudden: { kind: 'redFlag', label: 'Sudden severe back pain, or pain getting worse fast', code: 'backSudden', also: [] },
   footProblem: { kind: 'foot', label: 'A new blister or sore on a foot', code: 'foot', also: [] },
   hotSwollenFoot: { kind: 'foot', label: 'A foot that was newly hot, red or swollen', code: 'hotFoot', also: [] },
-} as const;
+} as const satisfies Record<RedFlag, unknown>;
 type Flag = keyof typeof FLAGS;
+
+/**
+ * What settles each flag, as its own message says (R5-01): a clinician for a
+ * red flag and for a hot, swollen foot; a sore may also heal; and anything
+ * ticked by mistake. "It has gone" is no answer to something that needs
+ * checking.
+ */
+const FLAG_ACCEPTS: Record<Flag, EpisodeResolution[]> = {
+  newWeakness: ['assessed', 'mistake'],
+  backFever: ['assessed', 'mistake'],
+  backSudden: ['assessed', 'mistake'],
+  footProblem: ['resolved', 'assessed', 'mistake'],
+  hotSwollenFoot: ['assessed', 'mistake'],
+};
 
 /** Codes of the day rules these flags come from: the episode carry says them, so the answer carry-over does not too. */
 const FLAG_CODES = new Set<string>(Object.values(FLAGS).flatMap(f => [f.code, ...f.also]));
@@ -1319,7 +1412,8 @@ const READING_CODES = new Set([
   'illnessKetonesEarlier', 'ketonesAssessed', 'bpSevere', 'bpAssessed',
 ]);
 
-function flagsIn(c: DailyCheckIn): Flag[] {
+/** The flags a record reports now. */
+export function flagsIn(c: DailyCheckIn): Flag[] {
   const b = c.back;
   const asked = b?.newWeakness !== undefined || b?.newSensory !== undefined;
   const weakness = b?.newWeakness === true || (!!b && !asked && b.newNeuro === true);
@@ -1333,12 +1427,44 @@ function flagsIn(c: DailyCheckIn): Flag[] {
   return out;
 }
 
+/** The flags said earlier that day (R5-01), by the names the engine knows: a record from elsewhere may hold others, which are ignored. */
+const flagsEarlierIn = (c: DailyCheckIn): Flag[] => (Array.isArray(c.flagsEarlier) ? c.flagsEarlier : []).filter((f): f is Flag => Object.hasOwn(FLAGS, f));
+
+/** Every flag a record holds open: those it reports now, and those said earlier that day (R5-01). */
+const flagsOf = (c: DailyCheckIn): Flag[] => [...new Set([...flagsIn(c), ...flagsEarlierIn(c)])];
+
 const flagId = (flag: Flag, day: string) => `flag:${flag}@${day}`;
 
-const CARRY_MESSAGE: Record<'extremeGlucose' | 'severeLow' | 'ketones' | 'severeBp', (label: string, unit: GlucoseUnit) => string> = {
+/**
+ * An item said again today after an answer released it — a red flag, a foot
+ * problem, or news that ends the day, ticked again — is a new report of it
+ * (R5-01). These are the `reopened` answers that take each release back, so
+ * the old answer cannot settle the item once it is unticked again, and it is
+ * asked about by name. Each is dated a millisecond after the latest answer
+ * about it: only the order of answers counts.
+ */
+export function reopenedByReport(saved: DailyCheckIn, next: DailyCheckIn): EpisodeAnswer[] {
+  const before = flagsIn(saved);
+  const again: { kind: EpisodeKind; id: string }[] = [
+    ...flagsIn(next).filter(f => !before.includes(f)).map(f => ({ kind: FLAGS[f].kind, id: flagId(f, next.date) })),
+    ...next.news.filter(n => endsTheDay(n) && !saved.news.includes(n)).map(n => ({ kind: 'news' as const, id: newsReadingId(next.date, n) })),
+  ];
+  const answers = next.resolutions ?? [];
+  return again.flatMap(({ kind, id }) => {
+    if (settledAs(id, answers) === undefined) return [];
+    const last = answers.filter(a => a.readings.includes(id)).map(a => a.at).sort().at(-1)!;
+    const t = Date.parse(last);
+    return [{ kind, readings: [id], resolution: 'reopened' as const, at: Number.isFinite(t) ? new Date(t + 1).toISOString() : last }];
+  });
+}
+
+const CARRY_MESSAGE: Record<'extremeGlucose' | 'severeLow' | 'ketones' | 'severeBp', (label: string, unit: GlucoseUnit, urgent: boolean) => string> = {
   extremeGlucose: (label, unit) => `${label}: a glucose of ${level(600, unit)} or more still needs emergency assessment. ${CALL} If you typed it by mistake, say so in today’s answers.`,
   severeLow: label => `${label}: a severe low. No exercise until you have contacted your care team, and contact them today.`,
-  ketones: label => `${label}: no exercise until you have contacted your diabetes team, and contact them today.`,
+  // Ketones as high as an emergency keep the emergency instruction (R5-05).
+  ketones: (label, _unit, urgent) => (urgent
+    ? `${label}: ketones this high still need emergency assessment now, whatever your glucose. ${CALL} If you typed it by mistake, say so in today’s answers.`
+    : `${label}: no exercise until you have contacted your diabetes team, and contact them today.`),
   severeBp: label => `${label}, confirmed by a second high reading: no exercise until you have contacted your clinician, and contact them today.`,
 };
 
@@ -1374,8 +1500,10 @@ const dayEnd = (date: string) => dayStart(date) + 24 * 3_600_000 - 1;
  *   given today (D29's day restriction). A later lower number answers
  *   nothing. More than a day old, a reading is asked about rather than acted
  *   on, and "dealt with at the time" is an answer too (X2-10).
- * - **Red flags and foot problems** said in a check-in (X2-02, X2-03), until
- *   a clinician has checked them or they have gone or healed.
+ * - **Red flags and foot problems** said in a check-in (X2-02, X2-03),
+ *   including earlier the same day and unticked since, until their own
+ *   release: a clinician, a sore that has healed, or a tick made by mistake
+ *   (R5-01).
  * - **The last check-in's own answers that call for help now or today** — an
  *   emergency symptom, being unwell with diabetes — until a newer check-in
  *   answers those questions again. Every check-in asks them, so the first
@@ -1394,6 +1522,34 @@ function carriedRules(profile: UserProfile, c: DailyCheckIn | undefined, date: s
   const isOld = (r: { takenAt?: number; day: string }) => ref - (r.takenAt ?? dayEnd(r.day)) > CARRY_URGENT_HOURS * 3_600_000;
   const latestAnswer = (answers: readonly EpisodeAnswer[], id: string) =>
     [...answers].filter(a => a.readings.includes(id)).sort((x, y) => (x.at < y.at ? -1 : 1)).at(-1);
+  /** One red flag or foot problem: asked about by name, and holding its own restriction until its own release (R5-01). */
+  const flagIncident = (flag: Flag, day: string, label: string, from: string, old: boolean, answers: readonly EpisodeAnswer[]) => {
+    const f = FLAGS[flag];
+    const id = flagId(flag, day);
+    const accepts = FLAG_ACCEPTS[flag];
+    const latest = latestAnswer(answers, id);
+    const settled = latest && accepts.includes(latest.resolution as EpisodeResolution) ? latest.resolution as EpisodeResolution : undefined;
+    readings.push({ kind: f.kind, id, label, disposition: 'today', day, accepts, ...(settled ? { settled } : {}), ...(old ? { old: true as const } : {}) });
+    if (settled) return;
+    if (f.kind === 'foot') {
+      out.push({
+        outcome: 'amber', disposition: 'adjust', modifiers: ['FOOT'], refuses: ['walk'], unresolved: 'foot',
+        reason: R(`carried:${f.code}`, `${label}: ${FLAG_MESSAGE[flag]} Say so in your check-in once it has.`, 'amber', 'adjust', ['walk']),
+      });
+    } else if (old) {
+      out.push({
+        outcome: 'red', disposition: 'hold', back: 'red', nerveFlag: flag === 'newWeakness', unresolved: 'redFlag',
+        release: 'Say in your check-in whether a clinician has checked it.',
+        reason: R(`carriedOld:${f.code}`, `${label}: has a clinician checked it? Say so in your check-in. No exercise until you have; if nobody has checked it, see a doctor.`, 'red', 'hold'),
+      });
+    } else {
+      out.push({
+        outcome: 'red', disposition: 'today', back: 'red', nerveFlag: flag === 'newWeakness', unresolved: 'redFlag',
+        release: 'Say in your check-in once a clinician has checked it.',
+        reason: R(`carried:${f.code}`, `${from}: ${FLAG_MESSAGE[flag]}`, 'red', 'today'),
+      });
+    }
+  };
 
   for (let i = 0; i < earlier.length; i++) {
     const record = earlier[i];
@@ -1423,50 +1579,34 @@ function carriedRules(profile: UserProfile, c: DailyCheckIn | undefined, date: s
         });
       } else {
         out.push(r.disposition === 'emergency'
-          ? { outcome: 'urgent', disposition: 'emergency', unresolved: r.kind, reason: R(`carried:${r.kind}`, CARRY_MESSAGE[kind](r.label, unit), 'urgent', 'emergency') }
-          : { outcome: 'red', disposition: 'today', release: 'Say what happened in today’s check-in.', unresolved: r.kind, reason: R(`carried:${r.kind}`, CARRY_MESSAGE[kind](r.label, unit), 'red', 'today') });
+          ? { outcome: 'urgent', disposition: 'emergency', unresolved: r.kind, reason: R(`carried:${r.kind}`, CARRY_MESSAGE[kind](r.label, unit, true), 'urgent', 'emergency') }
+          : { outcome: 'red', disposition: 'today', release: 'Say what happened in today’s check-in.', unresolved: r.kind, reason: R(`carried:${r.kind}`, CARRY_MESSAGE[kind](r.label, unit, false), 'red', 'today') });
       }
     }
-    // Red flags and foot problems, by name, until they are answered (X2-02, X2-03).
+    // Red flags and foot problems, by name, until their own release is given (X2-02, X2-03, R5-01).
     if (record.readingsOnly) continue;
-    for (const flag of flagsIn(record)) {
-      const f = FLAGS[flag];
-      const id = flagId(flag, record.date);
-      const latest = latestAnswer(answers, id);
-      const settled = latest && latest.resolution !== 'reopened' ? latest.resolution : undefined;
-      const old = record.date < previousDay(date);
-      const label = `${f.label}${when(undefined, record.date, date)}`;
-      readings.push({ kind: f.kind, id, label, disposition: 'today', day: record.date, ...(settled ? { settled } : {}), ...(old ? { old: true as const } : {}) });
-      if (settled) continue;
-      if (f.kind === 'foot') {
-        out.push({
-          outcome: 'amber', disposition: 'adjust', modifiers: ['FOOT'], refuses: ['walk'], unresolved: 'foot',
-          reason: R(`carried:${f.code}`, `${label}: ${FLAG_MESSAGE[flag]} Say so in your check-in once it has.`, 'amber', 'adjust', ['walk']),
-        });
-      } else if (old) {
-        out.push({
-          outcome: 'red', disposition: 'hold', back: 'red', nerveFlag: flag === 'newWeakness', unresolved: 'redFlag',
-          release: 'Say in your check-in whether a clinician has checked it, or it has gone.',
-          reason: R(`carriedOld:${f.code}`, `${label}: has a clinician checked it, or has it gone? Say so in your check-in. No exercise until you have; if it is still there and nobody has checked it, see a doctor.`, 'red', 'hold'),
-        });
-      } else {
-        out.push({
-          outcome: 'red', disposition: 'today', back: 'red', nerveFlag: flag === 'newWeakness', unresolved: 'redFlag',
-          release: 'Say in your check-in once a clinician has checked it, or it has gone.',
-          reason: R(`carried:${f.code}`, `From your check-in${when(undefined, record.date, date)}: ${FLAG_MESSAGE[flag]}`, 'red', 'today'),
-        });
-      }
+    for (const flag of flagsOf(record)) {
+      const label = `${FLAGS[flag].label}${when(undefined, record.date, date)}`;
+      flagIncident(flag, record.date, label, `From your check-in${when(undefined, record.date, date)}`, record.date < previousDay(date), answers);
+    }
+  }
+  // Said earlier today and unticked since (R5-01): the same incident, by the
+  // same id, as tomorrow's carry would be.
+  if (c) {
+    const now = flagsIn(c);
+    for (const flag of flagsEarlierIn(c)) {
+      if (!now.includes(flag)) flagIncident(flag, c.date, `${FLAGS[flag].label}, today`, 'Earlier today', false, todayAnswers);
     }
   }
 
   // The last check-in's answers stand until a newer one answers the same
   // questions: with no check-in yet today, a chest pain at 23:59 is still a
-  // chest pain at 00:01. A day that holds only readings logged in Track is
-  // nobody's check-in (X2-01).
-  const answered = earlier.filter(x => !x.readingsOnly);
-  const last = answered.at(-1);
+  // chest pain at 00:01. A day that holds only readings logged in Track, or
+  // only what was reported during movement, is nobody's check-in (X2-01,
+  // R5-07): it neither answers nor hides the last one.
+  const last = earlier.filter(answeredCheckIn).at(-1);
   if (last && (!c || c.emergency === undefined)) {
-    const before = answered.slice(0, -1);
+    const before = earlier.filter(x => x.date < last.date);
     const r = evaluateCheckIn(profile, last, before);
     for (const reason of r.reasons) {
       const d = reason.disposition ?? 'adjust';
@@ -1481,6 +1621,16 @@ function carriedRules(profile: UserProfile, c: DailyCheckIn | undefined, date: s
   return { contributions: out, readings };
 }
 
+/**
+ * A record that answered the check-in's own questions (R5-07): not a day made
+ * only by Track's readings or by something reported during movement. A report
+ * of an emergency answers that question; records before v5 answered with
+ * `urgentSymptoms`, sleep and energy.
+ */
+export function answeredCheckIn(c: DailyCheckIn): boolean {
+  return !c.readingsOnly && (c.emergency !== undefined || c.urgentSymptoms || c.sleep !== undefined || c.energy !== undefined);
+}
+
 /** The calendar date of an instant, on this device. */
 function toLocalDate(iso: string): string {
   const d = new Date(iso);
@@ -1492,15 +1642,15 @@ function toLocalDate(iso: string): string {
  * and earlier days' carried readings, red flags and foot problems, each with
  * what has been said about it.
  */
-function episodeSummaries(record: DailyCheckIn | undefined, date: string, carried: Carried[]): EpisodeSummary[] {
+function episodeSummaries(record: DailyCheckIn | undefined, date: string, carried: Carried[], saidEarlier: readonly DayEnding[] = []): EpisodeSummary[] {
   const list: { kind: EpisodeKind; reading: EpisodeReading }[] = [];
   if (record) {
     const c = withLogged(record);
     const answers = c.resolutions ?? [];
-    const add = (kind: EpisodeKind, id: string, label: string) => {
+    const add = (kind: EpisodeKind, id: string, label: string, accepts?: EpisodeResolution[]) => {
       const settled = settledAs(id, answers);
       // Today's readings are never "dealt with at the time": too recent for that answer.
-      list.push({ kind, reading: { id, label, ...(settled && settled !== 'resolved' ? { settled } : {}) } });
+      list.push({ kind, reading: { id, label, ...(settled && settled !== 'resolved' ? { settled } : {}), ...(accepts ? { accepts } : {}) } });
     };
     for (const e of c.glucoseEarlier ?? []) {
       const g = readGlucose(e);
@@ -1511,11 +1661,14 @@ function episodeSummaries(record: DailyCheckIn | undefined, date: string, carrie
       const level = ketoneLevel(k).level;
       if (level === 'positive' || level === 'high' || level === 'urgent') add('ketones', ketoneReadingId(k, c.date), `${ketoneLabel(k)}${when(k.measuredAt, c.date, date)}`);
     }
-    for (const r of c.bpEarlier ?? []) if (validBp(r) && severe(r)) add('severeBp', bpReadingId(r, c.date), `Blood pressure ${r.sys}/${r.dia}${when(r.at, c.date, date)}`);
+    // One with a number that cannot be used is named as typed, so a typo can be answered as one (R5-06).
+    for (const r of c.bpEarlier ?? []) if (validBp(r) ? severe(r) : severePartial(usableHalf(r))) add('severeBp', bpReadingId(r, c.date), `Blood pressure ${r.sys}/${r.dia}${when(r.at, c.date, date)}`);
     for (const r of c.bpPartial ?? []) if (severePartial(r)) add('severeBp', bpPartialId(r, c.date), `${partialNamed(r).replace('Your ', 'A ')}${when(r.at, c.date, date)}, other number not entered`);
+    // It happened, and the day is over; or it was ticked by mistake.
+    for (const n of saidEarlier) add('news', newsReadingId(c.date, n), DAY_ENDING[n], ['mistake']);
   }
-  for (const r of carried) list.push({ kind: r.kind, reading: { id: r.id, label: r.label, ...(r.settled ? { settled: r.settled } : {}), ...(r.old ? { old: true as const } : {}) } });
-  const kinds: EpisodeKind[] = ['extremeGlucose', 'severeLow', 'ketones', 'severeBp', 'redFlag', 'foot'];
+  for (const r of carried) list.push({ kind: r.kind, reading: { id: r.id, label: r.label, ...(r.settled ? { settled: r.settled } : {}), ...(r.old ? { old: true as const } : {}), ...(r.accepts ? { accepts: r.accepts } : {}) } });
+  const kinds: EpisodeKind[] = ['extremeGlucose', 'severeLow', 'ketones', 'severeBp', 'redFlag', 'foot', 'news'];
   return kinds
     .map(kind => ({ kind, readings: list.filter(x => x.kind === kind).map(x => x.reading) }))
     .filter(e => e.readings.length > 0);
@@ -1560,7 +1713,7 @@ export function evaluateCheckIn(profile: UserProfile, checkIn: DailyCheckIn, rec
     ...sleepRules(c, recent),
     ...carried.contributions,
   ], base.vigorousLocked, base.rpeOnly);
-  const episodes = episodeSummaries(c, c.date, carried.readings);
+  const episodes = episodeSummaries(c, c.date, carried.readings, newsSaidEarlier(c, d));
   return episodes.length ? { ...r, episodes } : r;
 }
 
@@ -1588,6 +1741,7 @@ function merge(cs: Contribution[], vigorousLocked: boolean, rpeOnly: boolean): R
   let capHeavy = false;
   let release: string | undefined;
   let releaseRank = -1;
+  let releaseTimed = false;
   let awaitingReading = false;
   let noOral = false;
   /** Something has ended exercise for the day, whatever the disposition. */
@@ -1600,7 +1754,13 @@ function merge(cs: Contribution[], vigorousLocked: boolean, rpeOnly: boolean): R
     const dz = c.disposition ?? defaultDisposition(c);
     if (OUTCOME_ORDER.indexOf(c.outcome) > OUTCOME_ORDER.indexOf(outcome)) outcome = c.outcome;
     if (rank(dz) > rank(disposition)) disposition = dz;
-    if (c.release && rank(dz) > releaseRank) { release = c.release; releaseRank = rank(dz); }
+    // At equal rank a timed re-check's release is the one said: what to do,
+    // and when, for a low that is measured, not only suspected (scan J2-03).
+    if (c.release && (rank(dz) > releaseRank || (rank(dz) === releaseRank && c.recheckAt !== undefined && !releaseTimed))) {
+      release = c.release;
+      releaseRank = rank(dz);
+      releaseTimed = c.recheckAt !== undefined;
+    }
     for (const m of c.modifiers ?? []) if (!modifiers.includes(m)) modifiers.push(m);
     if (c.reason && !reasons.some(r => r.code === c.reason!.code)) reasons.push({ ...c.reason, disposition: c.reason.disposition ?? dz });
     for (const a of c.actions ?? []) if (!actions.includes(a)) actions.push(a);
@@ -1614,7 +1774,7 @@ function merge(cs: Contribution[], vigorousLocked: boolean, rpeOnly: boolean): R
     if (c.capHeavy) capHeavy = true;
     if (c.awaitingReading) awaitingReading = true;
     if (c.noOral) noOral = true;
-    if (c.release === RELEASE.tomorrow) dayOver = true;
+    if (c.release === RELEASE.tomorrow || c.endsDay) dayOver = true;
     if (c.unresolved && !unresolved.includes(c.unresolved)) unresolved.push(c.unresolved);
     for (const m of c.refuses ?? []) if (!refused.includes(m)) refused.push(m);
   }

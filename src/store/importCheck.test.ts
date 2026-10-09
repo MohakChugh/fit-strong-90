@@ -43,6 +43,19 @@ describe('settings in an import file are read field by field (D-08)', () => {
       .toEqual(['settings.currentWeight', 'settings.focus', 'settings.theme']);
   });
 
+  it('leaves out a list of deleted readings that cannot be read, and keeps the rest of what was deleted (R5-01)', () => {
+    for (const readings of [[5], 'x', [null]]) {
+      const raw = file({ settings: { ...settings, deleted: { observations: ['x'], sessions: ['s'], readings } } });
+      expect(preview(raw).unreadableFields).toEqual(['settings.deleted.readings']);
+      expect(() => planImport(raw, 'replace', emptySnapshot())).toThrow(/could not be read/);
+      // What else was deleted still stays deleted.
+      expect(planImport(raw, 'replace', emptySnapshot(), { allowRejected: true }).change.settings?.replace?.deleted).toEqual({ observations: ['x'], sessions: ['s'] });
+    }
+    expect(preview(file({ settings: { ...settings, deleted: 'all' } })).unreadableFields).toEqual(['settings.deleted']);
+    const deleted = { observations: ['x'], sessions: ['s'], readings: ['2026-10-07|glucose|1791342000000|600|mg/dL'] };
+    expect(preview(file({ settings: { ...settings, deleted } })).unreadableFields).toEqual([]);
+  });
+
   it('needs the same explicit choice as unreadable records before anything is written', () => {
     expect(() => planImport(file({ settings: { ...settings, statusPeriods: 'flare' } }), 'replace', emptySnapshot())).toThrow(/could not be read/);
   });

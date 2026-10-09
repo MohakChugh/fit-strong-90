@@ -198,3 +198,44 @@ describe('a write that changes nothing, with nothing stored (M-06)', () => {
     await clearing;
   });
 });
+
+describe('a clear waiting its turn when storage goes away (R5-03)', () => {
+  it('is refused without emptying the screen, though it was planned while storage was there', async () => {
+    const { DB_NAME, DB_VERSION } = await import('./db');
+    factory.control.hold();
+    const first = store.setSettings({ theme: 'dark' });
+    const clearing = store.clearAll();
+    // Another tab upgrades the app: this copy lets go of its storage.
+    const upgraded = new Promise<void>(resolve => {
+      const req = factory.open(DB_NAME, DB_VERSION + 1);
+      req.onsuccess = () => { (req.result as IDBDatabase).close(); resolve(); };
+    });
+    factory.control.release();
+    await first;
+    const cleared = await clearing;
+    await upgraded;
+    expect(cleared.ok).toBe(false);
+    expect(store.getState().status).toBe('unavailable');
+    // Nothing was deleted, and nothing on screen says otherwise.
+    expect(store.getState().profile).toBeDefined();
+    expect(store.getState().settings.onboardingComplete).toBe(true);
+  });
+});
+
+describe('an import while nothing can be saved (R5-03)', () => {
+  it('is refused, and shows nothing of the file', async () => {
+    const { TRANSFER_FORMAT } = await import('./transfer');
+    store.resetForTests();
+    await store.start({ factory: fakeIndexedDB({ openFails: 'error' }) });
+    await store.setSettings({ onboardingComplete: false });
+    const restored = await store.importRecord({
+      format: TRANSFER_FORMAT, version: 1, exportedAt: '2026-10-08T19:00:00.000+05:30', schemaVersion: 5,
+      settings: { onboardingComplete: true }, profile: createDefaultProfile({ weightKg: 70 }),
+      observations: [], sessions: [], checkIns: [], personalRecords: [], bodyMetrics: [], focusOverrides: {}, contentState: [],
+    }, 'replace');
+    expect(restored.ok).toBe(false);
+    if (!restored.ok) expect(restored.failure.message).toMatch(/not restored/);
+    expect(store.getState().settings.onboardingComplete).toBe(false);
+    expect(store.getState().profile).toBeUndefined();
+  });
+});

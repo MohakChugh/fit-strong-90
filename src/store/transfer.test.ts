@@ -343,6 +343,143 @@ describe('applyImport', () => {
     db.close();
   });
 
+  // The engine reads every red flag a day carries by its name, so a name this
+  // build does not know would stop the day being worked out at all (R5-01).
+  it('refuses a check-in holding an earlier flag it does not know, before writing anything', async () => {
+    const db = await seeded();
+    const before = await dump(db);
+    const flagged = (flagsEarlier: unknown) => ({ ...incoming, checkIns: [{ ...checkIn, date: '2026-10-09', flagsEarlier }] });
+    for (const bad of [['newWeakness', 'chestPain'], 'newWeakness', [7]]) {
+      expect(previewImport(flagged(bad))).toMatchObject({ ok: true, checkIns: 0, rejected: { checkIns: 1 } });
+      expect((await applyImport(db, flagged(bad), 'replace')).ok).toBe(false);
+      expect(await dump(db)).toEqual(before);
+    }
+    // Asked to, the readable rest comes in without that day.
+    const rest = await applyImport(db, flagged(['chestPain']), 'merge', { allowRejected: true });
+    expect(rest.ok && rest.value.skipped).toBe(1);
+    expect(await db.get('settings', 'checkIns')).toEqual(doc('checkIns', [checkIn]));
+    // Every flag this build names reads back.
+    expect(previewImport(flagged(['newWeakness', 'backFever', 'backSudden', 'footProblem', 'hotSwollenFoot'])))
+      .toMatchObject({ ok: true, checkIns: 1, rejected: { checkIns: 0 } });
+    db.close();
+  });
+
+  // Each of these is read on its day and every day after, by every gate,
+  // with nothing to catch a wrong shape; an answer this build does not know
+  // would settle a serious reading it names (R5-01).
+  it('refuses a check-in holding any other answer it cannot read, before writing anything', async () => {
+    const db = await seeded();
+    const before = await dump(db);
+    const at = '2026-10-09T10:00:00+05:30';
+    const answer = { kind: 'extremeGlucose', readings: ['g:2026-10-09T08:00:00+05:30:650mg/dL'], resolution: 'mistake', at };
+    const unreadable: [string, unknown][] = [
+      ['resolutions', answer], ['resolutions', [null]], ['resolutions', [{ ...answer, readings: undefined }]],
+      ['resolutions', [{ ...answer, readings: 'g' }]], ['resolutions', [{ ...answer, readings: [5] }]],
+      ['resolutions', [{ ...answer, resolution: 'gone' }]], ['resolutions', [{ ...answer, kind: 'mood' }]], ['resolutions', [{ ...answer, at: undefined }]],
+      ['news', undefined], ['newsEarlier', 5], ['newsEarlier', 'fainted'],
+      ['provoked', 'brisk-walking'], ['provoked', [5]],
+      ['logged', { glucose: 'high' }], ['logged', { bp: [null] }],
+      // Read as true or false, a word would say the opposite: recovered from a low, a day with no answers to carry.
+      ['lowRecovered', 'no'], ['readingsOnly', 'no'],
+      // Each of these would leave a decision less strict than the field missing would (R5-01).
+      // An emergency answer this build cannot name would count as "None of these".
+      ['emergency', ['seizure']], ['emergency', [null]],
+      // Any value at all says the newer question was asked, and silences an older record's weakness.
+      ['back', { pain: 2, newNeuro: true, newWeakness: 'yes' }], ['back', { pain: 2, newNeuro: true, newSensory: null }],
+      // A time that is not an instant is read as some other moment: an answer not today's (a reading's own time is below).
+      ['resolutions', [{ ...answer, at: 'not a time' }]], ['lowSymptomsAt', '5'],
+      // Never stored: the gates attach these to a day for themselves, and stored they would act as readings or skip its red flags.
+      ['logged', { glucose: [{ value: 110, unit: 'mg/dL', measuredAt: at }] }], ['readingsOnly', true],
+      // What the day's details show of the suggestion made at the time.
+      ['readiness', { ...readiness, reasons: undefined }], ['readiness', { ...readiness, reasons: [null] }],
+    ];
+    const day = (field: string, value: unknown) => ({ ...incoming, checkIns: [{ ...checkIn, date: '2026-10-09', [field]: value }] });
+    for (const [field, value] of unreadable) {
+      expect(previewImport(day(field, value)), `${field}: ${JSON.stringify(value)}`).toMatchObject({ ok: true, checkIns: 0, rejected: { checkIns: 1 } });
+      expect((await applyImport(db, day(field, value), 'replace')).ok).toBe(false);
+    }
+    expect(await dump(db)).toEqual(before);
+    // Asked to, the readable rest comes in without that day.
+    const rest = await applyImport(db, day('resolutions', [{ ...answer, readings: undefined }]), 'merge', { allowRejected: true });
+    expect(rest.ok && rest.value.skipped).toBe(1);
+    expect(await db.get('settings', 'checkIns')).toEqual(doc('checkIns', [checkIn]));
+    db.close();
+  });
+
+  // A reading this app cannot read is never left out quietly, since a
+  // dangerous one would go with it: the whole file is refused, saying which
+  // day holds what, so the person knows it is damaged.
+  it('refuses a whole file holding a reading it cannot read, and says which', async () => {
+    const db = await seeded();
+    const before = await dump(db);
+    const at = '2026-10-09T08:30:00+05:30';
+    const cases: [string, unknown, string][] = [
+      ['glucose', { value: 120, unit: 'mmol', measuredAt: at }, 'a glucose reading in a unit this app does not know ("mmol")'],
+      ['glucose', { value: '120', unit: 'mg/dL', measuredAt: at }, 'a glucose reading whose number cannot be read'],
+      ['glucose', { value: 120, unit: 'mg/dL', measuredAt: '2026-10-09T08:00' }, 'a glucose reading whose time cannot be read'],
+      ['glucoseDisplay', { display: 'Hi', measuredAt: at }, 'a glucose meter display other than HI or LO ("Hi")'],
+      ['glucoseDisplay', { display: 'LO', measuredAt: '5' }, 'a glucose meter display whose time cannot be read'],
+      ['glucoseEarlier', [{ value: 650, unit: 'MG/DL', measuredAt: at }], 'a glucose reading in a unit this app does not know ("MG/DL")'],
+      ['glucoseEarlier', [{ value: 650, unit: 'mg/dL', measuredAt: '2001' }], 'a glucose reading whose time cannot be read'],
+      ['glucoseEarlier', 'high', 'a glucose reading this app cannot read'],
+      // Read by its display wherever it has one, as the engine reads it.
+      ['glucoseEarlier', [{ value: 120, unit: 'mg/dL', display: 'XX', measuredAt: at }], 'a glucose meter display other than HI or LO ("XX")'],
+      ['ketones', { kind: 'saliva', value: 3.5, measuredAt: at }, 'a ketone reading of a kind this app does not know ("saliva")'],
+      ['ketones', { kind: 'blood', value: 'high', measuredAt: at }, 'a blood ketone reading whose number cannot be read'],
+      ['ketones', { kind: 'blood', value: 3.5, measuredAt: 5 }, 'a ketone reading whose time cannot be read'],
+      ['ketonesEarlier', [{ kind: 'urine', category: 'lots', measuredAt: at }], 'a urine ketone strip reading this app does not know ("lots")'],
+      ['ketonesEarlier', [{ kind: 'urine', value: 'x' }], 'a urine ketone strip reading whose number cannot be read'],
+      ['ketonesEarlier', [null], 'a ketone reading this app cannot read'],
+      ['ketonesEarlier', 'large', 'a ketone reading this app cannot read'],
+      ['bp', { sys: 185, dia: null }, 'a blood pressure reading whose numbers cannot be read'],
+      ['bpReadings', [{ sys: '190', dia: 125, at }], 'a blood pressure reading whose numbers cannot be read'],
+      ['bpReadings', [{ sys: 185, dia: 125, at: '5' }], 'a blood pressure reading whose time cannot be read'],
+      ['bpEarlier', [{ sys: 185, dia: 125, at: '2001' }], 'a blood pressure reading whose time cannot be read'],
+      ['bpPartial', [{ dia: 'high', at }], 'a blood pressure reading whose numbers cannot be read'],
+      ['bpPartial', [{ sys: 200, at: '5' }], 'a blood pressure reading whose time cannot be read'],
+      ['bpPartial', [null], 'a blood pressure reading this app cannot read'],
+      ['bpPartial', { sys: 200, at }, 'a blood pressure reading this app cannot read'],
+    ];
+    const day = (field: string, value: unknown) => ({ ...incoming, checkIns: [{ ...checkIn, date: '2026-10-09', [field]: value }] });
+    for (const [field, value, said] of cases) {
+      const reason = `That file's check-in for 2026-10-09 holds ${said}. It may be damaged.`;
+      expect(previewImport(day(field, value)), `${field}: ${JSON.stringify(value)}`).toEqual({ ok: false, reason });
+      // Not even to bring in the rest: leaving the day out would leave the reading out with it.
+      for (const mode of ['replace', 'merge'] as const) {
+        const applied = await applyImport(db, day(field, value), mode, { allowRejected: true });
+        expect(applied.ok ? 'imported' : applied.failure.message).toBe(reason);
+      }
+    }
+    // A session's own copy of its day's check-in is read the same way.
+    const kept = { ...incoming, sessions: [{ ...session, id: 'session-9', checkIn: { ...checkIn, ketones: { kind: 'urine', category: 'lots' } } }] };
+    expect(previewImport(kept)).toEqual({ ok: false, reason: 'That file\'s check-in for 2026-10-01 holds a urine ketone strip reading this app does not know ("lots"). It may be damaged.' });
+    expect(await dump(db)).toEqual(before);
+    db.close();
+  });
+
+  it('reads back a check-in holding every answer as the app writes it', () => {
+    const at = '2026-10-09T08:30:00+05:30';
+    const answer = { kind: 'extremeGlucose', readings: [`g:${at}:650mg/dL`], resolution: 'mistake', at };
+    const full = {
+      ...checkIn, date: '2026-10-09', urgentSymptoms: true, emergency: ['chest'], news: ['unwell'],
+      // A pain slider left untouched is not an answer, so back answers can come without a score (J03, J16).
+      back: { newNeuro: true, newWeakness: true, weaknessFast: false, newSensory: false, feverish: false, suddenSevere: false, worseFunction: false },
+      glucoseEarlier: [{ value: 650, unit: 'mg/dL', measuredAt: at }, { value: 5.4, unit: 'mmol/L', measuredAt: at }, { display: 'LO', measuredAt: at }],
+      glucose: { value: 120, unit: 'mg/dL', measuredAt: at }, glucoseDisplay: { display: 'HI', measuredAt: at },
+      ketones: { kind: 'blood', value: 0.4, measuredAt: at }, ketonesEarlier: [{ kind: 'urine', category: 'small', measuredAt: at }, { kind: 'urine', value: 15 }],
+      bpPartial: [{ sys: 200, at }, { dia: 125, at }], provoked: ['brisk-walking'], flagsEarlier: ['newWeakness'], newsEarlier: ['fainted'],
+      lowSymptomsAt: '2026-10-09T03:00:00.000Z', lowRecovered: true, bpReadings: [{ sys: 150, dia: 95, at: '2026-10-09T03:05:00.000Z' }],
+      resolutions: [answer, { ...answer, resolution: 'reopened', at: '2026-10-09T09:00:00+05:30' }, { kind: 'redFlag', readings: ['flag:newWeakness@2026-10-09'], resolution: 'assessed', at },
+        { kind: 'news', readings: ['news:fainted@2026-10-09'], resolution: 'mistake', at }],
+    };
+    expect(previewImport({ ...incoming, checkIns: [full] })).toMatchObject({ ok: true, checkIns: 1, rejected: { checkIns: 0 } });
+    // As a report during a session leaves it: what was said, and no score.
+    expect(previewImport({ ...incoming, checkIns: [{ ...checkIn, date: '2026-10-09', back: { spreadToday: true } }] })).toMatchObject({ checkIns: 1 });
+    // Every emergency answer this build names reads back.
+    const emergency = ['chest', 'stroke', 'collapse', 'breathless', 'bladderBowel', 'saddle', 'bothLegs', 'lowCantTreat', 'dka', 'accident', 'heatConfusion'];
+    expect(previewImport({ ...incoming, checkIns: [{ ...checkIn, date: '2026-10-09', urgentSymptoms: true, emergency }] })).toMatchObject({ checkIns: 1 });
+  });
+
   it('refuses a file it does not understand, before writing anything', async () => {
     const db = await seeded();
     const before = await dump(db);

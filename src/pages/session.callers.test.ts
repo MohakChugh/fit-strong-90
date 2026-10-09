@@ -955,7 +955,7 @@ describe('scan X2-05: a low at the glucose check or the restart check takes the 
 
 describe('scan X2-17: the player’s low screen has the walk’s line for someone who cannot swallow safely', () => {
   it('word for word, next to the 15 g treatment', async () => {
-    const walk = render(createElement(LowGuidance, {}));
+    const walk = render(createElement(LowGuidance, { unit: 'mg/dL' }));
     const line = /If you feel confused or cannot swallow safely.*?do not drive yourself\./.exec(walk.text())?.[0];
     walk.unmount();
     expect(line).toBeTruthy();
@@ -1422,5 +1422,107 @@ describe('scan X2-08 in the player: a low just before midnight is still this low
     await h().click(h().button(/Unit: mg\/dL/));
     expect(h().text()).toMatch(/Stay sitting down, and enter your next reading here/);
     expect(h().text()).toMatch(/Measure again in 7 minutes/);
+  });
+});
+
+describe('Codex final reconciliation: the glucose check before cardio cannot be skipped', () => {
+  it('Next on screen, earphone Next and the clock all stop at the check until a reading is in', async () => {
+    const p = createDefaultProfile(INSULIN);
+    const morning = ci({ glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } });
+    const plan = buildSessionPlan({ profile: p, date: DAY, startDate: START, sessions: [], checkIn: morning });
+    const check = plan.steps.findIndex(s => s.kind === 'checkpoint' && s.question === 'glucose');
+    expect(check).toBeGreaterThan(0);
+    // Paused just before it, with no reading flow open: nothing is held.
+    saveRun(plan, paused(plan, check - 1));
+    await seed(p, [morning]);
+    await mount('resume=1');
+    for (let i = 0; i < 4; i++) await h().click(h().button('Next', { exact: true }));
+    expect(run().index).toBe(check);
+    for (let i = 0; i < 3; i++) { media.nexttrack!(); await h().settle(); }
+    expect(run().index).toBe(check);
+    // Running long past the check's own 30 seconds: the clock waits on it too.
+    await h().click(h().button('Resume', { exact: true }));
+    clock(9, 20);
+    await tick();
+    await h().click(h().button('Next', { exact: true }));
+    media.nexttrack!();
+    await h().settle();
+    expect(run().status).toBe('running');
+    expect(run().index).toBe(check);
+    expect(run().logs.find(l => l.stepId === plan.steps[check].id)?.answer).toBeUndefined();
+    expect(h().text()).toMatch(/Answer to carry on/);
+  });
+});
+
+describe('Codex final reconciliation: a rest never suggests water to someone with a fluid limit (F13)', () => {
+  for (const [what, fluidRestriction, says, never] of [
+    ['a recorded fluid limit', true, 'Recover, breathe slowly, keep to your fluid plan', /sip water/],
+    ['an unsure answer about a fluid limit', 'unsure', 'Recover, breathe slowly, keep to your fluid plan', /sip water/],
+    ['no fluid limit', false, 'Recover, breathe slowly, sip water', /fluid plan|fluid limit/],
+    ['the question not answered yet', undefined, 'Recover, breathe slowly, sip water unless you have a fluid limit', null],
+  ] as const) {
+    it(`with ${what}`, async () => {
+      const p = createDefaultProfile({ health: { ...known, ...(fluidRestriction !== undefined ? { fluidRestriction } : {}) } });
+      const plan = buildSessionPlan({ profile: p, date: DAY, startDate: START, sessions: [], checkIn: ci(), focusOverride: 'upperB' });
+      const rest = plan.steps.findIndex(s => s.kind === 'rest');
+      expect(rest).toBeGreaterThan(0);
+      saveRun(plan, paused(plan, rest));
+      await seed(p, [ci()]);
+      await mount('resume=1');
+      expect(progress()!.plan.steps[run().index].kind).toBe('rest');
+      expect(h().text()).toContain(says);
+      if (never) expect(h().text()).not.toMatch(never);
+    });
+  }
+});
+
+const { segmentsFor } = await import('@/engine/timing');
+
+describe('R5 follow-up: a hot day’s spare cool-down never says drink to someone with a fluid limit (F13)', () => {
+  const hotDay = ci({ news: ['hot'] });
+  /** Paused on the cardio's last part: the cool-down a hot day's shorter cardio gives back. */
+  const atSpare = (plan: SessionPlan): RunnerState => {
+    const index = plan.steps.findIndex(s => s.kind === 'cardio');
+    const segs = segmentsFor(plan.steps[index]);
+    expect(segs.at(-1)?.label).toMatch(/^Easy cool-down, cool off/);
+    const before = segs.slice(0, -1).reduce((t, s) => t + s.seconds * 1000, 0);
+    return { ...paused(plan, index), pausedAt: 1_000 + before + 1_000 };
+  };
+  const planned = (p: UserProfile) => buildSessionPlan({ profile: p, date: DAY, startDate: START, sessions: [], checkIn: hotDay, focusOverride: 'upperB' });
+
+  for (const [what, fluidRestriction, says, never] of [
+    ['a recorded fluid limit', true, 'Easy cool-down, cool off and keep to your fluid plan', /drink/i],
+    ['an unsure answer about a fluid limit', 'unsure', 'Easy cool-down, cool off and keep to your fluid plan', /drink/i],
+    ['no fluid limit', false, 'Easy cool-down, cool off and drink', /fluid plan|fluid limit/],
+    ['the question not answered yet', undefined, 'Easy cool-down, cool off and drink unless you have a fluid limit', null],
+  ] as const) {
+    it(`with ${what}`, async () => {
+      const p = createDefaultProfile({ health: { ...known, ...(fluidRestriction !== undefined ? { fluidRestriction } : {}) } });
+      const plan = planned(p);
+      saveRun(plan, atSpare(plan));
+      await seed(p, [hotDay]);
+      await mount('resume=1');
+      expect(h().text()).toContain(says);
+      if (never) expect(h().text()).not.toMatch(never);
+    });
+  }
+
+  it('a plan saved before a fluid limit was recorded is said as the profile is now', async () => {
+    const plan = planned(createDefaultProfile({ health: { ...known, fluidRestriction: false } }));
+    saveRun(plan, atSpare(plan));
+    await seed(createDefaultProfile({ health: { ...known, fluidRestriction: true } }), [hotDay]);
+    await mount('resume=1');
+    expect(h().text()).toContain('Easy cool-down, cool off and keep to your fluid plan');
+    expect(h().text()).not.toMatch(/drink/i);
+  });
+});
+
+describe('R5 follow-up: after a walk ended for a low, the line not to set off again says the person’s unit (as X2-19)', () => {
+  it.each([['mg/dL', '70 mg/dL'], ['mmol/L', '3.9 mmol/L']] as const)('%s', (unit, level) => {
+    const walk = render(createElement(LowGuidance, { unit }));
+    const text = walk.text();
+    walk.unmount();
+    expect(text).toContain(`Do not set off again just because a reading is back above ${level}.`);
+    if (unit === 'mmol/L') expect(text).not.toMatch(/\b70\b|mg\/dL/);
   });
 });

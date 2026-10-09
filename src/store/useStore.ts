@@ -181,6 +181,13 @@ interface Mutation<T> {
   /** After the change is applied: may turn success into a reported partial failure. */
   after?: () => StoreResult<T> | undefined;
   /**
+   * Only worth doing if it is stored — clear-all, an import — so with nothing
+   * to store to it is refused with this, before anything changes, even on
+   * screen. Checked at its turn, not when planned: storage can go meanwhile,
+   * when another tab upgrades the app (R5-03).
+   */
+  needsStorage?: string;
+  /**
    * Not shown until it is stored. Clear-all: an empty record on screen, even
    * for a moment, sends the app to Welcome, and a clear that then fails would
    * leave the person somewhere they never asked to go (J18).
@@ -348,6 +355,7 @@ function unavailableFailure(): StoreFailure {
 
 async function commit<T>(m: Mutation<T>): Promise<StoreResult<T>> {
   const handle = db;
+  if (!handle && m.needsStorage) return { ok: false, failure: new StoreFailure('unavailable', m.needsStorage) };
   if (!handle) {
     // Nowhere to write. The change is kept for this session only — the app
     // still works, it just cannot remember — and the result says it was not
@@ -1091,16 +1099,12 @@ export function clearAll(): Promise<StoreResult> {
   return enqueue<void>({
     // Nothing is shown as cleared until it is (J18).
     hold: true,
-    plan: () => {
-      // With nothing it can store to, it can delete nothing there either: it
-      // refuses, so what it says and what it does agree (C2-08). Clearing the
-      // screen and the small flags alone would look like a deletion that
-      // never reached the record.
-      if (!db) {
-        throw new StoreFailure('unavailable', 'This app cannot reach this device’s storage right now, so it cannot delete what is kept there. Close the app, open it again, and try again.');
-      }
-      return { change: { reset: true, schemaVersion: SCHEMA_VERSION }, result: () => undefined };
-    },
+    // With nothing it can store to, it can delete nothing there either: it
+    // refuses, so what it says and what it does agree (C2-08). Clearing the
+    // screen and the small flags alone would look like a deletion that never
+    // reached the record.
+    needsStorage: 'This app cannot reach this device’s storage right now, so it cannot delete what is kept there. Close the app, open it again, and try again.',
+    plan: () => ({ change: { reset: true, schemaVersion: SCHEMA_VERSION }, result: () => undefined }),
     after: () => {
       try {
         resetData();
@@ -1205,14 +1209,17 @@ function describeUpdate(base: Snapshot, before: AppData, after: AppData, now: st
       if (!isDay(record?.date)) throw new StoreFailure('invalid', 'A check-in needs a YYYY-MM-DD date.');
     }
     change.checkIns = checkIns;
-    // A summary that changed or arrived lifts its readings; one removed keeps them.
+    // A summary that changed or arrived lifts its readings; one removed keeps
+    // them. A reading the person deleted stays deleted, even while a record
+    // still names it (R5-01).
+    const deleted = new Set(base.settings?.deleted?.readings ?? []);
     const dates = new Set(checkIns.map(c => c.date));
     for (const date of dates) {
       const was = (before.checkIns ?? []).filter(c => c.date === date);
       const is = checkIns.filter(c => c.date === date);
       if (sameValue(was, is)) continue;
       for (const record of is) {
-        const lifted = liftCheckIn(record, { existing: pool(), ...(was.length > 0 ? { previous: was[was.length - 1] } : {}), now, readings });
+        const lifted = liftCheckIn(record, { existing: pool(), ...(was.length > 0 ? { previous: was[was.length - 1] } : {}), now, readings, deleted });
         puts.push(...lifted.put);
       }
     }
@@ -1452,6 +1459,9 @@ export function previewRecord(raw: unknown): ImportPreview | ImportProblem {
 export function importRecord(raw: unknown, mode: ImportMode, options: ImportOptions = {}): Promise<StoreResult<ImportReport>> {
   return enqueue<ImportReport>({
     plain: true,
+    // Restored into a session that keeps nothing, it would show a record
+    // that is not there, beside a message saying nothing changed.
+    needsStorage: 'This app cannot reach this device’s storage right now, so the backup was not restored. Close the app, open it again, and try again.',
     // A file can finish Welcome; shown before it is stored, a refusal would
     // bounce the person out of the restore flow and back (D-09).
     hold: true,

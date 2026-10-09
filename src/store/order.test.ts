@@ -122,3 +122,21 @@ describe('a lifetime of readings, restored or merged (C2-04)', () => {
     expect(ms).toBeLessThan(1500);
   });
 });
+
+describe('a long check-in history, merged (R5-04)', () => {
+  const readiness = { outcome: 'green', modifiers: [], back: 'green', nerveFlag: false, reasons: [], actions: [], vigorousLocked: false, capHeavy: false, rpeOnly: true, notices: [] };
+  const day = (i: number) => new Date(Date.UTC(1900, 0, 1) + i * 86_400_000).toISOString().slice(0, 10);
+
+  it('folds 50,000 days into the record without copying it once per day', async () => {
+    const { previewImport } = await import('./transfer');
+    const checkIns = Array.from({ length: 50_000 }, (_, i) => ({ date: day(i), urgentSymptoms: false, news: [], sleep: '5to7', energy: 4, readiness }));
+    const raw = { format: TRANSFER_FORMAT, version: 1, exportedAt: `${DAY}T19:00:00.000+05:30`, schemaVersion: 5,
+      observations: [], sessions: [], checkIns, personalRecords: [], bodyMetrics: [], focusOverrides: {}, contentState: [] };
+    const here = { checkIns: [{ date: day(10), urgentSymptoms: false, news: [], sleep: 'gt7', energy: 2, readiness }] };
+    const start = performance.now();
+    const preview = previewImport(raw, here as never);
+    const ms = performance.now() - start;
+    expect(preview.ok && preview.conflicts?.checkIns).toBe(1);
+    expect(ms).toBeLessThan(1500);
+  });
+});

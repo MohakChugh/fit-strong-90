@@ -177,7 +177,12 @@ export interface UserSettings {
    * Written by the store whenever it deletes, cleared when an id is written
    * again, and carried in a backup with the rest of the settings.
    */
-  deleted?: { observations?: string[]; sessions?: string[] };
+  deleted?: {
+    observations?: string[];
+    sessions?: string[];
+    /** Check-in readings deleted, as what was measured (`readingKey`), so no record names one back into the series (R5-01). */
+    readings?: string[];
+  };
 }
 
 export interface StatusPeriod {

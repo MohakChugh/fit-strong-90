@@ -19,8 +19,7 @@
  */
 
 import type { AppData } from '@/types';
-import type { BpReading, CheckInRecord, DailyCheckIn, EmergencyFlag, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, Readiness } from '@/types/checkin';
-import { DISPOSITION_ORDER } from '@/types/checkin';
+import type { BpReading, CheckInRecord, DailyCheckIn, EmergencyFlag, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, SymptomReach } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { evaluateCheckIn } from '@/engine/readiness';
 import { checkInDayOf, type Observation } from '@/health/observation';
@@ -164,8 +163,6 @@ export function restorePendingCheckInsForTests(): void {
   for (const l of [...listeners]) l();
 }
 
-const rank = (r: Readiness | undefined) => DISPOSITION_ORDER.indexOf(r?.disposition ?? 'adjust');
-
 const evaluated = (profile: UserProfile, c: DailyCheckIn, recent: DailyCheckIn[]): CheckInRecord => {
   const { readiness: _old, ...plain } = c as CheckInRecord;
   void _old;
@@ -174,8 +171,9 @@ const evaluated = (profile: UserProfile, c: DailyCheckIn, recent: DailyCheckIn[]
 
 /**
  * What a gate must act on for one day: the stored record and the waiting one
- * together. Each way of combining them keeps every reading either holds; they
- * differ only in whose answers lead, and the stricter result wins.
+ * together (`strictest`). The answers the device has not kept can add to what
+ * it holds, and never take anything away, so a refused save cannot loosen a
+ * mode's refusal or restriction however the two would rank (R5-02).
  */
 export function effectiveRecord(
   stored: CheckInRecord | undefined,
@@ -185,9 +183,67 @@ export function effectiveRecord(
 ): CheckInRecord | undefined {
   if (!pending) return stored;
   if (!stored || stored.date !== pending.date) return evaluated(profile, pending, recent);
-  const theirs = evaluated(profile, carryForward(stored, pending), recent);
-  const ours = evaluated(profile, carryForward(pending, stored), recent);
-  return rank(ours.readiness) > rank(theirs.readiness) ? ours : theirs;
+  return evaluated(profile, strictest(stored, pending), recent);
+}
+
+const REACH_ORDER: SymptomReach[] = ['back', 'buttock', 'thigh', 'belowKnee', 'foot'];
+const SLEEP_ORDER: NonNullable<DailyCheckIn['sleep']>[] = ['lt5', '5to7', 'gt7'];
+const BACK_YES_NO = ['newNeuro', 'caudaEquinaFlag', 'newSensory', 'newWeakness', 'weaknessFast', 'feverish', 'suddenSevere', 'worseFunction', 'spreadToday'] as const;
+
+/** Of two answers to a yes-or-no question, the one that says more: yes if either says yes. */
+const either = (a?: boolean, b?: boolean) => (a === true || b === true ? true : a === false || b === false ? false : undefined);
+
+/** Two days' back answers as one: every symptom either reports, the higher pain, the furthest reach. */
+function strictBack(a: DailyCheckIn['back'], b: DailyCheckIn['back']): DailyCheckIn['back'] {
+  if (!a || !b) return a ?? b;
+  const out: NonNullable<DailyCheckIn['back']> = {};
+  for (const k of BACK_YES_NO) {
+    const v = either(a[k], b[k]);
+    if (v !== undefined) out[k] = v;
+  }
+  for (const k of ['pain', 'legPain'] as const) {
+    const said = [a[k], b[k]].filter((n): n is number => n !== undefined);
+    if (said.length) out[k] = Math.max(...said);
+  }
+  const reach = [a.reach, b.reach].filter((r): r is SymptomReach => !!r).sort((x, y) => REACH_ORDER.indexOf(y) - REACH_ORDER.indexOf(x))[0];
+  if (reach) out.reach = reach;
+  return out;
+}
+
+/**
+ * The stored record and one waiting to be stored, as one (R5-02). What the
+ * device has not kept adds to what it holds and never takes away: every
+ * reading either holds (`carryForward`), every emergency, news item, back
+ * symptom, provoking movement and flag either reports, the higher pain and
+ * the shorter sleep or lower energy. An answer that releases something counts
+ * once it is stored; one that reopens something counts at once.
+ */
+function strictest(stored: DailyCheckIn, pending: DailyCheckIn): DailyCheckIn {
+  const merged = carryForward(stored, pending);
+  const { emergency: _e, back: _b, sleep: _s, energy: _n, lowRecovered: _l, bpSymptoms: _p, resolutions: _r, ...rest } = merged;
+  void _e; void _b; void _s; void _n; void _l; void _p; void _r;
+  const emergency = stored.emergency || pending.emergency ? [...new Set([...(stored.emergency ?? []), ...(pending.emergency ?? [])])] : undefined;
+  const back = strictBack(stored.back, pending.back);
+  const sleep = [stored.sleep, pending.sleep].filter((x): x is NonNullable<DailyCheckIn['sleep']> => !!x).sort((x, y) => SLEEP_ORDER.indexOf(x) - SLEEP_ORDER.indexOf(y))[0];
+  const energies = [stored.energy, pending.energy].filter((x): x is NonNullable<DailyCheckIn['energy']> => x !== undefined);
+  const energy = energies.length ? (Math.min(...energies) as NonNullable<DailyCheckIn['energy']>) : undefined;
+  const lowRecovered = stored.lowRecovered === true && pending.lowRecovered === true ? true
+    : stored.lowRecovered === false || pending.lowRecovered === false ? false : undefined;
+  const bpSymptoms = either(stored.bpSymptoms, pending.bpSymptoms);
+  const kept = stored.resolutions ?? [];
+  const resolutions = [...kept, ...(pending.resolutions ?? []).filter(a => a.resolution === 'reopened' && !kept.some(k => JSON.stringify(k) === JSON.stringify(a)))];
+  return {
+    ...rest,
+    urgentSymptoms: stored.urgentSymptoms || pending.urgentSymptoms,
+    news: [...new Set([...stored.news, ...pending.news])],
+    ...(emergency ? { emergency } : {}),
+    ...(back ? { back } : {}),
+    ...(sleep ? { sleep } : {}),
+    ...(energy !== undefined ? { energy } : {}),
+    ...(lowRecovered !== undefined ? { lowRecovered } : {}),
+    ...(bpSymptoms !== undefined ? { bpSymptoms } : {}),
+    ...(resolutions.length ? { resolutions } : {}),
+  };
 }
 
 const previousDate = (date: string) => {

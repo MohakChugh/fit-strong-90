@@ -331,3 +331,27 @@ The final targeted acceptance run on the 20:28 tree was 256/256: J06, J09, J13 a
 Unit gates on the final tree: `tsc -b` clean, lint clean, 4,688/4,688 tests in 147 files. Both voice packs cover all 1,343 lines.
 
 Still device-only, as D34 says: iOS keyboard geometry, notch insets, status-bar tint, Home Screen icon rendering, Wake Lock, audio interruption, storage eviction, share and calendar hand-off, GPS and motion step counting, VoiceOver output, and Safari's swipe-back. The only sweep finding left is 20 px native checkboxes inside 44 px label rows.
+
+### 2026-10-08 — [claude] Codex's final reconciliation (R5): every finding real, all fixed
+
+Codex's two static reports (`codex-final-reconcile-safety.md`, `codex-final-reconcile-data.md`) were checked against the real code by three agents. Every finding reproduced with a failing test first, and each is now fixed:
+- **Safety:** R5-01 to R5-08, X2-19, J2-03 and J2-14, with 27 engine tests in `src/engine/r5.test.ts` and 4 caller tests. 25 of 25 mutations are caught.
+- **Data:** R5-01 to R5-04, with 292 store tests.
+- **Player:**
+  - an unanswered pre-cardio glucose check can't be passed by Next, the earphone's Next or the clock (a guard test added; it was already safe);
+  - the rest line, and the two spoken water cues, follow the fluid-limit answer. 4 new clips were recorded in each pack, for 1,347 lines.
+
+Two decisions taken on the fixer's proposals:
+- **Back red-flag releases.** New foot drop or leg weakness, back pain with fever, and sudden severe back pain are released only by "A clinician has checked it" or "I ticked it by mistake", never by "It has gone". Their own message says "No exercise until you have been checked", and a red flag that settles doesn't rule out its cause. This supersedes the X2-02 allowance.
+- **A refused save never loosens a decision.** The record waiting to be saved merges with the stored one strictly: it can only add readings, emergencies, flags and symptoms, never remove them. A release counts once it's stored.
+
+Gates on the combined tree: `tsc -b` and lint are clean, and the unit suite is 4,740/4,740 in 148 files. Codex's static re-check and the full acceptance run are next.
+
+### 2026-10-09 — [claude] Review follow-ups (Claude review of R5): fixed
+- **Back-dated glucose:** earlier readings now count in the order they were taken, so a 58 typed after a 60 but timed before it is the first low, and a re-check still under 70 ends exercise for the day.
+- **Corrected severe blood pressure:** 190/10 changed to 120/80 still means no exercise today, and is asked about by name until "I typed it wrongly". A reading like that never confirms a second one.
+- **Unknown red-flag names:** the engine ignores a name it doesn't know, or a list that isn't one, instead of crashing.
+- **Hot-day cool-down:** "cool off and drink" follows the fluid-limit answer, as the rest line does, even on a plan saved before the answer changed.
+- **Units:** the spoken pre-cardio check says "under 7 mmol/L" (or 9) to mmol/L users, with 2 new clips in each pack for 1,349 lines, and the walk's low guidance says 70 mg/dL or 3.9 mmol/L.
+- **Same-day serious news:** fainting, a high that won't come down, vomiting with diabetes, and a low that needed help hold for the rest of the day after a later "None of these". Only "I ticked it by mistake" releases one.
+- **Ticked again after a release:** a red flag, foot problem or one of those news items ticked again the same day reopens, so unticking it later brings the question back instead of the old release.

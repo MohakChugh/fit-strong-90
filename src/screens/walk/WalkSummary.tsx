@@ -107,7 +107,7 @@ export function WalkSummary() {
   return (
     <Screen title="Your walk">
       {walk.endedBy === 'emergency' && <EmergencyGuidance />}
-      {walk.endedBy === 'low' && <LowGuidance advice={(s => (s ? lowAdvice(s, t => timeOfDay(t)) : undefined))(lowStage(checkIn, walk, now))} />}
+      {walk.endedBy === 'low' && <LowGuidance unit={profile.health.glucoseUnit ?? 'mg/dL'} advice={(s => (s ? lowAdvice(s, t => timeOfDay(t)) : undefined))(lowStage(checkIn, walk, now))} />}
 
       <section className="flex flex-col gap-3 rounded-xl bg-grouped-card p-4">
         <p className="text-[length:var(--text-subhead)] text-muted-foreground">

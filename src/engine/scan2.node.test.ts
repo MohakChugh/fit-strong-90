@@ -54,15 +54,18 @@ describe('X2-02: a new foot drop, or sudden or feverish back pain, stands until 
       expect(asked.map(x => x.label).join(' | ')).toMatch(/7 Oct/);
     });
 
-    it(`${what}: "A clinician has checked it" or "It has gone" settles it, and nothing else does`, () => {
+    // Its own release, as its message says: a clinician, or a tick made by mistake; "It has gone" is not one (R5-01).
+    it(`${what}: "A clinician has checked it" or "I ticked it by mistake" settles it, and nothing else does`, () => {
       const yesterday = ci(Y, { back: { ...quietBack, ...flags } });
       const today = ci(D, { back: quietBack });
       const flag = ids(BACK, today, [yesterday]).find(x => label.test(x.label))!;
-      for (const resolution of ['assessed', 'resolved'] as const) {
+      for (const resolution of ['assessed', 'mistake'] as const) {
         const answered = { ...today, resolutions: [answer(flag.kind, flag.id, resolution)] };
         expect(ask(BACK, answered, [yesterday], 'walk').allowed, resolution).toBe(true);
       }
-      expect(ask(BACK, { ...today, resolutions: [answer(flag.kind, flag.id, 'reopened')] }, [yesterday], 'walk').allowed).toBe(false);
+      for (const resolution of ['resolved', 'reopened'] as const) {
+        expect(ask(BACK, { ...today, resolutions: [answer(flag.kind, flag.id, resolution)] }, [yesterday], 'walk').allowed, resolution).toBe(false);
+      }
     });
   }
 });
@@ -80,9 +83,11 @@ describe('X2-03: a new foot sore or a hot, swollen foot keeps walking off until 
       expect(loaded.map(s => (s as { exerciseId: string }).exerciseId)).toEqual([]);
       const sore = ids(foot, today, [yesterday]).find(x => x.kind === 'foot')!;
       expect(sore.label).toMatch(/7 Oct/);
-      for (const resolution of ['resolved', 'assessed'] as const) {
+      // A sore may heal; a hot, swollen foot needs a clinician to clear it (R5-01).
+      for (const resolution of item === 'footProblem' ? ['resolved', 'assessed'] as const : ['assessed'] as const) {
         expect(ask(foot, { ...today, resolutions: [answer('foot', sore.id, resolution)] }, [yesterday], 'walk').allowed, resolution).toBe(true);
       }
+      if (item === 'hotSwollenFoot') expect(ask(foot, { ...today, resolutions: [answer('foot', sore.id, 'resolved')] }, [yesterday], 'walk').allowed).toBe(false);
     });
   }
 });

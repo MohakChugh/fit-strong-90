@@ -155,8 +155,19 @@ describe('check-in form', () => {
   });
 
   it('refuses a half-entered blood pressure reading rather than silently dropping it', () => {
-    const form = { ...emptyForm(plain), emergency: [], bp: { s1: '190', d1: '', s2: '', d2: '' } };
+    const form = { ...emptyForm(plain), emergency: [], bp: { s1: '130', d1: '', s2: '', d2: '' } };
     expect(submitBlocked(form, { profile: plain, now: NOW })).toMatch(/both/i);
+  });
+
+  it('keeps a severe number beside a box that is not a number at all, as it keeps one beside an empty box (R5-06)', () => {
+    const form = { ...emptyForm(plain), emergency: [], bp: { s1: '190', d1: 'x', s2: '', d2: '' } };
+    expect(buildCheckIn(form, { profile: plain, date: '2026-10-08', now: NOW }).bpPartial).toEqual([expect.objectContaining({ sys: 190 })]);
+  });
+
+  it('lets a severe number through, alone or beside one that cannot be used, as evidence for the gate (R5-06)', () => {
+    for (const bp of [{ s1: '190', d1: '', s2: '', d2: '' }, { s1: '190', d1: '10', s2: '', d2: '' }, { s1: '190', d1: 'x', s2: '', d2: '' }]) {
+      expect(submitBlocked({ ...emptyForm(plain), emergency: [], bp }, { profile: plain, now: NOW }), JSON.stringify(bp)).toBeNull();
+    }
   });
 
   it('refuses a reading time that is still to come', () => {

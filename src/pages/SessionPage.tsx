@@ -18,7 +18,8 @@ import { toWorkoutSession, withGuidedSession, activeSeconds, bankProgress, progr
 import { getCoaching } from '@/data/coaching';
 import { nameOf } from '@/data/catalog';
 import { deriveHealth } from '@/engine/health';
-import { CANNOT_SWALLOW, glucoseSanity, TREAT } from '@/engine/readiness';
+import { CANNOT_SWALLOW, fluidLimit, glucoseSanity, TREAT } from '@/engine/readiness';
+import { HOT_COOL_DOWN } from '@/engine/cardio';
 import { PERMISSION_TEXT, type Mode, type Permission, type PermissionInput } from '@/engine/permission';
 import { arrivalGate, liveGate, reconcilePlan, restartCapture, startGate } from '@/session/gate';
 import type { CheckInRecord, DailyCheckIn, GlucoseEntry, Readiness, SymptomReach } from '@/types/checkin';
@@ -397,6 +398,8 @@ function Player({ plan, refused, resumeState, sessionId, profile, sessions, useM
   const segTotal = segmentsWithExtra(step, state)[pos.segmentIndex]?.ms ?? 0;
   const color = BLOCK_INK[step.block];
   const health = deriveHealth(profile.health);
+  const fluids = fluidLimit(profile.health);
+  const segLabel = step.kind === 'cardio' ? cardioLabel(seg.label, fluids) : seg.label;
 
   /** The movements passed over, from the runner's own log rather than a second tally: a back check is not one. */
   const leftOut = useMemo(() => {
@@ -657,7 +660,7 @@ function Player({ plan, refused, resumeState, sessionId, profile, sessions, useM
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <h1 className="text-xl font-bold leading-tight">{titleFor(step)}</h1>
-              <p className="text-sm text-muted-foreground">{subtitleFor(step, seg.label)}</p>
+              <p className="text-sm text-muted-foreground">{subtitleFor(step, segLabel, fluids)}</p>
             </div>
             {seg.side && (
               <span className="shrink-0 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide text-[var(--on-ink)]" style={{ background: color }}>
@@ -668,7 +671,7 @@ function Player({ plan, refused, resumeState, sessionId, profile, sessions, useM
 
           <div className="flex items-center gap-4">
             <TimerRing remainingMs={pos.segmentRemainingMs} totalMs={segTotal} color={color} size={104}
-              label={step.kind === 'set' && seg.rep ? `Rep ${seg.rep} of ${step.reps}` : seg.kind === 'rest' ? 'Rest' : seg.label} />
+              label={step.kind === 'set' && seg.rep ? `Rep ${seg.rep} of ${step.reps}` : seg.kind === 'rest' ? 'Rest' : segLabel} />
             <div className="flex min-w-0 flex-1 flex-col gap-2">
               {(seg.kind === 'hold' || seg.breath) && <BreathPacer segment={seg} segmentElapsedMs={pos.segmentElapsedMs} reduced={reduced} />}
               {step.kind === 'set' && seg.kind === 'rep' && (
@@ -783,13 +786,31 @@ function titleFor(step: Step): string {
   return step.title;
 }
 
-function subtitleFor(step: Step, segLabel: string): string {
+/**
+ * A rest's own line, with only the drinking advice this profile may be given
+ * (contract H-DIZZY; Codex re-audit F13): never "sip water" with a fluid limit,
+ * and only conditionally when the question has not been answered.
+ */
+const REST_LINE: Record<ReturnType<typeof fluidLimit>, string> = {
+  limited: 'Recover, breathe slowly, keep to your fluid plan',
+  free: 'Recover, breathe slowly, sip water',
+  unknown: 'Recover, breathe slowly, sip water unless you have a fluid limit',
+};
+
+/**
+ * A cardio part's own label. A hot day's spare cool-down is said for the
+ * profile as it is now, as the rest line is, whichever profile a saved plan
+ * was built for.
+ */
+const cardioLabel = (label: string, fluids: ReturnType<typeof fluidLimit>) => (Object.values(HOT_COOL_DOWN).includes(label) ? HOT_COOL_DOWN[fluids] : label);
+
+function subtitleFor(step: Step, segLabel: string, fluids: ReturnType<typeof fluidLimit>): string {
   switch (step.kind) {
     case 'set': return step.ramp ? `Warm-up set ${step.set} · ${step.reps} easy reps` : `Set ${step.set} of ${step.of} · ${step.holdSeconds ? `${step.holdSeconds} s hold` : step.carrySeconds ? `${step.carrySeconds} s walk` : `${step.reps} reps`}${step.sides ? ' each side' : ''}`;
     case 'hold': return `${step.sets > 1 ? `${step.sets} × ` : ''}${step.holdSeconds} s${step.sides ? ' each side' : ''}`;
     case 'drill': return step.breathing ? `${step.reps} slow breaths` : `${step.reps} reps${step.sides ? ' each side' : ''}`;
     case 'setup': return 'Set up the station while I explain';
-    case 'rest': return step.nextStepId ? '' : 'Recover, breathe slowly, sip water';
+    case 'rest': return step.nextStepId ? '' : REST_LINE[fluids];
     case 'cardio': return segLabel;
     default: return segLabel;
   }

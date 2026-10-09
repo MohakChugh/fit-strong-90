@@ -17,7 +17,7 @@
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import type { AppData, BodyMetric, PersonalRecord, UserSettings, WorkoutSession } from '@/types';
-import type { CheckInRecord } from '@/types/checkin';
+import type { CheckInRecord, DailyCheckIn, EmergencyFlag, EpisodeAnswer, EpisodeKind, GlucoseUnit, RedFlag, UrineKetoneCategory } from '@/types/checkin';
 import type { DayFocus } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import {
@@ -25,6 +25,7 @@ import {
   bpReadingId,
   checkInDayOf,
   compareObservations,
+  isAt,
   isDay,
   isObservation,
   nowAt,
@@ -33,8 +34,10 @@ import {
 } from '@/health/observation';
 import { StoreFailure, toFailure, type Db, type StoreResult } from './db';
 import { SCHEMA_VERSION, projectV4 } from './migrate';
+import { withReadingRemoved, type CheckInReading } from '@/components/checkin/pending';
+import { evaluateCheckIn } from '@/engine/readiness';
 import { readProfile, readSettings } from './importCheck';
-import { liftBodyMetric, liftSessionPain } from './project';
+import { liftBodyMetric, liftSessionPain, readingKey } from './project';
 import { commitChange, readSnapshot, type Change, type Snapshot } from './snapshot';
 
 export const TRANSFER_FORMAT = 'fit-strong-health-record';
@@ -238,26 +241,134 @@ export function isSessionRecord(x: unknown): x is WorkoutSession {
     && optional(x.symptomChecks, isRecord) && optional(x.durationSeconds, isNumber);
 }
 
-const isPressure = (x: unknown) => isRecord(x) && isNumber(x.sys) && isNumber(x.dia) && optional(x.at, isText);
-const isGlucoseEntry = (x: unknown) => isRecord(x) && (isNumber(x.value) ? isText(x.unit) : x.display === 'HI' || x.display === 'LO');
+const listOf = (ok: (x: unknown) => boolean) => (x: unknown) => Array.isArray(x) && x.every(ok);
+/** One of the names a type allows, held as a table so the compiler keeps it to the type. */
+const named = (names: Readonly<Record<string, true>>) => (x: unknown) => isText(x) && Object.hasOwn(names, x);
+const isBool = (x: unknown) => typeof x === 'boolean';
+
+/*
+ * Readings: what makes one unreadable, in words for the person, or nothing.
+ * The engine passes over a reading it cannot read, so a dangerous one would
+ * be lost without a word; a file holding one is refused whole instead,
+ * naming it (`unreadableReading`).
+ *
+ * Every time in a check-in is an instant with its offset, as every build
+ * writes it. Any other text is still read as a moment, some other one: "5" is
+ * a day in 2001, so a serious reading is years old, a stale one looks fresh,
+ * and an answer given today is not today's.
+ */
+type Problem = string | undefined;
+const GLUCOSE_UNITS: Record<GlucoseUnit, true> = { 'mg/dL': true, 'mmol/L': true };
+const URINE: Record<UrineKetoneCategory, true> = { negative: true, trace: true, small: true, moderate: true, large: true };
+/** What the file says, briefly, so the person can find it. */
+const quoted = (x: unknown) => (isText(x) ? ` ("${x.slice(0, 20)}")` : '');
+const timeProblem = (at: unknown, what: string): Problem => (optional(at, isAt) ? undefined : `${what} whose time cannot be read`);
+
+/** As the engine reads one: a meter's HI or LO where there is a `display`, a number in its unit otherwise. */
+function glucoseProblem(x: unknown, as: 'number' | 'display' | 'either'): Problem {
+  if (!isRecord(x)) return 'a glucose reading this app cannot read';
+  if (as === 'display' || (as === 'either' && 'display' in x)) {
+    if (x.display !== 'HI' && x.display !== 'LO') return `a glucose meter display other than HI or LO${quoted(x.display)}`;
+    return timeProblem(x.measuredAt, 'a glucose meter display');
+  }
+  if (!isNumber(x.value)) return 'a glucose reading whose number cannot be read';
+  if (!named(GLUCOSE_UNITS)(x.unit)) return `a glucose reading in a unit this app does not know${quoted(x.unit)}`;
+  return timeProblem(x.measuredAt, 'a glucose reading');
+}
+
+function ketoneProblem(x: unknown): Problem {
+  if (!isRecord(x)) return 'a ketone reading this app cannot read';
+  if (x.kind === 'blood') {
+    if (!isNumber(x.value)) return 'a blood ketone reading whose number cannot be read';
+  } else if (x.kind === 'urine') {
+    // A strip is its colour; before v5 it was stored as the number the old sheet gave that colour.
+    if (!optional(x.category, named(URINE))) return `a urine ketone strip reading this app does not know${quoted(x.category)}`;
+    if (!optional(x.value, isNumber)) return 'a urine ketone strip reading whose number cannot be read';
+  } else {
+    return `a ketone reading of a kind this app does not know${quoted(x.kind)}`;
+  }
+  return timeProblem(x.measuredAt, 'a ketone reading');
+}
+
+/** A partial reading is one severe number with the other box left empty (B07). */
+function pressureProblem(x: unknown, partial = false): Problem {
+  if (!isRecord(x)) return 'a blood pressure reading this app cannot read';
+  const number = partial ? (n: unknown) => optional(n, isNumber) : isNumber;
+  if (!number(x.sys) || !number(x.dia)) return 'a blood pressure reading whose numbers cannot be read';
+  return timeProblem(x.at, 'a blood pressure reading');
+}
+
+/** Every reading a check-in holds: the field, what is wrong with one, and whether the field is a list of them. */
+const READINGS: [string, (x: unknown) => Problem, boolean][] = [
+  ['glucose', x => glucoseProblem(x, 'number'), false],
+  ['glucoseDisplay', x => glucoseProblem(x, 'display'), false],
+  ['glucoseEarlier', x => glucoseProblem(x, 'either'), true],
+  ['ketones', ketoneProblem, false],
+  ['ketonesEarlier', ketoneProblem, true],
+  ['bp', x => pressureProblem(x), false],
+  ['bpReadings', x => pressureProblem(x), true],
+  ['bpEarlier', x => pressureProblem(x), true],
+  ['bpPartial', x => pressureProblem(x, true), true],
+];
+
+/** The first reading in a check-in this app cannot read, in words; nothing when every one can be read. */
+function unreadableReading(c: Record<string, unknown>): Problem {
+  for (const [field, problem, list] of READINGS) {
+    const value = c[field];
+    if (value === undefined) continue;
+    // A list that is not one holds nothing that can be read.
+    for (const reading of list ? (Array.isArray(value) ? value : [null]) : [value]) {
+      const found = problem(reading);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+/** Every red flag this build names: the engine reads each one a day carries by its name (R5-01). */
+const RED_FLAGS: Record<RedFlag, true> = { newWeakness: true, backFever: true, backSudden: true, footProblem: true, hotSwollenFoot: true };
+const isRedFlag = named(RED_FLAGS);
+/** An emergency answer this build cannot name would count as "None of these". */
+const EMERGENCY: Record<EmergencyFlag, true> = {
+  chest: true, stroke: true, collapse: true, breathless: true, bladderBowel: true, saddle: true, bothLegs: true,
+  lowCantTreat: true, dka: true, accident: true, heatConfusion: true,
+};
+const EPISODE_KINDS: Record<EpisodeKind, true> = { extremeGlucose: true, severeBp: true, ketones: true, severeLow: true, redFlag: true, foot: true, news: true };
+const RESOLUTIONS: Record<EpisodeAnswer['resolution'], true> = { mistake: true, assessed: true, resolved: true, reopened: true };
+/**
+ * An answer about serious readings, as its type says. Without the names of
+ * the readings it settles, every gate stops on it; with an answer this build
+ * does not know, it would settle a reading nobody answered for.
+ */
+const isAnswer = (x: unknown) => isRecord(x) && named(EPISODE_KINDS)(x.kind) && listOf(isText)(x.readings)
+  && named(RESOLUTIONS)(x.resolution) && isAt(x.at);
 
 export function isCheckInRecord(x: unknown): x is CheckInRecord {
   if (!isRecord(x) || !isDay(x.date)) return false;
   const r = x.readiness;
   if (!isRecord(r) || !isText(r.outcome)) return false;
-  for (const list of [r.modifiers, r.reasons, r.actions, r.notices]) if (!optional(list, Array.isArray)) return false;
+  for (const list of [r.modifiers, r.actions, r.notices]) if (!optional(list, Array.isArray)) return false;
+  // The day's details list the suggestion made at the time, reason by reason.
+  if (!listOf(isRecord)(r.reasons)) return false;
   const back = x.back;
-  return optional(x.urgentSymptoms, v => typeof v === 'boolean')
-    && optional(x.news, Array.isArray) && optional(x.emergency, Array.isArray)
-    && optional(x.sleep, isText) && optional(x.energy, isNumber)
-    && optional(back, b => isRecord(b) && isNumber(b.pain) && optional(b.legPain, isNumber))
-    && optional(x.glucose, g => isRecord(g) && isNumber(g.value) && isText(g.unit))
-    && optional(x.glucoseDisplay, g => isRecord(g) && (g.display === 'HI' || g.display === 'LO'))
-    && optional(x.glucoseEarlier, list => Array.isArray(list) && list.every(isGlucoseEntry))
-    && optional(x.bp, isPressure)
-    && optional(x.bpReadings, list => Array.isArray(list) && list.every(isPressure))
-    && optional(x.bpEarlier, list => Array.isArray(list) && list.every(isPressure))
-    && optional(x.ketones, isRecord);
+  // Every build writes `news`, and every rule reads it.
+  return Array.isArray(x.news) && optional(x.newsEarlier, listOf(isText))
+    && optional(x.urgentSymptoms, isBool) && optional(x.emergency, listOf(named(EMERGENCY)))
+    // Read as true or false, where a word would say the opposite: recovered from a low.
+    && optional(x.lowRecovered, isBool)
+    // Never stored: the gates attach them to a day for themselves. Stored, they
+    // would act as readings nobody took, or skip the day's red flags.
+    && x.logged === undefined && x.readingsOnly === undefined
+    && optional(x.sleep, isText) && optional(x.energy, isNumber) && optional(x.lowSymptomsAt, isAt)
+    // A pain slider left untouched is not an answer, so back answers can come
+    // without a score (J03, J16). Any value at all for the newer weakness and
+    // numbness answers says they were asked, which sets an older record's
+    // weakness aside.
+    && optional(back, b => isRecord(b) && optional(b.pain, isNumber) && optional(b.legPain, isNumber)
+      && optional(b.newWeakness, isBool) && optional(b.newSensory, isBool))
+    && unreadableReading(x) === undefined
+    && optional(x.resolutions, listOf(isAnswer))
+    && optional(x.provoked, listOf(isText))
+    && optional(x.flagsEarlier, listOf(isRedFlag));
 }
 
 export function isPersonalRecord(x: unknown): x is PersonalRecord {
@@ -380,6 +491,16 @@ function parse(raw: unknown): ParseResult {
   for (const [name, n] of Object.entries(counts) as [keyof CollectionCounts, number][]) {
     if (n > IMPORT_LIMITS[name]) return { ok: false, reason: `That file holds more ${name} than a lifetime record could (${n}). It is not a record from this app.` };
   }
+  // A reading this app cannot read is never left out with its day, even when
+  // asked to import the rest: a dangerous one would be lost without a word.
+  // The file is refused, saying which day holds what. A session keeps its own
+  // copy of its day's check-in, read the same way.
+  const embedded = lists.sessions!.map(s => (isRecord(s) ? s.checkIn : undefined));
+  for (const c of [...lists.checkIns!, ...embedded]) {
+    if (!isRecord(c)) continue;
+    const problem = unreadableReading(c);
+    if (problem) return { ok: false, reason: `That file's check-in${isDay(c.date) ? ` for ${c.date}` : ''} holds ${problem}. It may be damaged.` };
+  }
 
   const rejected = zero();
   const keep = <T>(list: unknown[], ok: (x: unknown) => x is T, slot: keyof CollectionCounts): T[] => {
@@ -479,6 +600,37 @@ const statedAt = (o: Observation) => Date.parse(o.editedAt ?? o.at);
 /** Records derived from a session or a body measurement; re-derived on merge rather than taken. */
 const isProjection = (o: Observation) => o.id.startsWith('bodyMetric:') || /^session:.*:backPain$/.test(o.id);
 
+/**
+ * Check-in readings as the day's record names them, from their lifted
+ * records: one blood pressure per pair of halves.
+ */
+function checkInReadingsOf(list: readonly Observation[]): CheckInReading[] {
+  const out: CheckInReading[] = [];
+  const pairs = new Map<string, Observation[]>();
+  for (const o of list) {
+    const at = o.timeUnknown ? {} : { at: o.at };
+    if (o.kind === 'glucose' && o.unit !== undefined) out.push({ kind: 'glucose', ...at, value: o.value, unit: o.unit });
+    else if (o.kind === 'backPain' || o.kind === 'legPain') out.push({ kind: o.kind, value: o.value });
+    else if (o.kind === 'bloodPressureSystolic' || o.kind === 'bloodPressureDiastolic') {
+      const key = bpReadingId(o.context) ?? o.id;
+      pairs.set(key, [...(pairs.get(key) ?? []), o]);
+    }
+  }
+  for (const halves of pairs.values()) {
+    const sys = halves.find(h => h.kind === 'bloodPressureSystolic');
+    const dia = halves.find(h => h.kind === 'bloodPressureDiastolic');
+    if (sys && dia) out.push({ kind: 'pressure', ...(sys.timeUnknown ? {} : { at: sys.at }), sys: sys.value, dia: dia.value });
+  }
+  return out;
+}
+
+/** A check-in's answers, without the readiness worked out from them. */
+function answersOf(c: CheckInRecord): DailyCheckIn {
+  const { readiness: _derived, ...answers } = c;
+  void _derived;
+  return answers;
+}
+
 /** A short name for a text, the same on every device. */
 function digest(text: string): string {
   let a = 0x811c9dc5;
@@ -492,14 +644,31 @@ function digest(text: string): string {
 }
 
 /**
- * Two records under one check-in reading id that are different measurements,
- * not one of them corrected (D-02): taken at different times, or differing
- * with neither ever corrected — which only a second device could do.
+ * Two records under one old-style check-in reading id that are different
+ * measurements, not one of them corrected (D-02). Never corrected on either
+ * device, any difference means two readings. A correction changes the
+ * number or the time (R5-02), so two that differ in both were two readings,
+ * one of them corrected later.
  */
 function otherReading(here: Observation, o: Observation): boolean {
   if (sameValue(stripSeq(here), stripSeq(o))) return false;
-  return Date.parse(here.at) !== Date.parse(o.at) || (here.editedAt === undefined && o.editedAt === undefined);
+  if (here.editedAt === undefined && o.editedAt === undefined) return true;
+  const moved = Date.parse(here.at) !== Date.parse(o.at);
+  const changed = here.value !== o.value || here.unit !== o.unit;
+  return moved && changed;
 }
+
+/**
+ * An id numbered per day, as check-in readings were before D-02: the only kind
+ * two devices can give two different readings. Any other — named by its
+ * device, or by a merge — is one reading wherever it is. `checkInEventId`
+ * numbered a day's events from 1, and no day has thousands; a device's name
+ * is ten characters, which can all be digits.
+ */
+const sharedOldId = (reading: string) => /^checkIn:\d{4}-\d{2}-\d{2}(?:#[1-9]\d{0,3})?$/.test(reading);
+
+/** The event a check-in reading belongs to: a pressure pair's reading id, or a single's id without its kind. */
+const eventOf = (o: Observation) => bpReadingId(o.context) ?? o.id.slice(0, o.id.length - o.kind.length - 1);
 
 /**
  * The file's observations, with each check-in reading that is a different
@@ -538,7 +707,8 @@ export function separateCheckInReadings(file: readonly Observation[], here: Read
       members.forEach((o, i) => out.set(o, { ...o, id: same[i]!.id, context: same[i]!.context }));
       continue;
     }
-    if (!clash(members)) continue;
+    // A shared id that cannot have been given twice is one reading, corrected or not.
+    if (!sharedOldId(eventOf(members[0])) || !clash(members)) continue;
     const stem = `checkIn:${checkInDayOf(members[0])}#m${digest(`${key}|${members[0].at}`)}`;
     for (let n = 0; ; n += 1) {
       const event = n === 0 ? stem : `${stem}${n.toString(36)}`;
@@ -605,14 +775,30 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
   const goneHere = {
     observations: new Set(base.settings?.deleted?.observations ?? []),
     sessions: new Set(base.settings?.deleted?.sessions ?? []),
+    // A check-in reading also by what was measured, so a copy under another id is known too (R5-01).
+    readings: new Set(base.settings?.deleted?.readings ?? []),
   };
+  // A check-in reading by what was measured, and by its id as well: a
+  // correction keeps the id, so a backup from before it holds the deleted
+  // reading under that id with its old number, and the previous version
+  // remembered ids alone. Not by an old shared id, though: two devices once
+  // gave different readings one, and a deleted one must not take the other
+  // with it. Anything else by its id.
+  const deletedObservation = (o: Observation) => {
+    if (hereObs.has(o.id)) return false;
+    const key = readingKey(o);
+    if (key !== undefined && goneHere.readings.has(key)) return true;
+    return (key === undefined || !sharedOldId(eventOf(o))) && goneHere.observations.has(o.id);
+  };
+  // As the merge will hold them, for the series and the day's record alike.
+  const incoming = separateCheckInReadings(file.observations, hereObs);
   let deletedHere = 0;
   const observationPuts: Observation[] = [];
   let replacedObservations = 0;
-  for (const o of separateCheckInReadings(file.observations, hereObs)) {
+  for (const o of incoming) {
     if (isProjection(o)) continue;
     const here = hereObs.get(o.id);
-    if (!here && goneHere.observations.has(o.id)) { deletedHere += 1; continue; }
+    if (deletedObservation(o)) { deletedHere += 1; continue; }
     if (!here) { observationPuts.push(o); continue; }
     // Commit order is each device's own: compare what was said, not when it was stored.
     if (sameValue(stripSeq(here), stripSeq(o))) continue;
@@ -638,22 +824,50 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
     sessionPuts.push(s);
   }
 
+  // A reading deleted here comes out of the file's record of its day as well:
+  // that record is what every gate reads, and a later save of that day would
+  // lift the reading back out of it (R5-01).
+  const goneOn = new Map<string, Observation[]>();
+  for (const o of incoming) {
+    const day = checkInDayOf(o);
+    if (day !== undefined && deletedObservation(o)) goneOn.set(day, [...(goneOn.get(day) ?? []), o]);
+  }
+  const withoutDeleted = (c: CheckInRecord): CheckInRecord => {
+    let record = c;
+    for (const r of checkInReadingsOf(goneOn.get(c.date) ?? [])) record = (withReadingRemoved(record, r) as CheckInRecord | undefined) ?? record;
+    return record;
+  };
+
+  // One summary per day, folded into a map and listed once at the end: copying
+  // the list for every day of a long history is quadratic (R5-04).
   const byDate = new Map<string, CheckInRecord>();
   for (const c of base.checkIns ?? []) byDate.set(c.date, c);
-  let checkIns = base.checkIns ?? [];
   let checkInsChanged = false;
-  for (const c of file.checkIns) {
+  const cleaned = new Set<CheckInRecord>();
+  for (const given of file.checkIns) {
+    const c = withoutDeleted(given);
+    if (c !== given) cleaned.add(c);
     const here = byDate.get(c.date);
-    if (here && sameValue(here, c)) continue;
+    // Two records that say the same are one, whatever readiness each was
+    // given: it is worked out from the answers, and a cleaned record's is
+    // worked out again below, so it never matches the file's.
+    if (here && sameValue(answersOf(here), answersOf(c))) continue;
     if (here) {
       conflicts.checkIns += 1;
       if (!takeFile) continue;
-      checkIns = checkIns.filter(x => x.date !== c.date);
     }
-    checkIns = [...checkIns, c];
     byDate.set(c.date, c);
     checkInsChanged = true;
   }
+  // A record a reading was taken out of has its readiness worked out again
+  // without it, as deleting the reading in Track does: what is stored is what
+  // a gate acts on.
+  const checkIns = [...byDate.values()].map(c => {
+    if (!cleaned.has(c) || !base.profile) return c;
+    const plain = answersOf(c);
+    const recent = [...byDate.values()].filter(x => x.date < c.date);
+    return { ...plain, readiness: evaluateCheckIn(base.profile, plain, recent) } as CheckInRecord;
+  });
 
   let personalRecords = base.personalRecords ?? [];
   let recordsChanged = false;
@@ -729,10 +943,15 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
     (Array.isArray(list) ? list : []).filter((id): id is string => typeof id === 'string' && !mine.has(id) && !holds(id));
   const learnedObservations = learn(goneHere.observations, theirs?.observations, id => hereObs.has(id));
   const learnedSessions = learn(goneHere.sessions, theirs?.sessions, id => hereSessions.has(id));
-  const learned = learnedObservations.length + learnedSessions.length > 0
+  const heldReadings = Array.isArray(theirs?.readings) && theirs.readings.length > 0
+    ? new Set([...hereObs.values()].map(readingKey).filter(Boolean))
+    : new Set<string | undefined>();
+  const learnedReadings = learn(goneHere.readings, theirs?.readings, key => heldReadings.has(key));
+  const learned = learnedObservations.length + learnedSessions.length + learnedReadings.length > 0
     ? {
       observations: [...goneHere.observations, ...learnedObservations],
       sessions: [...goneHere.sessions, ...learnedSessions],
+      readings: [...goneHere.readings, ...learnedReadings],
     }
     : undefined;
 

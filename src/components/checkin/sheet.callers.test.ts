@@ -32,6 +32,7 @@ const { correctCheckInPressure, effectiveCheckIns, pendingCheckIn, reportSymptom
 const { permission, resumePermission, PERMISSION_TEXT } = await import('@/engine/permission');
 const { CANNOT_SWALLOW, evaluateCheckIn, TREAT } = await import('@/engine/readiness');
 const { useStartMovement } = await import('./useStartMovement');
+const { NEWS_LABEL } = await import('./copy');
 const walkGate = await import('@/walk/gate');
 
 const known = { medicinesReviewed: true, currentlyActive: true, clearance: 'vigorous' as const, glucoseMonitor: 'meter' as const, glucoseUnit: 'mg/dL' as const };
@@ -1096,5 +1097,230 @@ describe('scan J2-09: with the health questions unanswered, no check-in is asked
     await openSheet('walk');
     expect(h().text()).toMatch(/Finish the health questions in your profile first/);
     expect(h().text()).toMatch(/Open Profile and health/);
+  });
+});
+
+describe('Codex R5, through the sheet', () => {
+  const BACK_BP = { pain: { areas: ['lowerBack', 'sciatica'], sciaticaSide: 'left' }, health: { ...known, bpMonitor: true, hypertension: 'treated', bpMedicinesReviewed: true, betaBlocker: false, diuretic: false } } satisfies ProfileInput;
+  const effective = (p: UserProfile, mode: Mode) => {
+    const g = effectiveCheckIns(store.getState().checkIns, p, store.getState().observations);
+    return permission({ profile: p, checkIn: g.find(c => c.date === DAY), now: new Date(), recent: g }, mode);
+  };
+  const tap = async (label: string) => h().click(h().button(label));
+
+  it('R5-01: a foot drop said at 09:00, then "None" at 10:00: still no walk, and asked by name until a clinician has checked it', async () => {
+    const p = createDefaultProfile(BACK_BP);
+    await seed(p, [{ date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, back: { pain: 2, legPain: 2, reach: 'foot', newWeakness: true, newNeuro: true } }]);
+    clock(10);
+    await openSheet('walk');
+    await changeAnswers();
+    await tap('New foot drop or foot dragging, or a leg getting weaker');
+    await seePlan();
+    expect(stored()?.back?.newWeakness).toBe(false);
+    expect(effective(p, 'walk')).toMatchObject({ allowed: false, disposition: 'today' });
+    await changeAnswers();
+    expect(h().text()).toMatch(/New foot drop or foot dragging, or a leg getting weaker/);
+    for (const offered of ['Not checked yet', 'A clinician has checked it', 'I ticked it by mistake']) expect(h().buttons(offered), offered).toHaveLength(1);
+    for (const notOffered of ['It has gone', 'It has healed']) expect(h().buttons(notOffered), notOffered).toHaveLength(0);
+    await tap('A clinician has checked it');
+    await seePlan();
+    expect(effective(p, 'walk').allowed).toBe(true);
+  });
+
+  it('R5-02: new tingling stored, then "hot" with the tingling gone in a save the device refuses: no guided session, and the heat counts', async () => {
+    const p = createDefaultProfile(BACK_BP);
+    await seed(p, [{ date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, back: { pain: 2, legPain: 2, reach: 'thigh', newSensory: true, newNeuro: true } }]);
+    await openSheet('stretch');
+    await changeAnswers();
+    await tap('New or worse tingling or numbness, with no weakness');
+    await tap('Hot or humid today');
+    refuse = () => true;
+    await seePlan();
+    expect(stored()?.back?.newSensory).toBe(true);
+    expect(effective(p, 'guided').allowed).toBe(false);
+    expect(effective(p, 'stretch').restrictions.join(' ')).toMatch(/water|cool/i);
+  });
+
+  it('R5-03: 320 at 09:10, then a 140 entered at 09:20 but timed 09:00: still held', async () => {
+    const p = createDefaultProfile(PROFILES.lowRisk);
+    await seed(p);
+    clock(9, 10);
+    await openSheet();
+    await none();
+    await typeGlucose('320');
+    await seePlan();
+    clock(9, 20);
+    await changeAnswers();
+    await typeGlucose('140');
+    await h().change(h().field('Time measured'), { value: '09:00' });
+    await seePlan();
+    expect(effective(p, 'walk')).toMatchObject({ allowed: false, disposition: 'hold' });
+  });
+
+  it('R5-06: 190/10 with new numbness can be saved, and is an emergency', async () => {
+    const p = createDefaultProfile(BACK_BP);
+    await seed(p);
+    await openSheet('stretch');
+    await none();
+    await h().change(h().field('Reading 1, top number'), { value: '190' });
+    await h().change(h().field('Reading 1, bottom number'), { value: '10' });
+    await tap('New or worse tingling or numbness, with no weakness');
+    await seePlan();
+    expect(h().text()).toMatch(/Call emergency services now/);
+    expect(effective(p, 'stretch').disposition).toBe('emergency');
+  });
+});
+
+describe('R5 follow-up, through the sheet', () => {
+  const effective = (p: UserProfile, mode: Mode) => {
+    const g = effectiveCheckIns(store.getState().checkIns, p, store.getState().observations);
+    return permission({ profile: p, checkIn: g.find(c => c.date === DAY), now: new Date(), recent: g }, mode);
+  };
+  const tap = async (label: string) => h().click(h().button(label));
+  const timed = async (value: string, hm: string) => {
+    await typeGlucose(value);
+    await h().change(h().field('Time measured'), { value: hm });
+  };
+
+  it('60 at 09:20, a 58 typed next but timed 09:00, then 64 at 09:25: still under 70 at the re-check, so no exercise today', async () => {
+    const p = createDefaultProfile(PROFILES.insulin);
+    await seed(p);
+    clock(9, 20);
+    await openSheet('walk');
+    await none();
+    await timed('60', '09:20');
+    await seePlan();
+    clock(9, 21);
+    await changeAnswers();
+    await timed('58', '09:00');
+    await seePlan();
+    clock(9, 25);
+    await changeAnswers();
+    await timed('64', '09:25');
+    await seePlan();
+    expect(h().text()).toMatch(/still under 70 mg\/dL when you re-checked/);
+    expect(startOffered()).toBe(false);
+    expect(effective(p, 'walk').allowed).toBe(false);
+  });
+
+  it('R5-06: 190/10, then reading 1 corrected to 120/80: no exercise today, until "I typed it wrongly"', async () => {
+    const p = createDefaultProfile(PROFILES.bp);
+    await seed(p);
+    await openSheet('walk');
+    await none();
+    await h().change(h().field('Reading 1, top number'), { value: '190' });
+    await h().change(h().field('Reading 1, bottom number'), { value: '10' });
+    await seePlan();
+    expect(startOffered()).toBe(false);
+    clock(9, 2);
+    await changeAnswers();
+    await h().change(h().field('Reading 1, top number'), { value: '120' });
+    await h().change(h().field('Reading 1, bottom number'), { value: '80' });
+    await seePlan();
+    expect(stored()?.bpEarlier).toEqual([{ sys: 190, dia: 10, at: expect.any(String) }]);
+    expect(startOffered()).toBe(false);
+    expect(effective(p, 'walk').allowed).toBe(false);
+    await changeAnswers();
+    expect(h().text()).toMatch(/That very high blood pressure reading from earlier: Blood pressure 190\/10/);
+    await tap('I typed it wrongly');
+    await seePlan();
+    expect(startOffered()).toBe(true);
+    expect(effective(p, 'walk').allowed).toBe(true);
+  });
+
+  it('"Fainted today" at 09:00, then "None of these" at 10:00: no exercise today, and asked by name until "I ticked it by mistake"', async () => {
+    const p = createDefaultProfile(PROFILES.lowRisk);
+    await seed(p);
+    await openSheet('walk');
+    await none();
+    await tap(NEWS_LABEL.fainted);
+    await seePlan();
+    expect(startOffered()).toBe(false);
+    clock(10);
+    await changeAnswers();
+    await h().click(h().buttons('None of these', { exact: true }).at(-1)!);
+    await seePlan();
+    expect(stored()?.news).toEqual([]);
+    expect(startOffered()).toBe(false);
+    expect(effective(p, 'walk')).toMatchObject({ allowed: false, disposition: 'today' });
+    await changeAnswers();
+    expect(h().text()).toContain(`What you said earlier today: ${NEWS_LABEL.fainted}`);
+    for (const offered of ['It happened', 'I ticked it by mistake']) expect(h().buttons(offered), offered).toHaveLength(1);
+    expect(h().buttons('A clinician has checked me since')).toHaveLength(0);
+    await tap('I ticked it by mistake');
+    await seePlan();
+    expect(startOffered()).toBe(true);
+    expect(effective(p, 'walk').allowed).toBe(true);
+  });
+});
+
+describe('R5 follow-up: a release given today does not cover the same item ticked again later that day', () => {
+  const effective = (p: UserProfile, mode: Mode) => {
+    const g = effectiveCheckIns(store.getState().checkIns, p, store.getState().observations);
+    return permission({ profile: p, checkIn: g.find(c => c.date === DAY), now: new Date(), recent: g }, mode);
+  };
+  const tap = async (label: string) => h().click(h().button(label));
+  const noNews = async () => h().click(h().buttons('None of these', { exact: true }).at(-1)!);
+  const FOOT_DROP = 'New foot drop or foot dragging, or a leg getting weaker';
+
+  it('fainting: ticked, "None of these", "I ticked it by mistake" releases it; ticked again, then "None of these": no exercise, and asked again', async () => {
+    const p = createDefaultProfile(PROFILES.lowRisk);
+    await seed(p);
+    await openSheet('walk');
+    await none();
+    await tap(NEWS_LABEL.fainted);
+    await seePlan();
+    clock(10);
+    await changeAnswers();
+    await noNews();
+    await seePlan();
+    clock(10, 5);
+    await changeAnswers();
+    await tap('I ticked it by mistake');
+    await seePlan();
+    expect(startOffered()).toBe(true);
+    clock(11);
+    await changeAnswers();
+    await tap(NEWS_LABEL.fainted);
+    await seePlan();
+    expect(startOffered()).toBe(false);
+    clock(12);
+    await changeAnswers();
+    await noNews();
+    await seePlan();
+    expect(startOffered()).toBe(false);
+    expect(effective(p, 'walk')).toMatchObject({ allowed: false, disposition: 'today' });
+    await changeAnswers();
+    expect(h().text()).toContain(`What you said earlier today: ${NEWS_LABEL.fainted}`);
+    expect(h().button('It happened').props['aria-checked']).toBe(true);
+    expect(h().button('I ticked it by mistake').props['aria-checked']).toBe(false);
+  });
+
+  it('a foot drop: unticked, "I ticked it by mistake" releases it; ticked again, then unticked: no walk, and asked again', async () => {
+    const p = createDefaultProfile({ pain: { areas: ['lowerBack', 'sciatica'], sciaticaSide: 'left' }, health: { ...known, bpMonitor: false } });
+    await seed(p, [{ date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, back: { pain: 2, legPain: 2, reach: 'foot', newWeakness: true, newNeuro: true } }]);
+    clock(10);
+    await openSheet('walk');
+    await changeAnswers();
+    await tap(FOOT_DROP);
+    await seePlan();
+    await changeAnswers();
+    await tap('I ticked it by mistake');
+    await seePlan();
+    expect(effective(p, 'walk').allowed).toBe(true);
+    clock(11);
+    await changeAnswers();
+    await tap(FOOT_DROP);
+    await seePlan();
+    expect(effective(p, 'walk').allowed).toBe(false);
+    clock(12);
+    await changeAnswers();
+    await tap(FOOT_DROP);
+    await seePlan();
+    expect(stored()?.back?.newWeakness).toBe(false);
+    expect(effective(p, 'walk')).toMatchObject({ allowed: false, disposition: 'today' });
+    await changeAnswers();
+    expect(h().text()).toMatch(/What you reported earlier: New foot drop or foot dragging, or a leg getting weaker/);
+    expect(h().button('Not checked yet').props['aria-checked']).toBe(true);
   });
 });
