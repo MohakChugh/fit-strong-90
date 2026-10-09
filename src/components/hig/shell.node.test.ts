@@ -365,36 +365,36 @@ describe('the tab bar (S-18)', () => {
   const click = (node: HostNode) => (node.props.onClick as (e: unknown) => void)({ button: 0, preventDefault() {}, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false });
 
   it('selects the tab a screen was opened in, and links every other tab to its place', () => {
-    nav.record(at('/today'), 'LAUNCH', 0);
-    nav.markTab('guide');
-    nav.record(at('/guide', null, '?q=dal'), 'PUSH', 1);
-    nav.record(at('/guide/card/card-dal'), 'PUSH', 2);
-    nav.setTitle('/guide/card/card-dal', 'Dal, chana and rajma');
-    nav.markTab('today');
-    nav.record(at('/today'), 'PUSH', 3);
-    nav.record(at('/track/metric/glucose', { path: '/today', label: 'Today' }), 'PUSH', 4);
-    router.location = at('/track/metric/glucose', { path: '/today', label: 'Today' });
+    nav.record(at('/home'), 'LAUNCH', 0);
+    nav.markTab('browse');
+    nav.record(at('/browse', null, '?q=dal'), 'PUSH', 1);
+    nav.record(at('/hub/learn/card/card-dal'), 'PUSH', 2);
+    nav.setTitle('/hub/learn/card/card-dal', 'Dal, chana and rajma');
+    nav.markTab('home');
+    nav.record(at('/home'), 'PUSH', 3);
+    nav.record(at('/trends/glucose', { path: '/home', label: 'Home' }), 'PUSH', 4);
+    router.location = at('/trends/glucose', { path: '/home', label: 'Home' });
     const host = render(h(TabBar));
-    const [today, , track, guide] = links(host.all());
-    expect(today.props['aria-current']).toBe('page');
-    expect(track.props['aria-current']).toBeUndefined();
-    expect(guide.props['data-to']).toBe('/guide/card/card-dal');
-    expect(track.props['data-to']).toBe('/track');
+    const [home, trends, browse] = links(host.all());
+    expect(home.props['aria-current']).toBe('page');
+    expect(trends.props['aria-current']).toBeUndefined();
+    expect(browse.props['data-to']).toBe('/hub/learn/card/card-dal');
+    expect(trends.props['data-to']).toBe('/trends');
   });
 
   it('pops the selected tab to its root through its own entries, then scrolls to the top', () => {
-    nav.record(at('/guide'), 'LAUNCH', 0);
-    nav.record(at('/guide/topic/b12'), 'PUSH', 1);
-    nav.record(at('/guide/card/card-b12-food'), 'PUSH', 2);
-    router.location = at('/guide/card/card-b12-food');
+    nav.record(at('/browse'), 'LAUNCH', 0);
+    nav.record(at('/hub/learn/topic/b12'), 'PUSH', 1);
+    nav.record(at('/hub/learn/card/card-b12-food'), 'PUSH', 2);
+    router.location = at('/hub/learn/card/card-b12-food');
     let host = render(h(TabBar));
-    click(links(host.all())[3]);
+    click(links(host.all())[2]);
     expect(router.navigate).toHaveBeenCalledWith(-2);
 
-    nav.record(at('/guide'), 'POP', 0);
-    router.location = at('/guide');
+    nav.record(at('/browse'), 'POP', 0);
+    router.location = at('/browse');
     host = render(h(TabBar));
-    click(links(host.all())[3]);
+    click(links(host.all())[2]);
     expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
   });
 });
@@ -408,19 +408,19 @@ describe('a tab never reopens a record that has gone (acceptance J18)', () => {
   };
 
   it('asks again at the tap, and opens the root when the place’s record went after the bar drew', () => {
-    nav.record(at('/track'), 'LAUNCH', 0);
+    nav.record(at('/trends'), 'LAUNCH', 0);
     nav.record(at('/track/workout/w1'), 'PUSH', 1);
     nav.setTitle('/track/workout/w1', 'Workout');
-    nav.markTab('today');
-    nav.record(at('/today'), 'PUSH', 2);
-    router.location = at('/today');
+    nav.markTab('home');
+    nav.record(at('/home'), 'PUSH', 2);
+    router.location = at('/home');
     const host = render(h(TabBar));
-    const track = host.all().filter(n => n.type === 'a')[2];
-    expect(track.props['data-to']).toBe('/track/workout/w1');
+    const trends = host.all().filter(n => n.type === 'a')[1];
+    expect(trends.props['data-to']).toBe('/track/workout/w1');
     nav.setPlaceCheck(() => false);
-    expect(click(track)).toBe(true);
+    expect(click(trends)).toBe(true);
     // Its root, as it was left.
-    expect(router.navigate).toHaveBeenCalledWith('/track', { state: { restoreScroll: '/track' } });
+    expect(router.navigate).toHaveBeenCalledWith('/trends', { state: { restoreScroll: '/trends' } });
   });
 
   it('is wired: the app checks places against the stored record, and forgets them all when nothing is set up', () => {

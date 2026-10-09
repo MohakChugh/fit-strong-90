@@ -11,10 +11,10 @@ import { currentTab, getNavState, markBack, markTab, rootLink, rootStep, tabLink
  * root screen's bar.
  */
 const TABS: { tab: Tab; label: string; icon: LucideIcon }[] = [
-  { tab: 'today', label: 'Today', icon: HouseIcon },
-  { tab: 'move', label: 'Move', icon: WavesIcon },
-  { tab: 'track', label: 'Track', icon: HeartPulseIcon },
-  { tab: 'guide', label: 'Guide', icon: BookOpenIcon },
+  { tab: 'home', label: 'Home', icon: HouseIcon },
+  { tab: 'trends', label: 'Trends', icon: HeartPulseIcon },
+  { tab: 'browse', label: 'Browse', icon: BookOpenIcon },
+  { tab: 'me', label: 'Me', icon: WavesIcon },
 ];
 
 const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;

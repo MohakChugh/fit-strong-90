@@ -21,18 +21,22 @@ import { createContext, useContext, useSyncExternalStore } from 'react';
  * reload, as history itself is kept.
  */
 
-export type Tab = 'today' | 'move' | 'track' | 'guide';
+export type Tab = 'home' | 'trends' | 'browse' | 'me';
 
-export const TAB_ROOT: Record<Tab, string> = { today: '/today', move: '/move', track: '/track', guide: '/guide' };
+export const TAB_ROOT: Record<Tab, string> = { home: '/home', trends: '/trends', browse: '/browse', me: '/me' };
 const TABS = Object.keys(TAB_ROOT) as Tab[];
-/** A walk has its own address but is part of Move. */
-const ALSO: Partial<Record<Tab, readonly string[]>> = { move: ['/walk'] };
+/**
+ * Hubs and Today's log belong to Home by their address (journey §5), and so do
+ * the record details the log opens, which keep their v1 addresses (§19.2): a
+ * tab can go back to one, while its record is still stored.
+ */
+const ALSO: Partial<Record<Tab, readonly string[]>> = { home: ['/hub', '/day', '/track'] };
 /** Full-screen tasks outside the tabs: a tab never returns to one by itself. */
-const TASKS = ['/session', '/walk/live', '/welcome'];
+const TASKS = ['/session', '/walk/live', '/walk/summary', '/setup'];
 
 export const within = (pathname: string, base: string) => pathname === base || pathname.startsWith(`${base}/`);
 
-/** The tab an address belongs to by itself. You belongs to none: it opens over any of them. */
+/** The tab an address belongs to by itself. A full-screen task belongs to none. */
 export function tabOf(pathname: string): Tab | undefined {
   return TABS.find(t => [TAB_ROOT[t], ...(ALSO[t] ?? [])].some(base => within(pathname, base)));
 }
