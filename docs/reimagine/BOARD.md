@@ -355,3 +355,22 @@ Gates on the combined tree: `tsc -b` and lint are clean, and the unit suite is 4
 - **Units:** the spoken pre-cardio check says "under 7 mmol/L" (or 9) to mmol/L users, with 2 new clips in each pack for 1,349 lines, and the walk's low guidance says 70 mg/dL or 3.9 mmol/L.
 - **Same-day serious news:** fainting, a high that won't come down, vomiting with diabetes, and a low that needed help hold for the rest of the day after a later "None of these". Only "I ticked it by mistake" releases one.
 - **Ticked again after a release:** a red flag, foot problem or one of those news items ticked again the same day reopens, so unticking it later brings the question back instead of the old release.
+
+### 2026-10-09 — [claude] v2 journey: decisions recorded before building
+
+These come from the owner's brief, reconciled with the Codex and Kiro audits and one verification round each (`docs/superpowers/specs/2026-10-08-fitstrong-v2-audit-log.md`). The specs are `docs/superpowers/specs/2026-10-08-fitstrong-v2-journey-design.md` (draft 3) and `…-motion-design.md` (draft 2). The plans are in `docs/superpowers/plans/2026-10-08-fitstrong-v2-*`.
+
+| # | Decision | Reverses or extends |
+| --- | --- | --- |
+| D37 (V1) | One setup flow captures everything; its first page offers "Look around first" | Replaces the v1 Welcome |
+| D38 (V2) | Home: greeting, status, Right now, This week, and grouped tiles the person can show, hide and reorder | Reverses D5's "no icon grid", C5, and the rejection of pinning |
+| D39 (V3) | Tabs: Home · Trends · Browse · Me, with labels always shown | Reverses D4 |
+| D40 (V5) | Optional food logging at three levels, with no generated targets | Reverses D9 |
+| D41 (V6) | Routes kept on the device if the person opts in; OSM map pictures, also opt-in, on summaries only and never while tracking | Reverses "route never stored" |
+| D42 (V7) | Active kcal = (MET − 1) × kg × hours, labelled "about" | — |
+| D43 (V8) | A category colour for icons, rings and charts; one action tint for controls | Extends D12 |
+| D44 | Map: no tiles while tracking; static OSM raster tiles on summaries; CSP `img-src https://tile.openstreetmap.org` | — |
+| D45 | Food data: USDA FoodData Central (CC0) ingredients, our own recipes, gram portions, and allergens tagged by us | — |
+| D46 | v2 is built on `feat/v2-journey` (a git worktree, `../fit-strong-90-v2`). PR #3 stays on v1 until v2 is complete | — |
+
+Kept explicitly: D31 (the weekly ring), D19 (no milestones), D18 (no WebGL while tracking), D35 (enrolment), D14 and D10 (steps), D16, D17, D22, D25, D26 and D27.

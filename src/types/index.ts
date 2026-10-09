@@ -131,6 +131,22 @@ export interface BodyMetric {
   notes: string;
 }
 
+/** v2 (journey §5.1): the categories Home can show, by group. */
+export type CategoryId =
+  | 'workout' | 'stretch' | 'walk' | 'steps'
+  | 'food'
+  | 'glucose' | 'bp' | 'back' | 'weight' | 'water' | 'sleep' | 'waist' | 'labs'
+  | 'learn';
+export type GroupId = 'move' | 'eat' | 'check' | 'learn';
+
+/** v2: Home's tiles as the person arranged them. Absent until set up, when `defaultHome()` gives the first layout. */
+export interface HomeLayout {
+  /** Tiles shown, in order, per group. */
+  order: Record<GroupId, CategoryId[]>;
+  /** Tiles the person hid, so "Hidden" can offer them back. */
+  hidden: CategoryId[];
+}
+
 export interface UserSettings {
   startDate: string;
   currentWeight: number;
@@ -171,6 +187,10 @@ export interface UserSettings {
   statusPeriods?: StatusPeriod[];
   /** v5: the walk options last chosen, so GPS and step counting are not asked for every time. */
   walkDefaults?: { gps: boolean; steps: boolean };
+  /** v2: Home's tile layout (journey §7.6). The person's edits always win over the defaults. */
+  home?: HomeLayout;
+  /** v2 (journey §16 Display): the app's own settings, since Safari doesn't report Reduce Transparency and the system's motion setting isn't everyone's choice. */
+  display?: { reduceMotion?: boolean; reduceTransparency?: boolean };
   /**
    * The ids of readings and sessions deleted on this record, kept so that
    * merging a backup made before the deletion cannot bring them back (D-06).
