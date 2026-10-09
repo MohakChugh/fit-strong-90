@@ -240,3 +240,18 @@ Its new findings, and what happened to them:
 | L-20 | Accepted | J§19.3 |
 | L-21 | Recorded as two deliberate departures from the research: a one-time map opt-in, and a single "about" figure | J§9.5, J§12.4 |
 | A-34 (untested case) | Plan 2 adds a test that a stretch saved before a flare and resumed during it follows the gentler routine | Plan 2 |
+
+## 7. Codex's verification of draft 3 (B-01 to B-32)
+
+Report: `/tmp/fit-checks/v2audit/codex-verify-out.md`.
+
+Codex's results:
+- Of its 78 findings, 46 are RESOLVED and 32 are PARTIAL.
+- A-34 and A-49 are confirmed in the code.
+- Platform claims confirmed: iOS 27.0.1 and Safari 27 are current, (MET − 1) × kg × h is dimensionally correct, and the OSM policy allows ordinary viewing (it requires HTTP caching).
+
+Its verdict: foundation and shell work can proceed, but the safety hand-offs, data recovery, time model, food guards and release gating needed the B-fixes first.
+
+All 32 B-items are accepted. They're recorded in journey §25, which overrides any earlier section it contradicts, and each later plan folds them in. The changes made directly in the sections were B-02 (§4.7), B-04 (§13) and B-08 (§11.2). Plan 1's remaining tasks take on B-02, B-03, B-04, B-14, B-20, B-27 and B-32.
+
+**One reading of the research's rule is recorded (B-08):** a checklist of yes/no answers counts as one question. The "at most 5 choices" rule applies to navigation and actions.

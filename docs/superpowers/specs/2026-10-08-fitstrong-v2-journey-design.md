@@ -130,10 +130,13 @@ Every screen, sheet, animation and shortcut in v2 must keep all of these. Each h
    - "Saved" appears, and a form closes, only after the write is confirmed.
    - If a write fails, the draft, the guidance and the effective safety state are kept, with "Try again", through v1's existing failure recovery.
 6. **Corrections don't resolve incidents** (A-05). Undo, delete, retiming, imports and later normal readings never resolve a real low, stop or flag. Corrections keep their history, and resolution follows each incident's own rule, as v1 does.
-7. **Urgent is visible everywhere** (A-46).
-   - While an emergency or a "get advice today" decision is current, a slim stop-ink banner sits under the nav bar on every screen, Trends and Browse included: "Emergency answer today: what to do".
+7. **Urgent is visible everywhere** (A-46, B-02).
+   - One shared safety surface covers every active emergency, stop, low treatment and re-check decision.
+   - It sits under the nav bar on every tab screen (Trends and Browse included), and at the top of full-screen tasks.
+   - It uses the engine's own headline, the measured or answered date and time, and the current safe action. For example: "Low glucose at 1:30 pm · Re-check at 1:45 pm", or "Emergency answer today · What to do".
    - It's never dismissible while the decision stands.
-   - Past abnormal records keep their date and their past-tense wording.
+   - Ordinary holds (no check-in yet, a profile gap) keep their mode-specific wording on tiles and hubs instead.
+   - Past abnormal records keep their date and past-tense wording.
 8. **Status comes first,** as v1 does: "Carry on" isn't offered while Away or Unwell, and during a flare only a stretch can be resumed (A-34).
 9. **Safety is never quietened** (A-74). Quiet hours and reminder preferences never hold a glucose re-check, a stop or a safety deadline. The app says plainly that it can't alert anyone while it's closed (§15).
 10. **Measured values show when they were measured** (A-12).
@@ -547,7 +550,7 @@ The check-in is v1's sheet, unchanged in what it asks and decides. In v2:
 2. **Today** (logging on): the meals logged.
    - With estimates: "Estimated 620 kcal · 85 g carbs in logged foods", plus "2 items have no estimate" when that applies (A-17).
    - No daily target is generated (§11.5). A target appears only if the person entered one from their care team.
-3. **Options:** Log a meal · Your usual meals · Quick add · Water · Meal ideas · Sample week.
+3. **Options** (5, B-08): Log a meal · Your usual meals · Quick add · Meal ideas · Sample week. Water is its own tile in Check.
 4. **This week:** the days with meals logged (and, with estimates, the estimated kcal per day, labelled partial where items are missing).
 
 ### 11.3 Logging a meal (the "Log a meal" sheet)
@@ -676,7 +679,7 @@ This is v1's My Day, kept and reached from Home ("See today's log") and Trends (
 - readings, with their measured time, unit, context and source;
 - sessions, stretches, walks and meals.
 
-Each record opens its detail, where it can be corrected or deleted with confirmation. It meets J05's requirements as v1 does.
+Each record opens its detail, where it can be corrected, or deleted at once with Undo (§20.4 rule 6, B-04). It meets J05's requirements as v1 does.
 
 Previous day and Next day buttons page through days, as v1. Quick Log's "Add" returns here when opened from here.
 
@@ -982,6 +985,45 @@ These are recorded as board decisions in the plan's first task. The sources are 
 | Motion | Apple springs at 0.4 s with bounce 0 (CSS 588 ms `linear()`), and bounce 0.15 only for a release with momentum |
 | Charts and rings | v1's own SVG `Ring` and `Chart`, extended. No dependency |
 | Older-adult rules | Main targets at least 60 px, body text 17 px or larger, at most 5 choices per region, Undo that doesn't time out, and two confirmations for anything irreversible |
+
+## 25. Amendments from Codex's verification of draft 3 (B-01 to B-32)
+
+**This section overrides any earlier section that it contradicts.** Each later plan folds these amendments into the sections it builds.
+
+| ID | Amendment |
+| --- | --- |
+| B-01 | **Starting a walk or session follows one sequence.** (1) In the tap's own handler, request motion permission and unlock audio, synchronously. (2) Wait for those outcomes. (3) Run the final gate. (4) Start once, with Pause and Stop already usable. Pending audio is cancelled on pause, stop, exit, an interruption (call or headphones) and a stale cue generation. Device checks cover a slow gait, a walking aid and different phone positions. Motion spec M10 follows this order |
+| B-02 | **One safety surface for all active safety states**, everywhere including full-screen tasks, with the engine's headline, date and safe action (§4.7) |
+| B-03 | **Every modal has one owner.** It's a labelled dialog with an inert background, logical focus order, Escape and Close, and focus returns to the opener, or to the screen's title if the opener is gone. Toasts with an action wait until the dialog closes, or appear inside it. "Discard unsaved answers" never discards committed writes or safety incidents. Close during "Saving…" waits for the save to finish |
+| B-04 | **Undo.** The two latest Undo actions are kept within the screen they came from and its details. Another delete stacks a second one, and restoring one keeps the other. Leaving that screen, or an unrelated edit, ends the toast; "Recently deleted" remains. Routine deletes happen at once, with no confirmation (§13, §20.4) |
+| B-05 | **Restoring a deleted record is merge-safe.** It's restored under a fresh id with `restoredFrom`. The original's deletion record is kept, so an older backup can't delete it again, and references are rewritten in one transaction. A deletion keeps its dependent records for the 7 days. **Erasing routes permanently** is its own confirmed operation: it clears coordinates from routes, walk journals, buffers and deletion payloads |
+| B-06 | **Setup publishes its conditional page and field graph.** It includes monitors (asked whether or not a medicine is taken), the foot and neuro paths and clinician limits. A test counts the pages of both personas, Welcome and Review included, and checks every conditional path can be reached. "About 5 minutes" is removed until it's measured |
+| B-07 | **When the draft can't be saved, setup offers "Continue without saving".** A warning stays visible for the session, the answers are kept in memory, completion isn't stored, and the safety holds apply. Closing the app loses the answers, and the warning says so |
+| B-08 | **The 5-choices rule applies to navigation and actions.** A checklist of yes/no answers counts as one question, which is a deliberate reading of the research's rule. Group caps apply before fill-ins (already implemented in `defaultHome`). Steppers show "Less" and "More" as visible labels beside − and +, and period paging shows "Previous week" and "Next week" |
+| B-09 | **The after-meal button states the time:** "I had lunch at 1:10 pm: walk now" (the usual finish time, or now if it's earlier). "Different time" lets the person edit it, and a usual time is only a suggestion until confirmed. V-J02 has no extra confirmation screen |
+| B-10 | **Published tap counts:** a usual meal takes 3 taps. The first-time multi-item path and portion adjustments are counted separately. A trend opened from Trends shows Week first. Consent and OS permission prompts are counted every time they appear |
+| B-11 | **Counts-free mode** hides nutrition numbers and activity-energy figures everywhere (current screens, history, search, trends), including on old records. Quantities and clinical measurements stay. It has no food prompts and no numeric targets |
+| B-12 | **Carb ranges have a defined method.** Each recipe's range is built from its ingredients' ranges and portion variance, and reviewed. A meal's range sums its known items; unknown items are listed separately, never as a closed range. Each entry keeps its recipe revision and gram basis. Plan 7 owns this |
+| B-13 | **Allergens use canonical ids with aliases.** Recommendations exclude anything that matches, "may contain" or isn't fully tagged. With a custom allergy, only dishes whose ingredients are all tagged are recommended. Foods already eaten can still be logged |
+| B-14 | **The registry separates categories from shortcuts.** A category has a hub, a trend if it declares one, and can be pinned. A shortcut has only a target. Learn declares no trend. Water belongs only to Check. Labs keeps its kind (`/hub/labs?metric=hba1c`), and redirects keep it too. Logging a manual workout (`/hub/workout/log`) is separate from its trend (`/trends/workout`) |
+| B-15 | **Trends statistics are defined per metric:** the headline statistic, the weighting (a weekly average of daily totals = sum ÷ days with data), coverage, and comparison windows, Your week included. The reading count says which readings are numeric. A LO in either period hides the change. Selection uses the whole plot, with arrow keys and a list. The previous period is a pattern as well as a colour, and the selected state's contrast is measured. Plan 3 owns this |
+| B-16 | **A weekly goal change applies from the next Monday;** the current week keeps its goal. A daily step goal changes by the day. Each estimate records the weight it used. An undated legacy weight isn't given an invented date |
+| B-17 | **A route draws a separate line for each GPS run,** so a dropout breaks the line even within one segment. Pace and splits come from matching distance and time. With zero or too little distance, there's no pace. Energy is worked out per covered interval, and uncovered time is labelled. Plan 6 owns this |
+| B-18 | **Energy by age:** ages 19–59 use the Adult Compendium. 60 and over use the 2024 Older Adult Compendium once its walking values are confirmed at the source; until then they show no energy figure. Speed bands cover every speed, and an unsupported speed gives no estimate. The WHO line is removed from the setup goal page and lives in Learn |
+| B-19 | **Walk time survives reloads and clock changes.** Each segment stores its accrued duration (from monotonic deltas) and its local day and offset at every durable checkpoint. An interrupted segment ends at its last checkpoint. A clock jump that can be detected makes the gate ask for a fresh reading (the conservative path) |
+| B-20 | **Time boundaries:** every time-based boundary is scheduled. That covers 12:00 and 17:00 day parts, meal windows, habit deadlines, freshness, re-checks, 04:00 and midnight, and `freezeKey` includes the current phase. "Your week" is a prompt of type `weekBrief`, with the week's id. Once seen, it stays seen. It can show from Monday 04:00 until it's opened or the week ends, and it's always available in Trends even when outranked |
+| B-21 | **Updates are coordinated across tabs.** The app handles `blocked` and `versionchange` (v1 closes the connection), and defers migration and activation until active tasks are saved or discarded. A test covers two tabs and an interrupted upgrade |
+| B-22 | **`feat/v2-journey` merges only after Plans 1–8 pass.** Until then, unfinished destinations show their interim v1 screen, never an empty one |
+| B-23 | **Maps keep ordinary browser HTTP caching and a valid Referer.** Tiles are never precached by the service worker or kept offline. Only the current viewport's tiles are requested. History thumbnails are our own SVG route drawings, never tiles. The attribution is a visible link |
+| B-24 | **Standard privacy copy:** "Your records are stored on this phone. Optional map pictures share the area shown and your internet address with OpenStreetMap. Backups and calendar files leave only when you share them." Install copy: "Installing helps iPhone keep your data, but it isn't a backup." Safari copy: "Safari may remove data from websites you haven't opened for a while." The step card says: "FitStrong counts steps only while it's open on the screen." Clinical summaries always carry their measured date and context |
+| B-25 | **Backup status tells "Prepared" and "Shared" apart from "Checked".** "Checked" means the file was read back in Restore's preview. A known cancellation doesn't advance the status |
+| B-26 | **Import limits are published** in Plan 8: file size, record and point counts, text lengths. Every store gets a conflict preview, and Replace and Merge are each one transaction. An imported map setting never switches maps on: this device's own consent is kept, and a new device asks |
+| B-27 | **M3 names an isolated background layer** (`hub-card-bg`). Text stays outside it and cross-fades. The budget is one animated shared geometry, plus the stationary navigation snapshots (`app-nav`, `app-header`) |
+| B-28 | **Gesture releases use the JS spring integrator;** CSS curves are only for timed effects. Grabbing again, retargeting and cancelling are defined. The visible overshoot is at most 24 px, and never on values |
+| B-29 | **Under Reduce Motion, the live walk's view stays fixed,** with a manual "Show whole route". Loading is static under Reduce Motion; otherwise the shimmer runs at most 3 cycles. A pose handover is one rig that moves; two figures never overlap |
+| B-30 | **Acceptance adds these parameterised cases:** a historical incident (yesterday's reading with an open incident), the Unwell variant of V-J25, temporary storage and device loss in V-J37, and an interrupted audio cue in V-J40. Also a Normal stretch saved, then a Flare, then a Resume: the remaining work follows the current gentler routine. V-J06 returns to where it was started from |
+| B-31 | **Birth year:** "Are you 18 or over?" is asked only when the year is this year minus 18. Age-limited features treat a borderline year conservatively |
+| B-32 | **The ring's remembered value is keyed by week, metric and goal version.** It animates only a real change within the same identity. A new week, or a changed goal, is drawn already set |
 
 ## 23. Non-goals
 
