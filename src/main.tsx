@@ -7,6 +7,7 @@ import App from './App'
 import { RootError } from '@/components/hig/ErrorBoundary'
 import { backPending, followRouter, setPlaceCheck } from '@/components/hig/navigation'
 import { getState } from '@/store/useStore'
+import { shouldAnimate } from '@/design/motion'
 import { placeExists } from '@/places'
 import { applyTextSize } from '@/lib/textSize'
 import './index.css'
@@ -64,11 +65,13 @@ setPlaceCheck(place => placeExists(place.pathname, getState()))
 // React Router 7.13's adapter for those drops the `viewTransition` option on
 // the way to the router — so it is added here, once. A pop replays its push's
 // transition, which the stack marks as going back. Replacements stay instant —
-// redirects — unless they are a Back with nothing to pop to; so does reduced motion.
+// redirects — unless they are a Back with nothing to pop to; so does reduced
+// motion, the system's or the app's own (motion rule 4, set on <html> by App).
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
 const navigate = router.navigate.bind(router)
 router.navigate = ((to: Parameters<typeof navigate>[0], opts?: Parameters<typeof navigate>[1]) =>
-  typeof to === 'number' || (opts?.replace && !backPending()) || reduceMotion.matches
+  typeof to === 'number' || (opts?.replace && !backPending())
+    || !shouldAnimate({ systemReduced: reduceMotion.matches, appReduced: document.documentElement.dataset.reduceMotion !== undefined })
     ? navigate(to as never, opts)
     : navigate(to, { viewTransition: true, ...opts })) as typeof router.navigate
 
@@ -82,11 +85,20 @@ window.addEventListener('popstate', event => {
 // A second tap before a transition has started skips it, and a skipped
 // transition rejects `ready`, which React Router never observes: without this
 // every quick double navigation logs an uncaught "Transition was skipped".
+// While one runs, glass is drawn solid (`data-vt-running`, WebKit 302256).
+// `finished` settles whether it ran or was skipped; only the newest transition
+// clears the mark, since a skipped one can settle after its successor began.
 if (document.startViewTransition) {
   const start = document.startViewTransition.bind(document)
+  let latest: ViewTransition | undefined
   document.startViewTransition = ((update?: Parameters<typeof start>[0]) => {
+    document.documentElement.dataset.vtRunning = ''
     const transition = start(update)
+    latest = transition
     transition.ready.catch(() => {})
+    transition.finished
+      .finally(() => { if (latest === transition) delete document.documentElement.dataset.vtRunning })
+      .catch(() => {})
     // The router starts the transition a few frames after the popstate.
     if (performance.now() - browserAnimatedAt < 1000) {
       browserAnimatedAt = -Infinity

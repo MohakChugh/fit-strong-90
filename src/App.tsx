@@ -93,6 +93,13 @@ function App() {
     applyThemeColor(theme);
   }, [theme]);
 
+  // The in-app display settings, for CSS and for the router (motion rule 4; journey §20.1).
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (settings.display?.reduceMotion) root.dataset.reduceMotion = ''; else delete root.dataset.reduceMotion;
+    if (settings.display?.reduceTransparency) root.dataset.glass = 'solid'; else delete root.dataset.glass;
+  }, [settings.display?.reduceMotion, settings.display?.reduceTransparency]);
+
   // Nothing routes until the device has been read. The onboarding gate works
   // off `onboardingComplete`, which is false until then, so routing early
   // would bounce an existing user through onboarding for a frame. A bare
