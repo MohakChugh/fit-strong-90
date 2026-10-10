@@ -22,12 +22,18 @@ vi.mock('react-router-dom', () => ({
   useLocation: () => ({ pathname: '/walk/live', search: '', state: null, key: 'k0' }),
 }));
 vi.mock('@/components/ui/sheet', async () => {
-  const { createElement: h, Fragment } = await import('react');
+  const { createElement: h, createContext, useContext } = await import('react');
+  // Close closes, as the vendored sheet's does: through the sheet's own `onOpenChange`.
+  const Closing = createContext<(open: boolean) => void>(() => {});
   return {
-    Sheet: ({ open, children }: { open: boolean; children?: ReactNode }) => (open ? h(Fragment, null, children) : null),
+    Sheet: ({ open, onOpenChange, children }: { open: boolean; onOpenChange: (open: boolean) => void; children?: ReactNode }) =>
+      (open ? h(Closing.Provider, { value: onOpenChange }, children) : null),
     SheetContent: ({ children }: { children?: ReactNode }) => h('div', { role: 'dialog' }, children),
     SheetTitle: ({ children }: { children?: ReactNode }) => h('h2', null, children),
-    SheetClose: ({ children }: { children?: ReactNode }) => h('button', { type: 'button' }, children),
+    SheetClose: ({ children }: { children?: ReactNode }) => {
+      const close = useContext(Closing);
+      return h('button', { type: 'button', onClick: () => close(false) }, children);
+    },
   };
 });
 /** The one live walk, as the browser builds it, minus the sensors: the store's gate decides. */
@@ -153,5 +159,74 @@ describe('a meter showing LO or HI after "I feel low" on a walk is recorded as t
     expect(today()?.glucoseEarlier?.some(e => 'display' in e && e.display === 'HI' && e.measuredAt === iso(9, 10))).toBe(true);
     expect(answer(p)).toMatchObject({ allowed: false, disposition: 'today' });
     expect(answer(p).reasons.join(' ')).toMatch(/Your meter has read HI more than once/);
+  });
+});
+
+describe('"I need to stop", closed without an answer (journey §4.4, H6-01)', () => {
+  const p = createDefaultProfile({ health: { ...known, diabetes: 'none' } });
+
+  /** Walking on a normal check-in, with nobody on insulin: only the stop can hold this walk. */
+  async function walking() {
+    const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4 };
+    await store.update(prev => ({ ...prev, profile: p, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
+    router.params = new URLSearchParams({ id: newWalkId(Date.now()) });
+    host = render(createElement(LiveWalkScreen));
+    await host.settle();
+    expect(status()).toBe('running');
+  }
+
+  /** Resume however the screen offers it, and the controller's own Resume too: neither may move a held walk. */
+  async function tryToResume() {
+    if (h().buttons('Resume', { exact: true }).length) await h().click(h().button('Resume', { exact: true }));
+    walk.live!.resume();
+    await h().settle();
+  }
+
+  it('saves the stop at the tap; closing the guidance keeps it, and Resume waits for an answer', async () => {
+    await walking();
+    clock(9, 10);
+    await h().click(h().button('I need to stop'));
+    expect(status()).toBe('paused');
+    expect(h().text()).toMatch(/What’s happening\?/);
+    // The stop is in today's record at once, the one every gate reads.
+    expect(today()?.news).toContain('stopped');
+
+    await h().click(h().button('Close', { exact: true }));
+    expect(h().text()).not.toMatch(/What’s happening\?/);
+    expect(today()?.news).toContain('stopped');
+    await tryToResume();
+    expect(status()).toBe('paused');
+    expect(deviceGate(() => store.getState())('restart')).toBe(false);
+    expect(h().text()).toMatch(/You stopped and haven’t said what happened yet/);
+
+    // The engine's release: an answer. "Just need a rest" is one, and then Resume carries on.
+    await h().click(h().button('Say what happened'));
+    await h().click(h().button('Just need a rest'));
+    expect(today()?.news ?? []).not.toContain('stopped');
+    await tryToResume();
+    expect(status()).toBe('running');
+  });
+
+  it('the leg questions answer the stop when they are saved', async () => {
+    await walking();
+    await h().click(h().button('I need to stop'));
+    await h().click(h().field(/a leg getting weaker/));
+    await h().click(h().button('Save leg symptoms'));
+    expect(today()?.news).not.toContain('stopped');
+    expect(today()?.back).toMatchObject({ newWeakness: true });
+    await tryToResume();
+    expect(status()).toBe('paused');
+  });
+
+  it('a stop answer answers the stop, and holds for what it says', async () => {
+    await walking();
+    await h().click(h().button('I need to stop'));
+    await h().click(h().button(/^Dizzy or faint/));
+    expect(today()?.news).toContain('dizzy');
+    expect(today()?.news).not.toContain('stopped');
+    await tryToResume();
+    expect(status()).toBe('paused');
+    expect(answer(p).reasons.join(' ')).toMatch(/Dizzy or faint/);
+    expect(answer(p).reasons.join(' ')).not.toMatch(/haven’t said what happened/);
   });
 });

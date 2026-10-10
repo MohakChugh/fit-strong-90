@@ -278,3 +278,14 @@ describe('scan C2-06: clearing one blood-pressure reading leaves the other as it
     expect(changed.bpEarlier).toEqual([{ sys: 150, dia: 95, at: at(60) }]);
   });
 });
+
+describe('a stop said during movement, in the check-in (journey §4.4, H6-01)', () => {
+  it('is never asked, and shows while it stands, so today’s answers can change it', () => {
+    expect(visibleQuestions(plain, emptyForm(plain)).news).not.toContain('stopped');
+    expect(visibleQuestions(diabetic, emptyForm(diabetic)).news).not.toContain('stopped');
+    const said = formFromRecord(record(plain, { ...base, news: ['stopped'] }), plain);
+    expect(visibleQuestions(plain, said).news[0]).toBe('stopped');
+    // Kept by a save that leaves it as it is.
+    expect(build(said, plain).news).toContain('stopped');
+  });
+});

@@ -8,7 +8,8 @@ import { reportSymptoms, resetPendingCheckInsForTests, saveCheckInRecord, type S
 import { STALE_AFTER_MS, type WalkPlan } from './clock';
 import { deviceClinical, deviceGate, walkInput, walkRefusal, watchClinical } from './gate';
 import { feelLow, lowReading } from './low';
-import { legReport, stopReport, type LegAnswers } from './stop';
+import { legReport, needToStop, stopAnswer, stopReport, type LegAnswers } from './stop';
+import { STOP_UNANSWERED } from '@/engine/readiness';
 import { createStepDetector } from './steps';
 import type { Fix } from './gps';
 import { createLiveWalk, MOTION_WAIT_MS, NOTICE_MIN_GAP_MS, type GeoError, type JournalPort, type LivePorts, type WalkIntent } from './live';
@@ -1263,6 +1264,41 @@ describe('round 3: what the walk acts on is every day’s effective record', () 
         expect(live.getSnapshot()!.walk.status).toBe(answer ? 'paused' : 'running');
       });
     }
+
+    for (const ok of [true, false]) {
+      it(`the tap saves the stop: closed unanswered it holds the walk and the next start, and an answer releases it (H6-01, save ${ok ? 'stored' : 'refused'})`, async () => {
+        const d = device([record(DAY)]);
+        const live = createLiveWalk(d.w.ports);
+        live.attach(START);
+        d.w.advance(120_000);
+        const report = (r: SymptomReport, at: Date) => d.report(r, at, ok);
+        expect((await needToStop(live, report, new Date(d.w.now))).stored).toBe(ok);
+        expect(live.getSnapshot()!.walk.status).toBe('paused');
+        // Nothing answered: Resume asks the restart question, and the engine holds.
+        live.resume();
+        expect(live.getSnapshot()!.walk.status).toBe('paused');
+        expect(live.getSnapshot()!.blocked).toBe('restart');
+        expect(next(d)?.reasons).toContain(STOP_UNANSWERED.reason);
+        // "Just need a rest" is an answer: the stop is released, and Resume carries on.
+        await report(stopAnswer('rest', false).report!, new Date(d.w.now));
+        expect(next(d)).toBeUndefined();
+        live.resume();
+        expect(live.getSnapshot()!.walk.status).toBe('running');
+        expect(live.getSnapshot()!.observedMs).toBe(120_000);
+      });
+    }
+
+    it('a stop the device stored is not released by an answer it refused to store (never looser, H6-01)', async () => {
+      const d = device([record(DAY)]);
+      const live = createLiveWalk(d.w.ports);
+      live.attach(START);
+      d.w.advance(60_000);
+      await needToStop(live, (r, at) => d.report(r, at, true), new Date(d.w.now));
+      await d.report(stopAnswer('rest', false).report!, new Date(d.w.now), false);
+      live.resume();
+      expect(live.getSnapshot()!.walk.status).toBe('paused');
+      expect(next(d)?.reasons).toContain(STOP_UNANSWERED.reason);
+    });
 
     it('just a rest: nothing recorded, and Resume carries on', () => {
       const { d, live } = stopped();

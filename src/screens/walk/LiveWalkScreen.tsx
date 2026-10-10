@@ -15,6 +15,7 @@ import { reachableHistory, walkInput, walkRefusal, type Clinical } from '@/walk/
 import { cn, toDateString } from '@/lib/utils';
 import { clock, spokenClock, timeOfDay } from '@/walk/format';
 import { feelLow, lowReading } from '@/walk/low';
+import { needToStop } from '@/walk/stop';
 import { walkFromSearch } from '@/walk/plan';
 import {
   STEPS_DENIED,
@@ -192,8 +193,13 @@ export default function LiveWalkScreen() {
   const full = journalLine(snapshot);
   const cue = profile.voice.muted ? undefined : cueLine({ status: voiceStatus, trouble: voiceTrouble }, typeof navigator === 'undefined' || navigator.onLine);
 
+  /**
+   * "I need to stop": recording stops, and the stop is saved through the
+   * shared path, at the tap (journey §4.4). Closing the question leaves it
+   * standing: the walk stays held until it is answered.
+   */
   const stopNow = () => {
-    live.pause();
+    void needToStop(live, reportSymptoms).then(r => setUnsaved(!r.stored));
     setSheet('stop');
   };
 
@@ -271,6 +277,11 @@ export default function LiveWalkScreen() {
                   {refusal.release && <p className="text-muted-foreground">{refusal.release}</p>}
                   {clockNote && <p className="text-muted-foreground">{clockNote}</p>}
                   <p className="text-muted-foreground">Your walk so far is kept. Finish to save it.</p>
+                  {action === 'stop' && (
+                    <button type="button" onClick={() => setSheet('stop')} className="press-feedback mt-1 min-h-12 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
+                      Say what happened
+                    </button>
+                  )}
                   {action === 'checkIn' && (
                     <button type="button" onClick={() => setSheet('checkIn')} className="press-feedback mt-1 min-h-11 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
                       Check in

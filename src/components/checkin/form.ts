@@ -228,11 +228,13 @@ const EMERGENCY_ORDER: EmergencyFlag[] = [
 ];
 const DIABETES_EMERGENCIES: EmergencyFlag[] = ['lowCantTreat', 'dka'];
 const NEWS_ORDER: NewsItem[] = [
-  'unwell', 'vomiting', 'highNotFalling', 'lowSymptoms', 'lowOne', 'lowTwoPlus', 'lowSevere', 'dizzy', 'fainted',
+  'stopped', 'unwell', 'vomiting', 'highNotFalling', 'lowSymptoms', 'lowOne', 'lowTwoPlus', 'lowSevere', 'dizzy', 'fainted',
   'footProblem', 'hotSwollenFoot', 'steroid', 'hot', 'unusualFatigue',
 ];
 const DIABETES_NEWS: NewsItem[] = ['highNotFalling', 'lowSymptoms', 'lowOne', 'lowTwoPlus', 'lowSevere'];
 const FOOT_NEWS: NewsItem[] = ['footProblem', 'hotSwollenFoot'];
+/** Said during movement, never asked: shown only while it stands, so it can be changed (journey §4.4). */
+const SAID_ONLY: NewsItem[] = ['stopped'];
 
 export interface Visible {
   /** Serious readings, today's and earlier days', that the sheet asks about: settled or not, so an answer can be taken back. */
@@ -349,7 +351,7 @@ export function visibleQuestions(
   const emergency = EMERGENCY_ORDER.filter(f => set.has(f) || diabetic || (f === 'dka' && d.ketoneRisk) || !DIABETES_EMERGENCIES.includes(f));
   const footRisk = diabetic || h.peripheralNeuropathy !== 'no';
   const news = NEWS_ORDER.filter(n => form.news.includes(n)
-    || ((diabetic || !DIABETES_NEWS.includes(n)) && (footRisk || !FOOT_NEWS.includes(n))));
+    || (!SAID_ONLY.includes(n) && (diabetic || !DIABETES_NEWS.includes(n)) && (footRisk || !FOOT_NEWS.includes(n))));
   const glucose = diabetic;
   const mg = formMgdl(form);
   const high = form.glucoseDisplay === 'HI' || (mg !== undefined && mg >= 250);

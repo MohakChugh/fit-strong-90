@@ -3,7 +3,7 @@ import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import type { DailyCheckIn, Mode } from '@/types/checkin';
 
 import { permission, resumePermission, PERMISSION_TEXT, FRESH_MINUTES } from './permission';
-import { evaluateCheckIn, profileOnlyReadiness } from './readiness';
+import { evaluateCheckIn, profileOnlyReadiness, STOP_UNANSWERED } from './readiness';
 import { bpMedicinesUnknown, deriveHealth, glucoseStartMin, profileGaps } from './health';
 
 const DATE = '2026-10-09';
@@ -289,5 +289,27 @@ describe('a mode the profile alone rules out does not wait on a check-in', () =>
       expect(ask(foot, undefined, mode), mode).toMatchObject({ allowed: false, needsCheckIn: true });
       expect(ask(foot, ci(), mode).allowed, mode).toBe(true);
     }
+  });
+});
+
+describe('"I need to stop" with nothing said since (journey §4.4, H6-01)', () => {
+  it('holds every movement, start and carrying on alike, until it is answered', () => {
+    for (const mode of ['guided', 'stretch', 'walk'] as const) {
+      const held = ask(none, ci({ news: ['stopped'] }), mode);
+      expect(held).toMatchObject({ allowed: false, disposition: 'hold', needsCheckIn: false });
+      expect(held.reasons).toContain(STOP_UNANSWERED.reason);
+      expect(held.release).toBe(STOP_UNANSWERED.release);
+      const profile = createDefaultProfile(none);
+      const c = ci({ news: ['stopped'] });
+      // Movement under way stops for it too: a stop is not paperwork.
+      expect(resumePermission({ profile, checkIn: { ...c, readiness: evaluateCheckIn(profile, c) }, now: NOW }, mode).allowed).toBe(false);
+    }
+  });
+
+  it('is answered by what is said next, and then only what that says decides', () => {
+    expect(ask(none, ci()).allowed).toBe(true);
+    const dizzy = ask(none, ci({ news: ['dizzy'] }), 'walk');
+    expect(dizzy.allowed).toBe(false);
+    expect(dizzy.reasons).not.toContain(STOP_UNANSWERED.reason);
   });
 });
