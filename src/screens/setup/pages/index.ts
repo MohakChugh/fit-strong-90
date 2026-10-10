@@ -2,8 +2,11 @@ import type { PageId } from '@/types/setup';
 import type { PageView } from '../controls';
 import { AboutBody, AboutFigure, AboutName } from './about';
 import { BackFeetHistory, BackFeetSide, BackFeetWhere } from './backFeet';
+import { DayMeals, DayReminders, DayVoice } from './day';
+import { FoodHowYouEat, FoodLogging } from './food';
 import { HealthBp, HealthConditions, HealthDiabetes, HealthEyes, HealthFeet, HealthFluid, HealthLimits } from './health';
 import { MedicinesKetones, MedicinesLows, MedicinesMonitors, MedicinesRegular, MedicinesStanding, MedicinesWhich } from './medicines';
+import { MovementFocus, MovementGoal, MovementProgramme } from './movement';
 
 /** About you's views, by page (journey §6.2 ch. 2). */
 export const ABOUT_VIEWS: Record<'about.name' | 'about.figure' | 'about.body', PageView> = {
@@ -38,4 +41,24 @@ export const BACK_FEET_VIEWS: Record<'backFeet.where' | 'backFeet.side' | 'backF
   'backFeet.where': BackFeetWhere,
   'backFeet.side': BackFeetSide,
   'backFeet.history': BackFeetHistory,
+};
+
+/** Your movement's views (journey §6.2 ch. 6). The programme's Join flow is its own sheet (board D81). */
+export const MOVEMENT_VIEWS: Record<'movement.focus' | 'movement.goal' | 'movement.programme', PageView> = {
+  'movement.focus': MovementFocus,
+  'movement.goal': MovementGoal,
+  'movement.programme': MovementProgramme,
+};
+
+/** Your food's views: the contract Plan 7 consumes (board D82). */
+export const FOOD_VIEWS: Record<'food.pattern' | 'food.logging', PageView> = {
+  'food.pattern': FoodHowYouEat,
+  'food.logging': FoodLogging,
+};
+
+/** Your day and coach's views (journey §6.2 ch. 8). */
+export const DAY_VIEWS: Record<'day.reminders' | 'day.meals' | 'day.voice', PageView> = {
+  'day.reminders': DayReminders,
+  'day.meals': DayMeals,
+  'day.voice': DayVoice,
 };
