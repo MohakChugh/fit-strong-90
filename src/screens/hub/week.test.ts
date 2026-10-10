@@ -33,6 +33,22 @@ describe('modeWeek (journey §8.2, This week)', () => {
     expect(days[1].words).toBe('No walk');
   });
 
+  it('walk: a walk across midnight puts each part’s minutes on its own day, once (codex H2-03, F17)', () => {
+    const at = (day: string, time: string) => `${day}T${time}.000+05:30`;
+    const part = (id: string, start: string, minutes: number, source: 'measured' | 'manual' = 'measured') =>
+      newObservation({ id, kind: 'walkDuration', value: minutes, unit: 'min', scope: 'sessionObserved', source, at: start, context: 'walk:w9', coverageMs: minutes * 60_000 });
+    // Split at midnight by the live screen: 20 minutes before, 15 after.
+    const split = modeWeek({ mode: 'walk', today: TODAY, sessions: [], observations: [part('a', at('2026-10-06', '23:40:00'), 20), part('b', at('2026-10-07', '00:00:00'), 15)] });
+    expect(split[1]).toMatchObject({ state: 'done', words: '20 min walked' });
+    expect(split[2]).toMatchObject({ state: 'done', words: '15 min walked' });
+    // One part that runs past midnight is shared between the two days at midnight.
+    const spanning = modeWeek({ mode: 'walk', today: TODAY, sessions: [], observations: [part('c', at('2026-10-06', '23:50:00'), 20)] });
+    expect([spanning[1].words, spanning[2].words]).toEqual(['10 min walked', '10 min walked']);
+    // Two records of the same time are one walk's minutes, not two; time the person added is not "walked".
+    const twice = modeWeek({ mode: 'walk', today: TODAY, sessions: [], observations: [part('d', at('2026-10-06', '08:00:00'), 20), part('e', at('2026-10-06', '08:05:00'), 10), part('f', at('2026-10-06', '09:00:00'), 5, 'manual')] });
+    expect(twice[1].words).toBe('20 min walked');
+  });
+
   it('workout outside the programme: a day with a recorded workout is done', () => {
     const days = modeWeek({ mode: 'guided', today: TODAY, sessions: [session({ id: 'g1', planKind: 'full', guided: true })], observations: [] });
     expect(days[1]).toMatchObject({ state: 'done', words: 'Done' });
