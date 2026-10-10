@@ -362,7 +362,7 @@ describe('chooserRows', () => {
       ['walk', '/hub/walk', 'walk'],
       ['guided', '/session', 'guided'],
       ['log', '/track?add=', undefined],
-      ['learn', '/guide', undefined],
+      ['learn', '/hub/learn', undefined],
     ]);
   });
 

@@ -29,12 +29,12 @@ export default function CardScreen() {
   const card = getCard(cardId);
   // A card the person's answers hide (generic water advice with a fluid
   // limit) is not reachable by address either.
-  if (!card || !isCardVisible(card, ctx)) return <Navigate to="/guide" replace />;
+  if (!card || !isCardVisible(card, ctx)) return <Navigate to="/hub/learn" replace />;
 
   const home = getTopic(card.topics[0])!;
   const back = (state as { from?: string } | null)?.from === 'search'
-    ? { to: '/guide', label: 'Guide' }
-    : { to: `/guide/topic/${home.id}`, label: home.title };
+    ? { to: '/hub/learn', label: 'Learn' }
+    : { to: `/hub/learn/topic/${home.id}`, label: home.title };
   const blocks = cardBlocks(card, ctx);
   // Sources and the review date cover exactly what this person sees.
   const shown = idsShown(blocks.flatMap(b => ('claims' in b ? [b.claims] : [])));
@@ -74,7 +74,7 @@ function RelatedGroup({ cards, from }: { cards: GuidanceCard[]; from: GuidanceCa
   return (
     <Group header="Related">
       {cards.map(c => (
-        <Row key={c.id} as={Link} to={`/guide/card/${c.id}`} state={{ path: `/guide/card/${from.id}`, label: from.title }} viewTransition label={c.title} detail={c.question} chevron />
+        <Row key={c.id} as={Link} to={`/hub/learn/card/${c.id}`} state={{ path: `/hub/learn/card/${from.id}`, label: from.title }} viewTransition label={c.title} detail={c.question} chevron />
       ))}
     </Group>
   );

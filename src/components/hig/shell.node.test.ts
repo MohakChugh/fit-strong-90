@@ -534,7 +534,7 @@ describe('wiring that names the opener (S-10, S-11)', () => {
   });
 
   it('a related card and a related exercise name the screen they were opened from', () => {
-    expect(read('src/screens/guide/CardScreen.tsx')).toContain('state={{ path: `/guide/card/${from.id}`, label: from.title }}');
+    expect(read('src/screens/guide/CardScreen.tsx')).toContain('state={{ path: `/hub/learn/card/${from.id}`, label: from.title }}');
     expect(read('src/screens/move/ExerciseScreen.tsx')).toContain('state={{ from: origin, path: location.pathname, label: ex.name }}');
   });
 });

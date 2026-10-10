@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
+import { redirectFor } from '@/redirects';
 import { parseAddParam } from '@/screens/track/logKinds';
 import { interpretPressure } from '@/screens/track/targets';
 import { BACK_RED_FLAGS, CARDS } from './cards';
@@ -412,6 +413,15 @@ describe('hand-offs to Track', () => {
     expect(getCard('card-glucose-checks')!.action?.to).toBe(ROUTES.addGlucose);
     expect(getCard('card-bp-measure')!.action?.to).toBe(ROUTES.addBloodPressure);
     expect(getCard('card-waist')!.action?.to).toBe(ROUTES.addWaist);
+  });
+
+  it('opens every place at its v2 address, with no redirect hop (journey §19.3)', () => {
+    const results = ['dal', 'sleep'].flatMap(q => search(q, metforminOnly));
+    expect(new Set(results.map(r => r.kind))).toEqual(new Set(['topic', 'card', 'meal']));
+    for (const to of [...Object.values(ROUTES), ...results.map(r => r.to)]) {
+      const url = new URL(to, 'https://x.invalid');
+      expect(redirectFor(url.pathname, url.search), to).toBeUndefined();
+    }
   });
 });
 

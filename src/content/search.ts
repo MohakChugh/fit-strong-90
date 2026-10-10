@@ -43,12 +43,12 @@ const doc = (r: Found, title: string[], strong: string[], body: string[]): Doc =
 });
 
 const TOPIC_DOCS: Doc[] = TOPICS.map(t => doc(
-  { kind: 'topic', id: t.id, title: t.title, detail: t.summary, to: `/guide/topic/${t.id}` },
+  { kind: 'topic', id: t.id, title: t.title, detail: t.summary, to: `/hub/learn/topic/${t.id}` },
   [t.title], [...t.aliases, t.summary], [],
 ));
 
 const CARD_DOCS: Doc[] = CARDS.map(c => doc(
-  { kind: 'card', id: c.id, title: c.title, detail: c.question, to: `/guide/card/${c.id}` },
+  { kind: 'card', id: c.id, title: c.title, detail: c.question, to: `/hub/learn/card/${c.id}` },
   [c.title], [...c.aliases, c.question],
   claims([...c.answer, ...(c.emergencies ?? []), ...c.notes, ...c.actions, ...c.cautions]).map(x => x.statement),
 ));
@@ -64,7 +64,7 @@ function mealDocsFor(pattern?: Pattern): Doc[] {
     docs = MEALS.filter(m => suits(m, pattern)).map(m => {
       const parts = componentsFor(m, pattern);
       return doc(
-        { kind: 'meal', id: m.id, title: m.name, detail: SLOT_TITLE.get(m.slot) ?? '', to: `/guide/meals/${m.id}` },
+        { kind: 'meal', id: m.id, title: m.name, detail: SLOT_TITLE.get(m.slot) ?? '', to: `/hub/food/ideas/${m.id}` },
         [m.name], [...m.aliases, ...parts.flatMap(c => c.aliases ?? [])], parts.map(c => c.name),
       );
     });

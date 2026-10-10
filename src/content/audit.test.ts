@@ -9,7 +9,7 @@ import {
   cardBlocks, cardsForTopic, contextFromProfile, contextOf, habitAdvice, isCardVisible, relatedCards, resolveGroups,
   type CardBlock,
 } from './personalise';
-import type { Claim } from './schema';
+import { ROUTES, type Claim } from './schema';
 import { search } from './search';
 import { normalise } from './text';
 import { componentsFor, isAvoided, mealsFor, unmatchedAvoid } from './week';
@@ -158,7 +158,7 @@ const BACK_FLAGS = ['back-ces', 'stroke-signs', 'back-both-legs', 'back-weakness
 /** Where movement first appears on a card: a block holding a movement prompt, or a hand-off to walk or stretch. */
 const firstMovement = (blocks: CardBlock[]) => blocks.findIndex(b => ('claims' in b
   ? b.claims.some(s => s.claim.movement)
-  : b.action.to === '/walk' || b.action.to === '/move/stretch'));
+  : b.action.to === ROUTES.walk || b.action.to === ROUTES.stretch));
 const firstUrgent = (blocks: CardBlock[]) => blocks.findIndex(b => b.kind === 'emergency' || b.kind === 'soon');
 
 /** People the back cards must keep safe, from no answers to an open foot wound. */

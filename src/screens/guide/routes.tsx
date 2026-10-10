@@ -22,8 +22,8 @@ export default function GuideRoutes() {
       <Route path="meals/:mealId" element={<MealDetailScreen />} />
       <Route path="sources" element={<SourcesScreen />} />
       {/* Absolute on purpose: in a splat route React Router 7 resolves "." to
-          the unmatched address itself, so `to="."` left /guide/x blank. */}
-      <Route path="*" element={<Navigate to="/guide" replace />} />
+          the unmatched address itself, so `to="."` left /hub/learn/x blank. */}
+      <Route path="*" element={<Navigate to="/hub/learn" replace />} />
     </Routes>
   );
 }

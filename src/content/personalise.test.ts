@@ -4,7 +4,7 @@ import { getCard, getClaim } from './library';
 import {
   actionFor, cardsForTopic, contextFromProfile, contextOf, habitAdvice, isForYou, topicsFor, visibleCards,
 } from './personalise';
-import type { Predicate, TopicId } from './schema';
+import { ROUTES, type Predicate, type TopicId } from './schema';
 import { TOPICS } from './topics';
 
 const profile = (input: ProfileInput) => createDefaultProfile(input);
@@ -166,7 +166,7 @@ describe('hand-offs the readiness engine rules out', () => {
 
   it('offers the walk otherwise', () => {
     const ctx = contextFromProfile(profile({ health: { diabetes: 'type2' } }));
-    expect(actionFor(getCard('card-after-meal-walk')!, ctx)?.to).toBe('/walk');
+    expect(actionFor(getCard('card-after-meal-walk')!, ctx)?.to).toBe(ROUTES.walk);
   });
 });
 

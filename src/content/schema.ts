@@ -195,11 +195,11 @@ export interface Topic {
 
 /** In-app destinations a card may hand off to. */
 export const ROUTES = {
-  walk: '/walk',
-  stretch: '/move/stretch',
-  reminders: '/you/habits',
-  meals: '/guide/meals',
-  week: '/guide/meals/week',
+  walk: '/hub/walk',
+  stretch: '/hub/stretch',
+  reminders: '/me/reminders',
+  meals: '/hub/food/ideas',
+  week: '/hub/food/week',
   /** A reading's hub, with its own form open on arrival (`?add=`, `parseAddParam`). */
   addGlucose: '/hub/glucose?add=glucose',
   addBloodPressure: '/hub/bp?add=bloodPressure',

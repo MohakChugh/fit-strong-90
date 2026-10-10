@@ -267,7 +267,7 @@ export function chooserRows(input: { recommendation: Recommendation; enrolled: b
     { id: 'walk', label: 'Walk', detail: 'Timed, with your pace if you allow location', to: HREF.walk, mode: 'walk' },
     guided,
     { id: 'log', label: 'Log something', detail: 'A reading, water, steps or a workout', to: '/track?add=' },
-    { id: 'learn', label: 'Learn', detail: 'Food, desk setup and everyday habits', to: '/guide' },
+    { id: 'learn', label: 'Learn', detail: 'Food, desk setup and everyday habits', to: '/hub/learn' },
   ];
   const suggested = suggestedRow(recommendation);
   // A stop applies to every way of moving, so none is offered as an ordinary

@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { LibraryIcon, SearchIcon, UtensilsIcon, XIcon } from 'lucide-react';
+import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
-import { Screen } from '@/components/hig/Screen';
 import { DISCLAIMER, search, topicsFor, type ResultKind, type SearchResult } from '@/content';
+import { HubFrame } from '@/screens/hub/HubFrame';
 import { onlyPartial, partialDetail } from './format';
 import { TOPIC_ICON } from './icons';
 import { useGuide } from './useGuide';
@@ -11,8 +12,9 @@ import { useGuide } from './useGuide';
 const KIND_HEADER: Record<ResultKind, string> = { topic: 'Topics', card: 'Answers', meal: 'Meal ideas' };
 
 /**
- * Guide: a search field and the topics, nothing else. Topics that matter to
- * this person lead under "For you", each with the answer that put it there.
+ * The Learn hub (journey §8.2): a search field and the topics, nothing else.
+ * Topics that matter to this person lead under "For you", each with the
+ * answer that put it there.
  */
 export default function GuideScreen() {
   const { ctx } = useGuide();
@@ -31,8 +33,7 @@ export default function GuideScreen() {
   };
 
   return (
-    // The Learn hub until Plan 2: opened from Home or Browse, so it goes back there (journey §8.1).
-    <Screen title="Guide" back={{ to: '/home', label: 'Home' }}>
+    <HubFrame category={categoryById('learn')}>
       <form
         role="search"
         onSubmit={e => {
@@ -50,7 +51,7 @@ export default function GuideScreen() {
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
-          aria-label="Search Guide"
+          aria-label="Search Learn"
           placeholder="Search foods and topics"
           value={query}
           onChange={e => change(e.target.value)}
@@ -88,7 +89,7 @@ export default function GuideScreen() {
           <Group footer={DISCLAIMER}>
             <Row
               as={Link}
-              to="/guide/meals"
+              to="/hub/food/ideas"
               viewTransition
               icon={<UtensilsIcon aria-hidden />}
               label="Meal ideas"
@@ -97,7 +98,7 @@ export default function GuideScreen() {
             />
             <Row
               as={Link}
-              to="/guide/sources"
+              to="/hub/learn/sources"
               viewTransition
               icon={<LibraryIcon aria-hidden />}
               label="Sources"
@@ -107,7 +108,7 @@ export default function GuideScreen() {
           </Group>
         </>
       )}
-    </Screen>
+    </HubFrame>
   );
 }
 
@@ -116,7 +117,7 @@ function TopicRow({ id, title, detail }: { id: keyof typeof TOPIC_ICON; title: s
   return (
     <Row
       as={Link}
-      to={`/guide/topic/${id}`}
+      to={`/hub/learn/topic/${id}`}
       viewTransition
       icon={<Icon aria-hidden />}
       label={title}
@@ -143,7 +144,7 @@ function Results({ query, results }: { query: string; results: SearchResult[] })
         <div className="px-4 py-6 text-center">
           <p className="text-[length:var(--text-body)] font-semibold">No results for “{query.trim()}”</p>
           <p className="mt-1 text-[length:var(--text-subhead)] text-muted-foreground">
-            Try a food such as dal or roti, or a topic such as sleep. Guide reads English letters and Hindi in Devanagari.
+            Try a food such as dal or roti, or a topic such as sleep. Learn reads English letters and Hindi in Devanagari.
           </p>
         </div>
       ) : (
