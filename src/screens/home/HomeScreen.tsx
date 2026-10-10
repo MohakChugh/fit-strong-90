@@ -14,7 +14,7 @@
 import { lazy, Suspense, useContext, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
-import { GlassWaterIcon, InfoIcon } from 'lucide-react';
+import { CalendarDaysIcon, GlassWaterIcon, InfoIcon } from 'lucide-react';
 import { Screen } from '@/components/hig/Screen';
 import { Sheet } from '@/components/hig/Sheet';
 import { Group, Row } from '@/components/hig/List';
@@ -37,9 +37,14 @@ import { ReminderBanner } from '@/reminders/ReminderBanner';
 import { waterBlock } from '@/reminders/water';
 import { bankProgress, progressSettled } from '@/session/logging';
 import { clearProgress, loadExpiredProgress, loadSetAside, minutesLeft, releaseSetAside, slotOf, type SavedProgress } from '@/session/persistence';
+import { markTab } from '@/components/hig/navigation';
 import { prefersHour12 } from '@/screens/track/format';
+import { displayPrefs } from '@/screens/track/logKinds';
+import { addDays, mondayOf } from '@/screens/track/periods';
+import { trendContext } from '@/screens/trends/model';
+import { WEEK_BRIEF_KEY, briefSeen, weekBriefFor, weekFacts, weekSentences, withSeen } from '@/screens/trends/yourWeek';
 import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
-import { addToDayTotal, getState, isSessionSaved, useStore } from '@/store/useStore';
+import { addToDayTotal, getState, isSessionSaved, setContentState, useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { canLocate, canSenseMotion } from '@/walk/browser';
 import { peekWalk } from '@/walk/persist';
@@ -278,8 +283,17 @@ export function HomeScreen() {
   // This week's goal: a change waits for Monday (B-16).
   const goal = weeklyGoalOn(settings, today);
   const stopped = recommendation.kind === 'emergency' || recommendation.kind === 'seekHelp';
+  // "Your week in brief" (journey §12.6, B-20): last week's, when it has something to say, until it's opened.
+  const briefHasFacts = useMemo(() => {
+    const data = { observations, sessions, checkIns: state.checkIns };
+    const prefs = displayPrefs(settings, profile, observations, HOUR12);
+    const ctx = trendContext({ today, data, settings, profile });
+    return weekSentences(weekFacts({ week: addDays(mondayOf(today), -7), data, prefs, ctx }), prefs).length > 0;
+  }, [observations, sessions, state.checkIns, settings, profile, today]);
+  const weekBrief = weekBriefFor({ now, seen: briefSeen(state.contentState[WEEK_BRIEF_KEY]), hasFacts: briefHasFacts });
   const prompt = pickPrompt({
     now, day: today, status, profile, settings, observations, waiting,
+    ...(weekBrief ? { weekBrief } : {}),
     stopped,
     held: SAFETY.has(recommendation.kind) && !stopped,
     waterBlocked: waterBlock(profile, settings.habits) !== undefined,
@@ -572,9 +586,22 @@ function EarlierSession({ saved, onFinish, onSave }: {
   );
 }
 
-/** The one prompt: a due check with its source, or the water habit the person chose. */
+/** The one prompt: a due check with its source, the water habit the person chose, or last week's brief. */
 function PromptRow({ prompt }: { prompt: Exclude<Prompt, { kind: 'reminder' }> }) {
   const [error, setError] = useState<string>();
+  if (prompt.kind === 'weekBrief') {
+    const { week } = prompt;
+    // Opening it is seeing it (B-20): kept in content state, so it stays seen on every device it's restored to.
+    const open = () => {
+      markTab('trends');
+      void setContentState(WEEK_BRIEF_KEY, withSeen(briefSeen(getState().contentState[WEEK_BRIEF_KEY]), week));
+    };
+    return (
+      <Group>
+        <Row as={Link} to={`/trends?week=${week}`} viewTransition onClick={open} icon={<CalendarDaysIcon />} label="Your week in brief" detail="Last week, in a few sentences" chevron />
+      </Group>
+    );
+  }
   if (prompt.kind === 'due') {
     const { item } = prompt;
     return (
