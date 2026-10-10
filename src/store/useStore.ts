@@ -55,7 +55,10 @@ import {
   type ObservationTag,
 } from '@/health/observation';
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
-import { StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult } from './db';
+import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult } from './db';
+import { parseJournalEntry, type JournalEntry } from '@/walk/journal';
+import type { RouteRecord } from '@/walk/routeRecord';
+import type { WalkInput } from '@/walk/record';
 import { SCHEMA_VERSION, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
 import { liftBodyMetric, liftCheckIn, liftSessionPain } from './project';
 import { RECORD_RULES, recordKey, recordProblem, type RecordStore, type Records, type StoredRecord } from './records';
@@ -1140,6 +1143,97 @@ export function removeRecords(store: RecordStore, keys: readonly string[]): Prom
     plan: base => {
       const present = base.records[store].map(r => recordKey(store, r)).filter(k => wanted.has(k));
       return { change: present.length ? { records: { [store]: { remove: present } } as Change['records'] } : null, result: () => undefined };
+    },
+  });
+}
+
+// ============================================================================
+// A walk: its recovery journal, and saving it with its route (journey §9.4, §18.3)
+// ============================================================================
+
+/**
+ * A walk's recovery checkpoint, written straight to the journal store: outside
+ * the record, so it moves no revision and reaches no other tab or backup.
+ * Nothing is kept while storage is unavailable.
+ */
+export function putWalkJournal(entry: JournalEntry): Promise<StoreResult> {
+  const handle = db;
+  if (!handle) return Promise.resolve({ ok: false, failure: unavailableFailure() });
+  return handle.transact(tx => tx.put(JOURNAL_STORE, entry));
+}
+
+/** Every readable checkpoint on this device. One that can't be read is left out, never guessed. */
+export async function readWalkJournals(): Promise<StoreResult<JournalEntry[]>> {
+  const handle = db;
+  if (!handle) return { ok: true, value: [] };
+  try {
+    const rows = await handle.getAll<unknown>(JOURNAL_STORE);
+    return { ok: true, value: rows.map(parseJournalEntry).filter((e): e is JournalEntry => e !== null) };
+  } catch (error) {
+    return { ok: false, failure: toFailure(error, 'readFailed') };
+  }
+}
+
+/** Retire checkpoints whose walks are already saved: tidying, never a walk. */
+export function retireWalkJournals(ids: readonly string[]): Promise<StoreResult> {
+  const handle = db;
+  if (!handle || ids.length === 0) return Promise.resolve({ ok: true, value: undefined });
+  return handle.transact(tx => { for (const id of ids) tx.delete(JOURNAL_STORE, id); });
+}
+
+export interface SaveWalkInput {
+  walkId: string;
+  /** Every record of the walk, with stable ids (`walkObservations`). Those already stored are left as they are. */
+  observations: readonly WalkInput[];
+  /** Only when the person keeps routes. */
+  route?: RouteRecord;
+}
+
+/**
+ * A walk, its route and the retirement of its recovery state, in one
+ * transaction (journey §18.3, A-55). A retry, or a second tap, writes only
+ * what is missing; the journal goes either way.
+ */
+export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
+  const fixed = input.observations.map(o => ({ ...o, at: o.at ?? nowAt() }));
+  return enqueue<void>({
+    plan: base => {
+      const wanted = new Set(fixed.map(o => o.id));
+      const held = new Set(base.observations.filter(o => wanted.has(o.id)).map(o => o.id));
+      const records = fixed.filter(o => !held.has(o.id)).map(o => newObservation(o));
+      let route: StoredRecord | undefined;
+      if (input.route) {
+        const problem = recordProblem('routes', input.route);
+        if (problem) throw new StoreFailure('invalid', `The route could not be saved: ${problem}.`);
+        if (!base.records.routes.some(r => r.walkId === input.walkId)) route = input.route as unknown as StoredRecord;
+      }
+      return {
+        change: {
+          ...(records.length > 0 ? { observations: { put: records } } : {}),
+          ...(route ? { records: { routes: { put: [route] } } } : {}),
+          journal: { remove: [input.walkId] },
+        },
+        result: () => undefined,
+      };
+    },
+  });
+}
+
+/** A walk, its route and its recovery state gone in one transaction (F09). Only the observations named go; the walk's pain ratings can stay. */
+export function removeWalk(walkId: string, observationIds: readonly string[]): Promise<StoreResult> {
+  const wanted = new Set(observationIds);
+  return enqueue<void>({
+    plan: base => {
+      const present = base.observations.filter(o => wanted.has(o.id)).map(o => o.id);
+      const route = base.records.routes.some(r => r.walkId === walkId);
+      return {
+        change: {
+          ...(present.length > 0 ? { observations: { remove: present } } : {}),
+          ...(route ? { records: { routes: { remove: [walkId] } } } : {}),
+          journal: { remove: [walkId] },
+        },
+        result: () => undefined,
+      };
     },
   });
 }

@@ -129,6 +129,7 @@ export function liveHref(id: string, plan: WalkPlan): string {
   if (plan.targetMinutes !== undefined) q.set('target', String(plan.targetMinutes));
   if (plan.gps) q.set('gps', '1');
   if (plan.steps) q.set('steps', '1');
+  if (plan.keepRoute) q.set('route', '1');
   return `/walk/live?${q.toString()}`;
 }
 
@@ -167,6 +168,8 @@ export function walkFromSearch(search: URLSearchParams, now: number): { id: stri
       ...(targetOk ? { targetMinutes: target } : {}),
       gps: search.get('gps') === '1',
       steps: search.get('steps') === '1',
+      // A route is kept only from GPS, and only when the person said so on this phone (§9.1).
+      ...(search.get('route') === '1' && search.get('gps') === '1' ? { keepRoute: true } : {}),
     },
   };
 }

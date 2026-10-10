@@ -50,6 +50,8 @@ function snapshot(over: Partial<LiveSnapshot> = {}): LiveSnapshot {
     notice: null,
     blocked: null,
     draftKept: true,
+    route: [],
+    journalFull: false,
     ...over,
   };
 }

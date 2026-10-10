@@ -42,6 +42,7 @@ function isPlan(v: unknown): v is WalkPlan {
   } else if (v.meal !== undefined) {
     return false;
   }
+  if (v.keepRoute !== undefined && typeof v.keepRoute !== 'boolean') return false;
   return true;
 }
 

@@ -132,3 +132,14 @@ describe('afterMealSuggestion: what B-09’s button says, and the meal time it r
     expect(mealMinutesAgo(at(13, 41), at(13, 40))).toBe(0);
   });
 });
+
+describe('keeping the route (§9.1)', () => {
+  it('travels in the live walk’s address, and only with GPS', () => {
+    const href = liveHref('mgh3k2x1-1a2b3c4d', { kind: 'walk', gps: true, steps: false, keepRoute: true });
+    expect(href).toContain('route=1');
+    const back = walkFromSearch(new URLSearchParams(href.split('?')[1]), Date.now());
+    expect(back?.plan.keepRoute).toBe(true);
+    expect(walkFromSearch(new URLSearchParams('id=mgh3k2x1-1a2b3c4d&route=1'), Date.now())?.plan.keepRoute).toBeUndefined();
+    expect(liveHref('mgh3k2x1-1a2b3c4d', { kind: 'walk', gps: true, steps: false })).not.toContain('route=');
+  });
+});

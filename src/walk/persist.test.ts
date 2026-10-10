@@ -225,6 +225,12 @@ describe('walks kept before B-19', () => {
     expect(withFirst({ offsetMin: -14 * 60 })).not.toBeNull();
   });
 
+  it('refuse a route consent that is not a yes or a no', () => {
+    const w = aWalk();
+    expect(parseWalk({ ...w, plan: { ...w.plan, keepRoute: true } })?.plan.keepRoute).toBe(true);
+    expect(parseWalk({ ...w, plan: { ...w.plan, keepRoute: 'yes' } })).toBeNull();
+  });
+
   it('keep a segment closed by a change to the clock, and the change itself (B-19)', () => {
     const w = aWalk();
     const changed = { ...w, clockChangedAt: T + 300_000, segments: [{ ...w.segments[0], endedBy: 'clockChange' as const }, w.segments[1]] };

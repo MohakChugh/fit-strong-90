@@ -10,6 +10,7 @@ import { createLiveWalk, type GeoError, type GeoPort, type LivePorts, type LiveW
 import { storeGate, watchClinical } from './gate';
 import { createWakeLockPort } from './wakeLock';
 import { sessionWalkStorage } from './persist';
+import { journalPort } from './journalPort';
 
 type MotionPermission = 'granted' | 'denied';
 
@@ -161,6 +162,7 @@ export function browserPorts(): LivePorts {
     geolocation: geolocationPort(),
     motion: motionPort(),
     wakeLock: wakeLockPort(),
+    journal: journalPort(),
   };
 }
 

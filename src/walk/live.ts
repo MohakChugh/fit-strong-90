@@ -40,9 +40,12 @@ import {
   type WalkPlan,
   type WalkStatus,
 } from './clock';
+import type { StoreResult } from '@/store/db';
 import { createTrack, type Fix, type GpsRun, type PaceState, type Track } from './gps';
+import { checkpointDue, journalEntry, type JournalEntry } from './journal';
 import { createStepDetector } from './steps';
 import { lastStartedId, loadWalk, markStarted, storeWalk, type WalkStorage } from './persist';
+import type { LatLon, RouteLine } from './routeRecord';
 
 export type GeoError = 'denied' | 'unavailable' | 'timeout';
 
@@ -87,6 +90,13 @@ export interface VisibilityPort {
  */
 export type WalkIntent = 'start' | 'restart' | 'live';
 
+export interface JournalPort {
+  /** Keep this checkpoint (journey §9.4). Resolves whether it was kept. */
+  checkpoint(entry: JournalEntry): Promise<StoreResult>;
+  /** The latest checkpoint kept for a walk, if any. */
+  read(id: string): Promise<JournalEntry | undefined>;
+}
+
 export interface LivePorts {
   /**
    * May this walk move right now? Asked at every transition into recording,
@@ -112,6 +122,8 @@ export interface LivePorts {
   geolocation?: GeoPort;
   motion?: MotionPort;
   wakeLock?: WakeLockPort;
+  /** Where the walk is kept against a closed or crashed app (journey §9.4). */
+  journal?: JournalPort;
 }
 
 /** A gap shorter than this is recorded but not announced: a glance at a notification. */
@@ -167,6 +179,12 @@ export interface LiveSnapshot {
    * would bring back an older copy (re-audit F08). Every tick tries again.
    */
   draftKept: boolean;
+  /** Every line of the route so far in this page, never joined (B-17): for the drawing, whether or not it is kept. */
+  route: RouteLine[];
+  /** The walker, while GPS is measuring. */
+  here?: LatLon;
+  /** The last checkpoint was refused for want of space (journey §9.4). */
+  journalFull: boolean;
 }
 
 export type AttachResult = 'created' | 'resumed' | 'none';
@@ -202,6 +220,8 @@ export interface LiveWalk {
   dismissNotice(): void;
   /** From a tap: ask again for motion, after iOS forgot the grant. */
   enableMotion(): Promise<void>;
+  /** Erase every point kept for this walk and keep none from now on (B-05). */
+  forgetRoute(): void;
 }
 
 export function createLiveWalk(ports: LivePorts): LiveWalk {
@@ -238,9 +258,37 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
   /** The monotonic reading at the moment the open segment's accrual last reached `accruedAt`. */
   let monoAt: number | undefined;
 
-  /** Keep the walk in progress, and remember whether that worked, to say so. */
-  function persist() {
-    if (walk) draftKept = storeWalk(ports.storage, walk);
+  /** Lines from tracks already ended in this page (B-17). */
+  let routeBase: RouteLine[] = [];
+  let lastCheckpoint: number | undefined;
+  let journalFull = false;
+
+  const allLines = (): RouteLine[] => [...routeBase, ...(track?.lines ?? [])];
+
+  /** A fresh track from `start`, the ended one's lines kept for the drawing. */
+  function newTrack(start: number): Track {
+    if (track) routeBase = [...routeBase, ...track.lines];
+    return createTrack(start, { route: true });
+  }
+
+  /**
+   * Keep the walk in progress, and remember whether that worked, to say so:
+   * the tab's draft every time, the journal at every change and every 15 s
+   * (journey §9.4). The journal holds the route only while it is kept.
+   */
+  function persist(checkpoint: 'now' | 'due' = 'now') {
+    if (!walk) return;
+    draftKept = storeWalk(ports.storage, walk);
+    const now = ports.now();
+    if (!ports.journal || (checkpoint === 'due' && !checkpointDue(lastCheckpoint, now))) return;
+    lastCheckpoint = now;
+    const entry = journalEntry(walk, now, walk.plan.keepRoute ? allLines() : undefined);
+    void ports.journal.checkpoint(entry).then(result => {
+      const full = !result.ok && result.failure.code === 'quotaExceeded';
+      if (full === journalFull) return;
+      journalFull = full;
+      emit();
+    });
   }
 
   function gpsState(now: number): LiveSnapshot['gps'] {
@@ -279,6 +327,10 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
         notice,
         blocked,
         draftKept,
+        // ponytail: the lines are copied on each emit, O(points) at 1 Hz. Upgrade: a version-keyed cache if profiling shows it.
+        route: allLines(),
+        ...(track?.here ? { here: track.here } : {}),
+        journalFull,
       };
     }
     for (const listener of [...listeners]) listener();
@@ -302,6 +354,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     gpsDenied = true;
     stopGps?.();
     stopGps = undefined;
+    if (track) routeBase = [...routeBase, ...track.lines];
     track = null;
     emit();
   }
@@ -336,7 +389,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     if (!walk || !segment) return;
     monoAt = mono();
     if (walk.plan.gps && ports.geolocation && !gpsDenied) {
-      track = createTrack(segment.start);
+      track = newTrack(segment.start);
       trackBase = segment.gps;
       stopGps = ports.geolocation.watch(onFix, onGeoError);
     }
@@ -346,6 +399,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
   function stopSensors() {
     stopGps?.();
     stopGps = undefined;
+    if (track) routeBase = [...routeBase, ...track.lines];
     track = null;
     stopMotion?.();
     stopMotion = undefined;
@@ -459,7 +513,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     walk = split;
     const open = openSegment(walk);
     if (track && open) {
-      track = createTrack(open.start);
+      track = newTrack(open.start);
       trackBase = [];
     }
   }
@@ -482,7 +536,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     }
     walk = splitAtClockChange(walk, now, step.ms);
     if (track) {
-      track = createTrack(now);
+      track = newTrack(now);
       trackBase = [];
     }
   }
@@ -499,12 +553,13 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     cancelTick = undefined;
     if (!walk) return;
     const now = ports.now();
-    advance(now);
+    const split = advance(now);
     walk = heartbeat(walk, now);
     // Asked every second, so nothing new about the person's health has to
     // wait for the screen to notice before the walk stops.
     if (walk.status === 'running' && !mayRun('live')) holdBack(now);
-    persist();
+    // A segment closing is a change of state: a checkpoint now, else when one is due.
+    persist(split ? 'now' : 'due');
     emit();
     scheduleTick();
   }
@@ -553,6 +608,16 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
         // Restored to be read and saved. Whether it may move is a separate
         // question, asked below.
         walk = restoreWalk(stored, now);
+        // A kept route comes back from the journal, for the drawing and the save.
+        const id = walk.id;
+        if (walk.plan.keepRoute && ports.journal) {
+          void ports.journal.read(id).then(entry => {
+            if (!entry?.route || walk?.id !== id || !walk.plan.keepRoute) return;
+            const known = new Set(allLines().map(l => l.start));
+            routeBase = [...entry.route.filter(l => !known.has(l.start)), ...routeBase];
+            emit();
+          });
+        }
       } else if (request && lastStartedId(ports.storage) !== request.id) {
         if (!mayRun('start')) return 'none';
         walk = startWalk(request.id, request.plan, now);
@@ -597,6 +662,9 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
       walk = walk.status === 'running' ? leaveWalk(walk, now, 'left') : heartbeat(walk, now);
       persist();
       walk = null;
+      routeBase = [];
+      lastCheckpoint = undefined;
+      journalFull = false;
       notice = null;
       blocked = null;
       draftKept = true;
@@ -675,6 +743,15 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
       } else if (walk.status === 'running') {
         listenForMotion(ports.now());
       }
+      emit();
+    },
+
+    forgetRoute() {
+      if (!walk) return;
+      routeBase = [];
+      track?.forgetPoints();
+      walk = { ...walk, plan: { ...walk.plan, keepRoute: false } };
+      persist();
       emit();
     },
   };

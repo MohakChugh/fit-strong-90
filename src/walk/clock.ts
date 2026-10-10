@@ -31,6 +31,8 @@ export interface WalkPlan {
   gps: boolean;
   /** Count steps with the motion sensor. */
   steps: boolean;
+  /** The person keeps routes on this phone (§9.1): the route is journalled while walking and saved with the walk. */
+  keepRoute?: boolean;
 }
 
 /**

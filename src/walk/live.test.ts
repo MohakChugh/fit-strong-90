@@ -11,7 +11,9 @@ import { feelLow, lowReading } from './low';
 import { legReport, stopReport, type LegAnswers } from './stop';
 import { createStepDetector } from './steps';
 import type { Fix } from './gps';
-import { createLiveWalk, MOTION_WAIT_MS, NOTICE_MIN_GAP_MS, type GeoError, type LivePorts, type WalkIntent } from './live';
+import { createLiveWalk, MOTION_WAIT_MS, NOTICE_MIN_GAP_MS, type GeoError, type JournalPort, type LivePorts, type WalkIntent } from './live';
+import type { JournalEntry } from './journal';
+import { StoreFailure, type StoreResult } from '@/store/db';
 import { clearWalk, loadWalk, type WalkStorage } from './persist';
 import { walkObservations } from './record';
 
@@ -1490,5 +1492,98 @@ describe('a change to the phone’s clock mid-walk (B-19)', () => {
     live.resume();
     expect(w.asked.at(-1)).toBe('restart');
     expect(w.askedWith.at(-1)).toBeDefined();
+  });
+});
+
+describe('the route and the journal (journey §9.2, §9.4, §18.2)', () => {
+  function journal() {
+    const entries: JournalEntry[] = [];
+    let answer: StoreResult = { ok: true, value: undefined };
+    const port: JournalPort = {
+      checkpoint: async e => { entries.push(e); return answer; },
+      read: async id => entries.filter(e => e.id === id).at(-1),
+    };
+    return { port, entries, fail(failure: StoreFailure) { answer = { ok: false, failure }; } };
+  }
+  const KEEP = { id: START.id, plan: { ...PLAN, keepRoute: true } };
+
+  it('draws the walk as it goes, one line per stretch of signal, never across a gap', () => {
+    const w = world();
+    const live = createLiveWalk(w.ports);
+    live.attach(START);
+    walkFor(w, 30, 0);
+    w.hide();
+    w.advance(60_000);
+    w.show();
+    walkFor(w, 30, 200);
+    const snap = live.getSnapshot()!;
+    expect(snap.route).toHaveLength(2);
+    expect(snap.here).toBeDefined();
+  });
+
+  it('checkpoints at the start, every 15 seconds and at every change, with the route only when it is kept', async () => {
+    const kept = journal();
+    const w = world();
+    const live = createLiveWalk({ ...w.ports, journal: kept.port });
+    live.attach(KEEP);
+    walkFor(w, 31, 0);
+    live.pause();
+    await flush();
+    // The start, 15 s, 30 s and the pause.
+    expect(kept.entries.map(e => e.at - T0)).toEqual([0, 15_000, 30_000, 31_000]);
+    expect(kept.entries.at(-1)!.walk.status).toBe('paused');
+    expect(kept.entries.at(-1)!.route?.[0].coords.length).toBeGreaterThan(1);
+
+    const plain = journal();
+    const w2 = world();
+    createLiveWalk({ ...w2.ports, journal: plain.port }).attach(START);
+    walkFor(w2, 20, 0);
+    expect(plain.entries.length).toBeGreaterThan(0);
+    expect(plain.entries.every(e => e.route === undefined)).toBe(true);
+  });
+
+  it('says when the phone is out of space for the journal', async () => {
+    const full = journal();
+    full.fail(new StoreFailure('quotaExceeded', 'full'));
+    const w = world();
+    const live = createLiveWalk({ ...w.ports, journal: full.port });
+    live.attach(KEEP);
+    await flush();
+    w.advance(1000);
+    expect(live.getSnapshot()!.journalFull).toBe(true);
+  });
+
+  it('brings a kept route back after the page reloads', async () => {
+    const kept = journal();
+    const w = world();
+    const live = createLiveWalk({ ...w.ports, journal: kept.port });
+    live.attach(KEEP);
+    walkFor(w, 30, 0);
+    live.pause();
+    await flush();
+    w.kill();
+    const again = createLiveWalk({ ...w.ports, journal: kept.port });
+    again.attach();
+    await flush();
+    expect(again.getSnapshot()!.route.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('forgets every point on request, and keeps no route from then on (B-05)', async () => {
+    const kept = journal();
+    const w = world();
+    const live = createLiveWalk({ ...w.ports, journal: kept.port });
+    live.attach(KEEP);
+    walkFor(w, 30, 0);
+    // A line from a track already ended, and one still being drawn.
+    w.hide();
+    w.advance(60_000);
+    w.show();
+    walkFor(w, 20, 200);
+    expect(live.getSnapshot()!.route).toHaveLength(2);
+    live.forgetRoute();
+    await flush();
+    expect(live.getSnapshot()!.route).toEqual([]);
+    expect(live.getSnapshot()!.walk.plan.keepRoute).toBe(false);
+    expect(kept.entries.at(-1)!.route).toBeUndefined();
   });
 });
