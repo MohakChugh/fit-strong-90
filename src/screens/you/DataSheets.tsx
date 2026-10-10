@@ -58,8 +58,8 @@ function BackupBody({ device }: { device: string }) {
   // Everything a backup holds. The store replaces a collection whenever it
   // changes, so a new version means the prepared file no longer matches.
   const version = useMemo(
-    () => [state.observations, state.sessions, state.checkIns, state.personalRecords, state.bodyMetrics, state.focusOverrides, state.contentState, state.profile, settings],
-    [state.observations, state.sessions, state.checkIns, state.personalRecords, state.bodyMetrics, state.focusOverrides, state.contentState, state.profile, settings],
+    () => [state.observations, state.sessions, state.checkIns, state.personalRecords, state.bodyMetrics, state.focusOverrides, state.contentState, state.records, state.profile, settings],
+    [state.observations, state.sessions, state.checkIns, state.personalRecords, state.bodyMetrics, state.focusOverrides, state.contentState, state.records, state.profile, settings],
   );
   const [prepared, setPrepared] = useState<Prepared>();
   const [outcome, setOutcome] = useState<{ tone: 'status' | 'error'; text: string }>();

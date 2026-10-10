@@ -2,6 +2,7 @@ import type { UserProfile } from './profile';
 import type { CheckInRecord } from './checkin';
 import type { DayFocus } from './plan';
 import type { HabitSettings } from './habits';
+import type { RecordStore } from '@/store/records';
 
 export type Phase = 'foundation' | 'hypertrophy' | 'strength';
 export type DayOfWeek = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
@@ -199,6 +200,19 @@ export interface UserSettings {
   /** v2 (journey §16 Display): the app's own settings, since Safari doesn't report Reduce Transparency and the system's motion setting isn't everyone's choice. */
   display?: { reduceMotion?: boolean; reduceTransparency?: boolean };
   /**
+   * v2 (journey §9.1, §18.1): this phone's own walk choices. Each starts
+   * unasked and is asked once, on the first walk that needs it. An import
+   * never switches either on (B-26).
+   */
+  walk?: {
+    /** "Keep a record of your route on this phone?" */
+    saveRoutes: boolean | 'unasked';
+    /** "Show map pictures under your saved routes?" */
+    map: 'on' | 'off' | 'unasked';
+    /** The one-time card on how steps are counted has been shown (K-29, B-24). */
+    stepCardSeen?: boolean;
+  };
+  /**
    * The ids of readings and sessions deleted on this record, kept so that
    * merging a backup made before the deletion cannot bring them back (D-06).
    * Written by the store whenever it deletes, cleared when an id is written
@@ -209,6 +223,8 @@ export interface UserSettings {
     sessions?: string[];
     /** Check-in readings deleted, as what was measured (`readingKey`), so no record names one back into the series (R5-01). */
     readings?: string[];
+    /** The v2 record stores' deleted keys, by store (Plan 6 Task 1), kept for the same reason. */
+    records?: Partial<Record<RecordStore, string[]>>;
   };
 }
 

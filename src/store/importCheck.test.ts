@@ -56,6 +56,19 @@ describe('settings in an import file are read field by field (D-08)', () => {
     expect(preview(file({ settings: { ...settings, deleted } })).unreadableFields).toEqual([]);
   });
 
+  it('leaves out walk choices or deleted record keys that cannot be read, keeping the rest of what was deleted (Plan 6 Task 1)', () => {
+    for (const walk of [{ saveRoutes: 'yes', map: 'on' }, { saveRoutes: true }, { saveRoutes: false, map: 'off', stepCardSeen: 'once' }]) {
+      expect(preview(file({ settings: { ...settings, walk } })).unreadableFields).toEqual(['settings.walk']);
+    }
+    expect(preview(file({ settings: { ...settings, walk: { saveRoutes: 'unasked', map: 'unasked', stepCardSeen: true } } })).unreadableFields).toEqual([]);
+    for (const records of [{ routes: 'walk-aaaa' }, { diaries: ['d1'] }, { routes: [7] }]) {
+      const raw = file({ settings: { ...settings, deleted: { observations: ['x'], records } } });
+      expect(preview(raw).unreadableFields).toEqual(['settings.deleted.records']);
+      expect(planImport(raw, 'replace', emptySnapshot(), { allowRejected: true }).change.settings?.replace?.deleted).toEqual({ observations: ['x'] });
+    }
+    expect(preview(file({ settings: { ...settings, deleted: { records: { routes: ['walk-aaaa'], meals: [] } } } })).unreadableFields).toEqual([]);
+  });
+
   it('leaves out a Home layout this build cannot draw, so Home falls back to its defaults (journey §7.6)', () => {
     const home = { order: { move: ['workout', 'walk'], eat: ['food'], check: ['glucose'], learn: [] }, hidden: ['sleep'] };
     expect(preview(file({ settings: { ...settings, home } })).unreadableFields).toEqual([]);

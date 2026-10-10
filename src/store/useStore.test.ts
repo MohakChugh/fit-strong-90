@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { CheckInRecord, Readiness } from '@/types/checkin';
 import type { WorkoutSession } from '@/types';
-import { dayOf, nowAt } from '@/health/observation';
+import { dayOf, newObservation, nowAt } from '@/health/observation';
 import { entryFor, isOrphanedReading, pairBloodPressure, summariseDay } from '@/health/aggregate';
+import { DB_NAME, DB_VERSION, openDb, readDoc } from './db';
 import { fakeIndexedDB } from './fakeIdb';
+import { commitChange } from './snapshot';
 import { decode } from './transfer';
 
 const local = new Map<string, string>();
@@ -815,5 +817,232 @@ describe('export and import, the only way out and back in (D17)', () => {
     });
     expect(result.ok).toBe(false);
     expect(calls).toEqual([]);
+  });
+});
+
+describe('the v2 record stores (Plan 6 Task 1)', () => {
+  const LINE = { start: 1_760_000_000_000, end: 1_760_000_020_000, coords: [[12.97, 77.59], [12.9705, 77.5902], [12.971, 77.5905]] as [number, number][], ms: [0, 10_000, 20_000] };
+  const route = (walkId: string) => ({ walkId, version: 1, startedAt: '2026-10-08T09:00:00.000+05:30', segments: [LINE], bbox: [12.97, 77.59, 12.971, 77.5905] });
+
+  it('stamps schema 6 when it starts', async () => {
+    const fake = await booted();
+    const db = await openDb(fake);
+    expect(await readDoc(db, 'schemaVersion')).toBe(6);
+    db.close();
+  });
+
+  it('puts, keeps across a restart and removes routes, remembering the removal', async () => {
+    const fake = await booted();
+    expect((await store.putRecords('routes', [route('walk-aaaa')])).ok).toBe(true);
+    expect(store.getState().records.routes.map(r => r.walkId)).toEqual(['walk-aaaa']);
+    store.resetForTests();
+    await store.start({ factory: fake, broadcast: null });
+    expect(store.getState().records.routes).toHaveLength(1);
+    expect((await store.removeRecords('routes', ['walk-aaaa'])).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+    expect(store.getState().settings.deleted?.records?.routes).toEqual(['walk-aaaa']);
+  });
+
+  it('passes over a key that is not stored, writing nothing and remembering nothing', async () => {
+    const fake = await booted();
+    await store.putRecords('routes', [route('walk-aaaa')]);
+    const revision = store.getState().revision;
+    expect((await store.removeRecords('routes', ['walk-zzzz'])).ok).toBe(true);
+    expect(store.getState().revision).toBe(revision);
+    expect(store.getState().settings.deleted).toBeUndefined();
+    const db = await openDb(fake);
+    expect(await readDoc(db, 'revision')).toBe(revision);
+    db.close();
+  });
+
+  it('keeps another tab’s records when it writes after them (F04)', async () => {
+    const fake = await booted();
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { records: { routes: { put: [route('walk-aaaa')] } } } }))).ok).toBe(true);
+    tab.close();
+    // This copy hasn't heard: its write is planned again against what is stored.
+    expect((await store.putRecords('routes', [route('walk-bbbb')])).ok).toBe(true);
+    expect(store.getState().records.routes.map(r => r.walkId)).toEqual(['walk-aaaa', 'walk-bbbb']);
+  });
+
+  it('refuses a record its store cannot read, writing nothing', async () => {
+    await booted();
+    const result = await store.putRecords('routes', [{ walkId: 'walk-aaaa', version: 9 }]);
+    expect(!result.ok && result.failure.code).toBe('invalid');
+    expect(store.getState().records.routes).toEqual([]);
+  });
+
+  it('refuses a whole batch for one thing that is not a record, saying which, as a refusal and not a storage fault', async () => {
+    await booted();
+    const result = await store.putRecords('routes', [route('walk-aaaa'), null as never]);
+    expect(!result.ok && result.failure.code).toBe('invalid');
+    expect(!result.ok && result.failure.message).toMatch(/walk route 2: A record must be an object/);
+    expect(!result.ok && result.failure.details).toEqual([{ index: 1, reason: 'A record must be an object.' }]);
+    expect(store.getState().records.routes).toEqual([]);
+  });
+
+  it('backs up routes only when asked, and says which stores the file holds', async () => {
+    await booted();
+    await store.putRecords('routes', [route('walk-aaaa')]);
+    const plain = await store.exportRecord();
+    const withRoutes = await store.exportRecord({ include: ['routes'] });
+    expect(plain.ok && plain.value.stores).not.toContain('routes');
+    // The stores every backup holds stay in it when routes are included.
+    expect(withRoutes.ok && withRoutes.value.stores).toEqual(['routes', 'meals', 'savedMeals', 'customFoods']);
+    if (!withRoutes.ok) return;
+    const doc = (await decode(withRoutes.value.bytes)) as { records: { routes: unknown[] } };
+    expect(doc.records.routes).toHaveLength(1);
+  });
+
+  it('brings routes back from a backup that includes them, onto a new phone', async () => {
+    await booted();
+    await store.putRecords('routes', [route('walk-aaaa'), route('walk-bbbb')]);
+    const exported = await store.exportRecord({ include: ['routes'] });
+    if (!exported.ok) return expect.unreachable('export failed');
+    const file = await decode(exported.value.bytes);
+    store.resetForTests();
+    const phone = await booted();
+    const restored = await store.importRecord(file, 'replace');
+    expect(restored.ok && restored.value.records).toEqual({ routes: 2, meals: 0, savedMeals: 0, customFoods: 0 });
+    expect(store.getState().records.routes).toEqual([route('walk-aaaa'), route('walk-bbbb')]);
+    // Stored, not only shown.
+    store.resetForTests();
+    await store.start({ factory: phone, broadcast: null });
+    expect(store.getState().records.routes).toEqual([route('walk-aaaa'), route('walk-bbbb')]);
+  });
+
+  it('clears every v2 store and the walk journal with the rest of the record', async () => {
+    const fake = await booted();
+    await store.putRecords('routes', [route('walk-aaaa')]);
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { journal: { put: [{ id: 'walk-bbbb' }] } } }))).ok).toBe(true);
+    expect(await tab.getAll('walkJournal')).toHaveLength(1);
+    expect((await store.clearAll()).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+    expect(await tab.getAll('routes')).toEqual([]);
+    expect(await tab.getAll('walkJournal')).toEqual([]);
+    tab.close();
+  });
+});
+
+describe('a phone the previous build left behind, and its other tabs (journey §18.3, B-21)', () => {
+  const reading = newObservation({ id: 'g1', kind: 'glucose', value: 112, scope: 'pointInTime', source: 'manual', at: '2026-10-08T07:30:00+05:30' });
+  const settings = { theme: 'dark', defaultRestSeconds: 75, onboardingComplete: true };
+  const route = { walkId: 'walk-aaaa', version: 1, startedAt: '2026-10-08T09:00:00.000+05:30', segments: [{ start: 0, end: 10_000, coords: [[12.97, 77.59], [12.971, 77.59]], ms: [0, 10_000] }], bbox: [12.97, 77.59, 12.971, 77.59] };
+  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  /** IndexedDB 1 at schema 5, as v1 leaves it: its four stores, a reading, a session and its settings. */
+  async function v1Phone(factory: IDBFactory): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const req = factory.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        const o = db.createObjectStore('observations', { keyPath: 'id' });
+        o.createIndex('kind', 'kind');
+        o.createIndex('day', 'day');
+        db.createObjectStore('sessions', { keyPath: 'id' });
+        db.createObjectStore('settings', { keyPath: 'key' });
+        db.createObjectStore('content-state', { keyPath: 'key' });
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['observations', 'sessions', 'settings'], 'readwrite');
+        tx.objectStore('observations').put(reading);
+        tx.objectStore('sessions').put(session);
+        for (const row of [{ key: 'schemaVersion', value: 5 }, { key: 'settings', value: settings }, { key: 'revision', value: 7 }]) tx.objectStore('settings').put(row);
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onabort = () => reject(tx.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /** Another tab still running v1: a connection at version 1. */
+  const v1Tab = (factory: IDBFactory) => new Promise<IDBDatabase>(resolve => {
+    const req = factory.open(DB_NAME, 1);
+    req.onsuccess = () => resolve(req.result);
+  });
+
+  it('opens it with every record as it was, stamps 6, and never moves the old v4 copy again (Review Focus 1)', async () => {
+    const fake = fakeIndexedDB();
+    await v1Phone(fake);
+    // Every v1 phone still holds its v4 blob, with older settings than the record's.
+    local.set('fit-strong-90-data', JSON.stringify({ version: 4, settings: { theme: 'light', defaultRestSeconds: 120 }, sessions: [], bodyMetrics: [], personalRecords: [] }));
+    await store.start({ factory: fake, broadcast: null });
+    const state = store.getState();
+    expect(state.status).toBe('ready');
+    expect(state.settings).toMatchObject(settings);
+    expect(state.observations.map(o => o.id)).toEqual(['g1']);
+    expect(state.sessions).toEqual([session]);
+    expect(state.records).toEqual({ routes: [], meals: [], savedMeals: [], customFoods: [] });
+    const db = await openDb(fake);
+    expect(await readDoc(db, 'schemaVersion')).toBe(6);
+    expect(await readDoc(db, 'settings')).toEqual(settings);
+    // The stored rows themselves are untouched: the stamp writes only its marker.
+    expect(await db.get('observations', 'g1')).toEqual(reading);
+    expect(await db.get('sessions', 'session-1')).toEqual(session);
+    db.close();
+  });
+
+  it('waits for a v1 tab still holding the database, then upgrades it and saves again (B-21)', async () => {
+    const fake = fakeIndexedDB();
+    await v1Phone(fake);
+    const old = await v1Tab(fake);
+    // A v1 tab part-way through its own start, which lets go only later.
+    old.onversionchange = () => undefined;
+    const starting = store.start({ factory: fake, broadcast: null });
+    await delay(5);
+    expect(store.getState()).toMatchObject({ status: 'unavailable', failure: { code: 'blocked' } });
+    expect(store.storageNotice()?.title).toMatch(/other tabs/);
+    old.close();
+    await starting;
+    expect(store.getState().status).toBe('ready');
+    expect(store.getState().failure).toBeUndefined();
+    expect(store.getState().sessions).toEqual([session]);
+    expect((await store.putRecords('routes', [route])).ok).toBe(true);
+    const db = await openDb(fake);
+    expect(await readDoc(db, 'schemaVersion')).toBe(6);
+    expect(await db.getAll('routes')).toHaveLength(1);
+    db.close();
+  });
+
+  it('lets go at once when another copy upgrades while it is still starting, and asks for a reload (B-21)', async () => {
+    const fake = fakeIndexedDB();
+    // Part-way through its start: its first write waits to commit.
+    fake.control.hold();
+    const starting = store.start({ factory: fake, broadcast: null });
+    await delay(5);
+    const upgraded = new Promise<string>(resolve => {
+      const req = fake.open(DB_NAME, DB_VERSION + 1);
+      req.onsuccess = () => { (req.result as IDBDatabase).close(); resolve('opened'); };
+    });
+    expect(await Promise.race([upgraded, delay(50).then(() => 'still blocked')])).toBe('opened');
+    fake.control.release();
+    await starting;
+    expect(store.getState()).toMatchObject({ status: 'unavailable', failure: { code: 'stale' } });
+    expect(store.storageNotice()?.detail).toMatch(/reload/i);
+    expect(fake.control.openConnections()).toBe(0);
+  });
+
+  it('keeps working at 5 when the stamp cannot be written, and stamps 6 on the next start', async () => {
+    let refuse = false;
+    const fake = fakeIndexedDB({ failWrite: (s, v) => (refuse && s === 'settings' && v.key === 'schemaVersion' ? new DOMException('The operation failed.', 'QuotaExceededError') : undefined) });
+    await v1Phone(fake);
+    refuse = true;
+    await store.start({ factory: fake, broadcast: null });
+    expect(store.getState().status).toBe('ready');
+    expect(store.getState().sessions).toEqual([session]);
+    let db = await openDb(fake);
+    expect(await readDoc(db, 'schemaVersion')).toBe(5);
+    db.close();
+    expect((await store.putRecords('routes', [route])).ok).toBe(true);
+    refuse = false;
+    store.resetForTests();
+    await store.start({ factory: fake, broadcast: null });
+    db = await openDb(fake);
+    expect(await readDoc(db, 'schemaVersion')).toBe(6);
+    expect(store.getState().records.routes).toHaveLength(1);
+    expect(store.getState().sessions).toEqual([session]);
+    db.close();
   });
 });

@@ -3,7 +3,7 @@ import type { AppData, WorkoutSession } from '@/types';
 import type { CheckInRecord, Readiness } from '@/types/checkin';
 import type { Observation } from '@/health/observation';
 import { isOrphanedReading, pairBloodPressure } from '@/health/aggregate';
-import { readDoc, type Db } from './db';
+import { doc, readDoc, type Db } from './db';
 import { fakeIndexedDB } from './fakeIdb';
 
 // Node test environment: a minimal in-memory localStorage, installed before
@@ -19,7 +19,7 @@ globalThis.localStorage = {
 } as Storage;
 
 const { openDb } = await import('./db');
-const { V4_KEY, SCHEMA_VERSION, migrateToV5, observationsFromV4 } = await import('./migrate');
+const { V4_KEY, SCHEMA_VERSION, migrateToV5, migrateToV6, observationsFromV4 } = await import('./migrate');
 
 const readiness: Readiness = {
   outcome: 'green', modifiers: [], back: 'green', nerveFlag: false, reasons: [], actions: [],
@@ -403,5 +403,64 @@ describe('migrateToV5', () => {
     expect((await db.byIndex<Observation>('observations', 'day', '2026-10-01')).map(o => o.kind).sort())
       .toEqual(['backPain', 'bloodPressureDiastolic', 'bloodPressureSystolic', 'glucose', 'legPain']);
     db.close();
+  });
+});
+
+describe('schema 5 → 6 (Plan 6; journey §18.3)', () => {
+  beforeEach(() => local.clear());
+
+  it('stamps 6 on a device at 5 and rewrites nothing, with v1’s old v4 copy still in localStorage (Review Focus 1)', async () => {
+    // Every v1 phone still holds its v4 blob: the move never deletes it.
+    local.set(V4_KEY, JSON.stringify(v4()));
+    const db = await openDb(fakeIndexedDB());
+    await db.put('settings', [doc('schemaVersion', 5), doc('settings', { theme: 'light', defaultRestSeconds: 60 })]);
+    const v5 = await migrateToV5(db);
+    expect(v5.ok && v5.value.alreadyDone).toBe(true);
+    const v6 = await migrateToV6(db);
+    expect(v6.ok && v6.value).toEqual({ from: 5, alreadyDone: false });
+    expect(await readDoc(db, 'schemaVersion')).toBe(6);
+    expect(await readDoc(db, 'settings')).toEqual({ theme: 'light', defaultRestSeconds: 60 });
+    expect(await db.getAll('sessions')).toEqual([]);
+    expect(await db.getAll('observations')).toEqual([]);
+  });
+
+  it('moves a v4 device straight to 6, and then there is nothing to do', async () => {
+    const db = await openDb(fakeIndexedDB());
+    expect((await migrateToV5(db, JSON.stringify(v4()))).ok).toBe(true);
+    expect(await readDoc(db, 'schemaVersion')).toBe(6);
+    const again = await migrateToV6(db);
+    expect(again.ok && again.value.alreadyDone).toBe(true);
+  });
+
+  it('writes nothing to a device already at 6', async () => {
+    const db = await openDb(fakeIndexedDB());
+    await db.put('settings', [doc('schemaVersion', 6)]);
+    const before = await readDoc<number>(db, 'revision');
+    expect((await migrateToV6(db)).ok).toBe(true);
+    expect(await readDoc<number>(db, 'revision')).toBe(before);
+  });
+
+  it('never stamps a device that has not made the v4 move: the move must still find its blob', async () => {
+    local.set(V4_KEY, JSON.stringify(v4()));
+    const db = await openDb(fakeIndexedDB());
+    expect(await migrateToV6(db)).toEqual({ ok: true, value: { from: 0, alreadyDone: true } });
+    expect(await readDoc(db, 'schemaVersion')).toBeUndefined();
+    const moved = await migrateToV5(db);
+    expect(moved.ok && moved.value.sessions).toBe(2);
+    expect(await readDoc(db, 'schemaVersion')).toBe(6);
+  });
+
+  it('stamps once when two tabs start at the same moment (B-21)', async () => {
+    const factory = fakeIndexedDB();
+    const first = await openDb(factory);
+    await first.put('settings', [doc('schemaVersion', 5)]);
+    const before = await readDoc<number>(first, 'revision');
+    const second = await openDb(factory);
+    const [a, b] = await Promise.all([migrateToV6(first), migrateToV6(second)]);
+    expect([a.ok && a.value.alreadyDone, b.ok && b.value.alreadyDone].sort()).toEqual([false, true]);
+    expect(await readDoc(first, 'schemaVersion')).toBe(6);
+    expect(await readDoc<number>(first, 'revision')).toBe(before! + 1);
+    first.close();
+    second.close();
   });
 });

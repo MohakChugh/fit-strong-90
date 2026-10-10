@@ -24,6 +24,10 @@
  * The old `localStorage` blob is deliberately left in place. Until the user
  * has exported once, deleting their only other copy to tidy up would be the
  * single worst thing this function could do.
+ *
+ * Schema 6 (Plan 6) is additive: IndexedDB 2 creates the v2 stores empty, a
+ * v4 device moves straight to 6, and a device at 5 is only stamped 6
+ * (`migrateToV6`), never moved from its v4 blob again.
  */
 
 import { migrateData } from '@/services/storage';
@@ -36,7 +40,14 @@ import { liftBodyMetric, liftCheckIn, liftSessionPain, type SkippedRecord } from
 
 export type { SkippedRecord } from './project';
 
-export const SCHEMA_VERSION = 5;
+/** The data schema (journey §18.3): 6 adds the v2 record stores, which IndexedDB 2 creates empty. */
+export const SCHEMA_VERSION = 6;
+/**
+ * The marker the v4 → v5 move first wrote. A device at or past it has moved,
+ * whatever the current schema is: running the move again would replace the
+ * record with v1's v4 blob, which is never deleted (Review Focus 1).
+ */
+export const V5_SCHEMA = 5;
 
 /** The key the v4 blob lives under. Mirrors `STORAGE_KEY` in services/storage.ts. */
 export const V4_KEY = 'fit-strong-90-data';
@@ -236,10 +247,10 @@ export function legacySnapshot(raw: string | null): Snapshot | undefined {
   }
 }
 
-const isDone = (marker: unknown) => typeof marker === 'number' && marker >= SCHEMA_VERSION;
+const isDone = (marker: unknown) => typeof marker === 'number' && marker >= V5_SCHEMA;
 
 /**
- * Move this device from v4 to v5, once.
+ * Move this device from v4 to v5, once: it is stamped with the current schema.
  *
  * Pass `raw` to migrate a specific blob; omit it to read the one on this
  * device. Returns a failure rather than throwing, because the caller is app
@@ -273,4 +284,25 @@ export async function migrateToV5(db: Db, raw?: string | null): Promise<StoreRes
   if (!committed.ok) return { ok: false, failure: committed.failure };
   if (committed.value.resolution === null) return { ok: true, value: emptyReport({ alreadyDone: true }) };
   return { ok: true, value: plan.report };
+}
+
+/**
+ * Schema 5 → 6, once (Plan 6 Task 1). Additive: the v2 stores were created
+ * empty by IndexedDB 2, so only the marker is written. Asked of the marker
+ * first, so an upgraded device reads nothing else on start.
+ */
+export async function migrateToV6(db: Db): Promise<StoreResult<{ from: number; alreadyDone: boolean }>> {
+  let marker: unknown;
+  try {
+    marker = await readDoc<number>(db, 'schemaVersion');
+  } catch (error) {
+    return { ok: false, failure: toFailure(error, 'readFailed') };
+  }
+  if (typeof marker !== 'number' || marker >= SCHEMA_VERSION) return { ok: true, value: { from: typeof marker === 'number' ? marker : 0, alreadyDone: true } };
+  const committed = await commitChange(db, undefined, base =>
+    typeof base.schemaVersion === 'number' && base.schemaVersion >= V5_SCHEMA && base.schemaVersion < SCHEMA_VERSION
+      ? { change: { schemaVersion: SCHEMA_VERSION } }
+      : null);
+  if (!committed.ok) return { ok: false, failure: committed.failure };
+  return { ok: true, value: { from: marker, alreadyDone: committed.value.resolution === null } };
 }
