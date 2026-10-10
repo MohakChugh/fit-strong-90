@@ -3,7 +3,7 @@ import type { AppData } from '@/types';
 import type { SetupState } from '@/types/setup';
 import { createDefaultProfile } from '@/profile/defaults';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
-import { setupStateOf, upgradeSkipped, withNewHomeSeen } from './state';
+import { setupStateOf, showsNewHome, upgradeSkipped, withNewHomeSeen } from './state';
 
 const v1 = createDefaultProfile({ weightKg: 78, health: { diabetes: 'type2', medicinesReviewed: true } });
 
@@ -44,5 +44,18 @@ describe('where setup stands (journey §6.6, §19.1; board D80)', () => {
     data.settings = { ...data.settings, onboardingComplete: true };
     expect(withNewHomeSeen(data).settings.setup).toEqual({ stage: 'done', skipped: ['about', 'food'], upgraded: true, newHomeSeen: true });
     expect(withNewHomeSeen(data).profile).toBe(data.profile);
+  });
+
+  it('the new-Home row shows once, for a record set up in v1, and never beside a safety state (§6.6, motion rule 2)', () => {
+    const data: AppData = { ...migrateData({ version: CURRENT_VERSION } as AppData), profile: v1 };
+    data.settings = { ...data.settings, onboardingComplete: true };
+    const upgraded = setupStateOf(data.settings, v1);
+    expect(showsNewHome(upgraded, false)).toBe(true);
+    expect(showsNewHome(upgraded, true)).toBe(false);
+    const seen = withNewHomeSeen(data);
+    expect(showsNewHome(setupStateOf(seen.settings, v1), false)).toBe(false);
+    // Set up in this build, or still looking around: nothing is new to them.
+    expect(showsNewHome({ stage: 'done', skipped: [] }, false)).toBe(false);
+    expect(showsNewHome(setupStateOf({ onboardingComplete: true }, undefined), false)).toBe(false);
   });
 });

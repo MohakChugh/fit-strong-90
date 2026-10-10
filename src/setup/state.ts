@@ -30,6 +30,11 @@ export function setupStateOf(settings: Pick<UserSettings, 'setup' | 'onboardingC
 /** The answers so far, wherever they're kept. */
 export const answersOf = (s: SetupState): SetupAnswers => s.draft?.answers ?? s.answers ?? {};
 
+/** The one-time "FitStrong has a new Home" row (§6.6): once, for a record set up in v1, and never beside a safety state (motion rule 2). */
+export function showsNewHome(setup: SetupState, still: boolean): boolean {
+  return setup.stage === 'done' && setup.upgraded === true && setup.newHomeSeen !== true && !still;
+}
+
 /** The one-time "FitStrong has a new Home" row was answered (§6.6). */
 export function withNewHomeSeen(data: AppData): AppData {
   return { ...data, settings: { ...data.settings, setup: { ...setupStateOf(data.settings, data.profile), newHomeSeen: true } } };
