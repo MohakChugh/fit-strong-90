@@ -323,6 +323,35 @@ describe('each tab keeps its place (S-18)', () => {
     expect(stack.entries[stack.index]?.tab).toBe('trends');
     expect(currentTab(stack, '/track/reading/x')).toBe('trends');
   });
+
+  it('a v1 address loaded cold lands on its v2 screen with that screen’s tab selected (journey §19.3)', () => {
+    // v1's Guide belongs to no v2 tab, so the launch entry has none; its redirect must not inherit that.
+    go(() => launch('/guide/topic/food-diabetes'));
+    go(() => replace('/hub/learn/topic/food-diabetes'));
+    expect(stack.entries[stack.index]?.tab).toBe('home');
+    expect(currentTab(stack, '/hub/learn/topic/food-diabetes')).toBe('home');
+  });
+
+  it('a cold live walk with no walk falls back through /walk to the Walk hub, in Home', () => {
+    go(() => launch('/walk/live'));
+    go(() => replace('/walk'));
+    go(() => replace('/hub/walk'));
+    expect(currentTab(stack, '/hub/walk')).toBe('home');
+  });
+
+  it('a v1 address opened from a full-screen task still goes Back to the task once redirected (S-12)', () => {
+    go(() => launch('/walk/live'));
+    go(() => push('/you/profile'));
+    go(() => replace('/me/profile'));
+    expect(back({ to: '/me', label: 'Me' })).toEqual({ pop: true, label: 'Back' });
+  });
+
+  it('a redirect keeps the tab its screen was pushed in', () => {
+    go(() => launch('/trends')); shows('/trends', 'Trends');
+    go(() => push('/track/metric/glucose'));
+    go(() => replace('/hub/glucose'));
+    expect(currentTab(stack, '/hub/glucose')).toBe('trends');
+  });
 });
 
 describe('which way a move goes (S-24)', () => {

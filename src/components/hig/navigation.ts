@@ -202,10 +202,15 @@ export function record(location: LocationLike, action: Action, historyIndex: num
   // The same screen in the same entry: a reload, a return, a changed query.
   const same = known?.pathname === location.pathname ? known : undefined;
   const below = base[idx - 1];
+  // A replacement keeps the tab its entry was pushed in. An entry that has
+  // none and nothing below it was loaded at an address of no tab (a v1 one,
+  // whose redirect this is, journey §19.3, or a task falling back to its
+  // setup): the screen it becomes takes its own address's tab. A screen
+  // pushed from a task keeps the task's lack of one, so Back returns there.
   const tab = asked?.kind === 'tab' ? asked.tab
     : rootOf(location.pathname)
       ?? (action === 'PUSH' ? (below ? below.tab : tabOf(location.pathname))
-        : action === 'REPLACE' ? (known ? known.tab : below ? below.tab : tabOf(location.pathname))
+        : action === 'REPLACE' ? (known?.tab ?? (below ? below.tab : tabOf(location.pathname)))
           : same ? same.tab : tabOf(location.pathname));
   // A new entry, or another screen in this one, has not shown its title yet.
   const title = action !== 'PUSH' ? same?.title : undefined;
