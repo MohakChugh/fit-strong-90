@@ -191,7 +191,9 @@ export function useHomeEditor({ fallback, still, urgent }: {
   const [error, setError] = useState<string>();
   // A change the device refused, kept as a draft and drawn in its place, with Try again (codex V1-11).
   const [refused, setRefused] = useState<{ layout: HomeLayout; message: string; then?: () => void }>();
-  const draft = useRef<HomeLayout | undefined>(undefined);
+  // The newest layout asked for, from the moment it is asked for until a write
+  // carrying it is stored: still on its way, or refused (codex W-03).
+  const requested = useRef<HomeLayout | undefined>(undefined);
   // Writes still on their way, and whether Done is waiting for them (journey §4.5).
   const inFlight = useRef(0);
   const closing = useRef(false);
@@ -210,7 +212,7 @@ export function useHomeEditor({ fallback, still, urgent }: {
 
   /** The layout as it stands now, a refused draft or a change still being written included, so quick taps build on each other. */
   const latest = (): HomeLayout => {
-    if (draft.current) return draft.current;
+    if (requested.current) return requested.current;
     const home = getState().settings.home;
     return home !== undefined && isHomeLayout(home) ? home : fallback;
   };
@@ -234,20 +236,25 @@ export function useHomeEditor({ fallback, still, urgent }: {
    * (journey §4.5, codex V1-11). A refused write keeps the layout it tried
    * as a draft, drawn in its place, until Try again stores it or a later
    * change, which carries it, does.
+   *
+   * The layout asked for becomes the one the next change starts from at
+   * once, before its write settles, refused draft or not, so two quick taps
+   * never both start from the same older layout and the second undo the
+   * first (codex W-03). It stays that until the newest write is stored.
    */
   const write = (next: HomeLayout, then?: () => void, refusedThen?: (message: string) => void) => {
     flip.snapshot();
     const n = ++written.current;
+    requested.current = next;
     inFlight.current += 1;
     void setSettings({ home: next }).then(result => {
       inFlight.current -= 1;
       // Only the newest write says how things stand: it carries every change before it.
       if (n === written.current) {
         if (result.ok) {
-          draft.current = undefined;
+          requested.current = undefined;
           setRefused(undefined);
         } else {
-          draft.current = next;
           closing.current = false;
           setRefused({ layout: next, message: result.failure.message, ...(then ? { then } : {}) });
         }
@@ -258,7 +265,7 @@ export function useHomeEditor({ fallback, still, urgent }: {
       }
       setError(undefined);
       then?.();
-      if (closing.current && inFlight.current === 0 && !draft.current) finish();
+      if (closing.current && inFlight.current === 0 && !requested.current) finish();
     });
   };
   /** Try again: the refused draft, written again, saying then what it would have said. */
@@ -286,8 +293,8 @@ export function useHomeEditor({ fallback, still, urgent }: {
       focusLater(() => tileControl(u.id, 'hide'), { preventScroll: true });
     };
     if (now.order[group].includes(u.id)) {
-      // Back in its place already: in a refused draft, which this Undo writes again; or stored.
-      if (draft.current) write(draft.current, restored(draft.current));
+      // Back in its place already: in a layout not yet stored, which this Undo writes again; or stored.
+      if (requested.current) write(requested.current, restored(requested.current));
       else {
         forget(key);
         toast.dismiss(key);
@@ -406,11 +413,12 @@ export function useHomeEditor({ fallback, still, urgent }: {
    * refused one keeps Edit Home open with its Try again (codex V1-11).
    */
   const done = () => {
-    if (draft.current) return;
     if (inFlight.current > 0) {
       closing.current = true;
       return;
     }
+    // Every write has settled: one still asked for is a refused draft, with its Try again.
+    if (requested.current) return;
     finish();
   };
 

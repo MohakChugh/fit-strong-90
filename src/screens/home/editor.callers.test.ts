@@ -134,6 +134,56 @@ describe('Edit Home says a change only once it is stored (codex V1-11)', () => {
   });
 });
 
+describe('quick changes after a refused one build on each other (codex W-03)', () => {
+  it('Hide Stretch is refused; storage comes back; Hide Walk and Hide Workout at once: all three stay hidden, and Walk is not brought back', async () => {
+    await open();
+    refuse = true;
+    editor().hide('stretch', 'edit');
+    await settle();
+    expect(editor().failed).toMatch(/./);
+    refuse = false;
+    // Both before either write has settled.
+    editor().hide('walk', 'edit');
+    editor().hide('workout', 'edit');
+    await settle();
+    expect(homeNow()?.order.move).toEqual([]);
+    expect(homeNow()?.hidden).toEqual(expect.arrayContaining(['stretch', 'walk', 'workout']));
+    expect(editor().draft).toBeUndefined();
+    expect(editor().failed).toBeUndefined();
+    // Each toast says what is stored.
+    expect([...toasts.shown.values()].map(t => t.title)).toEqual(['Walk hidden from Home', 'Workout hidden from Home']);
+    editor().done();
+    await settle();
+    expect(editor().editing).toBe(false);
+  });
+
+  it('a change made while a refused one waits, refused too, keeps both; Try again stores both', async () => {
+    await open();
+    refuse = true;
+    editor().hide('stretch', 'edit');
+    await settle();
+    editor().move('walk', -1, 'up');
+    await settle();
+    expect(editor().draft?.order.move).toEqual(['walk', 'workout']);
+    refuse = false;
+    editor().retry();
+    await settle();
+    expect(homeNow()?.order.move).toEqual(['walk', 'workout']);
+    expect(homeNow()?.hidden).toContain('stretch');
+    expect(editor().draft).toBeUndefined();
+  });
+
+  it('changes queued behind a write still on its way compose from it, and the last one stored is all of them', async () => {
+    await open();
+    editor().hide('stretch', 'edit');
+    editor().move('walk', -1, 'up');
+    editor().hide('workout', 'edit');
+    await settle();
+    expect(homeNow()?.order.move).toEqual(['walk']);
+    expect(homeNow()?.hidden).toEqual(expect.arrayContaining(['stretch', 'workout']));
+  });
+});
+
 describe('Home’s first layout is kept, and stored once (codex V1-12, journey §5.1)', () => {
   const other: HomeLayout = { ...L, order: { ...L.order, check: ['glucose', 'weight', 'sleep'] } };
   const seen = { layout: undefined as HomeLayout | undefined };
