@@ -9,7 +9,8 @@ import type { Plugin } from 'vite'
 /**
  * Production-only security policy. GitHub Pages can't send custom headers,
  * so it goes in a meta tag (frame-ancestors and X-Frame-Options can't be set
- * this way). Everything loads from our own origin; health data never leaves it.
+ * this way). Everything loads from our own origin except the opt-in map
+ * pictures, which are OpenStreetMap tiles; health data never leaves it.
  */
 const CSP = [
   "default-src 'self'",
@@ -21,7 +22,8 @@ const CSP = [
   // carry no script, there is no injection sink (no dangerouslySetInnerHTML,
   // no user-generated content) and `script-src 'self'` is unchanged.
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  // Opt-in map pictures under a kept route (journey §9.5, J§22): OpenStreetMap's standard tiles, and nothing else.
+  "img-src 'self' data: blob: https://tile.openstreetmap.org",
   // data: covers the silent clip that unlocks audio on iOS.
   "media-src 'self' data: blob:",
   "font-src 'self'",
