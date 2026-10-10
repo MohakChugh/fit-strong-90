@@ -9,6 +9,7 @@ import { PERMISSION_TEXT, permission, type Mode, type Permission } from '@/engin
 import { evaluateCheckIn } from '@/engine/readiness';
 import type { SavedProgress } from '@/session/persistence';
 import { timeOf } from '@/lib/time';
+import { DEFAULT_STRETCH, stretchHref } from '@/engine/stretch';
 import { mealFromSearch } from '@/walk/plan';
 import { newObservation, type Observation, type ObservationInput } from './observation';
 import {
@@ -387,7 +388,8 @@ describe('3. status', () => {
     const r = recommend(input({ settings: s }));
     expect(r.title).toBe('A gentle stretch, or rest');
     expect(r.reason).toBe('You marked a flare-up since 20 September. Only gentle movement is suggested until you change it.');
-    expect(r.action).toEqual({ label: 'Check in & stretch', to: HREF.stretch, mode: 'stretch' });
+    // Straight to the player, with no setup's second Start (journey §7.4, K-32, codex V1-07).
+    expect(r.action).toEqual({ label: 'Check in & stretch', to: stretchHref(DEFAULT_STRETCH), mode: 'stretch' });
   });
 
   it('suggests rest, not the same stretch again, once a flare-up’s stretch is done today', () => {
@@ -417,13 +419,20 @@ describe('4. a stated focus', () => {
   it('suggests a stretch for a stretch focus, even with training days in the profile', () => {
     const r = recommend(input({ settings: settings({ focus: 'stretch' }) }));
     expect(r).toMatchObject({ kind: 'preference', title: 'A morning stretch', reason: 'You chose stretching as your focus.' });
-    expect(r.action).toEqual({ label: 'Check in & stretch', to: HREF.stretch, mode: 'stretch' });
+    expect(r.action).toEqual({ label: 'Check in & stretch', to: stretchHref(DEFAULT_STRETCH), mode: 'stretch' });
+  });
+
+  it('starts the routine last recorded, as Stretch’s setup would offer it (codex V1-07)', () => {
+    const last = stretched('2026-10-06', '07:00', { planId: 'stretch:2026-10-06:neckShoulders:15' });
+    const r = recommend(input({ settings: settings({ focus: 'stretch' }), sessions: [last] }));
+    expect(r.action.to).toBe(stretchHref({ focus: 'neckShoulders', minutes: 15 }));
   });
 
   it('suggests a walk for a move focus', () => {
     const r = recommend(input({ settings: settings({ focus: 'move' }), permissions: every(allowed), checkIns: [checkIn()] }));
     expect(r).toMatchObject({ kind: 'preference', title: 'A morning walk', reason: 'You chose moving more as your focus.' });
-    expect(r.action).toEqual({ label: 'Walk now', to: HREF.walk, mode: 'walk' });
+    // Straight to the live walk, "Just a walk" (journey §7.4, K-32, codex V1-07).
+    expect(r.action).toEqual({ label: 'Walk now', to: '/walk/live', mode: 'walk', walk: {} });
   });
 
   it('does not push the chosen routine a second time in a day', () => {
@@ -1031,7 +1040,12 @@ describe('a walk after a meal (D26; scan J2-07)', () => {
       title: 'A walk after lunch',
       detail: 'About 10 minutes, starting soon after you finish eating.',
       reason: 'You asked for a walk after lunch. In a study of people with type 2 diabetes, a short walk after meals lowered the rise in glucose (Reynolds 2016).',
-      action: { label: 'Check in & walk', to: '/hub/walk?meal=lunch', mode: 'walk' },
+      // The usual time, stated, starts the walk after that meal; another time, or no meal, is one tap (B-09, codex V1-07).
+      action: { label: `I had lunch at ${timeOf(at(TODAY, '13:30').getTime())}: walk now`, to: '/walk/live', mode: 'walk', walk: { meal: 'lunch', mealStartedAt: at(TODAY, '13:30').getTime() } },
+      more: [
+        { label: 'Different time', to: '/hub/walk?meal=lunch' },
+        { label: 'Just a walk', to: '/walk/live', mode: 'walk', walk: {} },
+      ],
     });
     expect(meal({}, '13:35', 'stretch').title).toBe('A walk after lunch');
     // Before the meal's usual end, and once its 45 minutes are over, the focus is back.
@@ -1048,11 +1062,13 @@ describe('a walk after a meal (D26; scan J2-07)', () => {
     expect(meal({}, '20:40', 'explore').title).toBe('A walk after dinner');
   });
 
-  it('opens Walk on "After a meal" with that meal chosen', () => {
+  it('"Different time" opens Walk on "After a meal" with that meal chosen, to say when it was', () => {
     for (const [time, which] of [['08:40', 'breakfast'], ['13:40', 'lunch'], ['20:40', 'dinner']] as const) {
-      const url = new URL(meal({}, time).action.to, 'https://app.test');
+      const different = meal({}, time).more?.find(a => a.label === 'Different time');
+      const url = new URL(different!.to, 'https://app.test');
       expect(url.pathname).toBe(HREF.walk);
       expect(mealFromSearch(url.searchParams)).toBe(which);
+      expect(meal({}, time).action.walk?.meal).toBe(which);
     }
   });
 

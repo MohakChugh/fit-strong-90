@@ -36,7 +36,7 @@ import { withLogged } from '@/engine/readiness';
 import { profileGaps } from '@/engine/health';
 import { headline } from '@/components/checkin/copy';
 import { minutesLeft, resumeOffer, slotOf, type SavedProgress } from '@/session/persistence';
-import { specFromPlanId, stretchHref } from '@/engine/stretch';
+import { lastStretch, specFromPlanId, stretchHref } from '@/engine/stretch';
 import { format, parseISO } from 'date-fns';
 import { timeOf } from '@/lib/time';
 import { walkSetupHref } from '@/walk/plan';
@@ -69,6 +69,12 @@ export interface RecommendationAction {
   to: string;
   /** Set when the action starts movement, which then goes through the shared start gate. */
   mode?: Mode;
+  /**
+   * A walk to start at once (`HREF.liveWalk`): its address is made at the tap,
+   * with a new walk's id (`directWalkHref`). After a meal, the one the person
+   * confirmed and when (B-09).
+   */
+  walk?: { meal?: Meal; mealStartedAt?: number };
 }
 
 export interface Recommendation {
@@ -79,6 +85,8 @@ export interface Recommendation {
   /** "Why this?", in words, with its real inputs. Always shown (D20). */
   reason: string;
   action: RecommendationAction;
+  /** Other ways on, quieter than the one primary action: the after-meal card's "Different time" and "Just a walk" (B-09). */
+  more?: RecommendationAction[];
 }
 
 export interface RecommendInput {
@@ -107,6 +115,8 @@ export const HREF = {
   stretch: '/hub/stretch',
   walk: '/hub/walk',
   plan: '/hub/workout/plan',
+  /** A walk started at once, from the Right now card (journey §7.4, K-32). */
+  liveWalk: '/walk/live',
   profile: '/me/profile',
   day: '/day/today',
   checkIn: (mode: Mode) => `/home?checkin=${mode}`,
@@ -681,7 +691,7 @@ function statusSuggestion(ctx: Context): Recommendation | undefined {
         title: 'A gentle stretch, or rest',
         detail: `Gentle mobility for your back and hips, or simply rest. Both are fine today.${beforeStart(ctx, 'stretch')}`,
         reason: `You marked a flare-up${when}. Only gentle movement is suggested until you change it.`,
-        action: { label: startLabel(ctx, 'stretch', 'Gentle stretch', 'stretch'), to: HREF.stretch, mode: 'stretch' },
+        action: { label: startLabel(ctx, 'stretch', 'Gentle stretch', 'stretch'), to: stretchNow(ctx), mode: 'stretch' },
       };
     case 'unwell':
       return {
@@ -702,6 +712,15 @@ function statusSuggestion(ctx: Context): Recommendation | undefined {
   }
 }
 
+/**
+ * The card's stretch runs at once (journey §7.4, K-32): the routine last
+ * recorded, as Stretch's setup would offer it, in the player, with no setup's
+ * second Start. A flare makes the player build its gentler version.
+ */
+function stretchNow(ctx: Context): string {
+  return stretchHref(lastStretch([...ctx.input.sessions]));
+}
+
 function stretchFor(ctx: Context, kind: RecommendationKind, reason: string): Recommendation {
   const part = PART_WORDS[ctx.part].adjective;
   return {
@@ -709,9 +728,12 @@ function stretchFor(ctx: Context, kind: RecommendationKind, reason: string): Rec
     title: `${part === 'afternoon' ? 'An' : part === 'evening' ? 'An' : 'A'} ${part} stretch`,
     detail: `Gentle mobility and supported movements.${beforeStart(ctx, 'stretch')}`,
     reason,
-    action: { label: startLabel(ctx, 'stretch', 'Stretch now', 'stretch'), to: HREF.stretch, mode: 'stretch' },
+    action: { label: startLabel(ctx, 'stretch', 'Stretch now', 'stretch'), to: stretchNow(ctx), mode: 'stretch' },
   };
 }
+
+/** The card's walk starts at once, "Just a walk" (journey §7.4, K-32). */
+const JUST_A_WALK = { to: HREF.liveWalk, mode: 'walk', walk: {} } as const satisfies Omit<RecommendationAction, 'label'>;
 
 function walkFor(ctx: Context, kind: RecommendationKind, reason: string): Recommendation {
   const part = PART_WORDS[ctx.part].adjective;
@@ -720,7 +742,7 @@ function walkFor(ctx: Context, kind: RecommendationKind, reason: string): Recomm
     title: `${part === 'afternoon' ? 'An' : part === 'evening' ? 'An' : 'A'} ${part} walk`,
     detail: `An easy pace: you can talk in full sentences.${beforeStart(ctx, 'walk')}`,
     reason,
-    action: { label: startLabel(ctx, 'walk', 'Walk now', 'walk'), to: HREF.walk, mode: 'walk' },
+    action: { label: startLabel(ctx, 'walk', 'Walk now', 'walk'), ...JUST_A_WALK },
   };
 }
 
@@ -742,13 +764,34 @@ function mealWalk(ctx: Context): Recommendation | undefined {
   const meal = mealWalkNow(habits, ctx.input.now);
   if (!meal || ctx.gates.walk === 'hold') return undefined;
   if (ctx.activities.some(a => a.mode === 'walk' && a.day === ctx.today && mealOfWalk(habits, a) === meal)) return undefined;
+  // The usual time, stated so the person can say it is right: a usual time is
+  // only a suggestion until confirmed, and "Different time" lets them say
+  // another (B-09). The walk then starts at once, tagged after that meal.
+  const had = lastMealTime(habits, meal, ctx.input.now);
   return {
     kind: 'mealWalk',
     title: `A walk after ${MEAL_WORD[meal]}`,
     detail: `About 10 minutes, starting soon after you finish eating.${beforeStart(ctx, 'walk')}`,
     reason: `You asked for a walk after ${MEAL_WORD[meal]}. In a study of people with type 2 diabetes, a short walk after meals lowered the rise in glucose (Reynolds 2016).`,
-    action: { label: startLabel(ctx, 'walk', 'Walk now', 'walk'), to: walkSetupHref(meal), mode: 'walk' },
+    action: { label: `I had ${MEAL_WORD[meal]} at ${timeOf(had)}: walk now`, to: HREF.liveWalk, mode: 'walk', walk: { meal, mealStartedAt: had } },
+    more: [
+      { label: 'Different time', to: walkSetupHref(meal) },
+      { label: 'Just a walk', ...JUST_A_WALK },
+    ],
   };
+}
+
+/**
+ * When the meal usually ends, as it last did by `now`: today's, or
+ * yesterday's for a window that runs past midnight, and never later than now.
+ */
+function lastMealTime(habits: RecommendInput['settings']['habits'], meal: Meal, now: Date): number {
+  const minute = clockMinute(habits?.mealWalk?.finish?.[meal]);
+  if (minute === undefined) return now.getTime();
+  const d = new Date(now);
+  d.setHours(0, minute, 0, 0);
+  if (d.getTime() > now.getTime()) d.setDate(d.getDate() - 1);
+  return Math.min(d.getTime(), now.getTime());
 }
 
 /**

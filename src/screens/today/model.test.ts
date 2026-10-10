@@ -385,6 +385,9 @@ describe('startLabelFor', () => {
     expect(startLabelFor('stretch', '/session?mode=stretch&focus=backHips&minutes=10&resume=1')).toBe('Continue stretch');
     expect(startLabelFor('stretch', HREF.stretch)).toBe('Continue to stretch');
     expect(startLabelFor('walk', HREF.walk)).toBe('Continue to walk');
+    // Straight to the player or the live walk: the check-in's button starts it (codex V1-07).
+    expect(startLabelFor('stretch', '/session?mode=stretch&focus=backHips&minutes=10')).toBe('Start stretch');
+    expect(startLabelFor('walk', '/walk/live?id=abcd-1234')).toBe('Start walk');
   });
 });
 

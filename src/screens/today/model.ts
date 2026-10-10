@@ -296,6 +296,8 @@ function suggestedRow(r: Recommendation): ChooserId | undefined {
 export function startLabelFor(mode: Mode, to: string, recovery = false): string {
   if (/[?&]resume=1\b/.test(to)) return mode === 'stretch' ? 'Continue stretch' : 'Continue session';
   if (mode === 'guided') return recovery ? 'Start recovery session' : 'Start session';
+  // Straight to the player or the live walk, from the Right now card (codex V1-07).
+  if (to.startsWith('/session') || to.startsWith('/walk/live')) return mode === 'stretch' ? 'Start stretch' : 'Start walk';
   return mode === 'stretch' ? 'Continue to stretch' : 'Continue to walk';
 }
 

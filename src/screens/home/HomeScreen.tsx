@@ -39,6 +39,8 @@ import { clearProgress, loadExpiredProgress, loadSetAside, minutesLeft, releaseS
 import { prefersHour12 } from '@/screens/track/format';
 import { addToDayTotal, getState, isSessionSaved, useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
+import { canLocate, canSenseMotion, requestMotion } from '@/walk/browser';
+import { directWalkHref } from '@/walk/plan';
 import { useClock, useWakeAt } from '@/screens/today/clock';
 import { ChooserSheet } from '@/screens/today/ChooserSheet';
 import { RecommendationCard } from '@/screens/today/RecommendationCard';
@@ -214,6 +216,15 @@ export function HomeScreen() {
   // through the shared start, which asks the gate at the tap and opens the
   // check-in first when one is due; there is no hub step in between.
   const act = (action: RecommendationAction) => {
+    if (action.walk) {
+      // Straight to the live walk (K-32), measuring what the person chose last
+      // time; the motion sensor is asked from this tap, as iOS requires (B-01).
+      const remembered = settings.walkDefaults;
+      const measure = { gps: (remembered?.gps ?? false) && canLocate(), steps: (remembered?.steps ?? false) && canSenseMotion() };
+      if (measure.steps) void requestMotion();
+      start('walk', directWalkHref(action.walk, Date.now(), measure), 'Start walk');
+      return;
+    }
     if (action.mode) {
       start(action.mode, action.to, startLabelFor(action.mode, action.to, recovery));
       return;

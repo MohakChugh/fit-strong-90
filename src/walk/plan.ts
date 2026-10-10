@@ -76,6 +76,18 @@ export function isWalkId(value: unknown): value is string {
   return typeof value === 'string' && ID_PATTERN.test(value);
 }
 
+/**
+ * A walk started straight from Home's Right now card (journey §7.4, K-32):
+ * after the meal the person confirmed, or "Just a walk", measuring what they
+ * chose last time. Its id is made now, at the tap.
+ */
+export function directWalkHref(walk: { meal?: Meal; mealStartedAt?: number }, now: number, measure: MeasureChoice): string {
+  const plan: WalkPlan = walk.meal && walk.mealStartedAt !== undefined
+    ? { kind: 'afterMeal', meal: { which: walk.meal, startedAt: walk.mealStartedAt }, gps: measure.gps, steps: measure.steps }
+    : { kind: 'walk', gps: measure.gps, steps: measure.steps };
+  return liveHref(newWalkId(now), plan);
+}
+
 /** The live screen's address for a new walk. */
 export function liveHref(id: string, plan: WalkPlan): string {
   const q = new URLSearchParams({ id });

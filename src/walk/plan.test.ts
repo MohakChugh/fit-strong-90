@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { choiceChanged, isWalkId, liveHref, mealFromSearch, mealStartedLabel, MEAL_STARTED_AGO, newWalkId, setupPlan, walkFromSearch } from './plan';
+import { choiceChanged, directWalkHref, isWalkId, liveHref, mealFromSearch, mealStartedLabel, MEAL_STARTED_AGO, newWalkId, setupPlan, walkFromSearch } from './plan';
 import type { WalkPlan } from './clock';
 
 const NOW = Date.UTC(2026, 9, 8, 13, 0, 0);
@@ -81,5 +81,21 @@ describe('remembered measuring choices', () => {
     expect(choiceChanged({ gps: true, steps: true }, { gps: true, steps: true })).toBe(false);
     expect(choiceChanged({ gps: true, steps: true }, { gps: true, steps: false })).toBe(true);
     expect(choiceChanged({ gps: false, steps: true }, { gps: true, steps: true })).toBe(true);
+  });
+});
+
+describe('directWalkHref: a walk started from Home’s card (journey §7.4, K-32, codex V1-07)', () => {
+  const NOW2 = Date.parse('2026-10-08T13:40:00+05:30');
+  const MEAL = Date.parse('2026-10-08T13:30:00+05:30');
+  it('after the meal the person stated, measuring what they chose last time', () => {
+    const href = directWalkHref({ meal: 'lunch', mealStartedAt: MEAL }, NOW2, { gps: false, steps: true });
+    const walk = walkFromSearch(new URL(href, 'https://app.test').searchParams, NOW2);
+    expect(new URL(href, 'https://app.test').pathname).toBe('/walk/live');
+    expect(walk?.plan).toEqual({ kind: 'afterMeal', meal: { which: 'lunch', startedAt: MEAL }, gps: false, steps: true });
+    expect(isWalkId(walk?.id)).toBe(true);
+  });
+  it('"Just a walk", with nothing measured unless chosen', () => {
+    const href = directWalkHref({}, NOW2, { gps: false, steps: false });
+    expect(walkFromSearch(new URL(href, 'https://app.test').searchParams, NOW2)?.plan).toEqual({ kind: 'walk', gps: false, steps: false });
   });
 });

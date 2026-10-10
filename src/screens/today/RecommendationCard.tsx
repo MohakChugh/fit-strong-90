@@ -57,6 +57,13 @@ export function RecommendationCard({ recommendation: r, eyebrow, revision, chang
           </div>
         </div>
         <Action action={r.action} emergency={emergency} onAct={onAct} />
+        {/* Other ways on, quieter than the one primary action (journey §20.4 rule 4): the after-meal card's (B-09). */}
+        {r.more?.map(a => (
+          <button key={a.label} type="button" onClick={() => onAct(a)}
+            className="press-feedback -mt-2 flex min-h-12 w-full items-center justify-center rounded-xl bg-tint/10 px-4 text-center text-[length:var(--text-body)] font-semibold text-tint">
+            {a.label}
+          </button>
+        ))}
         {ADVICE.has(r.kind) && r.action.to !== HREF.profile && (
           <p className="-mt-1 text-[length:var(--text-footnote)] text-muted-foreground">General information, not medical advice.</p>
         )}

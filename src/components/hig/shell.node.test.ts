@@ -54,6 +54,7 @@ const { createSwipe, dragOffset, nextVelocity, releaseVelocity, shouldDismiss } 
 const nav = await import('./navigation');
 const { SourceList, ClaimText } = await import('@/screens/guide/parts');
 const { ChooserSheet } = await import('@/screens/today/ChooserSheet');
+const { RecommendationCard } = await import('@/screens/today/RecommendationCard');
 const { contextOf } = await import('@/content');
 const { BAR_COLOR, themeColorFor } = await import('@/lib/themeColor');
 const { ScreenLoading } = await import('./AppShell');
@@ -610,6 +611,27 @@ describe('Home’s targets and layout (kiro KV-08, KV-10, KV-11, KV-15, KV-18, K
     expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/>\s*Something else\s*<\/button>/);
     const m = html(h(ChooserSheet, { open: true, onOpenChange: () => {}, rows: [], onChoose: () => {} }));
     expect(m).toMatch(/<a href="#\/browse"[^>]*>[\s\S]*All categories/);
+  });
+});
+
+describe('the Right now card runs its action directly (journey §7.4, K-32, B-09, codex V1-07)', () => {
+  const card = {
+    kind: 'mealWalk', title: 'A walk after lunch', detail: '', reason: 'You asked for a walk after lunch.',
+    action: { label: 'I had lunch at 1:30 pm: walk now', to: '/walk/live', mode: 'walk', walk: { meal: 'lunch', mealStartedAt: 1 } },
+    more: [{ label: 'Different time', to: '/hub/walk?meal=lunch' }, { label: 'Just a walk', to: '/walk/live', mode: 'walk', walk: {} }],
+  } as const;
+
+  it('shows the after-meal card’s stated time as its one primary action, then "Different time" and "Just a walk", quieter', () => {
+    const m = html(h(RecommendationCard, { recommendation: card as never, eyebrow: 'Suggested for now', revision: 'r', changed: false, onAct: () => {} }));
+    const labels = [...m.matchAll(/<button[^>]*class="([^"]*)"[^>]*>([^<]*)<\/button>/g)].map(x => ({ cls: x[1], text: x[2] }));
+    expect(labels.map(l => l.text)).toEqual(['I had lunch at 1:30 pm: walk now', 'Different time', 'Just a walk']);
+    expect(labels[0].cls).toContain('bg-tint text-on-tint');
+    for (const l of labels.slice(1)) for (const c of ['min-h-12', 'bg-tint/10', 'text-tint']) expect(l.cls.split(' '), `${l.text}: ${c}`).toContain(c);
+  });
+
+  it('a walk from the card starts at once, with its id made at the tap and the motion sensor asked from it (B-01)', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    expect(home).toMatch(/if \(action\.walk\) \{[\s\S]*?if \(measure\.steps\) void requestMotion\(\);[\s\S]*?start\('walk', directWalkHref\(action\.walk, Date\.now\(\), measure\), 'Start walk'\);/);
   });
 });
 
