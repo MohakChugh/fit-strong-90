@@ -98,7 +98,7 @@ export const cases = [{
       B = data.decodeBackup(made.bytes);
       fileB = data.writeFixture(t, made.name, made.bytes);
       await t.checkpoint('backup-made');
-      await t.check(B.format === 'fit-strong-health-record' && B.version === 1 && B.schemaVersion === 5, `backup header: ${JSON.stringify({ format: B.format, version: B.version, schemaVersion: B.schemaVersion })}`);
+      await t.check(B.format === 'fit-strong-health-record' && B.version === 1 && B.schemaVersion === 6, `backup header: ${JSON.stringify({ format: B.format, version: B.version, schemaVersion: B.schemaVersion })}`);
       const diffs = data.compareLogical(data.logical(before), data.logicalFromDoc(B), { label: ['device', 'backup'] });
       await t.check(diffs.length === 0, `backup B does not hold the whole record: ${diffs.slice(0, 6).join(' | ')}`);
       await t.check(B.observations.some(o => o.kind === 'glucose' && o.value === 112) && B.observations.some(o => o.kind === 'steps' && o.value === 3000)

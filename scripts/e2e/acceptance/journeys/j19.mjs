@@ -179,7 +179,8 @@ const sequence = {
     });
 
     await t.step(7, 'A later schema, an Apple Health XML export and a ZIP are refused honestly', async () => {
-      await rejectFile(t, 'schema-6', data.writeFixture(t, 'schema6.json', { ...B, schemaVersion: 6 }), NEWER);
+      // The app writes schema 6 since the storage foundation (IndexedDB 2, ce27299): 7 is the later one.
+      await rejectFile(t, 'schema-7', data.writeFixture(t, 'schema7.json', { ...B, schemaVersion: 7 }), NEWER);
       const xml = '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE HealthData>\n<HealthData locale="en_IN"><Record type="HKQuantityTypeIdentifierStepCount" value="4200" unit="count" startDate="2026-10-07 08:00:00 +0530"/></HealthData>\n';
       await rejectFile(t, 'apple-health-xml', data.writeFixture(t, 'export.xml', xml), UNREADABLE);
       const zip = Buffer.concat([Buffer.from('PK\x03\x04\x14\x00\x00\x00\x08\x00', 'binary'), Buffer.from('apple_health_export/export.xml'), Buffer.alloc(40, 7)]);
