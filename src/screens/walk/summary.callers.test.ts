@@ -59,6 +59,7 @@ const store = await import('@/store/useStore');
 const { WalkSummary } = await import('./WalkSummary');
 const { accrueOpen, finishWalk, startWalk } = await import('@/walk/clock');
 const { clearWalk, sessionWalkStorage, storeWalk } = await import('@/walk/persist');
+const { backPending, record, resetNavigationForTests } = await import('@/components/hig/navigation');
 
 const ID = 'mgh3k2x1-1a2b3c4d';
 const MIN = 60_000;
@@ -70,6 +71,8 @@ beforeEach(async () => {
   vi.setSystemTime(START + 30 * MIN);
   local.clear();
   store.resetForTests();
+  resetNavigationForTests();
+  router.navigate = vi.fn();
   await store.start({ factory: fakeIndexedDB(), broadcast: null });
 });
 afterEach(() => {
@@ -80,10 +83,10 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** A finished 20-minute walk waiting to be saved, for someone set up as `profile`. */
-async function summary(profile: ReturnType<typeof createDefaultProfile>) {
+/** A finished 20-minute walk waiting to be saved, for someone set up as `profile`, started from `from`. */
+async function summary(profile: ReturnType<typeof createDefaultProfile>, from?: '/home' | '/hub/walk', minutes = 20) {
   await store.setProfile(profile);
-  const walk = finishWalk(accrueOpen(startWalk(ID, { kind: 'walk', gps: false, steps: false }, START), 20 * MIN, START + 20 * MIN), START + 20 * MIN, 'finish');
+  const walk = finishWalk(accrueOpen(startWalk(ID, { kind: 'walk', gps: false, steps: false, ...(from ? { from } : {}) }, START), minutes * MIN, START + minutes * MIN), START + minutes * MIN, 'finish');
   storeWalk(sessionWalkStorage(), walk);
   const h = (host = render(createElement(WalkSummary)));
   await h.settle();
@@ -190,5 +193,45 @@ describe('the summary after “Erase all routes” (B-05)', () => {
     await h.settle();
     expect(h.text()).toContain('Saved on this device');
     expect(store.getState().records.routes).toEqual([]);
+  });
+});
+
+describe('Done closes back to where the walk came from, through history (M12)', () => {
+  const someone = createDefaultProfile({ weightKg: 70, birthYear: 1975, health: { diabetes: 'none', medicinesReviewed: true } });
+  /** Home → the Walk hub → the live walk, which Finish replaced with this summary. */
+  function walkedFromTheHub() {
+    record({ pathname: '/home', search: '', state: null, key: 'h' }, 'PUSH', 0);
+    record({ pathname: '/hub/walk', search: '', state: null, key: 'w' }, 'PUSH', 1);
+    record({ pathname: '/walk/live', search: `?id=${ID}`, state: null, key: 'l' }, 'PUSH', 2);
+    record({ pathname: '/walk/summary', search: '', state: null, key: 's' }, 'REPLACE', 2);
+  }
+
+  it('after the save, pops back to the hub as it was, so its Back names Home, never this summary', async () => {
+    walkedFromTheHub();
+    const h = await summary(someone, '/hub/walk');
+    await h.click(h.button('Save walk'));
+    await h.settle();
+    await h.click(h.button('Done', { exact: true }));
+    expect(router.navigate.mock.calls).toEqual([[-1]]);
+  });
+
+  it('with nothing behind it, as after a fresh launch, shows the hub in place of the summary', async () => {
+    record({ pathname: '/walk/summary', search: '', state: null, key: 's' }, 'LAUNCH', undefined);
+    const h = await summary(someone, '/hub/walk');
+    await h.click(h.button('Save walk'));
+    await h.settle();
+    await h.click(h.button('Done', { exact: true }));
+    expect(router.navigate.mock.calls).toEqual([['/hub/walk', { replace: true }]]);
+    // A Back with nothing to pop to: it moves as Back does.
+    expect(backPending()).toBe(true);
+  });
+
+  it('a walk with nothing recorded goes back the same way once it is discarded', async () => {
+    walkedFromTheHub();
+    const h = await summary(someone, '/hub/walk', 0);
+    expect(h.text()).toContain('Nothing was recorded on this walk');
+    await h.click(h.button('Done', { exact: true }));
+    await h.settle();
+    expect(router.navigate.mock.calls).toEqual([[-1]]);
   });
 });

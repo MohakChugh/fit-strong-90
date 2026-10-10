@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { CircleCheckIcon, TriangleAlertIcon } from 'lucide-react';
+import { cameFrom, markBack } from '@/components/hig/navigation';
 import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
@@ -79,6 +80,18 @@ export function WalkSummary() {
   const mapOn = walkSettings(settings).map === 'on';
   // Done returns to where the walk was started (M12).
   const origin = walk.plan.from ?? '/home';
+  /**
+   * Back to where the walk came from, through history, as the session player
+   * closes and as Back goes (M12): the entry behind this summary is the screen
+   * the walk was started on, as it was left. Pushing it again would leave this
+   * summary, gone once saved, behind that screen's Back. With nothing behind
+   * it, as after a fresh launch, the origin takes this entry's place.
+   */
+  const leave = () => {
+    markBack();
+    if (cameFrom()) navigate(-1);
+    else navigate(origin, { replace: true });
+  };
   const ending = endingLine(walk);
   const back = profile.pain.areas.includes('lowerBack') || profile.pain.areas.includes('sciatica');
   const leg = profile.pain.areas.includes('sciatica');
@@ -128,10 +141,8 @@ export function WalkSummary() {
       return;
     }
     clearWalk(storage);
-    navigate(walk.plan.from ?? '/hub/walk', { replace: true });
+    leave();
   };
-
-  const done = () => navigate(origin, { viewTransition: true });
 
   return (
     <Screen title="Your walk" back={{ to: origin, label: origin === '/hub/walk' ? 'Walk' : 'Home' }}>
@@ -212,7 +223,7 @@ export function WalkSummary() {
       </div>
 
       {saved || (save.kind === 'kept' && memoryOnly) ? (
-        <PrimaryButton onClick={done}>Done</PrimaryButton>
+        <PrimaryButton onClick={leave}>Done</PrimaryButton>
       ) : anything ? (
         <>
           <PrimaryButton onClick={() => void saveWalk()} disabled={busy}>
