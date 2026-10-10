@@ -84,6 +84,11 @@ describe('settings in an import file are read field by field (D-08)', () => {
     expect(preview(file({ settings: { ...settings, homeOffered: ['mood'] } })).unreadableFields).toEqual(['settings.homeOffered']);
   });
 
+  it('reads what Finish setting up was told, chapter by chapter', () => {
+    expect(preview(file({ settings: { ...settings, setup: { declined: ['health', 'food'] } } })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings: { ...settings, setup: { declined: ['everything'] } } })).unreadableFields).toEqual(['settings.setup.declined']);
+  });
+
   it('reads the weekly goal’s history, v1’s undated goal included, and leaves out one that cannot be read (B-16)', () => {
     const history = [{ from: '', goal: 120 }, { from: '2026-10-12', goal: 150 }, { from: '2026-10-19' }];
     expect(preview(file({ settings: { ...settings, weeklyMovementGoalHistory: history } })).unreadableFields).toEqual([]);

@@ -2,6 +2,7 @@ import type { UserProfile } from './profile';
 import type { CheckInRecord } from './checkin';
 import type { DayFocus } from './plan';
 import type { HabitSettings } from './habits';
+import type { ChapterId } from './setup';
 import type { RecordStore } from '@/store/records';
 
 export type Phase = 'foundation' | 'hypertrophy' | 'strength';
@@ -199,6 +200,12 @@ export interface UserSettings {
   home?: HomeLayout;
   /** v2 (journey §5.1): categories Me has offered for Home, added or "Not now", so none is offered twice. */
   homeOffered?: CategoryId[];
+  /**
+   * v2 (journey §6.6, §16): the chapters Me's "Finish setting up" was told
+   * "Not now". Plan 5 makes this its whole setup state, which keeps
+   * `declined` (§18.1).
+   */
+  setup?: { declined?: ChapterId[] };
   /** v2 (journey §16 Display): the app's own settings, since Safari doesn't report Reduce Transparency and the system's motion setting isn't everyone's choice. */
   display?: { reduceMotion?: boolean; reduceTransparency?: boolean };
   /**
@@ -257,3 +264,4 @@ export interface AppData {
 export type { UserProfile } from './profile';
 export type { HabitSettings } from './habits';
 export type { CheckInRecord, DailyCheckIn, Readiness } from './checkin';
+export type { ChapterId } from './setup';
