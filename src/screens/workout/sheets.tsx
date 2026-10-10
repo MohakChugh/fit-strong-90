@@ -162,7 +162,7 @@ export function FinishSheet({ open, onOpenChange, done, total, status, startedAt
       <Failed message={failure} />
       <div className="flex flex-col gap-2">
         <button type="button" className={primary} disabled={saving} onClick={save}>
-          {saving ? 'Saving…' : 'Save workout'}
+          {saving ? 'Saving…' : failure ? 'Try again' : 'Save workout'}
         </button>
         <button type="button" className={`${secondary} disabled:opacity-50`} disabled={saving} onClick={() => onOpenChange(false)}>Keep going</button>
       </div>
