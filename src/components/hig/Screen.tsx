@@ -20,7 +20,7 @@ import { StorageBanner } from './StorageBanner';
  * to) it replaces this entry with the opener the navigation state names, or
  * with `back` (see `backTarget`).
  */
-export function Screen({ title, navTitle = title, subtitle, below, back, trailing, inline, children, className }: {
+export function Screen({ title, navTitle = title, subtitle, below, back, trailing, inline, children, className, wash, placeholder = false }: {
   title: string;
   /**
    * What the next screen's Back calls this one, when that is not its title:
@@ -39,6 +39,18 @@ export function Screen({ title, navTitle = title, subtitle, below, back, trailin
   inline?: boolean;
   children: ReactNode;
   className?: string;
+  /**
+   * A solid layer behind the bar and the large title, such as a hub's
+   * category wash (journey §8.1). `name` makes it a view-transition element
+   * while it is set (M3's `hub-card-bg`, B-27). Never glass (journey §20.1).
+   */
+  wash?: { background: string; name?: string };
+  /**
+   * A stand-in while the screen's own code loads (a hub's skeleton, journey
+   * §8.4): it leaves the title's focus to the screen it stands in for, which
+   * takes it when it comes.
+   */
+  placeholder?: boolean;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -98,11 +110,11 @@ export function Screen({ title, navTitle = title, subtitle, below, back, trailin
     // reader announces where the person now is. Not on launch, and never out
     // of a sheet that is open. Decided here, from the navigation itself, so
     // the order in which React runs effects cannot make it a screen late.
-    if (takeFocusRequest(location.pathname) && !document.activeElement?.closest('[role="dialog"]')) {
+    if (!placeholder && takeFocusRequest(location.pathname) && !document.activeElement?.closest('[role="dialog"]')) {
       heading.current?.focus({ preventScroll: true });
     }
     markShown();
-  }, [location.pathname]);
+  }, [location.pathname, placeholder]);
 
   const goBack = () => {
     if (!target) return;
@@ -112,7 +124,16 @@ export function Screen({ title, navTitle = title, subtitle, below, back, trailin
   };
 
   return (
-    <div className={cn('bg-grouped-bg', className)}>
+    <div className={cn('relative isolate bg-grouped-bg', className)}>
+      {/* `isolate` keeps the layer above the page colour and below the content. */}
+      {wash && (
+        <div
+          aria-hidden
+          data-wash
+          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-56"
+          style={{ background: wash.background, ...(wash.name ? { viewTransitionName: wash.name } : {}) }}
+        />
+      )}
       <div ref={header} className="sticky top-0 z-30 pt-safe">
         {!framed && <StorageBanner inHeader />}
         <div data-bar className={cn(

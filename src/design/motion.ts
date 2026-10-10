@@ -73,3 +73,12 @@ export function transitionSkipped({ urgent }: { urgent: boolean }, now = Date.no
   skipUntil = 0;
   return urgent || asked;
 }
+
+/**
+ * The next view transition is a tile opening its hub (M3): the page fades
+ * while the tile's background grows into the hub's wash. Cleared when the
+ * transition ends, or by a navigation that doesn't animate (`main.tsx`).
+ */
+export function markMorph(): void {
+  if (typeof document !== 'undefined') document.documentElement.dataset.morph = '';
+}

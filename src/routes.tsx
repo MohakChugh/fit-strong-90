@@ -1,4 +1,4 @@
-import { lazy } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import type React from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from '@/components/hig/AppShell';
@@ -6,6 +6,7 @@ import { ErrorBoundary } from '@/components/hig/ErrorBoundary';
 import { TaskFrame } from '@/components/hig/StorageBanner';
 import { redirectFor } from '@/redirects';
 import HomeRoutes from '@/screens/home/routes';
+import { HubSkeleton } from '@/screens/hub/HubSkeleton';
 
 // Home is the landing screen, so it ships with the app. Every other area
 // loads the first time it is opened.
@@ -28,6 +29,9 @@ const BrowseScreen = lazy(() => import('@/screens/browse/BrowseScreen'));
 const YouRoutes = lazy(() => import('@/screens/you/routes'));
 const WelcomeRoutes = lazy(() => import('@/screens/welcome/routes'));
 const SessionPage = lazy(() => import('@/pages/SessionPage'));
+
+/** A hub's own loading state (journey §8.4): its bar and Back at once, placeholders after 150 ms. */
+const hub = (element: ReactNode) => <Suspense fallback={<HubSkeleton />}>{element}</Suspense>;
 
 /**
  * Every v1 address, and any other this version doesn't have, sent on with its
@@ -86,16 +90,16 @@ export function AppRoutes({ onboarded }: { onboarded: boolean }) {
 
       <Route element={<AppShell />}>
         <Route path="/home/*" element={<HomeRoutes />} />
-        <Route path="/hub/workout/*" element={<MoveRoutes />} />
-        <Route path="/hub/stretch" element={<StretchScreen />} />
-        <Route path="/hub/walk/*" element={<WalkRoutes />} />
-        <Route path="/hub/learn/*" element={<GuideRoutes />} />
-        <Route path="/hub/food" element={<MealIdeasScreen />} />
-        <Route path="/hub/food/ideas" element={<MealIdeasScreen />} />
-        <Route path="/hub/food/ideas/:mealId" element={<MealDetailScreen />} />
-        <Route path="/hub/food/week" element={<SampleWeekScreen />} />
-        <Route path="/hub/back" element={<BackLeg />} />
-        <Route path="/hub/:id" element={<MetricFor />} />
+        <Route path="/hub/workout/*" element={hub(<MoveRoutes />)} />
+        <Route path="/hub/stretch" element={hub(<StretchScreen />)} />
+        <Route path="/hub/walk/*" element={hub(<WalkRoutes />)} />
+        <Route path="/hub/learn/*" element={hub(<GuideRoutes />)} />
+        <Route path="/hub/food" element={hub(<MealIdeasScreen />)} />
+        <Route path="/hub/food/ideas" element={hub(<MealIdeasScreen />)} />
+        <Route path="/hub/food/ideas/:mealId" element={hub(<MealDetailScreen />)} />
+        <Route path="/hub/food/week" element={hub(<SampleWeekScreen />)} />
+        <Route path="/hub/back" element={hub(<BackLeg />)} />
+        <Route path="/hub/:id" element={hub(<MetricFor />)} />
         <Route path="/day/*" element={<DayRoutes />} />
         <Route path="/trends" element={<MyDay view="trends" />} />
         <Route path="/trends/workout/*" element={<WorkoutRoutes />} />

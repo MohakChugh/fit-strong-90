@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle2Icon, PlusIcon } from 'lucide-react';
+import { CATEGORIES } from '@/categories';
 import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
 import { BarChart, LineChart } from '@/components/hig/Chart';
@@ -111,7 +112,11 @@ export function MetricFor({ trend = false }: { trend?: boolean }) {
   const table = trend ? TREND_METRIC : CATEGORY_METRIC;
   const lab = id === 'labs' ? LABS.find(l => l === params.get('metric')) : undefined;
   const metric = lab ?? (Object.hasOwn(table, id) ? table[id] : undefined);
-  if (!metric) return <Navigate to="/home?moved=1" replace />;
+  if (!metric) {
+    // A category that declares a trend v1 never charted (Stretch, Back & leg) opens the Trends tab until Plan 3 builds it, never "That page has moved".
+    const declared = trend && CATEGORIES.some(c => c.id === id && c.trend !== undefined);
+    return <Navigate to={declared ? '/trends' : '/home?moved=1'} replace />;
+  }
   return <MetricDetail kind={metric} />;
 }
 

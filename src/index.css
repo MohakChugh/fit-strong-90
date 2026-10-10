@@ -695,3 +695,29 @@ button, [role="button"], a {
 /* A screen's nav bar: full width, so a hairline under it rather than a rim and a shadow. */
 .glass[data-bar] { border-width: 0 0 1px; border-color: var(--separator); border-radius: 0; box-shadow: none; }
 @media (prefers-contrast: more) { .glass[data-bar] { border-color: var(--foreground); } }
+
+/* ==========================================================================
+   Hubs (journey §8.1, §8.4; motion M3, M24).
+   ========================================================================== */
+/* The spring at 0.4 s, bounce 0, as a CSS curve (motion spec §3.1; design research §4.1). */
+:root { --spring-smooth: linear(0, 0.058, 0.18, 0.321, 0.455, 0.573, 0.671, 0.75, 0.812, 0.86, 0.897, 0.924, 0.945, 0.96, 0.971, 0.979, 0.985, 0.989, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 1); }
+
+@keyframes fs-hub-in {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The tile's plain background grows into the hub's wash; text stays out of it and cross-fades (M3, B-27). */
+  ::view-transition-group(hub-card-bg) { animation-duration: 588ms; animation-timing-function: var(--spring-smooth); }
+  ::view-transition-old(hub-card-bg),
+  ::view-transition-new(hub-card-bg) { height: 100%; }
+  /* The rest of the page fades rather than slides; the hub's content rises 8 px once the morph is half done. */
+  :root[data-morph]::view-transition-old(root) { animation: fs-nav-fade-out 0.2s linear both; }
+  :root[data-morph]::view-transition-new(root) { animation: fs-hub-in 0.3s var(--ease-out-quart) 0.29s both; }
+}
+
+/* Loading placeholders: after 150 ms, a shimmer of at most three cycles, and still under Reduce motion (B-29). */
+.hub-skeleton { opacity: 0; animation: fs-fade-in 0.2s linear 150ms both, hub-shimmer 1.2s ease-in-out 350ms 3; }
+@keyframes hub-shimmer { 50% { background-color: color-mix(in oklab, var(--grouped-card) 60%, var(--grouped-bg)); } }
+:root[data-reduce-motion] .hub-skeleton { animation: fs-fade-in 0.01ms linear 150ms both; }

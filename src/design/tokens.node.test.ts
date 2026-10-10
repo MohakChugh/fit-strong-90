@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CATEGORIES } from '@/categories';
+import { HUB_WASH } from '@/screens/hub/frame';
 import { contrast, luminance, toSrgb } from './contrast';
+import { springLinear } from './motion';
 
 const css = readFileSync(path.resolve(__dirname, '../index.css'), 'utf8');
 const bare = css.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -120,5 +122,42 @@ describe('the in-app Reduce motion (motion rule 4)', () => {
   });
   it('turns a view transition into a 200 ms fade, not nothing', () => {
     expect(bare).toMatch(/:root\[data-reduce-motion\]::view-transition-old\(root\),\s*:root\[data-reduce-motion\]::view-transition-new\(root\) \{\s*animation: fs-fade-in 0\.2s linear both;/);
+  });
+});
+
+/** `a` mixed into `b` by `t` in OKLab, as `color-mix(in oklab, a t, b)` mixes them, back as [L, C, h]. */
+function mixOklab(a: [number, number, number], b: [number, number, number], t: number): [number, number, number] {
+  const lab = ([L, C, h]: [number, number, number]) => [L, C * Math.cos((h * Math.PI) / 180), C * Math.sin((h * Math.PI) / 180)];
+  const [L1, a1, b1] = lab(a);
+  const [L2, a2, b2] = lab(b);
+  const L = L1 * t + L2 * (1 - t);
+  const A = a1 * t + a2 * (1 - t);
+  const B = b1 * t + b2 * (1 - t);
+  return [L, Math.hypot(A, B), ((Math.atan2(B, A) * 180) / Math.PI + 360) % 360];
+}
+
+describe('hub washes (journey §8.1, §20.3)', () => {
+  for (const [selector, theme] of THEMES) {
+    const bg = token(selector, '--grouped-bg');
+    const tint = token(selector, '--tint');
+    const fg = token(selector, '--foreground', '--foreground');
+    for (const c of CATEGORIES.map(x => x.id)) {
+      it(`${c} in ${theme}: Back and the large title keep 4.5:1 on the wash at its strongest`, () => {
+        const wash = mixOklab(token(selector, `--cat-${c}`), bg, HUB_WASH / 100);
+        expect(contrast(tint, wash)).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(fg, wash)).toBeGreaterThanOrEqual(4.5);
+      });
+    }
+  }
+});
+
+describe('the spring curve token (motion spec §3.1)', () => {
+  it('is the curve springLinear(0) draws, within 0.01 at each step', () => {
+    const m = /--spring-smooth:\s*linear\(([^)]+)\)/.exec(css);
+    expect(m).not.toBeNull();
+    const css24 = m![1].split(',').map(Number);
+    const mine = springLinear(0).slice('linear('.length, -1).split(',').map(Number);
+    expect(css24).toHaveLength(mine.length);
+    css24.forEach((v, i) => expect(Math.abs(v - mine[i])).toBeLessThan(0.01));
   });
 });

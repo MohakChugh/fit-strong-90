@@ -75,11 +75,13 @@ setPlaceCheck(place => placeExists(place.pathname, getState()))
 // motion, the system's or the app's own (motion rule 4, set on <html> by App).
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
 const navigate = router.navigate.bind(router)
-router.navigate = ((to: Parameters<typeof navigate>[0], opts?: Parameters<typeof navigate>[1]) =>
-  typeof to === 'number' || (opts?.replace && !backPending())
+router.navigate = ((to: Parameters<typeof navigate>[0], opts?: Parameters<typeof navigate>[1]) => {
+  const plain = typeof to === 'number' || (opts?.replace && !backPending())
     || !shouldAnimate({ systemReduced: reduceMotion.matches, appReduced: document.documentElement.dataset.reduceMotion !== undefined })
-    ? navigate(to as never, opts)
-    : navigate(to, { viewTransition: true, ...opts })) as typeof router.navigate
+  // A tile's morph (M3) belongs to an animated push; a plain navigation leaves no mark behind.
+  if (plain) delete document.documentElement.dataset.morph
+  return plain ? navigate(to as never, opts) : navigate(to, { viewTransition: true, ...opts })
+}) as typeof router.navigate
 
 // Safari's swipe-back already animates the page; a second, app-drawn
 // transition on top of it would show the move twice.
@@ -110,7 +112,11 @@ if (document.startViewTransition) {
     latest = transition
     transition.ready.catch(() => {})
     transition.finished
-      .finally(() => { if (latest === transition) delete document.documentElement.dataset.vtRunning })
+      .finally(() => {
+        if (latest !== transition) return
+        delete document.documentElement.dataset.vtRunning
+        delete document.documentElement.dataset.morph
+      })
       .catch(() => {})
     // The router starts the transition a few frames after the popstate.
     const browserAnimated = performance.now() - browserAnimatedAt < 1000

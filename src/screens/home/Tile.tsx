@@ -4,7 +4,7 @@ import {
   MoonIcon, PersonStandingIcon, RulerIcon, ScaleIcon, UtensilsIcon, type LucideIcon,
 } from 'lucide-react';
 import type { Category, CategoryId } from '@/categories';
-import { skipNextTransition } from '@/design/motion';
+import { markMorph, skipNextTransition } from '@/design/motion';
 import { cn } from '@/lib/utils';
 import { useLongPress } from './editor';
 import { FROM_HOME, tileHref } from './model';
@@ -92,6 +92,7 @@ export function Tile({ category, line, due, held, urgent, opensOnHold, onLongPre
           return;
         }
         if (urgent || opensOnHold()) skipNextTransition();
+        else markMorph();
       }}
       className="block h-full select-none rounded-2xl [-webkit-touch-callout:none]"
     >
