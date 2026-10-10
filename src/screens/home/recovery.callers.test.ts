@@ -113,6 +113,19 @@ describe('Home’s recovery row (journey §9.4, V-J34)', () => {
     expect(left.ok && left.value.map(e => e.id)).toEqual([ID]);
   });
 
+  it('puts Save and Discard side by side, and one above the other where the row is narrow (KH-18)', async () => {
+    await lost();
+    const h = (host = render(createElement(WalkRecoveryRow)));
+    await h.settle();
+    const classes = (n: { props: Record<string, unknown> }) => String(n.props.className ?? '').split(/\s+/);
+    const parentOf = (child: unknown) => h.all().find(n => n.children.includes(child as never))!;
+    const row = parentOf(h.button('Save', { exact: true }));
+    expect(row.children).toContain(h.button('Discard', { exact: true }));
+    // Narrower than 20rem, at the row's own text size: stacked, never squeezed side by side.
+    expect(classes(row)).toEqual(expect.arrayContaining(['grid', 'grid-cols-2', '@max-[20rem]:grid-cols-1', 'gap-3']));
+    expect(classes(parentOf(row))).toContain('@container');
+  });
+
   it('discards on request, keeping nothing of the walk', async () => {
     await lost();
     const h = (host = render(createElement(WalkRecoveryRow)));
