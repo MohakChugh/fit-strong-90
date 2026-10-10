@@ -1539,6 +1539,28 @@ const flagsOf = (c: DailyCheckIn): Flag[] => [...new Set([...flagsIn(c), ...flag
 const flagId = (flag: Flag, day: string) => `flag:${flag}@${day}`;
 
 /**
+ * Every name the engine can give what one record holds (§4.6, P8-02): its
+ * glucose readings, Track's included, its ketones, its blood pressure whole
+ * and in halves, its news and its red flags, by the ids answers use. What an
+ * import must leave this device's answers alone about: a reading's identity
+ * is its time and value, so the same reading under another record id is
+ * still the same one.
+ */
+export function readingIdsIn(record: DailyCheckIn): string[] {
+  const c = withLogged(record);
+  const day = c.date;
+  const ids = [
+    ...[...(c.glucoseEarlier ?? []), c.glucose, c.glucoseDisplay].filter((e): e is GlucoseEntry => !!e).map(e => glucoseReadingId(e, day)),
+    ...[...(c.ketonesEarlier ?? []), ...(c.ketones ? [c.ketones] : [])].map(k => ketoneReadingId(k, day)),
+    ...([...(c.bpEarlier ?? []), ...(c.bpReadings ?? []), ...(c.bp ? [c.bp] : [])] as BpReading[]).map(r => bpReadingId(r, day)),
+    ...(c.bpPartial ?? []).map(r => bpPartialId(r, day)),
+    ...[...c.news, ...(Array.isArray(c.newsEarlier) ? c.newsEarlier : [])].map(n => newsReadingId(day, n)),
+    ...flagsOf(c).map(f => flagId(f, day)),
+  ];
+  return [...new Set(ids)];
+}
+
+/**
  * An item said again today after an answer released it — a red flag, a foot
  * problem, or news that ends the day, ticked again — is a new report of it
  * (R5-01). These are the `reopened` answers that take each release back, so
