@@ -45,7 +45,8 @@ export async function openHub(t, title, path) {
     await ui.tap(tile(page, title));
   } else {
     await ui.tab(page, 'Browse');
-    await ui.tap(ui.row(page.getByRole('main'), title, 'link'));
+    // Browse lists Learn's topics too (Plan 4), "Water" beside the Water category: the category's row is the link named just its title.
+    await ui.tap(page.getByRole('main').getByRole('link', { name: title, exact: true }));
   }
   const ok = await page.waitForFunction(({ path, title, loading }) => {
     const hash = location.hash.replace(/^#/, '').split('?')[0];
