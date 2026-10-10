@@ -540,6 +540,23 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     expect(pending).not.toMatch(/navigate\(pending\.href/);
   });
 
+  it('a hub’s Continue describes the run as the player will run it, from one reconciliation (codex H2-02, B-30)', () => {
+    for (const file of ['src/screens/hub/StretchHub.tsx', 'src/screens/hub/WorkoutHub.tsx']) {
+      const src = read(file);
+      expect(src, file).toMatch(/carriedOn\(saved, \{ data, checkIns, checkIn, profile, date, todayPlan/);
+      expect(src, file).not.toMatch(/minutesLeft\(saved\)/);
+    }
+    const stretch = read('src/screens/hub/StretchHub.tsx');
+    expect(stretch).toContain('const listed = resume ? { ...plan, steps: resume.left } : plan;');
+    expect(stretch).toContain('return { spec, minutesLeft: run.minutesLeft, label: saved.plan.label, href: resumeHref(saved), left: run.left };');
+    expect(stretch).toContain('saved: { minutesLeft: resume.minutesLeft, label: resume.label }');
+    expect(read('src/screens/hub/WorkoutHub.tsx')).toContain('saved: { minutesLeft: leftOf(saved, guided, now), label: saved.plan.label }');
+    // The player reconciles with the same dose and back checks.
+    const player = read('src/pages/SessionPage.tsx');
+    expect(player).toContain('todayDose(plan, { data, checkIns, checkIn, profile, date, todayPlan, spec })');
+    expect(player).toContain("import { todayDose, withBackChecks } from '@/session/carryOn';");
+  });
+
   it('the walk summary, a full-screen task, can be left by Back, keeping the walk to save (codex V1-08, journey §20.4 rule 10)', () => {
     // Back, like Done, returns to where the walk was started: the Walk hub, or Home (motion M12, Plan 6).
     const summary = read('src/screens/walk/WalkSummary.tsx');

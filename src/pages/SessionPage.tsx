@@ -12,7 +12,6 @@ import { useGuidedSession } from '@/hooks/useGuidedSession';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { loadProgress, loadExpiredProgress, rehydrate, clearProgress, setAside, slotOf, type ProgressSlot, type SavedProgress } from '@/session/persistence';
 import { redoseState, segmentsWithExtra } from '@/session/runner';
-import { buildSessionPlan } from '@/engine/session';
 import { getState, isSessionSaved, useStore } from '@/store/useStore';
 import { toWorkoutSession, withGuidedSession, activeSeconds, bankProgress, progressSettled } from '@/session/logging';
 import { getCoaching } from '@/data/coaching';
@@ -22,6 +21,7 @@ import { CANNOT_SWALLOW, fluidLimit, glucoseReadingId, glucoseSanity, standingAn
 import { HOT_COOL_DOWN } from '@/engine/cardio';
 import { PERMISSION_TEXT, type Mode, type Permission, type PermissionInput } from '@/engine/permission';
 import { arrivalGate, liveGate, reconcilePlan, restartCapture, startGate } from '@/session/gate';
+import { todayDose, withBackChecks } from '@/session/carryOn';
 import type { CheckInRecord, DailyCheckIn, EpisodeAnswer, GlucoseEntry, Readiness, SymptomReach } from '@/types/checkin';
 import type { SymptomReport } from '@/hooks/useGuided';
 import { recheckCountdown } from '@/components/checkin/copy';
@@ -145,26 +145,10 @@ export default function SessionPage() {
   // What the app's own builders would prescribe now, for the same day and
   // focus, from today's answers: a saved plan's remaining work is held to it
   // (round 3 B05). For today's own plan it is that plan, so nothing changes.
-  const fresh = useMemo(() => {
-    if (plan.kind === 'stretch') {
-      const s = specFromPlanId(plan.id) ?? spec;
-      const built = s ? stretchPlanFor({ ...data, checkIns }, profile, date, s) : plan;
-      // A stretch that sent symptoms further down rules out a new stretch
-      // today, not the routine on screen (J2-04; acceptance J16 step 6). The
-      // builder has no routine to offer then, so the one under way is held to
-      // its own steps, less whatever today leaves out. Anything that stops the
-      // routine itself is the live gate's.
-      return built.kind === 'none' ? plan : built;
-    }
-    if (plan.date === date && plan.focus === todayPlan.focus) return todayPlan;
-    return buildSessionPlan({
-      profile, date: plan.date, startDate: data.settings.startDate,
-      sessions: data.sessions.filter(x => x.date < plan.date),
-      recentCheckIns: checkIns.filter(c => c.date < date),
-      ...(checkIn ? { checkIn } : {}),
-      focusOverride: plan.focus,
-    });
-  }, [plan, spec, data, checkIns, profile, date, todayPlan, checkIn]);
+  const fresh = useMemo(
+    () => todayDose(plan, { data, checkIns, checkIn, profile, date, todayPlan, spec }),
+    [plan, spec, data, checkIns, profile, date, todayPlan, checkIn],
+  );
   // Held to today's limits from where the runner stands (N-08): what it has
   // done keeps the steps it ran, and the plan it is running, not the one it
   // was saved with, is what today's limits re-dose.
@@ -265,17 +249,6 @@ function ArrivalGate({ arrival, input, mode, resuming, readiness, onBack }: {
  * surface says the decision whole above them.
  */
 const drawnHere = (p: Permission) => ({ allowed: p.allowed, disposition: p.disposition, reasons: p.reasons.slice(0, 2) });
-
-/** The refused steps, with the back check of every exercise that is left out altogether (scan J2-02). */
-function withBackChecks(plan: SessionPlan, refused: ReadonlySet<string>): ReadonlySet<string> {
-  const out = new Set(refused);
-  for (const s of plan.steps) {
-    if (s.kind !== 'checkpoint' || s.question !== 'backSymptoms' || !s.exerciseId) continue;
-    const work = plan.steps.filter(x => x.kind !== 'checkpoint' && 'exerciseId' in x && x.exerciseId === s.exerciseId);
-    if (work.length > 0 && work.every(x => refused.has(x.id))) out.add(s.id);
-  }
-  return out.size === refused.size ? refused : out;
-}
 
 /** What the start screen says about an earlier run the device would not bank (scan M-08). */
 function staleNote(stale: SavedProgress, how: 'kept' | 'lost'): string {

@@ -413,3 +413,32 @@ describe('a walk still on this device: status comes first, then the gate (codex 
     expect(actionTarget('finishWalk', ctx)).toEqual({ via: 'local' });
   });
 });
+
+describe('a run carried on says today’s words and changes, as the tile and a new start do (codex H2-02, journey §7.5)', () => {
+  const saved = { minutesLeft: 6, label: 'Hips & legs stretch' };
+
+  it('allowed with changes: the changes are listed, and named', () => {
+    const p: Permission = { ...ok, disposition: 'adjust', restrictions: ['Gentle range only.'] };
+    const c = movementCard(input({ permission: p, saved }));
+    expect(c.state).toBe('resume');
+    expect(c.today).toBe('With changes for today');
+    expect(c.restrictions).toEqual(['Gentle range only.']);
+    expect(c.detail).toBe('6 min left · Hips & legs stretch');
+  });
+
+  it('a flare: the tile’s "Gentle stretch", with any change listed, and a check-in still named on the button only', () => {
+    const f = movementCard(input({ status: 'flare', line: line('Gentle stretch'), saved }));
+    expect(f.today).toBe('Gentle stretch');
+    expect(f.primary).toEqual({ kind: 'continue', label: 'Continue stretch' });
+    const p: Permission = { ...ok, disposition: 'adjust', restrictions: ['Gentle range only.'] };
+    expect(movementCard(input({ status: 'flare', permission: p, line: line('Gentle stretch'), saved })).restrictions).toEqual(['Gentle range only.']);
+    const due = movementCard(input({
+      status: 'flare', gate: 'checkIn', permission: held('stretch', [PERMISSION_TEXT.noCheckIn], { needsCheckIn: true }),
+      line: line('Gentle stretch · check in first'), saved,
+    }));
+    expect(due.today).toBe('Gentle stretch');
+    expect(due.primary).toEqual({ kind: 'continue', label: 'Check in & continue' });
+    // A change the gate allows only once checked in is not listed before then, as for a new start.
+    expect(due.restrictions).toEqual([]);
+  });
+});

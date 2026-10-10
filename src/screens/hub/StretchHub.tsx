@@ -8,7 +8,8 @@ import {
 } from '@/engine/stretch';
 import { resumeHref, savedRun } from '@/health/recommend';
 import { shiftDay } from '@/health/status';
-import { loadProgress, minutesLeft, type SavedProgress } from '@/session/persistence';
+import { carriedOn } from '@/session/carryOn';
+import { loadProgress, type SavedProgress } from '@/session/persistence';
 import { ChoiceRows, Segmented, Wrap } from '@/screens/move/controls';
 import { clock, kitLine, previewRows, talkSeconds, todayLine } from '@/screens/move/preview';
 import { weekMovement } from '@/screens/today/model';
@@ -52,10 +53,9 @@ export default function StretchHub() {
   const runs = [loadProgress(now.getTime(), 'stretch')].filter((p): p is SavedProgress => p !== null);
   const savedToday = savedRun(runs, today, 'today');
   const saved = savedToday && resumeAllowed(status, 'stretch') ? savedToday : undefined;
-  // A saved run, read once, before the routine is built from it: its routine, what is left and where it picks up.
-  const resume = saved
-    ? { spec: saved.plan.stretch ?? specFromPlanId(saved.plan.id), minutesLeft: minutesLeft(saved), label: saved.plan.label, href: resumeHref(saved) }
-    : undefined;
+  // A saved run, read once, before the routine is built from it: its routine, where it picks up, and what is
+  // left as the player will run it, held to today from where it stopped (codex H2-02, B-30).
+  const resume = saved ? resumeOf(saved, guided, now) : undefined;
   const { focus, minutes } = resume?.spec ?? readStretchSpec(params, lastStretch(state.sessions));
   const spec: StretchSpec = { focus, minutes };
   // The effective check-ins, as the player builds from, so "In this routine" never lists what won't run.
@@ -89,9 +89,11 @@ export default function StretchHub() {
   // Replace, not push: changing a choice is not a place to go Back to. The page stays where it is.
   const choose = (next: StretchSpec) => setParams({ focus: next.focus, minutes: String(next.minutes) }, { replace: true, preventScrollReset: true });
   const offering = !REFUSED.has(card.state) && card.state !== 'join';
-  const rows = previewRows(plan);
-  const kit = kitLine(plan);
-  const talk = Math.round(talkSeconds(plan) / 60);
+  // "In this routine" is what will run: while carrying on, what is left of it.
+  const listed = resume ? { ...plan, steps: resume.left } : plan;
+  const rows = previewRows(listed);
+  const kit = kitLine(listed);
+  const talk = Math.round(talkSeconds(listed) / 60);
   const prefs = displayPrefs(state.settings, state.profile, state.observations);
 
   return (
@@ -101,7 +103,7 @@ export default function StretchHub() {
       {offering && rows.length > 0 && (
         <Group
           header="In this routine"
-          footer={[kit, talk > 0 ? `Plus about ${talk} ${talk === 1 ? 'minute' : 'minutes'} of welcome and wrap-up.` : null].filter(Boolean).join(' ')}
+          footer={[resume ? 'What’s left of it, as it runs today.' : null, kit, talk > 0 ? `Plus about ${talk} ${talk === 1 ? 'minute' : 'minutes'} of welcome and wrap-up.` : null].filter(Boolean).join(' ')}
         >
           {/* Names wrap: a movement's name is the one thing in the row that must not be cut short. */}
           {rows.map(r => <Row key={r.id} label={<Wrap>{r.name}</Wrap>} detail={r.dose} value={clock(r.seconds)} numeric />)}
@@ -151,4 +153,12 @@ export default function StretchHub() {
       <StatusSheet open={statusOpen} onOpenChange={setStatusOpen} today={today} periods={state.settings.statusPeriods} startDate={state.settings.startDate} />
     </HubFrame>
   );
+}
+
+/** A saved stretch as carrying it on would run it now: the player's own reconciliation (`carriedOn`). */
+function resumeOf(saved: SavedProgress, guided: ReturnType<typeof useHubGate>['guided'], now: Date) {
+  const spec = saved.plan.stretch ?? specFromPlanId(saved.plan.id);
+  const { data, checkIns, checkIn, profile, date, plan: todayPlan } = guided;
+  const run = carriedOn(saved, { data, checkIns, checkIn, profile, date, todayPlan, spec }, { profile, ...(checkIn ? { checkIn } : {}), now, recent: checkIns });
+  return { spec, minutesLeft: run.minutesLeft, label: saved.plan.label, href: resumeHref(saved), left: run.left };
 }

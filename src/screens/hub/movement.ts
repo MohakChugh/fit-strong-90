@@ -76,7 +76,7 @@ export interface CardInput {
   recovery?: boolean;
   /** Workout: today is a rest day; `mobility` when it offers the optional rest-day session. */
   rest?: { mobility: boolean };
-  /** A run saved today that the status allows to continue (`resumeAllowed`). */
+  /** A run saved today that the status allows to continue (`resumeAllowed`): what is left of it as it would run now (`carriedOn`). */
   saved?: { minutesLeft: number; label: string };
   /** Stretch: the routine can't be put together today, in the builder's words. */
   blocked?: string;
@@ -145,10 +145,17 @@ export function movementCard(i: CardInput): HubCard {
     return { ...empty, state: 'held', tone: 'caution', title: i.title, reasons: [i.blocked] };
   }
   const go = i.gate === 'go';
+  // A flare's own words, as on the tile; the button already says a check-in comes first.
+  const flare = i.status !== 'flare' ? undefined : i.mode === 'walk' ? 'Stretch is suggested today' : i.line.text.replace(/ · check in first$/, '');
+  const changed = go && p.disposition === 'adjust' && p.restrictions.length > 0;
+  const today = flare ? { today: flare } : changed ? { today: 'With changes for today' } : {};
   if (i.saved) {
+    // Carried on, it runs under today's words and changes, as a new start would (codex H2-02): the minutes are what is left as re-dosed now.
     return {
       ...empty, state: 'resume', tone: 'normal', title: `Continue your ${NOUN[i.mode]}`, detail: `${i.saved.minutesLeft} min left · ${i.saved.label}`,
+      ...today,
       reason: 'You stopped part-way through. It picks up where you left off.',
+      restrictions: changed ? p.restrictions : [],
       primary: { kind: 'continue', label: go ? `Continue ${NOUN[i.mode]}` : 'Check in & continue' },
     };
   }
@@ -159,15 +166,12 @@ export function movementCard(i: CardInput): HubCard {
       secondary: i.rest.mobility ? [{ kind: 'mobility', label: 'Start rest-day mobility' }] : [],
     };
   }
-  // A flare's own words, as on the tile; the button already says a check-in comes first.
-  const flare = i.status !== 'flare' ? undefined : i.mode === 'walk' ? 'Stretch is suggested today' : i.line.text.replace(/ · check in first$/, '');
-  const changed = go && p.disposition === 'adjust' && p.restrictions.length > 0;
   const label = i.afterMeal?.label ?? (go ? defaultStartLabel(i.mode, i.recovery === true) : 'Check in & start');
   const note = i.waiting ?? (i.afterMeal && !go ? 'A short check-in comes first.' : undefined);
   return {
     ...empty, state: go ? 'go' : 'checkIn', tone: 'normal', title: i.afterMeal?.title ?? i.title,
     ...(i.detail ? { detail: i.detail } : {}),
-    ...(flare ? { today: flare } : changed ? { today: 'With changes for today' } : {}),
+    ...today,
     ...(i.reason ? { reason: i.reason } : {}),
     restrictions: changed ? p.restrictions : [],
     primary: { kind: 'start', label, ...(i.waiting ? { disabled: true } : {}) },
