@@ -298,7 +298,8 @@ export const cases = [
       await t.step(1, 'Browse → each category → its hub', async () => {
         for (const [title, { path, has }] of Object.entries(REAL)) {
           await ui.tab(page, 'Browse');
-          await ui.tap(ui.row(page.getByRole('main'), title, 'link'));
+          // The category's own row, named by its title alone: Browse also lists Learn topics that share a word ("Water").
+          await ui.tap(page.getByRole('main').getByRole('link', { name: title, exact: true }));
           // During the push Browse stays on screen until the hub's code is in, and the hub's skeleton has its title too:
           // wait for the hub's own title with its content, as hub.openHub does.
           await page.waitForFunction(({ path, title, loading }) => location.hash.replace(/^#/, '').split('?')[0] === path
