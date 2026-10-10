@@ -39,6 +39,11 @@ describe('the record’s first day (J§12.2, early days)', () => {
     expect(firstRecordDay({ ...data, checkIns: [{ date: '2026-09-21' } as CheckInRecord] })).toBe('2026-09-21');
     expect(firstRecordDay({ observations: [], sessions: [], checkIns: [] })).toBeUndefined();
   });
+
+  it('a meter’s LO measured the night before its check-in is the first record, on the day it was measured (H3-02)', () => {
+    const lo = { date: '2026-10-12', glucoseDisplay: { display: 'LO', measuredAt: '2026-10-11T23:40:00+05:30' } } as unknown as CheckInRecord;
+    expect(firstRecordDay({ observations: [], sessions: [], checkIns: [lo] })).toBe('2026-10-11');
+  });
 });
 
 describe('sessions by kind, and their minutes (J§12.3)', () => {

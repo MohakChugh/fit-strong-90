@@ -23,7 +23,11 @@ export interface TrendData {
   checkIns: readonly CheckInRecord[];
 }
 
-/** The first day anything was recorded (J§12.2, early days): nothing before it is a day of the record. */
+/**
+ * The first day anything was recorded (J§12.2, early days): nothing before it
+ * is a day of the record. A meter's HI or LO counts on the day it was
+ * measured, which can be the night before its check-in (H3-02).
+ */
 export function firstRecordDay({ observations, sessions, checkIns }: TrendData): string | undefined {
   let first: string | undefined;
   const see = (day: string | undefined) => {
@@ -32,6 +36,7 @@ export function firstRecordDay({ observations, sessions, checkIns }: TrendData):
   for (const o of observations) see(o.day);
   for (const s of sessions) see(s.date);
   for (const c of checkIns) see(c.date);
+  for (const m of meterReadings(checkIns)) see(m.day);
   return first;
 }
 

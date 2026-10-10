@@ -594,6 +594,22 @@ describe('more of the readings view (A-43, A-44, K-11)', () => {
   });
 });
 
+describe('a record that starts with a LO the night before its check-in (H3-02)', () => {
+  // Monday 12 October's check-in is the only record; it holds a LO measured at 11:40 pm on Sunday 11 October.
+  const lo = { date: '2026-10-12', glucoseDisplay: { display: 'LO', measuredAt: '2026-10-11T23:40:00+05:30' } } as unknown as CheckInRecord;
+  const d = data([], [], [lo]);
+  const c = trendContext({ today: '2026-10-12', data: d, settings: { startDate: '' }, profile: undefined });
+
+  it('Glucose’s row shows it, and Previous week can reach its week', () => {
+    expect(c.since).toBe('2026-10-11');
+    expect(trendRow(TRENDS.glucose, d, prefs, c).value).toBe('Latest: Meter showed LO at 11:40 pm · Sun 11 Oct');
+    // CategoryTrend pages back while the week before still holds a day of the record.
+    expect(windowOf('week', '2026-10-05').to >= c.since!).toBe(true);
+    const last = readingsView({ def: TRENDS.glucose, window: windowOf('week', '2026-10-11'), data: d, prefs, ctx: c });
+    expect(last.headline.coverage).toBe('1 reading: none with a number, 1 meter LO');
+  });
+});
+
 describe('more of labs and the rows', () => {
   const lab = (kind: 'hba1c' | 'b12', value: number, day: string) =>
     newObservation({ kind, value, unit: kind === 'hba1c' ? '%' : 'pg/mL', at: `${day}T12:00:00+05:30`, scope: 'pointInTime', source: 'manual' });
