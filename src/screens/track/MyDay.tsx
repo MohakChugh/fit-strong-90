@@ -18,7 +18,7 @@ import { Screen } from '@/components/hig/Screen';
 import { markInPlace } from '@/components/hig/navigation';
 import { Group, Row } from '@/components/hig/List';
 import { Ring } from '@/components/hig/Ring';
-import { numbersView } from '@/food/level';
+import { countsFree, numbersView } from '@/food/level';
 import { mealsIn } from '@/food/records';
 import { useFoodUndoScope } from '@/screens/food/undo';
 import { useStore } from '@/store/useStore';
@@ -224,7 +224,7 @@ function TimelineView({ day, current, fresh, origin, prefs, onAdd, onGoal }: {
   // A walk's kept route, drawn small beside it (journey §9.5, B-23): our own drawing, never a map picture.
   const routeOf = useMemo(() => new Map(records.routes.map(r => [r.walkId as string, r as unknown as RouteRecord])), [records.routes]);
   const view: DayView = useMemo(
-    () => assembleDay(day, { observations, sessions, checkIns, settings, meals: mealsIn(records), numbers: numbersView(profile) }, prefs),
+    () => assembleDay(day, { observations, sessions, checkIns, settings, meals: mealsIn(records), numbers: numbersView(profile), countsFree: countsFree(profile) }, prefs),
     [day, observations, sessions, checkIns, settings, prefs, records, profile],
   );
   // Keyed on the week's first day, a string, so the sum is not redone on

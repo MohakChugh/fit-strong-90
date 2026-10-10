@@ -331,3 +331,12 @@ describe('meals in Today’s log (Plan 7)', () => {
     expect(assembleDay('2026-10-09', { ...empty, meals: moved }, DEFAULT_PREFS).rows.map(r => r.key)).toEqual(['meal:meal-1']);
   });
 });
+
+describe('an energy estimate whose walk is gone (B-11, board D101)', () => {
+  const energy = obs({ id: 'e', kind: 'activeEnergy', unit: 'kcal', value: 21.4, scope: 'sessionObserved', source: 'measured', context: 'walk:gone', at: '2026-10-08T07:00:00.000+05:30' });
+  it('is listed as a reading, but never counts-free, which shows no energy figure from movement', () => {
+    expect(assembleDay(day, { ...empty, observations: [energy] }, DEFAULT_PREFS).rows.map(r => [r.title, r.value])).toEqual([['Active energy', '21 kcal']]);
+    expect(assembleDay(day, { ...empty, observations: [energy], countsFree: false }, DEFAULT_PREFS).rows).toHaveLength(1);
+    expect(assembleDay(day, { ...empty, observations: [energy], countsFree: true }, DEFAULT_PREFS)).toMatchObject({ rows: [], empty: true });
+  });
+});

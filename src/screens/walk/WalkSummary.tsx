@@ -5,6 +5,7 @@ import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
 import { Stat } from '@/components/hig/Stat';
+import { countsFree } from '@/food/level';
 import { useGuided } from '@/hooks/useGuided';
 import { todayString } from '@/lib/utils';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
@@ -62,12 +63,13 @@ export function WalkSummary() {
 
   const summary = summarise(walk);
   // About how much energy it used, with the weight in effect then (journey §12.4, B-16, B-18).
+  // Kept with the walk at every level; counts-free never shows it (B-11, board D101).
   const energy = walkEnergy(walk, {
     observations,
     ...(profile.birthYear !== undefined ? { birthYear: profile.birthYear } : {}),
     ...(profile.weightKg > 0 ? { profileKg: profile.weightKg } : {}),
   });
-  const rows = summaryRows(walk, summary, { energy: energyText(energy.estimate, energy.weight) });
+  const rows = summaryRows(walk, summary, countsFree(profile) ? {} : { energy: energyText(energy.estimate, energy.weight) });
   const box = lines ? bboxOf(lines) : undefined;
   const splits = lines ? splitRows(splitsOf(lines)) : [];
   const mapOn = walkSettings(settings).map === 'on';

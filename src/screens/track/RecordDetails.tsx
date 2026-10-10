@@ -9,6 +9,7 @@ import { Link, Navigate, useLocation, useParams } from 'react-router-dom';
 import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
 import { Stat } from '@/components/hig/Stat';
+import { countsFree } from '@/food/level';
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
 import { bpReadingId, checkInDayOf, compareObservations, isBpKind, type Observation } from '@/health/observation';
 import { walkRecords } from '@/walk/record';
@@ -343,7 +344,7 @@ function PressureView({ readingId }: { readingId: string }) {
 
 export function WalkDetail() {
   const { id = '' } = useParams();
-  const { observations, records, settings } = useStore();
+  const { observations, records, settings, profile } = useStore();
   const prefs = usePrefs();
   const current = useToday();
   const location = useLocation();
@@ -393,7 +394,8 @@ export function WalkDetail() {
         {walk.addedMinutes > 0 && <Row label="Added by you" value={`${formatNumber(walk.addedMinutes)} min`} detail="For time the app was away and could not record" />}
         <Row label="Distance" value={walk.distanceKm !== undefined ? formatObservation({ kind: 'walkDistance', value: walk.distanceKm, unit: 'km' }, prefs) : 'Not measured'} />
         {walk.steps !== undefined && <Row label="Steps" value={formatObservation({ kind: 'steps', value: walk.steps, unit: 'steps' }, prefs)} />}
-        {walk.energyKcal !== undefined && roundKcal(walk.energyKcal) !== undefined && (
+        {/* Counts-free never shows it, on a walk from before too; the record stays (B-11, board D101). */}
+        {!countsFree(profile) && walk.energyKcal !== undefined && roundKcal(walk.energyKcal) !== undefined && (
           <Row label="Energy (estimate)" value={`about ${roundKcal(walk.energyKcal)} kcal`} {...(walk.energyNote ? { detail: walk.energyNote } : {})} />
         )}
         {walk.mealStartedAt && <Row label="Meal started" value={formatClock(walk.mealStartedAt, prefs.hour12)} />}

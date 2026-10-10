@@ -7,20 +7,21 @@
  * (journey §20.4 rule 3), so the handle is a picture of an affordance, hidden
  * from assistive technology like a sheet's grabber.
  */
-import { useId, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { lazy, Suspense, useId, useRef, useState, type PointerEvent } from 'react';
 import { GripVerticalIcon, PlusIcon } from 'lucide-react';
 import { GROUPS, MAX_PER_GROUP, categoryById, type CategoryId, type GroupId } from '@/categories';
 import { MOTION, springLinear } from '@/design/motion';
 import { Sheet } from '@/components/hig/Sheet';
-import { contextOf } from '@/content';
 import { cn } from '@/lib/utils';
 import type { HomeLayout } from '@/types';
-import { PickRows, SearchField } from '@/screens/browse/BrowseList';
-import { browse } from '@/screens/browse/browse';
 import type { HomeEditor } from './editor';
 import { addButton, groupFull, hiddenTiles } from './layout';
 import { EditButton } from './EditButton';
 import { TileIcon } from './Tile';
+
+// Browse in pick mode, loaded when "+ Add" first opens: it brings the content
+// library and the food table, which stay off the first screen (Plan 7).
+const PickBody = lazy(() => import('./PickBody').then(m => ({ default: m.PickBody })));
 
 /** The others make room for a dragged tile with `spring-quick` (M17); the dragged one follows the finger 1:1. */
 const MAKE_ROOM = `transform ${MOTION.springQuick.cssMs}ms ${springLinear(0)}`;
@@ -242,9 +243,6 @@ function FullNote({ groups }: { groups: readonly string[] }) {
   );
 }
 
-/** Pick mode lists categories only, so it needs none of the person's Guide answers. */
-const NO_GUIDE = contextOf();
-
 /**
  * "+ Add" (journey §7.6, §14, D56): Browse in pick mode, over Edit Home.
  * Every category, grouped, each with Add or Added; search at the top; Done.
@@ -266,34 +264,7 @@ export function PickSheet({ open, onOpenChange, layout, onAdd }: {
       // Opened from its address (`#/browse?pick=1`), nothing opened it: focus goes to "+ Add", pick mode's own way in (B-03).
       returnFocus={() => document.querySelector<HTMLElement>('[data-control="add"]')}
     >
-      {open && <PickBody layout={layout} onAdd={onAdd} onDone={() => onOpenChange(false)} />}
+      {open && <Suspense fallback={null}><PickBody layout={layout} onAdd={onAdd} onDone={() => onOpenChange(false)} /></Suspense>}
     </Sheet>
-  );
-}
-
-function PickBody({ layout, onAdd, onDone }: { layout: HomeLayout; onAdd: (id: CategoryId) => Promise<string | undefined>; onDone: () => void }) {
-  const [query, setQuery] = useState('');
-  const results = useMemo(() => browse(query, NO_GUIDE, 'pick'), [query]);
-  // The page behind is inert while the sheet is open, so the sheet says what happened itself.
-  const [said, setSaid] = useState('');
-  return (
-    <>
-      <p className="px-1 text-[length:var(--text-body)] leading-snug">Choose a tile for Home. Each group holds up to {MAX_PER_GROUP}.</p>
-      <SearchField value={query} onChange={setQuery} />
-      <p role="status" className="sr-only">{said}</p>
-      <PickRows results={results} layout={layout} onPick={id => void onAdd(id).then(words => { if (words) setSaid(words); })} />
-      {results.groups.length === 0 && (
-        <p className="px-1 text-[length:var(--text-body)] leading-snug text-muted-foreground">Nothing matches “{query.trim()}”. Try another word.</p>
-      )}
-      <button
-        type="button"
-        onClick={onDone}
-        className="press-feedback min-h-[60px] rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint"
-      >
-        Done
-      </button>
-      {/* Room to scroll the last row clear of an Undo toast still standing from Edit Home (M19). */}
-      <div aria-hidden className="h-24" />
-    </>
   );
 }

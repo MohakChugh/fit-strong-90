@@ -103,6 +103,8 @@ export interface DayData {
   meals?: readonly MealRecord[];
   /** What a meal's line may show (B-11): absent shows no figure. */
   numbers?: NumbersView;
+  /** Counts-free (B-11, board D101): no energy figure from movement either, even one whose walk is gone. */
+  countsFree?: boolean;
 }
 
 const join = (...parts: (string | undefined | false)[]) => parts.filter((p): p is string => !!p).join(' · ');
@@ -343,7 +345,7 @@ export function assembleDay(day: string, data: DayData, prefs: DisplayPrefs): Da
 
   const rest = dayObs.filter(o => !used.has(o.id) && o.scope !== 'dayTotal');
   for (const r of pairBloodPressure(rest.filter(o => isBpKind(o.kind)))) rows.push(pressureRow(r, prefs));
-  for (const o of rest) if (!isBpKind(o.kind)) rows.push(readingRow(o, prefs));
+  for (const o of rest) if (!isBpKind(o.kind) && !(data.countsFree && o.kind === 'activeEnergy')) rows.push(readingRow(o, prefs));
   // A meal is listed on the day it was eaten: a correction past midnight moves it (Review Focus 4).
   for (const m of data.meals ?? []) if (m.day === day) rows.push(mealRow(m, data.numbers ?? { show: false }, prefs));
 
