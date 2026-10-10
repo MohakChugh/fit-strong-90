@@ -5,7 +5,7 @@
  * for Hide, the long-press that opens a tile's menu, and the reorder
  * animation. The operations themselves are `./layout`'s, and pure.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type TouchEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type TouchEvent } from 'react';
 import { toast } from 'sonner';
 import { MAX_PER_GROUP, categoryById, isHomeLayout, type CategoryId } from '@/categories';
 import { MOTION, springLinear } from '@/design/motion';
@@ -452,9 +452,10 @@ export type HomeEditor = ReturnType<typeof useHomeEditor>;
 /**
  * Home's first layout (journey §5.1, codex V1-12): the defaults, worked out
  * once from the answers and drawn as they were, even if later data would
- * give others, until the device has stored them. A refused write is tried
- * again on the next visit to the app (`visit`), and never over a layout
- * stored meanwhile: the person's own edits always win.
+ * give others, until the device has stored them. A refused write is said on
+ * Home with Try again (`failed`, `retry`), and tried again by itself on the
+ * next visit to the app (`visit`). Neither ever writes over a layout stored
+ * meanwhile: the person's own edits always win.
  */
 export function useFirstLayout({ stored, fallback, ready, visit }: {
   /** The layout stored on the device, if any. */
@@ -465,20 +466,28 @@ export function useFirstLayout({ stored, fallback, ready, visit }: {
   ready: boolean;
   /** Counts returns to the app (`useClock().visit`). */
   visit: number;
-}): HomeLayout {
+}): { layout: HomeLayout; failed?: string; retry: () => void } {
   const [first, setFirst] = useState<HomeLayout>();
   if (!stored && ready && !first) setFirst(fallback);
   const writing = useRef(false);
-  const [refusedOn, setRefusedOn] = useState<number>();
-  useEffect(() => {
-    if (stored || !first || writing.current || refusedOn === visit) return;
+  // The last refusal and the visit it came on, so the next visit tries again by itself.
+  const [refused, setRefused] = useState<{ visit: number; message: string }>();
+  const store = useCallback((layout: HomeLayout, on: number) => {
     writing.current = true;
     void update(prev => (prev.settings.home !== undefined && isHomeLayout(prev.settings.home)
       ? prev
-      : { ...prev, settings: { ...prev.settings, home: first } })).then(result => {
+      : { ...prev, settings: { ...prev.settings, home: layout } })).then(result => {
       writing.current = false;
-      if (!result.ok) setRefusedOn(visit);
+      setRefused(result.ok ? undefined : { visit: on, message: result.failure.message });
     });
-  }, [stored, first, visit, refusedOn]);
-  return stored ?? first ?? fallback;
+  }, []);
+  useEffect(() => {
+    if (stored || !first || writing.current || refused?.visit === visit) return;
+    store(first, visit);
+  }, [stored, first, visit, refused, store]);
+  /** Try again, while the person stays: the same write, so never over a layout stored meanwhile. */
+  const retry = () => {
+    if (!stored && first && !writing.current) store(first, visit);
+  };
+  return { layout: stored ?? first ?? fallback, ...(refused && !stored ? { failed: refused.message } : {}), retry };
 }

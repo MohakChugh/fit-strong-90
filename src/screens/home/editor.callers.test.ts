@@ -186,10 +186,10 @@ describe('quick changes after a refused one build on each other (codex W-03)', (
 
 describe('Home’s first layout is kept, and stored once (codex V1-12, journey §5.1)', () => {
   const other: HomeLayout = { ...L, order: { ...L.order, check: ['glucose', 'weight', 'sleep'] } };
-  const seen = { layout: undefined as HomeLayout | undefined };
+  const seen = { layout: undefined as HomeLayout | undefined, first: undefined as ReturnType<typeof useFirstLayout> | undefined };
   function First({ fallback, visit }: { fallback: HomeLayout; visit: number }) {
-    const layout = useFirstLayout({ stored: homeNow(), fallback, ready: true, visit });
-    useEffect(() => { seen.layout = layout; });
+    const first = useFirstLayout({ stored: homeNow(), fallback, ready: true, visit });
+    useEffect(() => { seen.layout = first.layout; seen.first = first; });
     return null;
   }
 
@@ -216,6 +216,38 @@ describe('Home’s first layout is kept, and stored once (codex V1-12, journey �
     refuse = false;
     await store.setSettings({ home: other });
     host.update(createElement(First, { fallback: L, visit: 1 }));
+    await settle();
+    expect(homeNow()).toEqual(other);
+  });
+
+  it('a refused first write says so while the person stays, and Try again stores it then (codex V1-12)', async () => {
+    refuse = true;
+    host = render(createElement(First, { fallback: L, visit: 0 }));
+    await settle();
+    expect(homeNow()).toBeUndefined();
+    expect(seen.first?.failed).toMatch(/./);
+    // Tried again while still refused: still said, still the first layout.
+    seen.first!.retry();
+    await settle();
+    expect(seen.first?.failed).toMatch(/./);
+    expect(seen.layout).toEqual(L);
+    refuse = false;
+    seen.first!.retry();
+    await settle();
+    expect(homeNow()).toEqual(L);
+    expect(seen.first?.failed).toBeUndefined();
+  });
+
+  it('Try again never writes over a layout stored meanwhile, and has nothing more to say once one is', async () => {
+    refuse = true;
+    host = render(createElement(First, { fallback: L, visit: 0 }));
+    await settle();
+    refuse = false;
+    await store.setSettings({ home: other });
+    host.update(createElement(First, { fallback: L, visit: 0 }));
+    await settle();
+    expect(seen.first?.failed).toBeUndefined();
+    seen.first!.retry();
     await settle();
     expect(homeNow()).toEqual(other);
   });

@@ -287,9 +287,14 @@ export function HomeScreen() {
   const first = useFirstLayout({ stored, fallback, ready: profile !== undefined, visit: clock.visit });
   // While a safety decision stands, nothing beside it moves (motion rule 2, M1).
   const still = SAFETY.has(recommendation.kind) || urgent !== undefined;
-  const editor = useHomeEditor({ fallback: first, still, urgent: urgent !== undefined });
+  const editor = useHomeEditor({ fallback: first.layout, still, urgent: urgent !== undefined });
   // A change the device refused is drawn as the person made it, with Try again (codex V1-11).
-  const layout = editor.draft ?? first;
+  const layout = editor.draft ?? first.layout;
+  // What wasn't saved, with its Try again: a change, or the first layout itself (codex V1-11, V1-12).
+  const unsaved = editor.failed !== undefined ? { text: `That change wasn’t saved on this phone. ${editor.failed}`, retry: editor.retry }
+    : editor.error !== undefined ? { text: editor.error }
+    : first.failed !== undefined ? { text: `Your Home tiles aren’t saved on this phone yet. ${first.failed}`, retry: first.retry }
+    : undefined;
   // What the cadence model says is due: the tiles' caution dots (§7.2).
   const due = dueItems({ now, ...(profile ? { profile } : {}), observations });
   const recheckAt = guided.checkIn?.readiness.recheckAt;
@@ -405,13 +410,11 @@ export function HomeScreen() {
 
       {/* The tiles, or Edit Home in their place; reorders are drawn moving (M17). */}
       <div ref={editor.flipRef} className="flex flex-col gap-4">
-        {(editor.failed ?? editor.error) && (
+        {unsaved && (
           <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
-            <p className="min-w-0 flex-1 basis-48 text-[length:var(--text-subhead)] leading-snug text-stop">
-              {editor.failed ? `That change wasn’t saved on this phone. ${editor.failed}` : editor.error}
-            </p>
-            {editor.failed && (
-              <button type="button" onClick={editor.retry}
+            <p className="min-w-0 flex-1 basis-48 text-[length:var(--text-subhead)] leading-snug text-stop">{unsaved.text}</p>
+            {unsaved.retry && (
+              <button type="button" onClick={unsaved.retry}
                 className="press-feedback min-h-12 shrink-0 rounded-full bg-tint/10 px-4 text-[length:var(--text-body)] font-semibold text-tint">
                 Try again
               </button>

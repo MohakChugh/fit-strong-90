@@ -756,6 +756,12 @@ describe('Home’s targets and layout (kiro KV-08, KV-10, KV-11, KV-15, KV-18, K
     expect(read('src/index.css')).toMatch(/\.glass\[data-bar\] \{ border-width: 0 0 1px; border-color: var\(--separator\); border-radius: 0; box-shadow: none; \}/);
   });
 
+  it('a first layout the device would not store is said above the tiles, with Try again, as a refused change is (codex V1-11, V1-12)', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    expect(home).toContain("first.failed !== undefined ? { text: `Your Home tiles aren’t saved on this phone yet. ${first.failed}`, retry: first.retry }");
+    expect(home).toMatch(/\{unsaved && \([\s\S]*?role="alert"[\s\S]*?\{unsaved\.retry && \([\s\S]*?onClick=\{unsaved\.retry\}[\s\S]*?Try again/);
+  });
+
   it('Right now’s quiet way on reads "Something else", and the chooser ends with "All categories" (journey §7.4, L-15)', () => {
     expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/>\s*Something else\s*<\/button>/);
     const m = html(h(ChooserSheet, { open: true, onOpenChange: () => {}, rows: [], onChoose: () => {} }));
