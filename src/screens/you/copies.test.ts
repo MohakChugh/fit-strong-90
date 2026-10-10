@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
-import type { UserProfile } from '@/types/profile';
-import type { WizardResult } from '@/components/profile/ProfileWizard';
 import { fakeIndexedDB } from '@/store/fakeIdb';
+import { editedRecord } from '@/setup/edit';
 import { JOIN } from '@/setup/fixtures';
+import { answersToEdit } from '@/setup/prefill';
+import { setupStateOf } from '@/setup/state';
 
 const local = new Map<string, string>();
 globalThis.localStorage = {
@@ -25,29 +26,36 @@ async function copy(factory: IDBFactory) {
   return { store, write };
 }
 
-/** What a wizard opened from `opened` returns once the person changed `edit`. */
-const wizard = (opened: UserProfile, edit: (p: UserProfile) => UserProfile, useMetric = true): WizardResult =>
-  ({ profile: edit(structuredClone(opened)), startDate: '', useMetric, opened: { profile: opened, useMetric } });
+const TODAY = '2026-10-10';
+const CTX = { thisYear: 2026 };
+type Copy = Awaited<ReturnType<typeof copy>>;
+/** The answers Profile & health's chapter editor opens with in this copy. */
+const opened = ({ store }: Copy) => {
+  const { settings, profile } = store.getState();
+  return answersToEdit(setupStateOf(settings, profile).answers, profile!, settings, TODAY, CTX);
+};
 
-describe('two open copies saving the profile wizard (D-03)', () => {
-  it('a body edit in one keeps the health answers the other saved meanwhile', async () => {
+describe('two open copies saving Profile & health (D-03)', () => {
+  it('a chapter saved in one keeps what the other saved meanwhile, in the profile and the settings', async () => {
     const factory = fakeIndexedDB();
     const b = await copy(factory);
     await b.store.setProfile(createDefaultProfile({ weightKg: 80, health: { medicinesReviewed: true, fluidRestriction: false } }));
     const a = await copy(factory);
-    const openedInA = a.store.getState().profile!;
+    const openedInA = opened(a);
 
-    const openedInB = b.store.getState().profile!;
-    expect((await b.write.saveProfileAnswers(wizard(openedInB, p => ({
-      ...p, weightKg: 76, health: { ...p.health, footStatus: 'current_wound_or_active_charcot', fluidRestriction: true },
-    })), { startDate: false })).ok).toBe(true);
-    expect((await b.write.changeProfile(p => ({ ...p, food: { pattern: 'vegan', avoid: ['paneer'] } }))).ok).toBe(true);
+    // B: a new weight in About you, then a foot wound, a fluid limit and food elsewhere.
+    const openedInB = opened(b);
+    expect((await b.store.update(d => editedRecord(d, { chapters: ['about'], opened: openedInB, answers: { ...openedInB, weightKg: 76 }, skipped: [] }, TODAY, CTX))).ok).toBe(true);
+    expect((await b.write.changeProfile(p => ({
+      ...p, health: { ...p.health, footStatus: 'current_wound_or_active_charcot', fluidRestriction: true }, food: { pattern: 'vegan', avoid: ['paneer'] },
+    }))).ok).toBe(true);
 
-    expect((await a.write.saveProfileAnswers(wizard(openedInA, p => ({ ...p, pain: { ...p.pain, areas: ['lowerBack'] } })), { startDate: false })).ok).toBe(true);
+    // A, opened before any of that: a name in About you, as the chapter editor saves it.
+    expect((await a.store.update(d => editedRecord(d, { chapters: ['about'], opened: openedInA, answers: { ...openedInA, name: 'Sam' }, skipped: [] }, TODAY, CTX))).ok).toBe(true);
 
     expect((await a.store.reload()).ok).toBe(true);
     const { profile, settings } = a.store.getState();
-    expect(profile?.pain.areas).toEqual(['lowerBack']);
+    expect(profile?.name).toBe('Sam');
     expect(profile?.health.footStatus).toBe('current_wound_or_active_charcot');
     expect(profile?.health.fluidRestriction).toBe(true);
     expect(profile?.food).toEqual({ pattern: 'vegan', avoid: ['paneer'] });
@@ -60,7 +68,7 @@ describe('two open copies saving the profile wizard (D-03)', () => {
     const b = await copy(factory);
     await b.store.setProfile(createDefaultProfile({ weightKg: 80, health: { medicinesReviewed: true, fluidRestriction: false } }));
     const a = await copy(factory);
-    await b.write.saveProfileAnswers(wizard(b.store.getState().profile!, p => ({ ...p, health: { ...p.health, footStatus: 'current_wound_or_active_charcot' } })), { startDate: false });
+    await b.write.changeProfile(p => ({ ...p, health: { ...p.health, footStatus: 'current_wound_or_active_charcot' } }));
 
     expect((await a.write.joinProgramme({ ...JOIN, days: ['monday', 'thursday'], startDate: '2026-10-12' })).ok).toBe(true);
 

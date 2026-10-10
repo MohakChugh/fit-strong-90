@@ -13,6 +13,7 @@ import { CHAPTER_IDS, type SetupAnswers, type Tri } from '@/types/setup';
 import { deriveHealth } from '@/engine/health';
 import { answeredOnOpen } from '@/components/profile/wizardSteps';
 import { isEnrolled } from '@/health/recommend';
+import { fluidRestriction } from '@/reminders/water';
 import { sameValue } from '@/store/transfer';
 import { profileFrom, put, settingsFrom } from './assemble';
 import { fieldsOfChapter, keysOfChapter } from './fields';
@@ -53,7 +54,9 @@ export function answersFromProfile(p: UserProfile, s: Kept): SetupAnswers {
   else if (h.hypertension === 'untreated') a.bpMedicine = 'no';
   else if (h.hypertension === 'unsure') a.bpMedicine = 'unsure';
   if (h.kidneyDisease !== 'none') a.kidneyTreatment = h.kidneyDisease === 'dialysis_or_transplant' ? 'yes' : 'no';
-  if (h.fluidRestriction !== undefined) a.fluidLimit = tri(h.fluidRestriction);
+  // An answer v1 kept in its reminders is still the answer (`fluidRestriction`, reminders/water.ts).
+  const fluid = fluidRestriction(p, s.habits);
+  if (fluid !== undefined) a.fluidLimit = tri(fluid);
   if (d.diabetic && h.retinopathy !== 'none_or_mild') {
     a.eyeTreatment = h.retinopathy === 'recent_eye_treatment' ? 'yes' : 'no';
     if (h.retinopathy !== 'recent_eye_treatment') a.eyeDisease = h.retinopathy === 'moderate' ? 'moderate' : h.retinopathy === 'severe_or_proliferative' ? 'severe' : 'unsure';

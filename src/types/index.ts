@@ -163,7 +163,7 @@ export interface UserSettings {
   defaultWarmupExercises?: string[];
   defaultCooldownExercises?: string[];
   supersetRestSeconds?: number;
-  /** v5: the first-run answer to "What would you like more of?". Not an identity; Today uses it as a default. */
+  /** v5: "What would you most like to do?" (setup's Your movement). Not an identity; Home's suggestions use it as a default. */
   focus?: 'strength' | 'stretch' | 'move' | 'explore';
   /**
    * v5: the weekly recorded-movement goal the user chose, in minutes. Weekly,

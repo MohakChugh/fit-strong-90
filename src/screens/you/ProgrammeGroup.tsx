@@ -15,8 +15,7 @@ import { joinProgramme, leaveProgramme } from './write';
  * The 12-week programme: join it, or leave it with a confirmation (journey
  * §16 Goals; board D8, D35). Joining and leaving are their own explicit
  * actions, here and in Move under Your plan, and membership is decided in
- * one place for the whole app (`isEnrolled`). Shown in Goals and in "What
- * you’d like more of".
+ * one place for the whole app (`isEnrolled`). Shown in Goals.
  */
 export function ProgrammeGroup() {
   const { settings, profile } = useStore();

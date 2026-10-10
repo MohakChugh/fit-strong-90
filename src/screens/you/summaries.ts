@@ -3,14 +3,14 @@
  * Pure, so every sentence the screens show can be tested without a screen.
  */
 
-import type { ChapterId, DayOfWeek, UserSettings } from '@/types';
+import type { ChapterId, UserSettings } from '@/types';
 import type { HabitSettings, Meal } from '@/types/habits';
 import type { FoodPreferences, MedicineAnswer, UserProfile } from '@/types/profile';
 import { KINDS, OBSERVATION_KINDS, isBpKind, isDay, type Observation, type ObservationKind } from '@/health/observation';
 import { pairBloodPressure } from '@/health/aggregate';
 import { kgToDisplay } from '@/lib/utils';
 import { timeOf } from '@/lib/time';
-import { answeredOnOpen, type WizardStep } from '@/components/profile/wizardSteps';
+import { answeredOnOpen } from '@/components/profile/wizardSteps';
 import { bpMedicinesAsked, bpMedicinesUnknown, deriveHealth, profileGaps } from '@/engine/health';
 import { MEAL_LABEL } from '@/reminders/copy';
 import { dailyTimes, inWindowOrder, type HabitId } from '@/reminders/schedule';
@@ -43,20 +43,9 @@ export function plural(n: number, one: string, many = `${one}s`): string {
 // Profile and health
 // ============================================================================
 
-const DAY_SHORT: Record<DayOfWeek, string> = {
-  monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed', thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun',
-};
-const WEEK: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-
 const PAIN: Record<UserProfile['pain']['areas'][number], string> = {
   lowerBack: 'Lower back', sciatica: 'Sciatica', neck: 'Neck', shoulder: 'Shoulder',
   hip: 'Hip', knee: 'Knee', hamstring: 'Hamstring', calf: 'Calf',
-};
-const EQUIPMENT: Record<UserProfile['equipment'], string> = {
-  fullGym: 'Full gym', homeDumbbells: 'Home, dumbbells', homeNone: 'Home, no equipment',
-};
-const EXPERIENCE: Record<UserProfile['experience'], string> = {
-  beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced',
 };
 const DIABETES: Record<UserProfile['health']['diabetes'], string> = {
   none: 'None', prediabetes: 'Prediabetes', type1: 'Type 1', type2: 'Type 2', other: 'Other',
@@ -165,101 +154,6 @@ export function conditionsLine(profile: UserProfile | undefined): string {
 export interface SummaryRow {
   label: string;
   value: string;
-}
-
-export interface SummarySection {
-  title: string;
-  rows: SummaryRow[];
-  /** The wizard step that edits this section. */
-  step: WizardStep;
-}
-
-/**
- * The wizard's answers, grouped as the wizard asks them, for reading back.
- * Training answers belong to the 12-week programme: for someone not in it
- * they are defaults nobody chose, so they are not shown as if they were said.
- */
-export function profileSections(
-  profile: UserProfile,
-  useMetric: boolean,
-  { programme = true, startDate }: { programme?: boolean; startDate?: string } = {},
-): SummarySection[] {
-  const h = profile.health;
-  const about: SummaryRow[] = [
-    { label: 'Weight', value: profile.weightKg > 0 ? `${kgToDisplay(profile.weightKg, useMetric)} ${useMetric ? 'kg' : 'lb'}` : 'Not entered' },
-    ...(profile.heightCm ? [{ label: 'Height', value: useMetric ? `${Math.round(profile.heightCm)} cm` : `${Math.round(profile.heightCm / 2.54)} in` }] : []),
-    ...(profile.birthYear ? [{ label: 'Born', value: String(profile.birthYear) }] : []),
-    ...(programme ? [{ label: 'Experience', value: EXPERIENCE[profile.experience] }] : []),
-  ];
-
-  const days = WEEK.filter(d => profile.trainingDays.includes(d)).map(d => DAY_SHORT[d]);
-  const training: SummaryRow[] = [
-    ...(startDate && isDay(startDate) ? [{ label: 'Started', value: shortDay(startDate) }] : []),
-    { label: 'Training days', value: days.length > 0 ? days.join(', ') : 'None' },
-    { label: 'Session length', value: `${profile.sessionMinutes} min` },
-    { label: 'Where you train', value: EQUIPMENT[profile.equipment] },
-  ];
-
-  const areas = profile.pain.areas;
-  const back = areas.includes('lowerBack') || areas.includes('sciatica');
-  const body: SummaryRow[] = [
-    { label: 'Pain or past injury', value: areas.length > 0 ? areas.map(a => PAIN[a]).join(', ') : 'None' },
-    ...(areas.includes('sciatica') ? [{ label: 'Which leg', value: { left: 'Left', right: 'Right', both: 'Both' }[profile.pain.sciaticaSide ?? 'left'] }] : []),
-    ...(back ? [{ label: 'Worse with', value: WORSE[profile.pain.worseWith] }] : []),
-  ];
-
-  const other = [
-    h.heartOrVascularDisease && 'Heart or circulation',
-    h.kidneyDisease !== 'none' && KIDNEY[h.kidneyDisease],
-    h.dizzyOnStandingOrAutonomicNeuropathy && 'Dizzy when standing',
-  ].filter((x): x is string => Boolean(x));
-
-  // Until the medicines are reviewed, what is stored may be a default nobody
-  // chose, so it is shown as unconfirmed rather than as a plain "no".
-  const unconfirmed = profileGaps(profile).medicinesUnknown;
-  const medicine = (value: string) => (unconfirmed && value !== 'Not answered yet' ? `${value}, not yet confirmed` : value);
-  // Answers saved before these questions were required are defaults, not
-  // answers — with high blood pressure, and with heart or kidney disease (B08).
-  const bpUnconfirmed = bpMedicinesUnknown(h);
-  const bpMedicine = (value: string) => (bpUnconfirmed && value !== 'Not answered yet' ? `${value}, not yet confirmed` : value);
-
-  const health: SummaryRow[] = [
-    { label: 'Diabetes', value: DIABETES[h.diabetes] },
-    ...(diabetic(profile)
-      ? [
-        { label: 'Insulin', value: medicine(h.insulinRegimen && h.insulin !== 'none' ? `${INSULIN[h.insulin]}, ${REGIMEN[h.insulinRegimen]}` : INSULIN[h.insulin]) },
-        { label: 'Sulfonylurea or meglitinide', value: medicine(answer(h.sulfonylureaOrMeglitinide)) },
-        { label: 'SGLT2 inhibitor', value: medicine(answer(h.sglt2i)) },
-        { label: 'Metformin', value: medicine(h.metformin === true && h.metforminSince ? `Yes, since ${h.metforminSince}` : answer(h.metformin)) },
-        ...(h.priorDkaOrInsulinDeficiency !== undefined ? [{ label: 'Ketoacidosis, or low insulin', value: medicine(answer(h.priorDkaOrInsulinDeficiency)) }] : []),
-        { label: 'Glucose monitoring', value: MONITOR[h.glucoseMonitor] },
-        { label: 'Nerve damage in your feet', value: { no: 'No', yes: 'Yes', unsure: 'Not sure' }[h.peripheralNeuropathy] },
-        // These two stop vigorous effort, and standing and walking prompts, so they are read back too.
-        { label: 'Your feet today', value: FEET[h.footStatus] },
-        { label: 'Diabetic eye disease (retinopathy)', value: RETINA[h.retinopathy] },
-      ]
-      : []),
-    { label: 'High blood pressure', value: BP[h.hypertension] },
-    ...(bpMedicinesAsked(h)
-      ? [
-        { label: 'Beta-blocker', value: bpMedicine(answer(h.betaBlocker)) },
-        { label: 'Diuretic or water pill', value: bpMedicine(answer(h.diuretic)) },
-      ]
-      : []),
-    { label: 'Anything else', value: other.length > 0 ? other.join(', ') : 'None' },
-    // Asked of everyone now: also prescribed for heart and kidney conditions.
-    // An untouched default No reads as not answered (B08).
-    ...(!diabetic(profile) ? [{ label: 'SGLT2 inhibitor', value: answeredOnOpen(h).has('sglt2i') ? answer(h.sglt2i) : 'Not answered yet' }] : []),
-    { label: 'Fluid limit from your care team', value: answer(h.fluidRestriction) },
-    { label: 'Cleared for exercise', value: CLEARANCE[h.clearance] },
-  ];
-
-  return [
-    { title: 'About you', rows: about, step: 'about' as const },
-    ...(programme ? [{ title: 'Training', rows: training, step: 'about' as const }] : []),
-    { title: 'Back and legs', rows: body, step: 'body' as const },
-    { title: 'Health', rows: health, step: 'health' as const },
-  ];
 }
 
 // ============================================================================

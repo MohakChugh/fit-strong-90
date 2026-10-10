@@ -86,6 +86,15 @@ describe('answers v1 already gave (K-57; journey §6.4, §16)', () => {
     expect(a.glucoseMonitor).toBeUndefined();
   });
 
+  it('carries a fluid-limit answer v1 kept in its reminders, as the water rules still read it (reminders/water.ts)', () => {
+    const habits = { ...S.habits, fluidLimit: true };
+    expect(answersFromProfile(P01, { ...S, habits }).fluidLimit).toBe('yes');
+    expect(answersFromProfile(P01, { ...S, habits: { ...S.habits, fluidLimit: false } }).fluidLimit).toBe('no');
+    // The profile's own answer, where there is one, comes first.
+    expect(answersFromProfile({ ...P01, health: { ...P01.health, fluidRestriction: 'unsure' } }, { ...S, habits }).fluidLimit).toBe('unsure');
+    expect(answersFromProfile(P01, S).fluidLimit).toBeUndefined();
+  });
+
   it('a v1 Welcome left part-way fills in its focus (K-57)', () => {
     expect(prefillAnswers({ ...S, focus: 'stretch' }, undefined)).toEqual({ metric: true, focus: 'stretch' });
   });

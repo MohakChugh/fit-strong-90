@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { BellIcon, ChevronRightIcon, CompassIcon, HardDriveIcon, HeartPulseIcon, MicIcon, SaladIcon, SunMoonIcon, TargetIcon } from 'lucide-react';
+import { BellIcon, ChevronRightIcon, HardDriveIcon, HeartPulseIcon, MicIcon, SaladIcon, SunMoonIcon, TargetIcon } from 'lucide-react';
 import { categoryById, newlyRelevant, type CategoryId } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
@@ -13,7 +13,6 @@ import { addButton } from '@/screens/home/layout';
 import { TileIcon } from '@/screens/home/Tile';
 import { today as todayOf } from '@/screens/track/periods';
 import { deviceNoun, readInstallEnv } from '@/screens/welcome/install';
-import { FOCUS_CHOICES } from '@/screens/welcome/focus';
 import { finishFooter, finishTitle, notNow, setupProgress, type OpenChapter } from '@/setup/progress';
 import { useStore } from '@/store/useStore';
 import type { HomeLayout } from '@/types';
@@ -50,7 +49,6 @@ export function MeHome() {
   const review = reviewNeeded(profile);
   const nudge = backupNudge(now, backupMark(settings.habits), recordSpan(state), state.revision);
   const backup = backupState(settings.habits);
-  const focus = FOCUS_CHOICES.find(f => f.value === settings.focus);
   const voice = profile?.voice;
 
   return (
@@ -76,8 +74,6 @@ export function MeHome() {
           detail={review ? <span className="text-caution">{REVIEW_LABEL[review]}</span> : conditionsLine(profile)}
           chevron
         />
-        {/* v1's focus choice, by its own name, until Plan 5 puts it in Profile & health's movement chapter. */}
-        <Row as={Link} to="/me/profile?chapter=movement" viewTransition icon={<CompassIcon />} label="What you’d like more of" detail={focus?.label ?? 'Not chosen'} chevron />
         <Row as={Link} to="/me/goals" viewTransition icon={<TargetIcon />} label="Goals" detail={goalsLine(settings, day)} chevron />
         <Row as={Link} to="/me/food" viewTransition icon={<SaladIcon />} label="Food" detail={foodLine(profile?.food)} chevron />
       </Group>

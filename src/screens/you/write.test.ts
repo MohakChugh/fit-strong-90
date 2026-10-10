@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { createDefaultProfile } from '@/profile/defaults';
-import type { WizardResult } from '@/components/profile/ProfileWizard';
 
 // The store sweeps localStorage on clear-all; node has none, so give it one.
 const local = new Map<string, string>();
@@ -17,7 +16,7 @@ globalThis.localStorage = {
 import { JOIN } from '@/setup/fixtures';
 
 const store = await import('@/store/useStore');
-const { changeDisplay, changeHabits, changeProfile, forgetCalendarEvents, joinProgramme, leaveProgramme, recordBackupCheck, recordCalendarExport, recordExport, saveProfileAnswers, setFluidRestriction } = await import('./write');
+const { changeDisplay, changeHabits, changeProfile, forgetCalendarEvents, joinProgramme, leaveProgramme, recordBackupCheck, recordCalendarExport, recordExport, setFluidRestriction } = await import('./write');
 const { fluidRestriction } = await import('@/reminders/water');
 const { backupMark, backupNudge } = await import('@/reminders/backup');
 const { isEnrolled } = await import('@/health/recommend');
@@ -136,41 +135,6 @@ describe('setFluidRestriction', () => {
     const after = await reloadFromDevice();
     expect(after.profile?.health.fluidRestriction).toBe(false);
     expect(after.settings.habits?.water).toEqual(water);
-  });
-});
-
-describe('saveProfileAnswers', () => {
-  const answers = (over: Partial<WizardResult> = {}): WizardResult => ({
-    profile: createDefaultProfile({ weightKg: 81.5, trainingDays: ['monday', 'thursday'] }),
-    startDate: '2026-10-05',
-    useMetric: true,
-    ...over,
-  });
-
-  it('keeps the programme start date when the date was asked and changed', async () => {
-    await store.setSettings({ startDate: '2026-09-28' });
-    expect((await saveProfileAnswers(answers(), { startDate: true })).ok).toBe(true);
-    const after = await reloadFromDevice();
-    expect(after.settings.startDate).toBe('2026-10-05');
-    expect(after.settings.currentWeight).toBe(81.5);
-    expect(after.profile?.weightKg).toBe(81.5);
-  });
-
-  it('leaves the start date alone when the edit did not ask it', async () => {
-    await store.setSettings({ startDate: '2026-09-28' });
-    expect((await saveProfileAnswers(answers({ startDate: '2026-10-08' }), { startDate: false })).ok).toBe(true);
-    expect((await reloadFromDevice()).settings.startDate).toBe('2026-09-28');
-  });
-
-  it('reports a failed write and stores nothing of it', async () => {
-    await store.setProfile(createDefaultProfile({ weightKg: 70 }));
-    factory.control.setWriteError(() => new DOMException('Storage full', 'QuotaExceededError'));
-    const saved = await saveProfileAnswers(answers(), { startDate: true });
-    expect(saved.ok).toBe(false);
-    factory.control.setWriteError(undefined);
-    const after = await reloadFromDevice();
-    expect(after.profile?.weightKg).toBe(70);
-    expect(after.settings.startDate).not.toBe('2026-10-05');
   });
 });
 

@@ -13,8 +13,6 @@ import type { StoreResult } from '@/store/db';
 import type { UserSettings } from '@/types';
 import type { HabitSettings } from '@/types/habits';
 import type { MedicineAnswer, UserProfile } from '@/types/profile';
-import type { WizardResult } from '@/components/profile/ProfileWizard';
-import { answeredProfile } from '@/components/profile/wizardSteps';
 import { createDefaultProfile } from '@/profile/defaults';
 import type { BackupMark } from '@/reminders/backup';
 import { withCalendarExport, withoutCalendarHabits, type CalendarExport } from '@/reminders/calendarNotice';
@@ -83,31 +81,6 @@ export function recordBackupCheck(at: string): Promise<StoreResult> {
     lastCheckedExportAt: at,
     ...(onlyTheMark && habits.lastExportSeq === seq ? { lastExportSeq: seq + 1 } : {}),
   }));
-}
-
-/** The units chosen in the wizard, unless it left them as it found them. */
-const answeredMetric = (previous: boolean, result: Pick<WizardResult, 'useMetric' | 'opened'>) =>
-  result.opened && result.opened.useMetric === result.useMetric ? previous : result.useMetric;
-
-/**
- * Save answers from the profile wizard. The programme start date is written
- * only when the wizard asked it (`startDate: true`), so an edit of the health
- * questions can never move, or clear, the programme.
- */
-export function saveProfileAnswers(result: WizardResult, { startDate }: { startDate: boolean }): Promise<StoreResult> {
-  return update(previous => {
-    const profile = answeredProfile(previous.profile, result);
-    return {
-      ...previous,
-      profile,
-      settings: {
-        ...previous.settings,
-        currentWeight: profile.weightKg,
-        useMetric: answeredMetric(previous.settings.useMetric, result),
-        ...(startDate ? { startDate: result.startDate } : {}),
-      },
-    };
-  });
 }
 
 /** Remember the calendar file just made (D-01), so the app can say when Calendar keeps reminding after it has stopped. */

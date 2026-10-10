@@ -26,7 +26,6 @@ import {
   listOf,
   plural,
   previewLines,
-  profileSections,
   recordCounts,
   reviewNeeded,
 } from './summaries';
@@ -69,84 +68,62 @@ describe('the profile, read back', () => {
       .toBe('Heart or circulation · Kidney disease');
   });
 
+  // v1's read-back rules, kept by Profile & health's chapters (ported from v1's Profile & health tests; B08, H-DATA).
+  const S1 = { ...migrateData({ version: CURRENT_VERSION } as AppData).settings, useMetric: true };
+  const chapters = (p: ReturnType<typeof createDefaultProfile>, s = S1) =>
+    Object.fromEntries(chapterSections(p, s, '2026-10-10').map(c => [c.chapter, Object.fromEntries(c.rows.map(r => [r.label, r.value]))]));
+
   it('shows each answer as it was given, in the units the user chose', () => {
-    const [about, training, body, health] = profileSections(owner, true);
-    expect(about.rows).toContainEqual({ label: 'Weight', value: '82.4 kg' });
-    expect(profileSections(owner, false)[0].rows).toContainEqual({ label: 'Weight', value: '181.7 lb' });
-    expect(training.rows).toContainEqual({ label: 'Training days', value: 'Mon, Thu, Sat' });
-    expect(body.rows).toEqual([
-      { label: 'Pain or past injury', value: 'Lower back, Sciatica' },
-      { label: 'Which leg', value: 'Left' },
-      { label: 'Worse with', value: 'Sitting or bending forward' },
-    ]);
-    expect(health.rows).toContainEqual({ label: 'SGLT2 inhibitor', value: 'Not sure' });
-    expect(health.rows).toContainEqual({ label: 'Metformin', value: 'Yes, since 2019' });
+    const rows = chapters(owner);
+    expect(rows.about.Weight).toBe('82.4 kg');
+    expect(chapters(owner, { ...S1, useMetric: false }).about).toMatchObject({ Weight: '181.7 lb', Height: '5 ft 10 in' });
+    expect(rows.backFeet).toEqual({ 'Pain or past injury': 'Lower back, Sciatica', 'Which leg': 'Left', 'Worse with': 'Sitting or bending forward' });
+    expect(rows.medicines).toMatchObject({ 'A “-gliflozin” medicine': 'Not sure', Metformin: 'Yes, since 2019' });
+    expect(chapterSections(owner, S1, '2026-10-10').map(c => c.chapter)).toEqual(['about', 'health', 'medicines', 'backFeet', 'movement', 'food', 'day']);
   });
 
   it('reads back the eye and foot answers that stop vigorous effort and walking', () => {
-    const healthOf = (profile: ReturnType<typeof createDefaultProfile>) => profileSections(profile, true).find(s => s.title === 'Health')!.rows;
-    const health = (h: object) => healthOf(createDefaultProfile({ health: { diabetes: 'type2', medicinesReviewed: true, ...h } }));
-    expect(health({ footStatus: 'current_wound_or_active_charcot', retinopathy: 'severe_or_proliferative' })).toEqual(expect.arrayContaining([
-      { label: 'Your feet today', value: 'Current wound' },
-      { label: 'Diabetic eye disease (retinopathy)', value: 'Severe' },
-    ]));
-    // Asked with diabetes only, so only read back with it.
-    expect(healthOf(createDefaultProfile()).map(r => r.label)).not.toContain('Your feet today');
+    const health = chapters(createDefaultProfile({ health: { diabetes: 'type2', medicinesReviewed: true, footStatus: 'current_wound_or_active_charcot', retinopathy: 'severe_or_proliferative' } })).health;
+    expect(health).toMatchObject({ 'Your feet today': 'Current wound', 'Diabetic eye disease (retinopathy)': 'Severe' });
+    // Asked with diabetes, or once answered, so only read back then.
+    expect(Object.keys(chapters(createDefaultProfile()).health)).not.toContain('Your feet today');
   });
 
-  it('ties each section to the wizard step that edits it', () => {
-    expect(profileSections(owner, true).map(section => [section.title, section.step])).toEqual([
-      ['About you', 'about'], ['Training', 'about'], ['Back and legs', 'body'], ['Health', 'health'],
-    ]);
+  it('shows the programme only for someone in it, with the day it started, and never its defaults', () => {
+    expect(chapters(owner, { ...S1, startDate: '2026-09-28' }).movement['The 12-week programme']).toBe(`Joined, from ${shortDay('2026-09-28')}`);
+    expect(chapters(owner).movement['The 12-week programme']).toBe('Not joined');
+    const labels = Object.values(chapters(owner)).flatMap(rows => Object.keys(rows));
+    for (const v1Only of ['Experience', 'Training days', 'Session length', 'Where you train']) expect(labels).not.toContain(v1Only);
   });
 
-  it('shows when the programme started, which editing Training can change', () => {
-    const training = profileSections(owner, true, { programme: true, startDate: '2026-09-28' })[1];
-    expect(training.rows[0]).toEqual({ label: 'Started', value: shortDay('2026-09-28') });
-    expect(profileSections(owner, true, { programme: true })[1].rows.map(r => r.label)).not.toContain('Started');
-  });
-
-  it('does not show training defaults to someone outside the programme', () => {
-    const sections = profileSections(owner, true, { programme: false });
-    expect(sections.map(section => section.title)).toEqual(['About you', 'Back and legs', 'Health']);
-    expect(sections[0].rows.map(row => row.label)).not.toContain('Experience');
-  });
-
-  it('reads back the fluid-limit answer, and an SGLT2 inhibitor taken without diabetes', () => {
-    const health = (over: Parameters<typeof createDefaultProfile>[0]) => profileSections(createDefaultProfile(over), true)[3].rows;
-    expect(health({})).toContainEqual({ label: 'Fluid limit from your care team', value: 'Not answered yet' });
-    expect(health({ health: { fluidRestriction: 'unsure' } })).toContainEqual({ label: 'Fluid limit from your care team', value: 'Not sure' });
-    expect(health({ health: { sglt2i: true } })).toContainEqual({ label: 'SGLT2 inhibitor', value: 'Yes' });
+  it('reads back the fluid-limit answer, and a “-gliflozin” taken without diabetes', () => {
+    expect(chapters(createDefaultProfile()).health['Fluid limit from your care team']).toBe('Not answered yet');
+    expect(chapters(createDefaultProfile({ health: { fluidRestriction: 'unsure' } })).health['Fluid limit from your care team']).toBe('Not sure');
+    expect(chapters(createDefaultProfile({ health: { sglt2i: true } })).medicines['A “-gliflozin” medicine']).toBe('Yes');
     // Asked of everyone, and an untouched No is not an answer (B08).
-    expect(health({})).toContainEqual({ label: 'SGLT2 inhibitor', value: 'Not answered yet' });
-    expect(health({ health: { medicinesReviewed: true } })).toContainEqual({ label: 'SGLT2 inhibitor', value: 'No' });
+    expect(chapters(createDefaultProfile()).medicines['A “-gliflozin” medicine']).toBe('Not answered yet');
+    expect(chapters(createDefaultProfile({ health: { medicinesReviewed: true } })).medicines['A “-gliflozin” medicine']).toBe('No');
   });
 
   it('reads back the blood-pressure medicines for heart or kidney disease too, unconfirmed until answered', () => {
-    const rows = (over: Parameters<typeof createDefaultProfile>[0]) => profileSections(createDefaultProfile(over), true)[3].rows;
-    expect(rows({ health: { heartOrVascularDisease: true } })).toContainEqual({ label: 'Beta-blocker', value: 'No, not yet confirmed' });
-    expect(rows({ health: { kidneyDisease: 'ckd', bpMedicinesReviewed: true } })).toContainEqual({ label: 'Diuretic or water pill', value: 'No' });
-    expect(rows({}).map(r => r.label)).not.toContain('Beta-blocker');
+    expect(chapters(createDefaultProfile({ health: { heartOrVascularDisease: true } })).medicines['Beta-blocker']).toBe('No, not yet confirmed');
+    expect(chapters(createDefaultProfile({ health: { kidneyDisease: 'ckd', bpMedicinesReviewed: true } })).medicines['Water tablet (diuretic)']).toBe('No');
+    expect(Object.keys(chapters(createDefaultProfile()).medicines)).not.toContain('Beta-blocker');
   });
 
   it('says a weight was never entered rather than showing zero', () => {
-    expect(profileSections(createDefaultProfile(), true)[0].rows[0]).toEqual({ label: 'Weight', value: 'Not entered' });
+    expect(chapters(createDefaultProfile()).about.Weight).toBe('Not entered');
   });
 
   it('asks diabetes questions only of someone with diabetes, and never reads an unanswered one as no', () => {
-    const none = profileSections(createDefaultProfile(), true)[3].rows.map(r => r.label);
-    expect(none).not.toContain('Insulin');
-    const unanswered = profileSections(createDefaultProfile({ health: { diabetes: 'type2' } }), true)[3].rows;
-    expect(unanswered).toContainEqual({ label: 'Metformin', value: 'Not answered yet' });
+    expect(Object.keys(chapters(createDefaultProfile()).medicines)).not.toContain('Insulin');
+    expect(chapters(createDefaultProfile({ health: { diabetes: 'type2' } })).medicines.Metformin).toBe('Not answered yet');
   });
 
   it('marks unreviewed medicine answers as unconfirmed, so a default never reads as a plain no', () => {
-    const unreviewed = createDefaultProfile({ health: { diabetes: 'type2', insulin: 'none', sulfonylureaOrMeglitinide: false } });
-    const rows = profileSections(unreviewed, true)[3].rows;
-    expect(rows).toContainEqual({ label: 'Insulin', value: 'None, not yet confirmed' });
-    expect(rows).toContainEqual({ label: 'Sulfonylurea or meglitinide', value: 'No, not yet confirmed' });
-    expect(rows).toContainEqual({ label: 'Metformin', value: 'Not answered yet' });
-    expect(profileSections(owner, true)[3].rows).toContainEqual({ label: 'Insulin', value: 'None' });
+    const rows = chapters(createDefaultProfile({ health: { diabetes: 'type2', insulin: 'none', sulfonylureaOrMeglitinide: false } })).medicines;
+    expect(rows).toMatchObject({ Insulin: 'None, not yet confirmed', 'A tablet that can cause lows': 'No, not yet confirmed', Metformin: 'Not answered yet' });
+    expect(chapters(owner).medicines.Insulin).toBe('None');
   });
 
   it('flags answers that need a second look', () => {
