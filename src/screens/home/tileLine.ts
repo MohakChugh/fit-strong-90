@@ -34,6 +34,16 @@ const PROFILE_GAP: [reason: string, chapter: string][] = [
 ];
 /** Reasons a check-in (or a fresh glucose in it) answers: the tile keeps its line and the Start opens the check-in (L-03). */
 const CHECK_IN_ONLY: string[] = [PERMISSION_TEXT.noCheckIn, PERMISSION_TEXT.stale, PERMISSION_TEXT.staleNoTime];
+
+/**
+ * A hold that only today's check-in answers, as the tile reads it: the tile
+ * keeps its line, with "check in first". Any other hold is said by its
+ * headline. The gate may say more (a stale reading's age), so a reason counts
+ * by how it starts.
+ */
+export function checkInOnly(p: Permission): boolean {
+  return p.needsCheckIn && p.reasons.length > 0 && p.reasons.every(r => CHECK_IN_ONLY.some(t => r.startsWith(t)));
+}
 /** v1 plans a recovery session and a gentler stretch during a flare; walking has no flare plan, so Walk keeps its line and suggests a stretch (L-08). */
 const FLARE: Partial<Record<Mode, string>> = { guided: 'Gentle only today', stretch: 'Gentle stretch' };
 const STRETCH_SUGGESTED = 'Stretch is suggested today';
@@ -70,7 +80,7 @@ export function movementLine({ mode, permission: p, status, normal, enrolled = t
     const said = (text: string) => p.reasons.some(r => r.startsWith(text));
     const gap = PROFILE_GAP.find(([reason]) => said(reason));
     if (gap) return { text: `Finish setting up · ${gap[1]}`, tone: 'caution' };
-    if (p.needsCheckIn && p.reasons.length > 0 && p.reasons.every(r => CHECK_IN_ONLY.some(t => r.startsWith(t)))) {
+    if (checkInOnly(p)) {
       return { text: outside ? line : `${line} · check in first`, tone: 'normal' };
     }
     const known = HOLD_HEADLINE.find(([reason]) => said(reason))?.[1];

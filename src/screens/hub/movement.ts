@@ -14,7 +14,7 @@ import { HREF, type Gate } from '@/health/recommend';
 import type { Status } from '@/health/status';
 import type { UserSettings } from '@/types';
 import type { SessionPlan, StretchFocus } from '@/types/plan';
-import type { TileLine } from '@/screens/home/tileLine';
+import { checkInOnly, type TileLine } from '@/screens/home/tileLine';
 import { startLabelFor } from '@/screens/today/model';
 
 export type HubActionKind =
@@ -90,9 +90,11 @@ const NOUN: Record<Mode, string> = { guided: 'session', stretch: 'stretch', walk
 
 /**
  * The card, in the copy table's order. A stop outranks status, and status
- * outranks every hold. A profile gap comes next, before the programme's Join,
- * so the Workout tile and its hub always name it alike (§4.2), and before the
- * other holds. Only then is anything offered (journey §7.5, as `movementLine`).
+ * outranks every hold. A profile gap comes next, then any other hold or
+ * re-check, both before the programme's Join, so the Workout tile and its hub
+ * always say them alike (§4.2). A hold only today's check-in answers leaves
+ * the Join in place, as the tile names no check-in outside the programme.
+ * Only then is anything offered (journey §7.5, as `movementLine`).
  */
 export function movementCard(i: CardInput): HubCard {
   const p = i.permission;
@@ -117,21 +119,24 @@ export function movementCard(i: CardInput): HubCard {
       primary: { kind: 'profile', label: `Answer the questions about ${chapter}` }, secondary: [REVIEW],
     };
   }
+  // Outside the programme nothing starts and there is nothing to check in for (D35): any hold the tile says is the card's.
+  const outsideHold = i.mode === 'guided' && i.enrolled === false && !p.allowed && !checkInOnly(p);
+  if (i.gate === 'hold' || i.gate === 'recheck' || outsideHold) {
+    const recheck = i.gate === 'recheck';
+    return {
+      // The gate's own headline, as Home's card and the check-in say it; a re-check adds when it is due, in the tile's words.
+      // Before the programme's Join too, so the Workout tile and its hub always say the hold alike (§4.2).
+      ...empty, ...refusal, state: 'held', tone: 'caution', title: headline(p).title, ...(recheck ? { detail: i.line.text } : {}),
+      ...(recheck ? { primary: { kind: 'review', label: 'Enter a new reading' } as HubAction } : {}),
+      secondary: [...(recheck ? [] : [REVIEW]), ...instead],
+    };
+  }
   if (i.mode === 'guided' && i.enrolled === false) {
     const join: HubAction = { kind: 'join', label: 'Join the 12-week programme' };
     const flare = i.status === 'flare' && instead.length > 0;
     return {
       ...empty, state: 'join', tone: 'normal', title: 'The 12-week programme', detail: 'Not joined. Stretch and Walk work without it.',
       ...(flare ? { today: 'Stretch is suggested today', primary: instead[0], secondary: [join] } : { primary: join, secondary: instead }),
-    };
-  }
-  if (i.gate === 'hold' || i.gate === 'recheck') {
-    const recheck = i.gate === 'recheck';
-    return {
-      // The gate's own headline, as Home's card and the check-in say it; a re-check adds when it is due, in the tile's words.
-      ...empty, ...refusal, state: 'held', tone: 'caution', title: headline(p).title, ...(recheck ? { detail: i.line.text } : {}),
-      ...(recheck ? { primary: { kind: 'review', label: 'Enter a new reading' } as HubAction } : {}),
-      secondary: [...(recheck ? [] : [REVIEW]), ...instead],
     };
   }
   if (i.blocked) {

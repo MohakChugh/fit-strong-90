@@ -304,3 +304,45 @@ describe('a profile gap outside the programme: the Workout tile and its hub agre
     expect(movementCard(input({ mode: 'guided', permission: p, gate: 'hold', gaps, enrolled: false, status: 'flare', title: 'x', stretchOpen: false })).state).toBe('gap');
   });
 });
+
+describe('outside the programme, a hold no check-in answers: the Workout tile and its hub agree (§4.2)', () => {
+  const NOT_JOINED = '12-week programme · not joined';
+  const outside = (p: Permission, gate: CardInput['gate'], tile: TileLine) =>
+    movementCard(input({ mode: 'guided', permission: p, gate, enrolled: false, title: NOT_JOINED, line: tile }));
+
+  it('a hold: both say it, before the programme’s Join', () => {
+    const p = held('guided', ['Dizzy or faint on standing.']);
+    const tile = movementLine({ mode: 'guided', permission: p, status: 'normal', normal: NOT_JOINED, enrolled: false });
+    expect(tile.tone).toBe('caution');
+    const c = outside(p, 'hold', tile);
+    expect(c).toMatchObject({ state: 'held', title: 'No session for now', reasons: ['Dizzy or faint on standing.'] });
+    expect(kinds(c)).not.toContain('join');
+  });
+
+  it('a hold the gate reads as a check-in step, but the tile as a hold (a reading timed later than now): the card says the hold', () => {
+    // `gateOf` reads it as a step a check-in answers, so Home's card would say "Check in & start"; outside the
+    // programme nothing starts, and the tile says the hold, so the hub does too.
+    const p = held('guided', [PERMISSION_TEXT.future], { needsCheckIn: true, release: 'Check your glucose now and add the reading.' });
+    const tile = movementLine({ mode: 'guided', permission: p, status: 'normal', normal: NOT_JOINED, enrolled: false });
+    expect(tile.text).toBe('Check the reading’s time');
+    const c = outside(p, 'checkIn', tile);
+    expect(c).toMatchObject({ state: 'held', title: 'Check again before you start', reasons: [PERMISSION_TEXT.future] });
+    expect(kinds(c)).toEqual(['review', 'stretch']);
+    // In the programme the hub reads the gate as Home's card does: a check-in, through the start.
+    expect(movementCard(input({ mode: 'guided', permission: p, gate: 'checkIn', enrolled: true, title: 'Full Body B · 45 min', line: tile })).primary).toEqual({ kind: 'start', label: 'Check in & start' });
+  });
+
+  it('a re-check: both say it, with the way to enter the new reading', () => {
+    const p = held('guided', ['Treat the low and re-check.'], { needsCheckIn: true, release: 'Re-check your glucose in 15 minutes.' });
+    const tile = movementLine({ mode: 'guided', permission: p, status: 'normal', normal: NOT_JOINED, enrolled: false, recheckAt: '2026-10-08T09:15:00+05:30', now: new Date('2026-10-08T09:00:00+05:30'), hour12: true });
+    expect(tile.text).toBe('Waiting for your re-check at 9:15 am');
+    expect(outside(p, 'recheck', tile)).toMatchObject({ state: 'held', title: 'Check again before you start', detail: tile.text, primary: { kind: 'review', label: 'Enter a new reading' } });
+  });
+
+  it('a check-in alone keeps the way in: the tile names no check-in outside the programme (D35)', () => {
+    const p = held('guided', [PERMISSION_TEXT.noCheckIn], { needsCheckIn: true });
+    const tile = movementLine({ mode: 'guided', permission: p, status: 'normal', normal: NOT_JOINED, enrolled: false });
+    expect(tile.text).toBe(NOT_JOINED);
+    expect(outside(p, 'checkIn', tile).state).toBe('join');
+  });
+});
