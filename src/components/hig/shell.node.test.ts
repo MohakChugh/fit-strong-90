@@ -455,6 +455,10 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/<Screen\s+title=\{greeting\([\s\S]*?\)\}\s+navTitle=\{FROM_HOME\.label\}/);
   });
 
+  it('Home’s movement tiles know whether the person is in the programme, so a flare names no programme on the Workout tile (D35, J16 step 1)', () => {
+    expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/movementLine\(\{\s+mode, permission, status, enrolled,/);
+  });
+
   it('a related card and a related exercise name the screen they were opened from', () => {
     expect(read('src/screens/guide/CardScreen.tsx')).toContain('state={{ path: `/guide/card/${from.id}`, label: from.title }}');
     expect(read('src/screens/move/ExerciseScreen.tsx')).toContain('state={{ from: origin, path: location.pathname, label: ex.name }}');

@@ -50,6 +50,27 @@ describe('movementLine (journey §7.5)', () => {
     // A flare changes the suggestion, never the gate: a held mode stays held.
     expect(movementLine({ mode: 'walk', permission: hold(PERMISSION_TEXT.footWalk), status: 'flare', normal: 'Just a walk' }).text).toBe('No walking for now');
   });
+  it('flare-up outside the programme: the Workout tile suggests a stretch and names no programme, whatever check-in it still needs (D35)', () => {
+    const normal = workoutNormal({ enrolled: false, label: 'Full Body B', minutes: 45 });
+    const checkInOnly = { ...hold(PERMISSION_TEXT.noCheckIn), needsCheckIn: true };
+    const withChanges = { ...base, disposition: 'adjust' as const, restrictions: ['No intervals.'] };
+    for (const permission of [base, withChanges, checkInOnly, { ...checkInOnly, reasons: [PERMISSION_TEXT.stale] }]) {
+      expect(movementLine({ mode: 'guided', permission, status: 'flare', normal, enrolled: false })).toEqual({ text: 'Stretch is suggested today', tone: 'normal' });
+    }
+    // In the programme, the flare's recovery session, as before.
+    expect(movementLine({ mode: 'guided', permission: base, status: 'flare', normal: 'Full Body B · 45 min', enrolled: true }).text).toBe('Gentle only today');
+    // Only during a flare: on an ordinary day the tile still says the programme isn't joined.
+    expect(movementLine({ mode: 'guided', permission: checkInOnly, status: 'normal', normal, enrolled: false }).text).toBe('12-week programme · not joined · check in first');
+    // A stop, a setup gap or a safety hold keeps its own words.
+    const stop = { ...base, allowed: false, disposition: 'today' as const, reasons: ['No exercise today.'] };
+    expect(movementLine({ mode: 'guided', permission: stop, status: 'flare', normal, enrolled: false }).text).toBe('Not today');
+    expect(movementLine({ mode: 'guided', permission: hold(PERMISSION_TEXT.medicinesUnknown), status: 'flare', normal, enrolled: false }).text).toBe('Finish setting up · your medicines');
+    const low = { ...hold('Glucose 65 mg/dL is a low.'), release: 'Treat it, then re-check in 15 minutes.', needsCheckIn: true };
+    expect(movementLine({ mode: 'guided', permission: low, status: 'flare', normal, enrolled: false }).text).toBe('Waiting for your re-check');
+    // Stretch and Walk are not the programme: their flare lines stand.
+    expect(movementLine({ mode: 'stretch', permission: base, status: 'flare', normal: 'x', enrolled: false }).text).toBe('Gentle stretch');
+    expect(movementLine({ mode: 'walk', permission: base, status: 'flare', normal: 'Just a walk', enrolled: false }).text).toBe('Just a walk · Stretch is suggested today');
+  });
   it('a hold that only needs today’s check-in keeps the normal line and says so (L-03)', () => {
     const p = { ...base, allowed: false, disposition: 'hold' as const, reasons: [PERMISSION_TEXT.noCheckIn], needsCheckIn: true };
     expect(movementLine({ mode: 'guided', permission: p, status: 'normal', normal: 'Full Body B · 45 min' })).toEqual({ text: 'Full Body B · 45 min · check in first', tone: 'normal' });
@@ -89,6 +110,15 @@ describe('movementLine with the real gate', () => {
   const checkIn = (over: Partial<DailyCheckIn> = {}): DailyCheckIn => ({ date: '2026-10-08', urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over });
   const record = (profile: UserProfile, c: DailyCheckIn) => ({ ...c, readiness: evaluateCheckIn(profile, c) });
   const onInsulin = createDefaultProfile({ health: { diabetes: 'type2', insulin: 'injections_or_pump', medicinesReviewed: true, currentlyActive: true, clearance: 'vigorous', glucoseMonitor: 'meter' } });
+
+  it('P06: a flare outside the programme, before the day’s check-in: no programme pressure on the Workout tile (acceptance J16 step 1)', () => {
+    const profile = createDefaultProfile({ pain: { areas: ['lowerBack', 'sciatica'], sciaticaSide: 'left', worseWith: 'flexion', preference: 'extension' } });
+    const p = permission({ profile, now }, 'guided');
+    expect(p).toMatchObject({ allowed: false, needsCheckIn: true });
+    const line = movementLine({ mode: 'guided', permission: p, status: 'flare', normal: workoutNormal({ enrolled: false, label: 'Full Body B', minutes: 45 }), enrolled: false });
+    expect(line).toEqual({ text: 'Stretch is suggested today', tone: 'normal' });
+    expect(line.text).not.toMatch(/Week \d+ of 12|programme|don.t break|make up/i);
+  });
 
   it('P05: a foot wound holds Walk only; Stretch reads normally, before and after the check-in (Review Focus 1)', () => {
     const profile = createDefaultProfile({ health: { footStatus: 'current_wound_or_active_charcot', peripheralNeuropathy: 'yes' } });

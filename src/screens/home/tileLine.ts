@@ -35,12 +35,20 @@ const PROFILE_GAP: [reason: string, chapter: string][] = [
 const CHECK_IN_ONLY: string[] = [PERMISSION_TEXT.noCheckIn, PERMISSION_TEXT.stale, PERMISSION_TEXT.staleNoTime];
 /** v1 plans a recovery session and a gentler stretch during a flare; walking has no flare plan, so Walk keeps its line and suggests a stretch (L-08). */
 const FLARE: Partial<Record<Mode, string>> = { guided: 'Gentle only today', stretch: 'Gentle stretch' };
+const STRETCH_SUGGESTED = 'Stretch is suggested today';
 
-export function movementLine({ mode, permission: p, status, normal, recheckAt, now, hour12 = prefersHour12() }: {
+export function movementLine({ mode, permission: p, status, normal, enrolled = true, recheckAt, now, hour12 = prefersHour12() }: {
   mode: Mode;
   permission: Permission;
   status: Status;
   normal: string;
+  /**
+   * In the 12-week programme (D35); only the Workout tile reads it. Outside
+   * it there is no recovery session to offer during a flare, and nothing to
+   * check in for on this tile, so it suggests a stretch and never names the
+   * programme (no programme pressure during a flare).
+   */
+  enrolled?: boolean;
   /**
    * When a treated low's re-check can be taken (`Readiness.recheckAt`, from
    * today's check-in), with the moment the line is worked out: the line names
@@ -52,12 +60,15 @@ export function movementLine({ mode, permission: p, status, normal, recheckAt, n
 }): TileLine {
   if (!p.allowed && (p.disposition === 'emergency' || p.disposition === 'today')) return { text: 'Not today', tone: 'stop' };
   if (status === 'away' || status === 'unwell') return { text: 'Paused', tone: 'quiet' };
+  const flareOutside = status === 'flare' && mode === 'guided' && !enrolled;
   if (!p.allowed) {
     // The gate may add detail after its fixed sentence (a stale reading says how old it is), so a reason counts by how it starts.
     const said = (text: string) => p.reasons.some(r => r.startsWith(text));
     const gap = PROFILE_GAP.find(([reason]) => said(reason));
     if (gap) return { text: `Finish setting up · ${gap[1]}`, tone: 'caution' };
-    if (p.needsCheckIn && p.reasons.length > 0 && p.reasons.every(r => CHECK_IN_ONLY.some(t => r.startsWith(t)))) return { text: `${normal} · check in first`, tone: 'normal' };
+    if (p.needsCheckIn && p.reasons.length > 0 && p.reasons.every(r => CHECK_IN_ONLY.some(t => r.startsWith(t)))) {
+      return { text: flareOutside ? STRETCH_SUGGESTED : `${normal} · check in first`, tone: 'normal' };
+    }
     const known = HOLD_HEADLINE.find(([reason]) => said(reason))?.[1];
     // A treated low's re-check comes before the routine check-in, however the day began, as in v1's gate.
     const due = recheckAt ? Date.parse(recheckAt) : Number.NaN;
@@ -66,7 +77,7 @@ export function movementLine({ mode, permission: p, status, normal, recheckAt, n
     const checkIn = said(PERMISSION_TEXT.noCheckIn) ? 'Check in first' : undefined;
     return { text: known ?? recheck ?? checkIn ?? 'Not now: open to see why', tone: 'caution' };
   }
-  if (status === 'flare') return { text: FLARE[mode] ?? `${normal} · Stretch is suggested today`, tone: 'normal' };
+  if (status === 'flare') return { text: flareOutside ? STRETCH_SUGGESTED : FLARE[mode] ?? `${normal} · ${STRETCH_SUGGESTED}`, tone: 'normal' };
   if (p.disposition === 'adjust' && p.restrictions.length > 0) return { text: `${normal} · with changes`, tone: 'normal' };
   return { text: normal, tone: 'normal' };
 }

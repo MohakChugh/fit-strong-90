@@ -224,11 +224,8 @@ export const cases = [
         await t.checkpoint('today-flare');
         await t.check(/gentle|rest/i.test(text) && /flare/i.test(text), `Home does not offer gentle or no movement for the flare, with its reason: ${text.slice(0, 300)}`);
         await t.check(/Why this\?/.test(text), 'no visible reason on Home');
-        // Home's Workout tile states that someone outside the programme has not joined it,
-        // "12-week programme · not joined" (journey §7.5, D35): v1 said so on Move, not Today.
-        // That statement is set aside; anything else naming the programme on Home still fails.
-        const pressure = text.replace(/12-week programme · not joined/g, '');
-        await t.check(!/Week \d+ of 12|programme|don.t break|make up/i.test(pressure), `Home shows programme pressure during a flare: ${/[^.]*(Week \d+ of 12|programme|make up)[^.]*/i.exec(pressure)?.[0]}`);
+        // All of Home, its tiles included: outside the programme, the Workout tile suggests a stretch during a flare (journey §7.5, D35).
+        await t.check(!/Week \d+ of 12|programme|don.t break|make up/i.test(text), `Home shows programme pressure during a flare: ${/[^.]*(Week \d+ of 12|programme|make up)[^.]*/i.exec(text)?.[0]}`);
         await t.check(!INVENTED.test(text), `Home claims a pain score proves safety: ${INVENTED.exec(text)?.[0]}`);
         const prompts = await main.getByRole('button', { name: /^Add \d+ ml$/ }).count();
         await t.check(prompts === 0, 'a habit prompt shows during the flare');

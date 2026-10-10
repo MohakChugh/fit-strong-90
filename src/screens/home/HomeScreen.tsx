@@ -285,7 +285,7 @@ export function HomeScreen() {
   const recheckAt = guided.checkIn?.readiness.recheckAt;
   // The gate as this render asked it, the same answer the card shows; a tap asks it again.
   const lineOf = (mode: Mode, permission = permissions[mode]) => movementLine({
-    mode, permission, status, normal: normalLine(mode, { recommendation, enrolled, plan: guided.plan }),
+    mode, permission, status, enrolled, normal: normalLine(mode, { recommendation, enrolled, plan: guided.plan }),
     ...(recheckAt ? { recheckAt } : {}), now, hour12: HOUR12,
   });
   // A hold or a stop on the tile's mode: its hub opens on it, so the tap skips the morph (motion rule 2).
