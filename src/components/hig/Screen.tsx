@@ -20,8 +20,13 @@ import { StorageBanner } from './StorageBanner';
  * to) it replaces this entry with the opener the navigation state names, or
  * with `back` (see `backTarget`).
  */
-export function Screen({ title, subtitle, below, back, trailing, inline, children, className }: {
+export function Screen({ title, navTitle = title, subtitle, below, back, trailing, inline, children, className }: {
   title: string;
+  /**
+   * What the next screen's Back calls this one, when that is not its title:
+   * Home shows a greeting and is called Home (journey §8.1).
+   */
+  navTitle?: string;
   /** A quiet line under the large title, e.g. the date on Today. */
   subtitle?: ReactNode;
   /** Part of the header, under the subtitle: Home's status button. The urgent surface comes after it. */
@@ -85,8 +90,8 @@ export function Screen({ title, subtitle, below, back, trailing, inline, childre
   useEffect(() => {
     document.title = `${title} · FitStrong`;
     // So the Back button of the next screen can say where it goes.
-    setTitle(location.pathname, title);
-  }, [title, location.pathname, location.key]);
+    setTitle(location.pathname, navTitle);
+  }, [title, navTitle, location.pathname, location.key]);
 
   useEffect(() => {
     // After a navigation, move focus to the new screen's title so a screen

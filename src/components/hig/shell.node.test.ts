@@ -351,6 +351,20 @@ describe('Back, driven through the screen’s own button (S-09, S-10, S-12, S-02
     expect(nav.backPending()).toBe(true);
   });
 
+  it('names Back after a screen’s name, not the title it shows: Home shows its greeting and is called Home (journey §8.1)', () => {
+    nav.record(at('/home'), 'LAUNCH', 0);
+    router.location = at('/home');
+    const home = render(h(Screen, { title: 'Good morning', navTitle: 'Home', children: null }));
+    expect(home.all().find(n => n.type === 'h1')?.children).toEqual(['Good morning']);
+    home.unmount();
+    nav.markShown();
+    // The chooser's Stretch row: the setup's own parent is Move, and the row names no opener.
+    nav.record(at('/hub/stretch'), 'PUSH', 1);
+    router.location = at('/hub/stretch');
+    const host = render(h(Screen, { title: 'Stretch', back: { to: '/move', label: 'Move' }, children: null }));
+    expect(backButton(host.all())!.props['aria-label']).toBe('Back to Home');
+  });
+
   it('names a Guide card’s Back after the topic, not "Back" (the labels the Guide passes)', () => {
     for (const file of ['src/screens/guide/CardScreen.tsx', 'src/screens/guide/MealDetailScreen.tsx', 'src/screens/guide/SampleWeekScreen.tsx']) {
       expect(read(file), file).not.toMatch(/backLabel/);
@@ -435,6 +449,10 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     // Glucose opens on every reading, so the one on the tile always shows (scan J2-08): see tileHref.
     expect(read('src/screens/home/Tile.tsx')).toMatch(/to=\{href\}\s+state=\{FROM_HOME\}/);
     expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/to=\{HREF\.day\} state=\{FROM_HOME\}/);
+  });
+
+  it('Home is called Home on the stack, so what it opens without naming it (the chooser, Right now, the check-in’s start) goes Back to "Home" (journey §8.1)', () => {
+    expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/<Screen\s+title=\{greeting\([\s\S]*?\)\}\s+navTitle=\{FROM_HOME\.label\}/);
   });
 
   it('a related card and a related exercise name the screen they were opened from', () => {

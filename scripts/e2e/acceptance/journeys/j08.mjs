@@ -122,6 +122,11 @@ export const cases = [
           await ui.tap(go);
         }
         await assertSetup(t, 'chooser');
+        // Back names the opener, and Home's name is Home, not its greeting (journey §8.1): the
+        // chooser's row names no opener, nor does the check-in's start that may come between.
+        const back = ui.header(page).getByRole('button', { name: /^Back\b/ });
+        const named = (await back.count()) ? await back.getAttribute('aria-label') : 'no Back';
+        await t.check(named === 'Back to Home', `chooser: the Stretch setup’s Back is “${named}”, not “Back to Home”`);
         // Move (v1's tab, now the Workout hub) → Stretch, to the setup (not its Start).
         await ui.legacyTab(page, 'Move');
         await ui.tap(ui.row(main, 'Stretch', 'link'));

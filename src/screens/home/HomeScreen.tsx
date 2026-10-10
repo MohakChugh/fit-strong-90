@@ -305,6 +305,7 @@ export function HomeScreen() {
   return (
     <Screen
       title={greeting(now, (profile as { name?: string } | undefined)?.name)}
+      navTitle={FROM_HOME.label}
       subtitle={format(now, 'EEEE, d MMMM')}
       trailing={<RemindersCapsule waiting={waiting} />}
       below={<StatusButton status={status} {...(period ? { detail: statusDetail(period, today) } : {})} onOpen={() => open({ kind: 'status' })} />}
