@@ -64,7 +64,7 @@ export type RecommendationKind =
 export interface RecommendationAction {
   /** The button's words. */
   label: string;
-  /** A route, or a sheet on Today (`/today?…`). */
+  /** A route, or a sheet on Home (`/home?…`). */
   to: string;
   /** Set when the action starts movement, which then goes through the shared start gate. */
   mode?: Mode;
@@ -96,19 +96,22 @@ export interface RecommendInput {
   permissions: Record<Mode, Permission>;
 }
 
-/** Where actions go. Today's own sheets are addressed by query, so a link can open one. */
+/**
+ * Where actions go, at their v2 addresses (journey §19.3, K-55). Home's own
+ * sheets are addressed by query, so a link can open one.
+ */
 export const HREF = {
   guided: '/session',
   resume: '/session?resume=1',
-  stretch: '/move/stretch',
-  walk: '/walk',
-  plan: '/move/plan',
-  profile: '/you/profile',
-  day: '/track',
-  checkIn: (mode: Mode) => `/today?checkin=${mode}`,
-  status: '/today?status=1',
-  statusNormal: '/today?status=normal',
-  choose: '/today?choose=1',
+  stretch: '/hub/stretch',
+  walk: '/hub/walk',
+  plan: '/hub/workout/plan',
+  profile: '/me/profile',
+  day: '/day/today',
+  checkIn: (mode: Mode) => `/home?checkin=${mode}`,
+  status: '/home?status=1',
+  statusNormal: '/home?status=normal',
+  choose: '/home?choose=1',
 } as const;
 
 // ============================================================================

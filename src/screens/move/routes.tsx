@@ -30,7 +30,8 @@ function MoveHome() {
   const planDetail = !enrolled ? 'Not joined yet' : week.startsOn ? 'Starts soon' : `Week ${week.week} of 12`;
 
   return (
-    <Screen title="Move" trailing={<YouButton />}>
+    // The Workout hub until Plan 2: opened from Home or Browse, so it goes back there (journey §8.1).
+    <Screen title="Move" back={{ to: '/home', label: 'Home' }} trailing={<YouButton />}>
       <Group>
         <Row as={Link} to="/move/stretch" viewTransition icon={<PersonStandingIcon />} label={<Wrap>Stretch</Wrap>}
           detail={stretchSummary(lastStretch(data.sessions))} chevron />

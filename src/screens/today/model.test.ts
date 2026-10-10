@@ -358,8 +358,8 @@ describe('chooserRows', () => {
   it('routes movement through the gate and the rest straight to its place', () => {
     const rows = chooserRows(input);
     expect(rows.map(r => [r.id, r.to, r.mode])).toEqual([
-      ['stretch', '/move/stretch', 'stretch'],
-      ['walk', '/walk', 'walk'],
+      ['stretch', '/hub/stretch', 'stretch'],
+      ['walk', '/hub/walk', 'walk'],
       ['guided', '/session', 'guided'],
       ['log', '/track?add=', undefined],
       ['learn', '/guide', undefined],

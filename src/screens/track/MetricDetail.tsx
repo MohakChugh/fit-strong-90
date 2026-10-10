@@ -79,14 +79,40 @@ const GLUCOSE_VIEW_NAMES: Record<GlucoseView, string> = {
 
 const PERIOD_NAMES: Record<Period, string> = { week: 'last 7 days', month: 'last month', quarter: 'last 3 months', year: 'last year' };
 
-export function MetricDetail() {
-  const { kind } = useParams();
+export function MetricDetail({ kind }: {
+  /** The metric or stored kind to show; by default the address's `:kind`. */
+  kind?: string;
+}) {
+  const params = useParams();
   const location = useLocation();
-  const metric = metricFromParam(kind);
+  const metric = metricFromParam(kind ?? params.kind);
   if (metric === 'backLeg') return <Navigate to="/track/back" replace state={location.state} />;
   // `movementMinutes` is counted by the week on My Day (D31), so it has no chart of its own.
   if (!metric) return <Navigate to="/track" replace />;
   return <MetricScreen key={metric} metric={metric} />;
+}
+
+/** v1's metric for each reading category (journey §5.1), and for the movement trends v1 charted. */
+const CATEGORY_METRIC: Record<string, MetricId> = {
+  glucose: 'glucose', bp: 'bloodPressure', steps: 'steps', water: 'water', weight: 'weight', waist: 'waist', sleep: 'sleep', labs: 'hba1c',
+};
+const TREND_METRIC: Record<string, MetricId> = { ...CATEGORY_METRIC, walk: 'walking', mood: 'mood' };
+const LABS: readonly MetricId[] = ['hba1c', 'b12', 'vitaminD'];
+
+/**
+ * A reading hub (`/hub/:id`) or a trend (`/trends/:id`), shown until Plans 2
+ * and 3 build them by v1's metric screen for that category. Labs shows the
+ * lab its `?metric=` names, HbA1c by default (B-14). An id with no metric
+ * here is an address that has moved.
+ */
+export function MetricFor({ trend = false }: { trend?: boolean }) {
+  const { id = '' } = useParams();
+  const [params] = useSearchParams();
+  const table = trend ? TREND_METRIC : CATEGORY_METRIC;
+  const lab = id === 'labs' ? LABS.find(l => l === params.get('metric')) : undefined;
+  const metric = lab ?? (Object.hasOwn(table, id) ? table[id] : undefined);
+  if (!metric) return <Navigate to="/home?moved=1" replace />;
+  return <MetricDetail kind={metric} />;
 }
 
 function MetricScreen({ metric }: { metric: MetricId }) {

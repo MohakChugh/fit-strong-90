@@ -72,10 +72,11 @@ export function finished(previous: AppData): AppData | undefined {
 
 export type Step = 'focus' | 'keep' | 'health';
 
+/** v1's Welcome steps, at setup's address until Plan 5 builds its chapters (journey §19.2). */
 export const STEP_PATH: Record<Step, string> = {
-  focus: '/welcome',
-  keep: '/welcome/keep',
-  health: '/welcome/health',
+  focus: '/setup',
+  keep: '/setup/keep',
+  health: '/setup/health',
 };
 
 /**

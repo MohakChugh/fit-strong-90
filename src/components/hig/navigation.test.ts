@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   backLabelFit, backPending, backTarget, cameFrom, currentTab, followRouter, forgetPlaces, getNavState, isChunkLoadError, markBack,
-  markShown, markTab, originOf, record, resetNavigationForTests, rootLink, rootStep, scrollKeyOf, setPlaceCheck, setTitle,
+  markInPlace, markShown, markTab, originOf, record, resetNavigationForTests, rootLink, rootStep, scrollKeyOf, setPlaceCheck, setTitle,
   tabLink, tabOf, takeFocusRequest, type NavState,
 } from './navigation';
 
@@ -164,6 +164,17 @@ describe('focus after a navigation (S-02)', () => {
     markShown();
     replace('/browse?q=dal');
     expect(takeFocusRequest('/browse')).toBe(false);
+  });
+
+  it('does not ask for focus when a screen pages its own address, as Today’s log does from day to day', () => {
+    launch('/day/today');
+    markShown();
+    markInPlace();
+    replace('/day/2026-10-09');
+    expect(takeFocusRequest('/day/2026-10-09')).toBe(false);
+    // The next navigation to another screen asks again.
+    push('/track/reading/r1');
+    expect(takeFocusRequest('/track/reading/r1')).toBe(true);
   });
 });
 

@@ -965,7 +965,7 @@ describe('a walk after a meal (D26; scan J2-07)', () => {
       title: 'A walk after lunch',
       detail: 'About 10 minutes, starting soon after you finish eating.',
       reason: 'You asked for a walk after lunch. In a study of people with type 2 diabetes, a short walk after meals lowered the rise in glucose (Reynolds 2016).',
-      action: { label: 'Check in & walk', to: '/walk?meal=lunch', mode: 'walk' },
+      action: { label: 'Check in & walk', to: '/hub/walk?meal=lunch', mode: 'walk' },
     });
     expect(meal({}, '13:35', 'stretch').title).toBe('A walk after lunch');
     // Before the meal's usual end, and once its 45 minutes are over, the focus is back.

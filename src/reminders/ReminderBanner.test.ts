@@ -33,12 +33,12 @@ describe('the after-meal walk reminder', () => {
     for (const meal of ['breakfast', 'lunch', 'dinner'] as const) {
       const href = linkFor(meal);
       const url = new URL(href, 'https://app.test');
-      expect(url.pathname).toBe('/walk');
+      expect(url.pathname).toBe('/hub/walk');
       expect(mealFromSearch(url.searchParams)).toBe(meal);
     }
   });
 
   it('opens an ordinary walk for a reminder that names no meal', () => {
-    expect(linkFor()).toBe('/walk');
+    expect(linkFor()).toBe('/hub/walk');
   });
 });

@@ -2,7 +2,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { cameFrom } from '@/components/hig/navigation';
 import type { Origin } from './MyDay';
 
-const MY_DAY: Origin = { path: '/track', label: 'My Day' };
+const MY_DAY: Origin = { path: '/day/today', label: 'My Day' };
 
 /**
  * Where this detail screen came from, a Back for the bar, and a way back that

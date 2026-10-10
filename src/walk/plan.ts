@@ -128,7 +128,7 @@ export function walkFromSearch(search: URLSearchParams, now: number): { id: stri
   };
 }
 
-/** The meal another screen asked for, e.g. Today's after-dinner prompt linking to `/walk?meal=dinner`. */
+/** The meal another screen asked for, e.g. Home's after-dinner prompt linking to `/hub/walk?meal=dinner`. */
 export function mealFromSearch(search: URLSearchParams): Meal | undefined {
   const meal = search.get('meal');
   return isMeal(meal) ? meal : undefined;
@@ -136,7 +136,7 @@ export function mealFromSearch(search: URLSearchParams): Meal | undefined {
 
 /** Walk setup's address, opening on "After a meal" with `meal` chosen when one is given: what `mealFromSearch` reads. */
 export function walkSetupHref(meal?: Meal): string {
-  return meal ? `/walk?meal=${meal}` : '/walk';
+  return meal ? `/hub/walk?meal=${meal}` : '/hub/walk';
 }
 
 /** What the person chose to measure. */

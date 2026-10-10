@@ -89,8 +89,8 @@ const listeners = new Set<() => void>();
 let shown = false;
 /** The screen a navigation is waiting to focus. */
 let focusFor: string | undefined;
-/** What the next navigation is, when its kind alone cannot say: a Back that replaces, a tab. */
-let intent: { kind: 'back' | 'tab'; tab?: Tab; at: number } | undefined;
+/** What the next navigation is, when its kind alone cannot say: a Back that replaces, a tab, a screen's own new address. */
+let intent: { kind: 'back' | 'tab' | 'place'; tab?: Tab; at: number } | undefined;
 /** An intent belongs to the navigation it was set for; `history.go` is not instant, so allow a moment. */
 const INTENT_MS = 1000;
 
@@ -164,6 +164,15 @@ export function markTab(tab: Tab, now = Date.now()): void {
   intent = { kind: 'tab', tab, at: now };
 }
 
+/**
+ * The next navigation gives this screen a new address without leaving it, as
+ * paging Today's log from day to day does: focus stays on the control the
+ * person used, rather than moving to the title as a new screen's would.
+ */
+export function markInPlace(now = Date.now()): void {
+  intent = { kind: 'place', at: now };
+}
+
 /** A Back is on its way, so a replace may animate. */
 export function backPending(now = Date.now()): boolean {
   return intent?.kind === 'back' && now - intent.at < INTENT_MS;
@@ -211,8 +220,9 @@ export function record(location: LocationLike, action: Action, historyIndex: num
   // A push discards whatever was ahead of it, as the browser does.
   const next = action === 'PUSH' ? base.slice(0, idx) : base.slice();
   next[idx] = entry;
-  const direction: Direction = action === 'POP' ? (!fresh && idx < index ? 'back' : 'forward') : asked?.kind ?? 'forward';
-  if (shown && action !== 'LAUNCH' && leaving?.pathname !== location.pathname) focusFor = location.pathname;
+  const direction: Direction = action === 'POP' ? (!fresh && idx < index ? 'back' : 'forward')
+    : asked?.kind === 'back' || asked?.kind === 'tab' ? asked.kind : 'forward';
+  if (shown && action !== 'LAUNCH' && leaving?.pathname !== location.pathname && asked?.kind !== 'place') focusFor = location.pathname;
   publish({
     entries: next,
     index: idx,

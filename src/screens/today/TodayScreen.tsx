@@ -11,7 +11,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
-import { GlassWaterIcon } from 'lucide-react';
+import { GlassWaterIcon, InfoIcon } from 'lucide-react';
 import { Screen } from '@/components/hig/Screen';
 import { YouButton } from '@/components/hig/AppShell';
 import { Group, Row } from '@/components/hig/List';
@@ -71,7 +71,10 @@ const SAFETY = new Set<Recommendation['kind']>(['emergency', 'seekHelp', 'rechec
 const MOVE_HREF: Record<Mode, string> = { guided: HREF.guided, stretch: HREF.stretch, walk: HREF.walk };
 
 /** Rows that open another area's screen name Today as their opener, so Back returns here (scan S-10). */
-const FROM_TODAY = { path: '/today', label: 'Today' };
+const FROM_TODAY = { path: '/home', label: 'Today' };
+
+/** Home's own sheets, which an action addresses by query (`HREF.status`, `HREF.choose`…). */
+const SHEET_HREF = '/home?';
 
 /** The guided session and a stretch each keep their own saved run. */
 const SLOTS: ProgressSlot[] = ['guided', 'stretch'];
@@ -144,6 +147,10 @@ export function TodayScreen() {
   // ordinary state, so closing one or leaving Today never leaves an address
   // behind that would reopen it on Back.
   const [sheet, setSheet] = useState<TodaySheet | undefined>(() => sheetFrom(params));
+  // An address that has moved lands here (journey §19.3): said once, for as
+  // long as Home is open, and then taken out of the address like a sheet's.
+  const [moved, setMoved] = useState(() => params.has('moved'));
+  if (params.has('moved') && !moved) setMoved(true);
   const [goalLoaded, setGoalLoaded] = useState(sheet?.kind === 'goal');
   const request = SHEET_KEYS.some(k => params.has(k)) ? params.toString() : '';
   const [handled, setHandled] = useState(request);
@@ -156,10 +163,11 @@ export function TodayScreen() {
     }
   }
   useEffect(() => {
-    if (!SHEET_KEYS.some(k => params.has(k))) return;
+    if (!SHEET_KEYS.some(k => params.has(k)) && !params.has('moved')) return;
     setParams(prev => {
       const next = new URLSearchParams(prev);
       for (const k of SHEET_KEYS) next.delete(k);
+      next.delete('moved');
       return next;
     }, { replace: true });
   }, [params, setParams]);
@@ -198,7 +206,7 @@ export function TodayScreen() {
       start(action.mode, action.to, startLabelFor(action.mode, action.to, recovery));
       return;
     }
-    const requested = action.to.startsWith('/today?') ? sheetFrom(new URLSearchParams(action.to.slice(7))) : undefined;
+    const requested = action.to.startsWith(SHEET_HREF) ? sheetFrom(new URLSearchParams(action.to.slice(SHEET_HREF.length))) : undefined;
     if (requested) open(requested);
     else navigate(action.to, { viewTransition: true });
   };
@@ -245,6 +253,11 @@ export function TodayScreen() {
 
   return (
     <Screen title="Today" subtitle={format(now, 'EEEE, d MMMM')} trailing={<YouButton />}>
+      {moved && (
+        <Group>
+          <Row role="status" icon={<InfoIcon />} label="That page has moved" />
+        </Group>
+      )}
       <div className="flex flex-col gap-3">
         <RecommendationCard
           recommendation={recommendation}

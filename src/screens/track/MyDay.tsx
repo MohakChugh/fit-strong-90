@@ -1,18 +1,22 @@
 /**
- * My Day, Track's root: "What did I do or record?"
+ * My Day: "What did I do or record?"
  *
  * One day at a time, every record in the order it happened with where it
  * came from; or, on the other segment, the measures this person keeps. The
  * day, the view and an open Quick Log all live in the URL, so a reload — or
- * Today's `/track?add=glucose` — lands in the same place.
+ * Home's `/day/today?add=glucose` — lands in the same place.
+ *
+ * It is v2's Today's log (`/day/:date`, the day in the path), and until Plan 3
+ * builds Trends, the Trends tab too (`view="trends"`).
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { CheckCircle2Icon, PlusIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { Screen } from '@/components/hig/Screen';
 import { YouButton } from '@/components/hig/AppShell';
+import { markInPlace } from '@/components/hig/navigation';
 import { Group, Row } from '@/components/hig/List';
 import { Ring } from '@/components/hig/Ring';
 import { useStore } from '@/store/useStore';
@@ -47,13 +51,20 @@ export interface Origin {
   search?: string;
 }
 
-export function MyDay() {
+export function MyDay({ day: pathDay, view: onlyView }: {
+  /** Today's log (`/day/:date`, journey §13): the day from the path, `today` or a date, which paging moves along. */
+  day?: string;
+  /** The interim Trends tab: this view alone, with no day to page through. */
+  view?: View;
+}) {
   const state = useStore();
   const current = useToday();
   const location = useLocation();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const day = clampDay(params.get('day'), current);
-  const view: View = params.get('view') === 'trends' ? 'trends' : 'timeline';
+  const day = clampDay(pathDay ?? params.get('day'), current);
+  const view: View = onlyView ?? (params.get('view') === 'trends' ? 'trends' : 'timeline');
+  const title = onlyView === 'trends' ? 'Trends' : 'My Day';
   // `?add=` with no kind opens the list; with a kind, that kind's form.
   const asking = params.has('add');
   const request = parseAddParam(params.get('add'));
@@ -92,7 +103,18 @@ export function MyDay() {
     queueMicrotask(() => {
       const all = queued.current ?? {};
       queued.current = undefined;
-      setParams(prev => applyChange(prev, all, current), { replace: true });
+      if (pathDay === undefined || all.day === undefined) {
+        setParams(prev => applyChange(prev, all, current), { replace: true });
+        return;
+      }
+      // Today's log keeps its day in the path: another day is another address,
+      // in place of this one, with focus left on the button that paged it.
+      const { day: next, ...rest } = all;
+      const query = applyChange(params, rest, current);
+      query.delete('day');
+      const search = query.toString();
+      markInPlace();
+      navigate(`/day/${!next || next === current ? 'today' : next}${search ? `?${search}` : ''}`, { replace: true });
     });
   };
 
@@ -104,8 +126,9 @@ export function MyDay() {
   const onSaved = (result: SavedResult) => {
     setFresh(result.ids);
     setNotice(`Saved on this device: ${result.summary}.`);
-    // Show the record arriving: on its own day, in the timeline.
-    change({ day: result.day, view: 'timeline' });
+    // Show the record arriving: on its own day, in the timeline. Trends has
+    // no timeline, so it says so and stays.
+    if (!onlyView) change({ day: result.day, view: 'timeline' });
   };
 
   const closeLog = (open: boolean) => {
@@ -120,11 +143,13 @@ export function MyDay() {
   const kept = new URLSearchParams(location.search);
   kept.delete('add');
   const search = kept.toString();
-  const origin: Origin = { path: location.pathname, label: 'My Day', ...(search ? { search: `?${search}` } : {}) };
+  const origin: Origin = { path: location.pathname, label: title, ...(search ? { search: `?${search}` } : {}) };
 
   return (
     <Screen
-      title="My Day"
+      title={title}
+      // Today's log is opened from Home (journey §13); Trends is a tab's root.
+      {...(pathDay !== undefined ? { back: { to: '/home', label: 'Home' } } : {})}
       trailing={(
         <div className="flex items-center">
           <button
@@ -139,18 +164,20 @@ export function MyDay() {
         </div>
       )}
     >
-      <div className="flex flex-col gap-3">
-        <DateStepper
-          label={formatDayRelative(day, current)}
-          sublabel={day === current || day === addDays(current, -1) ? formatDayLong(day, current) : undefined}
-          previousLabel={`Previous day, ${formatDayLong(addDays(day, -1), current)}`}
-          nextLabel={day >= current ? 'Next day' : `Next day, ${formatDayLong(addDays(day, 1), current)}`}
-          onPrevious={() => goToDay(addDays(day, -1))}
-          onNext={() => goToDay(addDays(day, 1))}
-          nextDisabled={day >= current}
-        />
-        <Segmented label="Show" options={VIEWS} value={view} onChange={v => change({ view: v })} />
-      </div>
+      {!onlyView && (
+        <div className="flex flex-col gap-3">
+          <DateStepper
+            label={formatDayRelative(day, current)}
+            sublabel={day === current || day === addDays(current, -1) ? formatDayLong(day, current) : undefined}
+            previousLabel={`Previous day, ${formatDayLong(addDays(day, -1), current)}`}
+            nextLabel={day >= current ? 'Next day' : `Next day, ${formatDayLong(addDays(day, 1), current)}`}
+            onPrevious={() => goToDay(addDays(day, -1))}
+            onNext={() => goToDay(addDays(day, 1))}
+            nextDisabled={day >= current}
+          />
+          <Segmented label="Show" options={VIEWS} value={view} onChange={v => change({ view: v })} />
+        </div>
+      )}
 
       <div role="status" aria-live="polite" className="empty:hidden">
         {notice && (

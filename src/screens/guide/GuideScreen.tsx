@@ -32,7 +32,8 @@ export default function GuideScreen() {
   };
 
   return (
-    <Screen title="Guide" trailing={<YouButton />}>
+    // The Learn hub until Plan 2: opened from Home or Browse, so it goes back there (journey §8.1).
+    <Screen title="Guide" back={{ to: '/home', label: 'Home' }} trailing={<YouButton />}>
       <form
         role="search"
         onSubmit={e => {

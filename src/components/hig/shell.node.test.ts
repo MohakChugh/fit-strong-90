@@ -432,7 +432,7 @@ describe('a tab never reopens a record that has gone (acceptance J18)', () => {
 describe('wiring that names the opener (S-10, S-11)', () => {
   it('Today’s Glucose, Blood pressure and plan rows name Today', () => {
     const today = read('src/screens/today/TodayScreen.tsx');
-    expect(today).toContain("const FROM_TODAY = { path: '/today', label: 'Today' };");
+    expect(today).toContain("const FROM_TODAY = { path: '/home', label: 'Today' };");
     // Opened on every reading, so the one on the row always shows (scan J2-08).
     expect(today).toMatch(/to="\/track\/metric\/glucose\?group=all" state=\{FROM_TODAY\}/);
     expect(today).toMatch(/to="\/track\/metric\/bloodPressure" state=\{FROM_TODAY\}/);

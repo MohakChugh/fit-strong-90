@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import { SirenIcon, TriangleAlertIcon } from 'lucide-react';
-import type { Recommendation, RecommendationAction } from '@/health/recommend';
+import { HREF, type Recommendation, type RecommendationAction } from '@/health/recommend';
 import { cn } from '@/lib/utils';
 
 const CAUTION = new Set<Recommendation['kind']>(['seekHelp', 'recheck', 'hold']);
@@ -29,7 +29,7 @@ export function RecommendationCard({ recommendation: r, eyebrow, revision, chang
 }) {
   const titleId = useId();
   const emergency = r.kind === 'emergency';
-  const caution = CAUTION.has(r.kind) && r.action.to !== '/you/profile';
+  const caution = CAUTION.has(r.kind) && r.action.to !== HREF.profile;
   const Icon = emergency ? SirenIcon : caution ? TriangleAlertIcon : undefined;
 
   return (
@@ -57,7 +57,7 @@ export function RecommendationCard({ recommendation: r, eyebrow, revision, chang
           </div>
         </div>
         <Action action={r.action} emergency={emergency} onAct={onAct} />
-        {ADVICE.has(r.kind) && r.action.to !== '/you/profile' && (
+        {ADVICE.has(r.kind) && r.action.to !== HREF.profile && (
           <p className="-mt-1 text-[length:var(--text-footnote)] text-muted-foreground">General information, not medical advice.</p>
         )}
       </div>
