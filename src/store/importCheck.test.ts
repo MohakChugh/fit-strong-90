@@ -196,3 +196,45 @@ describe('the profile’s v2 fields (journey §18.1)', () => {
     expect(preview(file({ settings, profile: { ...profile, pain: { ...profile.pain, neuroHistory: 'maybe' } } })).unreadableFields).toEqual(['profile.pain']);
   });
 });
+
+describe('food preferences in an import file (journey §18.1, B-13)', () => {
+  const profile = (food: unknown) => ({ ...createDefaultProfile({ weightKg: 70 }), food });
+  const food = { pattern: 'jain', avoid: ['mushrooms'], region: 'west', level: 'estimates', hardBefore: 'preferNot', allergies: ['peanut', 'treeNut'] };
+  it('reads setup’s food answers whole', () => {
+    expect(preview(file({ settings, profile: profile(food) })).unreadableFields).toEqual([]);
+    expect(planImport(file({ settings, profile: profile(food) }), 'replace', emptySnapshot()).change.profile?.food).toEqual(food);
+    // An empty list is the answer "No food allergies".
+    expect(preview(file({ settings, profile: profile({ ...food, allergies: [] }) })).unreadableFields).toEqual([]);
+  });
+  it('leaves the food preferences out whole when any of them can’t be read, so meal ideas ask again rather than drop an allergy', () => {
+    const bad = [
+      { level: 'lots' }, { allergies: 'peanut' }, { allergies: ['brinjal'] }, { allergies: [7] }, { hardBefore: 'sometimes' }, { pattern: 'paleo' },
+      { region: 'everywhere' }, { avoid: 'mushrooms' },
+    ];
+    for (const over of bad) {
+      expect(preview(file({ settings, profile: profile({ ...food, ...over }) })).unreadableFields, JSON.stringify(over)).toEqual(['profile.food']);
+    }
+  });
+});
+
+describe('the food fields Plan 7 adds (journey §18.1, B-13)', () => {
+  const profile = (food: unknown) => ({ ...createDefaultProfile({ weightKg: 70 }), food });
+  const food = {
+    pattern: 'jain', avoid: ['mushrooms'], level: 'estimates', hardBefore: 'no', allergies: ['peanut'], customAllergies: ['brinjal'],
+    careTeamTargets: { kcal: 1600, setOn: '2026-10-01' }, logReminder: { meal: 'lunch', at: '14:30' },
+  };
+  it('reads them with the rest of the food preferences', () => {
+    expect(preview(file({ settings, profile: profile(food) })).unreadableFields).toEqual([]);
+    expect(planImport(file({ settings, profile: profile(food) }), 'replace', emptySnapshot()).change.profile?.food).toEqual(food);
+  });
+  it('leaves the food preferences out whole when any of them can’t be read, so meal ideas ask again rather than drop an allergy', () => {
+    const bad = [
+      { customAllergies: 'brinjal' }, { customAllergies: [''] }, { customAllergies: ['x'.repeat(61)] },
+      { careTeamTargets: { kcal: -5, setOn: '2026-10-01' } }, { careTeamTargets: { kcal: 1600 } },
+      { logReminder: { meal: 'brunch', at: '11:00' } }, { logReminder: { meal: 'lunch', at: '2pm' } },
+    ];
+    for (const over of bad) {
+      expect(preview(file({ settings, profile: profile({ ...food, ...over }) })).unreadableFields, JSON.stringify(over)).toEqual(['profile.food']);
+    }
+  });
+});

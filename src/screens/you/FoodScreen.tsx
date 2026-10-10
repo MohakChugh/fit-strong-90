@@ -2,6 +2,7 @@ import { useId, useState, type FormEvent } from 'react';
 import { XIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
+import { withPicked } from '@/content/allergens';
 import { useStore } from '@/store/useStore';
 import type { FoodPreferences } from '@/types/profile';
 import { ChoiceRows, Notice, PlainButton, type Choice } from './controls';
@@ -110,11 +111,8 @@ export function FoodScreen() {
             label="Region"
             options={REGIONS}
             value={food.region ?? 'none'}
-            onChange={region => void edit(current => current && {
-              pattern: current.pattern,
-              avoid: current.avoid,
-              ...(region === 'none' ? {} : { region }),
-            })}
+            // Only the region: setup's allergies, logging level and screening answer stay (board D82).
+            onChange={region => void edit(current => current && withPicked(current, { pattern: current.pattern, avoid: current.avoid, region: region === 'none' ? 'any' : region }))}
           />
         </Group>
       )}

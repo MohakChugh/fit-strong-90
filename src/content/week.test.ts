@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { FoodPreferences } from '@/types/profile';
 import { MEALS } from './meals';
 import type { Pattern, Slot } from './schema';
+import { ALLERGEN_TERMS, JAIN_LEAVES_OUT, leaveOut, withPicked } from './allergens';
 import { componentsFor, isAvoided, mealsFor, sampleWeek, WEEKDAYS } from './week';
 
 const PATTERNS: Pattern[] = ['vegetarian', 'eggetarian', 'nonVegetarian', 'vegan'];
@@ -121,5 +122,63 @@ describe('the sample week', () => {
 
   it('starts with regional dishes when a region is chosen', () => {
     expect(sampleWeek(food('vegetarian', { region: 'west' }))[0].meals.breakfast?.regions).toContain('west');
+  });
+});
+
+describe('setup’s food answers in meal ideas (board D82)', () => {
+  const ids = (f: FoodPreferences, slot?: Slot) => mealsFor(f, slot).map(m => m.id);
+
+  it('adds the typed foods, the allergens’ words and Jain’s rule, in that order', () => {
+    const out = leaveOut(food('jain', { avoid: ['mushrooms'], allergies: ['peanut'], customAllergies: ['brinjal'] }));
+    expect(out.slice(0, 2)).toEqual(['mushrooms', 'brinjal']);
+    expect(out.slice(2, 2 + ALLERGEN_TERMS.peanut.length)).toEqual([...ALLERGEN_TERMS.peanut]);
+    expect(out.slice(-JAIN_LEAVES_OUT.length)).toEqual([...JAIN_LEAVES_OUT]);
+    expect(leaveOut(food('vegetarian'))).toEqual([]);
+    expect(leaveOut(undefined)).toEqual([]);
+    // Own words that name a canonical allergen leave out its words too.
+    expect(leaveOut(food('vegetarian', { customAllergies: ['Groundnuts'] }))).toEqual(['Groundnuts', ...ALLERGEN_TERMS.peanut]);
+  });
+
+  it('hides the ideas that name an allergen setup stored: peanut, milk and egg', () => {
+    expect(ids(food('vegetarian', { allergies: ['peanut'] }), 'breakfast')).not.toContain('b-poha');
+    expect(ids(food('vegetarian', { allergies: ['peanut'] }), 'breakfast')).toContain('b-idli-sambar');
+    expect(ids(food('vegetarian', { allergies: ['milk'] }), 'lunch')).not.toContain('l-palak-paneer');
+    expect(ids(food('eggetarian', { allergies: ['egg'] }), 'breakfast')).not.toContain('b-egg-bhurji');
+    // "No food allergies" hides nothing.
+    expect(ids(food('vegetarian', { allergies: [] }))).toEqual(ids(food('vegetarian')));
+  });
+
+  it('hides an allergy given in the person’s own words', () => {
+    expect(ids(food('vegetarian', { customAllergies: ['groundnuts'] }), 'breakfast')).not.toContain('b-poha');
+  });
+
+  it('gives a Jain plate vegetarian ideas at every meal, with nothing Jain cooking leaves out', () => {
+    const jain = food('jain');
+    for (const slot of SLOTS) {
+      const shown = mealsFor(jain, slot);
+      expect(shown.length, slot).toBeGreaterThan(0);
+      for (const m of shown) {
+        expect(mealsFor(food('vegetarian'), slot), m.id).toContain(m);
+        expect(isAvoided(m, JAIN_LEAVES_OUT, 'jain'), m.id).toBe(false);
+      }
+    }
+    expect(ids(jain, 'breakfast')).not.toContain('b-poha');
+    expect(JAIN_LEAVES_OUT).toEqual(expect.arrayContaining(['onion', 'garlic', 'potato', 'honey']));
+  });
+
+  it('drops from a Jain plate any part a vegetarian wouldn’t eat', () => {
+    const base = meal('l-roti-dal-sabzi');
+    const withEgg = { ...base, components: [...base.components, { ...base.components[0], name: 'Boiled egg', notFor: ['vegetarian', 'vegan'] as Pattern[] }] };
+    expect(componentsFor(withEgg, 'jain').map(c => c.name)).not.toContain('Boiled egg');
+    expect(componentsFor(withEgg, 'eggetarian').map(c => c.name)).toContain('Boiled egg');
+  });
+
+  it('Meal ideas’ own question changes only what it asks: setup’s allergies, level and screening answer stay', () => {
+    const stored: FoodPreferences = {
+      pattern: 'vegetarian', avoid: [], region: 'north', allergies: ['peanut'], customAllergies: ['brinjal'], level: 'estimates', hardBefore: 'no',
+    };
+    expect(withPicked(stored, { pattern: 'jain', avoid: ['mushrooms'], region: 'any' }))
+      .toEqual({ pattern: 'jain', avoid: ['mushrooms'], allergies: ['peanut'], customAllergies: ['brinjal'], level: 'estimates', hardBefore: 'no' });
+    expect(withPicked(undefined, { pattern: 'vegan', avoid: [], region: 'south' })).toEqual({ pattern: 'vegan', avoid: [], region: 'south' });
   });
 });

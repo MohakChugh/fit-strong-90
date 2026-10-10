@@ -264,6 +264,7 @@ export const FOOD_PATTERN: Record<FoodPreferences['pattern'], string> = {
   eggetarian: 'Vegetarian, with eggs',
   nonVegetarian: 'Non-vegetarian',
   vegan: 'Vegan',
+  jain: 'Jain',
 };
 
 export const FOOD_REGION: Record<NonNullable<FoodPreferences['region']>, string> = {

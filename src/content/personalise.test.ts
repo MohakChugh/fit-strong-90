@@ -181,3 +181,12 @@ describe('every topic stays useful', () => {
     for (const t of TOPICS) expect(cardsForTopic(t.id as TopicId, ctx).length).toBeGreaterThan(0);
   });
 });
+
+describe('a Jain pattern (board D82)', () => {
+  it('is vegetarian for the Guide’s facts, in the person’s own words', () => {
+    const ctx = contextFromProfile(profile({ food: { pattern: 'jain', avoid: [] } }));
+    expect(ctx.facts.has('vegetarian')).toBe(true);
+    expect(ctx.facts.has('lowAnimalFood')).toBe(true);
+    expect(ctx.because.get('vegetarian')).toBe('You follow a Jain diet');
+  });
+});

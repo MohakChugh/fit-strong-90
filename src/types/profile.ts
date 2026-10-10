@@ -183,11 +183,38 @@ export type AllergenId = (typeof ALLERGEN_IDS)[number];
 /** How a person eats (journey §6.2 chapter 7). Jain is vegetarian, with no honey and no root vegetables or bulbs. */
 export type FoodPattern = 'vegetarian' | 'eggetarian' | 'nonVegetarian' | 'vegan' | 'jain';
 
-/** What meal ideas may include. Never inferred; only what the user said. */
+/** What meal ideas may include, and how much the person logs. Never inferred: only what the person said. */
 export interface FoodPreferences {
-  pattern: 'vegetarian' | 'eggetarian' | 'nonVegetarian' | 'vegan';
-  /** Free-text allergies or foods to leave out, as the user typed them. */
+  /** `jain` (journey §6.2 chapter 7): vegetarian, with no honey and no root vegetables or bulbs (board D82). */
+  pattern: FoodPattern;
+  /** Foods to leave out of meal ideas, in the person's own words (v1's "Leave out"). */
   avoid: string[];
   /** Optional regional leaning for meal examples. */
   region?: 'north' | 'south' | 'east' | 'west' | 'mixed';
+  /**
+   * v2 (B-13): the allergies a chip names, as canonical ids. An empty list is
+   * the answer "No food allergies". The person's own words are `customAllergies`.
+   */
+  allergies?: AllergenId[];
+  /**
+   * v2 (journey §11.1): meal ideas only, meals with no numbers (counts-free,
+   * B-11), or meals with calorie and carb estimates. Absent reads as `ideas`.
+   */
+  level?: 'ideas' | 'meals' | 'estimates';
+  /**
+   * v2 (K-22): the answer to "Has food or weight ever been hard for you?",
+   * asked before estimates are chosen and kept on this device (board D82,
+   * Plan 7's D102). "Yes" or "Prefer not to say" recommends meals only.
+   */
+  hardBefore?: 'yes' | 'no' | 'preferNot';
+  /**
+   * v2 (B-13): allergies the chips don't name, in the person's own words
+   * ("brinjal"). Read through the aliases, so "groundnuts" still counts as
+   * peanut; anything else is matched by word against every ingredient.
+   */
+  customAllergies?: string[];
+  /** A daily target the person's care team gave them (journey §11.5). The app never suggests one. */
+  careTeamTargets?: { kcal?: number; carbsG?: number; setOn: string };
+  /** One daily reminder to log a meal, with estimates only (journey §7.4, A-73; board D103). Absent: off. */
+  logReminder?: { meal: 'breakfast' | 'lunch' | 'dinner'; at: string };
 }

@@ -150,8 +150,10 @@ export function contextFromProfile(
       eggetarian: 'You eat vegetarian food and eggs',
       vegan: 'You eat vegan food',
       nonVegetarian: 'You eat meat or fish',
+      jain: 'You follow a Jain diet',
     }[food.pattern];
-    add(food.pattern, reason);
+    // A Jain plate is vegetarian for everything the Guide says (B12, vitamin D).
+    add(food.pattern === 'jain' ? 'vegetarian' : food.pattern, reason);
     if (food.pattern !== 'nonVegetarian') add('lowAnimalFood', reason);
   }
 

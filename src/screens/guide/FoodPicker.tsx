@@ -1,18 +1,13 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { CheckIcon } from 'lucide-react';
 import { Sheet } from '@/components/hig/Sheet';
-import { PATTERN_LABEL, unmatchedAvoid, type Pattern, type Region } from '@/content';
+import { PATTERN_DETAIL, PATTERN_LABEL, unmatchedAvoid, withPicked, type Pattern, type Region } from '@/content';
 import type { FoodPreferences } from '@/types/profile';
 import { cn } from '@/lib/utils';
 import { AVOID_HELP, parseAvoid, REGION_LABEL, unmatchedNote } from './format';
 import { saveFood } from './useGuide';
 
-const PATTERNS: { id: Pattern; detail: string }[] = [
-  { id: 'vegetarian', detail: 'Dairy, but no eggs, fish or meat' },
-  { id: 'eggetarian', detail: 'Dairy and eggs, but no fish or meat' },
-  { id: 'nonVegetarian', detail: 'Eggs, fish, chicken or meat' },
-  { id: 'vegan', detail: 'No dairy, eggs, fish or meat' },
-];
+const PATTERNS: Pattern[] = ['vegetarian', 'eggetarian', 'nonVegetarian', 'vegan', 'jain'];
 
 const REGIONS: (Exclude<Region, 'mixed'> | 'any')[] = ['any', 'north', 'south', 'east', 'west'];
 
@@ -54,7 +49,8 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
     if (!pattern || saving) return;
     setSaving(true);
     setError(undefined);
-    const next: FoodPreferences = { pattern, avoid: parseAvoid(avoid), ...(region === 'any' ? {} : { region }) };
+    // Only what this sheet asks: setup's allergies, logging level and screening answer stay (board D82).
+    const next = withPicked(food, { pattern, avoid: parseAvoid(avoid), region });
     const failure = await saveFood(next);
     setSaving(false);
     if (failure) setError(failure);
@@ -66,12 +62,12 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
       <Choices legend="What do you eat?">
         {PATTERNS.map(p => (
           <Choice
-            key={p.id}
+            key={p}
             name="pattern"
-            label={PATTERN_LABEL[p.id]}
-            detail={p.detail}
-            checked={pattern === p.id}
-            onChange={() => setPattern(p.id)}
+            label={PATTERN_LABEL[p]}
+            detail={PATTERN_DETAIL[p]}
+            checked={pattern === p}
+            onChange={() => setPattern(p)}
           />
         ))}
       </Choices>

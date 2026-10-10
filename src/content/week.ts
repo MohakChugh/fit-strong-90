@@ -1,4 +1,5 @@
 import type { FoodPreferences } from '@/types/profile';
+import { leaveOut, mealPattern } from './allergens';
 import { MEALS } from './meals';
 import type { MealComponent, MealTemplate, Pattern, Slot } from './schema';
 import { tokens } from './text';
@@ -6,13 +7,16 @@ import { tokens } from './text';
 export const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 
-/** The parts of a meal this person eats: a vegan's plate has no dahi. */
+/** The parts of a meal this person eats: a vegan's plate has no dahi. A Jain plate is a vegetarian one. */
 export function componentsFor(meal: MealTemplate, pattern?: Pattern): MealComponent[] {
-  return pattern ? meal.components.filter(c => !c.notFor?.includes(pattern)) : meal.components;
+  const p = mealPattern(pattern);
+  return p ? meal.components.filter(c => !c.notFor?.includes(p)) : meal.components;
 }
 
+/** Whether a template suits an eating pattern. Jain food comes from the vegetarian ones, less what `leaveOut` names (board D82). */
 export function suits(meal: MealTemplate, pattern?: Pattern): boolean {
-  return pattern === undefined || meal.patterns.includes(pattern);
+  const p = mealPattern(pattern);
+  return p === undefined || meal.patterns.includes(p);
 }
 
 /**
@@ -47,14 +51,16 @@ export function unmatchedAvoid(avoid: readonly string[] = [], pattern?: Pattern)
 
 /**
  * Meals for the person's food pattern, without anything they asked to leave
- * out. With a region, dishes familiar there come first and every other dish
- * still follows, so a preference narrows the order, never the choice.
+ * out: the foods they typed, their allergies and Jain's rule (`leaveOut`).
+ * With a region, dishes familiar there come first and every other dish still
+ * follows, so a preference narrows the order, never the choice.
  */
 export function mealsFor(food?: FoodPreferences, slot?: Slot): MealTemplate[] {
+  const out = leaveOut(food);
   const pool = MEALS.filter(m =>
     (slot === undefined || m.slot === slot)
     && suits(m, food?.pattern)
-    && !isAvoided(m, food?.avoid, food?.pattern));
+    && !isAvoided(m, out, food?.pattern));
   const region = food?.region && food.region !== 'mixed' ? food.region : undefined;
   if (!region) return pool;
   const local = pool.filter(m => m.regions?.includes(region));

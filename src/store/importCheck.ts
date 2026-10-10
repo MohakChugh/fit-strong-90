@@ -210,8 +210,18 @@ const PROFILE_SPEC: Spec = {
   needsHealthReview: bool,
   name: x => typeof x === 'string' && x.length <= 60,
   waistCm: num(0, 300),
-  food: shape({ pattern: oneOf('vegetarian', 'eggetarian', 'nonVegetarian', 'vegan'), avoid: listOf(text), region: oneOf('north', 'south', 'east', 'west', 'mixed') },
-    ['pattern', 'avoid']),
+  // All or nothing (D-08): an unreadable allergy must not leave the rest standing as "no allergies".
+  food: shape({
+    pattern: oneOf(...PATTERNS),
+    avoid: listOf(text),
+    region: oneOf('north', 'south', 'east', 'west', 'mixed'),
+    allergies: ALLERGIES,
+    level: oneOf('ideas', 'meals', 'estimates'),
+    hardBefore: oneOf('yes', 'no', 'preferNot'),
+    customAllergies: CUSTOM_ALLERGIES,
+    careTeamTargets: shape({ kcal: num(1, 10000), carbsG: num(1, 2000), setOn: day }, ['setOn']),
+    logReminder: shape({ meal: oneOf(...MEALS), at: clock }, ['meal', 'at']),
+  }, ['pattern', 'avoid']),
 };
 
 /** The document with every field that fails its check left out, and those fields' names. */

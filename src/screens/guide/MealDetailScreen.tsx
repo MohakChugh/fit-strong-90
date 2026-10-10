@@ -1,7 +1,7 @@
 import { Navigate, useLocation, useParams } from 'react-router-dom';
 import { Group } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
-import { componentsFor, DISCLAIMER, getMeal, idsShown, resolveGroups, SLOTS, suits } from '@/content';
+import { componentsFor, DISCLAIMER, getMeal, idsShown, isAvoided, leaveOut, resolveGroups, SLOTS, suits } from '@/content';
 import { REGION_LABEL } from './format';
 import { componentDetail, measureClaimIds } from './mealText';
 import { ClaimGroup, Lead, Reviewed, SourcesGroup } from './parts';
@@ -45,7 +45,7 @@ export default function MealDetailScreen() {
       <Lead>
         {slot}
         {where ? ` · ${where}` : ''}
-        {pattern && !suits(meal, pattern) ? ' · Outside the food choices you gave' : ''}
+        {food && (!suits(meal, food.pattern) || isAvoided(meal, leaveOut(food), food.pattern)) ? ' · Outside the food choices you gave' : ''}
       </Lead>
 
       <Group header="On the plate" footer={DISCLAIMER}>
