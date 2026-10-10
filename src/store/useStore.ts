@@ -56,8 +56,9 @@ import {
 } from '@/health/observation';
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
 import { StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult } from './db';
-import { SCHEMA_VERSION, legacySnapshot, migrateToV5, readLegacy, type MigrationReport } from './migrate';
+import { SCHEMA_VERSION, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
 import { liftBodyMetric, liftCheckIn, liftSessionPain } from './project';
+import { RECORD_RULES, recordKey, recordProblem, type RecordStore, type Records, type StoredRecord } from './records';
 import { commitChange, emptySnapshot, prepare, readSnapshot, type Change, type Prepared, type Snapshot } from './snapshot';
 import {
   encode,
@@ -66,6 +67,7 @@ import {
   sameValue,
   toTransferDoc,
   type EncodedTransfer,
+  type ExportOptions,
   type ImportMode,
   type ImportOptions,
   type ImportPreview,
@@ -88,6 +90,8 @@ export interface StoreState {
   focusOverrides: Record<string, DayFocus>;
   /** The `content-state` store: per-article reading state and the like. */
   contentState: Readonly<Record<string, unknown>>;
+  /** The v2 record stores (Plan 6 Task 1), each in key order. */
+  records: Readonly<Records>;
   /**
    * Why nothing is being saved, while `unavailable`; otherwise the most recent
    * write that failed, cleared by the next one that works.
@@ -216,6 +220,7 @@ function toState(s: Snapshot): StoreState {
     bodyMetrics: s.bodyMetrics,
     focusOverrides: s.focusOverrides,
     contentState: s.content,
+    records: s.records,
     failure: mode === 'memory' ? memoryReason : lastFailure,
     migration,
     persisted,
@@ -480,13 +485,24 @@ function enterMemory(reason: StoreFailure, base?: Snapshot | 'keep'): void {
 async function boot(options: StartOptions): Promise<void> {
   installed = options.installed ?? detectInstalled();
   const mine = generation;
-  let handle: Db;
+  let handle: Db | undefined;
+  // Another copy upgrading the database while this one is still starting: this
+  // one lets go at once, so the upgrade is never held up by a start, and stops
+  // there (B-21). Once started, `leave` does the same.
+  let superseded = false;
+  const stopped = () => mine !== generation || superseded;
   try {
     handle = await openDb('factory' in options ? options.factory : globalThis.indexedDB, {
       onBlocked: () => {
         if (mine === generation) enterMemory(new StoreFailure('blocked', 'Another tab or window of this app is open and holding its data.'));
       },
-      onVersionChange: () => { if (mine === generation) leave(); },
+      onVersionChange: () => {
+        if (mine !== generation) return;
+        if (db) { leave(); return; }
+        superseded = true;
+        handle?.close();
+        enterMemory(new StoreFailure('stale', 'The app was updated in another tab or window.'));
+      },
     });
   } catch (error) {
     // Nothing is known about what the database holds, so nothing from the
@@ -495,7 +511,7 @@ async function boot(options: StartOptions): Promise<void> {
     if (mine === generation) enterMemory(toFailure(error, 'unavailable'));
     return;
   }
-  if (mine !== generation) { handle.close(); return; }
+  if (stopped()) { handle.close(); return; }
 
   // Asked alongside, never waited on: a browser that puts the question to
   // the person would keep the record off screen until it was answered
@@ -506,7 +522,7 @@ async function boot(options: StartOptions): Promise<void> {
     publish();
   });
   const migrated = await migrateToV5(handle);
-  if (mine !== generation) { handle.close(); return; }
+  if (stopped()) { handle.close(); return; }
   if (!migrated.ok) {
     // The record has not finished moving. Nothing new is saved over it —
     // the next start would move the old copy over anything saved now (F05) —
@@ -518,16 +534,19 @@ async function boot(options: StartOptions): Promise<void> {
     enterMemory(migrated.failure, legacy?.ok ? legacySnapshot(legacy.raw) : undefined);
     return;
   }
+  // Schema 5 → 6 (Plan 6): additive. A device that can't stamp it now keeps working, and tries again next start.
+  await migrateToV6(handle);
+  if (stopped()) { handle.close(); return; }
 
   let snap: Snapshot;
   try {
     snap = await readSnapshot(handle);
   } catch (error) {
     handle.close();
-    if (mine === generation) enterMemory(toFailure(error, 'readFailed'));
+    if (!stopped()) enterMemory(toFailure(error, 'readFailed'));
     return;
   }
-  if (mine !== generation) { handle.close(); return; }
+  if (stopped()) { handle.close(); return; }
 
   db = handle;
   migration = migrated.value;
@@ -1086,6 +1105,45 @@ export function setContentState(key: string, value: unknown): Promise<StoreResul
   });
 }
 
+// ============================================================================
+// The v2 record stores (Plan 6 Task 1; Plan 7 adds the food rules)
+// ============================================================================
+
+/**
+ * One store's records, as one change: each is written under its key, over
+ * any copy already there. A single record its store's rule refuses refuses
+ * the batch, saying which, and nothing is written.
+ */
+export function putRecords(store: RecordStore, records: readonly StoredRecord[]): Promise<StoreResult> {
+  return enqueue<void>({
+    plan: () => {
+      const refused: FailureDetail[] = [];
+      records.forEach((r, index) => {
+        const problem = recordProblem(store, r);
+        if (!problem) return;
+        // Read only off an object: this is where a caller's mistake becomes a refusal, not a fault.
+        const key = typeof r === 'object' && r !== null ? recordKey(store, r) : '';
+        refused.push({ index, ...(key ? { id: key } : {}), reason: problem });
+      });
+      if (refused.length > 0) {
+        throw new StoreFailure('invalid', `Nothing was saved. ${refused.map(d => `${RECORD_RULES[store].label.one} ${d.index + 1}: ${d.reason}`).join('; ')}`, undefined, refused);
+      }
+      return { change: records.length ? { records: { [store]: { put: [...records] } } as Change['records'] } : null, result: () => undefined };
+    },
+  });
+}
+
+/** Remove records by key, remembered as deleted (D-06). Keys no longer stored are passed over. */
+export function removeRecords(store: RecordStore, keys: readonly string[]): Promise<StoreResult> {
+  const wanted = new Set(keys);
+  return enqueue<void>({
+    plan: base => {
+      const present = base.records[store].map(r => recordKey(store, r)).filter(k => wanted.has(k));
+      return { change: present.length ? { records: { [store]: { remove: present } } as Change['records'] } : null, result: () => undefined };
+    },
+  });
+}
+
 /**
  * Clear all data (spec §10.2, D23).
  *
@@ -1416,6 +1474,8 @@ export interface ExportedRecord extends EncodedTransfer {
   revision: number;
   /** When that snapshot was read; the same value the file carries as `exportedAt`. */
   exportedAt: string;
+  /** The v2 record stores the file holds. */
+  stores: RecordStore[];
 }
 
 /**
@@ -1428,15 +1488,16 @@ export interface ExportedRecord extends EncodedTransfer {
  * caught up with another tab. While nothing can be saved, it exports what this
  * session holds — the one way left to keep it.
  */
-export function exportRecord(): Promise<StoreResult<ExportedRecord>> {
+export function exportRecord(options: ExportOptions = {}): Promise<StoreResult<ExportedRecord>> {
   return enqueueTask(async () => {
     try {
       const snap = db ? await readSnapshot(db) : committed;
       // A copy that had not caught up now has, at no extra cost.
       if (db && snap.revision !== committed.revision) adopt(snap);
       const exportedAt = nowAt();
-      const file = await encode(toTransferDoc(snap, exportedAt));
-      return { ok: true as const, value: { ...file, revision: snap.revision, exportedAt } };
+      const doc = toTransferDoc(snap, exportedAt, options);
+      const file = await encode(doc);
+      return { ok: true as const, value: { ...file, revision: snap.revision, exportedAt, stores: doc.stores ?? [] } };
     } catch (error) {
       const failure = toFailure(error, 'readFailed');
       note(failure);

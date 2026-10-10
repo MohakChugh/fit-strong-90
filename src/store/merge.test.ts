@@ -746,7 +746,10 @@ describe('a reading deleted from a check-in, and an older backup merged (R5-01)'
     const { checkIns, observations } = a.store.getState();
     expect(checkIns.find(c => c.date === DAY)).toMatchObject({ energy: 4 });
 
-    const none = { observations: 0, sessions: 0, checkIns: 0, personalRecords: 0, bodyMetrics: 0, focusOverrides: 0, contentState: 0 };
+    const none = {
+      observations: 0, sessions: 0, checkIns: 0, personalRecords: 0, bodyMetrics: 0, focusOverrides: 0, contentState: 0,
+      routes: 0, meals: 0, savedMeals: 0, customFoods: 0,
+    };
     expect(a.store.previewRecord(older)).toMatchObject({ conflicts: none });
     for (const onConflict of ['keepDevice', 'takeFile'] as const) {
       const again = await a.store.importRecord(older, 'merge', { onConflict });

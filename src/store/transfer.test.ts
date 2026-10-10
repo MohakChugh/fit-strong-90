@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
 import type { CheckInRecord, Readiness } from '@/types/checkin';
-import type { WorkoutSession } from '@/types';
+import type { UserSettings, WorkoutSession } from '@/types';
 import { newObservation, type Observation } from '@/health/observation';
+import { routeRecord, type RouteLine } from '@/walk/routeRecord';
 import { doc, openDb, type Db } from './db';
 import { fakeIndexedDB } from './fakeIdb';
+import { SCHEMA_VERSION } from './migrate';
+import type { StoredRecord } from './records';
+import { commitChange, emptySnapshot, prepare } from './snapshot';
 import {
   TRANSFER_FORMAT,
   applyImport,
@@ -15,6 +19,9 @@ import {
   encode,
   planImport,
   previewImport,
+  toTransferDoc,
+  withDeviceConsent,
+  type TransferDoc,
 } from './transfer';
 
 const readiness: Readiness = {
@@ -44,7 +51,8 @@ async function seeded(options: Parameters<typeof fakeIndexedDB>[0] = {}): Promis
   await db.put('observations', [glucose('g1', '2026-10-01', 132), glucose('g2', '2026-10-05', 118), steps('s1', '2026-10-01', 8100)]);
   await db.put('sessions', [session]);
   await db.put('settings', [
-    doc('schemaVersion', 5),
+    // A device running this build: its start stamps the current schema.
+    doc('schemaVersion', SCHEMA_VERSION),
     doc('settings', { theme: 'dark', defaultRestSeconds: 90 }),
     doc('profile', createDefaultProfile({ weightKg: 82 })),
     doc('checkIns', [checkIn]),
@@ -81,7 +89,7 @@ describe('collect', () => {
 
     const exported = result.value;
     expect(exported.format).toBe(TRANSFER_FORMAT);
-    expect(exported.schemaVersion).toBe(5);
+    expect(exported.schemaVersion).toBe(SCHEMA_VERSION);
     expect(exported.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(Z|[+-]\d{2}:\d{2})$/);
     expect(exported.observations.map(o => o.id)).toEqual(['g1', 's1', 'g2']);
     expect(exported.sessions).toEqual([session]);
@@ -251,7 +259,7 @@ describe('applyImport', () => {
     // one missing fields (review F22).
     expect(await db.get('settings', 'profile')).toMatchObject({ value: { weightKg: 70 } });
     expect(await db.get<{ value: { trainingDays: unknown[] } }>('settings', 'profile')).toMatchObject({ value: { trainingDays: expect.any(Array) } });
-    expect(await db.get('settings', 'schemaVersion')).toEqual(doc('schemaVersion', 5));
+    expect(await db.get('settings', 'schemaVersion')).toEqual(doc('schemaVersion', SCHEMA_VERSION));
     expect(await db.get('settings', 'focusOverrides')).toEqual(doc('focusOverrides', { '2026-10-09': 'upperA' }));
     db.close();
   });
@@ -646,3 +654,156 @@ function fakeDocument(clicks: string[]): Document {
     },
   } as unknown as Document;
 }
+
+describe('v2 record stores in a backup (Plan 6 Task 1)', () => {
+  const LINE: RouteLine = { start: 1_760_000_000_000, end: 1_760_000_020_000, coords: [[12.97, 77.59], [12.9705, 77.5902], [12.971, 77.5905]], ms: [0, 10_000, 20_000] };
+  const route = (walkId: string, shift = 0): StoredRecord => routeRecord(walkId, '2026-10-08T09:00:00.000+05:30',
+    [{ ...LINE, coords: LINE.coords.map(([a, b]): [number, number] => [a + shift, b]) }])! as unknown as StoredRecord;
+  const file = (over: Partial<TransferDoc> = {}) => ({ ...toTransferDoc(emptySnapshot()), ...over });
+  const withRoutes = (...routes: StoredRecord[]) => file({ stores: ['routes'], records: { routes } });
+  const holding = (...routes: StoredRecord[]) => prepare(emptySnapshot(), { records: { routes: { put: routes } } }).next;
+  const south = (r: StoredRecord) => (r.bbox as number[])[0];
+
+  it('leaves routes out unless they are included, and lists the stores it holds', () => {
+    const snap = holding(route('walk-aaaa'));
+    expect(toTransferDoc(snap).stores).toEqual(['meals', 'savedMeals', 'customFoods']);
+    expect(toTransferDoc(snap).records?.routes).toBeUndefined();
+    expect(toTransferDoc(snap, undefined, { include: ['routes'] }).records?.routes).toHaveLength(1);
+  });
+
+  it('never leaves out a store every backup holds when routes are included, and holds exactly the stores it lists', () => {
+    const snap = holding(route('walk-aaaa'));
+    for (const doc of [toTransferDoc(snap), toTransferDoc(snap, undefined, { include: ['routes'] })]) {
+      expect(Object.keys(doc.records ?? {})).toEqual(doc.stores);
+    }
+    expect(toTransferDoc(snap, undefined, { include: ['routes'] }).stores).toEqual(['routes', 'meals', 'savedMeals', 'customFoods']);
+  });
+
+  it('never carries the walk journal: it is recovery state, not the record', async () => {
+    const db = await openDb(fakeIndexedDB());
+    const written = await commitChange(db, undefined, () => ({
+      change: { records: { routes: { put: [route('walk-aaaa')] } }, journal: { put: [{ id: 'walk-aaaa', marker: 'journal-only' } as { id: string }] } },
+    }));
+    expect(written.ok).toBe(true);
+    expect(await db.getAll('walkJournal')).toHaveLength(1);
+    const collected = await collect(db, { include: ['routes'] });
+    if (!collected.ok) return expect.unreachable('collect failed');
+    expect(collected.value.records?.routes).toHaveLength(1);
+    expect(JSON.stringify(collected.value)).not.toMatch(/walkJournal|journal-only/);
+    db.close();
+  });
+
+  it('restores routes exactly with Replace', () => {
+    const plan = planImport(withRoutes(route('walk-aaaa')), 'replace', emptySnapshot());
+    expect(prepare(emptySnapshot(), plan.change).next.records.routes).toEqual([route('walk-aaaa')]);
+    expect(plan.report.records).toEqual({ routes: 1 });
+  });
+
+  it('merges by walk: a new route is added, and a different copy is a conflict that keeps this phone’s unless told', () => {
+    const here = holding(route('walk-aaaa'));
+    const plan = planImport(withRoutes(route('walk-aaaa', 0.01), route('walk-bbbb')), 'merge', here);
+    expect(plan.report.conflicts?.routes).toBe(1);
+    const merged = prepare(here, plan.change).next.records.routes;
+    expect(merged.map(r => r.walkId)).toEqual(['walk-aaaa', 'walk-bbbb']);
+    expect(south(merged[0])).toBe(12.97);
+    const taken = prepare(here, planImport(withRoutes(route('walk-aaaa', 0.01)), 'merge', here, { onConflict: 'takeFile' }).change).next.records.routes;
+    expect(south(taken[0])).toBeCloseTo(12.98, 9);
+  });
+
+  it('never brings back a route deleted here, learns the file’s deletions, and never lets one remove a route held here', () => {
+    const deleted = prepare(holding(route('walk-aaaa')), { records: { routes: { remove: ['walk-aaaa'] } } }).next;
+    expect(prepare(deleted, planImport(withRoutes(route('walk-aaaa')), 'merge', deleted).change).next.records.routes).toEqual([]);
+    expect(previewImport(withRoutes(route('walk-aaaa')), deleted)).toMatchObject({ ok: true, deletedHere: 1 });
+    const told = file({ settings: { deleted: { records: { routes: ['walk-cccc'] } } } as UserSettings });
+    expect(prepare(deleted, planImport(told, 'merge', deleted).change).next.settings?.deleted?.records?.routes).toEqual(['walk-aaaa', 'walk-cccc']);
+    const kept = holding(route('walk-dddd'));
+    const deleting = file({ settings: { deleted: { records: { routes: ['walk-dddd'] } } } as UserSettings });
+    expect(prepare(kept, planImport(deleting, 'merge', kept).change).next.records.routes).toHaveLength(1);
+    // Nor is a route held here learned as deleted, on a phone with settings of its own.
+    const set = prepare(kept, { settings: { patch: { theme: 'light' } } }).next;
+    const merged = prepare(set, planImport(deleting, 'merge', set).change).next;
+    expect(merged.records.routes).toHaveLength(1);
+    expect(merged.settings?.deleted?.records?.routes ?? []).not.toContain('walk-dddd');
+  });
+
+  it('keeps every deletion this phone remembers when a merge teaches it others', () => {
+    const deleted = prepare(holding(route('walk-aaaa')), { records: { routes: { remove: ['walk-aaaa'] } } }).next;
+    const teaching = file({ settings: { deleted: { observations: ['g-old'] } } as UserSettings });
+    const merged = prepare(deleted, planImport(teaching, 'merge', deleted).change).next;
+    expect(merged.settings?.deleted).toMatchObject({ observations: ['g-old'], records: { routes: ['walk-aaaa'] } });
+    expect(prepare(merged, planImport(withRoutes(route('walk-aaaa')), 'merge', merged).change).next.records.routes).toEqual([]);
+  });
+
+  it('counts a file holding only routes as something to restore', () => {
+    expect(previewImport(withRoutes(route('walk-aaaa')))).toMatchObject({ ok: true, isEmpty: false, records: { routes: 1 } });
+    expect(previewImport(file())).toMatchObject({ ok: true, isEmpty: true });
+  });
+
+  it('refuses a damaged route unless asked to import the rest', () => {
+    const damaged = withRoutes(route('walk-aaaa'), { ...route('walk-bbbb'), bbox: [0, 0, 1, 1] });
+    expect(previewImport(damaged)).toMatchObject({ ok: true, rejected: { routes: 1 } });
+    expect(() => planImport(damaged, 'merge', emptySnapshot())).toThrow(/could not be read/);
+    const rest = planImport(damaged, 'merge', emptySnapshot(), { allowRejected: true });
+    expect(prepare(emptySnapshot(), rest.change).next.records.routes.map(r => r.walkId)).toEqual(['walk-aaaa']);
+  });
+
+  it('keeps the first of two routes for one walk in a file, and refuses the second', () => {
+    const twice = withRoutes(route('walk-aaaa'), route('walk-aaaa', 0.01));
+    expect(previewImport(twice)).toMatchObject({ ok: true, records: { routes: 1 }, rejected: { routes: 1 } });
+    const rest = planImport(twice, 'replace', emptySnapshot(), { allowRejected: true });
+    expect(prepare(emptySnapshot(), rest.change).next.records.routes.map(south)).toEqual([12.97]);
+  });
+
+  it('refuses a store this build does not know, and more routes than a lifetime holds, before reading them', () => {
+    expect(previewImport(file({ stores: ['routes', 'diaries'] as never }))).toMatchObject({ ok: false, reason: expect.stringMatching(/cannot read/) });
+    const huge = withRoutes(...Array.from({ length: 100_001 }, () => ({}) as StoredRecord));
+    expect(previewImport(huge)).toMatchObject({ ok: false, reason: expect.stringMatching(/more routes/) });
+  });
+
+  it('refuses a file whose records are damaged rather than reading a named store as empty', () => {
+    expect(previewImport(file({ stores: ['routes'], records: {} }))).toMatchObject({ ok: false, reason: expect.stringMatching(/walk routes are not a list/) });
+    expect(previewImport(file({ stores: ['routes'], records: 'damaged' as never }))).toMatchObject({ ok: false, reason: expect.stringMatching(/records are not readable/) });
+    expect(previewImport(file({ stores: 'routes' as never }))).toMatchObject({ ok: false, reason: expect.stringMatching(/cannot read/) });
+  });
+
+  it('adds no routes to a phone that said No to keeping them, and says so first (Review Focus 4)', () => {
+    const no = prepare(emptySnapshot(), { settings: { patch: { walk: { saveRoutes: false, map: 'off' } } } }).next;
+    expect(previewImport(withRoutes(route('walk-aaaa')), no)).toMatchObject({ ok: true, records: { routes: 1 }, refusedStores: ['routes'] });
+    expect(prepare(no, planImport(withRoutes(route('walk-aaaa')), 'merge', no).change).next.records.routes).toEqual([]);
+    const replaced = planImport(withRoutes(route('walk-aaaa')), 'replace', no);
+    expect(prepare(no, replaced.change).next.records.routes).toEqual([]);
+    // What was written, not what the file held.
+    expect(replaced.report.records).toEqual({});
+  });
+
+  it('says before a Replace that this phone’s routes will go, when the file has none (Review Focus 4)', () => {
+    const here = holding(route('walk-aaaa'), route('walk-bbbb'));
+    expect(previewImport(file(), here)).toMatchObject({ ok: true, replaceRemoves: { routes: 2 } });
+    expect(prepare(here, planImport(file(), 'replace', here).change).next.records.routes).toEqual([]);
+  });
+
+  it('never switches map pictures or route keeping on from a file (B-26)', () => {
+    const theirs = { theme: 'dark', walk: { saveRoutes: true, map: 'on', stepCardSeen: true } } as UserSettings;
+    expect(withDeviceConsent(theirs, { walk: { saveRoutes: false, map: 'off' } } as UserSettings)?.walk).toEqual({ saveRoutes: false, map: 'off' });
+    expect(withDeviceConsent(theirs, undefined)?.walk).toEqual({ saveRoutes: 'unasked', map: 'unasked', stepCardSeen: true });
+    const replaced = prepare(emptySnapshot(), planImport(file({ settings: theirs }), 'replace', emptySnapshot()).change).next;
+    expect(replaced.settings?.walk).toEqual({ saveRoutes: 'unasked', map: 'unasked', stepCardSeen: true });
+    // A new phone set up by a merge asks too.
+    const merged = prepare(emptySnapshot(), planImport(file({ settings: theirs }), 'merge', emptySnapshot()).change).next;
+    expect(merged.settings).toMatchObject({ theme: 'dark', walk: { saveRoutes: 'unasked', map: 'unasked', stepCardSeen: true } });
+  });
+
+  it('keeps this phone’s own answers through a Replace and a merge, whatever the file holds (B-26)', () => {
+    const mine = prepare(emptySnapshot(), { settings: { patch: { theme: 'light', walk: { saveRoutes: false, map: 'off' } } } }).next;
+    const theirs = { theme: 'dark', walk: { saveRoutes: true, map: 'on' } } as UserSettings;
+    for (const over of [{ settings: theirs }, { settings: undefined }]) {
+      const replaced = prepare(mine, planImport(file(over), 'replace', mine).change).next;
+      expect(replaced.settings?.walk).toEqual({ saveRoutes: false, map: 'off' });
+    }
+    expect(prepare(mine, planImport(file({ settings: theirs }), 'merge', mine).change).next.settings?.walk).toEqual({ saveRoutes: false, map: 'off' });
+  });
+
+  it('refuses food records until Plan 7 can read them', () => {
+    expect(previewImport(file({ stores: ['meals'], records: { meals: [{ id: 'm1' }] } }))).toMatchObject({ ok: true, rejected: { meals: 1 } });
+  });
+});

@@ -40,6 +40,16 @@ import { readProfile, readSettings } from './importCheck';
 import { checkInEventId, liftBodyMetric, liftSessionPain, readingKey } from './project';
 import { commitChange, keptCheckIn, keptSession, readSnapshot, type Change, type Snapshot } from './snapshot';
 import { damagedReading, unreadableReading, type Problem } from './readings';
+import {
+  DEFAULT_BACKUP_STORES,
+  RECORD_RULES,
+  RECORD_STORES,
+  isRecordStore,
+  recordKey,
+  recordProblem,
+  type RecordStore,
+  type StoredRecord,
+} from './records';
 
 export const TRANSFER_FORMAT = 'fit-strong-health-record';
 
@@ -68,6 +78,10 @@ export interface TransferDoc {
   focusOverrides: Record<string, DayFocus>;
   /** The `content-state` store. Absent in files from before it was exported. */
   contentState?: ContentRow[];
+  /** The v2 record stores this file holds (journey §18.3: a backup lists what it includes). Absent in older files: none. */
+  stores?: RecordStore[];
+  /** Their rows, by store: only the stores in `stores`. */
+  records?: Partial<Record<RecordStore, StoredRecord[]>>;
 }
 
 /**
@@ -92,10 +106,22 @@ export const IMPORT_LIMITS = {
   bodyMetrics: 100_000,
   focusOverrides: 100_000,
   contentState: 100_000,
+  ...(Object.fromEntries(RECORD_STORES.map(s => [s, RECORD_RULES[s].limit])) as Record<RecordStore, number>),
 } as const;
 
-/** A snapshot as the file that carries it. */
-export function toTransferDoc(snapshot: Snapshot, exportedAt: string = nowAt()): TransferDoc {
+export interface ExportOptions {
+  /**
+   * The opt-in record stores to add: routes, only when the person includes
+   * them (§18.3). Every store a backup always holds is in it whatever is
+   * asked, so including routes can never leave the food out.
+   */
+  include?: readonly RecordStore[];
+}
+
+/** A snapshot as the file that carries it, listing the record stores it holds. */
+export function toTransferDoc(snapshot: Snapshot, exportedAt: string = nowAt(), options: ExportOptions = {}): TransferDoc {
+  const wanted = new Set<string>([...DEFAULT_BACKUP_STORES, ...(options.include ?? [])]);
+  const stores = RECORD_STORES.filter(s => wanted.has(s));
   return {
     format: TRANSFER_FORMAT,
     version: TRANSFER_VERSION,
@@ -110,13 +136,30 @@ export function toTransferDoc(snapshot: Snapshot, exportedAt: string = nowAt()):
     bodyMetrics: snapshot.bodyMetrics,
     focusOverrides: snapshot.focusOverrides,
     contentState: Object.entries(snapshot.content).map(([key, value]) => ({ key, value })),
+    stores,
+    records: Object.fromEntries(stores.map(s => [s, snapshot.records[s]])),
   };
 }
 
+/**
+ * This device's own walk consents, whatever a file says (B-26): an import
+ * never switches map pictures or route keeping on here. A device that has
+ * none of its own starts unasked, and asks on its first walk. A device's own
+ * answers outlast a file that holds no settings at all.
+ */
+export function withDeviceConsent(file: UserSettings | undefined, device: UserSettings | undefined): UserSettings | undefined {
+  if (file === undefined) return device?.walk ? ({ walk: device.walk } as UserSettings) : undefined;
+  const { walk: theirs, ...rest } = file;
+  const walk = device?.walk ?? (theirs
+    ? { saveRoutes: 'unasked' as const, map: 'unasked' as const, ...(theirs.stepCardSeen ? { stepCardSeen: true } : {}) }
+    : undefined);
+  return { ...rest, ...(walk ? { walk } : {}) } as UserSettings;
+}
+
 /** Everything on the device, as one document read in one transaction (F26). */
-export async function collect(db: Db): Promise<StoreResult<TransferDoc>> {
+export async function collect(db: Db, options: ExportOptions = {}): Promise<StoreResult<TransferDoc>> {
   try {
-    return { ok: true, value: toTransferDoc(await readSnapshot(db)) };
+    return { ok: true, value: toTransferDoc(await readSnapshot(db), nowAt(), options) };
   } catch (error) {
     return { ok: false, failure: toFailure(error, 'readFailed') };
   }
@@ -304,8 +347,8 @@ export function isBodyMetric(x: unknown): x is BodyMetric {
 
 const isContentRow = (x: unknown): x is ContentRow => isRecord(x) && isText(x.key) && x.key !== '';
 
-/** Counts by collection. */
-export interface CollectionCounts {
+/** Counts by collection, the v2 record stores included. */
+export interface CollectionCounts extends Record<RecordStore, number> {
   observations: number;
   sessions: number;
   checkIns: number;
@@ -317,6 +360,7 @@ export interface CollectionCounts {
 
 const zero = (): CollectionCounts => ({
   observations: 0, sessions: 0, checkIns: 0, personalRecords: 0, bodyMetrics: 0, focusOverrides: 0, contentState: 0,
+  ...(Object.fromEntries(RECORD_STORES.map(s => [s, 0])) as Record<RecordStore, number>),
 });
 
 /** A file, checked and normalised, with what had to be left out. */
@@ -402,6 +446,23 @@ function parse(raw: unknown): ParseResult {
   const overrides = source.focusOverrides ?? {};
   if (!isRecord(overrides)) return { ok: false, reason: "That file's workout swaps are not readable. It may be damaged." };
 
+  // v2 record stores (Plan 6 Task 1): a file names the stores it holds; a name this build doesn't know is a newer build's.
+  const named = source.stores === undefined ? [] : Array.isArray(source.stores) ? source.stores : null;
+  if (named === null || !named.every(isRecordStore)) {
+    return { ok: false, reason: 'That file holds records this version of the app cannot read. Update the app and try again.' };
+  }
+  const stores = [...new Set(named)];
+  if (source.records !== undefined && !isRecord(source.records)) return { ok: false, reason: "That file's records are not readable. It may be damaged." };
+  const recordsIn = isRecord(source.records) ? source.records : {};
+  const recordLists: Partial<Record<RecordStore, unknown[]>> = {};
+  for (const store of stores) {
+    // A store the file names and holds no list for is damaged, not empty: a
+    // Replace would otherwise take this device's records for nothing.
+    const list = recordsIn[store];
+    if (!Array.isArray(list)) return { ok: false, reason: `That file's ${RECORD_RULES[store].label.many} are not a list. It may be damaged.` };
+    recordLists[store] = list;
+  }
+
   const counts = {
     observations: lists.observations!.length,
     sessions: lists.sessions!.length,
@@ -410,6 +471,7 @@ function parse(raw: unknown): ParseResult {
     bodyMetrics: lists.bodyMetrics!.length,
     focusOverrides: Object.keys(overrides).length,
     contentState: lists.contentState!.length,
+    ...Object.fromEntries(RECORD_STORES.map(s => [s, recordLists[s]?.length ?? 0])),
   };
   for (const [name, n] of Object.entries(counts) as [keyof CollectionCounts, number][]) {
     if (n > IMPORT_LIMITS[name]) return { ok: false, reason: `That file holds more ${name} than a lifetime record could (${n}). It is not a record from this app.` };
@@ -467,6 +529,13 @@ function parse(raw: unknown): ParseResult {
     });
   };
 
+  // Each record whole, by its store's own rule, and one per key, as every other collection.
+  const records: Partial<Record<RecordStore, StoredRecord[]>> = {};
+  for (const store of stores) {
+    const good = keep(recordLists[store]!, (x): x is StoredRecord => recordProblem(store, x) === undefined, store);
+    records[store] = unique(good, r => recordKey(store, r), store);
+  }
+
   const settings = source.settings;
   const profile = source.profile;
   if (settings !== undefined && !isRecord(settings)) return { ok: false, reason: "That file's settings are not readable. It may be damaged." };
@@ -501,6 +570,8 @@ function parse(raw: unknown): ParseResult {
         bodyMetrics: unique(bodyMetrics, m => m.date, 'bodyMetrics'),
         focusOverrides,
         contentState: unique(contentState, r => r.key, 'contentState'),
+        stores,
+        records,
       },
     },
   };
@@ -717,7 +788,7 @@ export function separateCheckInReadings(file: readonly Observation[], here: Read
 }
 
 /** The device's records, for working out what an import conflicts with. */
-export type ImportBase = Partial<Pick<Snapshot, 'observations' | 'sessions' | 'checkIns' | 'personalRecords' | 'bodyMetrics' | 'focusOverrides' | 'content' | 'settings' | 'profile'>>;
+export type ImportBase = Partial<Pick<Snapshot, 'observations' | 'sessions' | 'checkIns' | 'personalRecords' | 'bodyMetrics' | 'focusOverrides' | 'content' | 'settings' | 'profile' | 'records'>>;
 
 export type ConflictPolicy = 'keepDevice' | 'takeFile';
 
@@ -742,8 +813,15 @@ interface MergePlan {
   /** Records in the file that were deleted on this device, and stay deleted. */
   deletedHere: number;
   replacedObservations: number;
-  counts: { observations: number; sessions: number; checkIns: number; personalRecords: number; bodyMetrics: number; contentState: number };
+  counts: {
+    observations: number; sessions: number; checkIns: number; personalRecords: number; bodyMetrics: number; contentState: number;
+    /** v2 records written, by store. */
+    records: Partial<Record<RecordStore, number>>;
+  };
 }
+
+/** Whether this device takes a store's records from a file at all (`RecordRule.accepts`). */
+const takes = (store: RecordStore, device: UserSettings | undefined): boolean => RECORD_RULES[store].accepts?.(device) ?? true;
 
 /**
  * How a merge reconciles the file with the device.
@@ -759,6 +837,10 @@ interface MergePlan {
  * - Measurements derived from a session or a body measurement are derived
  *   again from whichever version of that record the merge keeps, so the two
  *   can never disagree.
+ * - A v2 record is matched by its key, as a session is by its id: one deleted
+ *   here stays deleted, and two different copies are settled by its store's
+ *   `newer`, or are a conflict. A store this device won't take (`accepts`) is
+ *   left out whole.
  */
 function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy): MergePlan {
   const conflicts = zero();
@@ -828,6 +910,35 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
     ? new Set([...hereObs.values()].map(readingKey).filter(Boolean))
     : new Set<string | undefined>();
   const learnedReadings = learn(goneHere.readings, theirs?.readings, key => heldReadings.has(key));
+
+  // v2 record stores: by key, as sessions are, with each store's own `newer` and `accepts` (Plan 6 Task 1).
+  const recordPuts: Partial<Record<RecordStore, StoredRecord[]>> = {};
+  for (const store of file.stores ?? []) {
+    if (!takes(store, base.settings)) continue;
+    const rule = RECORD_RULES[store];
+    const here = new Map((base.records?.[store] ?? []).map(r => [recordKey(store, r), r]));
+    const goneKeys = new Set(base.settings?.deleted?.records?.[store] ?? []);
+    const puts: StoredRecord[] = [];
+    for (const r of file.records?.[store] ?? []) {
+      const key = recordKey(store, r);
+      const held = here.get(key);
+      if (!held && goneKeys.has(key)) { deletedHere += 1; continue; }
+      if (!held) { puts.push(r); continue; }
+      if (sameValue(held, r)) continue;
+      const verdict = rule.newer?.(held, r) ?? 0;
+      if (verdict === 0) conflicts[store] += 1;
+      if (verdict > 0 || (verdict === 0 && takeFile)) puts.push(r);
+    }
+    if (puts.length > 0) recordPuts[store] = puts;
+  }
+  // The file's deletions of records this device doesn't hold, for every store, included in the file or not.
+  const learnedRecords: Partial<Record<RecordStore, string[]>> = {};
+  for (const store of RECORD_STORES) {
+    const mine = new Set(base.settings?.deleted?.records?.[store] ?? []);
+    const holds = new Set((base.records?.[store] ?? []).map(r => recordKey(store, r)));
+    const learnedKeys = learn(mine, theirs?.records?.[store], k => holds.has(k));
+    if (learnedKeys.length > 0) learnedRecords[store] = [...mine, ...learnedKeys];
+  }
 
   // A reading deleted here comes out of the file's record of its day as well:
   // that record is what every gate reads, and a later save of that day would
@@ -938,11 +1049,13 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
     derivedRemovals.push(...lifted.remove);
   }
 
-  const learned = learnedObservations.length + learnedSessions.length + learnedReadings.length > 0
+  const recordsLearned = Object.keys(learnedRecords).length > 0;
+  const learned = learnedObservations.length + learnedSessions.length + learnedReadings.length > 0 || recordsLearned
     ? {
       observations: [...goneHere.observations, ...learnedObservations],
       sessions: [...goneHere.sessions, ...learnedSessions],
       readings: [...goneHere.readings, ...learnedReadings],
+      ...(recordsLearned || base.settings?.deleted?.records ? { records: { ...(base.settings?.deleted?.records ?? {}), ...learnedRecords } } : {}),
     }
     : undefined;
 
@@ -954,9 +1067,11 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
     ...(metricDates.length > 0 ? { bodyMetrics: [...bodyMetrics].sort((a, b) => b.date.localeCompare(a.date)) } : {}),
     ...(overridesChanged ? { focusOverrides } : {}),
     ...(Object.keys(contentPuts).length > 0 ? { content: { put: contentPuts } } : {}),
-    // A device with no settings or profile yet is being set up from this file.
+    ...(Object.keys(recordPuts).length > 0 ? { records: Object.fromEntries(Object.entries(recordPuts).map(([s, put]) => [s, { put }])) } : {}),
+    // A device with no settings or profile yet is being set up from this file,
+    // its walk consents asked afresh (B-26).
     ...(base.settings === undefined && file.settings !== undefined
-      ? { settings: { replace: file.settings } }
+      ? { settings: { replace: withDeviceConsent(file.settings, undefined)! } }
       : learned ? { settings: { patch: { deleted: learned } } } : {}),
     ...(base.profile === undefined && file.profile !== undefined ? { profile: file.profile } : {}),
   };
@@ -973,6 +1088,7 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
       personalRecords: personalRecords.length,
       bodyMetrics: bodyMetrics.length,
       contentState: Object.keys(contentPuts).length,
+      records: Object.fromEntries(Object.entries(recordPuts).map(([s, put]) => [s, put!.length])),
     },
   };
 }
@@ -1018,6 +1134,12 @@ export interface ImportPreview {
   deletedHere?: number;
   /** Settings and profile fields that cannot be read, and are left out, by name (D-08). Always set by `previewImport`. */
   unreadableFields?: string[];
+  /** The v2 record stores in the file, and how many records of each. Always set by `previewImport`. */
+  records?: Partial<Record<RecordStore, number>>;
+  /** Stores in the file this device won't take (`RecordRule.accepts`): a merge or replace leaves them out. */
+  refusedStores?: RecordStore[];
+  /** This device's v2 records, by store, that Replace removes (it leaves only the file's). */
+  replaceRemoves?: Partial<Record<RecordStore, number>>;
 }
 
 export interface ImportProblem {
@@ -1059,6 +1181,10 @@ export function previewImport(raw: unknown, existing: Iterable<string> | ImportB
     focusOverrides: Object.keys(file.focusOverrides).length,
     contentState: (file.contentState ?? []).length,
   };
+  // v2 record stores: what the file holds, what this device won't take, and what Replace would remove here (Review Focus 4).
+  const records = Object.fromEntries((file.stores ?? []).map(s => [s, file.records?.[s]?.length ?? 0])) as Partial<Record<RecordStore, number>>;
+  const refusedStores = (file.stores ?? []).filter(s => (records[s] ?? 0) > 0 && !takes(s, base.settings));
+  const replaceRemoves = Object.fromEntries(RECORD_STORES.map(s => [s, base.records?.[s]?.length ?? 0]).filter(([, n]) => (n as number) > 0)) as Partial<Record<RecordStore, number>>;
 
   return {
     ok: true,
@@ -1072,12 +1198,16 @@ export function previewImport(raw: unknown, existing: Iterable<string> | ImportB
     ...(days.length > 0 ? { range: { from: days[0], to: days[days.length - 1] } } : {}),
     alreadyHere: incoming.filter(o => here.has(o.id)).length,
     // Health answers and settings alone are worth restoring: they are what a new device needs most (D-07).
-    isEmpty: file.observations.length === 0 && Object.values(counts).every(n => n === 0) && file.settings === undefined && file.profile === undefined,
+    isEmpty: file.observations.length === 0 && Object.values(counts).every(n => n === 0) && file.settings === undefined && file.profile === undefined
+      && Object.values(records).every(n => n === 0),
     rejected,
     conflicts: merge.conflicts,
     deletedHere: merge.deletedHere,
     unreadableFields,
     legacy,
+    records,
+    refusedStores,
+    replaceRemoves,
   };
 }
 
@@ -1097,6 +1227,8 @@ export interface ImportReport {
   skipped: number;
   /** Merge only: records that disagreed, by collection, resolved by the conflict policy. */
   conflicts?: CollectionCounts;
+  /** v2 records written, by store. */
+  records?: Partial<Record<RecordStore, number>>;
 }
 
 export interface ImportPlan {
@@ -1134,19 +1266,24 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
       if (kept !== c) cleaned.add(kept);
       return kept;
     });
+    // The file's record stores this device takes: a phone that said No to keeping routes takes none (Review Focus 4).
+    const taken = (file.stores ?? []).filter(s => takes(s, base.settings));
+    // This device's own walk consents, never the file's (B-26).
+    const settings = withDeviceConsent(file.settings, base.settings);
     return {
       change: {
         reset: true,
         schemaVersion: SCHEMA_VERSION,
         observations: { put: file.observations, keepOrder: true },
         sessions: { put: file.sessions },
-        ...(file.settings !== undefined ? { settings: { replace: file.settings } } : {}),
+        ...(settings !== undefined ? { settings: { replace: settings } } : {}),
         ...(file.profile !== undefined ? { profile: file.profile } : {}),
         checkIns: reevaluated(pruned, cleaned, file.profile),
         personalRecords: file.personalRecords,
         bodyMetrics: file.bodyMetrics,
         focusOverrides: file.focusOverrides,
         content: { put: Object.fromEntries((file.contentState ?? []).map(r => [r.key, r.value])) },
+        records: Object.fromEntries(taken.map(s => [s, { put: file.records?.[s] ?? [] }])),
       },
       report: {
         mode,
@@ -1157,6 +1294,7 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
         personalRecords: file.personalRecords.length,
         bodyMetrics: file.bodyMetrics.length,
         skipped: refused,
+        records: Object.fromEntries(taken.map(s => [s, file.records?.[s]?.length ?? 0])),
       },
     };
   }
@@ -1174,6 +1312,7 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
       bodyMetrics: merge.counts.bodyMetrics,
       skipped: refused,
       conflicts: merge.conflicts,
+      records: merge.counts.records,
     },
   };
 }

@@ -17,6 +17,7 @@
 
 import { isHomeLayout } from '@/categories';
 import { isDay } from '@/health/observation';
+import { RECORD_STORES } from './records';
 
 type Check = (x: unknown) => boolean;
 
@@ -78,9 +79,11 @@ const SETTINGS_SPEC: Spec = {
   walkDefaults: shape({ gps: bool, steps: bool }, ['gps', 'steps']),
   // Whole or not at all: a tile this build has no hub for would leave Home unable to draw.
   home: isHomeLayout,
+  // Read, but never taken as this phone's answers: an import keeps this device's own (B-26, `withDeviceConsent`).
+  walk: shape({ saveRoutes: oneOf(true, false, 'unasked'), map: oneOf('on', 'off', 'unasked'), stepCardSeen: bool }, ['saveRoutes', 'map']),
   // List by list: one that cannot be read must not take the others with it,
   // or an older backup could bring back what they keep deleted (D-06, R5-01).
-  deleted: { observations: listOf(text), sessions: listOf(text), readings: listOf(text) },
+  deleted: { observations: listOf(text), sessions: listOf(text), readings: listOf(text), records: recordOf(oneOf(...RECORD_STORES), listOf(text)) },
 };
 
 const HEALTH: Check = shape({
