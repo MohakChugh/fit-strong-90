@@ -98,19 +98,25 @@ describe('exercise details', () => {
 
 describe('libraryReturn (F33)', () => {
   it('goes back to the list the exercise was opened from, search and filters included', () => {
+    expect(libraryReturn({ from: '/hub/workout/exercises?q=hip&type=mobility' })).toBe('/hub/workout/exercises?q=hip&type=mobility');
+    expect(libraryReturn({ from: '/hub/workout/exercises' })).toBe('/hub/workout/exercises');
+  });
+
+  it('still takes the list at its v1 address, which redirects with its query (journey §19.3)', () => {
     expect(libraryReturn({ from: '/move/exercises?q=hip&type=mobility' })).toBe('/move/exercises?q=hip&type=mobility');
     expect(libraryReturn({ from: '/move/exercises' })).toBe('/move/exercises');
   });
 
-  it('falls back to the whole library for a direct link or anything that is not the list', () => {
-    for (const state of [undefined, null, {}, 'x', { from: 42 }, { from: '/move/exercises/cat-cow' }, { from: '/today' },
-      { from: '//evil.example/move/exercises' }, { from: 'https://evil.example' }, { from: '/move/exercisesx' }]) {
-      expect(libraryReturn(state), JSON.stringify(state)).toBe('/move/exercises');
+  it('falls back to the whole library, at its v2 address, for a direct link or anything that is not the list', () => {
+    for (const state of [undefined, null, {}, 'x', { from: 42 }, { from: '/move/exercises/cat-cow' }, { from: '/hub/workout/exercises/cat-cow' },
+      { from: '/today' }, { from: '/home' }, { from: '/hub/workout' }, { from: '//evil.example/move/exercises' }, { from: '//evil.example/hub/workout/exercises' },
+      { from: 'https://evil.example' }, { from: '/move/exercisesx' }, { from: '/hub/workout/exercisesx' }]) {
+      expect(libraryReturn(state), JSON.stringify(state)).toBe('/hub/workout/exercises');
     }
   });
 
   it('is what the list hands an exercise, and what an exercise hands a related one', () => {
-    expect(libraryState('/move/exercises', '?q=glide')).toEqual({ from: '/move/exercises?q=glide' });
-    expect(libraryReturn(libraryState('/move/exercises', '?q=glide'))).toBe('/move/exercises?q=glide');
+    expect(libraryState('/hub/workout/exercises', '?q=glide')).toEqual({ from: '/hub/workout/exercises?q=glide' });
+    expect(libraryReturn(libraryState('/hub/workout/exercises', '?q=glide'))).toBe('/hub/workout/exercises?q=glide');
   });
 });
