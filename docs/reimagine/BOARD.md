@@ -870,3 +870,47 @@ Follow-ups:
 
 Left for Plan 6, on its branch before this merge too:
 - **Done pushes the walk's origin** (`navigate(origin)`), so the Walk hub's Back then reads "Your walk": a summary already saved, which sends the person back to the hub. The session player closes back instead (`navigate(-1)` when it came from a screen in the app). M12 says the task "closes back to its actual origin".
+
+### 2026-10-11 — [claude] v2 Plans 2 and 4: Codex's H2 and H4 findings, and Kiro's KH findings, fixed
+
+On `feat/v2-hfix`, from `feat/v2-journey` at `0305bc5`. Each finding first got a test that failed on the code it named. Screens were tested through the acceptance suite: M02 is new (the hubs' own cases), and M01, V-J05, V-J12, V-J14 and V-J39 gained cases. Every fix was then mutation-checked.
+
+**Codex, Plan 2 (hubs)**
+- H2-01, fixed `0284804`: a walk still on the device follows status first (`pendingWalkCard`, §4.8). There is no Carry on while Away or Unwell, and none during a flare. After status come the gate's own words. "Return to walk" goes through the gate at the tap, and its check-in opens on the hub. Whenever the walk can't carry on, "Review and save" ends it where it stopped recording (`endOpenWalk`). The live controller is untouched.
+- H2-02, fixed `dac4569`: a resumed run shows today's words and changes ("Gentle stretch", the restrictions). It says what is left as the player will run it: `carriedOn`, the player's own reconciliation, moved out of SessionPage, which now calls it too.
+- H2-03, fixed `e397759`: each part of a walk counts on its own day, under the shared overlap rules. The finding's case (1,000 entered, then 500 steps before midnight and 500 after) now reads "at least 1,500". The week strip also cuts at midnight (F17). The shapes Plan 3 reads are unchanged.
+- H2-04, fixed `a4b7e27`: the week's glucose and BP readings each show when they were measured and their context ("132/84 mmHg at 7:30 am, morning"). A day with more than two readings opens to a labelled list.
+- H2-05: not changed, as agreed (D48; J07 depends on it).
+- H2-06, fixed `e37e4a7`: `useAddLink` opens the hub's own form for every new `?add=` link, including while the hub is open. It still refuses another metric's form.
+- H2-07, fixed `bef7fcc` (the same as Kiro's KH-10): Paste is `min-h-12 min-w-12`, in rem. **§20.4 rule 1 governs: 48 × 48 px.** Plan 2's header gave 44 px.
+
+**Codex, Plan 4 (Browse and Me)**
+- H4-01, fixed `9f29dba`: ActionMenu reads the urgent decision itself. While one stands it renders nothing, so neither the popup nor its backdrop is left over the safety surface. `onClosed` still runs.
+- H4-03, fixed `876cb61`: `changeHome` and `answerOffer` apply their operation through `update`, to the layout in the transaction's latest state. Capacity is checked and the offers are unioned there, in one write. A group that another tab filled first returns `value: false`.
+- H4-04, fixed `07b4fb9`: Me holds each row's answer above its lists until it is stored, with the reason and the button to try again (§4.5). FinishRow's props and `notNow`'s signature are unchanged. Memory mode can't be reached through the app for an existing person (it offers only Try again), so a unit test covers that path.
+- H4-05, fixed `e5c2437`: each exported event keeps a fingerprint of its note, alert and length. When only those change, Reminders says: "6 a day in Calendar, still worded as before your change."
+- H4-06, fixed `fc7460b`: `useLocalDay` reads the shared clock and wakes at midnight and on return to the app. Goals and Me use it.
+- H4-07, fixed `df2cf2c`: `systemDisplayStore` follows all three media queries and reads them again on return. Display uses it through `useSyncExternalStore`.
+
+**Kiro**
+- KH-01, fixed `b719144` (latent): an unbuildable routine gets its own card state, keeps the area and length choices, and offers "Choose another routine". A bad `?focus=` is dropped on arrival. Real holds still hide Start. No input reaches the builder's refusal while the gate allows a stretch. The probes covered 90 fixed combinations, 3,000 random profiles, every voice pack and device rates down to 0.05. So this was proved at the card level, and checked by eye with the builder forced to refuse.
+- KH-02, fixed `0b391a3`: while walking is held for the feet (`feetHold`: the profile, or today's gate), Steps shows the hold in place of the WHO note and drops the step goal. Totals still save.
+- KH-10: the same as H2-07, above.
+- KH-11, fixed `0226640`: Back & leg's emergency signs are in body text and normal ink, above History.
+- KH-16, fixed `76cfd8e`: "Saved on this device" stays until the next Add, or until the screen is left, never on a timer. History's highlight is unchanged.
+- KH-17, fixed `bcd207b`: Sources and licences now ends with Licences, each from the repository: MakeHuman (MPFB2) assets, CC0 1.0; Kokoro-82M, Apache License 2.0; and © OpenStreetMap contributors, ODbL.
+
+**Also**
+- `ffda8c4`: V-J12's "every category opens its real hub" now finds Browse's row by its exact name. Browse lists a Learn topic called "Water" too, so the case failed in strict mode on `feat/v2-journey`.
+- Failing on `feat/v2-journey` and left for Plan 6, the walk side:
+  - J07 "goals and rest" now stores `activeEnergy` as well;
+  - J10 step 4: Done returns to the walk's origin (M12), not Home.
+- Seen, but outside these findings: these controls are still 44 px:
+  - Me's Segmented and Toggle;
+  - QuickLog's "Add a second reading" and ChoiceChips.
+
+**Acceptance**: one full run through the lock at `ffda8c4`. 1,044 cases: 1,019 passed and 25 failed, in 69 minutes.
+- Every case for these findings passes in all four projects: M01 9/9, M02 8/8, VJ05, VJ12 7/7, VJ14 2/2 and V-J39 2/2. So do VJ04, VJ09, J04, J05, J09, J12, J14, J15 and the screen sweep.
+- J11, all 4 cases in each project, stops at the first walk's route question ("Keep a record of your route on this phone?"), as expected.
+- J10 step 4 and J07 "goals and rest" fail in each project, as on `feat/v2-journey` (above).
+- J02's "main" case timed out on a click at step 5 in large-dark, with the machine under load. Rerun alone through the lock, it passed 2/2.

@@ -114,11 +114,13 @@ export async function enterFromMove(t, mode) {
   const page = t.page;
   await hub.open(t, mode);
   const c = hub.card(page);
-  // A walk left in progress is offered back first; going back to it is a resume.
+  // A walk left in progress is offered back first; going back to it is a resume, which asks the gate at the tap (codex H2-01).
   const pending = c.getByRole('button', { name: /^(Return to walk|Review and save)$/ });
   if (mode === 'walk' && await pending.count()) {
     await ui.tap(pending);
     await page.waitForTimeout(600);
+    const sheet = checkInSheet(page);
+    if (await sheet.count()) return { sheet, route: await t.route(), pending: true };
     return { route: await t.route(), pending: true };
   }
   const start = hub.start(page);

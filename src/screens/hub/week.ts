@@ -15,6 +15,7 @@ import { activitiesFrom, isProgrammeSession } from '@/health/recommend';
 import { STATUS_LABEL, statusOn } from '@/health/status';
 import { STATUS_TEXT, type WeekDay } from '@/screens/move/plan';
 import { formatClock, formatObservation, tagLabel, type DisplayPrefs } from '@/screens/track/format';
+import { recordedMovement } from '@/screens/track/movement';
 import { addDays, weekOf } from '@/screens/track/periods';
 import type { RecordRef } from '@/screens/track/timeline';
 import { STATUS_LABEL as SESSION_STATUS, sessionTitle, sourceLabel as sessionSource } from '@/screens/workout/summary';
@@ -52,8 +53,8 @@ export function modeWeek({ mode, today, sessions, observations, statusPeriods, p
 }): HubDay[] {
   const { from } = weekOf(today);
   const stretched = new Set(activitiesFrom(sessions, []).filter(a => a.mode === 'stretch').map(a => a.day));
-  const walked = new Map<string, number>();
-  for (const w of walkRecords(observations)) walked.set(w.day, (walked.get(w.day) ?? 0) + w.minutes);
+  // Measured walking only, as each walk's own minutes are; time the person added is theirs, not walked.
+  const walks = mode === 'walk' ? observations.filter(o => o.kind === 'walkDuration' && o.source === 'measured' && o.context?.startsWith('walk:')) : [];
   return LETTERS.map((letter, i): HubDay => {
     const day = addDays(from, i);
     const future = day > today;
@@ -67,7 +68,8 @@ export function modeWeek({ mode, today, sessions, observations, statusPeriods, p
     }
     if (mode === 'guided' && sessions.some(s => s.date === day && isProgrammeSession(s) && did(s))) return { ...base, state: 'done', words: 'Done' };
     if (mode === 'stretch' && stretched.has(day)) return { ...base, state: 'done', words: 'Stretched' };
-    const minutes = mode === 'walk' ? walked.get(day) ?? 0 : 0;
+    // Each part of a walk on its own day, cut at midnight, and overlaps once, as the week's ring counts (F17, D10; codex H2-03).
+    const minutes = mode === 'walk' ? recordedMovement({ from: day, to: day }, walks, []).minutes : 0;
     if (minutes > 0) return { ...base, state: 'done', words: `${Math.round(minutes)} min walked` };
     const status = statusOn(statusPeriods, day);
     if (status !== 'normal') return { ...base, state: 'status', words: STATUS_LABEL[status] };

@@ -532,6 +532,43 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     }
   });
 
+  it('the Walk hub carries a walk on only through status at the tap, then the gate, whose sheet it renders (codex H2-01, journey §4.1, §4.8)', () => {
+    const hub = read('src/screens/hub/WalkHub.tsx');
+    const pending = hub.slice(hub.indexOf('  if (pending) {'), hub.indexOf("held={card.state === 'held'"));
+    expect(pending).toMatch(/start: \(mode, href, label\) => \{ if \(resumeAllowed\(statusNow\(\), 'walk'\)\) g\.start\(mode, href, label\); \}/);
+    expect(pending).toContain('{g.sheet}');
+    expect(pending).not.toMatch(/navigate\(pending\.href/);
+  });
+
+  it('a hub’s Continue describes the run as the player will run it, from one reconciliation (codex H2-02, B-30)', () => {
+    for (const file of ['src/screens/hub/StretchHub.tsx', 'src/screens/hub/WorkoutHub.tsx']) {
+      const src = read(file);
+      expect(src, file).toMatch(/carriedOn\(saved, \{ data, checkIns, checkIn, profile, date, todayPlan/);
+      expect(src, file).not.toMatch(/minutesLeft\(saved\)/);
+    }
+    const stretch = read('src/screens/hub/StretchHub.tsx');
+    expect(stretch).toContain('const listed = resume ? { ...plan, steps: resume.left } : plan;');
+    expect(stretch).toContain('return { spec, minutesLeft: run.minutesLeft, label: saved.plan.label, href: resumeHref(saved), left: run.left };');
+    expect(stretch).toContain('saved: { minutesLeft: resume.minutesLeft, label: resume.label }');
+    expect(read('src/screens/hub/WorkoutHub.tsx')).toContain('saved: { minutesLeft: leftOf(saved, guided, now), label: saved.plan.label }');
+    // The player reconciles with the same dose and back checks.
+    const player = read('src/pages/SessionPage.tsx');
+    expect(player).toContain('todayDose(plan, { data, checkIns, checkIn, profile, date, todayPlan, spec })');
+    expect(player).toContain("import { todayDose, withBackChecks } from '@/session/carryOn';");
+  });
+
+  it('a stretch the builder can’t make keeps its choices on screen, with a way to them, and isn’t kept in the address (kiro KH-01)', () => {
+    const hub = read('src/screens/hub/StretchHub.tsx');
+    expect(hub).toContain('const offering = offersRoutines(card.state);');
+    expect(hub).toContain('local: chooseAnother,');
+    expect(hub).toMatch(/const chooseAnother = \(\) => \{\s+const radio = document\.getElementById\(AREA_ID\)\?\.querySelector<HTMLElement>\('\[role="radio"\]\[aria-checked="true"\]'\);\s+radio\?\.scrollIntoView\(\{ block: 'center' \}\);\s+radio\?\.focus\(\);/);
+    expect(hub).toContain('<div id={AREA_ID} className="contents">');
+    expect(hub).toContain("const letGo = useRef(chosen && card.state === 'unbuildable');");
+    expect(hub).toMatch(/if \(!letGo\.current\) return;\s+letGo\.current = false;\s+setParams\(new URLSearchParams\(\), \{ replace: true, preventScrollReset: true \}\);/);
+    // A saved run is held to its own steps when nothing new can be built, as the player holds it.
+    expect(hub).toContain("plan.kind === 'none' && g.permission.allowed && !resume ? { blocked:");
+  });
+
   it('the walk summary, a full-screen task, can be left by Back, keeping the walk to save (codex V1-08, journey §20.4 rule 10)', () => {
     // Back, like Done, returns to where the walk was started: the Walk hub, or Home (motion M12, Plan 6).
     const summary = read('src/screens/walk/WalkSummary.tsx');
@@ -754,6 +791,77 @@ describe('Home’s targets and layout (kiro KV-08, KV-10, KV-11, KV-15, KV-18, K
     for (const file of ['src/screens/home/HomeScreen.tsx', 'src/screens/home/WeekCard.tsx', 'src/screens/home/RemindersCapsule.tsx']) {
       expect(read(file), file).not.toMatch(/\bmin-h-11\b/);
     }
+  });
+
+  it('the steps form’s Paste is at least 48 by 48, in rem so it grows with the text (journey §20.4 rule 1; codex H2-07, kiro KH-10)', () => {
+    const paste = /className="([^"]*)"\s*>\s*Paste\s*</.exec(read('src/screens/track/QuickLog.tsx'));
+    expect(paste?.[1]).toMatch(/\bmin-h-12\b/);
+    expect(paste?.[1]).toMatch(/\bmin-w-12\b/);
+    expect(paste?.[1]).not.toMatch(/\bmin-h-11\b/);
+  });
+
+  it('a hub’s "Saved on this device" stands until the next Add, never on a timer (journey §20.4 rule 8; kiro KH-16)', () => {
+    for (const file of ['src/screens/hub/ReadingHub.tsx', 'src/screens/hub/StepsHub.tsx', 'src/screens/hub/BackHub.tsx']) {
+      const hub = read(file);
+      expect(hub, file).not.toMatch(/setTimeout\(\(\) => setNotice\(undefined\)/);
+      expect(hub, file).toMatch(/const add = \(\) => \{\s+setNotice\(undefined\);\s+setLogOpen\(true\);\s+\};/);
+      expect(hub, file).not.toMatch(/onClick=\{\(\) => setLogOpen\(true\)\}/);
+    }
+  });
+
+  it('Back & leg’s emergency signs are body text in normal ink, before History (kiro KH-11)', () => {
+    const hub = read('src/screens/hub/BackHub.tsx');
+    expect(hub).toMatch(/<div className="px-1 text-\[length:var\(--text-body\)\] leading-snug">\s*<p>A pain number never rules out an emergency\. Get emergency care now for any of these:<\/p>\s*<EmergencySigns/);
+    expect(hub.indexOf('<EmergencySigns')).toBeLessThan(hub.indexOf('<HistoryList'));
+  });
+
+  it('the Steps hub, while walking is held for the feet, says the hold and offers no walking advice or step goal (kiro KH-02)', () => {
+    const hub = read('src/screens/hub/StepsHub.tsx');
+    expect(hub).toContain("const held = feetHold(guided.profile, gateFor(guided, 'walk', now));");
+    expect(hub).toMatch(/\{held \? \([\s\S]*?Walking is on hold for your feet[\s\S]*?\) : \(\s*<Interpretation text=\{STEPS_NOTE\.text\}/);
+    expect(hub).toMatch(/\{!held && <Row as="button" type="button" label="Daily step goal"/);
+    expect(hub).toContain('(held || steps === undefined ? undefined : stepsProgress(');
+  });
+
+  it('an urgent decision takes a menu away at once, with no exit, and it stays closed while it stands (codex H4-01, journey §4.3, M18)', () => {
+    const menu = read('src/components/hig/ActionMenu.tsx');
+    expect(menu).toContain('const urgent = useContext(UrgentContext) !== undefined;');
+    expect(menu).toContain('if (!urgent && target && target !== shown) setShown(target);');
+    expect(menu).toContain('if (urgent && shown) setShown(null);');
+    expect(menu).toContain('const open = target !== null && !urgent;');
+    expect(menu).toContain('if (!shown || urgent) return null;');
+    // What it set off is still offered: it never finishes closing.
+    expect(menu).toMatch(/if \(urgent && drawn\.current\) \{\s+drawn\.current = false;\s+onClosed\?\.\(\);/);
+  });
+
+  it('Me holds each row’s answer above its lists until it is stored, and FinishRow keeps its props (codex H4-04, journey §4.5)', () => {
+    const me = read('src/screens/you/MeHome.tsx');
+    expect(me).toContain('function FinishRow({ chapter }: { chapter: OpenChapter }) {');
+    expect(me).toMatch(/const finish = withHeld\(setupProgress\(\{ profile, settings \}\)/);
+    expect(me).toMatch(/\? withHeld\(newlyRelevant\(/);
+    expect(me).toMatch(/if \(saved\.ok\) \{\s+hold\(key, undefined\);/);
+    expect(me).not.toMatch(/const \[problem, setProblem\] = useState/);
+  });
+
+  it('Goals and Me read today from the shared clock, a new day at midnight (codex H4-06)', () => {
+    expect(read('src/screens/you/GoalsScreen.tsx')).toContain('const { day } = useLocalDay();');
+    const me = read('src/screens/you/MeHome.tsx');
+    expect(me).toContain('const { now, day } = useLocalDay();');
+    expect(me).not.toMatch(/now: new Date\(\)/);
+  });
+
+  it('Display follows the device’s settings while it is open (codex H4-07)', () => {
+    const display = read('src/screens/you/DisplayScreen.tsx');
+    expect(display).toContain('const [device] = useState(() => systemDisplayStore());');
+    expect(display).toContain('const system = useSyncExternalStore(device.subscribe, device.read, device.read);');
+  });
+
+  it('Sources and licences lists the licences of what the app is built from (kiro KH-17)', () => {
+    const sources = read('src/screens/guide/SourcesScreen.tsx');
+    expect(sources).toContain('<Group header="Licences">');
+    expect(sources).toMatch(/MakeHuman \(MPFB2\) assets', 'CC0 1\.0'/);
+    expect(sources).toMatch(/Kokoro-82M speech model', 'Apache License 2\.0'/);
+    expect(sources).toMatch(/\[ATTRIBUTION\.text, 'Map data under the Open Database Licence \(ODbL\)'\], href: ATTRIBUTION\.href/);
   });
 
   it('"2 reminders" sits in the header’s wrapping area beside the status, not in the fixed bar', () => {

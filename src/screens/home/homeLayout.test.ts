@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import type { HomeLayout } from '@/types';
 
@@ -83,5 +83,73 @@ describe('answerOffer: offered once, never added silently (journey §5.1)', () =
     await store.setSettings({ home: DEFAULTS });
     await Promise.all([answerOffer(DEFAULTS, 'water', false), answerOffer(DEFAULTS, 'water', false)]);
     expect(store.getState().settings.homeOffered).toEqual(['water']);
+  });
+});
+
+/** Another open copy of the app, a second tab, on the same database: its own store and its own Home code. */
+async function copy(factory: IDBFactory) {
+  vi.resetModules();
+  const copyStore = await import('@/store/useStore');
+  const home = await import('./homeLayout');
+  const layout = await import('./layout');
+  copyStore.resetForTests();
+  await copyStore.start({ factory, broadcast: null });
+  return { store: copyStore, home, layout };
+}
+
+describe('two open copies, and a change behind a failed one (codex H4-03)', () => {
+  it('two copies adding different tiles from the same start keep both', async () => {
+    const factory = fakeIndexedDB();
+    const a = await copy(factory);
+    expect((await a.store.setSettings({ home: DEFAULTS })).ok).toBe(true);
+    const b = await copy(factory);
+    expect((await a.home.changeHome(DEFAULTS, l => a.layout.addTile(l, 'waist'))!.saved).ok).toBe(true);
+    // B still shows the start: it adds Water to that.
+    expect((await b.home.changeHome(DEFAULTS, l => b.layout.addTile(l, 'water'))!.saved).ok).toBe(true);
+    expect((await a.store.reload()).ok).toBe(true);
+    expect(a.store.getState().settings.home?.order.check).toEqual(['weight', 'sleep', 'waist', 'water']);
+  });
+
+  it('two copies answering different offers from the same start keep both answers', async () => {
+    const factory = fakeIndexedDB();
+    const a = await copy(factory);
+    expect((await a.store.setSettings({ home: DEFAULTS })).ok).toBe(true);
+    const b = await copy(factory);
+    expect((await a.home.answerOffer(DEFAULTS, 'water', false)!).ok).toBe(true);
+    expect((await b.home.answerOffer(DEFAULTS, 'waist', true)!).ok).toBe(true);
+    expect((await a.store.reload()).ok).toBe(true);
+    const { settings } = a.store.getState();
+    expect([...(settings.homeOffered ?? [])].sort()).toEqual(['waist', 'water']);
+    expect(settings.home?.order.check).toEqual(['weight', 'sleep', 'waist']);
+  });
+
+  it('an Add where the other copy has since filled the group: nothing is written, and the offer stays to answer', async () => {
+    const ROOM: HomeLayout = { order: { move: ['workout', 'stretch', 'walk'], eat: ['food'], check: ['glucose', 'bp', 'back', 'labs'], learn: [] }, hidden: [] };
+    const factory = fakeIndexedDB();
+    const a = await copy(factory);
+    expect((await a.store.setSettings({ home: ROOM })).ok).toBe(true);
+    const b = await copy(factory);
+    expect((await a.home.changeHome(ROOM, l => a.layout.addTile(l, 'weight'))!.saved).ok).toBe(true);
+    // B still shows room for one more: its Add is checked again where it is written.
+    const answered = await b.home.answerOffer(ROOM, 'water', true)!;
+    expect(answered).toEqual({ ok: true, value: false });
+    expect((await b.store.reload()).ok).toBe(true);
+    const { settings } = b.store.getState();
+    expect(settings.home?.order.check).toEqual(['glucose', 'bp', 'back', 'labs', 'weight']);
+    expect(settings.homeOffered ?? []).not.toContain('water');
+  });
+
+  it('a change waiting behind one that fails is made to what is stored, never carrying the failed one forward', async () => {
+    const refuseWaist = (storeName: string, value: Record<string, unknown>) =>
+      (storeName === 'settings' && JSON.stringify(value).includes('"waist"') ? new DOMException('Refused.', 'UnknownError') : undefined);
+    const factory = fakeIndexedDB({ failWrite: refuseWaist });
+    const a = await copy(factory);
+    expect((await a.store.setSettings({ home: DEFAULTS })).ok).toBe(true);
+    const first = a.home.changeHome(DEFAULTS, l => a.layout.addTile(l, 'waist'))!;
+    const second = a.home.changeHome(DEFAULTS, l => a.layout.addTile(l, 'water'))!;
+    expect((await first.saved).ok).toBe(false);
+    expect((await second.saved).ok).toBe(true);
+    expect((await a.store.reload()).ok).toBe(true);
+    expect(a.store.getState().settings.home?.order.check).toEqual(['weight', 'sleep', 'water']);
   });
 });

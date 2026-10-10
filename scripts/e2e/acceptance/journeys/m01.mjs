@@ -1,7 +1,18 @@
 /**
  * M01: Me's own journeys (journey §16; Plan 4): Finish setting up, Goals,
  * Display, and Data's two confirmations. Browse, Home's tiles, calendar
- * copies and backups have their V-J journeys.
+ * copies and backups have their V-J journeys. Codex's Plan 4 review adds:
+ * - H4-04: a row's answer the device refuses leaves the row, with what
+ *   happened and a way to try again (§4.5). In memory only the answer is
+ *   refused the same way (meRows.test.ts); an existing person can't reach
+ *   memory mode here, since the app offers only Try again then.
+ * - H4-06: Goals and Me left open from Sunday into Monday: the week's goal
+ *   changes at midnight, and a change that has begun is no longer pending.
+ * - H4-07: the device's Reduce Motion changed while Display is open: the
+ *   switch follows at once, and never claims the device set it after it
+ *   stopped.
+ * - KH-17: About's "Sources and licences" names the licences of what the
+ *   app is built from, as well as Learn's sources.
  */
 import { docs } from '../lib/harness.mjs';
 import { persona } from '../fixtures/personas.mjs';
@@ -186,4 +197,120 @@ const deleteTwice = {
   },
 };
 
-export const cases = [finishSettingUp, goals, display, systemMotion, deleteTwice];
+const refusedAnswers = {
+  name: 'H4-04: an answer the device refuses keeps its row, with why and Try again',
+  async run(t) {
+    const page = await t.open({ seed: persona('P02', { patch: { profile: { needsHealthReview: true } } }), route: '/me' });
+    const main = page.getByRole('main');
+    const group = () => ui.section(main, 'Finish setting up · 1 short chapter');
+    t.allowConsole('acceptance-injected');
+    await t.step(1, 'Not now, with the settings write refused: the row stays, and says it did not save', async () => {
+      await t.must(await group().count() === 1, `Me has no “Finish setting up”: ${flat(await main.innerText()).slice(0, 300)}`);
+      await t.setPageFaults([{ op: 'put', store: 'settings', match: { key: 'settings' }, action: 'quotaDom' }]);
+      await ui.tap(ui.button(main, 'Not now, Your health'));
+      await page.waitForTimeout(800);
+      await t.checkpoint('h4-04-refused');
+      await t.check(await group().count() === 1 && await ui.row(group(), 'Your health', 'link').count() === 1, 'the row went though the device refused the answer');
+      const alert = group().getByRole('alert');
+      await t.check(await alert.count() === 1 && /That did not save\./.test(flat(await alert.innerText())), 'the row does not say the answer did not save');
+      await t.check(await ui.button(group(), 'Not now, Your health').count() === 1, 'no Not now to try again');
+    });
+    await t.step(2, 'Try again once the device stores: the row goes, and stays gone', async () => {
+      await t.setPageFaults(null);
+      await ui.tap(ui.button(main, 'Not now, Your health'));
+      await page.waitForTimeout(800);
+      await t.check(await group().count() === 0, 'the row stays after its answer was stored');
+      await t.reload();
+      await t.check(await main.getByRole('heading', { name: /^Finish setting up/ }).count() === 0, 'the row came back after a reload');
+      await t.check(JSON.stringify(docs(await t.db()).settings?.setup?.declined) === '["health"]', 'Not now was not stored');
+    });
+  },
+};
+
+const goalsAtMidnight = {
+  name: 'H4-06: Goals and Me left open from Sunday into Monday',
+  async run(t) {
+    const page = await t.open({ seed: persona('P01'), route: '/me/goals' });
+    const main = page.getByRole('main');
+    const setGoal = async value => {
+      await ui.tap(ui.row(main, 'Weekly movement goal'));
+      const sheet = ui.sheet(page, 'Weekly movement goal');
+      await ui.type(sheet.getByRole('textbox', { name: 'Minutes each week', exact: true }), String(value));
+      await ui.tap(ui.button(sheet, 'Save goal'));
+      await sheet.waitFor({ state: 'hidden' });
+    };
+    await t.step(1, 'Thursday: a first goal of 150, then 120, which waits for Monday', async () => {
+      await ui.heading(page, 'Goals');
+      await setGoal(150);
+      await setGoal(120);
+      await t.check(/From Monday 12 October: 120 min a week\. This week keeps 150 min\./.test(flat(await main.innerText())), 'the change does not wait for Monday');
+    }, { input: '150, then 120, on Thursday 8 October' });
+    await t.step(2, 'Sunday 23:59, Goals open; the clock passes midnight: Monday’s goal is 120, and nothing is pending', async () => {
+      await t.setTime(Date.parse('2026-10-11T23:59:30+05:30'));
+      await t.goto('/me/goals');
+      await t.check(/Weekly movement goal 150 min a week/.test(flat(await main.innerText())), 'Sunday does not keep 150');
+      await t.advance(60_000);
+      const text = flat(await main.innerText());
+      await t.checkpoint('h4-06-goals-monday');
+      await t.check(/Weekly movement goal 120 min a week/.test(text), `Goals still reads last week’s goal after midnight: ${text.slice(0, 300)}`);
+      await t.check(!/From Monday 12 October/.test(text), 'Goals still calls Monday’s goal pending after midnight');
+    });
+    await t.step(3, 'Me open across the next midnight: its Goals row follows the clock too', async () => {
+      await t.setTime(Date.parse('2026-10-18T23:59:30+05:30'));
+      await setGoal(90);
+      await ui.tap(ui.back(page, 'Me'));
+      await ui.heading(page, 'Me');
+      const row = () => ui.row(main, 'Goals', 'link');
+      await t.check(/120 min a week/.test(flat(await row().innerText())), `Sunday’s Me reads: ${flat(await row().innerText())}`);
+      await t.advance(60_000);
+      await t.check(/90 min a week/.test(flat(await row().innerText())), `Me’s Goals row still reads last week’s goal after midnight: ${flat(await row().innerText())}`);
+    }, { input: '90 on Sunday 18 October, 23:59' });
+  },
+};
+
+const liveMotion = {
+  name: 'H4-07: the device’s Reduce Motion changed while Display is open',
+  async run(t) {
+    const page = await t.open({ seed: persona('P02'), route: '/me/display', reducedMotion: 'reduce' });
+    const main = page.getByRole('main');
+    const sw = () => main.getByRole('switch', { name: 'Reduce motion', exact: true });
+    const says = async () => /On, because this device’s Reduce Motion is on\./.test(flat(await main.innerText()));
+    await t.step(1, 'The device reduces motion: the switch is on, the device’s doing', async () => {
+      await t.check(await sw().getAttribute('aria-checked') === 'true' && await says(), 'the switch does not start on, by the device');
+    });
+    await t.step(2, 'The device stops reducing motion, Display still open: the switch is the app’s own again', async () => {
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      await page.waitForTimeout(400);
+      await t.checkpoint('h4-07-device-off');
+      await t.check(!(await says()), 'Display still says the device’s Reduce Motion is on after it stopped');
+      await t.check(await sw().getAttribute('aria-checked') === 'false', 'the switch still reads on after the device stopped reducing motion');
+      await t.check(!(await sw().isDisabled()) && await sw().getAttribute('aria-disabled') !== 'true', 'the switch is still disabled after the device stopped reducing motion');
+    });
+    await t.step(3, 'And on again: the device’s doing once more', async () => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.waitForTimeout(400);
+      await t.check(await sw().getAttribute('aria-checked') === 'true' && await says(), 'the switch does not follow the device turning Reduce Motion on');
+    });
+  },
+};
+
+const licences = {
+  name: 'KH-17: Sources and licences names the licences',
+  async run(t) {
+    const page = await t.open({ seed: persona('P02'), route: '/me' });
+    const main = page.getByRole('main');
+    await t.step(1, 'Me → About → Sources and licences: the figure, the voice and the maps, each with its licence', async () => {
+      await ui.tap(ui.row(main, 'Sources and licences', 'link'));
+      await ui.heading(page, 'Sources');
+      const group = ui.section(main, 'Licences');
+      await t.must(await group.count() === 1, `Sources and licences has no Licences: ${flat(await main.innerText()).slice(-400)}`);
+      const text = flat(await group.innerText());
+      await t.checkpoint('kh-17-licences');
+      await t.check(/The coach figure.*MakeHuman \(MPFB2\).*CC0 1\.0/.test(text), `the figure’s licence: ${text}`);
+      await t.check(/The coach’s voice.*Kokoro-82M.*Apache License 2\.0/.test(text), `the voice’s licence: ${text}`);
+      await t.check(/Map pictures.*© OpenStreetMap contributors.*Open Database Licence \(ODbL\)/.test(text), `the maps’ licence: ${text}`);
+    });
+  },
+};
+
+export const cases = [finishSettingUp, goals, display, systemMotion, deleteTwice, refusedAnswers, goalsAtMidnight, liveMotion, licences];

@@ -57,7 +57,7 @@ const HABIT_SPEC: Spec = {
   lastExportSeq: num(0, Number.MAX_SAFE_INTEGER),
   lastExportVia: oneOf('share', 'download'),
   lastCheckedExportAt: text,
-  calendarExport: recordOf(oneOf(...HABITS), shape({ at: text, until: day, events: num(0, 1000), titles: listOf(text), minutes: listOf(num(0, 1439)) }, ['at', 'until', 'events', 'titles'])),
+  calendarExport: recordOf(oneOf(...HABITS), shape({ at: text, until: day, events: num(0, 1000), titles: listOf(text), minutes: listOf(num(0, 1439)), contents: listOf(text) }, ['at', 'until', 'events', 'titles'])),
 };
 
 const SETTINGS_SPEC: Spec = {

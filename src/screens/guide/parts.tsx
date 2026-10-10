@@ -62,7 +62,7 @@ export function ClaimGroup({ header, claims, ctx, footer }: { header?: string; c
  * `Row`, it lays itself out by its own width: long names ("Exercise/Physical
  * Activity") wrap clear of the arrow, and a narrow row halves its padding.
  */
-function ExternalRow({ href, title, lines }: { href: string; title: string; lines: string[] }) {
+export function ExternalRow({ href, title, lines }: { href: string; title: string; lines: string[] }) {
   return (
     <a
       href={href}

@@ -18,6 +18,8 @@ export interface CalendarFileEntry {
   titles: string[];
   /** The events' times, minutes after local midnight, in order, so a changed schedule can be noticed (A-78). Absent for a file made before this was kept. */
   minutes?: number[];
+  /** A fingerprint of what each event says, its note, alert and length, in order, so a changed text can be noticed too (A-78). Absent for a file made before this was kept. */
+  contents?: string[];
 }
 
 export interface HabitSettings {

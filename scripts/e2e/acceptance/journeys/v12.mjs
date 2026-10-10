@@ -12,12 +12,16 @@
  * → Labs "Add" → Done. Browse's More adds and removes a tile, from the
  * defaults when Home has stored none yet, and a full group says so. A newly
  * relevant category is offered in Me once.
+ * H4-01 (codex): an urgent decision arriving while Browse's More is open
+ * takes the menu and its backdrop away at once, so the safety surface is
+ * readable and its action can be tapped (§4.3, M18).
  */
 import { docs } from '../lib/harness.mjs';
 import { persona } from '../fixtures/personas.mjs';
 import * as data from '../lib/data.mjs';
 import * as g from '../lib/guide.mjs';
 import * as hub from '../lib/hub.mjs';
+import * as s from '../lib/safety-a.mjs';
 import * as ui from '../lib/ui.mjs';
 
 export const id = 'VJ12';
@@ -189,6 +193,57 @@ const offered = {
   },
 };
 
+const urgentMenu = {
+  name: 'H4-01: an urgent decision while More is open takes the menu away at once',
+  async run(t) {
+    const page = await t.open({ seed: persona('P02'), route: '/browse' });
+    const main = page.getByRole('main');
+    await t.step(1, 'Browse → More, Waist: the menu is open over a dimmed page', async () => {
+      await ui.tap(ui.button(main, 'More, Waist'));
+      await page.getByRole('menu').waitFor();
+    });
+    await t.step(2, 'Another tab answers chest pain: here the menu and its backdrop are gone in the frame the safety surface arrives, and its action can be tapped', async () => {
+      const other = await t.newPage();
+      await other.goto(`${t.base}#/home`, { waitUntil: 'domcontentloaded' });
+      await t.ready(other);
+      const here = t.page;
+      t.page = other;
+      try {
+        const sheet = await s.openCheckIn(t, 'stretch', 'move');
+        await s.tickEmergency(sheet, ui.EMERGENCY.chest);
+      } finally {
+        t.page = here;
+      }
+      // Read in the first frame that has the surface: nothing may still be over it, waiting for an exit animation
+      // (§4.3, M18). The surface sits at the top of Browse, out of view here, so what could block its action is read
+      // instead: the menu, a full-screen layer outside the page (the backdrop), and the page held inert.
+      const seen = await (await page.waitForFunction(() => {
+        const surface = document.querySelector('main section[data-urgent-kind]');
+        if (!surface) return false;
+        const app = document.getElementById('app');
+        const covers = [...document.body.querySelectorAll('*')].filter(el => {
+          if (app?.contains(el)) return false;
+          const style = getComputedStyle(el);
+          const box = el.getBoundingClientRect();
+          return style.position === 'fixed' && style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none'
+            && box.width >= innerWidth - 1 && box.height >= innerHeight - 1;
+        });
+        return { menu: document.querySelector('[role="menu"]') !== null, covered: covers.length, inert: app?.inert === true };
+      }, null, { polling: 'raf', timeout: 20000 })).jsonValue();
+      await t.checkpoint('h4-01-urgent-over-menu');
+      await t.check(!seen.menu, 'the menu was still drawn when the safety surface arrived');
+      await t.check(seen.covered === 0, `${seen.covered} full-screen layer(s) still lay over the page when the safety surface arrived`);
+      await t.check(!seen.inert, 'the page was still held inert when the safety surface arrived');
+      // And its action takes a tap.
+      const action = main.locator('section[data-urgent-kind]').getByRole('link').or(main.locator('section[data-urgent-kind]').getByRole('button')).last();
+      await action.scrollIntoViewIfNeeded();
+      const box = await action.boundingBox();
+      const hit = box && await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('section[data-urgent-kind]') !== null, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
+      await t.check(hit === true, 'the safety surface’s action is covered');
+    }, { input: 'chest pain in a second tab' });
+  },
+};
+
 export const cases = [
   {
     name: 'hide, add, move up, add, done',
@@ -262,4 +317,5 @@ export const cases = [
   browseMore,
   fullGroup,
   offered,
+  urgentMenu,
 ];

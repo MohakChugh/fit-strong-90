@@ -925,7 +925,8 @@ function TotalForm({ kind, fieldRef, onSaved, prefs }: FormProps & { kind: 'step
               () => setError('Paste isn’t available here. Type the number instead.'),
             );
           }}
-          className="press-feedback min-h-11 self-start rounded-full bg-tint/10 px-4 text-[length:var(--text-body)] font-semibold text-tint"
+          // 48 by 48 at the least, in rem so it grows with the text size (journey §20.4 rule 1; codex H2-07).
+          className="press-feedback min-h-12 min-w-12 self-start rounded-full bg-tint/10 px-4 text-[length:var(--text-body)] font-semibold text-tint"
         >
           Paste
         </button>

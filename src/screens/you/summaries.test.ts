@@ -271,5 +271,7 @@ describe('calendar copies, as Reminders lists them (A-78)', () => {
       { habit: 'water', names: ['Glass of water'], inCalendar: 6, now: 0 },
       { habit: 'sittingBreak', names: ['Stand up and move'], inCalendar: 2, now: 1 },
     ])).toBe('Glass of water: 6 a day in Calendar, none now. Stand up and move: 2 a day in Calendar, once a day now.');
+    // Only the words changed: a glass size, a precaution (codex H4-05).
+    expect(staleLine([{ habit: 'water', names: ['Glass of water'], inCalendar: 6, now: 6, wording: true }])).toBe('Glass of water: 6 a day in Calendar, still worded as before your change.');
   });
 });

@@ -11,7 +11,7 @@
  * - History: every record, newest first, each opening where it is corrected.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CheckCircle2Icon, PlusIcon } from 'lucide-react';
 import { categoryById } from '@/categories';
@@ -70,13 +70,11 @@ export default function BackHub() {
     setFresh(result.ids);
     setNotice(`Saved on this device: ${result.summary}.`);
   };
-
-  // A brief confirmation, as on My Day. The reading itself stays in the list.
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(undefined), 4000);
-    return () => clearTimeout(timer);
-  }, [notice]);
+  // The confirmation stands until the next Add or until the screen is left: never on a timer (§20.4 rule 8; kiro KH-16).
+  const add = () => {
+    setNotice(undefined);
+    setLogOpen(true);
+  };
 
   return (
     <HubFrame category={category}>
@@ -108,7 +106,7 @@ export default function BackHub() {
           )}
           <button
             type="button"
-            onClick={() => setLogOpen(true)}
+            onClick={add}
             className="press-feedback flex min-h-[60px] w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint"
           >
             <PlusIcon className="size-5" aria-hidden />
@@ -145,7 +143,7 @@ export default function BackHub() {
               <p className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
                 The loading ladder moves only after four sessions, so fewer days than that cannot show symptoms against a change in loading. Your check-ins add a reading each day; so does Add.
               </p>
-              <PrimaryButton onClick={() => setLogOpen(true)}>
+              <PrimaryButton onClick={add}>
                 <PlusIcon className="size-5" aria-hidden />
                 Add back and leg pain
               </PrimaryButton>
@@ -165,14 +163,16 @@ export default function BackHub() {
         </div>
       </HubSection>
 
+      {/* The red flags in body text and normal ink, before History, where they are read (kiro KH-11). */}
+      <div className="px-1 text-[length:var(--text-body)] leading-snug">
+        <p>A pain number never rules out an emergency. Get emergency care now for any of these:</p>
+        <EmergencySigns className="mt-1" />
+        <p className="mt-2 text-[length:var(--text-footnote)] text-muted-foreground">General information, not medical advice.</p>
+      </div>
+
       <HistoryList rows={history.map(r => ({ key: r.key, label: r.label, detail: r.detail, ref: r.ref, ids: r.ids }))} origin={origin} empty="No pain scores yet." fresh={fresh} />
       <SeeTrends category={category} origin={origin} />
 
-      <div className="px-1 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
-        <p>A pain number never rules out an emergency. Get emergency care now for any of these:</p>
-        <EmergencySigns className="mt-1" />
-        <p className="mt-1">General information, not medical advice.</p>
-      </div>
 
       <QuickLog open={logOpen} onOpenChange={setLogOpen} initial={{ kind: 'backLeg' }} onSaved={onSaved} prefs={prefs} />
       <CheckInSheet open={updating} onOpenChange={setUpdating} profile={guidedProfile} date={date} {...(checkIn ? { initial: checkIn } : {})} recent={recent} onSave={saveCheckIn} />

@@ -120,7 +120,8 @@ export function copyLine(copy: { names: readonly string[]; events: number; at: s
 
 /** What changed, for each copy that may be out of date, in one paragraph. */
 export function staleLine(stale: readonly StaleCopy[]): string {
-  return stale.map(s => `${s.names.join(' and ')}: ${perDayInline(s.inCalendar)} in Calendar, ${s.now === 0 ? 'none now' : `${perDayInline(s.now)} now`}.`).join(' ');
+  return stale.map(s => `${s.names.join(' and ')}: ${perDayInline(s.inCalendar)} in Calendar, ${
+    s.wording ? 'still worded as before your change' : s.now === 0 ? 'none now' : `${perDayInline(s.now)} now`}.`).join(' ');
 }
 
 /** What the review prompt says, by what needs reviewing. */

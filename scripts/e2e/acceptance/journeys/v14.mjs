@@ -5,6 +5,8 @@
  *   move the plan, as v1.
  * - B-30: a Normal stretch saved part-way, then a flare, then Continue → what
  *   is left follows the gentler routine: nothing the flare leaves out runs.
+ *   The Continue card says the tile's "Gentle stretch", and lists what is
+ *   left as it will run (codex H2-02).
  * P01, whose back history makes a flare change the routine (D36).
  */
 import { persona } from '../fixtures/personas.mjs';
@@ -100,15 +102,20 @@ export const cases = [
         await t.checkpoint('b30-saved');
       }, { input: 'Hips & legs, 15 min; normal answers; two steps; End session → Save and exit' });
 
-      await t.step(2, 'Flare-up; the Stretch hub offers to continue, with the gentler routine listed', async () => {
+      await t.step(2, 'Flare-up; the Stretch hub offers to continue, in the tile’s words, with what is left of the gentler routine listed', async () => {
         await flare(t);
         await hub.open(t, 'stretch');
         const c = flat(await hub.card(page).innerText());
         await t.check(/Continue your stretch/.test(c) && await hub.start(page).count() === 1, `the Stretch hub does not offer to continue during the flare: ${c.slice(0, 200)}`);
+        // The tile's flare words, as a new start says them (codex H2-02, journey §7.5).
+        await t.check(c.includes('Gentle stretch'), `the Continue card does not say “Gentle stretch” during the flare: ${c.slice(0, 240)}`);
+        await t.checkpoint('b30-continue-card');
       });
 
-      await t.step(3, 'Continue: nothing the flare leaves out runs', async () => {
+      let listed = [];
+      await t.step(3, 'Continue: nothing the flare leaves out runs, and what runs is what the hub listed', async () => {
         const gentle = await stretchPreview(page);
+        listed = gentle;
         const leftOut = normal.filter(n => !gentle.includes(n));
         t.note(`left out by the flare: ${JSON.stringify(leftOut)}`);
         const r = await hub.begin(t);
@@ -121,6 +128,8 @@ export const cases = [
         const ran = seen.filter(s => leftOut.includes(s));
         await t.check(ran.length === 0, `after the flare the resumed stretch still ran ${JSON.stringify(ran)} (B-30)`);
         await t.check(seen.filter(s => normal.includes(s)).every(s => gentle.includes(s)), `a movement outside the gentler routine ran: ${JSON.stringify(seen)}`);
+        // The hub described the run itself: what is left, as re-dosed now, not the routine from its start (codex H2-02).
+        await t.check(listed.every(n => seen.includes(n)), `the hub listed movements the resumed run never reached: ${JSON.stringify(listed.filter(n => !seen.includes(n)))}; ran ${JSON.stringify(seen)}`);
       });
     },
   },

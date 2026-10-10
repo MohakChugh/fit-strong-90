@@ -7,8 +7,8 @@ import { historyRange, hubAdd, labFrom, latestFor, readingSpec, weekValues } fro
 const TODAY = '2026-10-08';
 const g = (id: string, day: string, time: string, value: number, tag?: Observation['tag']) =>
   newObservation({ id, kind: 'glucose', value, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: `${day}T${time}:00.000+05:30`, ...(tag ? { tag } : {}) });
-const bp = (id: string, day: string, time: string, s: number, d: number): Observation[] => {
-  const shared = { at: `${day}T${time}:00.000+05:30`, scope: 'pointInTime' as const, source: 'manual' as const, context: bpContext(id) };
+const bp = (id: string, day: string, time: string, s: number, d: number, tag?: Observation['tag']): Observation[] => {
+  const shared = { at: `${day}T${time}:00.000+05:30`, scope: 'pointInTime' as const, source: 'manual' as const, context: bpContext(id), ...(tag ? { tag } : {}) };
   return [
     newObservation({ ...shared, id: `${id}:s`, kind: 'bloodPressureSystolic', value: s }),
     newObservation({ ...shared, id: `${id}:d`, kind: 'bloodPressureDiastolic', value: d }),
@@ -71,11 +71,47 @@ describe('weekValues (journey §8.2 This week, D14)', () => {
     const week = weekValues(readingSpec('glucose')!, obs, DEFAULT_PREFS, TODAY);
     expect(week.map(d => d.name)).toEqual(['Monday', 'Tuesday', 'Wednesday', 'Thursday']);
     expect(week[0]).toMatchObject({ text: 'Not entered', entered: false });
-    expect(week[1].text).toBe('112 mg/dL fasting, 168 mg/dL after a meal and 1 more');
+    // Each with when it was measured and its context (codex H2-04).
+    expect(week[1].text).toBe('112 mg/dL at 07:00, fasting; 168 mg/dL at 13:30, after a meal; and 1 more');
   });
 
-  it('blood pressure reads as pairs', () => {
-    expect(weekValues(readingSpec('bp')!, bp('r1', '2026-10-05', '07:30', 132, 84), DEFAULT_PREFS, TODAY)[0].text).toBe('132/84 mmHg');
+  it('blood pressure reads as pairs, each with its time', () => {
+    expect(weekValues(readingSpec('bp')!, bp('r1', '2026-10-05', '07:30', 132, 84), DEFAULT_PREFS, TODAY)[0].text).toBe('132/84 mmHg at 07:30');
+  });
+});
+
+describe('the week’s clinical readings say when each was measured, and in what context (codex H2-04, journey §4.10)', () => {
+  const hour12 = { ...DEFAULT_PREFS, hour12: true };
+
+  it('blood pressure: each pair with its day, its time, and its Morning or Evening', () => {
+    const pairs = [...bp('r1', '2026-10-06', '07:30', 132, 84, 'morning'), ...bp('r2', '2026-10-06', '19:45', 128, 80, 'evening')];
+    const week = weekValues(readingSpec('bp')!, pairs, hour12, TODAY);
+    expect(week[1]).toMatchObject({ name: 'Tuesday', date: 'Tuesday, 6 October', text: '132/84 mmHg at 7:30 am, morning; 128/80 mmHg at 7:45 pm, evening' });
+    expect(week[1].readings).toEqual(['132/84 mmHg at 7:30 am, morning', '128/80 mmHg at 7:45 pm, evening']);
+  });
+
+  it('glucose: each reading with its time and its context', () => {
+    const week = weekValues(readingSpec('glucose')!, [g('a', '2026-10-06', '07:00', 112, 'fasting'), g('b', '2026-10-06', '13:30', 168, 'afterMeal')], hour12, TODAY);
+    expect(week[1].text).toBe('112 mg/dL at 7:00 am, fasting; 168 mg/dL at 1:30 pm, after a meal');
+  });
+
+  it('a condensed day keeps every reading, each in full, for its labelled detail', () => {
+    const obs = [g('a', '2026-10-06', '07:00', 112, 'fasting'), g('b', '2026-10-06', '13:30', 168, 'afterMeal'), g('c', '2026-10-06', '20:00', 130)];
+    const day = weekValues(readingSpec('glucose')!, obs, hour12, TODAY)[1];
+    expect(day.text).toBe('112 mg/dL at 7:00 am, fasting; 168 mg/dL at 1:30 pm, after a meal; and 1 more');
+    expect(day.readings).toEqual(['112 mg/dL at 7:00 am, fasting', '168 mg/dL at 1:30 pm, after a meal', '130 mg/dL at 8:00 pm']);
+  });
+
+  it('a reading with no clock time of its own is never given one', () => {
+    // A past day's check-in reading, stamped at midday as a stand-in.
+    const noted = newObservation({ id: 'ci', kind: 'glucose', value: 104, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: '2026-10-06T12:00:00.000+05:30', context: 'checkIn:2026-10-06' });
+    expect(weekValues(readingSpec('glucose')!, [noted], hour12, TODAY)[1].text).toBe('104 mg/dL');
+  });
+
+  it('other measurements keep their one value a day', () => {
+    const w = newObservation({ id: 'w', kind: 'weight', value: 78.4, unit: 'kg', scope: 'pointInTime', source: 'manual', at: '2026-10-06T07:00:00.000+05:30' });
+    expect(weekValues(readingSpec('weight')!, [w], hour12, TODAY)[1]).toMatchObject({ text: '78.4 kg', date: 'Tuesday, 6 October' });
+    expect(weekValues(readingSpec('weight')!, [w], hour12, TODAY)[1].readings).toBeUndefined();
   });
 });
 
