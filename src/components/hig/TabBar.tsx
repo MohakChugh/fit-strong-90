@@ -1,7 +1,7 @@
 import type { MouseEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { CircleUserRoundIcon, CompassIcon, HouseIcon, LineChartIcon, type LucideIcon } from 'lucide-react';
-import { shouldAnimate } from '@/design/motion';
+import { MOTION, shouldAnimate, springLinear } from '@/design/motion';
 import { cn } from '@/lib/utils';
 import { currentTab, getNavState, markBack, markTab, rootLink, rootStep, tabLink, useNavStack, type Tab } from './navigation';
 
@@ -41,6 +41,7 @@ export function TabBar() {
   const navigate = useNavigate();
   const stack = useNavStack();
   const selected = currentTab(stack, pathname);
+  const at = TABS.findIndex(t => t.tab === selected);
 
   const select = (tab: Tab, active: boolean, shown: { to: string }) => (event: MouseEvent) => {
     // A new browser tab or window is the browser's to open.
@@ -78,7 +79,17 @@ export function TabBar() {
         'lg:inset-y-0 lg:left-0 lg:right-auto lg:mx-0 lg:w-60 lg:max-w-none lg:rounded-none lg:pt-safe',
       )}
     >
-      <ul className="flex items-stretch p-1 lg:flex-col lg:gap-1 lg:p-3 lg:pt-6">
+      {/* One tinted selection on a phone, moved under the selected tab by a transform with spring-quick,
+          never stretched; under Reduce motion it jumps (M5, kiro KV-19). The sidebar keeps each tab's own fill. */}
+      {at >= 0 && (
+        <span
+          aria-hidden
+          data-tab-selection
+          className="pointer-events-none absolute inset-y-1 left-1 w-[calc((100%-0.5rem)/4)] rounded-full bg-tint/15 lg:hidden"
+          style={{ transform: `translateX(${at * 100}%)`, transition: reduceMotion() ? 'none' : `transform ${MOTION.springQuick.cssMs}ms ${springLinear(0)}` }}
+        />
+      )}
+      <ul className="relative flex items-stretch p-1 lg:flex-col lg:gap-1 lg:p-3 lg:pt-6">
         {TABS.map(({ tab, label, icon: Icon }) => {
           const active = tab === selected;
           const place = active ? rootLink(stack, tab) : tabLink(stack, tab);
@@ -91,12 +102,11 @@ export function TabBar() {
                 aria-current={active ? 'page' : undefined}
                 onClick={select(tab, active, place)}
                 className={cn(
-                  // The pill fades to the tapped tab: a transition on its fill alone, which reduced motion makes instant.
                   // Tabs grow with the text size, but no taller than 72px and no label past 18px, so "Browse"
                   // still fits a quarter of a 320px bar with room between: as iOS does, the bar never outgrows the screen.
                   'flex min-h-[min(3.5rem,72px)] w-full min-w-0 flex-col items-center justify-center gap-0.5 rounded-full px-1 text-[min(var(--text-footnote),18px)] font-semibold leading-tight transition-colors',
                   'lg:min-h-11 lg:flex-row lg:justify-start lg:gap-3 lg:rounded-lg lg:px-3 lg:text-[length:var(--text-body)]',
-                  active ? 'bg-tint/15 text-foreground' : 'text-foreground/80 lg:hover:bg-muted',
+                  active ? 'text-foreground lg:bg-tint/15' : 'text-foreground/80 lg:hover:bg-muted',
                 )}
               >
                 <Icon className="size-[min(1.5rem,32px)] shrink-0 lg:size-5" strokeWidth={active ? 2.4 : 1.9} aria-hidden />

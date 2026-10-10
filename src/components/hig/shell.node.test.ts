@@ -417,6 +417,35 @@ describe('the tab bar (S-18)', () => {
   });
 });
 
+describe('the tab bar’s selection slides (motion M5, kiro KV-19)', () => {
+  const at = (pathname: string) => ({ pathname, search: '', state: null, key: pathname });
+  const indicator = (nodes: HostNode[]) => nodes.find(n => n.props['data-tab-selection'] !== undefined);
+
+  it('one tinted selection, moved under the tapped tab by a transform, with spring-quick', () => {
+    nav.record(at('/trends'), 'LAUNCH', 0);
+    router.location = at('/trends');
+    const host = render(h(TabBar));
+    const pill = indicator(host.all())!;
+    expect(pill).toBeDefined();
+    expect(pill.props['aria-hidden']).toBe(true);
+    const style = pill.props.style as { transform: string; transition: string };
+    expect(style.transform).toBe('translateX(100%)');
+    expect(style.transition).toMatch(/^transform \d+ms linear\(/);
+    // On a phone the links have no fill of their own; the sidebar keeps its own.
+    const links = host.all().filter(n => n.type === 'a');
+    expect(String(links[1].props.className)).not.toMatch(/(^|\s)bg-tint\/15/);
+    expect(String(links[1].props.className)).toContain('lg:bg-tint/15');
+  });
+
+  it('jumps under Reduce motion', () => {
+    (document.documentElement.dataset as Record<string, string>).reduceMotion = '';
+    nav.record(at('/me'), 'LAUNCH', 0);
+    router.location = at('/me');
+    const pill = indicator(render(h(TabBar)).all())!;
+    expect((pill.props.style as { transform: string; transition: string })).toEqual({ transform: 'translateX(300%)', transition: 'none' });
+  });
+});
+
 describe('a tab never reopens a record that has gone (acceptance J18)', () => {
   const at = (pathname: string) => ({ pathname, search: '', state: null, key: pathname });
   const click = (node: HostNode) => {
@@ -695,7 +724,8 @@ describe('toasts', () => {
     const bar = read('src/components/hig/TabBar.tsx');
     expect(bar).toContain('bottom-[max(0.5rem,env(safe-area-inset-bottom))]');
     expect(bar).toContain('min-h-[min(3.5rem,72px)]');
-    expect(bar).toMatch(/<ul className="flex items-stretch p-1 /);
+    // Positioned, so the labels paint above the sliding selection (M5).
+    expect(bar).toMatch(/<ul className="relative flex items-stretch p-1 /);
     // The shell and the waiting reminder clear it the same way.
     expect(read('src/components/hig/AppShell.tsx')).toContain('pb-[calc(4.5rem+max(0.5rem,env(safe-area-inset-bottom)))]');
     expect(read('src/reminders/ReminderHost.tsx')).toContain('bottom-[calc(4.5rem+max(0.5rem,env(safe-area-inset-bottom)))]');
