@@ -19,12 +19,12 @@
  */
 
 import type { AppData } from '@/types';
-import type { BpReading, CheckInRecord, DailyCheckIn, EmergencyFlag, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, SymptomReach } from '@/types/checkin';
+import type { BpPartialReading, BpReading, CheckInRecord, DailyCheckIn, EmergencyFlag, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, SymptomReach } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
-import { evaluateCheckIn } from '@/engine/readiness';
+import { completes, evaluateCheckIn } from '@/engine/readiness';
 import { checkInDayOf, type Observation } from '@/health/observation';
 import { pairBloodPressure } from '@/health/aggregate';
-import { carryForward } from './form';
+import { carryForward, withoutGateFields } from './form';
 
 /** What a check-in save did: the record as it was merged and stored, and whether the device kept it. */
 export interface SaveResult {
@@ -170,6 +170,15 @@ const evaluated = (profile: UserProfile, c: DailyCheckIn, recent: DailyCheckIn[]
 };
 
 /**
+ * The record a check-in write stores, and the one that waits until the device
+ * keeps it: the day's own answers, evaluated, with nothing only the gates
+ * attach (P-01). Every write of a check-in goes through here, whatever its
+ * answers were built from; Track's readings stay Track's.
+ */
+const toStore = (profile: UserProfile, c: DailyCheckIn, recent: DailyCheckIn[]): CheckInRecord =>
+  evaluated(profile, withoutGateFields(c), recent);
+
+/**
  * What a gate must act on for one day: the stored record and the waiting one
  * together (`strictest`). The answers the device has not kept can add to what
  * it holds, and never take anything away, so a refused save cannot loosen a
@@ -183,8 +192,21 @@ export function effectiveRecord(
 ): CheckInRecord | undefined {
   if (!pending) return stored;
   if (!stored || stored.date !== pending.date) return evaluated(profile, pending, recent);
-  return evaluated(profile, strictest(stored, pending), recent);
+  // The stored record decides at least as strictly as the two together (N-01):
+  // a newer reading the device has not kept cannot release what it holds.
+  const { readiness: _r, durable: _d, ...durable } = stored;
+  void _r;
+  void _d;
+  return evaluated(profile, { ...strictest(stored, pending), durable }, recent);
 }
+
+/** A record to store, from one a gate reads: what the device stored is never written back inside it (N-01). */
+export const recordToStore = (c: CheckInRecord | undefined): CheckInRecord | undefined => {
+  if (!c) return c;
+  const { durable: _d, ...rest } = c;
+  void _d;
+  return rest;
+};
 
 const REACH_ORDER: SymptomReach[] = ['back', 'buttock', 'thigh', 'belowKnee', 'foot'];
 const SLEEP_ORDER: NonNullable<DailyCheckIn['sleep']>[] = ['lt5', '5to7', 'gt7'];
@@ -430,7 +452,7 @@ async function saveWith(
     const mine = list.find(x => x.date === date);
     const base = effectiveRecord(mine, waitingFor(date, mine), profile, recent);
     answers = build(base);
-    record = evaluated(profile, carryForward(base, answers), recent);
+    record = toStore(profile, carryForward(base, answers), recent);
     // Given on this visit: from here it is answered, not merely kept.
     restored.delete(date);
     waiting.set(date, record);
@@ -438,7 +460,7 @@ async function saveWith(
   });
   publish();
   const result = await written;
-  const saved = record ?? evaluated(profile, answers ?? build(undefined), []);
+  const saved = record ?? toStore(profile, answers ?? build(undefined), []);
   if (result.ok) {
     refused.delete(date);
     const still = waiting.get(date);
@@ -463,6 +485,34 @@ export interface PressureCorrection {
 }
 
 const sameInstant = (a: string | undefined, b: string | undefined) => a !== undefined && b !== undefined && Date.parse(a) === Date.parse(b);
+
+/**
+ * A half-entered number goes with the measurement it was the start of, and
+ * only a half linked to it when its own row was completed is that (P-02,
+ * Q-01). When Track corrects that reading, the half follows it while the
+ * corrected reading still holds the half's number; otherwise its number was
+ * part of what was typed wrongly, and it goes, as it does when Track deletes
+ * the reading. Every other half is another measurement and is left as it is,
+ * and so is one whose link could never have been to that reading, as the
+ * engine reads it (R-02): it keeps counting, without the link.
+ */
+function halvesWith(record: DailyCheckIn, was: BpReading, now?: BpReading): DailyCheckIn {
+  const linked = (h: BpPartialReading) => !!h.completion && h.completion.sys === was.sys && h.completion.dia === was.dia
+    && (sameInstant(h.completion.at, was.at) || (h.completion.at === undefined && was.at === undefined));
+  if (!record.bpPartial?.some(linked)) return record;
+  const bpPartial = record.bpPartial.flatMap(h => {
+    if (!linked(h)) return [h];
+    if (!completes(h, was)) {
+      const { completion: _impossible, ...standing } = h;
+      void _impossible;
+      return [standing];
+    }
+    return now && completes(h, now) ? [{ ...h, completion: now }] : [];
+  });
+  const { bpPartial: _halves, ...rest } = record;
+  void _halves;
+  return bpPartial.length ? { ...rest, bpPartial } : rest;
+}
 
 /**
  * The record with one blood-pressure reading corrected, or undefined when it
@@ -496,7 +546,7 @@ export function withPressureCorrected(record: DailyCheckIn, c: PressureCorrectio
       const { bpEarlier: _earlier, ...rest } = record;
       void _earlier;
       const bpEarlier = (record.bpEarlier ?? []).filter(r => !twin(r));
-      return { ...rest, bpReadings, bp, ...(bpEarlier.length ? { bpEarlier } : {}) };
+      return halvesWith({ ...rest, bpReadings, bp, ...(bpEarlier.length ? { bpEarlier } : {}) }, record.bpReadings![i], fixed);
     }
     const k = record.bpEarlier?.findIndex(test) ?? -1;
     if (k >= 0) {
@@ -507,12 +557,13 @@ export function withPressureCorrected(record: DailyCheckIn, c: PressureCorrectio
       const { bpEarlier: _earlier, ...rest } = record;
       void _earlier;
       const bpEarlier = record.bpEarlier!.flatMap((r, j) => (j === k ? (keep ? [fixed] : []) : twin(r) ? [] : [r]));
-      return { ...rest, ...(bpEarlier.length ? { bpEarlier } : {}) };
+      return halvesWith({ ...rest, ...(bpEarlier.length ? { bpEarlier } : {}) }, record.bpEarlier![k], fixed);
     }
   }
   // An older record kept its one reading only as the day's summary.
   if (!record.bpReadings?.length && record.bp && record.bp.sys === c.was.sys && record.bp.dia === c.was.dia) {
-    return { ...record, bp: { sys: c.to.sys, dia: c.to.dia } };
+    const bp = { sys: c.to.sys, dia: c.to.dia };
+    return halvesWith({ ...record, bp }, record.bp, bp);
   }
   return undefined;
 }
@@ -550,9 +601,9 @@ export async function correctCheckInPressure(
     // The same reading of what waits as every other save (`saveWith`): a copy
     // kept from before a reload is evidence, never an answer to store.
     const mine = list.find(x => x.date === date);
-    const base = effectiveRecord(mine, waitingFor(date, mine), profile, recent);
+    const base = recordToStore(effectiveRecord(mine, waitingFor(date, mine), profile, recent));
     const fixed = base ? withPressureCorrected(base, c) : undefined;
-    record = fixed ? evaluated(profile, fixed, recent) : undefined;
+    record = fixed ? toStore(profile, fixed, recent) : undefined;
     if (!record) return prev;
     restored.delete(date);
     waiting.set(date, record);
@@ -693,21 +744,21 @@ export function withReadingRemoved(record: DailyCheckIn, r: CheckInReading): Dai
         const bpReadings = record.bpReadings!.filter((_, j) => j !== i);
         const { bp: _bp, bpReadings: _all, ...rest } = record;
         void _bp; void _all;
-        return bpReadings.length ? { ...rest, bpReadings, bp: average(bpReadings) } : rest;
+        return halvesWith(bpReadings.length ? { ...rest, bpReadings, bp: average(bpReadings) } : rest, record.bpReadings![i]);
       }
       const k = record.bpEarlier?.findIndex(test) ?? -1;
       if (k >= 0) {
         const bpEarlier = record.bpEarlier!.filter((_, j) => j !== k);
         const { bpEarlier: _list, ...rest } = record;
         void _list;
-        return bpEarlier.length ? { ...rest, bpEarlier } : rest;
+        return halvesWith(bpEarlier.length ? { ...rest, bpEarlier } : rest, record.bpEarlier![k]);
       }
     }
     // An older record kept its one reading only as the day's summary.
     if (!record.bpReadings?.length && record.bp && said(record.bp)) {
       const { bp: _bp, ...rest } = record;
       void _bp;
-      return rest;
+      return halvesWith(rest, record.bp);
     }
     return undefined;
   }
@@ -740,9 +791,9 @@ async function reviseCheckIn(
     const list = prev.checkIns ?? [];
     const recent = list.filter(x => x.date < date);
     const mine = list.find(x => x.date === date);
-    const base = effectiveRecord(mine, waitingFor(date, mine), profile, recent);
+    const base = recordToStore(effectiveRecord(mine, waitingFor(date, mine), profile, recent));
     const fixed = base ? fix(base) : undefined;
-    record = fixed ? evaluated(profile, fixed, recent) : undefined;
+    record = fixed ? toStore(profile, fixed, recent) : undefined;
     if (!record) return prev;
     restored.delete(date);
     waiting.set(date, record);

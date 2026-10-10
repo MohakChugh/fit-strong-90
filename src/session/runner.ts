@@ -266,6 +266,67 @@ export function createRunner(plan: SessionPlan, refused: ReadonlySet<string> = N
 }
 
 /**
+ * The run's place once the plan is re-dosed under it (R5-04, N-08). Steps
+ * already done are not the runner's to change, and a step not under way has
+ * nothing to carry. A cardio step under way keeps the time already spent, and
+ * what is left is today's dose: past today's work, the person goes straight to
+ * the cool-down's own start, so a shorter dose never counts a cool-down that
+ * was not done; already in the cool-down, it goes on where it was. Time added
+ * to the old dose goes with it, and the coach starts the step again as it is
+ * now.
+ */
+export function redoseState(from: SessionPlan, to: SessionPlan, state: RunnerState, now: number): RunnerState {
+  if (state.status !== 'running' && state.status !== 'paused') return state;
+  const was = from.steps[state.index];
+  const is = to.steps[state.index];
+  if (!was || !is || was.id !== is.id || was.kind !== 'cardio' || is.kind !== 'cardio' || JSON.stringify(was.parts) === JSON.stringify(is.parts)) return state;
+  const elapsed = elapsedInStep(state, now);
+  const workMs = (segs: { segment: Segment; ms: number }[]) => segs.filter(x => x.segment.intensity !== 'cooldown').reduce((t, x) => t + x.ms, 0);
+  const oldSegs = segmentsWithExtra(was, state);
+  const { [is.id]: _old, ...extraMs } = state.extraMs;
+  void _old;
+  const newSegs = segmentsWithExtra(is, { extraMs });
+  const oldWork = workMs(oldSegs);
+  const newWork = workMs(newSegs);
+  const newCool = newSegs.reduce((t, x) => t + x.ms, 0) - newWork;
+  const at = elapsed < oldWork ? Math.min(elapsed, newWork) : newWork + Math.min(elapsed - oldWork, newCool);
+  const anchor = state.status === 'paused' && state.pausedAt !== undefined ? state.pausedAt : now;
+  const coolFrom = newSegs.findIndex(x => x.segment.intensity === 'cooldown');
+  return {
+    ...state,
+    stepStartedAt: anchor - at,
+    extraMs,
+    visit: nextVisit(state),
+    ...(state.coolDownFrom?.index === state.index && coolFrom >= 0 ? { coolDownFrom: { index: state.index, segment: coolFrom } } : {}),
+  };
+}
+
+/**
+ * A run: the plan it is running and its place in it, kept together (N-08).
+ * React reduces a queued action in whichever render takes it off the queue,
+ * so a reducer built from the plan on screen would count a tick timed by the
+ * old dose against the new one. Every action here is reduced against the
+ * run's own plan, and only `replan` changes that plan, moving the place with
+ * it in the same step.
+ */
+export interface Run { plan: SessionPlan; refused?: ReadonlySet<string>; state: RunnerState }
+
+/** The plan was re-dosed, or today's refusals changed, under the run (R5-04). */
+export type RunAction = RunnerAction | { type: 'replan'; plan: SessionPlan; refused?: ReadonlySet<string>; now: number };
+
+export function reduceRun(run: Run, action: RunAction): Run {
+  if (action.type !== 'replan') {
+    const state = createRunner(run.plan, run.refused).reduce(run.state, action);
+    return state === run.state ? run : { ...run, state };
+  }
+  // Told twice, as a render done twice can, the place moves once.
+  if (action.plan === run.plan && action.refused === run.refused) return run;
+  // The place moves to the new dose, and a step now refused is passed over at once (scan J2-02).
+  const moved = redoseState(run.plan, action.plan, run.state, action.now);
+  return { plan: action.plan, refused: action.refused, state: createRunner(action.plan, action.refused).reduce(moved, { type: 'tick', now: action.now }) };
+}
+
+/**
  * Running time is summed across pauses: each stretch from (re)starting to
  * pausing or finishing. A run saved before this was tracked has no
  * `runningSince`, so it keeps the older estimate in logging.ts.

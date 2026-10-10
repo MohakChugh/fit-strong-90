@@ -25,7 +25,7 @@ import { DISPOSITION_ORDER } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { toDateString } from '@/lib/utils';
 import { deriveHealth, profileGaps } from './health';
-import { EMERGENCY_CALL, evaluateCheckIn, profileOnlyReadiness, withLogged } from './readiness';
+import { durableView, EMERGENCY_CALL, evaluateCheckIn, profileOnlyReadiness, withLogged } from './readiness';
 
 export type { Disposition, Mode } from '@/types/checkin';
 
@@ -253,9 +253,13 @@ function decide(input: PermissionInput, mode: Mode, opts: { fresh: boolean; need
     // The 30-minute rule is for someone who can go low, before they start
     // (D29(6)). A reading stamped in the future is nobody's pre-session check,
     // whatever the medicines (re-audit, decision 8 scope note).
-    // The newest reading from any screen is the one that is timed (X2-01).
-    const stale = freshness(withLogged(checkIn), now);
-    if (stale && (stale.code === 'future' || (opts.fresh && deriveHealth(profile.health).hypoRisk))) blocks.push(stale);
+    // The newest reading from any screen is the one that is timed (X2-01),
+    // and one the device has not stored makes nothing fresher than what it
+    // has (N-01).
+    const stored = durableView(checkIn);
+    const stale = [checkIn, ...(stored ? [stored] : [])].map(x => freshness(withLogged(x), now))
+      .find(s => s && (s.code === 'future' || (opts.fresh && deriveHealth(profile.health).hypoRisk)));
+    if (stale) blocks.push(stale);
   }
 
   if (blocks.length) {

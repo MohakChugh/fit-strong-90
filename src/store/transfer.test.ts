@@ -378,9 +378,8 @@ describe('applyImport', () => {
       ['resolutions', [{ ...answer, resolution: 'gone' }]], ['resolutions', [{ ...answer, kind: 'mood' }]], ['resolutions', [{ ...answer, at: undefined }]],
       ['news', undefined], ['newsEarlier', 5], ['newsEarlier', 'fainted'],
       ['provoked', 'brisk-walking'], ['provoked', [5]],
-      ['logged', { glucose: 'high' }], ['logged', { bp: [null] }],
-      // Read as true or false, a word would say the opposite: recovered from a low, a day with no answers to carry.
-      ['lowRecovered', 'no'], ['readingsOnly', 'no'],
+      // Read as true or false, a word would say the opposite: recovered from a low.
+      ['lowRecovered', 'no'],
       // Each of these would leave a decision less strict than the field missing would (R5-01).
       // An emergency answer this build cannot name would count as "None of these".
       ['emergency', ['seizure']], ['emergency', [null]],
@@ -388,8 +387,6 @@ describe('applyImport', () => {
       ['back', { pain: 2, newNeuro: true, newWeakness: 'yes' }], ['back', { pain: 2, newNeuro: true, newSensory: null }],
       // A time that is not an instant is read as some other moment: an answer not today's (a reading's own time is below).
       ['resolutions', [{ ...answer, at: 'not a time' }]], ['lowSymptomsAt', '5'],
-      // Never stored: the gates attach these to a day for themselves, and stored they would act as readings or skip its red flags.
-      ['logged', { glucose: [{ value: 110, unit: 'mg/dL', measuredAt: at }] }], ['readingsOnly', true],
       // What the day's details show of the suggestion made at the time.
       ['readiness', { ...readiness, reasons: undefined }], ['readiness', { ...readiness, reasons: [null] }],
     ];
@@ -422,13 +419,18 @@ describe('applyImport', () => {
       ['glucoseEarlier', [{ value: 650, unit: 'MG/DL', measuredAt: at }], 'a glucose reading in a unit this app does not know ("MG/DL")'],
       ['glucoseEarlier', [{ value: 650, unit: 'mg/dL', measuredAt: '2001' }], 'a glucose reading whose time cannot be read'],
       ['glucoseEarlier', 'high', 'a glucose reading this app cannot read'],
-      // Read by its display wherever it has one, as the engine reads it.
-      ['glucoseEarlier', [{ value: 120, unit: 'mg/dL', display: 'XX', measuredAt: at }], 'a glucose meter display other than HI or LO ("XX")'],
+      // The engine reads a display before a number, so one holding both is not the number it says (N-07).
+      ['glucose', { value: 650, unit: 'mg/dL', display: 'XX', measuredAt: at }, 'a glucose reading that is both a number and a meter display'],
+      ['glucoseDisplay', { display: 'HI', value: 650, unit: 'mg/dL', measuredAt: at }, 'a glucose reading that is both a number and a meter display'],
+      ['glucoseEarlier', [{ value: 120, unit: 'mg/dL', display: 'XX', measuredAt: at }], 'a glucose reading that is both a number and a meter display'],
       ['ketones', { kind: 'saliva', value: 3.5, measuredAt: at }, 'a ketone reading of a kind this app does not know ("saliva")'],
       ['ketones', { kind: 'blood', value: 'high', measuredAt: at }, 'a blood ketone reading whose number cannot be read'],
       ['ketones', { kind: 'blood', value: 3.5, measuredAt: 5 }, 'a ketone reading whose time cannot be read'],
       ['ketonesEarlier', [{ kind: 'urine', category: 'lots', measuredAt: at }], 'a urine ketone strip reading this app does not know ("lots")'],
       ['ketonesEarlier', [{ kind: 'urine', value: 'x' }], 'a urine ketone strip reading whose number cannot be read'],
+      // A strip read is a colour, or before v5 the number for it: one with neither has no result (N-07).
+      ['ketones', { kind: 'urine', measuredAt: at }, 'a urine ketone strip reading with no result'],
+      ['ketonesEarlier', [{ kind: 'urine' }], 'a urine ketone strip reading with no result'],
       ['ketonesEarlier', [null], 'a ketone reading this app cannot read'],
       ['ketonesEarlier', 'large', 'a ketone reading this app cannot read'],
       ['bp', { sys: 185, dia: null }, 'a blood pressure reading whose numbers cannot be read'],
@@ -437,6 +439,18 @@ describe('applyImport', () => {
       ['bpEarlier', [{ sys: 185, dia: 125, at: '2001' }], 'a blood pressure reading whose time cannot be read'],
       ['bpPartial', [{ dia: 'high', at }], 'a blood pressure reading whose numbers cannot be read'],
       ['bpPartial', [{ sys: 200, at: '5' }], 'a blood pressure reading whose time cannot be read'],
+      // A partial reading is one number with the other box empty, never neither (N-07).
+      ['bpPartial', [{ at }], 'a blood pressure reading with no numbers in it'],
+      // The reading that completed a half is a whole reading, and read as one.
+      ['bpPartial', [{ sys: 200, at, completion: { sys: 200, dia: 'high', at } }], 'a blood pressure reading whose numbers cannot be read'],
+      ['bpPartial', [{ sys: 200, at, completion: { sys: 200, at } }], 'a blood pressure reading whose numbers cannot be read'],
+      ['bpPartial', [{ sys: 200, at, completion: { sys: 200, dia: 120, at: '5' } }], 'a blood pressure reading whose time cannot be read'],
+      ['bpPartial', [{ sys: 200, at, completion: 'done' }], 'a blood pressure reading this app cannot read'],
+      // What Track attached, as a save before P-01 kept it: read as the readings it is, before it is folded in.
+      ['logged', { glucose: 'high' }, 'a glucose reading this app cannot read'],
+      ['logged', { bp: [null] }, 'a blood pressure reading this app cannot read'],
+      ['logged', { glucose: [{ value: 110, unit: 'mmol', measuredAt: at }] }, 'a glucose reading in a unit this app does not know ("mmol")'],
+      ['logged', 'high', 'readings from Track this app cannot read'],
       ['bpPartial', [null], 'a blood pressure reading this app cannot read'],
       ['bpPartial', { sys: 200, at }, 'a blood pressure reading this app cannot read'],
     ];
@@ -457,6 +471,58 @@ describe('applyImport', () => {
     db.close();
   });
 
+  // A half-entered number stands for its measurement until the reading that
+  // completed it does (B07, N-04): a link it could never have had would let a
+  // severe number go unread (Q-02).
+  it('refuses a whole file whose blood pressure half is linked to a reading that could not have completed it', async () => {
+    const db = await seeded();
+    const before = await dump(db);
+    const at = (time: string) => `2026-10-09T${time}:00+05:30`;
+    const day = (readings: { sys: number; dia: number; at?: string }[], completion: object, half: object = { sys: 190, at: at('09:10') }) => ({ ...incoming,
+      checkIns: [{ ...checkIn, date: '2026-10-09', bpReadings: readings, bp: { sys: readings[0].sys, dia: readings[0].dia }, bpPartial: [{ ...half, completion }] }] });
+    const notHeld = 'a blood pressure number linked to a reading the day does not hold';
+    const otherNumbers = 'a blood pressure number linked to a reading without that number';
+    const impossible: [string, object, string][] = [
+      ['to the day’s normal reading, taken before it', day([{ sys: 120, dia: 80, at: at('09:00') }], { sys: 120, dia: 80, at: at('09:00') }), otherNumbers],
+      ['to a reading the day does not hold', day([{ sys: 185, dia: 125, at: at('09:20') }], { sys: 190, dia: 100, at: at('09:20') }), notHeld],
+      ['to a reading without the time the day’s has', day([{ sys: 190, dia: 100, at: at('09:12') }], { sys: 190, dia: 100 }), notHeld],
+      ['to a reading without its top number', day([{ sys: 120, dia: 80, at: at('09:12') }], { sys: 120, dia: 80, at: at('09:12') }), otherNumbers],
+      ['to a reading without its bottom number', day([{ sys: 150, dia: 95, at: at('09:12') }], { sys: 150, dia: 95, at: at('09:12') }, { dia: 125, at: at('09:10') }), otherNumbers],
+      ['to a reading with no time', day([{ sys: 190, dia: 100 }], { sys: 190, dia: 100 }), 'a blood pressure number linked to a reading with no time'],
+      ['to a reading taken before it', day([{ sys: 190, dia: 100, at: at('09:00') }], { sys: 190, dia: 100, at: at('09:00') }), 'a blood pressure number linked to a reading taken before it'],
+    ];
+    for (const [link, raw, said] of impossible) {
+      const reason = `That file's check-in for 2026-10-09 holds ${said}. It may be damaged.`;
+      expect(previewImport(raw), link).toEqual({ ok: false, reason });
+      for (const mode of ['replace', 'merge'] as const) {
+        const applied = await applyImport(db, raw, mode, { allowRejected: true });
+        expect(applied.ok ? 'imported' : applied.failure.message, `${link} ${mode}`).toBe(reason);
+      }
+    }
+    expect(await dump(db)).toEqual(before);
+    // As the app links them (Q-01): the reading that completed the half in
+    // its own row, taken with it or after it, by either number, and found as
+    // the engine finds it, by the instant it was taken; a half saved with no
+    // time, whenever its reading was taken; and an older record's one
+    // reading, kept only as the day's summary. Each comes back as it was.
+    const completion = { sys: 190, dia: 100, at: at('09:12') };
+    for (const raw of [
+      day([{ sys: 190, dia: 100, at: at('09:12') }], completion),
+      day([{ sys: 190, dia: 100, at: at('09:12') }], { ...completion, at: '2026-10-09T03:42:00.000Z' }),
+      day([{ sys: 190, dia: 100, at: at('09:10') }], { sys: 190, dia: 100, at: at('09:10') }),
+      day([{ sys: 150, dia: 125, at: at('09:12') }], { sys: 150, dia: 125, at: at('09:12') }, { dia: 125, at: at('09:10') }),
+      day([{ sys: 190, dia: 100, at: at('09:12') }], completion, { sys: 190 }),
+      { ...incoming, checkIns: [{ ...checkIn, date: '2026-10-09', bp: completion, bpPartial: [{ sys: 190, at: at('09:10'), completion }] }] },
+    ]) {
+      expect(previewImport(raw)).toMatchObject({ ok: true, checkIns: 1, rejected: { checkIns: 0 } });
+      for (const mode of ['replace', 'merge'] as const) {
+        expect((await applyImport(db, raw, mode)).ok, mode).toBe(true);
+        expect(await db.get('settings', 'checkIns'), mode).toMatchObject({ value: [{ bpPartial: raw.checkIns[0].bpPartial }] });
+      }
+    }
+    db.close();
+  });
+
   it('reads back a check-in holding every answer as the app writes it', () => {
     const at = '2026-10-09T08:30:00+05:30';
     const answer = { kind: 'extremeGlucose', readings: [`g:${at}:650mg/dL`], resolution: 'mistake', at };
@@ -467,7 +533,8 @@ describe('applyImport', () => {
       glucoseEarlier: [{ value: 650, unit: 'mg/dL', measuredAt: at }, { value: 5.4, unit: 'mmol/L', measuredAt: at }, { display: 'LO', measuredAt: at }],
       glucose: { value: 120, unit: 'mg/dL', measuredAt: at }, glucoseDisplay: { display: 'HI', measuredAt: at },
       ketones: { kind: 'blood', value: 0.4, measuredAt: at }, ketonesEarlier: [{ kind: 'urine', category: 'small', measuredAt: at }, { kind: 'urine', value: 15 }],
-      bpPartial: [{ sys: 200, at }, { dia: 125, at }], provoked: ['brisk-walking'], flagsEarlier: ['newWeakness'], newsEarlier: ['fainted'],
+      bpPartial: [{ sys: 200, at }, { dia: 125, at }, { sys: 190, at, completion: { sys: 190, dia: 100, at } }], bpEarlier: [{ sys: 190, dia: 100, at }],
+      provoked: ['brisk-walking'], flagsEarlier: ['newWeakness'], newsEarlier: ['fainted'],
       lowSymptomsAt: '2026-10-09T03:00:00.000Z', lowRecovered: true, bpReadings: [{ sys: 150, dia: 95, at: '2026-10-09T03:05:00.000Z' }],
       resolutions: [answer, { ...answer, resolution: 'reopened', at: '2026-10-09T09:00:00+05:30' }, { kind: 'redFlag', readings: ['flag:newWeakness@2026-10-09'], resolution: 'assessed', at },
         { kind: 'news', readings: ['news:fainted@2026-10-09'], resolution: 'mistake', at }],

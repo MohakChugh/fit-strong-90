@@ -11,22 +11,23 @@ import { useGuided } from '@/hooks/useGuided';
 import { useGuidedSession } from '@/hooks/useGuidedSession';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { loadProgress, loadExpiredProgress, rehydrate, clearProgress, setAside, slotOf, type ProgressSlot, type SavedProgress } from '@/session/persistence';
-import { segmentsWithExtra } from '@/session/runner';
+import { redoseState, segmentsWithExtra } from '@/session/runner';
 import { buildSessionPlan } from '@/engine/session';
 import { getState, isSessionSaved, useStore } from '@/store/useStore';
 import { toWorkoutSession, withGuidedSession, activeSeconds, bankProgress, progressSettled } from '@/session/logging';
 import { getCoaching } from '@/data/coaching';
 import { nameOf } from '@/data/catalog';
 import { deriveHealth } from '@/engine/health';
-import { CANNOT_SWALLOW, fluidLimit, glucoseSanity, TREAT } from '@/engine/readiness';
+import { CANNOT_SWALLOW, fluidLimit, glucoseReadingId, glucoseSanity, standingAnswer, TREAT, withLogged } from '@/engine/readiness';
 import { HOT_COOL_DOWN } from '@/engine/cardio';
 import { PERMISSION_TEXT, type Mode, type Permission, type PermissionInput } from '@/engine/permission';
 import { arrivalGate, liveGate, reconcilePlan, restartCapture, startGate } from '@/session/gate';
-import type { CheckInRecord, DailyCheckIn, GlucoseEntry, Readiness, SymptomReach } from '@/types/checkin';
+import type { CheckInRecord, DailyCheckIn, EpisodeAnswer, GlucoseEntry, Readiness, SymptomReach } from '@/types/checkin';
 import type { SymptomReport } from '@/hooks/useGuided';
 import { recheckCountdown } from '@/components/checkin/copy';
 import { CheckInBody } from '@/components/checkin/CheckInSheet';
 import type { SaveOutcome } from '@/components/checkin/sheetState';
+import { recordToStore } from '@/components/checkin/pending';
 import {
   LEG_QUESTIONS, NO_LEG, REACH, REACH_LABEL, SPREAD_QUESTION, STOP_CHOICES, legReport, onChoice, type LegAnswers, type StopChoice,
 } from '@/components/checkin/stop';
@@ -107,7 +108,8 @@ export default function SessionPage() {
   const ran = useRef<SessionPlan>(plan);
   const saveSession = async (state: RunnerState, painAfter?: number): Promise<boolean> => {
     const done = ran.current;
-    const session = toWorkoutSession(done, state, { sessionId, checkIn, painAfter });
+    // What the device had stored is read with today's record, never saved inside it (N-01).
+    const session = toWorkoutSession(done, state, { sessionId, checkIn: recordToStore(checkIn), painAfter });
     const result = await update(prev => withGuidedSession(prev, session));
     const durable = result.ok && isSessionSaved(sessionId);
     if (durable && state.status === 'done') clearProgress(slotOf(done));
@@ -160,7 +162,11 @@ export default function SessionPage() {
       focusOverride: plan.focus,
     });
   }, [plan, spec, data, checkIns, profile, date, todayPlan, checkIn]);
-  const raw = useMemo(() => reconcilePlan(plan, resumeState?.index ?? 0, fresh, input), [plan, resumeState, fresh, input]);
+  // Held to today's limits from where the runner stands (N-08): what it has
+  // done keeps the steps it ran, and the plan it is running, not the one it
+  // was saved with, is what today's limits re-dose.
+  const liveIndex = useRef(resumeState?.index ?? 0);
+  const raw = useMemo(() => reconcilePlan(ran.current, liveIndex.current, fresh, input), [fresh, input]);
   // Same content, same object: the player's runner and autosave key on it.
   const rawKey = `${JSON.stringify(raw.plan.steps)}|${[...raw.refused].sort().join(',')}`;
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,6 +175,9 @@ export default function SessionPage() {
   // out today there is nothing to ask, so its check goes with it (scan J2-02).
   const refused = useMemo(() => withBackChecks(reconciled.plan, reconciled.refused), [reconciled]);
   ran.current = reconciled.plan;
+  // A saved run resumes at its place in the plan as re-dosed now: a shorter
+  // cardio dose never counts a cool-down that was not done (N-08).
+  const [startState] = useState(() => resumeState && redoseState(plan, reconciled.plan, resumeState, Date.now()));
   // Opening this screen is starting, or starting again, so the full question
   // is asked — today's check-in, a recent enough reading (D29(6)), every
   // clinical condition and every profile rule. Saved progress is restored for
@@ -199,7 +208,8 @@ export default function SessionPage() {
     <Player
       plan={reconciled.plan}
       refused={refused}
-      resumeState={resumeState}
+      resumeState={startState}
+      liveIndex={liveIndex}
       sessionId={sessionId}
       profile={profile}
       sessions={data.sessions}
@@ -242,6 +252,8 @@ interface PlayerProps {
   /** Steps today's restrictions refuse: the runner never enters them. */
   refused: ReadonlySet<string>;
   resumeState?: RunnerState;
+  /** Where the runner stands, for the page to re-dose from (N-08). */
+  liveIndex: { current: number };
   sessionId: string;
   profile: ReturnType<typeof useGuided>['profile'];
   sessions: ReturnType<typeof useGuided>['data']['sessions'];
@@ -273,19 +285,27 @@ type Flow =
   | { kind: 'checkpoint'; stepId: string; since: number }
   | { kind: 'symptoms'; exerciseId?: string };
 
-/** The glucose readings in a record measured at or after `since`. */
-function readingsSince(c: DailyCheckIn | undefined, since: number): GlucoseEntry[] {
+/** Every answer the records hold: one about a reading can be given on a later day. */
+const answersIn = (records: readonly (DailyCheckIn | undefined)[]): EpisodeAnswer[] => records.flatMap(c => c?.resolutions ?? []);
+
+/**
+ * The glucose readings in a record measured at or after `since`, as the
+ * gates read the day (scan M-02): Track's with the check-in's own, and none
+ * the person said they typed wrongly.
+ */
+function readingsSince(c: DailyCheckIn | undefined, since: number, answers: readonly EpisodeAnswer[]): GlucoseEntry[] {
   if (!c) return [];
-  const entries = [...(c.glucoseEarlier ?? []), ...[c.glucose, c.glucoseDisplay].filter((x): x is NonNullable<typeof x> => !!x)];
+  const day = withLogged(c);
+  const entries = [...(day.glucoseEarlier ?? []), ...[day.glucose, day.glucoseDisplay].filter((x): x is NonNullable<typeof x> => !!x)];
   return entries.filter(e => {
     const t = e.measuredAt ? Date.parse(e.measuredAt) : Number.NaN;
-    return !Number.isNaN(t) && t >= since;
+    return !Number.isNaN(t) && t >= since && standingAnswer(answers, glucoseReadingId(e, c.date))?.resolution !== 'mistake';
   });
 }
 
 /** A low (under 70, or a meter showing LO) measured at or after `since`. */
-function lowSince(c: DailyCheckIn | undefined, since: number): boolean {
-  return readingsSince(c, since).some(e => {
+function lowSince(c: DailyCheckIn | undefined, since: number, answers: readonly EpisodeAnswer[]): boolean {
+  return readingsSince(c, since, answers).some(e => {
     if ('display' in e) return e.display === 'LO';
     const mg = e.unit === 'mmol/L' ? e.value * 18 : e.value;
     return glucoseSanity(e.value, e.unit, e.unitConfirmed === true) !== 'implausible' && mg < 70;
@@ -334,7 +354,7 @@ function useFocusOnMount<T extends HTMLElement>() {
   return ref;
 }
 
-function Player({ plan, refused, resumeState, sessionId, profile, sessions, useMetric, mode, halt, input, checkIns, onReport, onSaveCheckIn, onExit, onSave, startNote }: PlayerProps) {
+function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, sessions, useMetric, mode, halt, input, checkIns, onReport, onSaveCheckIn, onExit, onSave, startNote }: PlayerProps) {
   // The latest answers, for the questions asked inside event handlers.
   const inputRef = useRef(input);
   inputRef.current = input;
@@ -371,10 +391,15 @@ function Player({ plan, refused, resumeState, sessionId, profile, sessions, useM
    * was entered, this screen or Today, and across midnight. From then on the
    * run allows only its cool-down (scan M-02; spec §4.6).
    */
-  const lowInRun = () => records().some(c => lowSince(c, runStart.current));
+  const lowInRun = () => {
+    const all = records();
+    return all.some(c => lowSince(c, runStart.current, answersIn(all)));
+  };
   /** The newest record holding a reading taken since `since`: a low's own record, even once the date has changed. */
-  const recordSince = (since: number) => records().reduce<CheckInRecord | undefined>(
-    (best, c) => (readingsSince(c, since).length > 0 && (!best || c.date > best.date) ? c : best), undefined);
+  const recordSince = (since: number) => {
+    const all = records();
+    return all.reduce<CheckInRecord | undefined>((best, c) => (readingsSince(c, since, answersIn(all)).length > 0 && (!best || c.date > best.date) ? c : best), undefined);
+  };
   // A safety question is on screen whenever one of these is: the stop control's
   // questions, a low, check or symptoms flow, a stop, or a restart waiting on
   // a reading or a check-in. Earphones and the lock screen cannot answer it (scan X2-04).
@@ -384,6 +409,7 @@ function Player({ plan, refused, resumeState, sessionId, profile, sessions, useM
   const [infoOpen, setInfoOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
   const { state, position: pos, act } = g;
+  liveIndex.current = state.index;
   // Reopened after a low that was settled elsewhere — on Today, or after
   // midnight: the run is moved to its cool-down, still paused, before
   // anything else can be shown or stepped back to (spec §4.6).
@@ -460,7 +486,7 @@ function Player({ plan, refused, resumeState, sessionId, profile, sessions, useM
       // symptoms have gone or someone had to help, then the cool-down only
       // (scan X2-05). Nothing on screen goes on promising cardio.
       const at = reading.measuredAt ? Date.parse(reading.measuredAt) : Date.now();
-      if (flow?.kind !== 'low' && lowSince(record, at)) setFlow({ kind: 'low', since: at });
+      if (flow?.kind !== 'low' && lowSince(record, at, answersIn([record, ...records()]))) setFlow({ kind: 'low', since: at });
       // No exercise left today — a level 2 low, one someone had to help with,
       // still low at the re-check, an emergency: the run ends here and goes
       // into History now. The low's guidance stays on screen.

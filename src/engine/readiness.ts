@@ -123,9 +123,30 @@ const newsReadingId = (date: string, item: NewsItem) => `news:${item}@${date}`;
  * or `reopened`, leaves its own action in force.
  */
 function settledAs(id: string, answers: readonly EpisodeAnswer[]): EpisodeResolution | undefined {
-  let latest: EpisodeAnswer | undefined;
-  for (const a of answers) if (a.readings.includes(id) && (!latest || a.at >= latest.at)) latest = a;
+  const latest = standingAnswer(answers, id);
   return latest && latest.resolution !== 'reopened' ? latest.resolution : undefined;
+}
+
+/** How strict an answer leaves what it names: of two given at the same instant, the stricter stands (N-03). */
+const STRICTNESS: Record<EpisodeAnswer['resolution'], number> = { mistake: 0, resolved: 1, assessed: 2, reopened: 3 };
+/** When an answer was given, as an instant; one whose time cannot be read is older than any that can. */
+const answeredAt = (a: EpisodeAnswer) => { const t = Date.parse(a.at); return Number.isNaN(t) ? -Infinity : t; };
+
+/**
+ * The answer that stands for `id`: the latest given, by instant. An answer
+ * made on another device can carry any offset or precision, so the strings
+ * are never compared (N-03). At the same instant the stricter one stands,
+ * whatever order they are listed in, and one this build does not know
+ * settles nothing.
+ */
+export function standingAnswer(answers: readonly EpisodeAnswer[], id: string): EpisodeAnswer | undefined {
+  let latest: EpisodeAnswer | undefined;
+  for (const a of answers) {
+    if (!a.readings.includes(id) || !Object.hasOwn(STRICTNESS, a.resolution)) continue;
+    const later = latest ? answeredAt(a) - answeredAt(latest) : 1;
+    if (later > 0 || (!(later < 0) && STRICTNESS[a.resolution] > STRICTNESS[latest!.resolution])) latest = a;
+  }
+  return latest;
 }
 
 /** This record's answers, plus those given on later days (the answer to yesterday's reading lives in today's record). */
@@ -185,6 +206,13 @@ const byAt = (list: readonly BpReading[]): BpReading[] => [...list].sort((a, b) 
  * the person answered in the check-in stays theirs.
  */
 export function withLogged(c: DailyCheckIn): DailyCheckIn {
+  // Nothing logged, as on most days: the record itself, in the order taken.
+  if (!c.logged?.glucose?.length && !c.logged?.bp?.length) {
+    if (!('logged' in c)) return latestTaken(c);
+    const { logged: _none, ...rest } = c;
+    void _none;
+    return latestTaken(rest);
+  }
   const { logged, ...plain } = c;
   const ownGlucose = [...(plain.glucoseEarlier ?? []), plain.glucose, plain.glucoseDisplay].filter((x): x is GlucoseEntry => !!x);
   const held = new Set(ownGlucose.map(e => glucoseReadingId(e, c.date)));
@@ -289,7 +317,7 @@ const REACH: SymptomReach[] = ['back', 'buttock', 'thigh', 'belowKnee', 'foot'];
 /** The movement ids that are walking, as `provoked` names them. */
 const WALKING = ['brisk-walking', 'treadmill-walk'];
 
-function backRules(c: DailyCheckIn, recent: DailyCheckIn[]): Contribution[] {
+function backRules(c: DailyCheckIn, before: Before): Contribution[] {
   // An exercise that made symptoms worse during a session is left out for the
   // rest of the day, whatever else is said (A-BACK: stop the provoking movement).
   const provoked: Contribution[] = c.provoked?.length
@@ -384,7 +412,7 @@ function backRules(c: DailyCheckIn, recent: DailyCheckIn[]): Contribution[] {
   }
   // Symptoms reaching further down than last time is a worse pattern (A-BACK),
   // whatever the pain score says.
-  const previous = [...recent].filter(r => r.date < c.date && r.back?.reach).sort((x, y) => (x.date < y.date ? 1 : -1))[0];
+  const previous = before.latestReach();
   if (b.reach && previous?.back?.reach && REACH.indexOf(b.reach) > REACH.indexOf(previous.back.reach) && legReach) {
     out.push({
       outcome: 'amber', disposition: 'adjust', back: 'amber', nerveFlag: true,
@@ -634,11 +662,15 @@ const LOW_WINDOW_HOURS = 24;
  * untimed reading counts as late in its day as it could be.
  */
 export function recordedLows(checkIn: DailyCheckIn, recent: readonly DailyCheckIn[], now?: Date): string[] {
+  return lowsIn(checkIn, listedBefore(recent, checkIn.date), now);
+}
+
+function lowsIn(checkIn: DailyCheckIn, before: Before, now?: Date): string[] {
   const from = (now?.getTime() ?? dayStart(checkIn.date)) - LOW_WINDOW_HOURS * 3_600_000;
   // Only the days that can hold a reading that recent, whatever the history's length.
   const start = new Date(from);
   const firstDay = previousDay(`${start.getFullYear()}-${pad2(start.getMonth() + 1)}-${pad2(start.getDate())}`);
-  const days = [...recent.filter(r => r.date < checkIn.date && r.date >= firstDay), checkIn].sort((a, b) => a.date.localeCompare(b.date));
+  const days = [...before.since(firstDay), checkIn].sort((a, b) => a.date.localeCompare(b.date));
   const readings = days.flatMap((day, i) => {
     const view = withLogged(day);
     const said = answersFor(view, days.slice(i + 1));
@@ -657,7 +689,7 @@ export function recordedLows(checkIn: DailyCheckIn, recent: readonly DailyCheckI
   return lows;
 }
 
-function glucoseRules(p: UserProfile, c: DailyCheckIn, d: DerivedHealth, ketones: KetoneLevel | undefined, recent: readonly DailyCheckIn[] = []): Contribution[] {
+function glucoseRules(p: UserProfile, c: DailyCheckIn, d: DerivedHealth, ketones: KetoneLevel | undefined, before: Before): Contribution[] {
   const out: Contribution[] = [];
   const answers = c.resolutions ?? [];
   const u = p.health.glucoseUnit ?? 'mg/dL';
@@ -669,7 +701,8 @@ function glucoseRules(p: UserProfile, c: DailyCheckIn, d: DerivedHealth, ketones
   const today = [...earlier, ...current];
   const firstToday = today.reduce<number | undefined>((m, g) => (g.t !== undefined && (m === undefined || g.t < m) ? g.t : m), undefined);
   // A low just before midnight belongs to the same episode as the readings after it (X2-08).
-  const prior = leadIn(recent.find(r => r.date === previousDay(c.date)), firstToday, answers);
+  const yesterday = previousDay(c.date);
+  const prior = leadIn(before.on(yesterday), firstToday, answers);
   const all = [...prior, ...today];
   const startMin = glucoseStartMin(p.health);
   // After a treated low, start only once 90 or above, or the care team's start
@@ -678,6 +711,27 @@ function glucoseRules(p: UserProfile, c: DailyCheckIn, d: DerivedHealth, ketones
   const firstLow = all.findIndex(isLow);
   const severeEarlierEntries = kept.filter(e => isSevereLow(readGlucose(e)));
   const severeEarlier = severeEarlierEntries.length > 0;
+  const usableKetones = ketones !== undefined && ketones !== 'invalid';
+  // What a high reading holds, for the latest reading and for any not shown to come before it (R5-03).
+  const meterHi: Contribution = {
+    outcome: 'red', disposition: 'hold', awaitingReading: true, release: 'Check again and add the new reading.',
+    reason: R('meterHi', 'Your meter says HI, higher than it can measure. Wash and dry your hands and check again. If it still says HI, contact your diabetes team or urgent care now.', 'red', 'hold'),
+    actions: d.ketoneRisk ? ['Check ketones now.'] : [],
+  };
+  const noKetones: Contribution = {
+    outcome: 'red', disposition: 'hold', awaitingReading: true,
+    release: 'Test ketones and add the result. If you cannot test, follow your care team’s plan.',
+    reason: R('noKetones', `Glucose ${level(250, u)} or higher without a ketone result: test ketones before any exercise. If you cannot test, follow your care team’s plan.`, 'red', 'hold'),
+    actions: ['Test ketones if you can.'],
+  };
+  // H-T2-HIGH: a workout is never a treatment for a high.
+  const high: Contribution = {
+    outcome: 'red', disposition: 'hold', awaitingReading: true, release: `Check again later; exercise once it is ${level(300, u)} or lower and you feel well.`,
+    reason: R('high', `Glucose above ${level(300, u)}: no exercise session until it is lower. Follow your care team’s plan and check again.`, 'red', 'hold'),
+    oral: [fluidLine(p, `Glucose over ${level(300, u)}.`)],
+  };
+  const holdsHigh = (g: G) => p.health.diabetes !== 'type1' && above(g, 300) && below(g, 600);
+  const needsKetones = (g: G) => d.ketoneRisk && atLeast(g, 250) && !usableKetones;
 
   // ── A required reading that is missing or unusable (H-DATA) ──
   if (!latest) {
@@ -716,11 +770,19 @@ function glucoseRules(p: UserProfile, c: DailyCheckIn, d: DerivedHealth, ketones
         reason: R('persistentHi', 'Your meter has read HI more than once: contact your diabetes team or urgent care now. No exercise.', 'red', 'today'),
         actions: d.ketoneRisk ? ['Check ketones now.'] : [],
       }
-      : {
-        outcome: 'red', disposition: 'hold', awaitingReading: true, release: 'Check again and add the new reading.',
-        reason: R('meterHi', 'Your meter says HI, higher than it can measure. Wash and dry your hands and check again. If it still says HI, contact your diabetes team or urgent care now.', 'red', 'hold'),
-        actions: d.ketoneRisk ? ['Check ketones now.'] : [],
-      });
+      : meterHi);
+  }
+
+  // ── An earlier reading not shown to come before the latest one (R5-03) ──
+  // Taken at the same instant, or with no time on either, nothing shows it has
+  // been answered, so what it holds still holds: only a provably later usable
+  // reading releases it.
+  if (latest) {
+    for (const g of earlier.filter(e => !(e.t !== undefined && latest.t !== undefined && e.t < latest.t))) {
+      if (g.kind === 'HI' && latest.kind !== 'HI') out.push(meterHi);
+      if (needsKetones(g)) out.push(noKetones);
+      if (holdsHigh(g)) out.push(high);
+    }
   }
 
   // ── Level 2 at any point today ends today (T-HYPO-REVIEW) ──
@@ -921,22 +983,9 @@ function glucoseRules(p: UserProfile, c: DailyCheckIn, d: DerivedHealth, ketones
       if (above(latest, 180) && below(latest, 600)) {
         out.push({ outcome: 'green', disposition: 'adjust', prep: [fluidLine(p, `Glucose over ${level(180, u)}: strength work can push it a little higher.`)] });
       }
-      const usableKetones = ketones !== undefined && ketones !== 'invalid';
-      if (d.ketoneRisk && atLeast(latest, 250) && !usableKetones) {
-        out.push({
-          outcome: 'red', disposition: 'hold', awaitingReading: true,
-          release: 'Test ketones and add the result. If you cannot test, follow your care team’s plan.',
-          reason: R('noKetones', `Glucose ${level(250, u)} or higher without a ketone result: test ketones before any exercise. If you cannot test, follow your care team’s plan.`, 'red', 'hold'),
-          actions: ['Test ketones if you can.'],
-        });
-      }
-      // H-T2-HIGH: a workout is never a treatment for a high.
-      if (p.health.diabetes !== 'type1' && above(latest, 300) && below(latest, 600)) {
-        out.push({
-          outcome: 'red', disposition: 'hold', awaitingReading: true, release: `Check again later; exercise once it is ${level(300, u)} or lower and you feel well.`,
-          reason: R('high', `Glucose above ${level(300, u)}: no exercise session until it is lower. Follow your care team’s plan and check again.`, 'red', 'hold'),
-          oral: [fluidLine(p, `Glucose over ${level(300, u)}.`)],
-        });
+      if (needsKetones(latest)) out.push(noKetones);
+      if (holdsHigh(latest)) {
+        out.push(high);
       } else if (d.diabetic && ketones === 'negative' && above(latest, 270)) {
         out.push({ outcome: 'amber', disposition: 'adjust', modifiers: ['INT', 'LOAD'], reason: R('veryHighGlucose', `Glucose above ${level(270, u)} with negative ketones: lighter, mostly aerobic work today.`, 'amber', 'adjust') });
       }
@@ -1079,10 +1128,45 @@ const usableHalf = (r: BpReading): BpPartialReading => ({ ...(sysUsable(r.sys) ?
 const severeIn = (r: BpReading) => (r.sys >= 180 && r.dia >= 120 ? `${r.sys}/${r.dia}` : r.sys >= 180 ? `top number ${r.sys}` : `bottom number ${r.dia}`);
 
 /** A severe number in one box, with the other empty. Out-of-range numbers are not readings. */
-const severePartial = (r: BpPartialReading) =>
+export const severePartial = (r: BpPartialReading) =>
   (r.sys !== undefined && Number.isFinite(r.sys) && r.sys >= 180 && r.sys <= 300)
   || (r.dia !== undefined && Number.isFinite(r.dia) && r.dia >= 120 && r.dia <= 200);
 const partialNamed = (r: BpPartialReading) => (r.sys !== undefined && r.sys >= 180 ? `Your top number is ${r.sys}` : `Your bottom number is ${r.dia}`);
+
+/** Every complete reading the day's check-in holds, current and earlier. */
+const dayPressures = (c: DailyCheckIn): BpReading[] => [...(c.bpReadings ?? (c.bp ? [c.bp] : [])), ...(c.bpEarlier ?? [])];
+
+/** One measurement: the same numbers, taken at the same instant, or neither timed. */
+const sameMeasurement = (a: BpReading, b: BpReading) => a.sys === b.sys && a.dia === b.dia
+  && ((a.at === undefined && b.at === undefined) || (time(a.at) !== undefined && time(a.at) === time(b.at)));
+
+/**
+ * Whether `reading` can be the complete reading of the measurement `half` was
+ * the start of (N-04, Q-02): the same number in each box the half has, taken
+ * no earlier than the half. A half with a time needs a completion with one.
+ */
+export function completes(half: BpPartialReading, reading: BpReading): boolean {
+  const boxes = (half.sys !== undefined || half.dia !== undefined)
+    && (half.sys === undefined || reading.sys === half.sys) && (half.dia === undefined || reading.dia === half.dia);
+  const from = time(half.at);
+  const taken = time(reading.at);
+  return boxes && (from === undefined || (taken !== undefined && taken >= from));
+}
+
+/**
+ * A half-entered number stands for its measurement until a complete reading
+ * of it does, and again once that reading is withdrawn (B07, N-04). Only the
+ * completion recorded when its own row was filled in counts (Q-01), and only
+ * one that can be it and that the day still holds (Q-02). Another reading
+ * with the same number is another measurement: an unlinked half, or one an
+ * older build saved, always stands, so the evidence is never taken away by a
+ * guess.
+ */
+function completedBy(c: DailyCheckIn, half: BpPartialReading, answers: readonly EpisodeAnswer[]): boolean {
+  const own = half.completion;
+  return !!own && completes(half, own)
+    && dayPressures(c).some(r => sameMeasurement(r, own) && validBp(r) && settledAs(bpReadingId(r, c.date), answers) !== 'mistake');
+}
 
 /** The message names the number that tripped: on BP medication only one of the two is often high. */
 function which(r: BpReading, hiSys: number, hiDia: number): string {
@@ -1129,6 +1213,11 @@ function bpRules(p: UserProfile, c: DailyCheckIn): Contribution[] {
   const ownLatest = own.length && ownTimes.every(t => t !== undefined) ? Math.max(...(ownTimes as number[])) : undefined;
   const later = ownLatest === undefined ? [] : (c.bpEarlier ?? []).filter(r => (time(r.at) ?? -Infinity) > ownLatest && live(r));
   const all: BpReading[] = [...own, ...later];
+  // One taken at the same instant as the current readings, or with no time on
+  // either side, is not shown to come before them: it still counts as now
+  // (R5-03). A severe one keeps its own rules below, as one reading.
+  const provablyBefore = (r: BpReading) => { const t = time(r.at); return ownLatest !== undefined && t !== undefined && t < ownLatest; };
+  const unproven = (c.bpEarlier ?? []).filter(r => !later.includes(r) && !provablyBefore(r) && validBp(r) && !severe(r) && live(r));
   const out: Contribution[] = [];
   if (all.some(r => !validBp(r))) {
     out.push({
@@ -1136,7 +1225,7 @@ function bpRules(p: UserProfile, c: DailyCheckIn): Contribution[] {
       reason: R('bpInvalid', 'A blood pressure reading cannot be used: check it and enter it again.', 'red', 'hold'),
     });
   }
-  const readings = all.filter(validBp);
+  const readings = [...all.filter(validBp), ...unproven];
   const earlierSevere = (c.bpEarlier ?? []).filter(r => !later.includes(r) && validBp(r) && severe(r) && live(r));
   const severeNow = readings.filter(severe);
   // One severe number with the other box empty (B07): it counts on its own,
@@ -1147,7 +1236,7 @@ function bpRules(p: UserProfile, c: DailyCheckIn): Contribution[] {
   // 190/100 is one measurement, not two.
   const halves: BpPartialReading[] = all.filter(r => !validBp(r)).map(usableHalf).filter(severePartial);
   const earlierHalves = (c.bpEarlier ?? []).filter(r => !later.includes(r) && !validBp(r) && severePartial(usableHalf(r)) && live(r));
-  const partial = [...(c.bpPartial ?? []).filter(r => severePartial(r) && settledAs(bpPartialId(r, c.date), answers) !== 'mistake'), ...halves];
+  const partial = [...(c.bpPartial ?? []).filter(r => severePartial(r) && settledAs(bpPartialId(r, c.date), answers) !== 'mistake' && !completedBy(c, r, answers)), ...halves];
   const dizzy = c.news.includes('dizzy') || c.news.includes('fainted');
   // New numbness or weakness reported in the back questions of the same
   // check-in is one of the signs the severe reading's own message names (E-BP, scan X2-06).
@@ -1277,12 +1366,12 @@ function bpRules(p: UserProfile, c: DailyCheckIn): Contribution[] {
 
 // ─── Sleep and energy ───────────────────────────────────────────────────────
 
-function sleepRules(c: DailyCheckIn, recent: DailyCheckIn[]): Contribution[] {
+function sleepRules(c: DailyCheckIn, before: Before): Contribution[] {
   // An unanswered sleep or energy is not a low one.
   const low = (x: DailyCheckIn) => x.sleep === 'lt5' || (x.energy !== undefined && x.energy <= 2);
   if (!low(c)) return [];
   const yesterday = previousDay(c.date);
-  const lowYesterday = recent.some(r => r.date === yesterday && low(r));
+  const lowYesterday = before.anyOn(yesterday, low);
   return lowYesterday
     ? [{ outcome: 'recovery', disposition: 'adjust', reason: R('lowTwoDays', 'Low sleep or energy two days running: a recovery session today.', 'recovery', 'adjust') }]
     : [{ outcome: 'amber', disposition: 'adjust', modifiers: ['INT', 'MINUS_SET'], reason: R('lowSleep', 'Short sleep or low energy: one set fewer per exercise and moderate effort.', 'amber', 'adjust') }];
@@ -1336,18 +1425,19 @@ const ketoneLabel = (k: KetoneReading) => (k.kind === 'blood' ? `Blood ketones $
  * before the pair is counted. Readings logged in Track count as the
  * check-in's own do (X2-01).
  */
-function seriousReadings(record: DailyCheckIn, answers: readonly EpisodeAnswer[], today: string): SeriousReading[] {
+function seriousReadings(record: DailyCheckIn, answersAbout: (id: string) => readonly EpisodeAnswer[], today: string): SeriousReading[] {
   const c = withLogged(record);
   const out: SeriousReading[] = [];
-  const live = (id: string) => settledAs(id, answers) !== 'mistake';
+  const live = (id: string) => settledAs(id, answersAbout(id)) !== 'mistake';
   const glucose = [...(c.glucoseEarlier ?? []), ...[c.glucose, c.glucoseDisplay].filter((x): x is GlucoseEntry => !!x)];
   for (const e of glucose) {
     const g = readGlucose(e);
+    // Most readings carry nothing: only a serious one is named (C2-05).
+    const kind = atLeast(g, 600) ? 'extremeGlucose' as const : isSevereLow(g) ? 'severeLow' as const : undefined;
+    if (!kind) continue;
     const id = glucoseReadingId(e, c.date);
     if (!live(id)) continue;
-    const base = { id, label: `${glucoseLabel(e)}${when(e.measuredAt, c.date, today)}`, takenAt: g.t, day: c.date };
-    if (atLeast(g, 600)) out.push({ kind: 'extremeGlucose', disposition: 'emergency', ...base });
-    else if (isSevereLow(g)) out.push({ kind: 'severeLow', disposition: 'today', ...base });
+    out.push({ kind, disposition: kind === 'extremeGlucose' ? 'emergency' : 'today', id, label: `${glucoseLabel(e)}${when(e.measuredAt, c.date, today)}`, takenAt: g.t, day: c.date });
   }
   if (c.news.includes('lowSevere') || (Array.isArray(c.newsEarlier) && c.newsEarlier.includes('lowSevere'))) {
     const id = newsReadingId(c.date, 'lowSevere');
@@ -1451,10 +1541,11 @@ export function reopenedByReport(saved: DailyCheckIn, next: DailyCheckIn): Episo
   ];
   const answers = next.resolutions ?? [];
   return again.flatMap(({ kind, id }) => {
-    if (settledAs(id, answers) === undefined) return [];
-    const last = answers.filter(a => a.readings.includes(id)).map(a => a.at).sort().at(-1)!;
-    const t = Date.parse(last);
-    return [{ kind, readings: [id], resolution: 'reopened' as const, at: Number.isFinite(t) ? new Date(t + 1).toISOString() : last }];
+    const latest = standingAnswer(answers, id);
+    if (!latest || latest.resolution === 'reopened') return [];
+    // An unreadable time is matched instead: at the same instant, the reopening is the stricter.
+    const t = answeredAt(latest);
+    return [{ kind, readings: [id], resolution: 'reopened' as const, at: Number.isFinite(t) ? new Date(t + 1).toISOString() : latest.at }];
   });
 }
 
@@ -1491,6 +1582,19 @@ const dayStart = (date: string) => { const [y, m, d] = date.split('-').map(Numbe
 const dayEnd = (date: string) => dayStart(date) + 24 * 3_600_000 - 1;
 
 /**
+ * Test seam (C2-05, N-06): read the history the plain way, as the engine did
+ * before it indexed answers and shared one history across evaluations: every
+ * record's answers its own and every later record's flattened together, the
+ * last check-in evaluated again from scratch, and many days evaluated one by
+ * one. A test can then show the faster reading decides exactly the same. The
+ * app never sets it.
+ */
+let plainAnswers = false;
+export function plainAnswersForTests(on: boolean): void {
+  plainAnswers = on;
+}
+
+/**
  * What earlier check-ins still ask of today. Nothing here expires with the
  * date (Codex round 3 B01; board instruction: no invented hour window):
  *
@@ -1512,22 +1616,19 @@ const dayEnd = (date: string) => dayStart(date) + 24 * 3_600_000 - 1;
  * `now` dates "more than a day old"; without it, the start of `date`, which
  * can only make an item younger.
  */
-function carriedRules(profile: UserProfile, c: DailyCheckIn | undefined, date: string, recent: readonly DailyCheckIn[], now?: Date): { contributions: Contribution[]; readings: Carried[] } {
-  const earlier = [...recent].filter(x => x.date < date).sort((a, b) => a.date.localeCompare(b.date));
+function carriedRules(profile: UserProfile, c: DailyCheckIn | undefined, date: string, before: Before, now?: Date): { contributions: Contribution[]; readings: Carried[] } {
   const out: Contribution[] = [];
   const readings: Carried[] = [];
   const todayAnswers = c?.resolutions ?? [];
   const unit = profile.health.glucoseUnit ?? 'mg/dL';
   const ref = now?.getTime() ?? dayStart(date);
   const isOld = (r: { takenAt?: number; day: string }) => ref - (r.takenAt ?? dayEnd(r.day)) > CARRY_URGENT_HOURS * 3_600_000;
-  const latestAnswer = (answers: readonly EpisodeAnswer[], id: string) =>
-    [...answers].filter(a => a.readings.includes(id)).sort((x, y) => (x.at < y.at ? -1 : 1)).at(-1);
   /** One red flag or foot problem: asked about by name, and holding its own restriction until its own release (R5-01). */
-  const flagIncident = (flag: Flag, day: string, label: string, from: string, old: boolean, answers: readonly EpisodeAnswer[]) => {
+  const flagIncident = (flag: Flag, day: string, label: string, from: string, old: boolean, answersAbout: (id: string) => readonly EpisodeAnswer[]) => {
     const f = FLAGS[flag];
     const id = flagId(flag, day);
     const accepts = FLAG_ACCEPTS[flag];
-    const latest = latestAnswer(answers, id);
+    const latest = standingAnswer(answersAbout(id), id);
     const settled = latest && accepts.includes(latest.resolution as EpisodeResolution) ? latest.resolution as EpisodeResolution : undefined;
     readings.push({ kind: f.kind, id, label, disposition: 'today', day, accepts, ...(settled ? { settled } : {}), ...(old ? { old: true as const } : {}) });
     if (settled) return;
@@ -1551,13 +1652,19 @@ function carriedRules(profile: UserProfile, c: DailyCheckIn | undefined, date: s
     }
   };
 
-  for (let i = 0; i < earlier.length; i++) {
-    const record = earlier[i];
-    // The answer about a reading can be given on its own day or any day since.
-    const answers = [...answersFor(record, earlier.slice(i + 1)), ...todayAnswers];
-    for (const r of seriousReadings(record, answers, date)) {
+  // The answer about a reading can be given on its own day or any day since,
+  // so a record's are its own and every later record's, today's last.
+  const answersSince = before.answers(todayAnswers);
+  const yesterday = previousDay(date);
+
+  // Only the records that can carry anything are gone over (N-06): every
+  // other one carries nothing, whatever is answered.
+  for (const i of before.carrying()) {
+    const record = before.at(i);
+    const answers = answersSince(i);
+    for (const r of before.serious(i, answers, date)) {
       const old = isOld(r);
-      const latest = latestAnswer(answers, r.id);
+      const latest = standingAnswer(answers(r.id), r.id);
       // "Dealt with at the time" answers only a reading more than a day old.
       const settled = latest && latest.resolution !== 'reopened' && (latest.resolution !== 'resolved' || old) ? latest.resolution : undefined;
       readings.push({ ...r, ...(settled ? { settled } : {}), ...(old ? { old: true as const } : {}) });
@@ -1585,17 +1692,17 @@ function carriedRules(profile: UserProfile, c: DailyCheckIn | undefined, date: s
     }
     // Red flags and foot problems, by name, until their own release is given (X2-02, X2-03, R5-01).
     if (record.readingsOnly) continue;
-    for (const flag of flagsOf(record)) {
-      const label = `${FLAGS[flag].label}${when(undefined, record.date, date)}`;
-      flagIncident(flag, record.date, label, `From your check-in${when(undefined, record.date, date)}`, record.date < previousDay(date), answers);
-    }
+    const flags = before.flags(i);
+    if (!flags.length) continue;
+    const on = when(undefined, record.date, date);
+    for (const flag of flags) flagIncident(flag, record.date, `${FLAGS[flag].label}${on}`, `From your check-in${on}`, record.date < yesterday, answers);
   }
   // Said earlier today and unticked since (R5-01): the same incident, by the
   // same id, as tomorrow's carry would be.
   if (c) {
     const now = flagsIn(c);
     for (const flag of flagsEarlierIn(c)) {
-      if (!now.includes(flag)) flagIncident(flag, c.date, `${FLAGS[flag].label}, today`, 'Earlier today', false, todayAnswers);
+      if (!now.includes(flag)) flagIncident(flag, c.date, `${FLAGS[flag].label}, today`, 'Earlier today', false, answersSince(before.size));
     }
   }
 
@@ -1604,21 +1711,225 @@ function carriedRules(profile: UserProfile, c: DailyCheckIn | undefined, date: s
   // chest pain at 00:01. A day that holds only readings logged in Track, or
   // only what was reported during movement, is nobody's check-in (X2-01,
   // R5-07): it neither answers nor hides the last one.
-  const last = earlier.filter(answeredCheckIn).at(-1);
-  if (last && (!c || c.emergency === undefined)) {
-    const before = earlier.filter(x => x.date < last.date);
-    const r = evaluateCheckIn(profile, last, before);
-    for (const reason of r.reasons) {
+  const last = !c || c.emergency === undefined ? before.lastCheckIn(profile) : undefined;
+  if (last) {
+    for (const reason of last.readiness.reasons) {
       const d = reason.disposition ?? 'adjust';
       if ((d !== 'emergency' && d !== 'today') || READING_CODES.has(reason.code) || FLAG_CODES.has(reason.code) || reason.code.startsWith('carried')) continue;
       out.push({
         outcome: reason.outcome, disposition: d,
         ...(d === 'emergency' ? {} : { release: 'Answer today’s check-in to update this.' }),
-        reason: R(`carried:${reason.code}`, `From your last check-in${when(undefined, last.date, date)}: ${reason.message}`, reason.outcome, d),
+        reason: R(`carried:${reason.code}`, `From your last check-in${when(undefined, last.record.date, date)}: ${reason.message}`, reason.outcome, d),
       });
     }
   }
   return { contributions: out, readings };
+}
+
+// ─── The days before (N-06) ─────────────────────────────────────────────────
+
+/**
+ * The records before the day being evaluated, read the ways the rules read
+ * them. `evaluateCheckIn` reads them from the list it is given, as it always
+ * has (`listedBefore`); `evaluateDays` from one history prepared once
+ * (`preparedHistory`), so a thousand days of a long history cost little more
+ * than going over it once. The two must read alike, exactly: a differential
+ * test holds them to it.
+ */
+interface Before {
+  /** How many earlier records there are. */
+  readonly size: number;
+  /** The `i`th earlier record, oldest first. */
+  at(i: number): DailyCheckIn;
+  /** The earlier records the carried rules can find anything in, by `at` index, oldest first. */
+  carrying(): Iterable<number>;
+  /** The `i`th record's serious readings, as `seriousReadings` finds them with these answers. */
+  serious(i: number, answersAbout: (id: string) => readonly EpisodeAnswer[], today: string): SeriousReading[];
+  /** The `i`th record's red flags and foot problems (`flagsOf`). */
+  flags(i: number): Flag[];
+  /** By the record an answer came in: the answers about one reading given from the `from`th earlier record on, then today's. */
+  answers(today: readonly EpisodeAnswer[]): (from: number) => (id: string) => readonly EpisodeAnswer[];
+  /** The latest earlier record that says how far leg symptoms reach. */
+  latestReach(): DailyCheckIn | undefined;
+  /** The earlier records dated `from` or later. */
+  since(from: string): DailyCheckIn[];
+  /** The earlier record of `day`. */
+  on(day: string): DailyCheckIn | undefined;
+  /** Whether an earlier record of `day` says `test`. */
+  anyOn(day: string, test: (c: DailyCheckIn) => boolean): boolean;
+  /** The last earlier check-in that answered its questions, as it was evaluated against the days before it. */
+  lastCheckIn(profile: UserProfile): { record: DailyCheckIn; readiness: Readiness } | undefined;
+}
+
+/** Every answer, by each reading it names, with the position of the record it came in (C2-05). */
+type AnswerIndex = Map<string, { from: number; answer: EpisodeAnswer }[]>;
+function indexAnswers(named: AnswerIndex, answers: readonly EpisodeAnswer[] | undefined, from: number): void {
+  for (const answer of answers ?? []) {
+    for (const id of new Set(Array.isArray(answer.readings) ? answer.readings : [])) {
+      const list = named.get(id);
+      if (list) list.push({ from, answer });
+      else named.set(id, [{ from, answer }]);
+    }
+  }
+}
+
+// Dates are YYYY-MM-DD, so their characters' order is their order: no collation needed for thousands of them (C2-05).
+const byDate = (a: DailyCheckIn, b: DailyCheckIn) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+
+/** The records of `recent` before `date`, read from the list itself every time, as the engine always has. */
+function listedBefore(recent: readonly DailyCheckIn[], date: string): Before {
+  let sorted: DailyCheckIn[] | undefined;
+  const earlier = () => (sorted ??= [...recent].filter(x => x.date < date).sort(byDate));
+  return {
+    get size() { return earlier().length; },
+    at: i => earlier()[i],
+    carrying: () => earlier().keys(),
+    serious: (i, answersAbout, today) => seriousReadings(earlier()[i], answersAbout, today),
+    flags: i => flagsOf(earlier()[i]),
+    answers: today => {
+      const e = earlier();
+      const named: AnswerIndex = new Map();
+      e.forEach((record, i) => indexAnswers(named, record.resolutions, i));
+      indexAnswers(named, today, e.length);
+      return from => {
+        if (plainAnswers) {
+          const all = from < e.length ? [...answersFor(e[from], e.slice(from + 1)), ...today] : [...today];
+          return () => all;
+        }
+        return id => (named.get(id) ?? []).filter(x => x.from >= from).map(x => x.answer);
+      };
+    },
+    // The latest day's; of two records of that day, the later in the list, as the engine has always picked (Q-03).
+    latestReach: () => recent.reduce<DailyCheckIn | undefined>((best, r) => (r.date < date && r.back?.reach && (!best || r.date >= best.date) ? r : best), undefined),
+    since: from => recent.filter(r => r.date < date && r.date >= from),
+    on: day => recent.find(r => r.date === day),
+    anyOn: (day, test) => recent.some(r => r.date === day && test(r)),
+    lastCheckIn: p => {
+      const e = earlier();
+      const last = e.filter(answeredCheckIn).at(-1);
+      if (!last) return undefined;
+      const prior = e.filter(x => x.date < last.date);
+      // Read from one history, so each older check-in it leads back to is
+      // evaluated once, not again from scratch at every step (N-06).
+      const shared = plainAnswers ? undefined : preparedHistory(p, prior);
+      return { record: last, readiness: shared ? evaluateWith(p, last, shared(last.date)) : evaluateCheckIn(p, last, prior) };
+    },
+  };
+}
+
+/**
+ * One history, prepared once for `profile`: sorted, its answers indexed, the
+ * records that can carry anything found, and the latest of a few kinds of
+ * record kept for every position. The days before any date are then a prefix
+ * of it, read without going over the rest. Records of one date keep the
+ * history's order, so each rule picks among them as it does from the list
+ * (Q-03).
+ */
+function preparedHistory(profile: UserProfile, history: readonly DailyCheckIn[]): (date: string) => Before {
+  const sorted = [...history].sort(byDate);
+  const dates = sorted.map(x => x.date);
+  /** The first position dated `date` or later. */
+  const from = (date: string) => {
+    let lo = 0;
+    let hi = dates.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (dates[mid] < date) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  // With no answer at all a record carries the most it ever can: an answer
+  // only settles. What it carries then is kept, with the readings it asked
+  // about; only an answer saying one of those was typed wrongly changes it.
+  // Its labels name its day, which is never the day evaluated.
+  const asked = sorted.map(() => [] as string[]);
+  const unanswered = sorted.map((x, i) => seriousReadings(x, id => { asked[i].push(id); return []; }, ''));
+  const flagged = sorted.map(x => flagsOf(x));
+  const carriers = sorted.flatMap((x, i) => (unanswered[i].length || (!x.readingsOnly && flagged[i].length) ? [i] : []));
+  const named: AnswerIndex = new Map();
+  sorted.forEach((x, i) => indexAnswers(named, x.resolutions, i));
+  /** For every prefix length, the last check-in that answered its questions and the last record saying how far leg symptoms reach. */
+  const lastAnswered: number[] = [-1];
+  const lastReach: number[] = [-1];
+  /** Where each record's date begins: the days before a record are the positions before that. */
+  const dayStarts: number[] = [];
+  sorted.forEach((x, i) => {
+    lastAnswered.push(answeredCheckIn(x) ? i : lastAnswered[i]);
+    lastReach.push(x.back?.reach ? i : lastReach[i]);
+    dayStarts.push(i > 0 && dates[i - 1] === x.date ? dayStarts[i - 1] : i);
+  });
+  const evaluatedAt = new Map<number, Readiness>();
+  const before = (end: number): Before => ({
+    size: end,
+    at: i => sorted[i],
+    carrying: () => carriers.slice(0, count(carriers, end)),
+    serious: (i, answersAbout, today) => (asked[i].some(id => settledAs(id, answersAbout(id)) === 'mistake') ? seriousReadings(sorted[i], answersAbout, today) : unanswered[i]),
+    flags: i => flagged[i],
+    answers: today => {
+      const mine: AnswerIndex = new Map();
+      indexAnswers(mine, today, end);
+      return start => id => [...(named.get(id) ?? []).filter(x => x.from >= start && x.from < end), ...(mine.get(id) ?? [])].map(x => x.answer);
+    },
+    latestReach: () => (lastReach[end] >= 0 ? sorted[lastReach[end]] : undefined),
+    since: day => sorted.slice(from(day), end),
+    // The first record of the day, as finding it in the list does.
+    on: day => {
+      const i = from(day);
+      return i < end && dates[i] === day ? sorted[i] : undefined;
+    },
+    anyOn: (day, test) => {
+      for (let i = from(day); i < end && dates[i] === day; i++) if (test(sorted[i])) return true;
+      return false;
+    },
+    lastCheckIn: () => {
+      const j = lastAnswered[end];
+      if (j < 0) return undefined;
+      // A check-in with no "Right now" answer reads the one before it, and so
+      // on down: evaluated from the oldest of that run up, so a long run of
+      // older records is never a deep recursion.
+      const run: number[] = [];
+      for (let x = j; x >= 0 && !evaluatedAt.has(x); x = sorted[x].emergency === undefined ? lastAnswered[dayStarts[x]] : -1) run.push(x);
+      for (const x of run.reverse()) evaluatedAt.set(x, evaluateWith(profile, sorted[x], before(dayStarts[x])));
+      return { record: sorted[j], readiness: evaluatedAt.get(j)! };
+    },
+  });
+  return date => before(from(date));
+}
+
+/** How many of the ascending positions `list` are before `end`. */
+function count(list: readonly number[], end: number): number {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid] < end) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * Many days evaluated against one history at once (N-06): for each of `days`,
+ * exactly what `evaluateCheckIn(profile, day, history, now)` gives it, with
+ * the history prepared once instead of gone over again for every day, a date
+ * it holds twice included (Q-03). Any readiness the records already hold is
+ * not read, a record's own date decides which records are its earlier days,
+ * and `days` need not be in `history`. Without `days`, every record of the
+ * history.
+ */
+export function evaluateDays(
+  profile: UserProfile,
+  history: readonly DailyCheckIn[],
+  days: Iterable<DailyCheckIn> = history,
+  now?: Date,
+): Map<DailyCheckIn, Readiness> {
+  const prepared = plainAnswers ? undefined : preparedHistory(profile, history);
+  const out = new Map<DailyCheckIn, Readiness>();
+  for (const day of days) {
+    out.set(day, prepared ? evaluateWith(profile, day, prepared(day.date), now) : evaluateCheckIn(profile, day, [...history], now));
+  }
+  return out;
 }
 
 /**
@@ -1663,7 +1974,7 @@ function episodeSummaries(record: DailyCheckIn | undefined, date: string, carrie
     }
     // One with a number that cannot be used is named as typed, so a typo can be answered as one (R5-06).
     for (const r of c.bpEarlier ?? []) if (validBp(r) ? severe(r) : severePartial(usableHalf(r))) add('severeBp', bpReadingId(r, c.date), `Blood pressure ${r.sys}/${r.dia}${when(r.at, c.date, date)}`);
-    for (const r of c.bpPartial ?? []) if (severePartial(r)) add('severeBp', bpPartialId(r, c.date), `${partialNamed(r).replace('Your ', 'A ')}${when(r.at, c.date, date)}, other number not entered`);
+    for (const r of c.bpPartial ?? []) if (severePartial(r) && !completedBy(c, r, answers)) add('severeBp', bpPartialId(r, c.date), `${partialNamed(r).replace('Your ', 'A ')}${when(r.at, c.date, date)}, other number not entered`);
     // It happened, and the day is over; or it was ticked by mistake.
     for (const n of saidEarlier) add('news', newsReadingId(c.date, n), DAY_ENDING[n], ['mistake']);
   }
@@ -1696,25 +2007,50 @@ function profileContributions(profile: UserProfile): { contributions: Contributi
  * the check-in's day.
  */
 export function evaluateCheckIn(profile: UserProfile, checkIn: DailyCheckIn, recent: DailyCheckIn[] = [], now?: Date): Readiness {
+  return evaluateWith(profile, checkIn, listedBefore(recent, checkIn.date), now);
+}
+
+function evaluateWith(profile: UserProfile, checkIn: DailyCheckIn, before: Before, now?: Date): Readiness {
   const d = deriveHealth(profile.health);
   const base = profileContributions(profile);
-  // Readings logged in Track count as the check-in's own (X2-01).
+  /** The day's own rules for one record of it. Readings logged in Track count as the check-in's own (X2-01). */
+  const dayRules = (raw: DailyCheckIn): Contribution[] => {
+    const c = withLogged(raw);
+    const ketones = ketoneRules(c);
+    return [
+      ...emergencyRules(c),
+      ...backRules(c, before),
+      ...newsRules(profile, c, d, lowsIn(raw, before, now)),
+      ...glucoseRules(profile, c, d, ketones.level, before),
+      ...ketones.contributions,
+      ...bpRules(profile, c),
+      ...sleepRules(c, before),
+    ];
+  };
   const c = withLogged(checkIn);
-  const ketones = ketoneRules(c);
-  const carried = carriedRules(profile, c, c.date, recent, now);
+  const carried = carriedRules(profile, c, c.date, before, now);
+  // What the device has stored for the day is the least the day says (N-01):
+  // answers it has not stored can add to it, never take from it, even with a
+  // newer reading that would otherwise be the current one. One merge, so its
+  // safeguards (nothing by mouth, no preparation beside a stop) still apply.
+  const stored = durableView(checkIn);
   const r = merge([
     ...base.contributions,
-    ...emergencyRules(c),
-    ...backRules(c, recent),
-    ...newsRules(profile, c, d, recordedLows(checkIn, recent, now)),
-    ...glucoseRules(profile, c, d, ketones.level, recent),
-    ...ketones.contributions,
-    ...bpRules(profile, c),
-    ...sleepRules(c, recent),
+    ...dayRules(checkIn),
+    ...(stored ? dayRules(stored) : []),
     ...carried.contributions,
   ], base.vigorousLocked, base.rpeOnly);
   const episodes = episodeSummaries(c, c.date, carried.readings, newsSaidEarlier(c, d));
   return episodes.length ? { ...r, episodes } : r;
+}
+
+/** The day as the device has stored it, with the same Track readings, when answers it has not stored are merged into `c` (N-01). */
+export function durableView(c: DailyCheckIn): DailyCheckIn | undefined {
+  const d = c.durable;
+  if (!d || d.date !== c.date) return undefined;
+  const { durable: _nested, ...stored } = d;
+  void _nested;
+  return c.logged ? { ...stored, logged: c.logged } : stored;
 }
 
 function defaultDisposition(c: Contribution): Disposition {
@@ -1768,7 +2104,7 @@ function merge(cs: Contribution[], vigorousLocked: boolean, rpeOnly: boolean): R
     for (const a of c.prep ?? []) if (!prep.includes(a)) prep.push(a);
     for (const n of c.notices ?? []) if (!notices.includes(n)) notices.push(n);
     if (c.recheckMinutes) recheckMinutes = Math.max(recheckMinutes ?? 0, c.recheckMinutes);
-    if (c.recheckAt && (!recheckAt || c.recheckAt > recheckAt)) recheckAt = c.recheckAt;
+    if (c.recheckAt && (!recheckAt || Date.parse(c.recheckAt) > Date.parse(recheckAt))) recheckAt = c.recheckAt;
     if (c.nerveFlag) nerveFlag = true;
     if (c.back && backRank.indexOf(c.back) > backRank.indexOf(back)) back = c.back;
     if (c.capHeavy) capHeavy = true;
@@ -1806,7 +2142,7 @@ function merge(cs: Contribution[], vigorousLocked: boolean, rpeOnly: boolean): R
  */
 export function profileOnlyReadiness(profile: UserProfile, day?: { date: string; recent: readonly DailyCheckIn[]; now?: Date }): Readiness {
   const base = profileContributions(profile);
-  const carried = day ? carriedRules(profile, undefined, day.date, day.recent, day.now) : { contributions: [], readings: [] };
+  const carried = day ? carriedRules(profile, undefined, day.date, listedBefore(day.recent, day.date), day.now) : { contributions: [], readings: [] };
   const r = merge([...base.contributions, ...carried.contributions], base.vigorousLocked, base.rpeOnly);
   const episodes = day ? episodeSummaries(undefined, day.date, carried.readings) : [];
   return episodes.length ? { ...r, episodes } : r;

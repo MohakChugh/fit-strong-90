@@ -17,7 +17,7 @@
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import type { AppData, BodyMetric, PersonalRecord, UserSettings, WorkoutSession } from '@/types';
-import type { CheckInRecord, DailyCheckIn, EmergencyFlag, EpisodeAnswer, EpisodeKind, GlucoseUnit, RedFlag, UrineKetoneCategory } from '@/types/checkin';
+import type { BpReading, CheckInRecord, DailyCheckIn, EmergencyFlag, EpisodeAnswer, EpisodeKind, RedFlag } from '@/types/checkin';
 import type { DayFocus } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import {
@@ -35,10 +35,11 @@ import {
 import { StoreFailure, toFailure, type Db, type StoreResult } from './db';
 import { SCHEMA_VERSION, projectV4 } from './migrate';
 import { withReadingRemoved, type CheckInReading } from '@/components/checkin/pending';
-import { evaluateCheckIn } from '@/engine/readiness';
+import { evaluateDays } from '@/engine/readiness';
 import { readProfile, readSettings } from './importCheck';
-import { liftBodyMetric, liftSessionPain, readingKey } from './project';
-import { commitChange, readSnapshot, type Change, type Snapshot } from './snapshot';
+import { checkInEventId, liftBodyMetric, liftSessionPain, readingKey } from './project';
+import { commitChange, keptCheckIn, keptSession, readSnapshot, type Change, type Snapshot } from './snapshot';
+import { damagedReading, unreadableReading, type Problem } from './readings';
 
 export const TRANSFER_FORMAT = 'fit-strong-health-record';
 
@@ -246,84 +247,6 @@ const listOf = (ok: (x: unknown) => boolean) => (x: unknown) => Array.isArray(x)
 const named = (names: Readonly<Record<string, true>>) => (x: unknown) => isText(x) && Object.hasOwn(names, x);
 const isBool = (x: unknown) => typeof x === 'boolean';
 
-/*
- * Readings: what makes one unreadable, in words for the person, or nothing.
- * The engine passes over a reading it cannot read, so a dangerous one would
- * be lost without a word; a file holding one is refused whole instead,
- * naming it (`unreadableReading`).
- *
- * Every time in a check-in is an instant with its offset, as every build
- * writes it. Any other text is still read as a moment, some other one: "5" is
- * a day in 2001, so a serious reading is years old, a stale one looks fresh,
- * and an answer given today is not today's.
- */
-type Problem = string | undefined;
-const GLUCOSE_UNITS: Record<GlucoseUnit, true> = { 'mg/dL': true, 'mmol/L': true };
-const URINE: Record<UrineKetoneCategory, true> = { negative: true, trace: true, small: true, moderate: true, large: true };
-/** What the file says, briefly, so the person can find it. */
-const quoted = (x: unknown) => (isText(x) ? ` ("${x.slice(0, 20)}")` : '');
-const timeProblem = (at: unknown, what: string): Problem => (optional(at, isAt) ? undefined : `${what} whose time cannot be read`);
-
-/** As the engine reads one: a meter's HI or LO where there is a `display`, a number in its unit otherwise. */
-function glucoseProblem(x: unknown, as: 'number' | 'display' | 'either'): Problem {
-  if (!isRecord(x)) return 'a glucose reading this app cannot read';
-  if (as === 'display' || (as === 'either' && 'display' in x)) {
-    if (x.display !== 'HI' && x.display !== 'LO') return `a glucose meter display other than HI or LO${quoted(x.display)}`;
-    return timeProblem(x.measuredAt, 'a glucose meter display');
-  }
-  if (!isNumber(x.value)) return 'a glucose reading whose number cannot be read';
-  if (!named(GLUCOSE_UNITS)(x.unit)) return `a glucose reading in a unit this app does not know${quoted(x.unit)}`;
-  return timeProblem(x.measuredAt, 'a glucose reading');
-}
-
-function ketoneProblem(x: unknown): Problem {
-  if (!isRecord(x)) return 'a ketone reading this app cannot read';
-  if (x.kind === 'blood') {
-    if (!isNumber(x.value)) return 'a blood ketone reading whose number cannot be read';
-  } else if (x.kind === 'urine') {
-    // A strip is its colour; before v5 it was stored as the number the old sheet gave that colour.
-    if (!optional(x.category, named(URINE))) return `a urine ketone strip reading this app does not know${quoted(x.category)}`;
-    if (!optional(x.value, isNumber)) return 'a urine ketone strip reading whose number cannot be read';
-  } else {
-    return `a ketone reading of a kind this app does not know${quoted(x.kind)}`;
-  }
-  return timeProblem(x.measuredAt, 'a ketone reading');
-}
-
-/** A partial reading is one severe number with the other box left empty (B07). */
-function pressureProblem(x: unknown, partial = false): Problem {
-  if (!isRecord(x)) return 'a blood pressure reading this app cannot read';
-  const number = partial ? (n: unknown) => optional(n, isNumber) : isNumber;
-  if (!number(x.sys) || !number(x.dia)) return 'a blood pressure reading whose numbers cannot be read';
-  return timeProblem(x.at, 'a blood pressure reading');
-}
-
-/** Every reading a check-in holds: the field, what is wrong with one, and whether the field is a list of them. */
-const READINGS: [string, (x: unknown) => Problem, boolean][] = [
-  ['glucose', x => glucoseProblem(x, 'number'), false],
-  ['glucoseDisplay', x => glucoseProblem(x, 'display'), false],
-  ['glucoseEarlier', x => glucoseProblem(x, 'either'), true],
-  ['ketones', ketoneProblem, false],
-  ['ketonesEarlier', ketoneProblem, true],
-  ['bp', x => pressureProblem(x), false],
-  ['bpReadings', x => pressureProblem(x), true],
-  ['bpEarlier', x => pressureProblem(x), true],
-  ['bpPartial', x => pressureProblem(x, true), true],
-];
-
-/** The first reading in a check-in this app cannot read, in words; nothing when every one can be read. */
-function unreadableReading(c: Record<string, unknown>): Problem {
-  for (const [field, problem, list] of READINGS) {
-    const value = c[field];
-    if (value === undefined) continue;
-    // A list that is not one holds nothing that can be read.
-    for (const reading of list ? (Array.isArray(value) ? value : [null]) : [value]) {
-      const found = problem(reading);
-      if (found) return found;
-    }
-  }
-  return undefined;
-}
 /** Every red flag this build names: the engine reads each one a day carries by its name (R5-01). */
 const RED_FLAGS: Record<RedFlag, true> = { newWeakness: true, backFever: true, backSudden: true, footProblem: true, hotSwollenFoot: true };
 const isRedFlag = named(RED_FLAGS);
@@ -355,9 +278,9 @@ export function isCheckInRecord(x: unknown): x is CheckInRecord {
     && optional(x.urgentSymptoms, isBool) && optional(x.emergency, listOf(named(EMERGENCY)))
     // Read as true or false, where a word would say the opposite: recovered from a low.
     && optional(x.lowRecovered, isBool)
-    // Never stored: the gates attach them to a day for themselves. Stored, they
-    // would act as readings nobody took, or skip the day's red flags.
-    && x.logged === undefined && x.readingsOnly === undefined
+    // Never kept: what the gates attach to a day for themselves is let go of on
+    // the way in (`keptCheckIn`, `keptSession`). One still holding it could not be read.
+    && x.logged === undefined && x.readingsOnly === undefined && x.durable === undefined
     && optional(x.sleep, isText) && optional(x.energy, isNumber) && optional(x.lowSymptomsAt, isAt)
     // A pain slider left untouched is not an answer, so back answers can come
     // without a score (J03, J16). Any value at all for the newer weakness and
@@ -494,13 +417,24 @@ function parse(raw: unknown): ParseResult {
   // A reading this app cannot read is never left out with its day, even when
   // asked to import the rest: a dangerous one would be lost without a word.
   // The file is refused, saying which day holds what. A session keeps its own
-  // copy of its day's check-in, read the same way.
+  // copy of its day's check-in, read the same way. Each is read with what
+  // Track attached to it, and before anything is made of it: folding readings
+  // into a damaged record would fail on it, or hide what is wrong (P-03).
   const embedded = lists.sessions!.map(s => (isRecord(s) ? s.checkIn : undefined));
+  const damaged = (c: unknown, problem: (c: Record<string, unknown>) => Problem): ParseResult | undefined => {
+    if (!isRecord(c)) return undefined;
+    const found = problem(c);
+    return found ? { ok: false, reason: `That file's check-in${isDay(c.date) ? ` for ${c.date}` : ''} holds ${found}. It may be damaged.` } : undefined;
+  };
   for (const c of [...lists.checkIns!, ...embedded]) {
-    if (!isRecord(c)) continue;
-    const problem = unreadableReading(c);
-    if (problem) return { ok: false, reason: `That file's check-in${isDay(c.date) ? ` for ${c.date}` : ''} holds ${problem}. It may be damaged.` };
+    const refused = damaged(c, damagedReading);
+    if (refused) return refused;
   }
+  // Earlier saves kept the screens' copy of a day, Track's readings attached,
+  // with a session and as the day's own record too (N-02, P-01): read as it
+  // is now kept, never refused for that, so nobody's own backup is.
+  const checkInsIn = lists.checkIns!.map(c => (isRecord(c) ? keptCheckIn(c as unknown as DailyCheckIn) : c));
+  const sessionsIn = lists.sessions!.map(s => (isRecord(s) ? keptSession(s) : s));
 
   const rejected = zero();
   const keep = <T>(list: unknown[], ok: (x: unknown) => x is T, slot: keyof CollectionCounts): T[] => {
@@ -510,8 +444,8 @@ function parse(raw: unknown): ParseResult {
   };
 
   const observations = keep(lists.observations!, isObservation, 'observations');
-  const sessions = keep(lists.sessions!, isSessionRecord, 'sessions');
-  const checkIns = keep(lists.checkIns!, isCheckInRecord, 'checkIns');
+  const sessions = keep(sessionsIn, isSessionRecord, 'sessions');
+  const checkIns = keep(checkInsIn, isCheckInRecord, 'checkIns');
   const personalRecords = keep(lists.personalRecords!, isPersonalRecord, 'personalRecords');
   const bodyMetrics = keep(lists.bodyMetrics!, isBodyMetric, 'bodyMetrics');
   const contentState = keep(lists.contentState!, isContentRow, 'contentState');
@@ -624,6 +558,63 @@ function checkInReadingsOf(list: readonly Observation[]): CheckInReading[] {
   return out;
 }
 
+/**
+ * A record's own timed readings, each with the names a deletion remembers it
+ * by (`readingKey`, as a lift names its record), so a deleted one can come
+ * out of a record whose lifted copy is not in the file at all (N-05). A
+ * pressure reading goes when either half was deleted, as a lift leaves it
+ * out. One without a time of its own is known only by its lifted record.
+ */
+function timedReadingsOf(c: DailyCheckIn): { reading: CheckInReading; keys: string[] }[] {
+  const out: { reading: CheckInReading; keys: string[] }[] = [];
+  const day = `checkIn:${c.date}`;
+  for (const g of [...(c.glucoseEarlier ?? []), ...(c.glucose ? [c.glucose] : [])]) {
+    if ('display' in g || !isAt(g.measuredAt)) continue;
+    const reading = { kind: 'glucose' as const, at: g.measuredAt, value: g.value, unit: g.unit };
+    out.push({ reading, keys: [readingKey({ ...reading, context: day })!] });
+  }
+  const pair = bpContext(checkInEventId(c.date, 0));
+  // As a lift reads them (project.ts): each reading the record keeps, or where
+  // an older record kept only the day's blood pressure, that one; and every
+  // earlier one.
+  const pressures: BpReading[] = [...(c.bpReadings?.length ? c.bpReadings : c.bp ? [c.bp] : []), ...(c.bpEarlier ?? [])];
+  for (const p of pressures) {
+    if (!isAt(p.at)) continue;
+    out.push({
+      reading: { kind: 'pressure', at: p.at, sys: p.sys, dia: p.dia },
+      keys: [
+        readingKey({ kind: 'bloodPressureSystolic', at: p.at, value: p.sys, context: pair })!,
+        readingKey({ kind: 'bloodPressureDiastolic', at: p.at, value: p.dia, context: pair })!,
+      ],
+    });
+  }
+  return out;
+}
+
+/** The record without the readings these names say were deleted: the same record when none was. */
+function withoutReadings(c: CheckInRecord, gone: ReadonlySet<string>): CheckInRecord {
+  if (gone.size === 0) return c;
+  let record = c;
+  for (const { reading, keys } of timedReadingsOf(c)) {
+    if (keys.some(k => gone.has(k))) record = (withReadingRemoved(record, reading) as CheckInRecord | undefined) ?? record;
+  }
+  return record;
+}
+
+/**
+ * The records with each one a reading was taken out of given its readiness
+ * again, worked out without it as deleting the reading in Track does: what is
+ * stored is what a gate acts on. Without a profile it cannot be, and stays.
+ */
+function reevaluated(records: CheckInRecord[], cleaned: ReadonlySet<CheckInRecord>, profile: UserProfile | undefined): CheckInRecord[] {
+  if (!profile || cleaned.size === 0) return records;
+  // One history, prepared once for every day worked out again (N-06): the
+  // engine gives each exactly what `evaluateCheckIn` would from the days
+  // before it, reading none of the readiness the records already hold.
+  const byDay = evaluateDays(profile, records, cleaned);
+  return records.map(c => (cleaned.has(c) ? { ...answersOf(c), readiness: byDay.get(c)! } as CheckInRecord : c));
+}
+
 /** A check-in's answers, without the readiness worked out from them. */
 function answersOf(c: CheckInRecord): DailyCheckIn {
   const { readiness: _derived, ...answers } = c;
@@ -647,8 +638,11 @@ function digest(text: string): string {
  * Two records under one old-style check-in reading id that are different
  * measurements, not one of them corrected (D-02). Never corrected on either
  * device, any difference means two readings. A correction changes the
- * number or the time (R5-02), so two that differ in both were two readings,
- * one of them corrected later.
+ * number or the time (R5-02), so two that differ in both are taken for two
+ * readings, one of them corrected later. A correction of both looks just the
+ * same and is kept as a second reading too, on purpose: one reading too many
+ * is more evidence, and the person can delete it; one too few could hide a
+ * low. Only an old shared id carries this doubt (`sharedOldId`).
  */
 function otherReading(here: Observation, o: Observation): boolean {
   if (sameValue(stripSeq(here), stripSeq(o))) return false;
@@ -824,18 +818,33 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
     sessionPuts.push(s);
   }
 
+  // Deletions the file knows of and this device does not, of records it does not hold, are learned.
+  const theirs = file.settings?.deleted;
+  const learn = (mine: Set<string>, list: unknown, holds: (id: string) => boolean) =>
+    (Array.isArray(list) ? list : []).filter((id): id is string => typeof id === 'string' && !mine.has(id) && !holds(id));
+  const learnedObservations = learn(goneHere.observations, theirs?.observations, id => hereObs.has(id));
+  const learnedSessions = learn(goneHere.sessions, theirs?.sessions, id => hereSessions.has(id));
+  const heldReadings = Array.isArray(theirs?.readings) && theirs.readings.length > 0
+    ? new Set([...hereObs.values()].map(readingKey).filter(Boolean))
+    : new Set<string | undefined>();
+  const learnedReadings = learn(goneHere.readings, theirs?.readings, key => heldReadings.has(key));
+
   // A reading deleted here comes out of the file's record of its day as well:
   // that record is what every gate reads, and a later save of that day would
-  // lift the reading back out of it (R5-01).
+  // lift the reading back out of it (R5-01). By its lifted record where the
+  // file holds one, and by what was measured where it does not: deleted here,
+  // or on the device the file came from, and not written again by it (N-05).
   const goneOn = new Map<string, Observation[]>();
   for (const o of incoming) {
     const day = checkInDayOf(o);
     if (day !== undefined && deletedObservation(o)) goneOn.set(day, [...(goneOn.get(day) ?? []), o]);
   }
+  const written = new Set(observationPuts.map(readingKey));
+  const gone = new Set([...goneHere.readings, ...learnedReadings].filter(key => !written.has(key)));
   const withoutDeleted = (c: CheckInRecord): CheckInRecord => {
     let record = c;
     for (const r of checkInReadingsOf(goneOn.get(c.date) ?? [])) record = (withReadingRemoved(record, r) as CheckInRecord | undefined) ?? record;
-    return record;
+    return withoutReadings(record, gone);
   };
 
   // One summary per day, folded into a map and listed once at the end: copying
@@ -859,15 +868,7 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
     byDate.set(c.date, c);
     checkInsChanged = true;
   }
-  // A record a reading was taken out of has its readiness worked out again
-  // without it, as deleting the reading in Track does: what is stored is what
-  // a gate acts on.
-  const checkIns = [...byDate.values()].map(c => {
-    if (!cleaned.has(c) || !base.profile) return c;
-    const plain = answersOf(c);
-    const recent = [...byDate.values()].filter(x => x.date < c.date);
-    return { ...plain, readiness: evaluateCheckIn(base.profile, plain, recent) } as CheckInRecord;
-  });
+  const checkIns = reevaluated([...byDate.values()], cleaned, base.profile);
 
   let personalRecords = base.personalRecords ?? [];
   let recordsChanged = false;
@@ -937,16 +938,6 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
     derivedRemovals.push(...lifted.remove);
   }
 
-  // Deletions the file knows of and this device does not, of records it does not hold, are learned.
-  const theirs = file.settings?.deleted;
-  const learn = (mine: Set<string>, list: unknown, holds: (id: string) => boolean) =>
-    (Array.isArray(list) ? list : []).filter((id): id is string => typeof id === 'string' && !mine.has(id) && !holds(id));
-  const learnedObservations = learn(goneHere.observations, theirs?.observations, id => hereObs.has(id));
-  const learnedSessions = learn(goneHere.sessions, theirs?.sessions, id => hereSessions.has(id));
-  const heldReadings = Array.isArray(theirs?.readings) && theirs.readings.length > 0
-    ? new Set([...hereObs.values()].map(readingKey).filter(Boolean))
-    : new Set<string | undefined>();
-  const learnedReadings = learn(goneHere.readings, theirs?.readings, key => heldReadings.has(key));
   const learned = learnedObservations.length + learnedSessions.length + learnedReadings.length > 0
     ? {
       observations: [...goneHere.observations, ...learnedObservations],
@@ -1132,6 +1123,17 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
   }
 
   if (mode === 'replace') {
+    // The device becomes the file, its record of what was deleted included, so
+    // the file's own summaries are made to agree with that record (N-05). An
+    // older backup still brings back what was deleted after it was made.
+    const held = new Set(file.observations.map(readingKey));
+    const gone = new Set((file.settings?.deleted?.readings ?? []).filter(key => !held.has(key)));
+    const cleaned = new Set<CheckInRecord>();
+    const pruned = file.checkIns.map(c => {
+      const kept = withoutReadings(c, gone);
+      if (kept !== c) cleaned.add(kept);
+      return kept;
+    });
     return {
       change: {
         reset: true,
@@ -1140,7 +1142,7 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
         sessions: { put: file.sessions },
         ...(file.settings !== undefined ? { settings: { replace: file.settings } } : {}),
         ...(file.profile !== undefined ? { profile: file.profile } : {}),
-        checkIns: file.checkIns,
+        checkIns: reevaluated(pruned, cleaned, file.profile),
         personalRecords: file.personalRecords,
         bodyMetrics: file.bodyMetrics,
         focusOverrides: file.focusOverrides,

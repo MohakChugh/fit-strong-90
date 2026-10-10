@@ -216,6 +216,13 @@ export interface BpPartialReading {
   sys?: number;
   dia?: number;
   at?: string;
+  /**
+   * The complete reading of the same measurement, once one was entered
+   * (N-04, P-02). The half then stands for nothing while that reading does.
+   * A correction of that reading in Track carries this along, and deleting
+   * the reading deletes the half with it.
+   */
+  completion?: BpReading;
 }
 
 export interface DailyCheckIn {
@@ -319,6 +326,14 @@ export interface DailyCheckIn {
    * carry `logged` readings to the gates. Never stored, and never a check-in.
    */
   readingsOnly?: true;
+  /**
+   * The record the device has stored for this day, attached by
+   * `effectiveRecord` while answers it has not stored yet are merged in
+   * (N-01). Every rule reads the day as at least as strict as this alone: a
+   * refused or unfinished save can add to what the device holds, never take
+   * from it, even with a newer reading. Never stored.
+   */
+  durable?: DailyCheckIn;
   /**
    * Red flags and foot problems said earlier today and unticked since
    * (R5-01): a later answer is about now, and releases nothing. Each stays
