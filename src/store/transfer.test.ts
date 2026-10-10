@@ -793,6 +793,20 @@ describe('v2 record stores in a backup (Plan 6 Task 1)', () => {
     });
   }
 
+  it('keeps erased routes erased: a file’s route from before this phone’s erase is left out, and the preview counts it (B-05)', () => {
+    const erasedAt = Date.parse('2026-10-08T10:00:00.000+05:30');
+    const erased = prepare(emptySnapshot(), { settings: { patch: { walk: { saveRoutes: true, map: 'off', routesErasedAt: erasedAt } } } }).next;
+    const before = route('walk-aaaa');
+    const after = { ...route('walk-bbbb'), startedAt: '2026-10-08T11:00:00.000+05:30' };
+    const both = withRoutes(before, after);
+    expect(previewImport(both, erased)).toMatchObject({ ok: true, records: { routes: 2 }, refusedStores: [], refusedRecords: { routes: 1 } });
+    for (const mode of ['merge', 'replace'] as const) {
+      const plan = planImport(both, mode, erased);
+      expect(prepare(erased, plan.change).next.records.routes.map(r => r.walkId)).toEqual(['walk-bbbb']);
+      expect(plan.report.records).toEqual({ routes: 1 });
+    }
+  });
+
   it('says before a Replace that this phone’s routes will go, when the file has none (Review Focus 4)', () => {
     const here = holding(route('walk-aaaa'), route('walk-bbbb'));
     expect(previewImport(file(), here)).toMatchObject({ ok: true, replaceRemoves: { routes: 2 } });

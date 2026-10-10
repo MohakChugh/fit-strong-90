@@ -59,7 +59,7 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
   // first and read last must not replace the preview of the one after it.
   const [selection] = useState(latestOnly);
   const here = recordCounts(state);
-  const heldHere = here.readings + here.sessions + here.checkIns + here.bodyMetrics + here.personalRecords;
+  const heldHere = here.readings + here.sessions + here.checkIns + here.bodyMetrics + here.personalRecords + (here.routes ?? 0);
 
   const locked = restoreLocked(stage);
 

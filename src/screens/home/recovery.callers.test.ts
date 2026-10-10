@@ -144,3 +144,17 @@ describe('Home’s recovery row (journey §9.4, V-J34)', () => {
     expect(h.text()).not.toContain('was interrupted');
   });
 });
+
+describe('Home’s recovery row after “Erase all routes” (B-05)', () => {
+  it('saves the walk without the route the erase took, whichever copy of the journal it had read', async () => {
+    await lost();
+    const h = (host = render(createElement(WalkRecoveryRow)));
+    await h.settle();
+    expect((await store.eraseRoutes()).ok).toBe(true);
+    await h.settle();
+    tap(h, 'Save');
+    await h.settle();
+    expect(ofWalk().length).toBeGreaterThan(0);
+    expect(store.getState().records.routes).toEqual([]);
+  });
+});

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { FootprintsIcon } from 'lucide-react';
 import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
@@ -15,7 +15,7 @@ import { setSettings } from '@/store/useStore';
 import type { Meal } from '@/types/habits';
 import type { WalkKind } from '@/walk/clock';
 import { canLocate, canSenseMotion, requestLocation, requestMotion } from '@/walk/browser';
-import { routeNote, walkSettings } from '@/walk/consent';
+import { consentSummary, routeNote, walkSettings } from '@/walk/consent';
 import { timeOfDay } from '@/walk/format';
 import { peekWalk } from '@/walk/persist';
 import {
@@ -280,6 +280,9 @@ export default function WalkHub() {
             >
               <SwitchRow label="Measure distance and pace" detail={gpsBusy ? 'Asking for your location…' : gpsNote ?? routeNote(walkSettings(state.settings))} checked={gps} busy={gpsBusy} onToggle={() => void toggleGps()} />
               <SwitchRow label="Count steps" detail={stepsBusy ? 'Asking for motion access…' : stepsNote ?? 'Uses the motion sensor, with the phone in your hand or pocket.'} checked={steps} busy={stepsBusy} onToggle={() => void toggleSteps()} />
+              {/* What this phone keeps, and where to change it (journey §9.1, KH-03). */}
+              <Row as={Link} to="/me/data" viewTransition label="Routes" value={consentSummary(walkSettings(state.settings)).routes} chevron />
+              <Row as={Link} to="/me/data" viewTransition label="Map pictures" value={consentSummary(walkSettings(state.settings)).map} chevron />
             </Group>
           </div>
         </HubSection>

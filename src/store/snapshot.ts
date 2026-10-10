@@ -484,8 +484,8 @@ export interface TxRead {
 }
 
 export interface CommitOptions {
-  /** Walk journal entries to read inside the transaction and hand to `resolve`, by key. */
-  journal?: readonly string[];
+  /** Walk journal entries to read inside the transaction and hand to `resolve`, by key, or every one. */
+  journal?: readonly string[] | 'all';
 }
 
 /**
@@ -509,8 +509,15 @@ export function commitChange(
   return db.transact(tx => {
     /** The journal entries asked for, read in this transaction, before anything is planned. */
     const withJournal = (then: (read: TxRead) => void) => {
-      const keys = [...new Set(options.journal ?? [])];
       const journal: Record<string, unknown> = {};
+      if (options.journal === 'all') {
+        tx.getAll(JOURNAL_STORE, rows => {
+          for (const row of rows) if (isRecord(row) && typeof row.id === 'string') journal[row.id] = row;
+          then({ journal });
+        });
+        return;
+      }
+      const keys = [...new Set(options.journal ?? [])];
       if (keys.length === 0) { then({ journal }); return; }
       let left = keys.length;
       for (const key of keys) {

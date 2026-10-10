@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONSENT, UNASKED, answered, preflightPages, routeNote, walkSettings, withConsent } from './consent';
+import { CONSENT, UNASKED, answered, consentSummary, preflightPages, routeNote, walkSettings, withConsent } from './consent';
 
 const GPS = { gps: true, steps: false };
 
@@ -50,5 +50,13 @@ describe('the first-walk questions (journey §9.1)', () => {
     expect(CONSENT.mapPictures.detail).toBe('Map pictures come from OpenStreetMap. When you open a walk, they receive your internet address and the map squares for that area, so they can tell roughly where you walked. Your readings and your route file are never sent.');
     expect([CONSENT.mapPictures.yes, CONSENT.mapPictures.no]).toEqual(['Show map pictures', 'No pictures']);
     expect(CONSENT.stepCard.detail).toBe('FitStrong counts steps only while it’s open on the screen.');
+  });
+});
+
+describe('what this phone keeps, as the Walk hub and Me say it (journey §9.1)', () => {
+  it('says each choice, and what an unasked one waits for', () => {
+    expect(consentSummary(UNASKED)).toEqual({ routes: 'Asked on your first walk with location', map: 'Asked on your first walk with location' });
+    expect(consentSummary({ saveRoutes: true, map: 'on' })).toEqual({ routes: 'Kept on this phone', map: 'On' });
+    expect(consentSummary({ saveRoutes: false, map: 'off' })).toEqual({ routes: 'Not kept', map: 'Off' });
   });
 });

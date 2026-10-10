@@ -13,10 +13,13 @@ export type WalkRoute =
   | { state: 'none' }
   | { state: 'loading' }
   | { state: 'failed' }
+  /** "Erase all routes" ran while this screen was open (B-05): what it had read is gone too. */
+  | { state: 'erased' }
   | { state: 'ready'; lines?: RouteLine[] };
 
 const NONE: WalkRoute = { state: 'none' };
 const LOADING: WalkRoute = { state: 'loading' };
+const ERASED: WalkRoute = { state: 'erased' };
 
 /**
  * A walk's route: the saved one, or, before the walk is saved, the one
@@ -24,8 +27,11 @@ const LOADING: WalkRoute = { state: 'loading' };
  * Nothing for a walk whose route isn't kept.
  */
 export function useWalkRoute(walkId: string, kept: boolean): WalkRoute {
-  const { records } = useStore();
+  const { records, settings } = useStore();
   const saved = records.routes.find(r => r.walkId === walkId) as RouteRecord | undefined;
+  // B-05: an erase while this is open, in any tab, takes the lines already read with it.
+  const erasedAt = settings.walk?.routesErasedAt;
+  const [erasedAtOpen] = useState(erasedAt);
   const [read, setRead] = useState<WalkRoute | undefined>(() => {
     const here = cachedJournal(walkId);
     return here ? { state: 'ready', ...(here.route ? { lines: here.route } : {}) } : undefined;
@@ -41,5 +47,6 @@ export function useWalkRoute(walkId: string, kept: boolean): WalkRoute {
   }, [walkId, kept, saved, read]);
   if (saved) return { state: 'ready', lines: saved.segments };
   if (!kept) return NONE;
+  if (erasedAt !== erasedAtOpen) return ERASED;
   return read ?? LOADING;
 }

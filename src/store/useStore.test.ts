@@ -10,6 +10,7 @@ import { decode } from './transfer';
 import { finishWalk, startWalk } from '@/walk/clock';
 import { journalEntry, type JournalEntry } from '@/walk/journal';
 import { walkObservations } from '@/walk/record';
+import { isoAt } from '@/walk/time';
 
 const local = new Map<string, string>();
 globalThis.localStorage = {
@@ -1126,6 +1127,53 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
     expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), routeStartedAt: ROUTE.startedAt })).ok).toBe(true);
     expect(store.getState().records.routes).toEqual([]);
     expect(ofWalk().length).toBeGreaterThan(0);
+  });
+
+  const another = () => startWalk('mgh3k2x2-2b3c4d5e', { kind: 'walk', gps: true, steps: false, keepRoute: true }, T + 3_600_000);
+
+  it('erases every route for good, keeps the walks, and leaves no coordinate anywhere (B-05)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    await store.putWalkJournal(journalEntry(another(), T + 3_660_000, [LINE]));
+    expect((await store.eraseRoutes()).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+    expect(store.getState().settings.deleted?.records?.routes).toEqual([WALK]);
+    expect(ofWalk().length).toBeGreaterThan(0);
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value.map(e => [e.id, e.route])).toEqual([['mgh3k2x2-2b3c4d5e', undefined]]);
+    expect(store.getState().settings.walk?.routesErasedAt).toEqual(expect.any(Number));
+    expect(JSON.stringify({ state: store.getState(), journals: left.ok ? left.value : [] })).not.toMatch(/12\.97|77\.59/);
+  });
+
+  it('never keeps a route of a walk that started before the erase, whichever screen saves it (B-05)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.eraseRoutes();
+    const erasedAt = store.getState().settings.walk!.routesErasedAt!;
+    const route = { ...ROUTE, startedAt: isoAt(erasedAt - 60_000, 330) };
+    expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route })).ok).toBe(true);
+    expect(ofWalk().length).toBeGreaterThan(0);
+    expect(store.getState().records.routes).toEqual([]);
+    // Nor from the journal, read in the save.
+    await store.putWalkJournal(journalEntry(another(), T + 3_660_000, [LINE]));
+    expect((await store.saveWalk({ walkId: 'mgh3k2x2-2b3c4d5e', observations: walkObservations(finishWalk(another(), T + 3_700_000, 'finish')), routeStartedAt: isoAt(erasedAt - 30_000, 330) })).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+  });
+
+  it('keeps erased routes erased through a backup made before, merged or replaced (B-05, H6-07)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    const exported = await store.exportRecord({ include: ['routes'] });
+    if (!exported.ok) return expect.unreachable('export failed');
+    const file = await decode(exported.value.bytes);
+    await store.eraseRoutes();
+    for (const mode of ['merge', 'replace'] as const) {
+      expect((await store.importRecord(file, mode)).ok).toBe(true);
+      expect(store.getState().records.routes).toEqual([]);
+    }
+    expect(store.getState().settings.walk?.routesErasedAt).toEqual(expect.any(Number));
   });
 
   it('reads back only the checkpoints it can trust', async () => {

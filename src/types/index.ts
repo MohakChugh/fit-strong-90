@@ -225,6 +225,8 @@ export interface UserSettings {
     map: 'on' | 'off' | 'unasked';
     /** The one-time card on how steps are counted has been shown (K-29, B-24). */
     stepCardSeen?: boolean;
+    /** When "Erase all routes" last ran on this phone (B-05): no route of a walk started before it is kept. */
+    routesErasedAt?: number;
   };
   /**
    * The ids of readings and sessions deleted on this record, kept so that

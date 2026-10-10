@@ -257,6 +257,18 @@ describe('a sheet that will not close yet (review C2-07)', () => {
     expect(t.panel.style.transform).toBe('');
   });
 
+  it('Me → Data changes both walk answers, erases every route in one call, and has no placeholder left (Task 14, H6-07, KH-07)', () => {
+    const data = read('src/screens/you/DataScreen.tsx');
+    expect(data).toMatch(/<Toggle label="Keep walk routes" checked=\{walk\.saveRoutes === true\} onChange=\{on => void setSettings\(\{ walk: \{ \.\.\.walk, saveRoutes: on \} \}\)\} \/>/);
+    expect(data).toMatch(/<Toggle label="Map pictures under routes" checked=\{walk\.map === 'on'\} onChange=\{on => void setSettings\(\{ walk: \{ \.\.\.walk, map: on \? 'on' : 'off' \} \}\)\} \/>/);
+    expect(data).toMatch(/const done = await eraseRoutes\(\);/);
+    expect(data).not.toMatch(/Not in this version yet|Plan 6 replaces this group/);
+    expect(read('src/screens/you/DataSheets.tsx')).toMatch(/exportRecord\(withRoutes \? \{ include: \['routes'\] \} : \{\}\)/);
+    const hub = read('src/screens/hub/WalkHub.tsx');
+    expect(hub).toMatch(/<Row as=\{Link\} to="\/me\/data" viewTransition label="Routes" value=\{consentSummary\(walkSettings\(state\.settings\)\)\.routes\} chevron \/>/);
+    expect(hub).toMatch(/<Row as=\{Link\} to="\/me\/data" viewTransition label="Map pictures" value=\{consentSummary\(walkSettings\(state\.settings\)\)\.map\} chevron \/>/);
+  });
+
   it('the restore preview says what happens to routes on this phone’s own answer, before anything changes (H6-05, B-26)', () => {
     const flow = read('src/screens/you/RestoreFlow.tsx');
     expect(flow).toMatch(/saveRoutes=\{walkSettings\(state\.settings\)\.saveRoutes\}/);

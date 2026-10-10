@@ -181,8 +181,8 @@ interface Planned<T> {
 interface Mutation<T> {
   /** `read`: what the commit read inside its own transaction, when it asked (`journal`); absent when planned for the screen. */
   plan: (base: Snapshot, read?: TxRead) => Planned<T>;
-  /** Walk journal entries the plan needs, read inside the commit's own transaction (H6-06). */
-  journal?: readonly string[];
+  /** Walk journal entries the plan needs, read inside the commit's own transaction (H6-06): by key, or every one. */
+  journal?: readonly string[] | 'all';
   /** The plan for one exact base, and what it does to it. */
   cached?: { on: Snapshot; planned: Planned<T>; prepared: Prepared; read?: true };
   /** The last attempt to plan against the current base threw. */
@@ -1223,9 +1223,12 @@ export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
       const records = fixed.filter(o => !held.has(o.id)).map(o => newObservation(o));
       // The screen's route, or the journal's, read in this transaction.
       const given = input.route ?? (fromJournal && read ? journalRoute(read.journal[input.walkId], input.walkId, input.routeStartedAt!) : undefined);
+      // Never a route of a walk that began before the last "Erase all routes", whichever screen saves it (B-05).
+      const erasedAt = base.settings?.walk?.routesErasedAt;
+      const erased = given !== undefined && erasedAt !== undefined && !(Date.parse(given.startedAt) > erasedAt);
       let route: StoredRecord | undefined;
       // Kept only on this phone's yes, as it is when the walk is saved, whatever the walk was given (H6-04).
-      if (given && base.settings?.walk?.saveRoutes === true) {
+      if (given && !erased && base.settings?.walk?.saveRoutes === true) {
         const problem = recordProblem('routes', given);
         if (problem) throw new StoreFailure('invalid', `The route could not be saved: ${problem}.`);
         if (!base.records.routes.some(r => r.walkId === input.walkId)) route = given as unknown as StoredRecord;
@@ -1235,6 +1238,39 @@ export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
           ...(records.length > 0 ? { observations: { put: records } } : {}),
           ...(route ? { records: { routes: { put: [route] } } } : {}),
           journal: { remove: [input.walkId] },
+        },
+        result: () => undefined,
+      };
+    },
+  });
+}
+
+/**
+ * B-05: every route on this device erased for good, in one transaction: the
+ * saved routes (remembered as deleted, so no merge brings them back), the
+ * route in every walk journal, read and rewritten inside the same
+ * transaction so no checkpoint slips between, and, through
+ * `routesErasedAt`, which every tab's live walk watches, the route a walk is
+ * recording now. From then on no route of a walk that began before it is
+ * kept, by a save or an import. The walks stay. Deletion records hold ids
+ * only in this build (D-06); Plan 8 clears its payloads here when it adds
+ * them (D93).
+ */
+export function eraseRoutes(): Promise<StoreResult> {
+  const at = Date.now();
+  return enqueue<void>({
+    journal: 'all',
+    plan: (base, read) => {
+      const keys = base.records.routes.map(r => recordKey('routes', r));
+      const stripped = Object.values(read?.journal ?? {})
+        .filter((e): e is { id: string; route?: unknown } => typeof e === 'object' && e !== null && 'route' in e && typeof (e as { id?: unknown }).id === 'string')
+        .map(({ route: _erased, ...rest }) => { void _erased; return rest; });
+      const walk = base.settings?.walk ?? { saveRoutes: 'unasked' as const, map: 'unasked' as const };
+      return {
+        change: {
+          ...(keys.length > 0 ? { records: { routes: { remove: keys } } } : {}),
+          ...(stripped.length > 0 ? { journal: { put: stripped } } : {}),
+          settings: { patch: { walk: { ...walk, routesErasedAt: Math.max(at, walk.routesErasedAt ?? 0) } } },
         },
         result: () => undefined,
       };

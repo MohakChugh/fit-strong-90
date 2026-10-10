@@ -169,3 +169,26 @@ describe('the summary’s route while it is read back (H6-06)', () => {
     expect(store.getState().records.routes.map(r => r.walkId)).toEqual([ID]);
   });
 });
+
+describe('the summary after “Erase all routes” (B-05)', () => {
+  const LINE = { start: START, end: START + 20_000, coords: [[12.97, 77.59], [12.9705, 77.5902], [12.971, 77.5905]] as [number, number][], ms: [0, 10_000, 20_000] };
+  it('lets go of the route it showed, and saves the walk without it', async () => {
+    const { journalEntry } = await import('@/walk/journal');
+    await store.setProfile(createDefaultProfile({ weightKg: 70, birthYear: 1975, health: { diabetes: 'none', medicinesReviewed: true } }));
+    await store.setSettings({ walk: { saveRoutes: true, map: 'off' } });
+    const walk = finishWalk(accrueOpen(startWalk(ID, { kind: 'walk', gps: true, steps: false, keepRoute: true }, START), 20 * MIN, START + 20 * MIN), START + 20 * MIN, 'finish');
+    await store.putWalkJournal(journalEntry(walk, START + 20 * MIN, [LINE]));
+    storeWalk(sessionWalkStorage(), walk);
+    const h = (host = render(createElement(WalkSummary)));
+    await h.settle();
+    expect(h.all().some(n => n.type === 'svg' && n.props['aria-label'] === 'Your route')).toBe(true);
+    expect((await store.eraseRoutes()).ok).toBe(true);
+    await h.settle();
+    expect(h.all().some(n => n.type === 'svg' && n.props['aria-label'] === 'Your route')).toBe(false);
+    expect(h.text()).toContain('No route: every route on this phone was erased.');
+    await h.click(h.button('Save walk'));
+    await h.settle();
+    expect(h.text()).toContain('Saved on this device');
+    expect(store.getState().records.routes).toEqual([]);
+  });
+});

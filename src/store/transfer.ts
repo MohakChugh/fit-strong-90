@@ -869,6 +869,9 @@ interface MergePlan {
 
 /** Whether this device takes a store's records from a file at all (`RecordRule.accepts`). */
 const takes = (store: RecordStore, device: UserSettings | undefined): boolean => RECORD_RULES[store].accepts?.(device) ?? true;
+/** The file's records of a store this device takes that it keeps, one by one (`RecordRule.keeps`): an erased route stays erased (B-05). */
+const kept = (store: RecordStore, device: UserSettings | undefined, records: readonly StoredRecord[]): StoredRecord[] =>
+  records.filter(r => RECORD_RULES[store].keeps?.(device, r) ?? true);
 
 /**
  * How a merge reconciles the file with the device.
@@ -966,7 +969,7 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
     const here = new Map((base.records?.[store] ?? []).map(r => [recordKey(store, r), r]));
     const goneKeys = new Set(base.settings?.deleted?.records?.[store] ?? []);
     const puts: StoredRecord[] = [];
-    for (const r of file.records?.[store] ?? []) {
+    for (const r of kept(store, base.settings, file.records?.[store] ?? [])) {
       const key = recordKey(store, r);
       const held = here.get(key);
       if (!held && goneKeys.has(key)) { deletedHere += 1; continue; }
@@ -1185,6 +1188,8 @@ export interface ImportPreview {
   records?: Partial<Record<RecordStore, number>>;
   /** Stores in the file this device won't take (`RecordRule.accepts`): a merge or replace leaves them out. */
   refusedStores?: RecordStore[];
+  /** Records of a store this device takes that it still leaves out one by one (`RecordRule.keeps`), by store: routes erased here (B-05). */
+  refusedRecords?: Partial<Record<RecordStore, number>>;
   /** This device's v2 records, by store, that Replace removes (it leaves only the file's). */
   replaceRemoves?: Partial<Record<RecordStore, number>>;
   /** Replace keeps this device's open safety records and the readings they depend on (H6-03): say so before it happens. */
@@ -1233,6 +1238,10 @@ export function previewImport(raw: unknown, existing: Iterable<string> | ImportB
   // v2 record stores: what the file holds, what this device won't take, and what Replace would remove here (Review Focus 4).
   const records = Object.fromEntries((file.stores ?? []).map(s => [s, file.records?.[s]?.length ?? 0])) as Partial<Record<RecordStore, number>>;
   const refusedStores = (file.stores ?? []).filter(s => (records[s] ?? 0) > 0 && !takes(s, base.settings));
+  const refusedRecords = Object.fromEntries((file.stores ?? [])
+    .filter(s => takes(s, base.settings))
+    .map(s => [s, (file.records?.[s]?.length ?? 0) - kept(s, base.settings, file.records?.[s] ?? []).length])
+    .filter(([, n]) => (n as number) > 0)) as Partial<Record<RecordStore, number>>;
   const replaceRemoves = Object.fromEntries(RECORD_STORES.map(s => [s, base.records?.[s]?.length ?? 0]).filter(([, n]) => (n as number) > 0)) as Partial<Record<RecordStore, number>>;
   const open = openIncidents({ checkIns: base.checkIns ?? [], observations: base.observations ?? [], profile: base.profile, settings: base.settings });
 
@@ -1257,6 +1266,7 @@ export function previewImport(raw: unknown, existing: Iterable<string> | ImportB
     legacy,
     records,
     refusedStores,
+    refusedRecords,
     replaceRemoves,
     keepsOpen: open.checkIns.length + open.observations.length > 0,
   };
@@ -1326,10 +1336,10 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
     // device's record, with whatever the file adds to it, never less.
     const open = openIncidents(base, options.now);
     const theirs = new Map(pruned.map(c => [c.date, c]));
-    const kept = new Set(open.checkIns.map(c => c.date));
+    const keptDays = new Set(open.checkIns.map(c => c.date));
     const merged = new Set<CheckInRecord>();
     const checkIns = [
-      ...pruned.filter(c => !kept.has(c.date)),
+      ...pruned.filter(c => !keptDays.has(c.date)),
       ...open.checkIns.map(mine => {
         const other = theirs.get(mine.date);
         if (!other) return mine;
@@ -1354,7 +1364,7 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
         bodyMetrics: file.bodyMetrics,
         focusOverrides: file.focusOverrides,
         content: { put: Object.fromEntries((file.contentState ?? []).map(r => [r.key, r.value])) },
-        records: Object.fromEntries(taken.map(s => [s, { put: file.records?.[s] ?? [] }])),
+        records: Object.fromEntries(taken.map(s => [s, { put: kept(s, base.settings, file.records?.[s] ?? []) }])),
       },
       report: {
         mode,
@@ -1365,7 +1375,7 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
         personalRecords: file.personalRecords.length,
         bodyMetrics: file.bodyMetrics.length,
         skipped: refused,
-        records: Object.fromEntries(taken.map(s => [s, file.records?.[s]?.length ?? 0])),
+        records: Object.fromEntries(taken.map(s => [s, kept(s, base.settings, file.records?.[s] ?? []).length])),
       },
     };
   }

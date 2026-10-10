@@ -30,6 +30,8 @@ export interface RecordRule {
   newer?(here: StoredRecord, file: StoredRecord): number;
   /** Whether this device takes the store's records from a file at all. Absent: always. */
   accepts?(device: UserSettings | undefined): boolean;
+  /** Whether this device takes one record from a file, the store taken. Absent: every one. */
+  keeps?(device: UserSettings | undefined, record: StoredRecord): boolean;
 }
 
 const notYet = (what: string) => (): string => `This version of the app cannot read ${what} yet.`;
@@ -45,6 +47,11 @@ export const RECORD_RULES: Record<RecordStore, RecordRule> = {
     // Only a phone whose person said Yes to keeping routes takes them from a file: not asked
     // yet is not a yes, and a new phone asks on its first walk with location (§9.1, B-26, H6-05).
     accepts: device => device?.walk?.saveRoutes === true,
+    // Erased for good (B-05): no route of a walk that began before the last "Erase all routes" comes back from a file.
+    keeps: (device, record) => {
+      const at = device?.walk?.routesErasedAt;
+      return at === undefined || Date.parse(String(record.startedAt)) > at;
+    },
   },
   // Plan 7 replaces these three with its record types and rules.
   meals: { keyPath: 'id', label: { one: 'meal', many: 'meals' }, limit: 200_000, backup: 'always', problem: notYet('meals') },

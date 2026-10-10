@@ -19,7 +19,9 @@ const clockNow = () => Date.now();
  * one transaction, once however often it's tapped.
  */
 export function WalkRecoveryRow() {
-  const { observations, saving: storing } = useStore();
+  const { observations, settings, saving: storing } = useStore();
+  // B-05: an erase, here or in another tab, strips the journals' routes: read them again.
+  const erasedAt = settings.walk?.routesErasedAt;
   const [checkedAt, setCheckedAt] = useState(clockNow);
   // Bumped after a save or a discard, so the journals are read again even within the same moment.
   const [reads, setReads] = useState(0);
@@ -35,7 +37,7 @@ export function WalkRecoveryRow() {
     let current = true;
     void readWalkJournals().then(r => { if (current) setEntries(r.ok ? r.value : []); });
     return () => { current = false; };
-  }, [checkedAt, reads]);
+  }, [checkedAt, reads, erasedAt]);
 
   /** Look again, now: after a save or a discard. */
   const recheck = () => {

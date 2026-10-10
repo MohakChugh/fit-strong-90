@@ -206,6 +206,9 @@ export const ROUTE_LOADING = 'Finding your route…';
 /** When it can't be read just now: it is still in the journal, and the save takes it from there (H6-06). */
 export const ROUTE_UNREADABLE = 'Your route couldn’t be read just now. It’s still kept, and it’s saved with the walk.';
 
+/** After "Erase all routes" (B-05), on a summary that had a route on screen. */
+export const ROUTE_ERASED = 'No route: every route on this phone was erased.';
+
 /** In place of a route (journey §9.5, V-J20). Without the walk's plan, as on a saved walk's detail, the plain line. */
 export function noRouteLine(plan?: Pick<WalkPlan, 'gps' | 'keepRoute'>): string {
   if (!plan) return 'No route kept for this walk.';
