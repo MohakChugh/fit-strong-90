@@ -355,3 +355,32 @@ Gates on the combined tree: `tsc -b` and lint are clean, and the unit suite is 4
 - **Units:** the spoken pre-cardio check says "under 7 mmol/L" (or 9) to mmol/L users, with 2 new clips in each pack for 1,349 lines, and the walk's low guidance says 70 mg/dL or 3.9 mmol/L.
 - **Same-day serious news:** fainting, a high that won't come down, vomiting with diabetes, and a low that needed help hold for the rest of the day after a later "None of these". Only "I ticked it by mistake" releases one.
 - **Ticked again after a release:** a red flag, foot problem or one of those news items ticked again the same day reopens, so unticking it later brings the question back instead of the old release.
+
+### 2026-10-10 — [claude] Codex and Claude reconciled: ship
+
+After Claude's independent review and its fixes, Codex re-checked the full fix set at max effort, round by round. Each round found fewer and smaller problems:
+
+- **Round 6** (8 found, N-01 to N-08):
+  - a refused save releasing a hold;
+  - answer times compared as text;
+  - a fresh severe BP half erased by an older reading;
+  - a re-dose skipping its cool-down;
+  - the app refusing its own backups;
+  - three data gaps.
+- **Round 7** (6): a queued tick racing a re-dose; a gate-only field on an early-return save; a corrected completion reviving a half; legacy BP cleanup; a crash on a damaged backup copy; import cost.
+- **Round 8** (3): completion ownership was inferred; impossible links were accepted; duplicate dates recursed.
+- **Round 9** (2): a cleared row kept its link; Track followed impossible links.
+- **Round 10:** "Ship this diff". R-01 and R-02 are fixed, with no new bugs in 82 focused tests.
+
+Decisions taken on the way:
+- **Stored check-ins drop gate-only fields** (logged, readingsOnly, durable) instead of refusing them, because the deployed build could store them. The series stays the source of truth, so a deleted Track reading stays deleted.
+- **A damaged clinical reading refuses the whole file,** with a message naming the day.
+- **Ambiguous legacy corrections keep both readings.**
+- **A half-entered BP number is linked only when its own row is completed.**
+
+The engine is now linear in history, with `evaluateDays` for imports: 20,000 days take 17 ms.
+
+Final gates on `3435726`:
+- `tsc -b` and lint are clean.
+- Unit tests: 4,898/4,898 in 150 files.
+- Full acceptance: 892/892 in four layouts.
