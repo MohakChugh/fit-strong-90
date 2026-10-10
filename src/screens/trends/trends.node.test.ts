@@ -35,3 +35,12 @@ describe('Your week goes quiet on Home’s own verdict (H3-03, KT-04, journey §
     expect(urgent).toContain('return SAFETY_KINDS.has(recommend({ ...recommendSources({ now, state, plan: guided.plan, checkIns }), permissions: gatesNow(guided) }).kind);');
   });
 });
+
+describe('Your week’s line when there is nothing to sum up (H3-21)', () => {
+  it('is worked out from the week’s records, never assumed from the sentences', () => {
+    expect(read('TrendsScreen.tsx')).toContain('empty={emptyLine(facts)}');
+    const card = read('YourWeekCard.tsx');
+    expect(card).not.toContain('Nothing recorded');
+    expect(card).toContain('{empty}</p>');
+  });
+});

@@ -14,7 +14,7 @@ const PAUSED = {
   hold: 'Your week’s summary returns once nothing is holding your movement today.',
 } as const;
 
-export function YourWeekCard({ title, name, minutes, goal, sentences, pause, pending, onLastWeek, onThisWeek }: {
+export function YourWeekCard({ title, name, minutes, goal, sentences, empty, pause, pending, onLastWeek, onThisWeek }: {
   /** "This week", "Last week", "Week of 21 Sep". */
   title: string;
   /** In a sentence: "this week", "last week", "in the week of 21 Sep". */
@@ -22,6 +22,8 @@ export function YourWeekCard({ title, name, minutes, goal, sentences, pause, pen
   minutes: number;
   goal?: number;
   sentences: readonly string[];
+  /** The line when there is no sentence, from the week's records (`emptyLine`). */
+  empty: string;
   pause?: 'status' | 'safety' | 'hold';
   /** A goal change waiting for Monday (B-16). */
   pending?: string;
@@ -44,7 +46,7 @@ export function YourWeekCard({ title, name, minutes, goal, sentences, pause, pen
       ) : sentences.length > 0 ? (
         <ul className="flex flex-col gap-1.5 text-[length:var(--text-body)] leading-snug">{sentences.map(s => <li key={s}>{s}</li>)}</ul>
       ) : (
-        <p className="text-[length:var(--text-body)] leading-snug text-muted-foreground">Nothing recorded {name}{name === 'this week' ? ' yet' : ''}.</p>
+        <p className="text-[length:var(--text-body)] leading-snug text-muted-foreground">{empty}</p>
       )}
       {pending && <p className="text-[length:var(--text-footnote)] leading-snug text-muted-foreground">{pending}</p>}
       {onLastWeek && <button type="button" onClick={onLastWeek} className={button}>Last week in brief</button>}

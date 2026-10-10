@@ -30,7 +30,7 @@ import { activities } from './records';
 import { Sparkline } from './Sparkline';
 import { WeeklyRings } from './WeeklyRings';
 import { YourWeekCard } from './YourWeekCard';
-import { WEEK_BRIEF_KEY, briefPause, briefSeen, pendingGoalText, weekFacts, weekRings, weekSentences, withSeen } from './yourWeek';
+import { WEEK_BRIEF_KEY, briefPause, briefSeen, emptyLine, pendingGoalText, weekFacts, weekRings, weekSentences, withSeen } from './yourWeek';
 
 /** A category's row (§12.1): its icon, its title, its figure with the statistic named, and a small chart. */
 function TrendLink({ row, origin }: { row: TrendRowView; origin: Origin }) {
@@ -118,6 +118,7 @@ export default function TrendsScreen() {
         minutes={facts.minutes}
         {...(goal !== undefined ? { goal } : {})}
         sentences={pause ? [] : weekSentences(facts, prefs)}
+        empty={emptyLine(facts)}
         {...(pause ? { pause } : {})}
         {...(pending ? { pending } : {})}
         {...(week === thisWeek ? { onLastWeek: () => choose(lastWeek) } : { onThisWeek: () => choose(thisWeek) })}

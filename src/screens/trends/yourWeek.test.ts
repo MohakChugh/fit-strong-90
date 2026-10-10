@@ -7,7 +7,7 @@ import { DEFAULT_PREFS } from '@/screens/track/format';
 import { weeklyGoalOn, withWeeklyGoal } from '@/screens/track/weeklyGoal';
 import type { DayContext } from './stats';
 import {
-  WEEK_BRIEF_KEY, briefPause, briefSeen, pendingGoalText, ringLabel, weekBriefFor, weekFacts, weekRings, weekSentences, withSeen,
+  WEEK_BRIEF_KEY, briefPause, briefSeen, emptyLine, pendingGoalText, ringLabel, weekBriefFor, weekFacts, weekRings, weekSentences, withSeen,
 } from './yourWeek';
 
 // A meter's display and the brief's 04:00 are read on this device's clock, so the zone is pinned.
@@ -113,6 +113,23 @@ describe('Your week’s facts and sentences (journey §12.1, B-15)', () => {
     const awayBefore = weekFacts({ week: '2026-10-05', data: record, prefs, ctx: ctx({ today: '2026-10-12', statusOn: d => (d >= '2026-09-29' && d <= '2026-10-03' ? 'away' : 'normal') }) });
     expect(awayBefore.before).toBeUndefined();
     expect(weekFacts({ week: '2026-10-05', data: record, prefs, ctx: ctx({ today: '2026-10-12' }) }).before).toBe(0);
+  });
+
+  it('says nothing was recorded only when nothing was: other records leave nothing to sum up (H3-21)', () => {
+    const water = newObservation({ kind: 'water', value: 1500, at: '2026-10-06T20:00:00.000+05:30', scope: 'dayTotal', source: 'manual' });
+    const quiet = weekFacts({ week: '2026-10-05', data: data([water, g(118, '2026-10-07T07:30:00+05:30')]), prefs, ctx: ctx() });
+    expect(weekSentences(quiet, prefs)).toEqual([]);
+    expect(emptyLine(quiet)).toBe('Nothing to sum up this week yet. Each category’s trend shows what was recorded.');
+    expect(emptyLine(weekFacts({ week: '2026-10-05', data: data([]), prefs, ctx: ctx() }))).toBe('Nothing recorded this week yet.');
+    expect(emptyLine(weekFacts({ week: '2026-09-28', data: data([]), prefs, ctx: ctx() }))).toBe('Nothing recorded last week.');
+    // A check-in is a record, and so is a LO measured late on Sunday that Monday's check-in holds.
+    expect(weekFacts({ week: '2026-09-28', data: data([], [], [{ date: '2026-09-30' } as CheckInRecord]), prefs, ctx: ctx() }).recorded).toBe(true);
+    const sunday = { date: '2026-10-05', glucoseDisplay: { display: 'LO', measuredAt: '2026-10-04T23:40:00+05:30' } } as unknown as CheckInRecord;
+    expect(weekFacts({ week: '2026-09-28', data: data([], [], [sunday]), prefs, ctx: ctx() }).recorded).toBe(true);
+    expect(weekFacts({ week: '2026-09-21', data: data([], [], [sunday]), prefs, ctx: ctx({ since: '2026-09-21' }) }).recorded).toBe(false);
+    // A workout logged with no minutes entered is a record with nothing to sum up.
+    const logged = weekFacts({ week: '2026-10-05', data: data([], [session('2026-10-06', { guided: undefined, planKind: undefined, durationSeconds: 0 })]), prefs, ctx: ctx() });
+    expect([weekSentences(logged, prefs), logged.recorded]).toEqual([[], true]);
   });
 
   it('a finished week is named and compared as one', () => {

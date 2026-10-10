@@ -16,7 +16,7 @@ import { formatNumber } from '@/screens/track/units';
 import { pendingWeeklyGoal, weeklyGoalOn, type WeeklyGoalSettings } from '@/screens/track/weeklyGoal';
 import { GLUCOSE_LINES, readingsFor } from './metrics';
 import { countText } from './model';
-import { stepsDays, stretchedDays, type TrendData } from './records';
+import { meterReadings, stepsDays, stretchedDays, type TrendData } from './records';
 import { MIN_DAYS, dailyStats, readingStats, type DayContext, type DayFigure } from './stats';
 
 const noon = (day: string) => new Date(`${day}T12:00:00`);
@@ -30,6 +30,8 @@ export interface WeekFacts {
   name: string;
   /** Recorded movement in whole minutes (§12.3), to today in the current week. */
   minutes: number;
+  /** Anything at all was recorded in the week, to today (H3-21): a reading, a session, a check-in. */
+  recorded: boolean;
   /** The same days of the week before, when that week is all part of the record. */
   before?: number;
   /** "by this time last week", "the week before". */
@@ -48,6 +50,7 @@ export function weekFacts({ week, data, prefs, ctx }: { week: string; data: Tren
   const last = range.from === addDays(mondayOf(ctx.today), -7);
   const short = format(noon(range.from), 'd MMM');
   const prior: DayRange = { from: addDays(shown.from, -7), to: addDays(shown.to, -7) };
+  const inShown = (day: string) => day >= shown.from && day <= shown.to;
   const moved = (r: DayRange) => wholeMinutes(recordedMovement(r, data.observations, data.sessions).minutes);
   // Days of data as a movement trend counts them, from each day's recorded movement (B-15, D68).
   const enough = (r: DayRange) => dailyStats(r, daysIn(r).flatMap((day): DayFigure[] => {
@@ -63,6 +66,8 @@ export function weekFacts({ week, data, prefs, ctx }: { week: string; data: Tren
     title: current ? 'This week' : last ? 'Last week' : `Week of ${short}`,
     name: current ? 'this week' : last ? 'last week' : `in the week of ${short}`,
     minutes: moved(shown),
+    recorded: data.observations.some(o => inShown(o.day)) || data.sessions.some(s => inShown(s.date))
+      || data.checkIns.some(c => inShown(c.date)) || meterReadings(data.checkIns).some(m => inShown(m.day)),
     // Only a week wholly in the record is compared: before the first record there was nothing to count (Review Focus 4);
     // and, as every trend's comparison, with 3 days of data in both (H3-12).
     ...(ctx.since !== undefined && ctx.since <= prior.from && enough(shown) && enough(prior) ? { before: moved(prior) } : {}),
@@ -102,6 +107,15 @@ export function weekSentences(f: WeekFacts, prefs: DisplayPrefs): string[] {
   if (f.pressure) out.push(`${countText(f.pressure.severe, ['blood pressure reading', 'blood pressure readings'])} ${were(f.pressure.severe)} 180/120 mmHg or higher ${f.name}.`);
   if (f.steps) out.push(`${formatNumber(f.steps.perDay)} steps a day on average ${f.name}, from ${countText(f.steps.days, ['day with steps', 'days with steps'])}.`);
   return out.slice(0, 4);
+}
+
+/**
+ * Your week's line when it has no sentence (H3-21): nothing recorded, said
+ * only when nothing was, or nothing to sum up, with where the records are.
+ */
+export function emptyLine(f: WeekFacts): string {
+  const yet = f.name === 'this week' ? ' yet' : '';
+  return f.recorded ? `Nothing to sum up ${f.name}${yet}. Each category’s trend shows what was recorded.` : `Nothing recorded ${f.name}${yet}.`;
 }
 
 /**
