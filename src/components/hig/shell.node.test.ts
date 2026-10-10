@@ -823,6 +823,17 @@ describe('Home’s targets and layout (kiro KV-08, KV-10, KV-11, KV-15, KV-18, K
     expect(hub).toContain('(held || steps === undefined ? undefined : stepsProgress(');
   });
 
+  it('an urgent decision takes a menu away at once, with no exit, and it stays closed while it stands (codex H4-01, journey §4.3, M18)', () => {
+    const menu = read('src/components/hig/ActionMenu.tsx');
+    expect(menu).toContain('const urgent = useContext(UrgentContext) !== undefined;');
+    expect(menu).toContain('if (!urgent && target && target !== shown) setShown(target);');
+    expect(menu).toContain('if (urgent && shown) setShown(null);');
+    expect(menu).toContain('const open = target !== null && !urgent;');
+    expect(menu).toContain('if (!shown || urgent) return null;');
+    // What it set off is still offered: it never finishes closing.
+    expect(menu).toMatch(/if \(urgent && drawn\.current\) \{\s+drawn\.current = false;\s+onClosed\?\.\(\);/);
+  });
+
   it('"2 reminders" sits in the header’s wrapping area beside the status, not in the fixed bar', () => {
     const home = read('src/screens/home/HomeScreen.tsx');
     expect(home).not.toMatch(/trailing=\{<RemindersCapsule/);
