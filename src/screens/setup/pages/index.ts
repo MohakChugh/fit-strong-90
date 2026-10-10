@@ -62,3 +62,8 @@ export const DAY_VIEWS: Record<'day.reminders' | 'day.meals' | 'day.voice', Page
   'day.meals': DayMeals,
   'day.voice': DayVoice,
 };
+
+/** Every page's view, keyed by its id: a page added to the graph without a view fails the build. */
+export const PAGE_VIEWS: Record<Exclude<PageId, 'welcome.start' | 'review'>, PageView> = {
+  ...ABOUT_VIEWS, ...HEALTH_VIEWS, ...MEDICINES_VIEWS, ...BACK_FEET_VIEWS, ...MOVEMENT_VIEWS, ...FOOD_VIEWS, ...DAY_VIEWS,
+};

@@ -31,14 +31,14 @@ vi.mock('@/components/hig/ErrorBoundary', () => ({ ErrorBoundary: ({ children }:
 const { AppRoutes } = await import('./routes');
 
 /** Every place the app was at, once the redirects have run. */
-async function land(entry: { pathname: string; search?: string; state?: unknown }, onboarded: boolean) {
+async function land(entry: { pathname: string; search?: string; state?: unknown }, onboarded: boolean, setupOpen = false) {
   const places: string[] = [];
   function Where() {
     const l = useLocation();
     places.push(`${l.pathname}${l.search}`);
     return null;
   }
-  render(h(MemoryRouter, { initialEntries: [entry] }, h(Where), h(AppRoutes, { onboarded }), h(Outlet)));
+  render(h(MemoryRouter, { initialEntries: [entry] }, h(Where), h(AppRoutes, { onboarded, setupOpen }), h(Outlet)));
   await new Promise(r => setTimeout(r, 10));
   return [...new Set(places)];
 }
@@ -65,6 +65,13 @@ describe('the route table’s redirects keep the query and the state (journey §
   it('the Workout Log’s and Trends’ workout addresses keep the query (D51)', async () => {
     expect((await land({ pathname: '/trends/workout', search: '?from=bookmark' }, true)).at(-1)).toBe('/trends?from=bookmark');
     expect((await land({ pathname: '/hub/workout/log/old', search: '?date=2026-10-05' }, true)).at(-1)).toBe('/hub/workout/log?date=2026-10-05');
+  });
+
+  it('after “Look around first”, setup carries on at its own address (journey §19.1)', async () => {
+    const places = await land({ pathname: '/setup/health/conditions' }, true, true);
+    // Setup's routes load on first use, which this host doesn't draw: the address staying put, with Home never drawn, is the table's part.
+    expect(places).toEqual(['/setup/health/conditions']);
+    expect(seen).toEqual([]);
   });
 
   it('before setup, every address goes to setup with its query', async () => {

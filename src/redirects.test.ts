@@ -109,7 +109,7 @@ describe('v1 → v2 redirects (journey §19.3)', () => {
 
   it('covers every route v1 declared (inventory from src/screens/*/routes.tsx)', () => {
     const files = import.meta.glob<string>('./screens/*/routes.tsx', { query: '?raw', import: 'default', eager: true });
-    const bases: Record<string, string> = { today: '/today', move: '/move', walk: '/walk', track: '/track', guide: '/guide', you: '/you', welcome: '/welcome', workout: '/track/workout' };
+    const bases: Record<string, string> = { today: '/today', move: '/move', walk: '/walk', track: '/track', guide: '/guide', you: '/you', workout: '/track/workout' };
     const read: string[] = [];
     for (const [file, source] of Object.entries(files)) {
       const area = file.split('/')[2];

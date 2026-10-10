@@ -34,8 +34,10 @@ export function WelcomePage() {
   const [problem, setProblem] = useState<string>();
   const line = installLine(context, device);
 
-  // A draft carries on where it stopped; otherwise the first question.
-  const start = () => move.go(at && at !== 'welcome.start' ? resumeAt(answers, at, ctx) : 'about.name', answers);
+  // A draft carries on where it stopped, with "Welcome back" (a backup restored here, V-J11); otherwise the first question.
+  const start = () => (at && at !== 'welcome.start'
+    ? move.go(resumeAt(answers, at, ctx), answers, { welcomeBack: true })
+    : move.go('about.name', answers));
 
   const lookAround = async () => {
     // Held until stored: it opens Home, and a refusal must leave the person here, where it is said (D-04).

@@ -35,7 +35,7 @@ export function joinInitial(profile: UserProfile | undefined, today: string): Jo
 }
 
 /** The record after joining: the programme's answers on the profile, and its start date. Nothing else changes (D35, scan D-03). */
-export function withJoinAnswers(data: AppData, j: JoinAnswers): AppData {
+export function withJoinAnswers<T extends Pick<AppData, 'profile' | 'settings'>>(data: T, j: JoinAnswers): T {
   const profile = data.profile ?? createDefaultProfile({ weightKg: data.settings.currentWeight || 0, needsHealthReview: true });
   return {
     ...data,

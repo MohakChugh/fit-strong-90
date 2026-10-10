@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { profileFrom } from '@/setup/assemble';
+import { COMPLEX, MINIMAL, UNSURE } from '@/setup/fixtures';
+import { reviewRecord } from '@/setup/review';
+import { CURRENT_VERSION, migrateData } from '@/services/storage';
+import type { AppData } from '@/types';
 import { shortDate, shortDay } from './dates';
 import type { HabitSettings } from '@/types/habits';
 import { createDefaultProfile } from '@/profile/defaults';
@@ -8,6 +13,7 @@ import type { ImportPreview } from '@/store/transfer';
 import {
   AVOID_MAX_ITEMS,
   addAvoid,
+  chapterSections,
   conditionsLine,
   countsSentence,
   everyLabel,
@@ -271,5 +277,80 @@ describe('calendar copies, as Reminders lists them (A-78)', () => {
       { habit: 'water', names: ['Glass of water'], inCalendar: 6, now: 0 },
       { habit: 'sittingBreak', names: ['Stand up and move'], inCalendar: 2, now: 1 },
     ])).toBe('Glass of water: 6 a day in Calendar, none now. Stand up and move: 2 a day in Calendar, once a day now.');
+  });
+});
+
+describe('chapterSections: Profile & health by chapter (journey §16; Plan 5)', () => {
+  const S = { ...migrateData({ version: CURRENT_VERSION } as AppData).settings, useMetric: true };
+  const read = (p: Parameters<typeof chapterSections>[0]) =>
+    Object.fromEntries(chapterSections(p, S, '2026-10-10').map(c => [c.chapter, Object.fromEntries(c.rows.map(r => [r.label, r.value]))]));
+
+  it('reads each chapter back from the record, in v1’s words where v1 named them', () => {
+    const rows = read(profileFrom(COMPLEX, undefined, '2026-10-10', { thisYear: 2026 }));
+    expect(rows.about).toMatchObject({ Name: 'Asha', Born: '1958', Height: '158 cm', Weight: '68 kg' });
+    expect(rows.health).toMatchObject({ Diabetes: 'Type 2', 'High blood pressure': 'Treated', 'Fluid limit from your care team': 'No' });
+    expect(rows.medicines).toMatchObject({ Insulin: 'Injections or pump, several times a day', Metformin: 'Yes, since 2015' });
+    expect(rows.backFeet).toMatchObject({ 'Pain or past injury': 'Lower back, Sciatica', 'Which leg': 'Left' });
+    expect(rows.food).toMatchObject({ 'What you eat': 'Vegetarian', Allergies: 'Peanuts' });
+  });
+
+  it('says Not sure where it was said (V-J17)', () => {
+    expect(read(profileFrom(UNSURE, undefined, '2026-10-10', { thisYear: 2026 })).medicines.Insulin).toBe('Not sure');
+  });
+
+  it('names the person’s own allergy words beside the chips (board D82)', () => {
+    const p = profileFrom({ ...COMPLEX, customAllergies: ['brinjal'] }, undefined, '2026-10-10', { thisYear: 2026 });
+    expect(read(p).food.Allergies).toBe('Peanuts, brinjal');
+    expect(read({ ...p, food: { pattern: 'vegan', avoid: [], allergies: [] } }).food.Allergies).toBe('None');
+    expect(read({ ...p, food: { pattern: 'vegan', avoid: [] } }).food.Allergies).toBe('None given');
+  });
+
+  // Every row of a whole run, read back from what finishing stores: a row shown where it shouldn't be, or missing, fails.
+  const whole = (a: typeof MINIMAL, metric = true) => {
+    const { profile, settings } = reviewRecord(a, { settings: { ...S, useMetric: metric } }, '2026-10-10', { thisYear: 2026 });
+    return Object.fromEntries(chapterSections(profile, settings, '2026-10-10').map(c => [c.chapter, Object.fromEntries(c.rows.map(r => [r.label, r.value]))]));
+  };
+
+  it('the minimal run: nothing asked is read back as an answer it wasn’t (journey §1.2)', () => {
+    expect(whole(MINIMAL)).toEqual({
+      about: { Name: 'Not given', 'Body for the exercise demos': 'Either', Height: 'Not entered', Weight: 'Not entered' },
+      health: {
+        Diabetes: 'None', 'High blood pressure': 'None', 'Heart or circulation': 'No', 'Kidney disease': 'No',
+        'Fluid limit from your care team': 'Not answered yet', 'Cleared for exercise': 'Not yet',
+      },
+      medicines: { 'A “-gliflozin” medicine': 'No', 'Dizzy when you stand up': 'No', 'Glucose meter or sensor': 'None', 'Home blood-pressure cuff': 'No' },
+      backFeet: { 'Pain or past injury': 'None' },
+      movement: { 'What you’d most like to do': 'Not sure yet', 'Exercise now': 'Yes', 'Weekly goal': 'No goal', 'The 12-week programme': 'Not joined' },
+      food: { 'What you eat': 'Vegetarian', Allergies: 'None', 'Logging what you eat': 'Meal ideas only' },
+      day: { Reminders: 'All off', 'Quiet hours': 'None', 'Reminders come': 'In the app', 'Voice coach': 'On' },
+    });
+  });
+
+  it('the complex run: the eyes, feet, medicines, leg and reminders it answered', () => {
+    const rows = whole(COMPLEX);
+    expect(rows.health).toEqual({
+      Diabetes: 'Type 2', 'High blood pressure': 'Treated', 'Heart or circulation': 'No', 'Kidney disease': 'No', 'Fluid limit from your care team': 'No',
+      'Diabetic eye disease (retinopathy)': 'None or mild', 'Nerve damage in your feet': 'No', 'Your feet today': 'Healthy', 'Cleared for exercise': 'For moderate exercise',
+    });
+    expect(rows.medicines).toEqual({
+      Insulin: 'Injections or pump, several times a day', 'A tablet that can cause lows': 'No', 'A “-gliflozin” medicine': 'No', Metformin: 'Yes, since 2015',
+      'Ketoacidosis, or low insulin': 'No', 'Beta-blocker': 'No', 'Water tablet (diuretic)': 'No', 'Dizzy when you stand up': 'No',
+      'Glucose meter or sensor': 'Meter', 'Home blood-pressure cuff': 'Yes',
+    });
+    expect(rows.backFeet).toEqual({ 'Pain or past injury': 'Lower back, Sciatica', 'Which leg': 'Left', 'Worse with': 'Sitting or bending forward', 'A nerve damaged in the past': 'No' });
+    expect(rows.movement).toEqual({ 'What you’d most like to do': 'Stretch more', 'Exercise now': 'No', 'Weekly goal': '90 minutes a week', 'The 12-week programme': 'Not joined' });
+    expect(rows.food['Logging what you eat']).toBe('Meals, with calorie and carb estimates');
+    expect(rows.day).toEqual({ Reminders: 'Water and walks after meals', 'Quiet hours': '10:00 pm to 7:00 am', 'Reminders come': 'In the app', 'Voice coach': 'On' });
+  });
+
+  it('in feet, inches and pounds when those are the units chosen', () => {
+    expect(whole({ ...COMPLEX, metric: false, waistCm: 80 }, false).about).toEqual({
+      Name: 'Asha', Born: '1958', 'Body for the exercise demos': 'Female figure', Height: '5 ft 2 in', Weight: '149.9 lb', Waist: '31 in',
+    });
+    expect(whole({ ...COMPLEX, waistCm: 80 }).about.Waist).toBe('80 cm');
+  });
+
+  it('as a calendar file, with the voice coach off, when those were chosen', () => {
+    expect(whole({ ...MINIMAL, delivery: 'calendar', voice: { muted: true } }).day).toMatchObject({ 'Reminders come': 'As a calendar file', 'Voice coach': 'Off' });
   });
 });

@@ -30,7 +30,7 @@ const TodayWorkoutScreen = lazy(() => import('@/screens/workout/TodayWorkoutScre
 const DayRoutes = lazy(() => import('@/screens/day/routes'));
 const BrowseScreen = lazy(() => import('@/screens/browse/BrowseScreen'));
 const YouRoutes = lazy(() => import('@/screens/you/routes'));
-const WelcomeRoutes = lazy(() => import('@/screens/welcome/routes'));
+const SetupRoutes = lazy(() => import('@/screens/setup/routes'));
 const SessionPage = lazy(() => import('@/pages/SessionPage'));
 
 /** A hub's own loading state (journey §8.4): its bar and Back at once, placeholders after 150 ms. */
@@ -72,11 +72,11 @@ function Task({ children }: { children: React.ReactNode }) {
  * Until Plans 2 to 4 build them, the hubs, Trends and Me are v1's screens at
  * their v2 addresses (journey §19.2, B-22).
  */
-export function AppRoutes({ onboarded }: { onboarded: boolean }) {
+export function AppRoutes({ onboarded, setupOpen = false }: { onboarded: boolean; setupOpen?: boolean }) {
   if (!onboarded) {
     return (
       <Routes>
-        <Route path="/setup/*" element={<Task><WelcomeRoutes /></Task>} />
+        <Route path="/setup/*" element={<Task><SetupRoutes /></Task>} />
         <Route path="*" element={<Keeping to="/setup" />} />
       </Routes>
     );
@@ -85,8 +85,9 @@ export function AppRoutes({ onboarded }: { onboarded: boolean }) {
   return (
     <Routes>
       <Route path="/" element={<Keeping to="/home" />} />
-      {/* Set up already: setup's addresses go Home, which is also how finishing setup arrives there. */}
-      <Route path="/setup/*" element={<Keeping to="/home" />} />
+      {/* Set up already: setup's addresses go Home, which is also how finishing arrives there.
+          After "Look around first", setup carries on at its address until it's finished (§19.1). */}
+      <Route path="/setup/*" element={setupOpen ? <Task><SetupRoutes /></Task> : <Keeping to="/home" />} />
       <Route path="/session" element={<Task><SessionPage /></Task>} />
       <Route path="/walk/live" element={<Task><LiveWalkScreen /></Task>} />
       <Route path="/walk/summary" element={<Task><WalkSummary /></Task>} />

@@ -7,6 +7,8 @@ import { forgetPlaces, scrollKeyOf } from '@/components/hig/navigation';
 import { applyTextScale } from '@/lib/textSize';
 import { applyThemeColor } from '@/lib/themeColor';
 import { AppRoutes } from '@/routes';
+import { useSetupSession } from '@/setup/draft';
+import { setupStateOf } from '@/setup/state';
 import { ReminderHost } from '@/reminders/ReminderHost';
 import { ScreenLoading } from '@/components/hig/AppShell';
 import { UrgentProvider } from '@/screens/home/UrgentBanner';
@@ -66,7 +68,8 @@ function StorageUnavailable({ onContinue }: { onContinue: () => void }) {
 
 function App() {
   const { theme } = useTheme();
-  const { status, settings } = useStore();
+  const { status, settings, profile } = useStore();
+  const session = useSetupSession();
   const [continueUnsaved, setContinueUnsaved] = useState(false);
 
   // Open the database, migrate v4 data across and publish it (D13).
@@ -125,8 +128,12 @@ function App() {
       <ScrollRestoration getKey={scrollKeyOf} />
       {/* Opted-in reminders while the app is open (board D15). */}
       {settings.onboardingComplete && <ReminderHost />}
+      {/* Unsaved setup that was finished opens the app for this session only (B-07). */}
       <Suspense fallback={<ScreenLoading full />}>
-        <AppRoutes onboarded={settings.onboardingComplete} />
+        <AppRoutes
+          onboarded={settings.onboardingComplete || session.entered}
+          setupOpen={setupStateOf(settings, profile).stage !== 'done' || session.entered}
+        />
       </Suspense>
     </UrgentProvider>
   );
