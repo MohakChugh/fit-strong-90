@@ -43,11 +43,23 @@ export const link = (scope, name, opts = {}) => scope.getByRole('link', { name, 
 export const radio = (scope, name, opts = {}) => scope.getByRole('radio', { name, exact: true, ...opts });
 export const checkbox = (scope, name, opts = {}) => scope.getByRole('checkbox', { name, exact: true, ...opts });
 
-/** Tap like a person: bring it on screen first, then a touch tap where supported. */
+/**
+ * Tap like a person: bring it on screen first, then a touch tap where
+ * supported. A control a re-render replaced between being found and being
+ * tapped (a list still following the last key under load) is found again,
+ * once.
+ */
 export async function tap(locator) {
-  await locator.waitFor({ state: 'visible' });
-  await locator.scrollIntoViewIfNeeded();
-  await locator.click();
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await locator.waitFor({ state: 'visible' });
+      await locator.scrollIntoViewIfNeeded();
+      await locator.click();
+      return;
+    } catch (e) {
+      if (attempt > 0 || !/not attached to the DOM/.test(String(e?.message ?? e))) throw e;
+    }
+  }
 }
 
 /** Type into a field as a person would: clear it, then key in the characters. */

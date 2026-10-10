@@ -757,3 +757,35 @@ This is Plan 2 Task 15. The hubs replace v1's Move screen and its setups, so the
 **Judgement call, for review.** `setupProblems` (safety-a) checked that the check-in a refusing setup opens restates its refusal. v1's Walk setup refused only holds a check-in can't clear. While today's answers could clear a hold (a low's re-check, 250 mg/dL with no ketone result, above 300), it offered "Start walk", which opened the questions. v2's card refuses before any tap (S-15), and its "Enter a new reading" or "Review today’s check-in" opens those same questions. So that comparison is now made only where the check-in has an outcome to show. Where the attempt's own `recheckForm` holds, the check-in must open on its questions with nothing to start, or it fails. Every other check is word for word.
 
 **Runs** (large-light, port 49831): J01, J06, J08, J16 and J20, 45/45. J10, J15 and J17 pass. J02–J05, J07, J09, J11–J14 and S01 pass. J18 step 1 and J19 step 7 fail on the backup's schema version, which is 6 since the storage merge (ce27299); that is fixed in its own commit. The full run in all four projects is Task 16's.
+
+### 2026-10-10 — [claude] v2 Plan 2 (hubs): result
+
+- Every registry category opens a real hub, except Food, whose interim Meal ideas stays until Plan 7. Each movement hub reads the shared gate in the tile's words, and starts only through it.
+- V-J01, V-J04, V-J05, V-J06, V-J09, V-J12, V-J14 and V-J15 pass in all four projects, as does B-30's resume case. The J and S journeys pass, with these navigation changes:
+  - J01: Learn; the Stretch hub.
+  - J05: each hub is read once loaded; the Workout Log is at `/hub/workout/log`.
+  - J06: "Search Learn"; HbA1c's chart is at its trend; search results are read once settled.
+  - J07: "Search Learn"; the steps goal is counted once loaded.
+  - J08: the Stretch hub; the player's run and save helpers.
+  - J10: the Walk hub's start.
+  - J12: "Search Learn".
+  - J15, J16 and J17: the Walk and Stretch hubs.
+  - J18: the Workout Log is read once loaded; schema 6.
+  - J19: schema 7 is the later one.
+  - J20: Workout and Learn; `/workout` → `/hub/workout/log`.
+  - S01: "Search Learn"; v2 link prefixes.
+- The weekly goal changes from next Monday (B-16), and a day's step goal by the day.
+- Steps say "at least" only after a total entered at a real time (D52). Paste reads one number, or nothing.
+- Left for later:
+  - Task 17's Codex and Kiro reviews, which the coordinator runs.
+  - Me's "Sources" row still links `/guide` (Plan 4).
+  - Food's interim Meal ideas (Plan 7).
+  - HbA1c's chart stays v1's, at its trend (Plan 3).
+  - The Steps Shortcut help waits for a device check (D54).
+
+Where Task 16 differs from the plan's text, and why:
+- **V-J12 waits for each hub's own title, with its content.** During the push Browse stays on screen until the hub's code is in, and a hub's skeleton has the hub's title too. Waiting for the address alone read "Browse".
+- **V-J14's B-30 case chooses Hips & legs, 15 minutes.** The hub's default for P01, Back & hips at 10, holds nothing a flare leaves out, so the resume had nothing to refuse. With Hips & legs, the flare leaves out "Supine Hamstring Stretch with Strap" and "Adductor Rock-Back", and the resumed run ran neither.
+- **J06's search reads its results once they have settled,** and `ui.tap` finds a control again, once, when a re-render replaced it between being found and being tapped. Under load in large-dark, two J06 cases read a result list still following the last key. A browser probe showed Learn keeps its field, and its focus, and replaces nothing once typing ends.
+
+Runs, ports 49831/49832: the full suite gave 930/932 in 61.5 min. The two failures were the J06 large-dark search cases above. After the fix, J06 gave 80/80 and the V journeys 40/40, all four projects each.

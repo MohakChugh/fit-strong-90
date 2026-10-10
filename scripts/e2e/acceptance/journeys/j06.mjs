@@ -28,7 +28,16 @@ async function searchGuide(t, query) {
   const main = page.getByRole('main');
   if (await t.route() !== '/hub/learn' && !(await t.route()).startsWith('/hub/learn?')) await g.tabTo(t, 'Guide');
   await ui.type(main.getByRole('searchbox', { name: 'Search Learn' }), query);
-  await page.waitForTimeout(400);
+  // The results follow each key: read them once they are the whole query's and have settled (under load they lag the typing).
+  await page.waitForFunction(q => new URLSearchParams(location.hash.split('?')[1] ?? '').get('q') === q, query, { timeout: 10000 }).catch(() => {});
+  await page.evaluate(() => new Promise(done => {
+    const main = document.querySelector('main');
+    let timer = setTimeout(stop, 300);
+    const watch = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(stop, 300); });
+    function stop() { watch.disconnect(); done(); }
+    watch.observe(main, { childList: true, subtree: true });
+    setTimeout(stop, 5000);
+  }));
   const links = await main.getByRole('link').all();
   const results = [];
   for (const l of links) {
