@@ -31,19 +31,34 @@ function onVisibility(): void {
   if (document.visibilityState === 'visible') publish({ now: new Date(), visit: snapshot.visit + 1 });
 }
 
+/** No document outside a browser (node tests): the minute's tick still runs. */
+const hasDocument = () => typeof document !== 'undefined';
+
 function subscribe(listener: () => void): () => void {
+  // The first listener after a quiet spell reads the time as it is now,
+  // whichever it does first, reading or subscribing.
+  if (listeners.size === 0) refresh();
   listeners.add(listener);
   if (listeners.size === 1) {
     timer = setInterval(tick, TICK_MS);
-    document.addEventListener('visibilitychange', onVisibility);
+    if (hasDocument()) document.addEventListener('visibilitychange', onVisibility);
   }
   return () => {
     listeners.delete(listener);
     if (listeners.size > 0) return;
     clearInterval(timer);
     timer = undefined;
-    document.removeEventListener('visibilitychange', onVisibility);
+    if (hasDocument()) document.removeEventListener('visibilitychange', onVisibility);
   };
+}
+
+/**
+ * A snapshot a second or more off, replaced, a clock set back included; one
+ * from this second, kept (React needs the same object).
+ */
+function refresh(): void {
+  const now = new Date();
+  if (Math.abs(now.getTime() - snapshot.now.getTime()) >= 1000) snapshot = { now, visit: snapshot.visit };
 }
 
 /**
@@ -53,10 +68,7 @@ function subscribe(listener: () => void): () => void {
  * within the same second return the same object, as React requires.
  */
 function read(): ClockSnapshot {
-  if (listeners.size === 0) {
-    const now = new Date();
-    if (now.getTime() - snapshot.now.getTime() >= 1000) snapshot = { now, visit: snapshot.visit };
-  }
+  if (listeners.size === 0) refresh();
   return snapshot;
 }
 

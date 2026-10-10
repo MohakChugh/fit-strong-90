@@ -2,6 +2,8 @@ import { useCallback, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGuided } from '@/hooks/useGuided';
 import type { Mode, Permission } from '@/engine/permission';
+import { nextBoundary } from '@/health/recommend';
+import { useClock, useWakeAt } from '@/screens/today/clock';
 import { CheckInSheet } from './CheckInSheet';
 import { gateFor, startDecision } from './start';
 
@@ -29,12 +31,20 @@ export function useStartMovement(): {
   const { profile, date, checkIn, saveCheckIn, checkIns: recent } = useGuided();
   const navigate = useNavigate();
   const [target, setTarget] = useState<Target | null>(null);
+  // What a screen shows from the gate is worked out again at the next time
+  // boundary (a reading going stale, a re-check falling due, 04:00,
+  // midnight) and when the app is opened again, as Home's words are (codex
+  // V1-04, journey §4.1).
+  const { now } = useClock();
+  useWakeAt(nextBoundary(now, checkIn ? { checkIn } : {}));
 
   // Asked at the moment of use, so a reading's freshness is judged against
-  // the time the person actually taps Start.
+  // the time the person actually taps Start. A new clock reading is a new
+  // question, for a screen that keeps its answer.
   const permissionFor = useCallback(
     (mode: Mode) => gateFor({ profile, checkIn, checkIns: recent }, mode),
-    [profile, checkIn, recent],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [profile, checkIn, recent, now],
   );
 
   const start = useCallback((mode: Mode, href: string, startLabel: string) => {

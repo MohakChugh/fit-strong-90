@@ -679,6 +679,46 @@ describe('acceptance J17 step 7: an emergency the device refused still stops eve
   });
 });
 
+describe('a screen’s words follow the clock (codex V1-04, journey §4.1)', () => {
+  /** A hub's Start, as it draws: what the gate says for Walk now. */
+  function WalkStart() {
+    const { permissionFor } = useStartMovement();
+    const p = permissionFor('walk');
+    return createElement('p', null, p.allowed && !p.needsCheckIn ? 'Start walk' : 'Check in first');
+  }
+  const listeners = new Map<string, () => void>();
+  beforeEach(() => {
+    listeners.clear();
+    Object.assign(globalThis, {
+      document: { visibilityState: 'visible', addEventListener: (type: string, f: () => void) => listeners.set(type, f), removeEventListener: () => {} },
+    });
+  });
+  afterEach(() => { delete (globalThis as { document?: unknown }).document; });
+
+  const freshAtNine = async () => {
+    const p = createDefaultProfile(PROFILES.insulin);
+    await seed(p, [{ date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: { value: 140, unit: 'mg/dL', measuredAt: new Date().toISOString() } }]);
+    host?.unmount();
+    host = render(createElement(WalkStart));
+    await host.settle();
+    expect(h().text()).toBe('Start walk');
+  };
+
+  it('wakes when a reading stops being fresh, and when the app is opened again, to read the gate again', async () => {
+    const timeouts = vi.spyOn(globalThis, 'setTimeout');
+    await freshAtNine();
+    // Insulin: a reading counts for 30 minutes (D29(6)). This node host draws again on every settle,
+    // so what is checked is that the screen asks to be woken then, as a browser would wake it.
+    const waits = timeouts.mock.calls.map(c => c[1]);
+    expect(waits.some(ms => typeof ms === 'number' && Math.abs(ms - 30 * 60_000) < 1000), `timers: ${waits.join(', ')}`).toBe(true);
+    expect(listeners.has('visibilitychange')).toBe(true);
+    clock(9, 31);
+    listeners.get('visibilitychange')?.();
+    await h().settle();
+    expect(h().text()).toBe('Check in first');
+  });
+});
+
 describe('acceptance J17 step 9: a check-in still on its way when the page reloads does not stand in for one', () => {
   // What every gate reads after the reload, as the screens read it.
   const seen: { asks?: (m: Mode) => { allowed: boolean; needsCheckIn: boolean; disposition: string }; effective?: CheckInRecord } = {};
