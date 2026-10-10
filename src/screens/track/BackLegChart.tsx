@@ -20,8 +20,8 @@
  * no room to draw, the facts are shown in its place, a day at a time.
  */
 
-import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
-import { labelWidth, placeLabels, scaleLinear, textSize, thinLabels } from '@/components/hig/scale';
+import { labelWidth, placeLabels, scaleLinear, thinLabels } from '@/components/hig/scale';
+import { useMeasure } from '@/components/hig/useMeasure';
 import type { LadderLevel } from '@/types/catalog';
 import {
   REACH_LABELS, REACH_ORDER, backLegTable, dayOffset, loadingRuns, painRuns, type BackLegData, type LoadPoint, type PainPoint,
@@ -45,27 +45,6 @@ function layout(fontPx: number) {
     gap: Math.ceil(fontPx),
     axis: Math.ceil(fontPx * 2.2),
   };
-}
-
-/** Width (floored, never rounded up) and text size, measured before paint, as the hig charts do. */
-function useMeasure<T extends HTMLElement>(): [RefObject<T | null>, number, number] {
-  const ref = useRef<T>(null);
-  const [width, setWidth] = useState(0);
-  const [fontPx, setFontPx] = useState(13);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const update = (px: number) => {
-      setWidth(Math.floor(px));
-      setFontPx(textSize(parseFloat(getComputedStyle(el).fontSize)));
-    };
-    update(el.getBoundingClientRect().width);
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(([entry]) => update(entry.contentRect.width));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  return [ref, width, fontPx];
 }
 
 function path(points: { x: number; y: number }[]): string {

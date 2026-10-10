@@ -44,6 +44,18 @@ describe('category colours (journey §20.3)', () => {
   });
 });
 
+describe('trend charts (B-15, journey §20.3)', () => {
+  for (const [selector, theme] of THEMES) {
+    const card = token(selector, '--grouped-card');
+    it(`in ${theme}: the period before, the hatching and the chosen outline are 3:1 on the card, caution text 4.5:1`, () => {
+      expect(contrast(token(selector, '--trend-previous'), card)).toBeGreaterThanOrEqual(3);
+      expect(contrast(token(selector, '--muted-foreground'), card)).toBeGreaterThanOrEqual(3);
+      expect(contrast(token(selector, '--foreground', '--foreground'), card)).toBeGreaterThanOrEqual(3);
+      expect(contrast(token(selector, '--caution'), card)).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+});
+
 /** WCAG relative luminance of an sRGB colour with 0–255 channels. */
 const srgbLuminance = (rgb: number[]) =>
   rgb.map(v => v / 255).map(v => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((y, v, i) => y + [0.2126, 0.7152, 0.0722][i] * v, 0);
