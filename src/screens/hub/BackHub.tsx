@@ -11,7 +11,7 @@
  * - History: every record, newest first, each opening where it is corrected.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CheckCircle2Icon, PlusIcon } from 'lucide-react';
 import { categoryById } from '@/categories';
@@ -70,13 +70,11 @@ export default function BackHub() {
     setFresh(result.ids);
     setNotice(`Saved on this device: ${result.summary}.`);
   };
-
-  // A brief confirmation, as on My Day. The reading itself stays in the list.
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(undefined), 4000);
-    return () => clearTimeout(timer);
-  }, [notice]);
+  // The confirmation stands until the next Add or until the screen is left: never on a timer (§20.4 rule 8; kiro KH-16).
+  const add = () => {
+    setNotice(undefined);
+    setLogOpen(true);
+  };
 
   return (
     <HubFrame category={category}>
@@ -108,7 +106,7 @@ export default function BackHub() {
           )}
           <button
             type="button"
-            onClick={() => setLogOpen(true)}
+            onClick={add}
             className="press-feedback flex min-h-[60px] w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint"
           >
             <PlusIcon className="size-5" aria-hidden />
@@ -145,7 +143,7 @@ export default function BackHub() {
               <p className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
                 The loading ladder moves only after four sessions, so fewer days than that cannot show symptoms against a change in loading. Your check-ins add a reading each day; so does Add.
               </p>
-              <PrimaryButton onClick={() => setLogOpen(true)}>
+              <PrimaryButton onClick={add}>
                 <PlusIcon className="size-5" aria-hidden />
                 Add back and leg pain
               </PrimaryButton>

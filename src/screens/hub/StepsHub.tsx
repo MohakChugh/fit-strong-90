@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { CheckCircle2Icon, PlusIcon, TriangleAlertIcon } from 'lucide-react';
 import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
@@ -48,13 +48,13 @@ export default function StepsHub() {
   const [logOpen, setLogOpen] = useAddLink(add => parseAddParam(add)?.kind === 'steps');
   const [goalOpen, setGoalOpen] = useState(false);
   const [howOpen, setHowOpen] = useState(false);
+  // "Saved on this device", until the next Add or until the screen is left: never on a timer (§20.4 rule 8; kiro KH-16).
   const [notice, setNotice] = useState<string>();
   const [fresh, setFresh] = useState<readonly string[]>([]);
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(undefined), 4000);
-    return () => clearTimeout(timer);
-  }, [notice]);
+  const add = () => {
+    setNotice(undefined);
+    setLogOpen(true);
+  };
 
   // Walking held for the feet, by the profile or by today's walk gate, asked at the shared clock (L-09, K-12; kiro KH-02).
   const guided = useGuided();
@@ -91,7 +91,7 @@ export default function StepsHub() {
           {progress && <p className="text-[length:var(--text-subhead)] leading-snug">{progress}</p>}
           <button
             type="button"
-            onClick={() => setLogOpen(true)}
+            onClick={add}
             className="press-feedback flex min-h-[60px] w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint"
           >
             <PlusIcon className="size-5" aria-hidden />

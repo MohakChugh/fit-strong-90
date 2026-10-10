@@ -14,6 +14,8 @@
  *   advice and no step goal, the hold in words, and a total still saves.
  * - KH-11: Back & leg's emergency signs in body text and normal ink,
  *   before History.
+ * - KH-16: "Saved on this device" stays until the next Add, never on a
+ *   timer (§20.4 rule 8).
  * Synthetic personas only (fixtures/personas.mjs).
  */
 import { persona } from '../fixtures/personas.mjs';
@@ -259,4 +261,48 @@ const backSigns = {
   },
 };
 
-export const cases = [carryOnUnwell, carryOnFlare, carryOnGate, addWhileOpen, pasteTarget, stepsFootHold, backSigns];
+const savedStays = {
+  name: 'KH-16: “Saved on this device” stays until the next Add',
+  async run(t) {
+    const page = await t.open({ seed: persona('P01'), route: '/hub/bp' });
+    const main = page.getByRole('main');
+    const notice = () => main.getByText(/^Saved on this device: /);
+    /** Save through the hub's own form, wait well past any timer, then Add again. */
+    const stays = async (hubTitle, add, formName, fill) => {
+      await ui.heading(page, hubTitle);
+      await ui.tap(ui.button(main, add));
+      const form = page.getByRole('dialog', { name: formName });
+      await form.waitFor();
+      await fill(form);
+      await t.must(await saveForm(t, form) === 'closed', `${hubTitle}: the entry did not save`);
+      await t.check(await notice().count() === 1, `${hubTitle}: no confirmation after saving`);
+      await t.advance(10_000);
+      await t.check(await notice().count() === 1, `${hubTitle}: the confirmation went by itself after 10 seconds (§20.4 rule 8)`);
+      await ui.tap(ui.button(main, add));
+      const again = page.getByRole('dialog', { name: formName });
+      await again.waitFor();
+      await t.check(await notice().count() === 0, `${hubTitle}: the confirmation outlived the next Add`);
+      await ui.tap(ui.button(again, 'Close'));
+      await again.waitFor({ state: 'hidden' });
+    };
+    await t.step(1, 'Blood pressure: 124/78 saved; still said ten seconds on; gone at the next Add', async () => {
+      await stays('Blood pressure', 'Add reading', 'Blood pressure', async form => {
+        await ui.type(form.getByRole('textbox', { name: 'Top (systolic)', exact: true }), '124');
+        await ui.type(form.getByRole('textbox', { name: 'Bottom (diastolic)', exact: true }), '78');
+      });
+    }, { input: '124/78' });
+    await t.step(2, 'Steps: 6,050 saved; the same', async () => {
+      await t.goto('/hub/steps');
+      await stays('Steps', 'Add today’s steps', 'Steps', form => ui.type(form.getByRole('textbox', { name: 'Steps for the day', exact: true }), '6050'));
+    }, { input: '6050' });
+    await t.step(3, 'Back & leg: pain 2 and 1 saved; the same', async () => {
+      await t.goto('/hub/back');
+      await stays('Back & leg', 'Add reading', 'Back & leg pain', async form => {
+        await ui.type(form.getByRole('textbox', { name: 'Back pain', exact: true }), '2');
+        await ui.type(form.getByRole('textbox', { name: 'Leg pain', exact: true }), '1');
+      });
+    }, { input: 'back 2, leg 1' });
+  },
+};
+
+export const cases = [carryOnUnwell, carryOnFlare, carryOnGate, addWhileOpen, pasteTarget, stepsFootHold, backSigns, savedStays];

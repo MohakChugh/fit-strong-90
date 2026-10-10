@@ -800,6 +800,15 @@ describe('Home’s targets and layout (kiro KV-08, KV-10, KV-11, KV-15, KV-18, K
     expect(paste?.[1]).not.toMatch(/\bmin-h-11\b/);
   });
 
+  it('a hub’s "Saved on this device" stands until the next Add, never on a timer (journey §20.4 rule 8; kiro KH-16)', () => {
+    for (const file of ['src/screens/hub/ReadingHub.tsx', 'src/screens/hub/StepsHub.tsx', 'src/screens/hub/BackHub.tsx']) {
+      const hub = read(file);
+      expect(hub, file).not.toMatch(/setTimeout\(\(\) => setNotice\(undefined\)/);
+      expect(hub, file).toMatch(/const add = \(\) => \{\s+setNotice\(undefined\);\s+setLogOpen\(true\);\s+\};/);
+      expect(hub, file).not.toMatch(/onClick=\{\(\) => setLogOpen\(true\)\}/);
+    }
+  });
+
   it('Back & leg’s emergency signs are body text in normal ink, before History (kiro KH-11)', () => {
     const hub = read('src/screens/hub/BackHub.tsx');
     expect(hub).toMatch(/<div className="px-1 text-\[length:var\(--text-body\)\] leading-snug">\s*<p>A pain number never rules out an emergency\. Get emergency care now for any of these:<\/p>\s*<EmergencySigns/);
