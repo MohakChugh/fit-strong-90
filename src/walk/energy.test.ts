@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newObservation } from '@/health/observation';
 import { finishWalk, startWalk, updateOpenSegment } from './clock';
 import {
-  ADULT_WALKING, MPH_PER_MPS, ageBand, energyText, estimateEnergy, roundKcal, walkEnergy, walkingMet, weightAt,
+  ADULT_WALKING, MPH_PER_MPS, OLDER_ADULT_WALKING, ageBand, energyText, estimateEnergy, roundKcal, walkEnergy, walkingMet, weightAt,
 } from './energy';
 
 const at3mph = (ms: number) => ({ ms, metres: (3 / MPH_PER_MPS) * (ms / 1000) });
@@ -147,9 +147,30 @@ describe('the edges of an estimate (Plan 6 Task 5, from mutation checks)', () =>
     const moved = walked(false);
     const short = { ...moved, segments: [{ ...moved.segments[0], accruedMs: 240_000 }] };
     expect(walkEnergy(short, ctx).input?.coverageMs).toBe(240_000);
-    // Born in 1966: 59 or 60 in 2026 (no figure yet), certainly under 60 on a walk in 2025.
-    expect(walkEnergy(walked(true), { ...ctx, birthYear: 1966 }).estimate).toEqual({ kind: 'none', reason: 'olderUnconfirmed' });
+    // Born in 1966: 59 or 60 in 2026, so the Older Adult values; certainly under 60 on a walk in 2025, so the Adult ones.
+    const older = walkEnergy(walked(true), { ...ctx, birthYear: 1966 }).estimate;
     const lastYear = { ...walked(true), segments: walked(true).segments.map(x => ({ ...x, day: '2025-10-08' })) };
-    expect(walkEnergy(lastYear, { ...ctx, birthYear: 1966 }).estimate.kind).toBe('about');
+    const adult = walkEnergy(lastYear, { ...ctx, birthYear: 1966 }).estimate;
+    // 805 m in 10 min is 3.0 mph: 1719060 (5.3) at 60 and over, 17190 (3.8) for adults.
+    expect(older.kind === 'about' && adult.kind === 'about' && older.kcal / adult.kcal).toBeCloseTo(((5.3 - 1) * 2.7 / 3.5) / (3.8 - 1), 6);
+  });
+});
+
+describe('60 and over (B-18, Task 6)', () => {
+  it('uses the Older Adult Compendium’s values, as printed, against its own resting rate', () => {
+    expect(OLDER_ADULT_WALKING?.bands.map(b => [b.fromMph, b.met, b.code])).toEqual([
+      [0, 3.0, '1715160'], [1.0, 4.0, '1715260'], [2.0, 3.8, '1715360'], [2.2, 4.5, '1717060'],
+      [2.8, 5.3, '1719060'], [3.3, 6.0, '1720060'], [4.0, 7.3, '1722060'], [4.5, 9.0, '1723060'],
+    ]);
+    // (5.3 − 1) × 2.7/3.5 × 70 kg × 0.5 h ≈ 116 → about 120.
+    expect(estimateEnergy({ runs: [at3mph(1_800_000)], observedMs: 1_800_000, kg: 70, band: 'older' })).toMatchObject({ kind: 'about', rounded: 120 });
+  });
+
+  it('counts time without distance at the slow-pace row, and gives nothing at 5 mph or faster', () => {
+    // (3.8 − 1) × 2.7/3.5 × 70 kg × 0.5 h ≈ 75.6 → about 80.
+    expect(estimateEnergy({ runs: [], observedMs: 1_800_000, kg: 70, band: 'older' })).toMatchObject({ kind: 'about', rounded: 80 });
+    expect(OLDER_ADULT_WALKING?.noDistance).toEqual({ fromMph: 2.0, met: 3.8, code: '1715360' });
+    expect(walkingMet(5, OLDER_ADULT_WALKING!.bands)).toBeUndefined();
+    expect(walkingMet(4.99, OLDER_ADULT_WALKING!.bands)?.met).toBe(9.0);
   });
 });

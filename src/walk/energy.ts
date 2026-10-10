@@ -41,8 +41,25 @@ export interface OlderTable {
   /** MET60+ values are read against an older adult's lower resting rate: kcal scale by this. */
   restingFactor: number;
 }
-/** The 2024 Older Adult Compendium's walking values. Undefined until Task 6 confirms them at the source (B-18): no figure for 60 and over. */
-export const OLDER_ADULT_WALKING: OlderTable | undefined = undefined;
+/**
+ * The 2024 Older Adult Compendium's walking values, as printed (MET60+, read
+ * against 2.7 mL/kg/min), confirmed at the source on the board (B-18, D85).
+ * Undefined would mean no figure for 60 and over.
+ */
+export const OLDER_ADULT_WALKING: OlderTable | undefined = {
+  bands: [
+    { fromMph: 0, met: 3.0, code: '1715160' },
+    { fromMph: 1.0, met: 4.0, code: '1715260' },
+    { fromMph: 2.0, met: 3.8, code: '1715360' },
+    { fromMph: 2.2, met: 4.5, code: '1717060' },
+    { fromMph: 2.8, met: 5.3, code: '1719060' },
+    { fromMph: 3.3, met: 6.0, code: '1720060' },
+    { fromMph: 4.0, met: 7.3, code: '1722060' },
+    { fromMph: 4.5, met: 9.0, code: '1723060' },
+  ],
+  noDistance: { fromMph: 2.0, met: 3.8, code: '1715360' },
+  restingFactor: 2.7 / 3.5,
+};
 
 export const MPH_PER_MPS = 2.236936;
 /** Thinner than either, a run has no speed worth a band (the same floor as the average pace). */
