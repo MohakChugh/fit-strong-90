@@ -98,17 +98,6 @@ export function addButton(layout: HomeLayout, id: CategoryId, verb: 'Add' | 'Sho
   return { label: verb, disabled: false };
 }
 
-/**
- * Every category not on Home, the hidden ones too, by group in the registry's
- * order: what "+ Add" offers until Browse's pick mode replaces it (Plan 4).
- * A group with nothing to add is left out.
- */
-export function notOnHome(layout: HomeLayout): { group: GroupId; ids: CategoryId[] }[] {
-  return GROUPS
-    .map(g => ({ group: g.id, ids: CATEGORIES.filter(c => c.group === g.id && !layout.order[g.id].includes(c.id)).map(c => c.id) }))
-    .filter(g => g.ids.length > 0);
-}
-
 /** The hidden tiles as Edit Home lists them, under Hidden with Show: in the registry's order. */
 export function hiddenTiles(layout: HomeLayout): CategoryId[] {
   return CATEGORIES.filter(c => layout.hidden.includes(c.id)).map(c => c.id);

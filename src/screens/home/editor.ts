@@ -185,6 +185,8 @@ export function useHomeEditor({ fallback, still, urgent }: {
   // The tile whose menu opened edit mode, so Done hands focus back to it.
   const [startedFrom, setStartedFrom] = useState<CategoryId>();
   const [menu, setMenu] = useState<MenuTarget | null>(null);
+  // Browse's pick mode over Edit Home (journey §7.6, D56).
+  const [picking, setPicking] = useState(false);
   // Closed, not just hidden, so it can't open again by itself once the urgent state has gone.
   if (urgent && menu !== null) setMenu(null);
   // Polite, and said again even when the words repeat.
@@ -221,6 +223,7 @@ export function useHomeEditor({ fallback, still, urgent }: {
 
   const finish = () => {
     closing.current = false;
+    setPicking(false);
     setEditing(false);
     focusLater(() => (startedFrom ? tileControl(startedFrom) : null) ?? document.querySelector<HTMLElement>('[data-edit-home-row]'));
   };
@@ -397,6 +400,13 @@ export function useHomeEditor({ fallback, still, urgent }: {
     }, { preventScroll: true });
   };
 
+  /** Edit Home with pick mode over it, as `#/browse?pick=1` asks (journey §19.2). State only, so it is safe during render; the sheet takes focus itself. */
+  const openPick = () => {
+    setEditing(true);
+    setMenu(null);
+    setPicking(true);
+  };
+
   /**
    * Done: once every change is stored, focus goes back to where editing began
    * (journey §20.4 rule 10). A change still being written is waited for; a
@@ -429,7 +439,7 @@ export function useHomeEditor({ fallback, still, urgent }: {
   };
 
   return {
-    editing, start, done, menu, openMenu, closeMenu, menuClosed,
+    editing, start, done, menu, openMenu, closeMenu, menuClosed, picking, setPicking, openPick,
     hide, move, drop, show, add, said, error, undoCount, flipRef: flip.ref,
     /** The refused draft, drawn in place of the stored layout; its message; and Try again. */
     draft: refused?.layout, failed: refused?.message, retry,

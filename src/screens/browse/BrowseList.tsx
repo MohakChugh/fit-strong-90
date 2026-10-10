@@ -1,12 +1,15 @@
 import { useId, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { SearchIcon } from 'lucide-react';
-import { categoryById, type CategoryId } from '@/categories';
+import { MAX_PER_GROUP, categoryById, type CategoryId } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
 import { skipNextTransition } from '@/design/motion';
 import { partialDetail } from '@/screens/guide/format';
+import { EditButton } from '@/screens/home/EditButton';
+import { addButton, groupFull } from '@/screens/home/layout';
 import { tileHref } from '@/screens/home/model';
 import { TileIcon } from '@/screens/home/Tile';
+import type { HomeLayout } from '@/types';
 import type { BrowseResults } from './browse';
 
 /** Where a row was opened from, so the screen it opens says "Back to Browse" (journey §8.1). */
@@ -128,5 +131,43 @@ function CategoryRow({ id, origin, held, onMore }: { id: CategoryId; origin: Ori
         More
       </button>
     </div>
+  );
+}
+
+/**
+ * Pick mode's rows (journey §7.6, §14): every category, each with Add, Added,
+ * or its full group's own words, and a full group says why under its rows,
+ * as v1's "+ Add" did. The rows never vanish from under a finger: an added
+ * one says "Added". Narrower than 16 rem, the title takes its own line under
+ * the icon, and the button goes under them, as a `Row` stacks.
+ */
+export function PickRows({ results, layout, onPick }: { results: BrowseResults; layout: HomeLayout; onPick: (id: CategoryId) => void }) {
+  return (
+    <>
+      {results.groups.map(g => (
+        <Group
+          key={g.id}
+          header={g.title}
+          {...(g.id !== 'data' && groupFull(layout, g.id) ? { footer: `${g.title} has ${MAX_PER_GROUP} tiles. Hide one in Edit Home to make room.` } : {})}
+        >
+          {g.rows.flatMap(r => (r.kind === 'category' ? [r] : [])).map(r => {
+            const category = categoryById(r.id);
+            const button = addButton(layout, r.id);
+            return (
+              <div key={r.id} data-pick={r.id} className="flex flex-wrap items-center gap-3 px-4 py-3 @max-[16rem]:gap-y-2 @max-[16rem]:px-2">
+                <TileIcon category={category} />
+                <span className="min-w-0 flex-1 @max-[16rem]:basis-full">
+                  <span className="block text-[length:var(--text-body)] leading-snug [overflow-wrap:break-word]">{category.title}</span>
+                  {layout.hidden.includes(r.id) && button.label !== 'Added' && (
+                    <span className="block text-[length:var(--text-subhead)] leading-snug text-muted-foreground">Hidden from Home</span>
+                  )}
+                </span>
+                <EditButton control="pick" disabled={button.disabled} label={button.label} name={category.title} onClick={() => onPick(r.id)} />
+              </div>
+            );
+          })}
+        </Group>
+      ))}
+    </>
   );
 }

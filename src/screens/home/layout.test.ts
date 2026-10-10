@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  addButton, addTile, groupFull, hiddenTiles, hideTile, movedMessage, moveTile, moveTileTo, notOnHome, placedMessage, restoreTile, showTile, storedLayout,
+  addButton, addTile, groupFull, hiddenTiles, hideTile, movedMessage, moveTile, moveTileTo, placedMessage, restoreTile, showTile, storedLayout,
 } from './layout';
 import type { HomeLayout } from '@/types';
 
@@ -97,23 +97,6 @@ describe('the group cap in Edit Home (at most 5 choices, journey §20.4 rule 13,
     expect(addButton(L, 'labs')).toEqual({ label: 'Add', disabled: false });
     expect(addButton(L, 'labs', 'Show')).toEqual({ label: 'Show', disabled: false });
     expect(addButton(L, 'glucose')).toEqual({ label: 'Added', disabled: true });
-  });
-});
-
-describe('notOnHome: what "+ Add" offers until Browse’s pick mode (Plan 4)', () => {
-  it('lists every category not on Home, hidden ones too, by group in the registry’s order', () => {
-    const hidden = hideTile(L, 'water');
-    expect(notOnHome(hidden)).toEqual([
-      { group: 'move', ids: ['steps'] },
-      { group: 'check', ids: ['bp', 'back', 'weight', 'water', 'waist', 'labs'] },
-    ]);
-  });
-  it('leaves out a group whose every category is on Home', () => {
-    const all: HomeLayout = {
-      order: { move: ['workout', 'stretch', 'walk', 'steps'], eat: ['food'], check: ['glucose', 'bp', 'back', 'weight', 'water'], learn: ['learn'] },
-      hidden: [],
-    };
-    expect(notOnHome(all)).toEqual([{ group: 'check', ids: ['sleep', 'waist', 'labs'] }]);
   });
 });
 

@@ -176,11 +176,12 @@ export function HomeScreen() {
     }
   }
   useEffect(() => {
-    if (!SHEET_KEYS.some(k => params.has(k)) && !params.has('moved')) return;
+    if (!SHEET_KEYS.some(k => params.has(k)) && !params.has('moved') && !params.has('edit')) return;
     setParams(prev => {
       const next = new URLSearchParams(prev);
       for (const k of SHEET_KEYS) next.delete(k);
       next.delete('moved');
+      next.delete('edit');
       return next;
     }, { replace: true });
   }, [params, setParams]);
@@ -289,6 +290,15 @@ export function HomeScreen() {
   // While a safety decision stands, nothing beside it moves (motion rule 2, M1).
   const still = SAFETY.has(recommendation.kind) || urgent !== undefined;
   const editor = useHomeEditor({ fallback: first, still, urgent: urgent !== undefined });
+  // `#/browse?pick=1` arrives as `?edit=add` (journey §19.2, D56): Edit Home,
+  // with pick mode over it, once per request. The effect above then takes it
+  // out of the address.
+  const pickAsked = params.get('edit') === 'add';
+  const [pickSeen, setPickSeen] = useState(false);
+  if (pickAsked !== pickSeen) {
+    setPickSeen(pickAsked);
+    if (pickAsked) editor.openPick();
+  }
   // A change the device refused is drawn as the person made it, with Try again (codex V1-11).
   const layout = editor.draft ?? first;
   // What the cadence model says is due: the tiles' caution dots (§7.2).
