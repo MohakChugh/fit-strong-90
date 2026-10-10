@@ -107,10 +107,21 @@ export function stepsDays(range: DayRange, observations: readonly Observation[],
   });
 }
 
+/** An instant written in its own offset ("+05:30"), not as UTC: the clock it was measured on is in it. */
+const OWN_OFFSET = /[+-]\d{2}:\d{2}$/;
+
+/** The day an instant falls on at a fixed offset from UTC, in hours. */
+const dayAtOffset = (ms: number, hours: number) => new Date(ms + hours * 3_600_000).toISOString().slice(0, 10);
+
 /**
  * A meter's HI and LO, from the check-ins: the only place they are kept,
- * because they have no number (K-11). Each once, on the local day it was
- * measured, or the check-in's day when no time was kept.
+ * because they have no number (K-11). Each once, on the day and at the clock
+ * it was measured, in the offset it was measured in, wherever the phone is
+ * now (J§4.10); on the check-in's day when no time was kept. One kept only as
+ * a UTC instant, saved before the offset was (H3-01), has lost its zone: it
+ * is read on this phone's clock, as the check-in's numbers were filed when it
+ * was saved (`local` in store/project.ts), and says the days it could have
+ * been measured on, from UTC−12 to UTC+14.
  */
 export function meterReadings(checkIns: readonly CheckInRecord[]): MeterReading[] {
   const out: MeterReading[] = [];
@@ -119,12 +130,19 @@ export function meterReadings(checkIns: readonly CheckInRecord[]): MeterReading[
     const entries = [...(Array.isArray(c.glucoseEarlier) ? c.glucoseEarlier : []), ...(c.glucoseDisplay ? [c.glucoseDisplay] : [])];
     for (const e of entries) {
       if (!('display' in e) || (e.display !== 'HI' && e.display !== 'LO')) continue;
-      const ms = typeof e.measuredAt === 'string' ? Date.parse(e.measuredAt) : Number.NaN;
-      const at = Number.isFinite(ms) ? nowAt(new Date(ms)) : undefined;
-      const key = `${e.display}|${at ?? ''}`;
+      const raw = typeof e.measuredAt === 'string' ? e.measuredAt : '';
+      const ms = Date.parse(raw);
+      const timed = Number.isFinite(ms);
+      const kept = timed && OWN_OFFSET.test(raw);
+      const at = kept ? raw : timed ? nowAt(new Date(ms)) : undefined;
+      // One measurement, however its time was written.
+      const key = `${e.display}|${timed ? ms : ''}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({ day: at ? at.slice(0, 10) : c.date, ...(at ? { at } : {}), display: e.display });
+      out.push({
+        day: at ? at.slice(0, 10) : c.date, ...(at ? { at } : {}), display: e.display,
+        ...(timed && !kept ? { couldBe: { from: dayAtOffset(ms, -12), to: dayAtOffset(ms, 14) } } : {}),
+      });
     }
   }
   return out;

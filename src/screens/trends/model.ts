@@ -355,7 +355,8 @@ export function readingsView(input: TrendInput): TrendView {
   };
 
   const ranges = compareRanges(w, ctx.today);
-  const lo = all.lo + stat(prev).lo;
+  // `r.meters` are those that may have been measured in either period: one whose zone was lost, wherever it could have been (H3-01).
+  const lo = r.meters.filter(m => m.display === 'LO').length;
   const comparison: Comparison = !ranges ? { shown: false, reason: 'fewDays' }
     // A LO anywhere in either period hides the change, not only on the days compared (B-15).
     : lo > 0 ? { shown: false, reason: 'meterLo' }

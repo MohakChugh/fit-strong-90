@@ -165,6 +165,13 @@ export interface MeterReading {
   day: string;
   at?: string;
   display: 'HI' | 'LO';
+  /** Kept only as a UTC instant, its zone lost (H3-01): the days it could have been measured on. */
+  couldBe?: DayRange;
+}
+
+/** Whether a reading may have been measured in `range`: on its day, or on any day its lost zone could have put it on. */
+export function mayBeIn(m: MeterReading, range: DayRange): boolean {
+  return (m.couldBe?.from ?? m.day) <= range.to && (m.couldBe?.to ?? m.day) >= range.from;
 }
 
 export interface ReadingStats {

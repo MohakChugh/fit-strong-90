@@ -11,6 +11,7 @@ import { createElement, type ReactNode } from 'react';
 import type { CheckInRecord, DailyCheckIn } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import type { LiveWalk } from '@/walk/live';
+import { measuredStamp } from '@/health/observation';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, type Host } from '@/test/host';
@@ -75,6 +76,8 @@ const known = { medicinesReviewed: true, currentlyActive: true, clearance: 'vigo
 const INSULIN = { health: { ...known, diabetes: 'type2', insulin: 'injections_or_pump', insulinRegimen: 'basalOnly' } } satisfies ProfileInput;
 const DAY = '2026-10-09';
 const iso = (h: number, m = 0) => new Date(2026, 9, 9, h, m, 0).toISOString();
+// A meter's HI or LO is kept in this phone's offset, written out (H3-01): the same instant as `iso`.
+const stamped = (h: number, m = 0) => measuredStamp(new Date(2026, 9, 9, h, m, 0));
 const clock = (h: number, m = 0) => vi.setSystemTime(new Date(2026, 9, 9, h, m, 0));
 
 let host: Host | undefined;
@@ -129,7 +132,7 @@ describe('a meter showing LO or HI after "I feel low" on a walk is recorded as t
     const p = createDefaultProfile(INSULIN);
     await feelingLow(p);
     await meterShows('LO');
-    expect(today()?.glucoseDisplay).toMatchObject({ display: 'LO', measuredAt: iso(9, 10), source: 'meter' });
+    expect(today()?.glucoseDisplay).toMatchObject({ display: 'LO', measuredAt: stamped(9, 10), source: 'meter' });
     expect(today()?.glucose).toBeUndefined();
     expect(today()?.glucoseEarlier?.some(e => !('display' in e) && e.value === 140)).toBe(true);
     expect(answer(p)).toMatchObject({ allowed: false, disposition: 'today' });
@@ -145,12 +148,12 @@ describe('a meter showing LO or HI after "I feel low" on a walk is recorded as t
     const p = createDefaultProfile(INSULIN);
     await feelingLow(p);
     await meterShows('HI');
-    expect(today()?.glucoseDisplay).toMatchObject({ display: 'HI', measuredAt: iso(9, 10) });
+    expect(today()?.glucoseDisplay).toMatchObject({ display: 'HI', measuredAt: stamped(9, 10) });
     expect(answer(p)).toMatchObject({ allowed: false, disposition: 'hold' });
     expect(answer(p).reasons.join(' ')).toMatch(/Your meter says HI, higher than it can measure/);
     clock(9, 14);
     await meterShows('HI');
-    expect(today()?.glucoseEarlier?.some(e => 'display' in e && e.display === 'HI' && e.measuredAt === iso(9, 10))).toBe(true);
+    expect(today()?.glucoseEarlier?.some(e => 'display' in e && e.display === 'HI' && e.measuredAt === stamped(9, 10))).toBe(true);
     expect(answer(p)).toMatchObject({ allowed: false, disposition: 'today' });
     expect(answer(p).reasons.join(' ')).toMatch(/Your meter has read HI more than once/);
   });

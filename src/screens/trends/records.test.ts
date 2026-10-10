@@ -154,7 +154,41 @@ describe('a meter’s HI and LO, from the check-ins (K-11)', () => {
     expect(meterReadings([c, untimed]).map(m => [m.day, m.display])).toEqual([['2026-10-07', 'LO'], ['2026-10-07', 'HI'], ['2026-10-06', 'LO']]);
     // Measured late last night, kept on this morning's check-in: it belongs to the night it was measured.
     const night = { date: '2026-10-08', glucoseDisplay: { display: 'LO', measuredAt: '2026-10-07T23:40:00+05:30' } } as unknown as CheckInRecord;
-    expect(meterReadings([night])).toEqual([{ day: '2026-10-07', at: '2026-10-07T23:40:00.000+05:30', display: 'LO' }]);
+    expect(meterReadings([night])).toEqual([{ day: '2026-10-07', at: '2026-10-07T23:40:00+05:30', display: 'LO' }]);
+  });
+
+  it('keeps the day and the clock it was measured on, in its own offset, wherever the phone is now (H3-01, J§4.10)', () => {
+    const lo = { date: '2026-09-28', glucoseDisplay: { display: 'LO', measuredAt: '2026-09-28T00:30:00+05:30' } } as unknown as CheckInRecord;
+    env.TZ = 'Europe/London';
+    try {
+      // In London that instant is 8 pm on Sunday 27 September: it was measured on Monday, at half past midnight.
+      expect(meterReadings([lo])).toEqual([{ day: '2026-09-28', at: '2026-09-28T00:30:00+05:30', display: 'LO' }]);
+    } finally {
+      env.TZ = 'Asia/Kolkata';
+    }
+  });
+
+  it('a UTC instant, saved before the offset was kept, has lost its zone: on this phone’s clock, with every day it could have been (H3-01)', () => {
+    // The honest legacy fallback: the instant is read on this phone's clock, as the check-in's numbers were
+    // filed when it was saved (`local` in store/project.ts), and it says which days a lost zone could have put it on.
+    const lo = { date: '2026-09-28', glucoseDisplay: { display: 'LO', measuredAt: '2026-09-27T19:00:00.000Z' } } as unknown as CheckInRecord;
+    const couldBe = { from: '2026-09-27', to: '2026-09-28' };
+    expect(meterReadings([lo])).toEqual([{ day: '2026-09-28', at: '2026-09-28T00:30:00.000+05:30', display: 'LO', couldBe }]);
+    env.TZ = 'Europe/London';
+    try {
+      expect(meterReadings([lo])).toEqual([{ day: '2026-09-27', at: '2026-09-27T20:00:00.000+01:00', display: 'LO', couldBe }]);
+    } finally {
+      env.TZ = 'Asia/Kolkata';
+    }
+  });
+
+  it('a copy of a reading is one reading, however its time is written', () => {
+    const c = {
+      date: '2026-10-07',
+      glucoseDisplay: { display: 'LO', measuredAt: '2026-10-07T09:10:00+05:30' },
+      glucoseEarlier: [{ display: 'LO', measuredAt: '2026-10-07T03:40:00.000Z' }],
+    } as unknown as CheckInRecord;
+    expect(meterReadings([c])).toHaveLength(1);
   });
 });
 

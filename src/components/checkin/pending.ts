@@ -22,7 +22,7 @@ import type { AppData } from '@/types';
 import type { BpPartialReading, BpReading, CheckInRecord, DailyCheckIn, EmergencyFlag, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, SymptomReach } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { completes, evaluateCheckIn } from '@/engine/readiness';
-import { checkInDayOf, type Observation } from '@/health/observation';
+import { checkInDayOf, measuredStamp, type Observation } from '@/health/observation';
 import { pairBloodPressure } from '@/health/aggregate';
 import { carryForward, withoutGateFields } from './form';
 
@@ -429,7 +429,8 @@ function applyReport(today: CheckInRecord | undefined, r: SymptomReport, date: s
     news,
     ...(emergency ? { emergency, urgentSymptoms: base.urgentSymptoms || emergency.length > 0 } : {}),
     ...(r.glucose ? { glucose: timed(r.glucose) } : {}),
-    ...(r.glucoseDisplay ? { glucoseDisplay: timed(r.glucoseDisplay) } : {}),
+    // A meter's HI or LO is kept only here, so in this phone's offset, written out (H3-01).
+    ...(r.glucoseDisplay ? { glucoseDisplay: { ...r.glucoseDisplay, measuredAt: r.glucoseDisplay.measuredAt ?? measuredStamp(at) } } : {}),
     ...(reportsLow ? { lowSymptomsAt: at.toISOString() } : {}),
     ...(r.lowRecovered !== undefined ? { lowRecovered: r.lowRecovered } : {}),
     ...(r.provoked?.length ? { provoked: [...new Set([...(base.provoked ?? []), ...r.provoked])] } : {}),

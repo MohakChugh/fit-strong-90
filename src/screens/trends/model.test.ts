@@ -518,6 +518,21 @@ describe('more of the readings view (A-43, A-44, K-11)', () => {
     expect(lastSaturday.change).toEqual({ text: 'No change shown: a meter LO has no number, so an average would leave out the lowest reading.' });
   });
 
+  it('a LO keeps its week when the phone changes zone: the change stays hidden (H3-01, B-15, J§4.10)', () => {
+    // Monday 28 September, half past midnight in Kolkata: the week before this one. In London it is 8 pm on the 27th.
+    const kept = { date: '2026-09-28', glucoseDisplay: { display: 'LO', measuredAt: '2026-09-28T00:30:00+05:30' } } as unknown as CheckInRecord;
+    // The same instant, saved before the offset was kept: its zone is lost, so it could have been the 27th or the 28th.
+    const utc = { date: '2026-09-28', glucoseDisplay: { display: 'LO', measuredAt: '2026-09-27T19:00:00.000Z' } } as unknown as CheckInRecord;
+    const hidden = { text: 'No change shown: a meter LO has no number, so an average would leave out the lowest reading.' };
+    env.TZ = 'Europe/London';
+    try {
+      for (const lo of [kept, utc]) expect(readingsView({ def: TRENDS.glucose, window: week, data: data(GLUCOSE, [], [lo]), prefs, ctx: ctx() }).change).toEqual(hidden);
+    } finally {
+      env.TZ = 'Asia/Kolkata';
+    }
+    for (const lo of [kept, utc]) expect(readingsView({ def: TRENDS.glucose, window: week, data: data(GLUCOSE, [], [lo]), prefs, ctx: ctx() }).change).toEqual(hidden);
+  });
+
   it('readings on a status day are counted, and the day named', () => {
     const unwell = readingsView({ def: TRENDS.glucose, window: week, data: data(GLUCOSE), prefs, ctx: ctx({ statusOn: d => (d === '2026-10-06' ? 'unwell' : 'normal') }) });
     expect(unwell.headline.coverage).toBe('4 readings, all with a number');

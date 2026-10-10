@@ -78,8 +78,8 @@ describe('glucose by context, with a meter’s HI and LO', () => {
     const lo = { date: '2026-10-07', glucoseDisplay: { display: 'LO', measuredAt: '2026-10-07T13:00:00+05:30' } } as unknown as CheckInRecord;
     const r = readingsFor('glucose', RANGE, data(obs, [], [lo]), prefs);
     expect(r.series.map(s => [s.id, s.label, s.shape])).toEqual([['beforeMeal', 'Fasting or before a meal', 'circle'], ['afterMeal', 'After a meal', 'triangle']]);
-    expect(r.meters).toEqual([{ day: '2026-10-07', at: '2026-10-07T13:00:00.000+05:30', display: 'LO' }]);
-    expect(r.texts.at(-1)).toEqual({ day: '2026-10-07', at: '2026-10-07T13:00:00.000+05:30', text: 'Meter showed LO at 1:00 pm', note: 'Below what the meter can show' });
+    expect(r.meters).toEqual([{ day: '2026-10-07', at: '2026-10-07T13:00:00+05:30', display: 'LO' }]);
+    expect(r.texts.at(-1)).toEqual({ day: '2026-10-07', at: '2026-10-07T13:00:00+05:30', text: 'Meter showed LO at 1:00 pm', note: 'Below what the meter can show' });
     // Oldest first, as they were measured, not as they were entered.
     expect(r.texts.map(t => t.day)).toEqual(['2026-10-05', '2026-10-06', '2026-10-07']);
   });
@@ -89,7 +89,7 @@ describe('glucose by context, with a meter’s HI and LO', () => {
     const earlier = { date: '2026-10-02', glucoseDisplay: { display: 'LO', measuredAt: '2026-10-02T13:00:00+05:30' } } as unknown as CheckInRecord;
     const r = readingsFor('glucose', RANGE, data([], [], [hi, earlier]), prefs);
     expect(r.meters.map(m => m.display)).toEqual(['HI']);
-    expect(r.texts).toEqual([{ day: '2026-10-06', at: '2026-10-06T21:00:00.000+05:30', text: 'Meter showed HI at 9:00 pm', note: 'Above what the meter can show' }]);
+    expect(r.texts).toEqual([{ day: '2026-10-06', at: '2026-10-06T21:00:00+05:30', text: 'Meter showed HI at 9:00 pm', note: 'Above what the meter can show' }]);
   });
 });
 

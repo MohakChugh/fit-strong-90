@@ -16,7 +16,7 @@ import { glucoseGroup } from '@/screens/track/targets';
 import { formatPressure } from '@/screens/track/timeline';
 import { decimalsFor, formatNumber, glucoseMgdl, roundTo, type GlucoseUnit } from '@/screens/track/units';
 import { dayTotals, meterReadings, sessionMinutes, sessionsOf, stepsDays, stretchedDays, walkFigures, type TrendData } from './records';
-import type { DayFigure, LabPoint, MeterReading, ReadingPoint } from './stats';
+import { mayBeIn, type DayFigure, type LabPoint, type MeterReading, type ReadingPoint } from './stats';
 
 export type { TrendData } from './records';
 
@@ -159,8 +159,9 @@ export function readingsFor(id: TrendId, range: DayRange, data: TrendData, prefs
       const note = glucoseFlag(o.value, o.unit as GlucoseUnit) ?? (high ? `Above ${GLUCOSE_LINES[prefs.glucose].high}` : undefined);
       texts.push({ day: o.day, at: o.at, text: `${formatNumber(v.value, v.decimals)} ${v.unit}${at(o, prefs)}${o.tag ? `, ${tagLabel(o.tag).toLowerCase()}` : ''}`, ...(note ? { note } : {}) });
     }
-    const meters = meterReadings(data.checkIns).filter(inside(range));
-    for (const m of meters) {
+    // Every HI and LO that may have been measured in the range: one whose zone was lost, wherever it could have been (H3-01).
+    const meters = meterReadings(data.checkIns).filter(m => mayBeIn(m, range));
+    for (const m of meters.filter(inside(range))) {
       texts.push({
         day: m.day, at: m.at ?? `${m.day}T12:00:00`, text: `Meter showed ${m.display}${m.at ? ` at ${formatClock(m.at, prefs.hour12)}` : ''}`,
         note: m.display === 'LO' ? 'Below what the meter can show' : 'Above what the meter can show',

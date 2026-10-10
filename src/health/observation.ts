@@ -236,6 +236,16 @@ export function nowAt(now: Date = new Date()): string {
 }
 
 /**
+ * A measured time in this device's offset, written out even at UTC+0
+ * ("+00:00", never "Z"), for a reading kept as a time and not as an
+ * observation: a meter's HI or LO (H3-01). It keeps the clock it was taken
+ * on, and is told apart from the bare UTC stamps saved before it.
+ */
+export function measuredStamp(at: Date): string {
+  return format(at, "yyyy-MM-dd'T'HH:mm:ss.SSSxxx");
+}
+
+/**
  * An instant on a given local day, for a record whose clock time is unknown —
  * a v4 check-in stored only `date`.
  *

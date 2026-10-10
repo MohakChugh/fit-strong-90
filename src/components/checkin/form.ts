@@ -20,6 +20,7 @@ import type {
 } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { deriveHealth } from '@/engine/health';
+import { measuredStamp } from '@/health/observation';
 import { checkedIn } from '@/engine/permission';
 import { bpPartialId, completes, endsTheDay, evaluateCheckIn, flagsIn, glucoseSanity, profileOnlyReadiness, reopenedByReport, severePartial, standingAnswer, toMgdl, type GlucoseSanity } from '@/engine/readiness';
 
@@ -497,7 +498,9 @@ function glucoseFromForm(form: CheckInForm, profile: UserProfile, previous: Dail
   if (form.glucoseDisplay) {
     if (prevShown && prevShown.display === form.glucoseDisplay && (prevShown.measuredAt ?? null) === at) return { glucoseDisplay: prevShown };
     const source = form.source ?? defaultSource(profile);
-    const reading: GlucoseDisplayReading = { display: form.glucoseDisplay, measuredAt: at ?? stamp, ...(source ? { source } : {}) };
+    // In this phone's offset, written out: HI and LO are kept here and nowhere else, so their clock is too (H3-01).
+    const ms = Date.parse(at ?? stamp);
+    const reading: GlucoseDisplayReading = { display: form.glucoseDisplay, measuredAt: Number.isFinite(ms) ? measuredStamp(new Date(ms)) : at ?? stamp, ...(source ? { source } : {}) };
     return { glucoseDisplay: reading };
   }
   const text = form.glucose.trim();
