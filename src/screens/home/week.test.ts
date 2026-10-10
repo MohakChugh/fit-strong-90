@@ -65,6 +65,10 @@ describe('Stretched days', () => {
     ];
     expect(stretchDays(TODAY, sessions)).toBe(2);
   });
+  it('counts a session whose mobility block was done as a day stretched (journey §12.3)', () => {
+    const withBlock = session('2026-10-06', { planKind: 'full', muscleGroup: 'lower', mobility: [{ exerciseId: 'cat-cow', seconds: 60 }] });
+    expect(stretchDays(TODAY, [withBlock])).toBe(1);
+  });
   it('says it plainly', () => {
     expect(stretchedLine(0)).toBe('No stretches yet this week');
     expect(stretchedLine(1)).toBe('Stretched 1 day');
