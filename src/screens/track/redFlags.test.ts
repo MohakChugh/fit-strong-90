@@ -13,8 +13,9 @@ import { BACK_EMERGENCY_SIGNS } from './redFlags';
 vi.mock('react-router-dom', () => ({
   useNavigate: () => () => {},
   Link: () => null,
-  useLocation: () => ({ pathname: '/track/back', search: '', state: null }),
+  useLocation: () => ({ pathname: '/hub/back', search: '', state: null }),
   useSearchParams: () => [new URLSearchParams(), () => {}],
+  useViewTransitionState: () => false,
 }));
 vi.mock('@/components/hig/Screen', async () => {
   const { createElement: h } = await import('react');
@@ -38,8 +39,8 @@ describe('the back and leg emergency signs (X2-20)', () => {
   });
 
   it('are all shown under the Back & leg chart', async () => {
-    const { BackLeg } = await import('./BackLeg');
-    const html = renderToStaticMarkup(createElement(BackLeg)).replace(/&#x27;|’/g, '’');
+    const { default: BackHub } = await import('@/screens/hub/BackHub');
+    const html = renderToStaticMarkup(createElement(BackHub)).replace(/&#x27;|’/g, '’');
     for (const sign of BACK_EMERGENCY_SIGNS) expect(html).toContain(sign.replace(/'/g, '’'));
   });
 
