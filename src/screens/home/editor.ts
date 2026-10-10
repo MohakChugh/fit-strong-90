@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { MAX_PER_GROUP, categoryById, isHomeLayout, type CategoryId } from '@/categories';
 import { MOTION, springLinear } from '@/design/motion';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
-import { getState, setSettings } from '@/store/useStore';
+import { getState, setSettings, update } from '@/store/useStore';
 import type { HomeLayout } from '@/types';
 import { addTile, groupFull, hiddenTiles, hideTile, movedMessage, moveTile, moveTileTo, placedMessage, restoreTile, showTile } from './layout';
 
@@ -189,27 +189,32 @@ export function useHomeEditor({ fallback, still, urgent }: {
   // Polite, and said again even when the words repeat.
   const [said, setSaid] = useState({ text: '', n: 0 });
   const [error, setError] = useState<string>();
+  // A change the device refused, kept as a draft and drawn in its place, with Try again (codex V1-11).
+  const [refused, setRefused] = useState<{ layout: HomeLayout; message: string; then?: () => void }>();
+  const draft = useRef<HomeLayout | undefined>(undefined);
+  // Writes still on their way, and whether Done is waiting for them (journey §4.5).
+  const inFlight = useRef(0);
+  const closing = useRef(false);
+  const written = useRef(0);
   // How many Undo toasts stand, so Edit Home keeps its Done scrollable clear of them (M19).
   const [undoCount, setUndoCount] = useState(0);
   const flip = useFlip<HTMLDivElement>(still);
   const undos = useRef<Undo[]>([]);
   const seq = useRef(0);
-  // An Undo waiting for the menu it came from to close (B-03).
+  // An Undo waiting for the menu it came from to close (B-03), and whether one is open.
   const pending = useRef<(() => void) | null>(null);
+  const menuOpen = useRef(false);
 
   // Leaving Home ends every Undo it offered (B-04); a hidden tile is still in Edit Home, with Show.
   useEffect(() => () => endUndos(undos), []);
 
-  /** The layout as it stands now, a change still being written included, so quick taps build on each other. */
+  /** The layout as it stands now, a refused draft or a change still being written included, so quick taps build on each other. */
   const latest = (): HomeLayout => {
+    if (draft.current) return draft.current;
     const home = getState().settings.home;
     return home !== undefined && isHomeLayout(home) ? home : fallback;
   };
   const say = (text: string) => setSaid(s => ({ text, n: s.n + 1 }));
-  const write = (next: HomeLayout) => {
-    flip.snapshot();
-    void setSettings({ home: next }).then(result => setError(result.ok ? undefined : result.failure.message));
-  };
   // After the change has rendered: the element a control was on may have been moved or replaced.
   const focusLater = (find: () => HTMLElement | null | undefined, options?: FocusOptions) => requestAnimationFrame(() => find()?.focus(options));
   const inTiles = (selector: string) => flip.ref.current?.querySelector<HTMLElement>(selector) ?? null;
@@ -217,28 +222,85 @@ export function useHomeEditor({ fallback, still, urgent }: {
     (control ? inTiles(`[data-tile="${id}"] [data-control="${control}"]`) : null) ?? inTiles(`[data-tile="${id}"] a, [data-tile="${id}"] button`);
   const screenTitle = () => document.querySelector<HTMLElement>('main h1');
 
+  const finish = () => {
+    closing.current = false;
+    setEditing(false);
+    focusLater(() => (startedFrom ? tileControl(startedFrom) : null) ?? document.querySelector<HTMLElement>('[data-edit-home-row]'));
+  };
+
+  /**
+   * Each change is written at once, and drawn at once; what it says (an
+   * announcement, an Undo) is said only once the device has stored it
+   * (journey §4.5, codex V1-11). A refused write keeps the layout it tried
+   * as a draft, drawn in its place, until Try again stores it or a later
+   * change, which carries it, does.
+   */
+  const write = (next: HomeLayout, then?: () => void, refusedThen?: (message: string) => void) => {
+    flip.snapshot();
+    const n = ++written.current;
+    inFlight.current += 1;
+    void setSettings({ home: next }).then(result => {
+      inFlight.current -= 1;
+      // Only the newest write says how things stand: it carries every change before it.
+      if (n === written.current) {
+        if (result.ok) {
+          draft.current = undefined;
+          setRefused(undefined);
+        } else {
+          draft.current = next;
+          closing.current = false;
+          setRefused({ layout: next, message: result.failure.message, ...(then ? { then } : {}) });
+        }
+      }
+      if (!result.ok) {
+        refusedThen?.(result.failure.message);
+        return;
+      }
+      setError(undefined);
+      then?.();
+      if (closing.current && inFlight.current === 0 && !draft.current) finish();
+    });
+  };
+  /** Try again: the refused draft, written again, saying then what it would have said. */
+  const retry = () => {
+    if (refused) write(refused.layout, refused.then);
+  };
+
   const forget = (key: string) => {
     undos.current = undos.current.filter(x => x.key !== key);
     setUndoCount(undos.current.length);
   };
   const end = () => endUndos(undos, setUndoCount);
 
-  const undo = (key: string) => {
+  /** Undo, from its toast: the toast stays until the tile is stored back in its place (codex V1-11). */
+  const undo = (key: string, event?: { preventDefault(): void }) => {
+    event?.preventDefault();
     const u = undos.current.find(x => x.key === key);
-    forget(key);
     if (!u) return;
     const now = latest();
     const { title, group } = categoryById(u.id);
-    if (now.order[group].includes(u.id)) return;
+    const restored = (next: HomeLayout) => () => {
+      forget(key);
+      toast.dismiss(key);
+      say(placedMessage(next, u.id, 'back'));
+      focusLater(() => tileControl(u.id, 'hide'), { preventScroll: true });
+    };
+    if (now.order[group].includes(u.id)) {
+      // Back in its place already: in a refused draft, which this Undo writes again; or stored.
+      if (draft.current) write(draft.current, restored(draft.current));
+      else {
+        forget(key);
+        toast.dismiss(key);
+      }
+      return;
+    }
     // Only when another copy of the app filled the group meanwhile: say so, and what to do.
     if (groupFull(now, group)) {
       setError(`${title} couldn’t go back: that group already has ${MAX_PER_GROUP} tiles. Hide one in Edit Home, then show ${title} from Hidden.`);
       return;
     }
     const next = restoreTile(now, u.id, u.before);
-    write(next);
-    say(placedMessage(next, u.id, 'back'));
-    focusLater(() => tileControl(u.id, 'hide'), { preventScroll: true });
+    write(next, restored(next));
   };
 
   const offerUndo = (id: CategoryId, before: HomeLayout) => {
@@ -254,26 +316,29 @@ export function useHomeEditor({ fallback, still, urgent }: {
     // Never on a timer (journey §20.4 rule 6): it goes when Home is left or something else is changed.
     toast(`${categoryById(id).title} hidden from Home`, {
       id: key, duration: Infinity, style: TOAST_STYLE, actionButtonStyle: UNDO_STYLE,
-      action: { label: 'Undo', onClick: () => undo(key) },
+      action: { label: 'Undo', onClick: event => undo(key, event) },
       onDismiss: () => forget(key),
     });
   };
 
-  /** Hide (M17): at once, with Undo. From a menu, focus goes to the screen's title and the Undo waits for the menu to close (B-03). */
+  /** Hide (M17): at once, with Undo once stored. From a menu, focus goes to the screen's title and the Undo waits for the menu to close (B-03). */
   const hide = (id: CategoryId, from: 'edit' | 'menu') => {
     const before = latest();
     const list = before.order[categoryById(id).group];
     const i = list.indexOf(id);
     if (i < 0) return;
-    write(hideTile(before, id));
     if (from === 'menu') {
       focusLater(screenTitle, { preventScroll: true });
-      pending.current = () => offerUndo(id, before);
+      write(hideTile(before, id), () => {
+        const offer = () => offerUndo(id, before);
+        if (menuOpen.current) pending.current = offer;
+        else offer();
+      });
       return;
     }
     const neighbour = list[i + 1] ?? list[i - 1];
+    write(hideTile(before, id), () => offerUndo(id, before));
     focusLater(() => (neighbour ? tileControl(neighbour, 'hide') : inTiles('[data-edit-heading]')));
-    offerUndo(id, before);
   };
 
   /** Move up or down one place in its group; focus stays on the moved tile (M17). */
@@ -282,8 +347,7 @@ export function useHomeEditor({ fallback, still, urgent }: {
     const next = moveTile(before, id, by);
     if (next === before) return;
     end();
-    write(next);
-    say(movedMessage(next, id));
+    write(next, () => say(movedMessage(next, id)));
     focusLater(() => tileControl(id, control));
   };
 
@@ -293,8 +357,7 @@ export function useHomeEditor({ fallback, still, urgent }: {
     const next = moveTileTo(before, id, index);
     if (next === before) return;
     end();
-    write(next);
-    say(movedMessage(next, id));
+    write(next, () => say(movedMessage(next, id)));
   };
 
   /** Show, from Hidden: back at the end of its group, unless the group is full. */
@@ -307,20 +370,23 @@ export function useHomeEditor({ fallback, still, urgent }: {
     const neighbour = listed[i + 1] ?? listed[i - 1];
     end();
     const next = showTile(before, id);
-    write(next);
-    say(placedMessage(next, id, 'back'));
+    write(next, () => say(placedMessage(next, id, 'back')));
     focusLater(() => (neighbour ? inTiles(`[data-hidden-tile="${neighbour}"] button`) : inTiles('[data-control="add"]')));
   };
 
-  /** Add, from "+ Add". Returns what to announce: the page is inert behind the sheet, so the sheet says it. */
-  const add = (id: CategoryId): string | undefined => {
+  /**
+   * Add, from "+ Add". Resolves to what to announce once stored, or that it
+   * didn't save: the page is inert behind the sheet, so the sheet says it.
+   */
+  const add = (id: CategoryId): Promise<string | undefined> => {
     const before = latest();
     const { group } = categoryById(id);
-    if (before.order[group].includes(id) || groupFull(before, group)) return undefined;
+    if (before.order[group].includes(id) || groupFull(before, group)) return Promise.resolve(undefined);
     end();
     const next = addTile(before, id);
-    write(next);
-    return placedMessage(next, id, 'added');
+    return new Promise(resolve => {
+      write(next, () => resolve(placedMessage(next, id, 'added')), () => resolve(`${categoryById(id).title} wasn’t saved on this phone. Try again from Edit Home.`));
+    });
   };
 
   const start = (from?: CategoryId) => {
@@ -334,13 +400,24 @@ export function useHomeEditor({ fallback, still, urgent }: {
     }, { preventScroll: true });
   };
 
-  /** Done: every change is already stored; focus goes back to where editing began (journey §20.4 rule 10). */
+  /**
+   * Done: once every change is stored, focus goes back to where editing began
+   * (journey §20.4 rule 10). A change still being written is waited for; a
+   * refused one keeps Edit Home open with its Try again (codex V1-11).
+   */
   const done = () => {
-    setEditing(false);
-    focusLater(() => (startedFrom ? tileControl(startedFrom) : null) ?? document.querySelector<HTMLElement>('[data-edit-home-row]'));
+    if (draft.current) return;
+    if (inFlight.current > 0) {
+      closing.current = true;
+      return;
+    }
+    finish();
   };
 
-  const openMenu = (id: CategoryId, anchor: HTMLElement, opener: HTMLElement = anchor) => setMenu({ id, anchor, opener });
+  const openMenu = (id: CategoryId, anchor: HTMLElement, opener: HTMLElement = anchor) => {
+    menuOpen.current = true;
+    setMenu({ id, anchor, opener });
+  };
   /** An action chose its own focus; anything else (Escape, Close, outside) returns it to the opener, or the title (B-03). */
   const closeMenu = (reason: 'action' | 'dismiss') => {
     const target = menu;
@@ -348,6 +425,7 @@ export function useHomeEditor({ fallback, still, urgent }: {
     if (reason === 'dismiss' && target) focusLater(() => (target.opener.isConnected ? target.opener : screenTitle()), { preventScroll: true });
   };
   const menuClosed = () => {
+    menuOpen.current = false;
     const offer = pending.current;
     pending.current = null;
     offer?.();
@@ -356,7 +434,43 @@ export function useHomeEditor({ fallback, still, urgent }: {
   return {
     editing, start, done, menu, openMenu, closeMenu, menuClosed,
     hide, move, drop, show, add, said, error, undoCount, flipRef: flip.ref,
+    /** The refused draft, drawn in place of the stored layout; its message; and Try again. */
+    draft: refused?.layout, failed: refused?.message, retry,
   };
 }
 
 export type HomeEditor = ReturnType<typeof useHomeEditor>;
+
+/**
+ * Home's first layout (journey §5.1, codex V1-12): the defaults, worked out
+ * once from the answers and drawn as they were, even if later data would
+ * give others, until the device has stored them. A refused write is tried
+ * again on the next visit to the app (`visit`), and never over a layout
+ * stored meanwhile: the person's own edits always win.
+ */
+export function useFirstLayout({ stored, fallback, ready, visit }: {
+  /** The layout stored on the device, if any. */
+  stored: HomeLayout | undefined;
+  /** The defaults from the answers, as they stand now. */
+  fallback: HomeLayout;
+  /** There are answers to work the defaults out from (a stored profile). */
+  ready: boolean;
+  /** Counts returns to the app (`useClock().visit`). */
+  visit: number;
+}): HomeLayout {
+  const [first, setFirst] = useState<HomeLayout>();
+  if (!stored && ready && !first) setFirst(fallback);
+  const writing = useRef(false);
+  const [refusedOn, setRefusedOn] = useState<number>();
+  useEffect(() => {
+    if (stored || !first || writing.current || refusedOn === visit) return;
+    writing.current = true;
+    void update(prev => (prev.settings.home !== undefined && isHomeLayout(prev.settings.home)
+      ? prev
+      : { ...prev, settings: { ...prev.settings, home: first } })).then(result => {
+      writing.current = false;
+      if (!result.ok) setRefusedOn(visit);
+    });
+  }, [stored, first, visit, refusedOn]);
+  return stored ?? first ?? fallback;
+}

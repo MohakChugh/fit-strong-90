@@ -11,7 +11,7 @@
  * and saved-progress banking; this file lays them out.
  */
 
-import { lazy, Suspense, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useContext, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { GlassWaterIcon, InfoIcon } from 'lucide-react';
@@ -37,7 +37,7 @@ import { waterBlock } from '@/reminders/water';
 import { bankProgress, progressSettled } from '@/session/logging';
 import { clearProgress, loadExpiredProgress, loadSetAside, minutesLeft, releaseSetAside, slotOf, type SavedProgress } from '@/session/persistence';
 import { prefersHour12 } from '@/screens/track/format';
-import { addToDayTotal, getState, isSessionSaved, setSettings, useStore } from '@/store/useStore';
+import { addToDayTotal, getState, isSessionSaved, useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { useClock, useWakeAt } from '@/screens/today/clock';
 import { ChooserSheet } from '@/screens/today/ChooserSheet';
@@ -61,7 +61,7 @@ import {
   type TodaySheet,
 } from '@/screens/today/model';
 import { EditTiles } from './EditHome';
-import { useHomeEditor } from './editor';
+import { useFirstLayout, useHomeEditor } from './editor';
 import { FROM_HOME, dueWords, greeting, normalLine, readingLine } from './model';
 import { RemindersCapsule } from './RemindersCapsule';
 import { StatusButton } from './StatusButton';
@@ -268,20 +268,16 @@ export function HomeScreen() {
   // until then the defaults from their answers (journey §5.1).
   const stored = settings.home !== undefined && isHomeLayout(settings.home) ? settings.home : undefined;
   const fallback = useMemo(() => defaultHome({ profile: guided.profile, settings, hasSteps }), [settings, guided.profile, hasSteps]);
-  const layout = stored ?? fallback;
   // The defaults are worked out once, at the end of setup or on the first v2
   // launch, and kept: after that a change to the answers never reshuffles the
   // tiles by itself; a newly relevant category is offered in Me (§5.1, Plan 4).
   // Without a stored profile there is nothing to work them out from yet.
-  const savedDefault = useRef(false);
-  useEffect(() => {
-    if (stored || !profile || savedDefault.current) return;
-    savedDefault.current = true;
-    void setSettings({ home: fallback });
-  }, [stored, profile, fallback]);
+  const first = useFirstLayout({ stored, fallback, ready: profile !== undefined, visit: clock.visit });
   // While a safety decision stands, nothing beside it moves (motion rule 2, M1).
   const still = SAFETY.has(recommendation.kind) || urgent !== undefined;
-  const editor = useHomeEditor({ fallback, still, urgent: urgent !== undefined });
+  const editor = useHomeEditor({ fallback: first, still, urgent: urgent !== undefined });
+  // A change the device refused is drawn as the person made it, with Try again (codex V1-11).
+  const layout = editor.draft ?? first;
   // What the cadence model says is due: the tiles' caution dots (§7.2).
   const due = dueItems({ now, ...(profile ? { profile } : {}), observations });
   const recheckAt = guided.checkIn?.readiness.recheckAt;
@@ -392,7 +388,19 @@ export function HomeScreen() {
 
       {/* The tiles, or Edit Home in their place; reorders are drawn moving (M17). */}
       <div ref={editor.flipRef} className="flex flex-col gap-4">
-        {editor.error && <p role="alert" className="px-1 text-[length:var(--text-subhead)] leading-snug text-stop">{editor.error}</p>}
+        {(editor.failed ?? editor.error) && (
+          <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
+            <p className="min-w-0 flex-1 basis-48 text-[length:var(--text-subhead)] leading-snug text-stop">
+              {editor.failed ? `That change wasn’t saved on this phone. ${editor.failed}` : editor.error}
+            </p>
+            {editor.failed && (
+              <button type="button" onClick={editor.retry}
+                className="press-feedback min-h-12 shrink-0 rounded-full bg-tint/10 px-4 text-[length:var(--text-body)] font-semibold text-tint">
+                Try again
+              </button>
+            )}
+          </div>
+        )}
         {editor.editing
           ? <EditTiles layout={layout} editor={editor} />
           : <TileGrid layout={layout} tile={tile} urgent={urgent !== undefined} opensOnHold={opensOnHoldNow} onLongPress={editor.openMenu} />}

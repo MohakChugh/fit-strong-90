@@ -278,8 +278,8 @@ export function AddSheet({ open, onOpenChange, layout, onAdd }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   layout: HomeLayout;
-  /** Returns what to announce, or nothing when it could not be added. */
-  onAdd: (id: CategoryId) => string | undefined;
+  /** Resolves to what to announce once stored, or that it didn't save; nothing when it could not be added. */
+  onAdd: (id: CategoryId) => Promise<string | undefined>;
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Add to Home" detent="large">
@@ -289,7 +289,7 @@ export function AddSheet({ open, onOpenChange, layout, onAdd }: {
   );
 }
 
-function AddList({ layout, onAdd }: { layout: HomeLayout; onAdd: (id: CategoryId) => string | undefined }) {
+function AddList({ layout, onAdd }: { layout: HomeLayout; onAdd: (id: CategoryId) => Promise<string | undefined> }) {
   const [offered] = useState(() => notOnHome(layout));
   // The page behind is inert while the sheet is open, so the sheet says what happened itself.
   const [said, setSaid] = useState('');
@@ -317,7 +317,7 @@ function AddList({ layout, onAdd }: { layout: HomeLayout; onAdd: (id: CategoryId
                   disabled={button.disabled}
                   label={button.label}
                   name={category.title}
-                  onClick={() => { const words = onAdd(id); if (words) setSaid(words); }}
+                  onClick={() => void onAdd(id).then(words => { if (words) setSaid(words); })}
                 />
               </div>
             );
