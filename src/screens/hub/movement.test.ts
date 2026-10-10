@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { PERMISSION_TEXT, type Permission } from '@/engine/permission';
 import { movementLine, type TileLine } from '@/screens/home/tileLine';
 import {
-  JOIN_HREF, actionTarget, movementCard, restDayOf, resumeAllowed, runAction, sessionParts, stretchReason,
-  type CardInput, type HubActionKind, type HubCard,
+  JOIN_HREF, actionTarget, movementCard, pendingWalkCard, restDayOf, resumeAllowed, runAction, sessionParts, stretchReason,
+  type CardInput, type HubActionKind, type HubCard, type PendingWalkInput,
 } from './movement';
 
 const ok: Permission = { mode: 'stretch', allowed: true, disposition: 'reassure', reasons: [], restrictions: [], needsCheckIn: false };
@@ -344,5 +344,72 @@ describe('outside the programme, a hold no check-in answers: the Workout tile an
     const tile = movementLine({ mode: 'guided', permission: p, status: 'normal', normal: NOT_JOINED, enrolled: false });
     expect(tile.text).toBe(NOT_JOINED);
     expect(outside(p, 'checkIn', tile).state).toBe('join');
+  });
+});
+
+describe('a walk still on this device: status comes first, then the gate (codex H2-01, journey §4.1, §4.8)', () => {
+  const walkOk: Permission = { ...ok, mode: 'walk' };
+  const pending = (over: Partial<PendingWalkInput> = {}): HubCard => pendingWalkCard({
+    state: 'inProgress', started: '9:00 am', permission: walkOk, gate: 'go', status: 'normal',
+    gaps: { healthUnreviewed: false, medicinesUnknown: false }, stretchOpen: true, ...over,
+  });
+  const carriesOn = (c: HubCard) => kinds(c).includes('carryOn');
+
+  it('Away or Unwell: no Carry on; Review and save, and Change status, with the status said', () => {
+    for (const status of ['away', 'unwell'] as const) {
+      const c = pending({ status });
+      expect(carriesOn(c), status).toBe(false);
+      expect(c.primary, status).toEqual({ kind: 'finishWalk', label: 'Review and save' });
+      expect(kinds(c), status).toContain('status');
+      expect(c.title, status).toBe(status === 'away' ? 'Paused while you’re away' : 'Paused while you’re unwell');
+      expect(c.reasons.join(' '), status).toMatch(status === 'away' ? /away/ : /unwell/);
+    }
+  });
+
+  it('a flare: only a stretch is carried on, so the walk is reviewed and saved, and a stretch offered', () => {
+    const c = pending({ status: 'flare' });
+    expect(carriesOn(c)).toBe(false);
+    expect(c.primary).toEqual({ kind: 'finishWalk', label: 'Review and save' });
+    expect(c.reasons.join(' ')).toMatch(/flare-up/);
+    expect(kinds(c)).toEqual(['finishWalk', 'stretch', 'status']);
+    expect(kinds(pending({ status: 'flare', stretchOpen: false }))).toEqual(['finishWalk', 'status']);
+  });
+
+  it('Normal and allowed: Return to walk, a gate start; with a check-in due it says one comes first', () => {
+    expect(pending().primary).toEqual({ kind: 'carryOn', label: 'Return to walk' });
+    expect(pending().note).toBeUndefined();
+    const due = pending({ permission: held('walk', [PERMISSION_TEXT.noCheckIn], { needsCheckIn: true }), gate: 'checkIn' });
+    expect(due.primary).toEqual({ kind: 'carryOn', label: 'Return to walk' });
+    expect(due.note).toBe('A short check-in comes first.');
+  });
+
+  it('a stop, a profile gap or a hold: the gate’s words, no Carry on, and the walk still reviewed and saved', () => {
+    const stop = pending({ permission: held('walk', ['Chest pain.'], { disposition: 'emergency' }), gate: 'emergency', status: 'unwell' });
+    expect(stop).toMatchObject({ state: 'stopped', tone: 'stop', reasons: ['Chest pain.'], primary: { kind: 'finishWalk', label: 'Review and save' } });
+    // Today's check-in leads on to carrying on once it allows: not while the status refuses that.
+    expect(kinds(stop)).toEqual(['finishWalk']);
+    expect(kinds(pending({ permission: held('walk', ['Chest pain.'], { disposition: 'emergency' }), gate: 'emergency' }))).toEqual(['finishWalk', 'review']);
+    const gap = pending({ permission: held('walk', [PERMISSION_TEXT.medicinesUnknown]), gate: 'hold', gaps: { healthUnreviewed: false, medicinesUnknown: true } });
+    expect(gap).toMatchObject({ state: 'gap', title: 'Your diabetes medicines', primary: { kind: 'finishWalk' } });
+    expect(kinds(gap)).toContain('profile');
+    const hold = pending({ permission: held('walk', [PERMISSION_TEXT.footWalk]), gate: 'hold' });
+    expect(hold).toMatchObject({ state: 'held', title: 'No walk for now', reasons: [PERMISSION_TEXT.footWalk], primary: { kind: 'finishWalk' } });
+    expect(kinds(hold)).toContain('review');
+    for (const c of [stop, gap, hold]) expect(carriesOn(c)).toBe(false);
+  });
+
+  it('a walk waiting to be saved: Review and save, whatever the status or the gate (saving is not movement)', () => {
+    for (const status of ['normal', 'flare', 'unwell', 'away'] as const) {
+      const c = pending({ state: 'unsaved', status, permission: held('walk', ['Chest pain.'], { disposition: 'emergency' }), gate: 'emergency' });
+      expect(c.primary, status).toEqual({ kind: 'saveWalk', label: 'Review and save' });
+      expect(c.title, status).toBe('A walk is waiting to be saved');
+    }
+  });
+
+  it('Return to walk goes through the gate to the walk on this device; Review and save only navigates', () => {
+    const ctx = { mode: 'walk' as const, href: '/walk/live?id=abcd-1234', resumeHref: '/walk/live', startLabel: 'Start walk' };
+    expect(actionTarget('carryOn', ctx)).toEqual({ via: 'gate', mode: 'walk', href: '/walk/live', label: 'Carry on walking' });
+    expect(actionTarget('saveWalk', ctx)).toEqual({ via: 'go', to: '/walk/summary' });
+    expect(actionTarget('finishWalk', ctx)).toEqual({ via: 'local' });
   });
 });

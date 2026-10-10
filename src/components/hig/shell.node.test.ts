@@ -532,6 +532,14 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     }
   });
 
+  it('the Walk hub carries a walk on only through status at the tap, then the gate, whose sheet it renders (codex H2-01, journey §4.1, §4.8)', () => {
+    const hub = read('src/screens/hub/WalkHub.tsx');
+    const pending = hub.slice(hub.indexOf('  if (pending) {'), hub.indexOf("held={card.state === 'held'"));
+    expect(pending).toMatch(/start: \(mode, href, label\) => \{ if \(resumeAllowed\(statusNow\(\), 'walk'\)\) g\.start\(mode, href, label\); \}/);
+    expect(pending).toContain('{g.sheet}');
+    expect(pending).not.toMatch(/navigate\(pending\.href/);
+  });
+
   it('the walk summary, a full-screen task, can be left by Back, keeping the walk to save (codex V1-08, journey §20.4 rule 10)', () => {
     // Back, like Done, returns to where the walk was started: the Walk hub, or Home (motion M12, Plan 6).
     const summary = read('src/screens/walk/WalkSummary.tsx');

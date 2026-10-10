@@ -19,7 +19,9 @@ import { startLabelFor } from '@/screens/today/model';
 
 export type HubActionKind =
   | 'start' | 'continue' | 'review' | 'anyway' | 'mobility' | 'justWalk'
-  | 'profile' | 'join' | 'stretch' | 'status' | 'otherTime';
+  | 'profile' | 'join' | 'stretch' | 'status' | 'otherTime'
+  /** Walk: the walk still on this device, carried on (a restart, through the gate), reviewed and saved, or ended there and reviewed. */
+  | 'carryOn' | 'saveWalk' | 'finishWalk';
 
 export interface HubAction {
   kind: HubActionKind;
@@ -28,7 +30,7 @@ export interface HubAction {
   disabled?: boolean;
 }
 
-export type CardState = 'go' | 'checkIn' | 'resume' | 'rest' | 'join' | 'held' | 'gap' | 'stopped' | 'paused';
+export type CardState = 'go' | 'checkIn' | 'resume' | 'rest' | 'join' | 'held' | 'gap' | 'stopped' | 'paused' | 'unsaved';
 
 export interface HubCard {
   state: CardState;
@@ -177,6 +179,79 @@ export function movementCard(i: CardInput): HubCard {
   };
 }
 
+export interface PendingWalkInput {
+  /** `inProgress`: not finished, so carrying it on is a restart. `unsaved`: finished, waiting to be saved. */
+  state: 'inProgress' | 'unsaved';
+  /** When it started, as the clock reads it: "9:00 am". */
+  started: string;
+  permission: Permission;
+  gate: Gate;
+  status: Status;
+  gaps: CardInput['gaps'];
+  stretchOpen: boolean;
+}
+
+const SAVE_WALK: HubAction = { kind: 'saveWalk', label: 'Review and save' };
+/** The walk ended where it stopped recording, then its summary: nothing more is recorded (the screen was closed). */
+const FINISH_WALK: HubAction = { kind: 'finishWalk', label: 'Review and save' };
+const CHANGE_STATUS: HubAction = { kind: 'status', label: 'Change status' };
+const KEPT = 'Nothing has been recorded since the walk screen closed. Save what was recorded, or discard it.';
+
+/**
+ * The Walk hub's card while a walk is still on this device, before any new
+ * walk (codex W-04). Saving is never movement, so a walk waiting to be saved
+ * is always offered for review. Carrying one on is a restart, so status
+ * comes first, as v1's resume policy says (journey §4.8, A-34,
+ * `resumeAllowed`): no Carry on while Away or Unwell, and during a flare only
+ * a stretch is carried on. Then the gate's own answer, in the copy table's
+ * order (a stop, a profile gap, a hold), and only then "Return to walk",
+ * which the hub still sends through the gate at the tap (§4.1). Whenever it
+ * can't be carried on, what was recorded can still be reviewed and saved.
+ */
+export function pendingWalkCard(i: PendingWalkInput): HubCard {
+  const p = i.permission;
+  const empty = { reasons: [] as string[], restrictions: [] as string[], secondary: [] as HubAction[] };
+  const started = `Started ${i.started}`;
+  if (i.state === 'unsaved') {
+    return { ...empty, state: 'unsaved', tone: 'normal', title: 'A walk is waiting to be saved', detail: started, note: 'Nothing is in your record until you save it.', primary: SAVE_WALK };
+  }
+  const refusal = { reasons: p.reasons, ...(p.release ? { release: p.release } : {}) };
+  // Today's check-in leads on to carrying the walk on once it allows, so it is offered only where status would let it.
+  const carryOn = resumeAllowed(i.status, 'walk');
+  if (i.gate === 'emergency' || i.gate === 'today') {
+    return { ...empty, ...refusal, state: 'stopped', tone: 'stop', title: headline(p).title, detail: started, primary: FINISH_WALK, secondary: carryOn ? [REVIEW] : [] };
+  }
+  if (i.status === 'away' || i.status === 'unwell') {
+    const why = `A walk isn’t carried on while you’re ${i.status}.`;
+    return { ...empty, state: 'paused', tone: 'quiet', title: PAUSED[i.status], detail: started, reasons: [why, KEPT], primary: FINISH_WALK, secondary: [CHANGE_STATUS] };
+  }
+  if (!carryOn) {
+    return {
+      ...empty, state: 'paused', tone: 'quiet', title: 'A walk is in progress', detail: started, today: 'Stretch is suggested today',
+      reasons: ['During a flare-up only a stretch is carried on.', KEPT],
+      primary: FINISH_WALK, secondary: [...(i.stretchOpen ? [{ kind: 'stretch', label: 'Stretch instead' } as HubAction] : []), CHANGE_STATUS],
+    };
+  }
+  if (!p.allowed && (i.gaps.healthUnreviewed || i.gaps.medicinesUnknown)) {
+    const chapter = i.gaps.healthUnreviewed ? 'your health' : 'your medicines';
+    return {
+      ...empty, ...refusal, state: 'gap', tone: 'caution', title: i.gaps.healthUnreviewed ? 'Finish your health profile' : 'Your diabetes medicines', detail: started,
+      primary: FINISH_WALK, secondary: [{ kind: 'profile', label: `Answer the questions about ${chapter}` }, REVIEW],
+    };
+  }
+  if (i.gate === 'hold' || i.gate === 'recheck') {
+    return {
+      ...empty, ...refusal, state: 'held', tone: 'caution', title: headline(p).title, detail: started, primary: FINISH_WALK,
+      secondary: [i.gate === 'recheck' ? { kind: 'review', label: 'Enter a new reading' } : REVIEW],
+    };
+  }
+  return {
+    ...empty, state: 'resume', tone: 'normal', title: 'A walk is in progress', detail: `${started}. Nothing is recorded while the walk screen is closed.`,
+    primary: { kind: 'carryOn', label: 'Return to walk' },
+    ...(i.gate === 'checkIn' ? { note: 'A short check-in comes first.' } : {}),
+  };
+}
+
 /** Where a card's action leads. Only `gate` targets can start movement, and only through `start`. */
 export type ActionTarget =
   | { via: 'gate'; mode: Mode; href: string; label: string }
@@ -223,7 +298,12 @@ export function actionTarget(kind: HubActionKind, c: ActionContext): ActionTarge
     case 'status':
       return { via: 'status' };
     case 'otherTime':
+    case 'finishWalk':
       return { via: 'local' };
+    case 'carryOn':
+      return { via: 'gate', mode: c.mode, href: c.resumeHref ?? c.href, label: 'Carry on walking' };
+    case 'saveWalk':
+      return { via: 'go', to: '/walk/summary' };
   }
 }
 
