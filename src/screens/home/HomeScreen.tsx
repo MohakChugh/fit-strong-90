@@ -18,6 +18,7 @@ import { GlassWaterIcon, InfoIcon } from 'lucide-react';
 import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
 import { CheckInSheet } from '@/components/checkin/CheckInSheet';
+import { opensOnHold } from '@/components/checkin/start';
 import { useStartMovement } from '@/components/checkin/useStartMovement';
 import { categoryById, defaultHome, isHomeLayout, walkingHeldForFeet, type CategoryId } from '@/categories';
 import { useGuided } from '@/hooks/useGuided';
@@ -290,17 +291,16 @@ export function HomeScreen() {
     ...(recheckAt ? { recheckAt } : {}), now, hour12: HOUR12,
   });
   // A hold or a stop on the tile's mode: its hub opens on it, so the tap skips the morph (motion rule 2).
-  const holds = (tone: string) => tone === 'caution' || tone === 'stop';
+  // Asked of the permission, the same answer the hub opens on, not of the line's tone (codex V1-05).
   const tile = (id: CategoryId): TileState => {
     const { mode } = categoryById(id);
     const dot = dueWords(id, { due, status, stopped });
     if (!mode) return { line: readingLine(id, { ...(glucose ? { glucose } : {}), ...(pressure ? { pressure } : {}) }), held: false, ...(dot ? { due: dot } : {}) };
-    const line = lineOf(mode);
-    return { line, held: holds(line.tone), ...(dot ? { due: dot } : {}) };
+    return { line: lineOf(mode), held: opensOnHold(permissions[mode]), ...(dot ? { due: dot } : {}) };
   };
-  const opensOnHold = (id: CategoryId) => {
+  const opensOnHoldNow = (id: CategoryId) => {
     const { mode } = categoryById(id);
-    return mode !== undefined && holds(lineOf(mode, permissionFor(mode)).tone);
+    return mode !== undefined && opensOnHold(permissionFor(mode));
   };
 
   return (
@@ -395,7 +395,7 @@ export function HomeScreen() {
         {editor.error && <p role="alert" className="px-1 text-[length:var(--text-subhead)] leading-snug text-stop">{editor.error}</p>}
         {editor.editing
           ? <EditTiles layout={layout} editor={editor} />
-          : <TileGrid layout={layout} tile={tile} urgent={urgent !== undefined} opensOnHold={opensOnHold} onLongPress={editor.openMenu} />}
+          : <TileGrid layout={layout} tile={tile} urgent={urgent !== undefined} opensOnHold={opensOnHoldNow} onLongPress={editor.openMenu} />}
       </div>
       {/* "Water moved to position 2 of 5" (M17); a repeat is said again. */}
       <p role="status" className="sr-only">{editor.said.text}{editor.said.n % 2 ? '\u200b' : ''}</p>

@@ -16,6 +16,16 @@ export function startDecision(p: Permission): 'go' | 'checkIn' {
 }
 
 /**
+ * The mode's screen opens on its refusal rather than its Start: a stop, or a
+ * hold no check-in can answer. A tap into it skips the view transition, so
+ * the reason is in the first frame, whether or not the shell's urgent surface
+ * stands (codex V1-05, motion rule 2).
+ */
+export function opensOnHold(p: Permission): boolean {
+  return !p.allowed && !p.needsCheckIn;
+}
+
+/**
  * The shared gate for `mode` at this moment, from `useGuided()`'s effective
  * records: today's check-in and every earlier day's. Every start, every tile
  * and the shell's safety surface ask it this one way (journey §4.2).

@@ -7,6 +7,9 @@ import {
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { CATEGORIES, GROUPS, type Category, type CategoryId } from '@/categories';
+import { gateFor, opensOnHold } from '@/components/checkin/start';
+import { skipNextTransition } from '@/design/motion';
+import { useGuided } from '@/hooks/useGuided';
 
 const ICON: Record<CategoryId, LucideIcon> = {
   workout: DumbbellIcon, stretch: PersonStandingIcon, walk: FootprintsIcon, steps: ActivityIcon,
@@ -30,6 +33,7 @@ export default function BrowseScreen() {
   const input = useRef<HTMLInputElement>(null);
   const field = useId();
   const origin = { path: location.pathname, label: 'Browse', ...(location.search ? { search: location.search } : {}) };
+  const guided = useGuided();
 
   const change = (value: string) => {
     setQuery(value);
@@ -82,6 +86,8 @@ export default function BrowseScreen() {
                 to={c.hub}
                 state={origin}
                 viewTransition
+                // A movement screen that opens on its refusal shows it in the first frame, asked at the tap.
+                onClick={c.mode ? () => { if (opensOnHold(gateFor(guided, c.mode!))) skipNextTransition(); } : undefined}
                 icon={(
                   <span
                     className="flex size-7 items-center justify-center rounded-full"

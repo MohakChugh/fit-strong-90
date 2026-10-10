@@ -2,7 +2,10 @@ import { Link, Navigate, Route, Routes } from 'react-router-dom';
 import { CalendarDaysIcon, DumbbellIcon, FootprintsIcon, PersonStandingIcon, SearchIcon } from 'lucide-react';
 import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
+import { opensOnHold } from '@/components/checkin/start';
 import { useStartMovement } from '@/components/checkin/useStartMovement';
+import { skipNextTransition } from '@/design/motion';
+import type { Mode } from '@/engine/permission';
 import { useGuided } from '@/hooks/useGuided';
 import { isEnrolled } from '@/health/recommend';
 import { lastStretch, stretchSummary } from '@/engine/stretch';
@@ -20,7 +23,9 @@ import { ExerciseScreen } from './ExerciseScreen';
  */
 function MoveHome() {
   const { data, profile, plan, date } = useGuided();
-  const { start, sheet } = useStartMovement();
+  const { start, sheet, permissionFor } = useStartMovement();
+  // A screen that opens on its refusal shows it in the first frame, asked at the tap (codex V1-05).
+  const skipInto = (mode: Mode) => () => { if (opensOnHold(permissionFor(mode))) skipNextTransition(); };
   const enrolled = isEnrolled(data.settings, data.profile);
   const today = weekView(data, profile, date).find(d => d.isToday);
   const week = programmeWeek(data.settings.startDate, date);
@@ -32,9 +37,9 @@ function MoveHome() {
     // The Workout hub until Plan 2: opened from Home or Browse, so it goes back there (journey §8.1).
     <Screen title="Move" back={{ to: '/home', label: 'Home' }}>
       <Group>
-        <Row as={Link} to="/move/stretch" viewTransition icon={<PersonStandingIcon />} label={<Wrap>Stretch</Wrap>}
+        <Row as={Link} to="/move/stretch" viewTransition onClick={skipInto('stretch')} icon={<PersonStandingIcon />} label={<Wrap>Stretch</Wrap>}
           detail={stretchSummary(lastStretch(data.sessions))} chevron />
-        <Row as={Link} to="/walk" viewTransition icon={<FootprintsIcon />} label={<Wrap>Walk</Wrap>}
+        <Row as={Link} to="/walk" viewTransition onClick={skipInto('walk')} icon={<FootprintsIcon />} label={<Wrap>Walk</Wrap>}
           detail="Time, and pace if you allow location" chevron />
         {guided.join ? (
           <Row as={Link} to="/move/plan" viewTransition icon={<DumbbellIcon />} label={<Wrap>Guided session</Wrap>} detail={guided.detail} chevron />

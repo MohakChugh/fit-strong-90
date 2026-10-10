@@ -462,6 +462,15 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     expect(read('src/screens/home/Tile.tsx')).toMatch(/className="block h-full select-none rounded-2xl \[-webkit-touch-callout:none\]"/);
   });
 
+  it('a row into a movement screen that opens on its refusal skips the transition, asked at the tap (codex V1-05)', () => {
+    expect(read('src/screens/browse/BrowseScreen.tsx')).toMatch(/onClick=\{c\.mode \? \(\) => \{ if \(opensOnHold\(gateFor\(guided, c\.mode!\)\)\) skipNextTransition\(\); \} : undefined\}/);
+    const move = read('src/screens/move/routes.tsx');
+    expect(move).toMatch(/onClick=\{skipInto\('stretch'\)\}/);
+    expect(move).toMatch(/onClick=\{skipInto\('walk'\)\}/);
+    // Home's tiles ask the permission, not their line's tone.
+    expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/const opensOnHoldNow = \(id: CategoryId\) => \{\s*const \{ mode \} = categoryById\(id\);\s*return mode !== undefined && opensOnHold\(permissionFor\(mode\)\);/);
+  });
+
   it('a reminder that invites movement is held back while a safety decision stands, on Home and in the floating banner (kiro KV-09)', () => {
     expect(read('src/screens/home/HomeScreen.tsx')).toContain('const waiting = offeredNow(usePending(), urgent !== undefined);');
     expect(read('src/reminders/ReminderHost.tsx')).toMatch(/offeredNow\(pending\.filter\(p => stillDue\(p\.occurrence, now, current\)\), urgent\)/);
