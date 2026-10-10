@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { addDays } from '@/screens/track/periods';
 import {
-  comparedText, compareRanges, isTrendPeriod, monthEnd, monthStart, nextWindow, pagerLabels, previousName, previousWindow,
+  anchorOf, comparedText, compareRanges, isTrendPeriod, monthEnd, monthStart, nextWindow, pagerLabels, previousName, previousWindow,
   rangeText, windowOf, windowTitle,
 } from './periods';
 
@@ -53,6 +53,39 @@ describe('trend windows (journey §12.2)', () => {
     expect(monthStart('2026-01-15', -1)).toBe('2025-12-01');
     expect(monthEnd('2026-01-15', 1)).toBe('2026-02-28');
     expect(monthEnd('2028-02-01')).toBe('2028-02-29');
+  });
+});
+
+describe('paging, as the address keeps it (H3-10)', () => {
+  const PERIODS = ['week', 'month', 'sixMonths', 'year'] as const;
+
+  it('Next is the whole window after: the next week or month, the next 6 or 12 months', () => {
+    expect(nextWindow(windowOf('sixMonths', '2026-04-30'))).toMatchObject({ from: '2026-05-01', to: '2026-10-31' });
+    expect(nextWindow(windowOf('year', '2025-10-31'))).toMatchObject({ from: '2025-11-01', to: '2026-10-31' });
+    expect(nextWindow(windowOf('month', '2026-01-31'))).toMatchObject({ from: '2026-02-01', to: '2026-02-28' });
+    for (const period of PERIODS) {
+      const w = windowOf(period, TODAY);
+      expect(nextWindow(previousWindow(w)), period).toEqual(w);
+      expect(previousWindow(nextWindow(previousWindow(w))), period).toEqual(previousWindow(w));
+    }
+  });
+
+  it('a window is kept as its last day, which reads back as the same window; today’s keeps none', () => {
+    for (const period of PERIODS) {
+      const w = windowOf(period, TODAY);
+      expect(anchorOf(w, TODAY), period).toBeNull();
+      let back = w;
+      for (let i = 0; i < 3; i += 1) {
+        back = previousWindow(back);
+        const at = anchorOf(back, TODAY);
+        expect(at !== null && at <= TODAY, period).toBe(true);
+        expect(windowOf(period, at!), period).toEqual(back);
+      }
+    }
+    // Codex's walk: with today 8 October, 6 Months shows May to October 2026; Previous is November 2025 to April 2026.
+    const before = windowOf('sixMonths', anchorOf(previousWindow(windowOf('sixMonths', TODAY)), TODAY)!);
+    expect([before.from, before.to]).toEqual(['2025-11-01', '2026-04-30']);
+    expect(anchorOf(nextWindow(before), TODAY)).toBeNull();
   });
 });
 

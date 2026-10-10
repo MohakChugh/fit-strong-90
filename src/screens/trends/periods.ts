@@ -97,14 +97,27 @@ export function previousWindow(w: TrendWindow): TrendWindow {
   return windowOf(w.period, addDays(w.from, -1));
 }
 
-/** The window just after. */
+/** How far 6 Months and Year move, in months: a whole window each way (H3-10). */
+const SPAN: Partial<Record<TrendPeriod, number>> = { sixMonths: 6, year: 12 };
+
+/** The window just after: the next week or month, the next 6 or 12 months. */
 export function nextWindow(w: TrendWindow): TrendWindow {
-  return windowOf(w.period, addDays(w.to, 1));
+  const months = SPAN[w.period];
+  return windowOf(w.period, months === undefined ? addDays(w.to, 1) : monthStart(w.to, months));
 }
 
 /** The window holds today. */
 export function isCurrent(w: TrendWindow, today: string): boolean {
   return w.from <= today && today <= w.to;
+}
+
+/**
+ * A window as the address keeps it (`at`, H3-10): its last day, which reads
+ * back as the same window for every period, 6 Months and Year ending in the
+ * anchor's month. Today's window keeps none, so it stays today's.
+ */
+export function anchorOf(w: TrendWindow, today: string): string | null {
+  return isCurrent(w, today) ? null : w.to;
 }
 
 export interface CompareRanges {

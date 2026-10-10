@@ -26,7 +26,7 @@ import type { RouteRecord } from '@/walk/routeRecord';
 import { labPoints, trendDef, type TrendDef, type TrendId } from './metrics';
 import { dailyView, labsView, readingsView, trendContext } from './model';
 import { PeriodControl } from './PeriodControl';
-import { isCurrent, isTrendPeriod, nextWindow, pagerLabels, previousWindow, windowOf, type TrendPeriod } from './periods';
+import { anchorOf, isCurrent, isTrendPeriod, nextWindow, pagerLabels, previousWindow, windowOf, type TrendPeriod } from './periods';
 import { activities } from './records';
 import { TrendChart } from './TrendChart';
 import { TrendHeadlines } from './TrendHeadlines';
@@ -89,12 +89,14 @@ function PeriodTrend({ def }: { def: TrendDef }) {
   // A walk's kept route, drawn small beside it (journey §9.5, B-23), as Today's log draws it: our own drawing, never a map picture.
   const routeOf = useMemo(() => new Map(state.records.routes.map(r => [r.walkId as string, r as unknown as RouteRecord])), [state.records.routes]);
   // Paging and the period change this screen's address, not the screen: focus stays on the control used.
-  const change = (next: { period?: TrendPeriod; at?: string }) => {
+  const change = (next: { period?: TrendPeriod; at?: string | null }) => {
     markInPlace();
     setParams(prev => {
       const p = new URLSearchParams(prev);
       if (next.period) p.set('period', next.period);
-      if (next.at) p.set('at', next.at);
+      // Today's window keeps no anchor, so it stays today's (H3-10).
+      if (next.at === null) p.delete('at');
+      else if (next.at) p.set('at', next.at);
       return p;
     }, { replace: true });
   };
@@ -111,8 +113,8 @@ function PeriodTrend({ def }: { def: TrendDef }) {
         // Back as far as the window holding the first record; forward as far as today's.
         canPrevious={ctx.since !== undefined && earlier.to >= ctx.since}
         canNext={!isCurrent(w, today)}
-        onPrevious={() => change({ at: earlier.from })}
-        onNext={() => change({ at: nextWindow(w).from })}
+        onPrevious={() => change({ at: anchorOf(earlier, today) })}
+        onNext={() => change({ at: anchorOf(nextWindow(w), today) })}
       />
       <TrendHeadlines headline={view.headline} change={view.change} {...(view.meter ? { meter: view.meter } : {})} />
       <section aria-label={`${def.title} chart`} className="rounded-xl bg-grouped-card p-4">
