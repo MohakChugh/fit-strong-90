@@ -6,6 +6,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { claimModal } from './modal';
 import { SheetTopContext } from './navigation';
 import { createSwipe } from './sheetGesture';
 
@@ -35,23 +36,19 @@ const HEIGHT: Record<Detent, string> = {
 const InSheet = createContext(false);
 
 /**
- * While any sheet is open, the screen behind it is inert: out of the tab
- * order, the accessibility tree and the pointer's reach, as behind an iOS
- * sheet. The sheet itself is portalled to <body>, outside #app, so it stays
- * live, and so do toasts. Counted, so a sheet closing while another opens
- * never wakes the page.
+ * While any sheet is open, the screen behind it is inert, and its toasts wait
+ * (`claimModal`, B-03). The sheet itself is portalled to <body>, outside
+ * #app, so it stays live.
  */
-let openSheets = 0;
 function useInertBackground(open: boolean) {
   // A layout effect, so the page wakes in the same commit that closes the
   // sheet, before the dialog hands focus back to whatever opened it.
   useLayoutEffect(() => {
-    const root = document.getElementById('app');
-    if (!open || !root) return;
+    if (!open || !document.getElementById('app')) return;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (openSheets++ === 0) root.inert = true;
+    const release = claimModal();
     return () => {
-      if (--openSheets === 0) root.inert = false;
+      release();
       // If the hand-back raced the wake-up and focus fell to the page, finish it.
       requestAnimationFrame(() => {
         if (document.activeElement === document.body && opener?.isConnected) opener.focus({ preventScroll: true });

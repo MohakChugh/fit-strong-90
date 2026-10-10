@@ -3,6 +3,7 @@ import { Menu } from '@base-ui/react/menu';
 import { categoryById, type CategoryId } from '@/categories';
 import { MOTION, springLinear } from '@/design/motion';
 import type { HomeLayout } from '@/types';
+import { claimModal } from '@/components/hig/modal';
 import type { MenuTarget } from './editor';
 
 /**
@@ -87,12 +88,11 @@ export function TileMenu({ target, layout, editing, onHide, onMove, onEdit, onCl
  */
 function useInertPage(open: boolean, opener: HTMLElement | undefined) {
   useLayoutEffect(() => {
-    const root = document.getElementById('app');
-    if (!open || !root) return;
-    const was = root.inert;
-    root.inert = true;
+    if (!open) return;
+    // The page, and the toasts, which wait until the menu has closed (B-03, codex V1-13).
+    const release = claimModal();
     return () => {
-      root.inert = was;
+      release();
       requestAnimationFrame(() => {
         // Still inside the menu as it fades out counts as lost: it is about to go.
         const at = document.activeElement;

@@ -217,6 +217,8 @@ button, [role="button"], a {
 @media (min-width: 64rem) {
   :root { --toast-offset-bottom: 1.5rem; }
 }
+/* While a sheet or a menu owns the page, toasts wait, hidden, and come back as they were (B-03). */
+#toasts[data-held] { visibility: hidden; }
 
 /* ==========================================================================
    Motion system

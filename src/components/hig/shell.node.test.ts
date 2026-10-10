@@ -564,6 +564,13 @@ describe('the safety surface wherever the person is (codex V1-02, V1-03, journey
     expect(read('src/components/checkin/CheckInSheet.tsx')).toMatch(/<Sheet open=\{props\.open\} onOpenChange=\{props\.onOpenChange\} title="Check-in" detent="large" ownsUrgent>/);
   });
 
+  it('sheets and the tile menu own the page while open: the toasts wait in #toasts, hidden (codex V1-13)', () => {
+    expect(read('src/components/hig/Sheet.tsx')).toContain('claimModal()');
+    expect(read('src/screens/home/TileMenu.tsx')).toContain('claimModal()');
+    expect(read('src/main.tsx')).toMatch(/<div id="toasts">\s*<Toaster/);
+    expect(read('src/index.css')).toMatch(/#toasts\[data-held\] \{ visibility: hidden; \}/);
+  });
+
   it('is announced outside the part of the page a sheet makes inert', () => {
     // A live region always in the page, so a decision arriving is announced; not an alert while it says nothing.
     expect(read('src/screens/home/UrgentBanner.tsx')).toMatch(/createPortal\(\s*<div aria-live="assertive" aria-atomic="true" className="sr-only">[\s\S]*?<\/div>,\s*document\.body,?\s*\)/);

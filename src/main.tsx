@@ -45,12 +45,15 @@ const router = createHashRouter([
         {/* Above the tab bar on a phone and a tablet, not over it (see --toast-offset-bottom).
             Expanded: a newer toast stacks above an older one, both in full, so an
             older Undo stays in reach rather than tucked behind (M19, B-04). */}
-        <Toaster
-          expand
-          position="bottom-right"
-          offset={{ bottom: 'var(--toast-offset-bottom)' }}
-          mobileOffset={{ bottom: 'var(--toast-offset-bottom)' }}
-        />
+        {/* Held, hidden and inert, while a sheet or a menu owns the page (`claimModal`, B-03). */}
+        <div id="toasts">
+          <Toaster
+            expand
+            position="bottom-right"
+            offset={{ bottom: 'var(--toast-offset-bottom)' }}
+            mobileOffset={{ bottom: 'var(--toast-offset-bottom)' }}
+          />
+        </div>
       </TooltipProvider>
     ),
     errorElement: <RootError />,
