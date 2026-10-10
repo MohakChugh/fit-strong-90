@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shortDay } from './dates';
+import { shortDate, shortDay } from './dates';
 import type { HabitSettings } from '@/types/habits';
 import { createDefaultProfile } from '@/profile/defaults';
 import { newObservation } from '@/health/observation';
@@ -11,8 +11,10 @@ import {
   conditionsLine,
   countsSentence,
   everyLabel,
+  copyLine,
   foodLine,
   privacyLine,
+  staleLine,
   habitLine,
   habitsLine,
   listOf,
@@ -253,5 +255,21 @@ describe('habit lines, with an open foot wound (content re-check R03)', () => {
 describe('privacyLine (B-24)', () => {
   it('says where the records are, and when anything leaves', () => {
     expect(privacyLine('iPhone')).toBe('Your records are stored on this iPhone. Backups and calendar files leave only when you share them.');
+  });
+});
+
+describe('calendar copies, as Reminders lists them (A-78)', () => {
+  const AT = '2026-10-08T10:00:00.000+05:30';
+  it('names the events, how many a day, when the file was added and until when', () => {
+    expect(copyLine({ names: ['Glass of water'], events: 6, at: AT, until: '2027-01-06' }))
+      .toEqual({ title: 'Glass of water', detail: `6 a day · added ${shortDate(AT)} · until ${shortDay('2027-01-06')}` });
+    expect(copyLine({ names: ['Walk after lunch', 'Walk after dinner'], events: 2, at: AT, until: '2027-01-06' }).title).toBe('Walk after lunch and Walk after dinner');
+    expect(copyLine({ names: ['Walk after dinner'], events: 1, at: AT, until: '2027-01-06' }).detail).toMatch(/^Once a day · added /);
+  });
+  it('says what changed for each copy that may be out of date', () => {
+    expect(staleLine([
+      { habit: 'water', names: ['Glass of water'], inCalendar: 6, now: 0 },
+      { habit: 'sittingBreak', names: ['Stand up and move'], inCalendar: 2, now: 1 },
+    ])).toBe('Glass of water: 6 a day in Calendar, none now. Stand up and move: 2 a day in Calendar, once a day now.');
   });
 });

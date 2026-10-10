@@ -16,6 +16,8 @@ export interface CalendarFileEntry {
   events: number;
   /** What they are called in Calendar. */
   titles: string[];
+  /** The events' times, minutes after local midnight, in order, so a changed schedule can be noticed (A-78). Absent for a file made before this was kept. */
+  minutes?: number[];
 }
 
 export interface HabitSettings {

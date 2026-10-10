@@ -94,6 +94,12 @@ describe('settings in an import file are read field by field (D-08)', () => {
     expect(preview(file({ settings: { ...settings, display: { textScale: 7 } } })).unreadableFields).toEqual(['settings.display']);
   });
 
+  it('reads a calendar file’s event times, and leaves out the file’s record when they cannot be read', () => {
+    const entry = { at: '2026-10-07T19:00:00.000+05:30', until: '2027-01-05', events: 1, titles: ['Glass of water'] };
+    expect(preview(file({ settings: { ...settings, habits: { calendarExport: { water: { ...entry, minutes: [600] } } } } })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings: { ...settings, habits: { calendarExport: { water: { ...entry, minutes: ['9am'] } } } } })).unreadableFields).toEqual(['settings.habits.calendarExport']);
+  });
+
   it('reads the weekly goal’s history, v1’s undated goal included, and leaves out one that cannot be read (B-16)', () => {
     const history = [{ from: '', goal: 120 }, { from: '2026-10-12', goal: 150 }, { from: '2026-10-19' }];
     expect(preview(file({ settings: { ...settings, weeklyMovementGoalHistory: history } })).unreadableFields).toEqual([]);

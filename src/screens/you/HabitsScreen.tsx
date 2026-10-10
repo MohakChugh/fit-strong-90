@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { ArmchairIcon, BellRingIcon, CalendarPlusIcon, FootprintsIcon, GlassWaterIcon, MoonIcon } from 'lucide-react';
+import { ArmchairIcon, BellRingIcon, CalendarPlusIcon, CalendarX2Icon, FootprintsIcon, GlassWaterIcon, MoonIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { useStore } from '@/store/useStore';
@@ -9,14 +9,13 @@ import { HABIT_LABEL, NOT_ADVICE } from '@/reminders/copy';
 import type { HabitId } from '@/reminders/schedule';
 import { waterBlock } from '@/reminders/water';
 import { habitOffered } from '@/reminders/advice';
-import { calendarStillReminds } from '@/reminders/calendarNotice';
-import { CalendarStill } from './CalendarStill';
+import { calendarCopies, staleCalendarCopies } from '@/reminders/calendarNotice';
 import { CalendarSheet } from './CalendarSheet';
 import { Notice, Toggle } from './controls';
 import { MealWalkSheet, QuietSheet, SittingSheet, WaterSheet } from './HabitSheets';
 import { isSetUp, withEnabled } from './habitOptions';
-import { clockFormat, habitLine } from './summaries';
-import { changeHabits } from './write';
+import { clockFormat, copyLine, habitLine, staleLine } from './summaries';
+import { changeHabits, forgetCalendarEvents } from './write';
 
 type Open = HabitId | 'quiet' | 'calendar' | undefined;
 
@@ -53,10 +52,22 @@ export function HabitsScreen() {
   // Read once per visit, like the rest of the screen's view of today.
   const [today] = useState(() => dayOf(nowAt()));
   const status = statusOn(settings.statusPeriods, today);
+  const stale = staleCalendarCopies(habits, profile, today);
+  const copies = calendarCopies(habits, today);
 
   return (
     <Screen title="Reminders" back={{ to: '/me', label: 'Me' }}>
-      <CalendarStill still={calendarStillReminds(habits, profile, today)} />
+      <Notice>FitStrong can’t alert you while it’s closed. For safety re-checks, set a timer on your phone.</Notice>
+      {stale.length > 0 && (
+        <Group footer="This app can’t remove them. In Calendar, delete those events, or the calendar you added them to, then add the new file with Add to Calendar.">
+          <Row icon={<CalendarX2Icon className="text-caution" />} label="Your calendar copies may be out of date" detail={staleLine(stale)} />
+          {/* Only the person can say the old events are gone (D-01). */}
+          <Row
+            onClick={() => void forgetCalendarEvents(stale.map(s => s.habit)).then(saved => setProblem(saved.ok ? undefined : `That did not save. ${saved.failure.message}`))}
+            label={<span className="text-tint">I have deleted them</span>}
+          />
+        </Group>
+      )}
       {status !== 'normal' && (
         <Notice>{`Your status is ${STATUS_LABEL[status]}, so reminders in the app stay quiet until it is Normal again. You can change it on Home.`}</Notice>
       )}
@@ -86,7 +97,7 @@ export function HabitsScreen() {
 
       <Group
         header="While the app is open"
-        footer="On iPhone, a web app cannot remind you once it is closed: that needs a server to send the reminder, and this app has none. Calendar can do it instead. Using Calendar too? Turn banners off so you are not reminded twice."
+        footer="On iPhone, a web app cannot remind you once it is closed: that needs a server to send the reminder, and this app has none. Calendar can do it instead. Using Calendar too? Turn banners off so you are not reminded twice. Quiet hours hold these reminders, never a safety re-check."
       >
         <Row
           icon={<BellRingIcon />}
@@ -103,7 +114,7 @@ export function HabitsScreen() {
         />
       </Group>
 
-      <Group header="When the app is closed">
+      <Group header="When the app is closed" footer="Calendar reminders are copies. Changes here don’t update them. Remove the old ones and add the new file.">
         <Row
           onClick={() => setOpen('calendar')}
           icon={<CalendarPlusIcon />}
@@ -111,6 +122,10 @@ export function HabitsScreen() {
           detail="Calendar can remind you even when this app is closed."
           chevron
         />
+        {copies.map(copy => {
+          const line = copyLine(copy);
+          return <Row key={copy.habit} label={line.title} detail={line.detail} />;
+        })}
       </Group>
 
       {problem && <Notice tone="error">{problem}</Notice>}

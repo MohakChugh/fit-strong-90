@@ -12,7 +12,7 @@
 import type { CalendarFileEntry, HabitSettings } from '@/types/habits';
 import type { UserProfile } from '@/types/profile';
 import { habitOffered } from './advice';
-import type { CalendarEvent } from './ics';
+import { calendarEvents, type CalendarEvent } from './ics';
 import type { HabitId } from './schedule';
 import { addDays } from './time';
 
@@ -31,8 +31,9 @@ export function calendarExportOf(events: readonly CalendarEvent[], at: string, f
   const until = calendarUntil(firstDay);
   const out: CalendarExport = {};
   for (const e of events) {
-    const entry: CalendarFileEntry = out[e.habit] ??= { at, until, events: 0, titles: [] };
+    const entry: CalendarFileEntry = out[e.habit] ??= { at, until, events: 0, titles: [], minutes: [] };
     entry.events += 1;
+    entry.minutes?.push(e.minute);
     if (!entry.titles.includes(e.title)) entry.titles.push(e.title);
   }
   return out;
@@ -94,4 +95,41 @@ export function calendarNotice(still: readonly StillReminding[]): string | undef
   const from = days.length === 1 ? `the file you added on ${days[0]}` : `the files you added on ${days.slice(0, -1).join(', ')} and ${days[days.length - 1]}`;
   // "May": the app cannot know whether they are still there.
   return `Calendar may still show ${what} from ${from}. This app cannot remove them. In Calendar, delete the calendar you added them to, or delete each of those events.`;
+}
+
+/** The calendar copies whose events still repeat (A-78): what each file holds for a habit, when it was made, and until when. */
+export function calendarCopies(habits: HabitSettings | undefined, today: string): (StillReminding & { until: string })[] {
+  return HABITS.flatMap(habit => {
+    const still = exportedStill(habits, habit, today);
+    return still ? [{ ...still, until: habits!.calendarExport![habit]!.until }] : [];
+  });
+}
+
+export interface StaleCopy {
+  habit: HabitId;
+  /** What its events are called in Calendar. */
+  names: string[];
+  /** How many daily events the file holds. */
+  inCalendar: number;
+  /** How many a new file would hold now. */
+  now: number;
+}
+
+const same = <T,>(a: readonly T[], b: readonly T[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * The calendar copies a new file would no longer match (A-78). Their events
+ * still repeat, but the schedule here has changed since: quiet hours, a
+ * window or a time, a fluid limit, or a habit turned off. A file made before
+ * the times were kept is judged by its count and names alone.
+ */
+export function staleCalendarCopies(habits: HabitSettings | undefined, profile: UserProfile | undefined, today: string): StaleCopy[] {
+  const current = calendarEvents(habits, profile);
+  return calendarCopies(habits, today).flatMap(copy => {
+    const entry = habits!.calendarExport![copy.habit]!;
+    const mine = current.filter(e => e.habit === copy.habit);
+    const names = [...new Set(mine.map(e => e.title))];
+    const unchanged = (entry.minutes ? same(entry.minutes, mine.map(e => e.minute)) : entry.events === mine.length) && same(entry.titles, names);
+    return unchanged ? [] : [{ habit: copy.habit, names: entry.titles, inCalendar: entry.events, now: mine.length }];
+  });
 }
