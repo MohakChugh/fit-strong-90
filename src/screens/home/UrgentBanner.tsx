@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { SirenIcon, TriangleAlertIcon } from 'lucide-react';
 import { markTab, ScreenTopContext, SheetTopContext } from '@/components/hig/navigation';
 import { cn } from '@/lib/utils';
-import { RIGHT_NOW_ID, UrgentContext, useUrgent, type Urgent } from './urgent';
+import { RIGHT_NOW_ID, UrgentContext, says, useUrgent, type Urgent } from './urgent';
 
 /** "Low glucose at 1:30 pm · Re-check at 1:45 pm". */
 const lineOf = (u: Urgent) => [u.when, u.next].filter(Boolean).join(' · ');
@@ -105,38 +105,44 @@ export function UrgentProvider({ children }: { children: ReactNode }) {
   );
 }
 
-type Kinds = readonly Urgent['kind'][];
-const ALL_KINDS: Kinds = ['emergency', 'seekHelp', 'recheck', 'low', 'hold'];
-/** A full-screen task's claim that its own screen shows these kinds of decision, until it lets go. */
-const ClaimContext = createContext<((kinds: Kinds) => () => void) | null>(null);
+/** The gate's answer as a full-screen task's own screen draws it: how firmly it refuses, and the reasons it lists. */
+type Drawn = Parameters<typeof says>[0];
+/** A full-screen task's claim that its own screen draws this answer, until it lets go. */
+const ClaimContext = createContext<((drawn: Drawn) => () => void) | null>(null);
 
 /**
- * Rendered by a full-screen task while its own screen shows the safety
- * decision, or these kinds of it: the player's gate, a held walk, a walk
- * that ended for an emergency. The task's surface steps aside, so the
- * decision is said once (codex V1-03).
+ * Rendered with the gate's answer a full-screen task's own screen draws, as
+ * it draws it now: the player's gate, a held walk. Only while that answer is
+ * the urgent decision standing now (`says`) does the task's surface step
+ * aside, so the decision is said once (codex V1-03). A screen still showing
+ * an older or another answer hides nothing (codex W-01).
  */
-export function OwnsUrgent({ kinds = ALL_KINDS }: { kinds?: Kinds }) {
+export function OwnsUrgent({ shows }: { shows: Drawn }) {
   const claim = useContext(ClaimContext);
-  const key = kinds.join(' ');
-  useLayoutEffect(() => claim?.(key.split(' ') as Kinds), [claim, key]);
+  // By its words, so drawing the same answer again is the same claim.
+  const key = JSON.stringify([shows.allowed, shows.disposition, shows.reasons]);
+  useLayoutEffect(() => {
+    if (!claim) return;
+    const [allowed, disposition, reasons] = JSON.parse(key) as [Drawn['allowed'], Drawn['disposition'], Drawn['reasons']];
+    return claim({ allowed, disposition, reasons });
+  }, [claim, key]);
   return null;
 }
 
 /**
  * The shared surface at the top of a full-screen task (B-02, codex V1-03),
- * unless the task's own screen already shows that decision (`OwnsUrgent`).
- * A screen inside the task does not repeat it.
+ * unless the task's own screen already says that very decision
+ * (`OwnsUrgent`, `says`). A screen inside the task does not repeat it.
  */
 export function TaskUrgent({ children }: { children: ReactNode }) {
   const urgent = useContext(UrgentContext);
   const banner = useContext(ScreenTopContext);
-  const [claims, setClaims] = useState<readonly Kinds[]>([]);
-  const claim = useCallback((kinds: Kinds) => {
-    setClaims(c => [...c, kinds]);
-    return () => setClaims(c => c.filter(k => k !== kinds));
+  const [claims, setClaims] = useState<readonly Drawn[]>([]);
+  const claim = useCallback((drawn: Drawn) => {
+    setClaims(c => [...c, drawn]);
+    return () => setClaims(c => c.filter(k => k !== drawn));
   }, []);
-  const shownHere = urgent !== undefined && claims.some(k => k.includes(urgent.kind));
+  const shownHere = urgent !== undefined && claims.some(drawn => says(drawn, urgent));
   return (
     <ClaimContext value={claim}>
       {banner && !shownHere && (

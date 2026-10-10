@@ -539,10 +539,14 @@ describe('wiring that names the opener (S-10, S-11)', () => {
 
 describe('the safety surface wherever the person is (codex V1-02, V1-03, journey §4.7, B-02)', () => {
   const banner = h('section', { 'data-urgent-kind': 'emergency' }, 'Call emergency services now');
-  const emergency = { kind: 'emergency', tone: 'stop', headline: 'Call emergency services now', when: 'Emergency answer today' } as const;
+  const CHEST = 'Chest pain or pressure: call emergency services now.';
+  const emergency = { kind: 'emergency', tone: 'stop', headline: 'Call emergency services now', when: 'Emergency answer today', reasons: [CHEST] } as const;
   const surfaces = (nodes: HostNode[]) => nodes.filter(n => n.props['data-urgent-kind'] !== undefined).length;
   const task = (urgent: typeof emergency | { kind: 'low' }, child: ReactNode) =>
     h(UrgentContext, { value: urgent as never }, h(nav.ScreenTopContext, { value: banner }, h(TaskFrame, null, child)));
+  /** The gate's answers a task's own screen may draw. */
+  const callNow = { allowed: false, disposition: 'emergency', reasons: [CHEST] } as const;
+  const checkInFirst = { allowed: false, disposition: 'hold', reasons: ['Check in first, so today’s movement fits how you are.'] } as const;
 
   it('shows while a screen’s code is still loading', () => {
     const m = html(h(nav.ScreenTopContext, { value: banner }, h(ScreenLoading)));
@@ -569,19 +573,35 @@ describe('the safety surface wherever the person is (codex V1-02, V1-03, journey
     expect(surfaces(host.all())).toBe(1);
   });
 
-  it('steps aside while the task’s own screen shows that state, and only that state', () => {
-    expect(surfaces(render(task(emergency, h(OwnsUrgent))).all())).toBe(0);
-    expect(surfaces(render(task(emergency, h(OwnsUrgent, { kinds: ['emergency', 'seekHelp'] }))).all())).toBe(0);
-    // A summary showing a low's guidance does not show a later emergency.
-    expect(surfaces(render(task(emergency, h(OwnsUrgent, { kinds: ['low', 'recheck'] }))).all())).toBe(1);
+  it('steps aside only while the task’s own screen draws the decision standing now (codex W-01)', () => {
+    expect(surfaces(render(task(emergency, h(OwnsUrgent, { shows: callNow }))).all())).toBe(0);
+    // A session opened before any check-in, its refusal still drawn, while an emergency is answered elsewhere: the surface stays.
+    expect(surfaces(render(task(emergency, h(OwnsUrgent, { shows: checkInFirst }))).all())).toBe(1);
+    // An emergency drawn earlier, for another reason, is not this one.
+    expect(surfaces(render(task(emergency, h(OwnsUrgent, { shows: { ...callNow, reasons: ['Glucose over 600 mg/dL.'] } }))).all())).toBe(1);
+    // A claim on a screen that has gone lets go.
+    const host = render(task(emergency, h(OwnsUrgent, { shows: callNow })));
+    host.update(task(emergency, null));
+    expect(surfaces(host.all())).toBe(1);
   });
 
-  it('the session, the live walk and the walk summary say when their own screen shows it', () => {
-    expect(read('src/pages/SessionPage.tsx')).toMatch(/<OwnsUrgent \/>/);
-    expect(read('src/screens/walk/LiveWalkScreen.tsx')).toMatch(/\{refusal && <OwnsUrgent \/>\}/);
-    const summary = read('src/screens/walk/WalkSummary.tsx');
-    expect(summary).toContain("<OwnsUrgent kinds={['emergency', 'seekHelp']} />");
-    expect(summary).toContain("<OwnsUrgent kinds={['low', 'recheck']} />");
+  it('follows what the task’s screen draws as it changes: a refusal drawn again as it stands now claims the new decision', () => {
+    const host = render(task(emergency, h(OwnsUrgent, { shows: checkInFirst })));
+    expect(surfaces(host.all())).toBe(1);
+    host.update(task(emergency, h(OwnsUrgent, { shows: callNow })));
+    expect(surfaces(host.all())).toBe(0);
+    host.update(task(emergency, h(OwnsUrgent, { shows: checkInFirst })));
+    expect(surfaces(host.all())).toBe(1);
+  });
+
+  it('the session’s gate and reading screens, and the live walk, claim what they draw; the walk summary’s guidance for how it ended claims nothing', () => {
+    expect(read('src/components/checkin/SessionGate.tsx')).toContain('<OwnsUrgent shows={permission} />');
+    const session = read('src/pages/SessionPage.tsx');
+    // No claim for every kind, nor one for a decision the page does not draw.
+    expect(session).not.toMatch(/<OwnsUrgent \/>|\{halt && <OwnsUrgent/);
+    expect(session.match(/<OwnsUrgent shows=\{drawnHere\((permission|guidance)\)\} \/>/g)).toHaveLength(3);
+    expect(read('src/screens/walk/LiveWalkScreen.tsx')).toMatch(/\{refusal && <OwnsUrgent shows=\{refusal\} \/>\}/);
+    expect(read('src/screens/walk/WalkSummary.tsx')).not.toContain('OwnsUrgent');
   });
 
   it('is at the top of every sheet, and its way on closes the sheet first', async () => {

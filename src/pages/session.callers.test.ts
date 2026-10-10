@@ -15,11 +15,18 @@ import type { UserProfile } from '@/types/profile';
 import type { RunnerState } from '@/session/runner';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
-import { render, type Host } from '@/test/host';
+import { render, textOf, type Host } from '@/test/host';
 
 const router = vi.hoisted(() => ({ params: new URLSearchParams(), navigate: vi.fn() }));
-vi.mock('react-router-dom', () => ({ useSearchParams: () => [router.params], useNavigate: () => router.navigate }));
-vi.mock('@/components/hig/navigation', () => ({ cameFrom: () => false }));
+vi.mock('react-router-dom', async () => {
+  const { createElement: h } = await import('react');
+  return {
+    useSearchParams: () => [router.params], useNavigate: () => router.navigate, useLocation: () => ({ pathname: '/session', search: '', state: null }),
+    // The task's shared surface links Home: a plain anchor here.
+    Link: ({ children, to, onClick }: { children?: unknown; to: string; onClick?: () => void }) => h('a', { href: `#${to}`, onClick }, children as never),
+  };
+});
+vi.mock('@/components/hig/navigation', async importOriginal => ({ ...await importOriginal<typeof import('@/components/hig/navigation')>(), cameFrom: () => false }));
 vi.mock('@/components/session/FigureSlot', () => ({ FigureSlot: () => null }));
 vi.mock('@/components/session/InfoSheet', () => ({ InfoSheet: () => null }));
 vi.mock('@/voice/clips', () => ({ loadManifest: async () => null, primeAudio: async () => true, ClipNarrator: class {} }));
@@ -51,7 +58,8 @@ const media: Record<string, ((d?: unknown) => void) | null> = {};
 Object.assign(globalThis, {
   window: globalThis,
   location: { href: 'http://localhost/' },
-  document: { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} },
+  // The root the shared surface marks while a decision stands, and the body its announcement is portalled to.
+  document: { visibilityState: 'visible', addEventListener() {}, removeEventListener() {}, documentElement: { dataset: {} }, body: { nodeType: 1 } },
   Audio: class { play() { return Promise.resolve(); } pause() {} },
   matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
 });
@@ -62,6 +70,8 @@ Object.defineProperty(globalThis.navigator, 'mediaSession', {
 
 const store = await import('@/store/useStore');
 const { default: SessionPage } = await import('./SessionPage');
+const { UrgentProvider } = await import('@/screens/home/UrgentBanner');
+const { TaskFrame } = await import('@/components/hig/StorageBanner');
 const { resetPendingCheckInsForTests } = await import('@/components/checkin/pending');
 const { evaluateCheckIn } = await import('@/engine/readiness');
 const { buildSessionPlan } = await import('@/engine/session');
@@ -1674,5 +1684,48 @@ describe('N-08: re-dosing cardio under the run never skips its cool-down, and ne
     await seed(bpProfile, [{ ...morning, bpReadings: [{ sys: 160, dia: 100, at: iso(9, 1) }], bpEarlier: morning.bpReadings }]);
     await h().settle();
     expect(progress()!.plan.steps.slice(0, at)).toEqual(done);
+  });
+});
+
+describe('codex W-01: a session opened before any check-in, then an emergency answered on another screen', () => {
+  /** The session as the app opens it: under the shell's one safety surface, in the frame of a full-screen task. */
+  async function mountTask() {
+    host?.unmount();
+    router.params = new URLSearchParams();
+    host = render(createElement(UrgentProvider, null, createElement(TaskFrame, null, createElement(SessionPage))));
+    await host.settle();
+    return host;
+  }
+  /** The shared surface's strips: one per place it is drawn. */
+  const surfaces = () => h().all().filter(n => n.props['data-urgent-kind'] !== undefined).length;
+  /** The gate's own answer, as the session's screen draws it, headline first. */
+  const gate = () => textOf(h().all().find(n => n.type === 'section' && (n.props.role === 'alert' || n.props.role === 'status'))?.children ?? []);
+
+  it('shows the emergency in place of its old refusal, and says it once: the shared surface steps aside only for the decision the gate draws', async () => {
+    const p = createDefaultProfile(BACK);
+    await seed(p, []);
+    await mountTask();
+    expect(h().text()).toMatch(/Check again before you start/);
+    expect(surfaces()).toBe(0);
+
+    // Another screen records an emergency answer.
+    await seed(p, [ci({ urgentSymptoms: true, emergency: ['chest'] })]);
+    await h().settle();
+    expect(h().text()).not.toMatch(/Check again before you start/);
+    expect(gate()).toMatch(/^Call emergency services now/);
+    expect(surfaces()).toBe(0);
+    // Still no way into the player.
+    expect(h().buttons('Start', { exact: true })).toHaveLength(0);
+  });
+
+  it('a refusal lifted since keeps the arrival’s: only a new arrival opens the player', async () => {
+    const p = createDefaultProfile(BACK);
+    await seed(p, []);
+    await mountTask();
+    expect(h().text()).toMatch(/Check again before you start/);
+    await seed(p, [ci({ back: { pain: 0, legPain: 0, reach: 'back', newNeuro: false, caudaEquinaFlag: false }, glucose: { value: 120, unit: 'mg/dL', measuredAt: iso(9) } })]);
+    await h().settle();
+    expect(h().text()).toMatch(/Check again before you start/);
+    expect(h().buttons('Start', { exact: true })).toHaveLength(0);
   });
 });

@@ -24,7 +24,7 @@ import { toDateString } from '@/lib/utils';
 import { useClock, useWakeAt } from '@/screens/today/clock';
 import { loadProgress, type ProgressSlot, type SavedProgress } from '@/session/persistence';
 import { useStore, type StoreState } from '@/store/useStore';
-import type { CheckInRecord, GlucoseEntry, Reason } from '@/types/checkin';
+import type { CheckInRecord, Disposition, GlucoseEntry, Reason } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 
 export interface Urgent {
@@ -38,6 +38,13 @@ export interface Urgent {
   when: string;
   /** The safe action now, when it has a time of its own: "Re-check at 1:45 pm", then "Re-check now". */
   next?: string;
+  /**
+   * The engine's own sentences the decision stands on, as a screen showing
+   * the gate's answer lists them (`Permission.reasons`): what tells a
+   * full-screen task drawing this decision from one drawing an older or
+   * another one (`says`, codex W-01).
+   */
+  reasons: string[];
 }
 
 // ============================================================================
@@ -152,26 +159,32 @@ const MODES: Mode[] = ['guided', 'stretch', 'walk'];
 export function urgentOf({ profile, checkIn, checkIns, permissions }: UrgentInput, now: Date, hour12: boolean = prefersHour12()): Urgent | undefined {
   const all = MODES.map(m => permissions[m]);
   const day = readinessFor({ profile, ...(checkIn ? { checkIn } : {}), now, recent: [...checkIns] });
+  // The profile's standing limits are no part of the day's decision.
+  const standing = new Set(profileOnlyReadiness(profile).reasons.map(x => x.code));
+  /** The day's own sentences of this weight: every refusal of the gate lists them, in any mode (the engine's `decide`). */
+  const said = (d: Disposition) => day.reasons.filter(x => x.disposition === d && !standing.has(x.code)).map(x => x.message);
   const emergency = all.find(p => p.disposition === 'emergency');
   if (emergency) {
     const top = day.reasons.find(r => r.disposition === 'emergency');
-    return { kind: 'emergency', tone: 'stop', headline: headline(emergency).title, when: stopWhen('emergency', top, checkIn, hour12) };
+    return { kind: 'emergency', tone: 'stop', headline: headline(emergency).title, when: stopWhen('emergency', top, checkIn, hour12), reasons: said('emergency') };
   }
   const advice = all.find(p => p.disposition === 'today');
   if (advice) {
     const top = day.reasons.find(r => r.disposition === 'today');
-    return { kind: 'seekHelp', tone: 'stop', headline: headline(advice).title, when: stopWhen('seekHelp', top, checkIn, hour12) };
+    return { kind: 'seekHelp', tone: 'stop', headline: headline(advice).title, when: stopWhen('seekHelp', top, checkIn, hour12), reasons: said('today') };
   }
   const gaps = profileGaps(profile);
   if (all.some(p => gateOf(p, checkIn, gaps.healthUnreviewed || gaps.medicinesUnknown) === 'recheck')) {
-    return { kind: 'recheck', tone: 'caution', headline: 'Re-check your glucose', when: recheckWhen(checkIn, hour12), next: recheckNext(checkIn, now, hour12) };
+    return {
+      kind: 'recheck', tone: 'caution', headline: 'Re-check your glucose', when: recheckWhen(checkIn, hour12), next: recheckNext(checkIn, now, hour12),
+      reasons: said('hold'),
+    };
   }
   if (checkIn && day.reasons.some(x => FEELING_LOW.has(x.code))) {
     // The engine's words for it: check now, and treat it as a low if that can't be done.
-    return { kind: 'low', tone: 'caution', headline: 'Check your glucose now', when: `Feeling low${atOrToday(checkIn.lowSymptomsAt, hour12)}` };
+    return { kind: 'low', tone: 'caution', headline: 'Check your glucose now', when: `Feeling low${atOrToday(checkIn.lowSymptomsAt, hour12)}`, reasons: said('hold') };
   }
   // The day's own holds, every movement's: not the profile's standing limits, nor a reading still to be given.
-  const standing = new Set(profileOnlyReadiness(profile).reasons.map(x => x.code));
   const hold = day.reasons.find(x => x.disposition === 'hold' && !standing.has(x.code) && !ASKS_FOR_A_READING.has(x.code));
   if (hold) {
     return {
@@ -179,9 +192,25 @@ export function urgentOf({ profile, checkIn, checkIns, permissions }: UrgentInpu
       // The check-in's own headline, for every movement at once.
       headline: day.awaitingReading ? 'Check again before you start' : 'No exercise for now',
       when: stopWhen('hold', hold, checkIn, hour12),
+      reasons: said('hold'),
     };
   }
   return undefined;
+}
+
+/** How firmly the gate refuses for each kind of decision. */
+const WEIGHT: Record<Urgent['kind'], Disposition> = { emergency: 'emergency', seekHelp: 'today', recheck: 'hold', low: 'hold', hold: 'hold' };
+
+/**
+ * Whether a screen drawing this answer of the gate says the urgent decision
+ * (codex W-01): a refusal as firm, listing every sentence the decision stands
+ * on. A full-screen task's own screen that says it lets the shared surface
+ * step aside. One drawn earlier, or for another reason, does not, and the
+ * surface stays: a session opened before any check-in, still saying "Check in
+ * first" after an emergency was answered on another screen, hides nothing.
+ */
+export function says(drawn: { allowed: boolean; disposition: Disposition; reasons: readonly string[] }, urgent: Urgent): boolean {
+  return !drawn.allowed && drawn.disposition === WEIGHT[urgent.kind] && urgent.reasons.every(r => drawn.reasons.includes(r));
 }
 
 // ============================================================================
