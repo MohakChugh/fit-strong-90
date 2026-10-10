@@ -11,7 +11,7 @@ const none = {
   observations: 0, sessions: 0, checkIns: 0, personalRecords: 0, bodyMetrics: 0, focusOverrides: 0, contentState: 0,
   ...Object.fromEntries(RECORD_STORES.map(s => [s, 0])),
 } as CollectionCounts;
-const whole: Pick<ImportPreview, 'exportedAt' | 'rejected' | 'unreadableObservations' | 'unreadableFields'> = { exportedAt: AT, rejected: none, unreadableObservations: 0, unreadableFields: [] };
+const whole: Pick<ImportPreview, 'exportedAt' | 'rejected' | 'unreadableObservations' | 'unreadableFields' | 'complete'> = { exportedAt: AT, rejected: none, unreadableObservations: 0, unreadableFields: [], complete: 'whole' };
 
 describe('the backup’s state (B-25)', () => {
   it('is never until a backup has been handed over', () => {
@@ -38,6 +38,9 @@ describe('a backup file read back (B-25; Review Focus 5)', () => {
     expect(checkOutcome({ ...whole, unreadableObservations: 2 }, AT)).toBe('damaged');
     expect(checkOutcome({ ...whole, rejected: { ...none, sessions: 1 } }, AT)).toBe('damaged');
     expect(checkOutcome({ ...whole, unreadableFields: ['settings.theme'] }, AT)).toBe('damaged');
+    // Keeping the latest date is not being whole: what its manifest says it held must all be there (H4-02).
+    expect(checkOutcome({ ...whole, complete: 'partial' }, AT)).toBe('incomplete');
+    expect(checkOutcome({ ...whole, complete: 'unknown' }, AT)).toBe('unverifiable');
   });
   it('says what the check found', () => {
     expect(checkedLine('latest', AT, AT, 'iPhone')).toBe(`Checked. This is your latest backup, made ${shortDate(AT)}, and it reads back whole.`);
@@ -45,6 +48,8 @@ describe('a backup file read back (B-25; Review Focus 5)', () => {
     expect(checkedLine('other', OLDER, undefined, 'iPhone')).toBe('This file reads back, but no backup has been made on this iPhone yet, so there is nothing to match it to.');
     expect(checkedLine('undated', undefined, AT, 'iPhone')).toBe('This file reads back, but it doesn’t say when it was made, so it can’t be matched to your latest backup.');
     expect(checkedLine('damaged', AT, AT, 'iPhone')).toBe('Parts of this file can’t be read, so it isn’t a whole backup. Make a new one.');
+    expect(checkedLine('incomplete', AT, AT, 'iPhone')).toBe('Parts of your record that this backup held are missing from the file, so it isn’t a whole backup. Make a new one.');
+    expect(checkedLine('unverifiable', AT, AT, 'iPhone')).toBe('This file doesn’t say what it held, so the app can’t tell whether it’s whole. Make a new backup, then check that one.');
   });
 
   describe('an older file from the same date as the latest says both times, as the dates alone can’t tell them apart', () => {

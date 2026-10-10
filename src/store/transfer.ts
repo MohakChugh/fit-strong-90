@@ -85,6 +85,55 @@ export interface TransferDoc {
   stores?: RecordStore[];
   /** Their rows, by store: only the stores in `stores`. */
   records?: Partial<Record<RecordStore, StoredRecord[]>>;
+  /** What the file holds, written with it, so a check can tell a whole file from part of one (B-25, H4-02). */
+  manifest?: Manifest;
+}
+
+/**
+ * What a backup file held when it was written (B-25, H4-02): how many of each
+ * collection, whether it had settings and a profile, and a digest of the rest
+ * of its text. A file that has lost any of it, or changed, no longer matches,
+ * whatever date it still carries.
+ */
+export interface Manifest {
+  version: 1;
+  counts: Record<string, number>;
+  settings: boolean;
+  profile: boolean;
+  digest: string;
+}
+
+/** How many of each collection a file holds, as its own fields say: a missing one is none. */
+function countsOf(r: Record<string, unknown>): Record<string, number> {
+  const len = (x: unknown) => (Array.isArray(x) ? x.length : 0);
+  const records = isRecord(r.records) ? r.records : {};
+  return {
+    observations: len(r.observations), sessions: len(r.sessions), checkIns: len(r.checkIns),
+    personalRecords: len(r.personalRecords), bodyMetrics: len(r.bodyMetrics),
+    focusOverrides: isRecord(r.focusOverrides) ? Object.keys(r.focusOverrides).length : 0,
+    contentState: len(r.contentState),
+    ...Object.fromEntries((Array.isArray(r.stores) ? r.stores : []).map(store => [`records.${String(store)}`, len(records[String(store)])])),
+  };
+}
+
+/** The manifest for a file's text without one. */
+function manifestOf(body: Record<string, unknown>, text: string): Manifest {
+  return { version: 1, counts: countsOf(body), settings: body.settings !== undefined, profile: body.profile !== undefined, digest: digest(text) };
+}
+
+/**
+ * Whether a file read back is the whole of what was written (H4-02): `whole`
+ * when the rest of its text still has its manifest's digest, `partial` when
+ * anything is missing or changed, `unknown` when it holds no manifest to go
+ * by (a file from before backups carried one, or the previous app's). The
+ * counts are there for a reader; the digest covers every one of them.
+ */
+export function wholeness(raw: unknown): 'whole' | 'partial' | 'unknown' {
+  if (!isRecord(raw) || !isRecord(raw.manifest)) return 'unknown';
+  const { manifest, ...rest } = raw;
+  const m = manifest as Partial<Manifest>;
+  if (m.version !== 1 || typeof m.digest !== 'string') return 'partial';
+  return digest(JSON.stringify(rest)) === m.digest ? 'whole' : 'partial';
 }
 
 /**
@@ -182,7 +231,12 @@ export interface EncodedTransfer {
  * export that does not happen is not (F25).
  */
 export async function encode(record: TransferDoc): Promise<EncodedTransfer> {
-  const json = new TextEncoder().encode(JSON.stringify(record));
+  // The file says what it holds (H4-02): the text, then its manifest as the last field, one stringify of the record.
+  const { manifest: _old, ...body } = record;
+  void _old;
+  const text = JSON.stringify(body);
+  const manifest = manifestOf(body as Record<string, unknown>, text);
+  const json = new TextEncoder().encode(`${text.slice(0, -1)},"manifest":${JSON.stringify(manifest)}}`);
   const day = typeof record.exportedAt === 'string' ? record.exportedAt.slice(0, 10) : nowAt().slice(0, 10);
   const stem = `${TRANSFER_FORMAT}-${day}`;
   const plain = (): EncodedTransfer => ({ bytes: json, gzip: false, name: `${stem}.json`, type: 'application/json' });
@@ -1194,6 +1248,8 @@ export interface ImportPreview {
   replaceRemoves?: Partial<Record<RecordStore, number>>;
   /** Replace keeps this device's open safety records and the readings they depend on (H6-03): say so before it happens. */
   keepsOpen?: boolean;
+  /** Whether the file is the whole of what was written, by its manifest (H4-02). Always set by `previewImport`. */
+  complete?: 'whole' | 'partial' | 'unknown';
 }
 
 export interface ImportProblem {
@@ -1269,6 +1325,7 @@ export function previewImport(raw: unknown, existing: Iterable<string> | ImportB
     refusedRecords,
     replaceRemoves,
     keepsOpen: open.checkIns.length + open.observations.length > 0,
+    complete: wholeness(raw),
   };
 }
 

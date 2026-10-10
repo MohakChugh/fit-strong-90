@@ -24,6 +24,7 @@ import {
   openIncidents,
   previewImport,
   toTransferDoc,
+  wholeness,
   withDeviceConsent,
   type TransferDoc,
 } from './transfer';
@@ -130,7 +131,10 @@ describe('encode and decode', () => {
     expect(file.name).toMatch(/^fit-strong-health-record-\d{4}-\d{2}-\d{2}\.json\.gz$/);
     expect([file.bytes[0], file.bytes[1]]).toEqual([0x1f, 0x8b]);
 
-    expect(await decode(file.bytes)).toEqual(collected.value);
+    // Every field comes back, and the manifest written with them says the file is whole (H4-02).
+    const { manifest, ...back } = await decode(file.bytes) as TransferDoc;
+    expect(back).toEqual(collected.value);
+    expect(wholeness({ ...back, manifest })).toBe('whole');
     db.close();
   });
 
@@ -939,4 +943,50 @@ describe('Replace keeps this device’s open incidents (journey §4.6, H6-03)', 
       expect(after.disposition).toBe(was.disposition);
     });
   }
+});
+
+describe('a backup that says what it holds (B-25, H4-02)', () => {
+  const doc = () => toTransferDoc({
+    ...emptySnapshot(), profile: createDefaultProfile({ weightKg: 70 }), settings: { theme: 'dark' } as UserSettings,
+    observations: [glucose('g1', '2026-10-01', 132)], sessions: [session], checkIns: [checkIn],
+  }, '2026-10-08T09:00:00.000+05:30');
+  const read = async (d: TransferDoc) => decode((await encode(d)).bytes) as Promise<Record<string, unknown>>;
+
+  it('writes a manifest of what it holds, and reads back whole', async () => {
+    const raw = await read(doc());
+    expect(raw.manifest).toMatchObject({ version: 1, counts: { observations: 1, sessions: 1, checkIns: 1 }, settings: true, profile: true });
+    expect(previewImport(raw)).toMatchObject({ ok: true, complete: 'whole' });
+  });
+
+  for (const [what, cut] of [
+    ['its sessions', (r: Record<string, unknown>) => { r.sessions = []; }],
+    ['its observations', (r: Record<string, unknown>) => { delete r.observations; }],
+    ['its profile', (r: Record<string, unknown>) => { delete r.profile; }],
+    ['a changed reading', (r: Record<string, unknown>) => { (r.observations as { value: number }[])[0].value = 99; }],
+  ] as const) {
+    it(`is not whole without ${what}, though it keeps its date`, async () => {
+      const raw = await read(doc());
+      cut(raw);
+      const preview = previewImport(raw);
+      expect(preview).toMatchObject({ ok: true, exportedAt: '2026-10-08T09:00:00.000+05:30', complete: 'partial' });
+    });
+  }
+
+  it('is not whole when its manifest itself is damaged or from a later version', async () => {
+    // A later version's manifest may be worked out another way: not trusted, even with this digest.
+    const later = await read(doc());
+    later.manifest = { ...(later.manifest as object), version: 2 };
+    expect(previewImport(later)).toMatchObject({ ok: true, complete: 'partial' });
+    for (const manifest of [{ version: 1 }, { version: 2, digest: 'x' }, { version: 1, digest: 7 }]) {
+      const raw = await read(doc());
+      raw.manifest = { ...(raw.manifest as object), ...manifest, ...('digest' in manifest ? {} : { digest: undefined }) };
+      expect(previewImport(raw), JSON.stringify(manifest)).toMatchObject({ ok: true, complete: 'partial' });
+    }
+  });
+
+  it('can’t be said to be whole when it holds no manifest at all', async () => {
+    const raw = await read(doc());
+    delete raw.manifest;
+    expect(previewImport(raw)).toMatchObject({ ok: true, complete: 'unknown' });
+  });
 });

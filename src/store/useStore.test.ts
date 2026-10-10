@@ -1233,3 +1233,22 @@ describe('Replace from a backup keeps this device’s open incidents (journey §
     expect(store.getState().checkIns.find(c => c.date === date)?.glucose?.value).toBe(60);
   });
 });
+
+describe('checking a backup reads it back whole (B-25, H4-02)', () => {
+  it('finds the app’s own export whole, and the same file missing its sessions not whole, though it keeps the latest date', async () => {
+    const { checkOutcome } = await import('@/screens/you/dataStatus');
+    await booted();
+    await store.putSession(session);
+    await store.addObservation({ kind: 'glucose', value: 110, scope: 'pointInTime', source: 'manual' });
+    const exported = await store.exportRecord();
+    if (!exported.ok) return expect.unreachable('export failed');
+    const raw = await decode(exported.value.bytes) as Record<string, unknown>;
+    const preview = store.previewRecord(raw);
+    if (!preview.ok) return expect.unreachable(preview.reason);
+    expect(checkOutcome(preview, exported.value.exportedAt)).toBe('latest');
+    const cut = store.previewRecord({ ...raw, sessions: [] });
+    if (!cut.ok) return expect.unreachable(cut.reason);
+    expect(cut.exportedAt).toBe(exported.value.exportedAt);
+    expect(checkOutcome(cut, exported.value.exportedAt)).toBe('incomplete');
+  });
+});
