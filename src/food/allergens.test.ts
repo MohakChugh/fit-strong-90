@@ -1,0 +1,90 @@
+import { describe, expect, it } from 'vitest';
+import { ALLERGEN_IDS } from '@/types/profile';
+import { ALLERGENS, allergenList, allergiesOf, allergyWarning, recommendable, resolveAllergens, type AllergenTags } from './allergens';
+
+const tags = (over: Partial<AllergenTags> = {}): AllergenTags => ({ contains: [], mayContain: [], complete: true, words: [], ...over });
+
+describe('the canonical allergens (B-13, board D99)', () => {
+  it('are Plan 5’s ten, each with a chip label and aliases', () => {
+    expect(ALLERGENS.map(a => a.id)).toEqual([...ALLERGEN_IDS]);
+    for (const a of ALLERGENS) expect(a.aliases.length, a.id).toBeGreaterThan(1);
+  });
+});
+
+describe('resolveAllergens: the person’s own words to canonical ids (B-13, Review Focus 2)', () => {
+  it('finds a canonical allergen by any of its names, singular or plural, in English, Hindi or Hinglish', () => {
+    expect(resolveAllergens('peanut')).toEqual(['peanut']);
+    expect(resolveAllergens('Peanuts')).toEqual(['peanut']);
+    expect(resolveAllergens('groundnuts')).toEqual(['peanut']);
+    expect(resolveAllergens('मूंगफली')).toEqual(['peanut']);
+    expect(resolveAllergens('Prawns')).toEqual(['shellfish']);
+    expect(resolveAllergens('dahi')).toEqual(['milk']);
+    expect(resolveAllergens('gluten')).toEqual(['wheat']);
+    expect(resolveAllergens('lactose intolerant')).toEqual(['milk']);
+    expect(resolveAllergens('treeNut')).toEqual(['treeNut']);
+  });
+  it('reads an umbrella word as every allergen it covers', () => {
+    expect(resolveAllergens('nuts')).toEqual(['peanut', 'treeNut']);
+    expect(resolveAllergens('seafood')).toEqual(['fish', 'shellfish']);
+    expect(resolveAllergens('tree nuts')).toEqual(['treeNut']);
+  });
+  it('keeps coconut apart from tree nuts (board D99)', () => {
+    expect(resolveAllergens('coconut')).toEqual([]);
+    expect(resolveAllergens('tree nuts')).not.toContain('coconut');
+  });
+  it('names nothing for a word it doesn’t know', () => {
+    expect(resolveAllergens('brinjal')).toEqual([]);
+    expect(resolveAllergens('  ')).toEqual([]);
+  });
+});
+
+describe('allergiesOf', () => {
+  it('reads the chips, and the own words through the aliases, leaving the rest as custom allergies', () => {
+    expect(allergiesOf({ allergies: ['peanut', 'sesame'], customAllergies: ['Groundnut', 'Brinjals', 'coconut'] }))
+      .toEqual({ known: ['peanut', 'sesame'], custom: [['brinjal'], ['coconut']] });
+    expect(allergiesOf(undefined)).toEqual({ known: [], custom: [] });
+    expect(allergiesOf({})).toEqual({ known: [], custom: [] });
+  });
+  it('also keeps a phrase that only contains an allergen’s name in the person’s own words, so “coconut milk” keeps out coconut milk', () => {
+    const coconutMilk = allergiesOf({ customAllergies: ['Coconut milk'] });
+    expect(coconutMilk).toEqual({ known: ['milk'], custom: [['coconut', 'milk']] });
+    expect(recommendable(tags({ words: ['chicken', 'stew', 'coconut', 'milk', 'nariyal'] }), coconutMilk)).toBe(false);
+    expect(allergyWarning(tags({ words: ['coconut', 'milk'] }), coconutMilk)).toBe('Contains coconut milk, which you listed as an allergy');
+  });
+});
+
+describe('recommendable (B-13)', () => {
+  const peanut = allergiesOf({ allergies: ['peanut'] });
+  const brinjal = allergiesOf({ customAllergies: ['brinjal'] });
+  it('recommends anything to someone with no allergies, fully tagged or not', () => {
+    expect(recommendable(tags({ complete: false }), allergiesOf({}))).toBe(true);
+  });
+  it('leaves out what contains or may contain the allergen', () => {
+    expect(recommendable(tags({ contains: ['peanut'] }), peanut)).toBe(false);
+    expect(recommendable(tags({ mayContain: ['peanut'] }), peanut)).toBe(false);
+    expect(recommendable(tags({ contains: ['milk'] }), peanut)).toBe(true);
+  });
+  it('with any allergy, leaves out what isn’t fully tagged', () => {
+    expect(recommendable(tags({ complete: false }), peanut)).toBe(false);
+    expect(recommendable(tags({ complete: false }), brinjal)).toBe(false);
+  });
+  it('matches a custom allergy against every word the dish and its ingredients go by', () => {
+    expect(recommendable(tags({ words: ['baingan', 'brinjal', 'bharta'] }), brinjal)).toBe(false);
+    expect(recommendable(tags({ words: ['roti', 'wheat'] }), brinjal)).toBe(true);
+    expect(recommendable(tags({ words: ['green', 'pea', 'matar'] }), allergiesOf({ customAllergies: ['green peas'] }))).toBe(false);
+    expect(recommendable(tags({ words: ['pea'] }), allergiesOf({ customAllergies: ['green peas'] }))).toBe(true);
+  });
+});
+
+describe('allergyWarning: logging never hides a food, it says why (B-13)', () => {
+  it('names a contained or possible allergen, or a custom match, in plain words', () => {
+    expect(allergyWarning(tags({ contains: ['peanut', 'mustard'] }), allergiesOf({ allergies: ['peanut', 'mustard'] }))).toBe('Contains peanut and mustard, which you listed as allergies');
+    expect(allergyWarning(tags({ mayContain: ['wheat'] }), allergiesOf({ customAllergies: ['gluten'] }))).toBe('May contain wheat, which you listed as an allergy');
+    expect(allergyWarning(tags({ words: ['brinjal'] }), allergiesOf({ customAllergies: ['Brinjal'] }))).toBe('Contains brinjal, which you listed as an allergy');
+    expect(allergyWarning(tags({ contains: ['milk'] }), allergiesOf({ allergies: ['peanut'] }))).toBeUndefined();
+  });
+  it('lists allergens as a sentence would', () => {
+    expect(allergenList(['wheat'])).toBe('wheat');
+    expect(allergenList(['milk', 'treeNut', 'sesame'])).toBe('milk, tree nuts and sesame');
+  });
+});
