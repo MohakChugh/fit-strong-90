@@ -19,7 +19,9 @@ import { createDefaultProfile } from '@/profile/defaults';
 import type { BackupMark } from '@/reminders/backup';
 import { withCalendarExport, withoutCalendarHabits, type CalendarExport } from '@/reminders/calendarNotice';
 import type { HabitId } from '@/reminders/schedule';
-import { withJoined, withLeft } from '@/screens/move/plan';
+import { withLeft } from '@/screens/move/plan';
+import { withJoinAnswers } from '@/programme/join';
+import type { JoinAnswers } from '@/types/setup';
 
 export function changeHabits(edit: (habits: HabitSettings) => HabitSettings): Promise<StoreResult> {
   return update(previous => ({
@@ -121,12 +123,9 @@ export function forgetCalendarEvents(deleted: readonly HabitId[]): Promise<Store
   });
 }
 
-/** Join the 12-week programme: its answers and a start date (board D8). The same write Move's Your plan makes. */
-export function joinProgramme(answers: Pick<WizardResult, 'profile' | 'useMetric' | 'opened'>, startDate: string): Promise<StoreResult> {
-  return update(previous => withJoined(previous, {
-    profile: answeredProfile(previous.profile, answers),
-    useMetric: answeredMetric(previous.settings.useMetric, answers),
-  }, startDate));
+/** Join the 12-week programme: its four answers and a start date (board D8, D81). The same write Your plan makes. */
+export function joinProgramme(j: JoinAnswers): Promise<StoreResult> {
+  return update(previous => withJoinAnswers(previous, j));
 }
 
 /** Leave it: no start date. Every session, record and answer stays. */

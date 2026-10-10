@@ -14,6 +14,8 @@ globalThis.localStorage = {
   get length() { return local.size; },
 } as Storage;
 
+import { JOIN } from '@/setup/fixtures';
+
 const store = await import('@/store/useStore');
 const { changeDisplay, changeHabits, changeProfile, forgetCalendarEvents, joinProgramme, leaveProgramme, recordBackupCheck, recordCalendarExport, recordExport, saveProfileAnswers, setFluidRestriction } = await import('./write');
 const { fluidRestriction } = await import('@/reminders/water');
@@ -177,10 +179,10 @@ describe('joining and leaving the programme', () => {
 
   it('joins with the programme answers and a start date', async () => {
     await store.setSettings({ startDate: '', focus: 'stretch' });
-    expect((await joinProgramme({ profile: joined, useMetric: true }, '2026-10-12')).ok).toBe(true);
+    expect((await joinProgramme({ ...JOIN, startDate: '2026-10-12' })).ok).toBe(true);
     const after = await reloadFromDevice();
     expect(after.settings.startDate).toBe('2026-10-12');
-    expect(after.profile?.trainingDays).toEqual(['monday', 'wednesday', 'friday']);
+    expect(after.profile?.trainingDays).toEqual(JOIN.days);
     expect(isEnrolled(after.settings, after.profile)).toBe(true);
     // Joining is not a change of focus.
     expect(after.settings.focus).toBe('stretch');
@@ -196,7 +198,7 @@ describe('joining and leaving the programme', () => {
   });
 
   it('leaves by clearing the start date, keeping every record and answer', async () => {
-    await joinProgramme({ profile: joined, useMetric: true }, '2026-10-12');
+    await joinProgramme({ ...JOIN, startDate: '2026-10-12' });
     await store.addObservation({ kind: 'water', value: 250, unit: 'mL', at: '2026-10-08T10:00:00.000+05:30', scope: 'dayTotal' } as never);
     const before = await reloadFromDevice();
     expect((await leaveProgramme()).ok).toBe(true);

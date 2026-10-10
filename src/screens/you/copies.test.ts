@@ -3,6 +3,7 @@ import { createDefaultProfile } from '@/profile/defaults';
 import type { UserProfile } from '@/types/profile';
 import type { WizardResult } from '@/components/profile/ProfileWizard';
 import { fakeIndexedDB } from '@/store/fakeIdb';
+import { JOIN } from '@/setup/fixtures';
 
 const local = new Map<string, string>();
 globalThis.localStorage = {
@@ -59,11 +60,9 @@ describe('two open copies saving the profile wizard (D-03)', () => {
     const b = await copy(factory);
     await b.store.setProfile(createDefaultProfile({ weightKg: 80, health: { medicinesReviewed: true, fluidRestriction: false } }));
     const a = await copy(factory);
-    const openedInA = a.store.getState().profile!;
     await b.write.saveProfileAnswers(wizard(b.store.getState().profile!, p => ({ ...p, health: { ...p.health, footStatus: 'current_wound_or_active_charcot' } })), { startDate: false });
 
-    const joined = wizard(openedInA, p => ({ ...p, trainingDays: ['monday', 'thursday'] }));
-    expect((await a.write.joinProgramme(joined, '2026-10-12')).ok).toBe(true);
+    expect((await a.write.joinProgramme({ ...JOIN, days: ['monday', 'thursday'], startDate: '2026-10-12' })).ok).toBe(true);
 
     expect((await a.store.reload()).ok).toBe(true);
     const { profile, settings } = a.store.getState();
