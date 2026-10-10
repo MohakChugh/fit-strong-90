@@ -207,7 +207,12 @@ export interface UserSettings {
    */
   setup?: { declined?: ChapterId[] };
   /** v2 (journey §16 Display): the app's own settings, since Safari doesn't report Reduce Transparency and the system's motion setting isn't everyone's choice. */
-  display?: { reduceMotion?: boolean; reduceTransparency?: boolean };
+  display?: {
+    reduceMotion?: boolean;
+    reduceTransparency?: boolean;
+    /** v2: the app's own text size, one of TEXT_SCALES (src/lib/textSize.ts). */
+    textScale?: number;
+  };
   /**
    * v2 (journey §9.1, §18.1): this phone's own walk choices. Each starts
    * unasked and is asked once, on the first walk that needs it. An import

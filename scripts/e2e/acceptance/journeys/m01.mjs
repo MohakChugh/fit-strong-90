@@ -94,4 +94,75 @@ const goals = {
   },
 };
 
-export const cases = [finishSettingUp, goals];
+const display = {
+  name: 'display settings apply at once and hold',
+  async run(t) {
+    const page = await t.open({ seed: persona('P02'), route: '/me/display' });
+    const main = page.getByRole('main');
+    const root = () => page.evaluate(() => ({
+      dark: document.documentElement.classList.contains('dark'),
+      font: getComputedStyle(document.documentElement).fontSize,
+      motion: document.documentElement.dataset.reduceMotion !== undefined,
+      glass: document.documentElement.dataset.glass ?? '',
+    }));
+    const size = () => main.getByRole('radiogroup', { name: 'Text size' });
+    await t.step(1, 'Theme: Dark, Light, then Automatic', async () => {
+      const theme = main.getByRole('radiogroup', { name: 'Theme' });
+      await ui.tap(ui.row(theme, 'Dark', 'radio'));
+      await page.waitForTimeout(400);
+      await t.check((await root()).dark, 'Dark did not darken the page');
+      await ui.tap(ui.row(theme, 'Light', 'radio'));
+      await page.waitForTimeout(400);
+      await t.check(!(await root()).dark, 'Light left the page dark');
+      await ui.tap(ui.row(theme, 'Automatic', 'radio'));
+      await page.waitForTimeout(400);
+      await t.check((await root()).dark === (t.project.scheme === 'dark'), 'Automatic does not follow the device');
+      await t.check(docs(await t.db()).settings?.theme === 'system', 'Automatic was not stored');
+    });
+    await t.step(2, 'Text size: Largest applies at once, and Home takes one column', async () => {
+      await ui.tap(ui.row(size(), 'Largest', 'radio'));
+      await page.waitForTimeout(300);
+      await t.check((await root()).font === '32px', `Largest set the root to ${(await root()).font}`);
+      await t.check(docs(await t.db()).settings?.display?.textScale === 2, 'Largest was not stored');
+      await t.checkpoint('display-largest');
+      await ui.tab(page, 'Home');
+      const cols = await page.getByRole('main').locator('section[data-group="move"] ul').getAttribute('class');
+      await t.check(/\bgrid-cols-1\b/.test(cols ?? ''), `Home’s tiles keep “${cols}” at 200% text`);
+    });
+    await t.step(3, 'Reduce motion and Reduce transparency', async () => {
+      await t.goto('/me/display');
+      await ui.tap(main.getByRole('switch', { name: 'Reduce motion', exact: true }));
+      await ui.tap(main.getByRole('switch', { name: 'Reduce transparency', exact: true }));
+      await page.waitForTimeout(300);
+      const r = await root();
+      await t.check(r.motion && r.glass === 'solid', `the page is not reduced: ${JSON.stringify(r)}`);
+      const d = docs(await t.db()).settings?.display ?? {};
+      await t.check(d.reduceMotion === true && d.reduceTransparency === true, `stored: ${JSON.stringify(d)}`);
+    });
+    await t.step(4, 'A reload keeps everything; Standard gives back the device’s size', async () => {
+      await t.reload();
+      const r = await root();
+      await t.check(r.font === '32px' && r.motion && r.glass === 'solid', `after a reload: ${JSON.stringify(r)}`);
+      await ui.tap(ui.row(size(), 'Standard', 'radio'));
+      await page.waitForTimeout(300);
+      await t.check((await root()).font === '16px', `Standard left the root at ${(await root()).font}`);
+      await t.checkpoint('display-standard');
+    });
+  },
+};
+
+const systemMotion = {
+  name: 'the device’s Reduce Motion comes first',
+  async run(t) {
+    const page = await t.open({ seed: persona('P02'), route: '/me/display', reducedMotion: 'reduce' });
+    await t.step(1, 'Reduce motion is on, and says the device set it', async () => {
+      const main = page.getByRole('main');
+      const sw = main.getByRole('switch', { name: 'Reduce motion', exact: true });
+      await t.check(await sw.getAttribute('aria-checked') === 'true', 'the switch is off while the device reduces motion');
+      await t.check(/On, because this device’s Reduce Motion is on\./.test(flat(await main.innerText())), 'the row does not say the device set it');
+      await t.checkpoint('display-system-motion');
+    });
+  },
+};
+
+export const cases = [finishSettingUp, goals, display, systemMotion];

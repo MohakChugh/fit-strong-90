@@ -20,10 +20,9 @@ import type { HomeLayout } from '@/types';
 import { packName } from '@/voice/packs';
 import { buildId } from './about';
 import { shortDate } from './dates';
+import { displayLine } from './display';
 import { goalsLine } from './goals';
 import { REVIEW_LABEL, conditionsLine, foodLine, habitsLine, privacyLine, reviewNeeded } from './summaries';
-
-const THEME = { system: 'Automatic', light: 'Light', dark: 'Dark' } as const;
 
 /** Focus goes to the screen's title when the row it was on has gone (B-03). */
 const focusTitle = () => requestAnimationFrame(() => document.querySelector<HTMLElement>('main h1')?.focus({ preventScroll: true }));
@@ -94,7 +93,7 @@ export function MeHome() {
           detail={`${packName(voice?.pack ?? 'af_heart').split(' · ')[0]} · ${profile?.figure === 'female' ? 'female' : 'male'} figure`}
           chevron
         />
-        <Row as={Link} to="/me/display" viewTransition icon={<SunMoonIcon />} label="Display" detail={THEME[settings.theme]} chevron />
+        <Row as={Link} to="/me/display" viewTransition icon={<SunMoonIcon />} label="Display" detail={displayLine(settings)} chevron />
       </Group>
 
       <Group footer={privacyLine(device)}>

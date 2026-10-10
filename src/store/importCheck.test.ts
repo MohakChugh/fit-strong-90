@@ -89,6 +89,11 @@ describe('settings in an import file are read field by field (D-08)', () => {
     expect(preview(file({ settings: { ...settings, setup: { declined: ['everything'] } } })).unreadableFields).toEqual(['settings.setup.declined']);
   });
 
+  it('reads the display settings, and leaves out a text size this build does not offer', () => {
+    expect(preview(file({ settings: { ...settings, display: { reduceMotion: true, reduceTransparency: false, textScale: 1.3 } } })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings: { ...settings, display: { textScale: 7 } } })).unreadableFields).toEqual(['settings.display']);
+  });
+
   it('reads the weekly goal’s history, v1’s undated goal included, and leaves out one that cannot be read (B-16)', () => {
     const history = [{ from: '', goal: 120 }, { from: '2026-10-12', goal: 150 }, { from: '2026-10-19' }];
     expect(preview(file({ settings: { ...settings, weeklyMovementGoalHistory: history } })).unreadableFields).toEqual([]);

@@ -4,6 +4,7 @@ import { DatabaseZapIcon } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
 import { start, useStore, useStorageNotice } from '@/store/useStore';
 import { forgetPlaces, scrollKeyOf } from '@/components/hig/navigation';
+import { applyTextScale } from '@/lib/textSize';
 import { applyThemeColor } from '@/lib/themeColor';
 import { AppRoutes } from '@/routes';
 import { ReminderHost } from '@/reminders/ReminderHost';
@@ -101,6 +102,11 @@ function App() {
     if (settings.display?.reduceMotion) root.dataset.reduceMotion = ''; else delete root.dataset.reduceMotion;
     if (settings.display?.reduceTransparency) root.dataset.glass = 'solid'; else delete root.dataset.glass;
   }, [settings.display?.reduceMotion, settings.display?.reduceTransparency]);
+
+  // The app's own text size, over the device's (journey §16, D60): instant, as M23 asks.
+  useEffect(() => {
+    applyTextScale(settings.display?.textScale);
+  }, [settings.display?.textScale]);
 
   // Nothing routes until the device has been read. The onboarding gate works
   // off `onboardingComplete`, which is false until then, so routing early

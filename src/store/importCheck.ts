@@ -17,6 +17,7 @@
 
 import { CATEGORIES, isHomeLayout } from '@/categories';
 import { isDay } from '@/health/observation';
+import { isTextScale } from '@/lib/textSize';
 import { CHAPTER_IDS } from '@/types/setup';
 import { RECORD_STORES } from './records';
 
@@ -84,6 +85,7 @@ const SETTINGS_SPEC: Spec = {
   homeOffered: listOf(oneOf(...CATEGORIES.map(c => c.id))),
   // Field by field, so Plan 5's own fields in `setup` are kept as they are.
   setup: { declined: listOf(oneOf(...CHAPTER_IDS)) },
+  display: shape({ reduceMotion: bool, reduceTransparency: bool, textScale: x => isTextScale(x) }),
   // Read, but never taken as this phone's answers: an import keeps this device's own (B-26, `withDeviceConsent`).
   walk: shape({ saveRoutes: oneOf(true, false, 'unasked'), map: oneOf('on', 'off', 'unasked'), stepCardSeen: bool }, ['saveRoutes', 'map']),
   // List by list: one that cannot be read must not take the others with it,

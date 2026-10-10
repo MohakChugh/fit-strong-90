@@ -15,7 +15,7 @@ globalThis.localStorage = {
 } as Storage;
 
 const store = await import('@/store/useStore');
-const { changeHabits, changeProfile, forgetCalendarEvents, joinProgramme, leaveProgramme, recordCalendarExport, recordExport, saveProfileAnswers, setFluidRestriction } = await import('./write');
+const { changeDisplay, changeHabits, changeProfile, forgetCalendarEvents, joinProgramme, leaveProgramme, recordCalendarExport, recordExport, saveProfileAnswers, setFluidRestriction } = await import('./write');
 const { fluidRestriction } = await import('@/reminders/water');
 const { backupMark, backupNudge } = await import('@/reminders/backup');
 const { isEnrolled } = await import('@/health/recommend');
@@ -225,5 +225,13 @@ describe('recordCalendarExport / forgetCalendarEvents (D-01)', () => {
     expect((await reloadFromDevice()).settings.habits?.calendarExport).toEqual({ mealWalk: walk });
     expect((await forgetCalendarEvents(['mealWalk'])).ok).toBe(true);
     expect((await reloadFromDevice()).settings.habits).not.toHaveProperty('calendarExport');
+  });
+});
+
+describe('changeDisplay', () => {
+  it('changes one display setting and keeps the others', async () => {
+    await changeDisplay(d => ({ ...d, reduceMotion: true }));
+    await changeDisplay(d => ({ ...d, textScale: 1.3 }));
+    expect((await reloadFromDevice()).settings.display).toEqual({ reduceMotion: true, textScale: 1.3 });
   });
 });

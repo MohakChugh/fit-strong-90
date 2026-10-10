@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom';
-import { AppearanceScreen } from './AppearanceScreen';
 import { DataScreen } from './DataScreen';
+import { DisplayScreen } from './DisplayScreen';
 import { FocusScreen } from './FocusScreen';
 import { FoodScreen } from './FoodScreen';
 import { GoalsScreen } from './GoalsScreen';
@@ -31,7 +31,7 @@ export default function YouRoutes() {
       <Route path="food" element={<FoodScreen />} />
       <Route path="reminders" element={<HabitsScreen />} />
       <Route path="voice" element={<VoiceScreen />} />
-      <Route path="display" element={<AppearanceScreen />} />
+      <Route path="display" element={<DisplayScreen />} />
       <Route path="data" element={<DataScreen />} />
       <Route path="*" element={<Navigate to="/me" replace />} />
     </Routes>

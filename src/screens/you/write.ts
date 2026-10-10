@@ -10,6 +10,7 @@
 
 import { update } from '@/store/useStore';
 import type { StoreResult } from '@/store/db';
+import type { UserSettings } from '@/types';
 import type { HabitSettings } from '@/types/habits';
 import type { MedicineAnswer, UserProfile } from '@/types/profile';
 import type { WizardResult } from '@/components/profile/ProfileWizard';
@@ -25,6 +26,11 @@ export function changeHabits(edit: (habits: HabitSettings) => HabitSettings): Pr
     ...previous,
     settings: { ...previous.settings, habits: edit(previous.settings.habits ?? {}) },
   }));
+}
+
+/** Change one display setting, from the latest ones (journey §16 Display). */
+export function changeDisplay(edit: (display: NonNullable<UserSettings['display']>) => NonNullable<UserSettings['display']>): Promise<StoreResult> {
+  return update(previous => ({ ...previous, settings: { ...previous.settings, display: edit(previous.settings.display ?? {}) } }));
 }
 
 /**
