@@ -471,6 +471,58 @@ describe('applyImport', () => {
     db.close();
   });
 
+  // A half-entered number stands for its measurement until the reading that
+  // completed it does (B07, N-04): a link it could never have had would let a
+  // severe number go unread (Q-02).
+  it('refuses a whole file whose blood pressure half is linked to a reading that could not have completed it', async () => {
+    const db = await seeded();
+    const before = await dump(db);
+    const at = (time: string) => `2026-10-09T${time}:00+05:30`;
+    const day = (readings: { sys: number; dia: number; at?: string }[], completion: object, half: object = { sys: 190, at: at('09:10') }) => ({ ...incoming,
+      checkIns: [{ ...checkIn, date: '2026-10-09', bpReadings: readings, bp: { sys: readings[0].sys, dia: readings[0].dia }, bpPartial: [{ ...half, completion }] }] });
+    const notHeld = 'a blood pressure number linked to a reading the day does not hold';
+    const otherNumbers = 'a blood pressure number linked to a reading without that number';
+    const impossible: [string, object, string][] = [
+      ['to the day’s normal reading, taken before it', day([{ sys: 120, dia: 80, at: at('09:00') }], { sys: 120, dia: 80, at: at('09:00') }), otherNumbers],
+      ['to a reading the day does not hold', day([{ sys: 185, dia: 125, at: at('09:20') }], { sys: 190, dia: 100, at: at('09:20') }), notHeld],
+      ['to a reading without the time the day’s has', day([{ sys: 190, dia: 100, at: at('09:12') }], { sys: 190, dia: 100 }), notHeld],
+      ['to a reading without its top number', day([{ sys: 120, dia: 80, at: at('09:12') }], { sys: 120, dia: 80, at: at('09:12') }), otherNumbers],
+      ['to a reading without its bottom number', day([{ sys: 150, dia: 95, at: at('09:12') }], { sys: 150, dia: 95, at: at('09:12') }, { dia: 125, at: at('09:10') }), otherNumbers],
+      ['to a reading with no time', day([{ sys: 190, dia: 100 }], { sys: 190, dia: 100 }), 'a blood pressure number linked to a reading with no time'],
+      ['to a reading taken before it', day([{ sys: 190, dia: 100, at: at('09:00') }], { sys: 190, dia: 100, at: at('09:00') }), 'a blood pressure number linked to a reading taken before it'],
+    ];
+    for (const [link, raw, said] of impossible) {
+      const reason = `That file's check-in for 2026-10-09 holds ${said}. It may be damaged.`;
+      expect(previewImport(raw), link).toEqual({ ok: false, reason });
+      for (const mode of ['replace', 'merge'] as const) {
+        const applied = await applyImport(db, raw, mode, { allowRejected: true });
+        expect(applied.ok ? 'imported' : applied.failure.message, `${link} ${mode}`).toBe(reason);
+      }
+    }
+    expect(await dump(db)).toEqual(before);
+    // As the app links them (Q-01): the reading that completed the half in
+    // its own row, taken with it or after it, by either number, and found as
+    // the engine finds it, by the instant it was taken; a half saved with no
+    // time, whenever its reading was taken; and an older record's one
+    // reading, kept only as the day's summary. Each comes back as it was.
+    const completion = { sys: 190, dia: 100, at: at('09:12') };
+    for (const raw of [
+      day([{ sys: 190, dia: 100, at: at('09:12') }], completion),
+      day([{ sys: 190, dia: 100, at: at('09:12') }], { ...completion, at: '2026-10-09T03:42:00.000Z' }),
+      day([{ sys: 190, dia: 100, at: at('09:10') }], { sys: 190, dia: 100, at: at('09:10') }),
+      day([{ sys: 150, dia: 125, at: at('09:12') }], { sys: 150, dia: 125, at: at('09:12') }, { dia: 125, at: at('09:10') }),
+      day([{ sys: 190, dia: 100, at: at('09:12') }], completion, { sys: 190 }),
+      { ...incoming, checkIns: [{ ...checkIn, date: '2026-10-09', bp: completion, bpPartial: [{ sys: 190, at: at('09:10'), completion }] }] },
+    ]) {
+      expect(previewImport(raw)).toMatchObject({ ok: true, checkIns: 1, rejected: { checkIns: 0 } });
+      for (const mode of ['replace', 'merge'] as const) {
+        expect((await applyImport(db, raw, mode)).ok, mode).toBe(true);
+        expect(await db.get('settings', 'checkIns'), mode).toMatchObject({ value: [{ bpPartial: raw.checkIns[0].bpPartial }] });
+      }
+    }
+    db.close();
+  });
+
   it('reads back a check-in holding every answer as the app writes it', () => {
     const at = '2026-10-09T08:30:00+05:30';
     const answer = { kind: 'extremeGlucose', readings: [`g:${at}:650mg/dL`], resolution: 'mistake', at };
@@ -481,7 +533,8 @@ describe('applyImport', () => {
       glucoseEarlier: [{ value: 650, unit: 'mg/dL', measuredAt: at }, { value: 5.4, unit: 'mmol/L', measuredAt: at }, { display: 'LO', measuredAt: at }],
       glucose: { value: 120, unit: 'mg/dL', measuredAt: at }, glucoseDisplay: { display: 'HI', measuredAt: at },
       ketones: { kind: 'blood', value: 0.4, measuredAt: at }, ketonesEarlier: [{ kind: 'urine', category: 'small', measuredAt: at }, { kind: 'urine', value: 15 }],
-      bpPartial: [{ sys: 200, at }, { dia: 125, at }, { sys: 190, at, completion: { sys: 190, dia: 100, at } }], provoked: ['brisk-walking'], flagsEarlier: ['newWeakness'], newsEarlier: ['fainted'],
+      bpPartial: [{ sys: 200, at }, { dia: 125, at }, { sys: 190, at, completion: { sys: 190, dia: 100, at } }], bpEarlier: [{ sys: 190, dia: 100, at }],
+      provoked: ['brisk-walking'], flagsEarlier: ['newWeakness'], newsEarlier: ['fainted'],
       lowSymptomsAt: '2026-10-09T03:00:00.000Z', lowRecovered: true, bpReadings: [{ sys: 150, dia: 95, at: '2026-10-09T03:05:00.000Z' }],
       resolutions: [answer, { ...answer, resolution: 'reopened', at: '2026-10-09T09:00:00+05:30' }, { kind: 'redFlag', readings: ['flag:newWeakness@2026-10-09'], resolution: 'assessed', at },
         { kind: 'news', readings: ['news:fainted@2026-10-09'], resolution: 'mistake', at }],

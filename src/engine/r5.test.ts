@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
-import type { CheckInRecord, DailyCheckIn, EpisodeAnswer, EpisodeResolution, NewsItem, RedFlag } from '@/types/checkin';
+import type { BpReading, CheckInRecord, DailyCheckIn, EpisodeAnswer, EpisodeResolution, NewsItem, RedFlag } from '@/types/checkin';
 import type { CardioStep, SessionPlan } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import { evaluateCheckIn, profileOnlyReadiness, withLogged } from './readiness';
@@ -667,14 +667,23 @@ describe('N-04: a half-entered severe number is only ever replaced by its own co
     it('its completion corrected in Track to 120/80: nothing severe is left, then or on the next save', () => {
       const fixed = withPressureCorrected(completed(), { at: at(8, 9, 1), was: { sys: 190, dia: 100 }, to: { sys: 120, dia: 80 } })!;
       expect(fixed.bpReadings).toEqual([{ sys: 120, dia: 80, at: at(8, 9, 1) }]);
-      // Kept, as the start of the measurement the correction says it was.
-      expect(fixed.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 0), completion: { sys: 120, dia: 80, at: at(8, 9, 1) } }]);
+      // Its 190 was part of what was typed wrongly: it goes with the old numbers (Q-02).
+      expect(fixed.bpPartial ?? []).toEqual([]);
       expect(severe(fixed)).toEqual([]);
       expect(ask(BACK_BP, fixed, [], 'walk').allowed).toBe(true);
       expect(severe(saved(BACK_BP, fixed, f => f, new Date(2026, 9, 8, 9, 10)))).toEqual([]);
-      // Answers built from the copy of the day that held only the half keep it following the correction (B04).
+      // Answers built from a copy of the day from before the correction bring it
+      // back as evidence, asked about again, as any reading such a copy holds (B04).
       const halfOnly = saved(BACK_BP, undefined, row(1, '190', '', at(8, 9, 0)), new Date(2026, 9, 8, 9, 0));
-      expect(severe(carryForward(fixed, halfOnly))).toEqual([]);
+      expect(severe(carryForward(fixed, halfOnly))).toEqual(['bpSevereUnconfirmed', halfId]);
+    });
+
+    it('corrected to numbers that still hold its own, it follows the corrected reading, and counts again if that is withdrawn', () => {
+      const fixed = withPressureCorrected(completed(), { at: at(8, 9, 1), was: { sys: 190, dia: 100 }, to: { sys: 190, dia: 110 } })!;
+      expect(fixed.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 0), completion: { sys: 190, dia: 110, at: at(8, 9, 1) } }]);
+      expect(severe(fixed)).toEqual(['bpSevereUnconfirmed']);
+      const withdrawn = saved(BACK_BP, fixed, f => answerEpisode(f, 'severeBp', [`bp:${at(8, 9, 1)}:190/110`], 'mistake', new Date(2026, 9, 8, 9, 6), new Date(2026, 9, 8, 9, 6)), new Date(2026, 9, 8, 9, 6));
+      expect(readingIds(evaluateCheckIn(BACK_BP, withdrawn, [], NOW))).toContain(halfId);
     });
 
     it('its completion deleted in Track: the half is deleted with it', () => {
@@ -685,16 +694,13 @@ describe('N-04: a half-entered severe number is only ever replaced by its own co
       expect(severe(saved(BACK_BP, gone, f => f, new Date(2026, 9, 8, 9, 10)))).toEqual([]);
     });
 
-    it('a half saved before it was linked follows its completion too, merged or corrected as it was stored', () => {
+    it('an answer built from a copy that knew the half but not its completion keeps the link the day holds', () => {
       const c = completed();
       expect(c.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 0), completion: { sys: 190, dia: 100, at: at(8, 9, 1) } }]);
-      // An answer built from an older copy of the day knows the half but not what completed it,
-      // and a record stored before halves were linked has never been saved since.
       const unlinked = { ...c, bpPartial: [{ sys: 190, at: at(8, 9, 0) }] };
-      const fix = { at: at(8, 9, 1), was: { sys: 190, dia: 100 }, to: { sys: 120, dia: 80 } };
-      expect(severe(withPressureCorrected(carryForward(c, unlinked), fix)!)).toEqual([]);
-      expect(severe(withPressureCorrected(unlinked, fix)!)).toEqual([]);
-      expect(withReadingRemoved(unlinked, { kind: 'pressure', at: at(8, 9, 1), sys: 190, dia: 100 })!.bpPartial ?? []).toEqual([]);
+      const merged = carryForward(c, unlinked);
+      expect(merged.bpPartial).toEqual(c.bpPartial);
+      expect(severe(withPressureCorrected(merged, { at: at(8, 9, 1), was: { sys: 190, dia: 100 }, to: { sys: 120, dia: 80 } })!)).toEqual([]);
     });
 
     it('a reading that is not its completion leaves it alone: corrected or deleted, the fresh half still counts', () => {
@@ -715,6 +721,84 @@ describe('N-04: a half-entered severe number is only ever replaced by its own co
       const withdrawn = saved(BACK_BP, c, f => answerEpisode(f, 'severeBp', [`bp:${at(8, 9, 1)}:190/100`], 'mistake', new Date(2026, 9, 8, 9, 6), new Date(2026, 9, 8, 9, 6)), new Date(2026, 9, 8, 9, 6));
       expect(readingIds(evaluateCheckIn(BACK_BP, withdrawn, [], NOW))).toContain(halfId);
     });
+  });
+});
+
+describe('Q-01: only completing the row a half was entered in completes it', () => {
+  const BACK_BP = createDefaultProfile({ pain: { areas: ['lowerBack', 'sciatica'], sciaticaSide: 'left' }, health: BP.health });
+  const row = (n: 1 | 2, sys: string, dia: string, taken: string) => (f: CheckInForm): CheckInForm =>
+    ({ ...f, bp: { ...f.bp, [`s${n}`]: sys, [`d${n}`]: dia, [`at${n}`]: taken } });
+  const halfId = `bpp:${at(8, 9, 0)}:190/`;
+  /** A real 190 in reading 1 at 09:00, then an independent 190/100 in reading 2 at 09:10 (Codex round 8). */
+  const independent = () => saved(BACK_BP, saved(BACK_BP, undefined, row(1, '190', '', at(8, 9, 0)), new Date(2026, 9, 8, 9, 0)), row(2, '190', '100', at(8, 9, 10)), new Date(2026, 9, 8, 9, 10));
+  const fix = { at: at(8, 9, 10), was: { sys: 190, dia: 100 }, to: { sys: 120, dia: 80 } };
+
+  it('another reading with the same number is another measurement: the half is not linked to it', () => {
+    const c = independent();
+    expect(c.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 0) }]);
+    expect(readingIds(evaluateCheckIn(BACK_BP, c, [], NOW))).toContain(halfId);
+  });
+
+  it('that reading corrected in Track to 120/80: the half still counts, and holds', () => {
+    const fixed = withPressureCorrected(independent(), fix)!;
+    expect(fixed.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 0) }]);
+    const r = evaluateCheckIn(BACK_BP, fixed, [], NOW);
+    expect(r.reasons.map(x => x.code)).toContain('bpSevereUnconfirmed');
+    expect(readingIds(r)).toContain(halfId);
+    expect(ask(BACK_BP, fixed, [], 'walk').allowed).toBe(false);
+  });
+
+  it('that reading deleted in Track: the half is kept, and still holds', () => {
+    const gone = withReadingRemoved(independent(), { kind: 'pressure', at: at(8, 9, 10), sys: 190, dia: 100 })!;
+    expect(gone.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 0) }]);
+    expect(readingIds(evaluateCheckIn(BACK_BP, gone, [], NOW))).toContain(halfId);
+    expect(ask(BACK_BP, gone, [], 'walk').allowed).toBe(false);
+  });
+
+  it('the half is shown in its row, so filling in the other box there completes it', () => {
+    const half = saved(BACK_BP, undefined, row(1, '190', '', at(8, 9, 0)), new Date(2026, 9, 8, 9, 0));
+    const form = formFromRecord(half, BACK_BP);
+    expect(form.bp).toMatchObject({ s1: '190', d1: '', at1: at(8, 9, 0), half1: { sys: 190, at: at(8, 9, 0) } });
+    const completed = saved(BACK_BP, half, f => ({ ...f, bp: { ...f.bp, d1: '100', at1: at(8, 9, 2) } }), new Date(2026, 9, 8, 9, 2));
+    expect(completed.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 0), completion: { sys: 190, dia: 100, at: at(8, 9, 2) } }]);
+    expect(readingIds(evaluateCheckIn(BACK_BP, completed, [], NOW))).toEqual([]);
+  });
+
+  it('typed again in its row with the same number, it is still the one half it was, not a second one timed again', () => {
+    const half = saved(BACK_BP, undefined, row(1, '190', '', at(8, 9, 0)), new Date(2026, 9, 8, 9, 0));
+    const again = saved(BACK_BP, half, row(1, '190', '', at(8, 9, 5)), new Date(2026, 9, 8, 9, 5));
+    expect(again.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 0) }]);
+  });
+
+  it('a half saved by an older build beside a matching reading is never read as completed by it, nor moved by its correction', () => {
+    const legacy = ci(D, { bpPartial: [{ sys: 190, at: at(8, 9, 0) }], bpReadings: [{ sys: 190, dia: 100, at: at(8, 9, 1) }] });
+    expect(readingIds(evaluateCheckIn(BACK_BP, legacy, [], NOW))).toContain(halfId);
+    const fixed = withPressureCorrected(legacy, { at: at(8, 9, 1), was: { sys: 190, dia: 100 }, to: { sys: 120, dia: 80 } })!;
+    expect(fixed.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 0) }]);
+    expect(withReadingRemoved(legacy, { kind: 'pressure', at: at(8, 9, 1), sys: 190, dia: 100 })!.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 0) }]);
+  });
+});
+
+describe('Q-02: a completion that cannot be the half’s is ignored, and the half still counts', () => {
+  const half = (completion: BpReading, readings: BpReading[]) => ci(D, { bpReadings: readings, bpPartial: [{ sys: 190, at: at(8, 9, 10), completion }] });
+  const codes = (c: DailyCheckIn) => evaluateCheckIn(BP, c, [], NOW).reasons.map(x => x.code);
+  const normalEarlier = { sys: 120, dia: 80, at: at(8, 9, 0) };
+
+  it('Codex’s case: 190 at 09:10 linked to the day’s 120/80 at 09:00, a reading taken before it', () => {
+    expect(codes(half(normalEarlier, [normalEarlier]))).toContain('bpSevereUnconfirmed');
+    expect(ask(BP, half(normalEarlier, [normalEarlier]), [], 'walk').allowed).toBe(false);
+    // Taken before it, a reading with its number is another measurement too.
+    const sameEarlier = { sys: 190, dia: 100, at: at(8, 9, 0) };
+    expect(readingIds(evaluateCheckIn(BP, half(sameEarlier, [sameEarlier]), [], NOW))).toContain(`bpp:${at(8, 9, 10)}:190/`);
+  });
+
+  it('linked to a later reading without its number, or to one the day does not hold', () => {
+    const later = { sys: 120, dia: 80, at: at(8, 9, 20) };
+    expect(codes(half(later, [later]))).toContain('bpSevereUnconfirmed');
+    expect(codes(half({ sys: 190, dia: 100, at: at(8, 9, 20) }, [later]))).toContain('bpSevereUnconfirmed');
+    // Its own completion, for contrast, is read as that reading.
+    const own = { sys: 190, dia: 100, at: at(8, 9, 20) };
+    expect(readingIds(evaluateCheckIn(BP, half(own, [own]), [], NOW))).not.toContain(`bpp:${at(8, 9, 10)}:190/`);
   });
 });
 

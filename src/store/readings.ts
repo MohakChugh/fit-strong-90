@@ -14,8 +14,9 @@
  * and an answer given today is not today's.
  */
 
+import { completes } from '@/engine/readiness';
 import { isAt } from '@/health/observation';
-import type { GlucoseUnit, UrineKetoneCategory } from '@/types/checkin';
+import type { BpPartialReading, BpReading, GlucoseUnit, UrineKetoneCategory } from '@/types/checkin';
 
 export type Problem = string | undefined;
 
@@ -103,15 +104,44 @@ export function unreadableReading(c: Record<string, unknown>, fields = READINGS)
   return undefined;
 }
 
+/** One measurement, as the engine matches a half's link to it: the same numbers, taken at the same instant, or neither timed. */
+const sameMeasurement = (a: Record<string, unknown>, b: Record<string, unknown>) => a.sys === b.sys && a.dia === b.dia
+  && ((a.at === undefined && b.at === undefined) || (isAt(a.at) && isAt(b.at) && Date.parse(a.at) === Date.parse(b.at)));
+
+/**
+ * A half-entered blood pressure number's link to the reading that completed
+ * it (B07, N-04, Q-01, Q-02), as the app makes one: to one of the day's own
+ * readings, as the engine looks for it, that can complete it, as the engine
+ * decides (`completes`): holding the half's number, and taken at the half's
+ * time or after it. Any other link was never made here: read as the
+ * measurement it names, it would let a severe number go unread.
+ */
+function linkProblem(c: Record<string, unknown>): Problem {
+  if (!Array.isArray(c.bpPartial)) return undefined;
+  const held = [...(Array.isArray(c.bpReadings) ? c.bpReadings : isRecord(c.bp) ? [c.bp] : []), ...(Array.isArray(c.bpEarlier) ? c.bpEarlier : [])];
+  for (const half of c.bpPartial) {
+    if (!isRecord(half) || !isRecord(half.completion)) continue;
+    const link = half.completion;
+    if (!held.some(r => isRecord(r) && sameMeasurement(r, link))) return 'a blood pressure number linked to a reading the day does not hold';
+    // Every number and time in both can be read by now, as the engine reads them.
+    const [partial, reading] = [half as unknown as BpPartialReading, link as unknown as BpReading];
+    if (completes(partial, reading)) continue;
+    // Which it fails, in words: with no time to the half, only its number is asked for.
+    if (!completes({ ...partial, at: undefined }, reading)) return 'a blood pressure number linked to a reading without that number';
+    return isAt(link.at) ? 'a blood pressure number linked to a reading taken before it' : 'a blood pressure number linked to a reading with no time';
+  }
+  return undefined;
+}
+
 /** The readings Track attaches to the screens' copy of a day (`logged`), each a reading as any other. */
 const ATTACHED: typeof READINGS = [
   ['glucose', x => glucoseProblem(x, 'number'), true],
   ['bp', x => pressureProblem(x), true],
 ];
 
-/** The first reading a check-in holds, or has attached, that cannot be read: what it says, and what was folded into it. */
+/** The first reading a check-in holds, or has attached, that cannot be read: what it says, how its halves are linked, and what was folded into it. */
 export function damagedReading(c: Record<string, unknown>): Problem {
   const logged = c.logged;
   if (logged !== undefined && !isRecord(logged)) return 'readings from Track this app cannot read';
-  return unreadableReading(c) ?? (isRecord(logged) ? unreadableReading(logged, ATTACHED) : undefined);
+  return unreadableReading(c) ?? linkProblem(c) ?? (isRecord(logged) ? unreadableReading(logged, ATTACHED) : undefined);
 }

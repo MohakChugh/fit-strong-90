@@ -21,7 +21,7 @@ import type {
 import type { UserProfile } from '@/types/profile';
 import { deriveHealth } from '@/engine/health';
 import { checkedIn } from '@/engine/permission';
-import { bpPartialId, endsTheDay, evaluateCheckIn, flagsIn, glucoseSanity, profileOnlyReadiness, reopenedByReport, severePartial, standingAnswer, toMgdl, withCompletions, type GlucoseSanity } from '@/engine/readiness';
+import { bpPartialId, completes, endsTheDay, evaluateCheckIn, flagsIn, glucoseSanity, profileOnlyReadiness, reopenedByReport, severePartial, standingAnswer, toMgdl, type GlucoseSanity } from '@/engine/readiness';
 
 /**
  * Which glucose readings reach the readiness engine: plausible ones, and an
@@ -38,6 +38,12 @@ export interface BpFields {
   /** When each reading was entered (ISO); absent stamps it at save. */
   at1?: string;
   at2?: string;
+  /**
+   * The half-entered number each row was opened with (Q-01): filling in that
+   * row's other box completes that measurement, and no other.
+   */
+  half1?: BpPartialReading;
+  half2?: BpPartialReading;
 }
 
 export interface BackAnswers {
@@ -123,9 +129,19 @@ export function emptyForm(profile: UserProfile): CheckInForm {
 export function initialBp(saved?: DailyCheckIn): BpFields {
   const readings = saved?.bpReadings?.length ? saved.bpReadings : saved?.bp ? [saved.bp] : [];
   const [a, b] = readings as (BpReading | undefined)[];
+  // A severe number saved with the other box empty comes back in a free row as
+  // it was entered, so its measurement can be completed there (Q-01). One
+  // already completed, or answered as typed wrongly, does not.
+  const open = (saved?.bpPartial ?? []).filter(h => !h.completion && severePartial(h)
+    && standingAnswer(saved?.resolutions ?? [], bpPartialId(h, saved?.date))?.resolution !== 'mistake');
+  const h1 = a ? undefined : open[0];
+  const h2 = b ? undefined : open[a ? 0 : 1];
+  const box = (n?: number) => (n === undefined ? '' : String(n));
   return {
-    s1: a ? String(a.sys) : '', d1: a ? String(a.dia) : '', s2: b ? String(b.sys) : '', d2: b ? String(b.dia) : '',
-    ...(a?.at ? { at1: a.at } : {}), ...(b?.at ? { at2: b.at } : {}),
+    s1: a ? String(a.sys) : box(h1?.sys), d1: a ? String(a.dia) : box(h1?.dia),
+    s2: b ? String(b.sys) : box(h2?.sys), d2: b ? String(b.dia) : box(h2?.dia),
+    ...(a?.at ? { at1: a.at } : h1?.at ? { at1: h1.at } : {}), ...(b?.at ? { at2: b.at } : h2?.at ? { at2: h2.at } : {}),
+    ...(h1 ? { half1: h1 } : {}), ...(h2 ? { half2: h2 } : {}),
   };
 }
 
@@ -254,8 +270,8 @@ function anySevereComponent(bp: BpFields): boolean {
 /** Rows with one box filled, when that number is severe on its own. */
 function formPartials(bp: BpFields, stamp: string): BpPartialReading[] {
   const out: BpPartialReading[] = [];
-  const rows = [[bp.s1, bp.d1, bp.at1], [bp.s2, bp.d2, bp.at2]] as const;
-  for (const [s, d, at] of rows) {
+  const rows = [[bp.s1, bp.d1, bp.at1, bp.half1], [bp.s2, bp.d2, bp.at2, bp.half2]] as const;
+  for (const [s, d, at, half] of rows) {
     const sys = s.trim() ? Number(s) : undefined;
     const dia = d.trim() ? Number(d) : undefined;
     if (sys === undefined && dia === undefined) continue;
@@ -265,8 +281,9 @@ function formPartials(bp: BpFields, stamp: string): BpPartialReading[] {
     if (sys !== undefined && dia !== undefined && Number.isFinite(sys) && Number.isFinite(dia)) continue;
     const severeSys = sys !== undefined && Number.isFinite(sys) && sys >= 180 && sys <= 300;
     const severeDia = dia !== undefined && Number.isFinite(dia) && dia >= 120 && dia <= 200;
-    if (severeSys) out.push({ sys, at: at ?? stamp });
-    else if (severeDia) out.push({ dia, at: at ?? stamp });
+    const now: BpPartialReading | undefined = severeSys ? { sys, at: at ?? stamp } : severeDia ? { dia, at: at ?? stamp } : undefined;
+    // The row's own half, left as it was, is that same half: not a new one timed again.
+    if (now) out.push(half && half.sys === now.sys && half.dia === now.dia ? half : now);
   }
   return out;
 }
@@ -582,6 +599,8 @@ export function buildCheckIn(
   let bpReadings = previous?.bpReadings;
   let bp = previous?.bp;
   let bpEarlier = previous?.bpEarlier ?? [];
+  /** Halves completed in their own row on this save, with the reading that completed each (Q-01). */
+  let completed: { half: BpPartialReading; reading: BpReading }[] = [];
   if (v.bp) {
     const prevReadings = previous?.bpReadings ?? (previous?.bp ? [previous.bp] : []);
     const typed = formReadings(form.bp);
@@ -590,6 +609,10 @@ export function buildCheckIn(
       const same = prevReadings[row];
       if (same && same.sys === r.sys && same.dia === r.dia) return same;
       return { ...r, at: ats[row] ?? stamp };
+    });
+    completed = typed.flatMap(({ row }, i) => {
+      const half = row === 0 ? form.bp.half1 : form.bp.half2;
+      return half && completes(half, bpReadings![i]) ? [{ half, reading: bpReadings![i] }] : [];
     });
     const replaced = prevReadings.filter(r => !bpReadings!.some(n => sameBp(n, r)));
     bpEarlier = appendUnique(bpEarlier, replaced, sameBp);
@@ -602,11 +625,16 @@ export function buildCheckIn(
   }
   // A severe number with the other box empty is kept as it is (B07): it
   // counts on its own, and the missing half is never invented. It stays in
-  // the record: the engine reads it as the complete reading that completes it
-  // while that reading stands, and never matches it to another (N-04).
+  // the record. Filled in in its own row, it is linked to the reading that
+  // completed it, and read as that reading while it stands (N-04, Q-01); any
+  // other reading with the same number is another measurement.
   const typedPartial = v.bp ? formPartials(form.bp, stamp) : [];
   const bpPartial = [...(previous?.bpPartial ?? []), ...typedPartial]
-    .filter((r, i, all) => all.findIndex(x => samePartial(x, r)) === i);
+    .filter((r, i, all) => all.findIndex(x => samePartial(x, r)) === i)
+    .map(h => {
+      const done = h.completion ? undefined : completed.find(x => samePartial(x.half, h))?.reading;
+      return done ? { ...h, completion: { sys: done.sys, dia: done.dia, ...(done.at ? { at: done.at } : {}) } } : h;
+    });
   // A toggle left where it started is not an answer either.
   const bpSymptoms = v.bpSymptoms && said.bpSymptoms ? form.bpSymptoms : previous?.bpSymptoms;
   const lowRecovered = v.lowRecovered && said.lowRecovered ? form.lowRecovered : previous?.lowRecovered;
@@ -652,7 +680,7 @@ export function buildCheckIn(
  * without a saved record, nothing only the gates attach is kept (P-01).
  */
 export function carryForward(saved: DailyCheckIn | undefined, next: DailyCheckIn): DailyCheckIn {
-  if (!saved || saved.date !== next.date) return withCompletions(withoutGateFields(next));
+  if (!saved || saved.date !== next.date) return withoutGateFields(next);
   const nextGlucose: GlucoseEntry[] = [...(next.glucoseEarlier ?? []), ...[next.glucose, next.glucoseDisplay].filter((x): x is GlucoseEntry => !!x)];
   const corrected = (e: GlucoseEntry) => !('display' in e) && !!next.glucose && e.unit === 'mg/dL' && next.glucose.unit === 'mmol/L'
     && e.value === next.glucose.value && e.measuredAt === next.glucose.measuredAt && glucoseSanity(e.value, e.unit) === 'ambiguousLow';
@@ -693,7 +721,7 @@ export function carryForward(saved: DailyCheckIn | undefined, next: DailyCheckIn
   const { flagsEarlier: _flags, newsEarlier: _news, ...rest } = withoutGateFields(next);
   void _flags;
   void _news;
-  return withCompletions({
+  return {
     ...rest,
     ...(reopened.length ? { resolutions: [...(next.resolutions ?? []), ...reopened] } : {}),
     ...(flagsEarlier.length ? { flagsEarlier } : {}),
@@ -704,7 +732,7 @@ export function carryForward(saved: DailyCheckIn | undefined, next: DailyCheckIn
     ...(bpPartial.length ? { bpPartial } : {}),
     ...(provoked.length ? { provoked } : {}),
     ...(lowSymptomsAt ? { lowSymptomsAt } : {}),
-  });
+  };
 }
 
 /**

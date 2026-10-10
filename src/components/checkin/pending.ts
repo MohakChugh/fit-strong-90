@@ -21,7 +21,7 @@
 import type { AppData } from '@/types';
 import type { BpPartialReading, BpReading, CheckInRecord, DailyCheckIn, EmergencyFlag, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, SymptomReach } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
-import { evaluateCheckIn, withCompletions } from '@/engine/readiness';
+import { completes, evaluateCheckIn } from '@/engine/readiness';
 import { checkInDayOf, type Observation } from '@/health/observation';
 import { pairBloodPressure } from '@/health/aggregate';
 import { carryForward, withoutGateFields } from './form';
@@ -487,16 +487,18 @@ export interface PressureCorrection {
 const sameInstant = (a: string | undefined, b: string | undefined) => a !== undefined && b !== undefined && Date.parse(a) === Date.parse(b);
 
 /**
- * A half-entered number goes with the measurement it was the start of (P-02):
- * when Track corrects the reading that completed it, the half follows the
- * corrected numbers, and when Track deletes that reading, the half goes too.
- * Any other half is another measurement and is left as it is.
+ * A half-entered number goes with the measurement it was the start of, and
+ * only a half linked to it when its own row was completed is that (P-02,
+ * Q-01). When Track corrects that reading, the half follows it while the
+ * corrected reading still holds the half's number; otherwise its number was
+ * part of what was typed wrongly, and it goes, as it does when Track deletes
+ * the reading. Every other half is another measurement and is left as it is.
  */
 function halvesWith(record: DailyCheckIn, was: BpReading, now?: BpReading): DailyCheckIn {
   const ofIt = (h: BpPartialReading) => !!h.completion && h.completion.sys === was.sys && h.completion.dia === was.dia
     && (sameInstant(h.completion.at, was.at) || (h.completion.at === undefined && was.at === undefined));
   if (!record.bpPartial?.some(ofIt)) return record;
-  const bpPartial = record.bpPartial.flatMap(h => (!ofIt(h) ? [h] : now ? [{ ...h, completion: now }] : []));
+  const bpPartial = record.bpPartial.flatMap(h => (!ofIt(h) ? [h] : now && completes(h, now) ? [{ ...h, completion: now }] : []));
   const { bpPartial: _halves, ...rest } = record;
   void _halves;
   return bpPartial.length ? { ...rest, bpPartial } : rest;
@@ -510,9 +512,7 @@ function halvesWith(record: DailyCheckIn, was: BpReading, now?: BpReading): Dail
  * worked out again when a current reading changes. The corrected reading
  * replaces the old one: a typo is not kept as an earlier reading.
  */
-export function withPressureCorrected(day: DailyCheckIn, c: PressureCorrection): DailyCheckIn | undefined {
-  // Each half linked to what completed it, as the day stood before (P-02).
-  const record = withCompletions(day);
+export function withPressureCorrected(record: DailyCheckIn, c: PressureCorrection): DailyCheckIn | undefined {
   const said = (r: BpReading) => r.sys === c.was.sys && r.dia === c.was.dia;
   const tests: ((r: BpReading) => boolean)[] = [
     r => sameInstant(r.at, c.at) && said(r),
@@ -726,31 +726,29 @@ export function withReadingRemoved(record: DailyCheckIn, r: CheckInReading): Dai
   }
 
   if (r.kind === 'pressure') {
-    // Each half linked to what completed it, as the day stood before; deleted with it (P-02).
-    const day = withCompletions(record);
     const said = (b: BpReading) => b.sys === r.sys && b.dia === r.dia;
     const tests: ((b: BpReading) => boolean)[] = [b => sameInstant(b.at, r.at) && said(b), b => b.at === undefined && said(b), b => sameInstant(b.at, r.at)];
     for (const test of tests) {
-      const i = day.bpReadings?.findIndex(test) ?? -1;
+      const i = record.bpReadings?.findIndex(test) ?? -1;
       if (i >= 0) {
-        const bpReadings = day.bpReadings!.filter((_, j) => j !== i);
-        const { bp: _bp, bpReadings: _all, ...rest } = day;
+        const bpReadings = record.bpReadings!.filter((_, j) => j !== i);
+        const { bp: _bp, bpReadings: _all, ...rest } = record;
         void _bp; void _all;
-        return halvesWith(bpReadings.length ? { ...rest, bpReadings, bp: average(bpReadings) } : rest, day.bpReadings![i]);
+        return halvesWith(bpReadings.length ? { ...rest, bpReadings, bp: average(bpReadings) } : rest, record.bpReadings![i]);
       }
-      const k = day.bpEarlier?.findIndex(test) ?? -1;
+      const k = record.bpEarlier?.findIndex(test) ?? -1;
       if (k >= 0) {
-        const bpEarlier = day.bpEarlier!.filter((_, j) => j !== k);
-        const { bpEarlier: _list, ...rest } = day;
+        const bpEarlier = record.bpEarlier!.filter((_, j) => j !== k);
+        const { bpEarlier: _list, ...rest } = record;
         void _list;
-        return halvesWith(bpEarlier.length ? { ...rest, bpEarlier } : rest, day.bpEarlier![k]);
+        return halvesWith(bpEarlier.length ? { ...rest, bpEarlier } : rest, record.bpEarlier![k]);
       }
     }
     // An older record kept its one reading only as the day's summary.
-    if (!day.bpReadings?.length && day.bp && said(day.bp)) {
-      const { bp: _bp, ...rest } = day;
+    if (!record.bpReadings?.length && record.bp && said(record.bp)) {
+      const { bp: _bp, ...rest } = record;
       void _bp;
-      return halvesWith(rest, day.bp);
+      return halvesWith(rest, record.bp);
     }
     return undefined;
   }

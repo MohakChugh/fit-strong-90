@@ -1384,10 +1384,34 @@ describe('A saved half-reading, reopened: the symptom question is still asked', 
     clock(9, 5);
     await openSheet('walk');
     await changeAnswers();
-    expect(h().field('Reading 1, top number').props.value).toBe('');
+    // Back in its row as it was entered, so its other number can be filled in there (Q-01).
+    expect(h().field('Reading 1, top number').props.value).toBe('190');
+    expect(h().field('Reading 1, bottom number').props.value).toBe('');
     await h().click(h().button('Symptoms with the high reading'));
     expect(h().text()).toMatch(/Call emergency services now/);
     expect(stored()?.bpSymptoms).toBe(true);
     expect(asked(p).disposition).toBe('emergency');
+  });
+
+  it('190 saved alone, then its other number filled in in the same row: one measurement, read as that reading (Q-01)', async () => {
+    const p = createDefaultProfile(PROFILES.bp);
+    await seed(p);
+    await openSheet('walk');
+    await none();
+    await h().change(h().field('Reading 1, top number'), { value: '190' });
+    await seePlan();
+    const half = stored()!.bpPartial![0];
+    clock(9, 5);
+    await openSheet('walk');
+    await changeAnswers();
+    await h().change(h().field('Reading 1, bottom number'), { value: '100' });
+    await seePlan();
+    const [reading] = stored()!.bpReadings!;
+    expect(reading).toMatchObject({ sys: 190, dia: 100 });
+    expect(stored()?.bpPartial).toEqual([{ ...half, completion: reading }]);
+    // Asked about as the one reading it is: no "other number not entered" beside it.
+    const ids = (stored()!.readiness.episodes ?? []).flatMap(e => e.readings).map(x => x.id);
+    expect(ids.some(id => id.startsWith('bpp:'))).toBe(false);
+    expect(stored()!.readiness.reasons.map(x => x.code)).toContain('bpSevereUnconfirmed');
   });
 });

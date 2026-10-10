@@ -218,8 +218,8 @@ describe('the engine reads a long history the way it reads a short one (C2-05)',
 
 describe('many days of one history at once (N-06)', () => {
   /** A store's days: one record a day, none with a "Right now" answer, as records before v5 were. */
-  const older = (days: number): DailyCheckIn[] => Array.from({ length: days }, (_, i) => ({
-    date: new Date(Date.UTC(1900, 0, 1 + i)).toISOString().slice(0, 10), urgentSymptoms: false, news: [], sleep: '5to7', energy: 4,
+  const older = (days: number, from = Date.UTC(1900, 0, 1)): DailyCheckIn[] => Array.from({ length: days }, (_, i) => ({
+    date: new Date(from + i * 86_400_000).toISOString().slice(0, 10), urgentSymptoms: false, news: [], sleep: '5to7', energy: 4,
   }));
   const best = (f: () => unknown) => Math.min(...[0, 1, 2].map(() => { const t = performance.now(); f(); return performance.now() - t; }));
 
@@ -233,6 +233,19 @@ describe('many days of one history at once (N-06)', () => {
     const cleaned = store.filter((_, i) => i % 5 === 0);
     expect(best(() => evaluateDays(createDefaultProfile({ weightKg: 80 }), store, cleaned))).toBeLessThan(2000);
   }, 120_000);
+
+  it('Q-03: 6,000 older records from 2010 and one more of the first date, many days at once or one alone, with no deep recursion (Codex round 8)', () => {
+    const records = older(6_000, Date.UTC(2010, 0, 1));
+    expect(records.at(-1)!.date.slice(0, 7)).toBe('2026-06');
+    const all = [...records, { ...records[0], news: ['hot'] as NewsItem[] }];
+    const cleaned = all.filter((_, i) => i % 60 === 0);
+    const profile = createDefaultProfile({ weightKg: 80 });
+    expect(() => evaluateDays(profile, all, cleaned)).not.toThrow();
+    const last = records.at(-1)!;
+    expect(() => evaluateCheckIn(profile, last, all)).not.toThrow();
+    expect(evaluateDays(profile, all, [last]).get(last)).toEqual(evaluateCheckIn(profile, last, all));
+    expect(best(() => evaluateDays(profile, all, cleaned))).toBeLessThan(2000);
+  }, 60_000);
 
   it('a long run of older records is no deep recursion for one day either', () => {
     const store = older(10_000);
@@ -283,6 +296,55 @@ describe('many days of one history at once (N-06)', () => {
     // The day before changes what the morning's reading means, so it has to be found.
     expect(read).not.toEqual(alone);
     expect(evaluateDays(profile, [morning, night]).get(morning)).toEqual(read);
+  });
+
+  it('and the same with dates the history holds two or three times (Q-03), each copy a day of its own', () => {
+    let compared = 0;
+    const said: NewsItem[] = ['unwell', 'dizzy', 'hot', 'lowSevere', 'footProblem', 'fainted', 'lowOne'];
+    for (const [n, profile] of PROFILES.entries()) {
+      for (let seed = 1; seed <= 5; seed++) {
+        const all = history(120, seed * 71 + n, 0.04);
+        // Copies of some days, each saying something else, one with no "Right now" answer, anywhere in the list.
+        const copies: DailyCheckIn[] = [5, 30, 31, 60, 90, 90, 119].map((i, k) => ({
+          ...all[i], news: [said[k]],
+          ...(k % 2 ? { back: { pain: 3, legPain: 2, reach: 'foot' as const } } : {}),
+          ...(k === 3 ? { emergency: undefined } : {}),
+        }));
+        const order = rng(seed * 13 + n);
+        const listed = [...all, ...copies].map(c => [order(), c] as const).sort((a, b) => a[0] - b[0]).map(([, c]) => c);
+        const days = [...listed.filter((_, i) => i % 3 === 0), ...copies];
+        for (const now of [undefined, localAt(all.at(-1)!.date, 10)]) {
+          const batch = evaluateDays(profile, listed, days, now);
+          plainAnswersForTests(true);
+          const plain = days.map(d => evaluateCheckIn(profile, d, listed, now));
+          plainAnswersForTests(false);
+          days.forEach((d, i) => {
+            expect(batch.get(d), `${d.date} ${String(now)}`).toEqual(plain[i]);
+            compared++;
+          });
+        }
+      }
+    }
+    expect(compared).toBeGreaterThan(1000);
+  }, 120_000);
+
+  it('two records of the day before: each rule picks among them as one by one does, in either order (Q-03)', () => {
+    const profile = PROFILES[0];
+    const g = (value: number, date: string, h: number, m: number): GlucoseReading => ({ value, unit: 'mg/dL', measuredAt: localAt(date, h, m).toISOString(), source: 'meter' });
+    const day = (date: string, over: Partial<DailyCheckIn>): DailyCheckIn => ({ date, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over });
+    // A low just before midnight in one record of the day before, not in the other (X2-08), and short sleep in one of them.
+    const low = day('2026-10-07', { glucose: g(62, '2026-10-07', 23, 40), sleep: 'lt5' });
+    const fine = day('2026-10-07', { glucose: g(150, '2026-10-07', 23, 40) });
+    const morning = day('2026-10-08', { glucose: g(66, '2026-10-08', 0, 20), sleep: 'lt5' });
+    const results = [[low, fine], [fine, low]].map(pair => {
+      const listed = [...pair, morning];
+      const one = evaluateCheckIn(profile, morning, listed);
+      expect(evaluateDays(profile, listed, [morning]).get(morning)).toEqual(one);
+      return one;
+    });
+    // The order of the day before's records decides which one the low is read from, and both say two short nights.
+    expect(results[0]).not.toEqual(results[1]);
+    for (const r of results) expect(r.reasons.map(x => x.code)).toContain('lowTwoDays');
   });
 
   it('a history holding two records of one date is read day by day, as evaluateCheckIn reads it', () => {

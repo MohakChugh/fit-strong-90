@@ -358,11 +358,11 @@ describe('T3-01 and C2-01: a refused blood-pressure correction tried again', () 
 });
 
 describe('P-02: a half-entered severe number goes with the measurement Track corrects or deletes', () => {
-  /** Reading 1 typed into the day's check-in and saved, as the sheet saves it. */
-  async function enter(sys: string, dia: string, taken: string) {
+  /** A reading typed into one row of the day's check-in and saved, as the sheet saves it. */
+  async function enter(sys: string, dia: string, taken: string, n: 1 | 2 = 1) {
     const previous = stored();
     const form = previous ? formFromRecord(previous, PROFILE) : emptyForm(PROFILE);
-    const answers = buildCheckIn({ ...form, emergency: [], bp: { ...form.bp, s1: sys, d1: dia, at1: taken } }, { date: DAY, profile: PROFILE, now: new Date(), ...(previous ? { previous } : {}) });
+    const answers = buildCheckIn({ ...form, emergency: [], bp: { ...form.bp, [`s${n}`]: sys, [`d${n}`]: dia, [`at${n}`]: taken } }, { date: DAY, profile: PROFILE, now: new Date(), ...(previous ? { previous } : {}) });
     expect((await saveCheckInRecord(answers, { profile: PROFILE, update: store.update })).stored).toBe(true);
   }
   /** What the gates read as severe blood pressure: the reasons, and the readings they ask about. */
@@ -405,6 +405,42 @@ describe('P-02: a half-entered severe number goes with the measurement Track cor
     expect(pressures()).toHaveLength(0);
     expect(stored()!.bpPartial ?? []).toEqual([]);
     expect(severe()).toEqual([]);
+  });
+
+  /** Codex round 8 (Q-01): a real 190 in reading 1 at 09:00, and an independent 190/100 in reading 2 at 09:10. */
+  async function halfThenAnother() {
+    await store.update(prev => ({ ...prev, profile: PROFILE }));
+    await enter('190', '', iso(9, 0));
+    clock(9, 10);
+    await enter('190', '100', iso(9, 10), 2);
+  }
+  const halfId = `bpp:${iso(9, 0)}:190/`;
+
+  it('Q-01: the independent 190/100 corrected in Track to 120/80 leaves the real 190 counting, after a reload too', async () => {
+    const { EditPressureSheet } = await import('./EditSheets');
+    const { pairBloodPressure } = await import('@/health/aggregate');
+    await halfThenAnother();
+    host = render(createElement(EditPressureSheet, { open: true, onOpenChange: () => {}, reading: pairBloodPressure(pressures())[0] }));
+    await host.settle();
+    const boxes = host.all().filter(n => n.type === 'input' && n.props.inputMode === 'numeric');
+    await host.change(boxes[0], { value: '120' });
+    await host.change(boxes[1], { value: '80' });
+    await host.click(host.button('Save correction'));
+    await host.settle();
+    await reload();
+    expect(stored()!.bpReadings).toEqual([{ sys: 120, dia: 80, at: iso(9, 10) }]);
+    expect(stored()!.bpPartial).toEqual([{ sys: 190, at: iso(9, 0) }]);
+    expect(severe()).toEqual(expect.arrayContaining(['bpSevereUnconfirmed', halfId]));
+    expect(walk().gate.allowed).toBe(false);
+  });
+
+  it('Q-01: and with the independent 190/100 deleted in Track, the real 190 is kept and still counts', async () => {
+    await halfThenAnother();
+    await remove(pressures()[0].id);
+    await reload();
+    expect(stored()!.bpPartial).toEqual([{ sys: 190, at: iso(9, 0) }]);
+    expect(severe()).toEqual(expect.arrayContaining(['bpSevereUnconfirmed', halfId]));
+    expect(walk().gate.allowed).toBe(false);
   });
 });
 

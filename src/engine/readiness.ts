@@ -1141,48 +1141,31 @@ const sameMeasurement = (a: BpReading, b: BpReading) => a.sys === b.sys && a.dia
   && ((a.at === undefined && b.at === undefined) || (time(a.at) !== undefined && time(a.at) === time(b.at)));
 
 /**
- * The complete reading a half-entered number was completed by (B07, N-04):
- * the first usable one with the same number in that box, taken at or after
- * it, and not answered as a typing mistake. An older or withdrawn reading
- * with the same number is another measurement and never takes its place.
+ * Whether `reading` can be the complete reading of the measurement `half` was
+ * the start of (N-04, Q-02): the same number in each box the half has, taken
+ * no earlier than the half. A half with a time needs a completion with one.
  */
-function completionOf(c: DailyCheckIn, half: BpPartialReading, answers: readonly EpisodeAnswer[]): BpReading | undefined {
-  const from = time(half.at) ?? Infinity;
-  const taken = (r: BpReading) => time(r.at) ?? -Infinity;
-  return dayPressures(c).filter(r => validBp(r)
-    && ((half.sys !== undefined && r.sys === half.sys) || (half.dia !== undefined && r.dia === half.dia))
-    && taken(r) >= from && settledAs(bpReadingId(r, c.date), answers) !== 'mistake')
-    .sort((a, b) => taken(a) - taken(b))[0];
+export function completes(half: BpPartialReading, reading: BpReading): boolean {
+  const boxes = (half.sys !== undefined || half.dia !== undefined)
+    && (half.sys === undefined || reading.sys === half.sys) && (half.dia === undefined || reading.dia === half.dia);
+  const from = time(half.at);
+  const taken = time(reading.at);
+  return boxes && (from === undefined || (taken !== undefined && taken >= from));
 }
 
 /**
  * A half-entered number stands for its measurement until a complete reading
- * of it does, and again once that reading is withdrawn (N-04). Linked when it
- * was completed, that reading is its own wherever a correction has taken its
- * numbers (P-02); not linked yet, it is the one `completionOf` finds.
+ * of it does, and again once that reading is withdrawn (B07, N-04). Only the
+ * completion recorded when its own row was filled in counts (Q-01), and only
+ * one that can be it and that the day still holds (Q-02). Another reading
+ * with the same number is another measurement: an unlinked half, or one an
+ * older build saved, always stands, so the evidence is never taken away by a
+ * guess.
  */
 function completedBy(c: DailyCheckIn, half: BpPartialReading, answers: readonly EpisodeAnswer[]): boolean {
   const own = half.completion;
-  if (!own) return completionOf(c, half, answers) !== undefined;
-  return dayPressures(c).some(r => sameMeasurement(r, own) && validBp(r) && settledAs(bpReadingId(r, c.date), answers) !== 'mistake');
-}
-
-/**
- * The day's half-entered numbers, each linked to the reading that completed
- * it once there is one (P-02), so that from then on it goes with that
- * measurement: read as that reading, carried along when Track corrects it,
- * deleted with it. Every save links them (`carryForward`), by the day's own
- * answers; a link to a reading later answered as typed wrongly lets the half
- * count again, as before.
- */
-export function withCompletions<T extends DailyCheckIn>(c: T): T {
-  if (!c.bpPartial?.some(h => !h.completion)) return c;
-  const answers = c.resolutions ?? [];
-  const bpPartial = c.bpPartial.map(h => {
-    const r = h.completion ? undefined : completionOf(c, h, answers);
-    return r ? { ...h, completion: { sys: r.sys, dia: r.dia, ...(r.at ? { at: r.at } : {}) } } : h;
-  });
-  return { ...c, bpPartial };
+  return !!own && completes(half, own)
+    && dayPressures(c).some(r => sameMeasurement(r, own) && validBp(r) && settledAs(bpReadingId(r, c.date), answers) !== 'mistake');
 }
 
 /** The message names the number that tripped: on BP medication only one of the two is often high. */
@@ -1816,7 +1799,8 @@ function listedBefore(recent: readonly DailyCheckIn[], date: string): Before {
         return id => (named.get(id) ?? []).filter(x => x.from >= from).map(x => x.answer);
       };
     },
-    latestReach: () => [...recent].filter(r => r.date < date && r.back?.reach).sort((x, y) => (x.date < y.date ? 1 : -1))[0],
+    // The latest day's; of two records of that day, the later in the list, as the engine has always picked (Q-03).
+    latestReach: () => recent.reduce<DailyCheckIn | undefined>((best, r) => (r.date < date && r.back?.reach && (!best || r.date >= best.date) ? r : best), undefined),
     since: from => recent.filter(r => r.date < date && r.date >= from),
     on: day => recent.find(r => r.date === day),
     anyOn: (day, test) => recent.some(r => r.date === day && test(r)),
@@ -1837,14 +1821,13 @@ function listedBefore(recent: readonly DailyCheckIn[], date: string): Before {
  * One history, prepared once for `profile`: sorted, its answers indexed, the
  * records that can carry anything found, and the latest of a few kinds of
  * record kept for every position. The days before any date are then a prefix
- * of it, read without going over the rest. A history that holds two records
- * of one date is not prepared: those are read day by day, as they always were.
+ * of it, read without going over the rest. Records of one date keep the
+ * history's order, so each rule picks among them as it does from the list
+ * (Q-03).
  */
-function preparedHistory(profile: UserProfile, history: readonly DailyCheckIn[]): ((date: string) => Before) | undefined {
+function preparedHistory(profile: UserProfile, history: readonly DailyCheckIn[]): (date: string) => Before {
   const sorted = [...history].sort(byDate);
-  for (let i = 1; i < sorted.length; i++) if (sorted[i].date === sorted[i - 1].date) return undefined;
   const dates = sorted.map(x => x.date);
-  const position = new Map(dates.map((d, i) => [d, i]));
   /** The first position dated `date` or later. */
   const from = (date: string) => {
     let lo = 0;
@@ -1869,9 +1852,12 @@ function preparedHistory(profile: UserProfile, history: readonly DailyCheckIn[])
   /** For every prefix length, the last check-in that answered its questions and the last record saying how far leg symptoms reach. */
   const lastAnswered: number[] = [-1];
   const lastReach: number[] = [-1];
+  /** Where each record's date begins: the days before a record are the positions before that. */
+  const dayStarts: number[] = [];
   sorted.forEach((x, i) => {
     lastAnswered.push(answeredCheckIn(x) ? i : lastAnswered[i]);
     lastReach.push(x.back?.reach ? i : lastReach[i]);
+    dayStarts.push(i > 0 && dates[i - 1] === x.date ? dayStarts[i - 1] : i);
   });
   const evaluatedAt = new Map<number, Readiness>();
   const before = (end: number): Before => ({
@@ -1887,13 +1873,14 @@ function preparedHistory(profile: UserProfile, history: readonly DailyCheckIn[])
     },
     latestReach: () => (lastReach[end] >= 0 ? sorted[lastReach[end]] : undefined),
     since: day => sorted.slice(from(day), end),
+    // The first record of the day, as finding it in the list does.
     on: day => {
-      const i = position.get(day);
-      return i !== undefined && i < end ? sorted[i] : undefined;
+      const i = from(day);
+      return i < end && dates[i] === day ? sorted[i] : undefined;
     },
     anyOn: (day, test) => {
-      const i = position.get(day);
-      return i !== undefined && i < end && test(sorted[i]);
+      for (let i = from(day); i < end && dates[i] === day; i++) if (test(sorted[i])) return true;
+      return false;
     },
     lastCheckIn: () => {
       const j = lastAnswered[end];
@@ -1902,8 +1889,8 @@ function preparedHistory(profile: UserProfile, history: readonly DailyCheckIn[])
       // on down: evaluated from the oldest of that run up, so a long run of
       // older records is never a deep recursion.
       const run: number[] = [];
-      for (let x = j; x >= 0 && !evaluatedAt.has(x); x = sorted[x].emergency === undefined ? lastAnswered[x] : -1) run.push(x);
-      for (const x of run.reverse()) evaluatedAt.set(x, evaluateWith(profile, sorted[x], before(x)));
+      for (let x = j; x >= 0 && !evaluatedAt.has(x); x = sorted[x].emergency === undefined ? lastAnswered[dayStarts[x]] : -1) run.push(x);
+      for (const x of run.reverse()) evaluatedAt.set(x, evaluateWith(profile, sorted[x], before(dayStarts[x])));
       return { record: sorted[j], readiness: evaluatedAt.get(j)! };
     },
   });
@@ -1925,10 +1912,11 @@ function count(list: readonly number[], end: number): number {
 /**
  * Many days evaluated against one history at once (N-06): for each of `days`,
  * exactly what `evaluateCheckIn(profile, day, history, now)` gives it, with
- * the history prepared once instead of gone over again for every day. Any
- * readiness the records already hold is not read, a record's own date decides
- * which records are its earlier days, and `days` need not be in `history`.
- * Without `days`, every record of the history.
+ * the history prepared once instead of gone over again for every day, a date
+ * it holds twice included (Q-03). Any readiness the records already hold is
+ * not read, a record's own date decides which records are its earlier days,
+ * and `days` need not be in `history`. Without `days`, every record of the
+ * history.
  */
 export function evaluateDays(
   profile: UserProfile,
