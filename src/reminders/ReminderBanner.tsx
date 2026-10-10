@@ -11,7 +11,7 @@ import { walkSetupHref } from '@/walk/plan';
 
 const ICON = { water: GlassWaterIcon, sittingBreak: ArmchairIcon, mealWalk: FootprintsIcon } as const;
 
-const ACTION = 'press-feedback flex min-h-11 items-center justify-center rounded-xl px-4 text-[length:var(--text-body)] font-semibold';
+const ACTION = 'press-feedback flex min-h-12 items-center justify-center rounded-xl px-4 text-[length:var(--text-body)] font-semibold';
 
 /**
  * One waiting reminder, compact. Gentle on purpose: no sound, no countdown,
@@ -96,7 +96,7 @@ export function ReminderBanner({ item, glassMl, waterLine, precautions = [], onH
         </div>
       </div>
 
-      <div className="mt-2 flex shrink-0 gap-2">
+      <div className="mt-2 flex shrink-0 flex-wrap gap-2">
         {occurrence.habit === 'water' && glassMl ? (
           <button type="button" disabled={saving} onClick={() => void logGlass()} className={cn(primary, 'disabled:opacity-60')}>
             {/* The glass size is in the line above; the label stays short enough for one line at 320 px. */}

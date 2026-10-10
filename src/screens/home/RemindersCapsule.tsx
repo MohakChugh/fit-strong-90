@@ -23,7 +23,7 @@ export function RemindersCapsule({ waiting }: { waiting: readonly Pending[] }) {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="press-feedback flex min-h-11 shrink-0 items-center gap-1.5 rounded-full bg-tint/12 px-3 text-[length:var(--text-subhead)] font-semibold text-tint"
+          className="press-feedback flex min-h-12 shrink-0 items-center gap-1.5 rounded-full bg-tint/12 px-3 text-[length:var(--text-subhead)] font-semibold text-tint"
         >
           <BellIcon className="size-4 shrink-0" aria-hidden />
           {n} {n === 1 ? 'reminder' : 'reminders'}

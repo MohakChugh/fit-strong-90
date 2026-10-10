@@ -1,4 +1,5 @@
-import { BookOpenIcon, DumbbellIcon, FootprintsIcon, NotebookPenIcon, PersonStandingIcon, type LucideIcon } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { BookOpenIcon, CompassIcon, DumbbellIcon, FootprintsIcon, NotebookPenIcon, PersonStandingIcon, type LucideIcon } from 'lucide-react';
 import { Sheet } from '@/components/hig/Sheet';
 import { Group, Row } from '@/components/hig/List';
 import type { ChooserId, ChooserRow } from './model';
@@ -12,9 +13,11 @@ const ICON: Record<ChooserId, LucideIcon> = {
 };
 
 /**
- * Choose something else (codex-vision §5 B): the five modes, in the same
- * order every time, with no submenu. A tall sheet, because five rows with a
- * second line each need the room at larger text sizes.
+ * Something else (codex-vision §5 B, journey §7.4): the five modes, in the
+ * same order every time, with no submenu, then a separated footer link,
+ * "All categories", to Browse, which is not one of the five choices (K-35,
+ * L-15). A tall sheet, because five rows with a second line each need the
+ * room at larger text sizes.
  */
 export function ChooserSheet({ open, onOpenChange, rows, onChoose }: {
   open: boolean;
@@ -41,6 +44,9 @@ export function ChooserSheet({ open, onOpenChange, rows, onChoose }: {
             />
           );
         })}
+      </Group>
+      <Group>
+        <Row as={Link} to="/browse" viewTransition icon={<CompassIcon aria-hidden />} label="All categories" chevron />
       </Group>
     </Sheet>
   );

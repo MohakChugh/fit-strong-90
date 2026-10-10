@@ -70,7 +70,7 @@ export const checkInSheet = page => page.getByRole('dialog', { name: ui.CHECKIN 
  * Open today's check-in for `mode`, the way a person does from `via`:
  * `move` (v1's Move, now the Workout hub from Home → the mode → its Start),
  * `today` (Home's Right now card, v1 Today's primary action) or `chooser`
- * (Home → Choose something else → the mode). Throws when no check-in opens:
+ * (Home → Something else → the mode). Throws when no check-in opens:
  * a missing way in is a failure.
  */
 export async function openCheckIn(t, mode, via = 'move') {
@@ -96,7 +96,7 @@ export async function openCheckIn(t, mode, via = 'move') {
     await ui.tap(ui.rightNow(page).getByRole('button'));
   } else if (via === 'chooser') {
     await ui.tab(page, 'Home');
-    await ui.tap(ui.button(main, 'Choose something else'));
+    await ui.tap(ui.button(main, 'Something else'));
     await ui.tap(ui.row(page.getByRole('dialog'), { guided: 'Guided session', stretch: 'Stretch', walk: 'Walk' }[mode]));
   } else {
     throw new Error(`unknown entry ${via}`);
@@ -293,7 +293,7 @@ export async function attempt(t, mode, via) {
       }
     } else if (via === 'chooser') {
       await ui.tab(page, 'Home');
-      await ui.tap(ui.button(main, 'Choose something else'));
+      await ui.tap(ui.button(main, 'Something else'));
       await ui.tap(ui.row(page.getByRole('dialog'), { guided: 'Guided session', stretch: 'Stretch', walk: 'Walk' }[mode]));
     } else {
       await ui.tab(page, 'Home');

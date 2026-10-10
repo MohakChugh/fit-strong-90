@@ -105,7 +105,7 @@ export const cases = [
       let pauseCheck;
       let ranMs = 0;
 
-      await t.step(1, 'Choose something else → Stretch; again via Move → Stretch', async () => {
+      await t.step(1, 'Something else → Stretch; again via Move → Stretch', async () => {
         await t.must(await t.route() === '/home', `opened ${await t.route()}`);
         const entry = await move.enter(t, 'stretch', 'chooser');
         if (entry.sheet) {

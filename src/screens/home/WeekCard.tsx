@@ -60,11 +60,11 @@ function useRingValue(id: string, value: number, still: boolean): { shown: numbe
 }
 
 /**
- * A day's mark grows with the text up to 20 px and no further, like the tab
- * bar's labels: seven of them must fit a 320 px phone at 200%, and each has
- * its day and state in words for a screen reader.
+ * A day's mark grows with the text, as its letter does (kiro KV-22): seven
+ * fit in a row on a 320 px phone up to 130%, and wrap to more rows beyond.
+ * Each has its day and state in words for a screen reader.
  */
-const DOT = 'flex size-[min(1.25rem,20px)] items-center justify-center rounded-full';
+const DOT = 'flex size-5 items-center justify-center rounded-full';
 
 /** A day's mark: filled for movement, "R" for a planned rest, hatched for a status day, an empty ring otherwise. */
 function DayMark({ dot }: { dot: WeekDot }) {
@@ -72,7 +72,7 @@ function DayMark({ dot }: { dot: WeekDot }) {
     case 'moved':
       return <span className={cn(DOT, 'bg-cat-move')} />;
     case 'rest':
-      return <span className={cn(DOT, 'text-[min(var(--text-footnote),18px)] font-bold leading-none text-muted-foreground')}>R</span>;
+      return <span className={cn(DOT, 'text-[length:var(--text-footnote)] font-bold leading-none text-muted-foreground')}>R</span>;
     case 'status':
       return <span className={cn(DOT, 'border-2 border-muted-foreground bg-[repeating-linear-gradient(45deg,var(--muted-foreground)_0_2px,transparent_2px_5px)]')} />;
     default:
@@ -117,7 +117,7 @@ export function WeekCard({ today, minutes, enteredNote, goal, stretched, steps, 
                 <button
                   type="button"
                   onClick={onSetGoal}
-                  className="press-feedback relative z-10 flex min-h-11 items-center rounded-full bg-tint/12 px-4 text-[length:var(--text-body)] font-semibold text-tint"
+                  className="press-feedback relative z-10 flex min-h-12 items-center rounded-full bg-tint/12 px-4 text-[length:var(--text-body)] font-semibold text-tint"
                 >
                   Set a weekly goal
                 </button>
@@ -130,19 +130,24 @@ export function WeekCard({ today, minutes, enteredNote, goal, stretched, steps, 
         </div>
         {goal !== undefined && minutes >= goal && goal > 0 && <p className="text-[length:var(--text-body)] font-medium">Weekly goal reached</p>}
         {enteredNote && <p className="text-[length:var(--text-footnote)] text-muted-foreground">Includes {enteredNote === 'all added by hand' ? 'only minutes added by hand' : enteredNote}.</p>}
-        <ol aria-label="Days this week" className="grid grid-cols-7 gap-1">
+        <ol aria-label="Days this week" className="grid grid-cols-[repeat(auto-fit,minmax(min(1.75rem,100%),1fr))] gap-1">
           {dots.map(dot => (
             <li key={dot.day} className="flex flex-col items-center gap-1">
-              <span aria-hidden className={cn('text-[min(var(--text-footnote),18px)] leading-none', dot.today ? 'font-bold text-foreground' : 'text-muted-foreground')}>{dot.letter}</span>
+              <span aria-hidden className={cn('text-[length:var(--text-footnote)] leading-none', dot.today ? 'font-bold text-foreground' : 'text-muted-foreground')}>{dot.letter}</span>
               <span aria-hidden><DayMark dot={dot} /></span>
               <span className="sr-only">{dotLabel(dot)}{dot.today ? ', today' : ''}</span>
             </li>
           ))}
         </ol>
-        {/* The card's link: its area covers the whole card, so a tap anywhere opens Trends. */}
+        {/* The card's link. With the ring, its area covers the whole card, so a tap anywhere opens
+            Trends; beside "Set a weekly goal" it is only this row, so a shaky tap near the button
+            never opens Trends instead (kiro KV-11). */}
         <Link
           to="/trends"
-          className="flex min-h-11 items-center justify-between gap-2 text-[length:var(--text-body)] font-semibold text-tint after:absolute after:inset-0 after:rounded-2xl after:content-['']"
+          className={cn(
+            'flex min-h-12 items-center justify-between gap-2 text-[length:var(--text-body)] font-semibold text-tint',
+            goal !== undefined && "after:absolute after:inset-0 after:rounded-2xl after:content-['']",
+          )}
         >
           See Trends
           <ChevronRightIcon className="size-4 shrink-0" aria-hidden />

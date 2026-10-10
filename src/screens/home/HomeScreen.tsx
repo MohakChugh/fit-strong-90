@@ -304,8 +304,13 @@ export function HomeScreen() {
       title={greeting(now, (profile as { name?: string } | undefined)?.name)}
       navTitle={FROM_HOME.label}
       subtitle={format(now, 'EEEE, d MMMM')}
-      trailing={<RemindersCapsule waiting={waiting} />}
-      below={<StatusButton status={status} {...(period ? { detail: statusDetail(period, today) } : {})} onOpen={() => open({ kind: 'status' })} />}
+      // "2 reminders" at the right, under the status, where it can wrap at any text size (kiro KV-08).
+      below={(
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <StatusButton status={status} {...(period ? { detail: statusDetail(period, today) } : {})} onOpen={() => open({ kind: 'status' })} />
+          <RemindersCapsule waiting={waiting} />
+        </div>
+      )}
     >
       {moved && (
         <Group>
@@ -326,7 +331,7 @@ export function HomeScreen() {
           onClick={() => open({ kind: 'choose' })}
           className="press-feedback flex min-h-12 w-full items-center justify-center rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] font-semibold text-tint"
         >
-          Choose something else
+          Something else
         </button>
       </div>
 
@@ -491,7 +496,7 @@ function EarlierSession({ saved, onFinish, onSave }: {
 }) {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const button = 'press-feedback flex min-h-11 flex-1 items-center justify-center rounded-lg px-3 text-[length:var(--text-body)] font-semibold disabled:opacity-50';
+  const button = 'press-feedback flex min-h-12 flex-1 items-center justify-center rounded-lg px-3 text-[length:var(--text-body)] font-semibold disabled:opacity-50';
   return (
     <Group header="Unfinished" footer={error ?? 'Saving keeps what you did in your history, on the day you did it.'}>
       <Row label={`From ${format(new Date(`${saved.plan.date}T12:00:00`), 'EEEE')}`} detail={`${minutesLeft(saved)} min left · ${saved.plan.label}`} />
@@ -543,7 +548,7 @@ function PromptRow({ prompt }: { prompt: Exclude<Prompt, { kind: 'reminder' }> }
             const result = await addToDayTotal('water', prompt.glassMl);
             setError(result.ok ? undefined : result.failure.message);
           }}
-          className="press-feedback min-h-11 shrink-0 rounded-full bg-tint/10 px-4 text-[length:var(--text-subhead)] font-semibold text-tint"
+          className="press-feedback min-h-12 shrink-0 rounded-full bg-tint/10 px-4 text-[length:var(--text-subhead)] font-semibold text-tint"
         >
           Add {prompt.glassMl} ml
         </button>

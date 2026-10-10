@@ -4,7 +4,7 @@
  *
  * Entry points, as a person reaches them (v1's names, at their v2 places):
  *   move     — v1's Move tab, now the Workout hub from Home (`ui.legacyTab`) → the mode's row → its Start button
- *   chooser  — Home → Choose something else → the mode's row
+ *   chooser  — Home → Something else → the mode's row
  *   today    — Home's Right now card, v1 Today's primary action (whatever the recommendation offers)
  *   direct   — a deep link loaded cold: /session, /hub/stretch, /walk/live
  */
@@ -42,7 +42,7 @@ export async function enter(t, mode, via = 'move') {
     }
   } else if (via === 'chooser') {
     await ui.tab(page, 'Home');
-    await ui.tap(ui.button(main, 'Choose something else'));
+    await ui.tap(ui.button(main, 'Something else'));
     await ui.tap(ui.row(page.getByRole('dialog'), CHOOSER_ROW[mode]));
   } else if (via === 'today') {
     await ui.tab(page, 'Home');

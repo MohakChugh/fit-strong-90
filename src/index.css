@@ -692,3 +692,6 @@ button, [role="button"], a {
 @media (prefers-reduced-transparency: reduce) { .glass { background: var(--grouped-card); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 @media (prefers-contrast: more) { .glass { background: var(--grouped-card); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--foreground); box-shadow: none; } }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .glass { background: var(--grouped-card); } }
+/* A screen's nav bar: full width, so a hairline under it rather than a rim and a shadow. */
+.glass[data-bar] { border-width: 0 0 1px; border-color: var(--separator); border-radius: 0; box-shadow: none; }
+@media (prefers-contrast: more) { .glass[data-bar] { border-color: var(--foreground); } }

@@ -121,8 +121,8 @@ export const cases = [{
       await t.check(!docs(snap).settings?.startDate, `startDate was set to ${docs(snap).settings?.startDate}`);
     });
 
-    await t.step(4, 'Choose something else: five rows in fixed order', async () => {
-      const opener = ui.button(main, 'Choose something else');
+    await t.step(4, 'Something else: five rows in fixed order', async () => {
+      const opener = ui.button(main, 'Something else');
       await ui.tap(opener);
       const sheet = page.getByRole('dialog');
       await sheet.waitFor();
@@ -140,18 +140,18 @@ export const cases = [{
       await sheet.waitFor({ state: 'hidden' });
       await page.waitForTimeout(300);
       const focused = await page.evaluate(() => document.activeElement?.textContent?.trim());
-      await t.check(focused === 'Choose something else', `closing the chooser left focus on “${focused}”, not its opener`);
+      await t.check(focused === 'Something else', `closing the chooser left focus on “${focused}”, not its opener`);
     });
 
     await t.step(5, 'Learn, return, then Log something: steps 2000 for 7 October', async () => {
-      await ui.tap(ui.button(main, 'Choose something else'));
+      await ui.tap(ui.button(main, 'Something else'));
       await ui.tap(ui.row(page.getByRole('dialog'), 'Learn'));
       await page.getByRole('heading', { level: 1, name: 'Guide', exact: true }).waitFor();
       await t.check((await main.innerText()).length > 200, 'Guide has no readable content');
       await t.checkpoint('guide');
       await ui.tap(ui.link(page.getByRole('navigation', { name: 'Main' }), 'Home'));
       await page.getByRole('heading', { level: 1, name: ui.HOME_TITLE }).waitFor();
-      await ui.tap(ui.button(main, 'Choose something else'));
+      await ui.tap(ui.button(main, 'Something else'));
       await ui.tap(ui.row(page.getByRole('dialog'), 'Log something'));
       await page.waitForTimeout(600);
       // v1's Track is v2's Today's log, /day/today (journey §13).

@@ -577,6 +577,42 @@ describe('the safety surface wherever the person is (codex V1-02, V1-03, journey
   });
 });
 
+describe('Home’s targets and layout (kiro KV-08, KV-10, KV-11, KV-15, KV-18, KV-22)', () => {
+  it('every target on Home is at least 48 px: no min-h-11 left (journey §20.4 rule 1)', () => {
+    for (const file of ['src/screens/home/HomeScreen.tsx', 'src/screens/home/WeekCard.tsx', 'src/screens/home/RemindersCapsule.tsx']) {
+      expect(read(file), file).not.toMatch(/\bmin-h-11\b/);
+    }
+  });
+
+  it('"2 reminders" sits in the header’s wrapping area beside the status, not in the fixed bar', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    expect(home).not.toMatch(/trailing=\{<RemindersCapsule/);
+    expect(home).toMatch(/below=\{\(\s*<div className="flex flex-wrap items-center justify-end gap-3">\s*<StatusButton[\s\S]*?<RemindersCapsule waiting=\{waiting\} \/>\s*<\/div>/);
+  });
+
+  it('This week opens Trends from the whole card only when no button is on it', () => {
+    expect(read('src/screens/home/WeekCard.tsx')).toMatch(/goal !== undefined && "after:absolute after:inset-0 after:rounded-2xl after:content-\[''\]"/);
+  });
+
+  it('the day marks grow with the text and wrap to more rows rather than being capped', () => {
+    const week = read('src/screens/home/WeekCard.tsx');
+    expect(week).not.toMatch(/min\(1\.25rem,20px\)|min\(var\(--text-footnote\),18px\)/);
+    expect(week).toContain('grid-cols-[repeat(auto-fit,minmax(min(1.75rem,100%),1fr))]');
+  });
+
+  it('the nav bar is glass, so a running transition, Reduce transparency and more contrast make it solid (journey §20.1)', () => {
+    const m = html(h(Screen, { title: 'Stretch', inline: true, children: null }));
+    expect(m).toMatch(/<div data-bar="true" class="[^"]*\bglass\b/);
+    expect(read('src/index.css')).toMatch(/\.glass\[data-bar\] \{ border-width: 0 0 1px; border-color: var\(--separator\); border-radius: 0; box-shadow: none; \}/);
+  });
+
+  it('Right now’s quiet way on reads "Something else", and the chooser ends with "All categories" (journey §7.4, L-15)', () => {
+    expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/>\s*Something else\s*<\/button>/);
+    const m = html(h(ChooserSheet, { open: true, onOpenChange: () => {}, rows: [], onChoose: () => {} }));
+    expect(m).toMatch(/<a href="#\/browse"[^>]*>[\s\S]*All categories/);
+  });
+});
+
 describe('the stylesheet', () => {
   const css = read('src/index.css');
 

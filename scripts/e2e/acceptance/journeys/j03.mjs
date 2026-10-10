@@ -301,7 +301,7 @@ async function findCheckInControl(t) {
   if (await row.count() === 1) return { control: row, where: 'Home' };
   let hit = await look('Home');
   if (hit) return hit;
-  await ui.tap(ui.button(main, 'Choose something else'));
+  await ui.tap(ui.button(main, 'Something else'));
   const chooser = page.getByRole('dialog');
   const inChooser = chooser.getByRole('button', { name: CHECK_IN_CONTROL });
   t.note(`check-in control search, chooser: ${(await inChooser.count()) ? (await inChooser.allInnerTexts()).join(', ') : 'none'}`);

@@ -3,7 +3,7 @@
  *
  * The app does not ask "what do you want to do?" on launch; it already has a
  * suggestion, says why in a sentence that is always on screen, and keeps
- * "Choose something else" one tap away. The order of precedence is fixed:
+ * "Something else" one tap away. The order of precedence is fixed:
  *
  * 1. Safety: an emergency, a "get advice today", a pending glucose re-check or
  *    a hold on the mode that would be suggested. Nothing that starts movement.

@@ -224,7 +224,7 @@ export function pickPrompt(input: {
 }
 
 // ============================================================================
-// Choose something else
+// Something else (the chooser)
 // ============================================================================
 
 export type ChooserId = 'stretch' | 'walk' | 'guided' | 'log' | 'learn';

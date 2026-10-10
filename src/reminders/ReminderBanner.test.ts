@@ -42,3 +42,16 @@ describe('the after-meal walk reminder', () => {
     expect(linkFor()).toBe('/hub/walk');
   });
 });
+
+describe('the reminder’s answers (journey §20.4 rules 1 and 7, kiro KV-10)', () => {
+  it('are 48 px targets that wrap under each other rather than run off a narrow screen at large text', () => {
+    const occurrence = { habit: 'water' as const, minute: 9 * 60, day: '2026-10-08', id: 'water@2026-10-08T09:00' };
+    const host = render(createElement(ReminderBanner, { item: { occurrence, shownAt: 0 }, variant: 'inline', glassMl: 250 }));
+    const buttons = host.all().filter(n => n.type === 'button');
+    const row = host.all().find(n => n.type === 'div' && n.children.some(c => typeof c !== 'string' && c.type === 'button'));
+    host.unmount();
+    expect(buttons).toHaveLength(2);
+    expect(buttons.every(b => /\bmin-h-12\b/.test(String(b.props.className)))).toBe(true);
+    expect(String(row?.props.className)).toMatch(/\bflex-wrap\b/);
+  });
+});

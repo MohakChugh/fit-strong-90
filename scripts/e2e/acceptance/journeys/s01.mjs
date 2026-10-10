@@ -80,7 +80,7 @@ async function inventory(t, { textScale } = {}) {
 
   await t.step(1, 'Home, its chooser, status and check-in sheets', async () => {
     await visit(t, '/home', 'today-scheduled');
-    await sheet(t, 'today-chooser', () => ui.tap(ui.button(main, 'Choose something else')));
+    await sheet(t, 'today-chooser', () => ui.tap(ui.button(main, 'Something else')));
     await sheet(t, 'today-status', () => ui.tap(statusButton(page)));
     await sheet(t, 'today-check-in', () => ui.tap(ui.rightNow(page).getByRole('button')));
   });
@@ -274,7 +274,7 @@ const keyboard = {
     });
 
     await t.step(2, 'A sheet takes focus, keeps it, and returns it to the opener', async () => {
-      const opener = ui.button(main, 'Choose something else');
+      const opener = ui.button(main, 'Something else');
       await opener.focus();
       await page.keyboard.press('Enter');
       const dialog = page.getByRole('dialog');
@@ -295,7 +295,7 @@ const keyboard = {
       await dialog.waitFor({ state: 'hidden' });
       await page.waitForTimeout(300);
       const back = await active();
-      if (back.text !== 'Choose something else') await finding(t, 'focus', `Escape returned focus to ${back.tag} “${back.text}”, not the opener`);
+      if (back.text !== 'Something else') await finding(t, 'focus', `Escape returned focus to ${back.tag} “${back.text}”, not the opener`);
     });
 
     await t.step(3, 'Arrow keys move within a composite control', async () => {

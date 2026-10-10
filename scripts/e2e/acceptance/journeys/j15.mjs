@@ -94,7 +94,7 @@ async function walkBothWays(t, answers, tag) {
   const fromToday = await mv.enter(t, 'walk', 'chooser');
   if (fromToday.sheet) {
     await t.checkpoint(`${tag}-walk-refused-today`);
-    await walkRefusedOnSheet(t, fromToday.sheet, 'Home → Choose something else → Walk');
+    await walkRefusedOnSheet(t, fromToday.sheet, 'Home → Something else → Walk');
     await ui.tap(ui.button(fromToday.sheet, 'Close'));
     await fromToday.sheet.waitFor({ state: 'hidden' });
   } else {

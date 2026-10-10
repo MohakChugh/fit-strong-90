@@ -115,13 +115,14 @@ export function Screen({ title, navTitle = title, subtitle, below, back, trailin
     <div className={cn('bg-grouped-bg', className)}>
       <div ref={header} className="sticky top-0 z-30 pt-safe">
         {!framed && <StorageBanner inHeader />}
-        <div className={cn(
+        <div data-bar className={cn(
           'grid h-11 items-center gap-2 px-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] transition-colors duration-200',
           // Equal sides centre the compact title; until it shows, Back may use
           // whatever the trailing items leave, so a parent's name fits more often.
           collapsed ? 'grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)_auto_auto]',
-          (collapsed || underBar) && 'bg-grouped-bg/85 backdrop-blur-xl supports-backdrop-filter:bg-grouped-bg/70',
-          collapsed && 'border-b border-separator',
+          // Glass once anything slides under it, solid while a transition runs, under Reduce
+          // transparency and with more contrast (journey §20.1, kiro KV-18).
+          (collapsed || underBar) && 'glass',
         )}>
           <div className="flex min-w-0 items-center">
             {target && <BackButton label={target.label} onClick={goBack} />}
