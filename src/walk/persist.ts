@@ -24,7 +24,7 @@ export const LAST_WALK_KEY = 'fit-strong-walk-last';
 export type WalkStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 const STATUSES: readonly WalkStatus[] = ['running', 'paused', 'away', 'finished'];
-const ENDINGS: readonly EndedBy[] = ['finish', 'stop', 'low', 'emergency', 'stale'];
+const ENDINGS: readonly EndedBy[] = ['finish', 'stop', 'low', 'emergency', 'stale', 'interrupted'];
 const SEGMENT_ENDS: readonly string[] = ['paused', 'hidden', 'left', 'interrupted', 'midnight', 'clockChange', 'finished'];
 const CAUSES: readonly Gap['cause'][] = ['hidden', 'interrupted', 'left'];
 

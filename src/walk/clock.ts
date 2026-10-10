@@ -103,7 +103,8 @@ export type WalkStatus = 'running' | 'paused' | 'away' | 'finished';
 
 /** How a walk ended: the Finish button, the stop guidance, a low, or left open too long. */
 /** `emergency`: ended for symptoms that need help now, said on this walk or arriving during it. */
-export type EndedBy = 'finish' | 'stop' | 'low' | 'emergency' | 'stale';
+/** `interrupted`: the app closed or crashed mid-walk, and Home saved what the journal kept (journey §9.4). */
+export type EndedBy = 'finish' | 'stop' | 'low' | 'emergency' | 'stale' | 'interrupted';
 
 /** A 0–10 answer and when it was given. */
 export interface PainAnswer {

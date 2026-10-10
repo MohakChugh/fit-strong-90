@@ -425,3 +425,10 @@ describe('the v2 summary (journey §9.5)', () => {
     expect(noRouteLine()).toBe('No route kept for this walk.');
   });
 });
+
+describe('a walk the app lost (journey §9.4, B-19)', () => {
+  it('says a walk the app lost ends where it was last kept', () => {
+    const w = { ...finishWalk(startWalk('abcd-1234', { kind: 'walk', gps: false, steps: false }, T), T + 600_000, 'interrupted') };
+    expect(endingLine(w, time)).toBe('The app closed during this walk, so it ends at 7:10 pm, when it was last kept. Here is what was recorded.');
+  });
+});

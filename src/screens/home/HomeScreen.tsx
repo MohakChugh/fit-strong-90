@@ -73,6 +73,7 @@ import { TileMenu } from './TileMenu';
 import { movementLine } from './tileLine';
 import { RIGHT_NOW_ID, SLOTS, UrgentContext, recommendSources, withEffectiveToday } from './urgent';
 import { WeekCard } from './WeekCard';
+import { WalkRecoveryRow } from './WalkRecoveryRow';
 import { movedDays, restDaysOf, stepsLine, stretchDays, weekDots } from './week';
 
 // Track's own goal editor, so the rule for a valid goal lives in one place.
@@ -348,6 +349,10 @@ export function HomeScreen() {
           Something else
         </button>
       </div>
+
+      {/* A walk the app lost mid-way, offered to save (journey §9.4): under the
+          Right now card, so an urgent surface always ranks above it (A-57). */}
+      <WalkRecoveryRow />
 
       {/* Quiet, and only once today is checked in: a new symptom or reading
           can always be added, whatever the suggestion above says (J03 step 4). */}

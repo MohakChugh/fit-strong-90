@@ -279,6 +279,9 @@ export function endingLine(walk: Walk, time: (t: number) => string = t => timeOf
   if (walk.endedBy === 'stale') {
     return `This walk was left open, so it was finished at ${time(walk.finishedAt ?? walk.seenAt)}, when the app last saw it. Here is what was recorded.`;
   }
+  if (walk.endedBy === 'interrupted') {
+    return `The app closed during this walk, so it ends at ${time(walk.finishedAt ?? walk.seenAt)}, when it was last kept. Here is what was recorded.`;
+  }
   if (walk.endedBy === 'emergency') return 'This walk ended because of symptoms that need emergency help.';
   return undefined;
 }
