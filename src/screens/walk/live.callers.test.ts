@@ -268,6 +268,28 @@ describe('Resume asks the status first, as the hubs’ Continue does (H2-01, jou
   });
 });
 
+describe('the walking time while paused (M13)', () => {
+  it('dims the time and leaves its label at full contrast', async () => {
+    const p = createDefaultProfile({ health: { ...known, diabetes: 'none' } });
+    const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4 };
+    await store.update(prev => ({ ...prev, profile: p, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
+    router.params = startedParams();
+    host = render(createElement(LiveWalkScreen));
+    await host.settle();
+    await h().click(h().button('Pause', { exact: true }));
+    const classes = (n: { props: Record<string, unknown> }) => String(n.props.className ?? '').split(/\s+/);
+    const timer = h().all().find(n => n.props.role === 'timer')!;
+    const inside: typeof timer[] = [];
+    const walkIn = (n: typeof timer) => { for (const c of n.children) if (typeof c !== 'string') { inside.push(c); walkIn(c); } };
+    walkIn(timer);
+    expect(classes(timer)).not.toContain('opacity-60');
+    const dimmed = inside.filter(n => classes(n).includes('opacity-60'));
+    expect(dimmed).toHaveLength(1);
+    expect(JSON.stringify(dimmed[0].children)).toContain('0:00');
+    expect(JSON.stringify(dimmed[0].children)).not.toContain('Walking time');
+  });
+});
+
 describe('a walk’s address is a choice, never authorisation (H6-04, KH-12)', () => {
   const p = createDefaultProfile({ health: { ...known, diabetes: 'none' } });
   async function checkedIn(walkSettings?: { saveRoutes: boolean | 'unasked'; map: 'on' | 'off' | 'unasked' }) {

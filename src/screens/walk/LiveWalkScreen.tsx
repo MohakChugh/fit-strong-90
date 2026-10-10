@@ -339,14 +339,15 @@ export default function LiveWalkScreen() {
           )}
 
           <div className="flex flex-col items-center gap-2 text-center">
-            {/* Paused, the time dims, with no pulse (M13, A-67). */}
-            <div role="timer" className={cn(!running && 'opacity-60')}>
+            {/* Paused, the time dims, with no pulse (M13, A-67): the figure only,
+                so its label keeps its contrast. */}
+            <div role="timer">
               <Stat
                 label="Walking time"
                 unit=""
                 size="timer"
                 className="items-center [&>span:last-child]:justify-center"
-                value={<><span aria-hidden>{clock(snapshot.observedMs)}</span><span className="sr-only">{spokenClock(snapshot.observedMs)}</span></>}
+                value={<span className={cn(!running && 'opacity-60')}><span aria-hidden>{clock(snapshot.observedMs)}</span><span className="sr-only">{spokenClock(snapshot.observedMs)}</span></span>}
               />
             </div>
             {target && <p className="text-[length:var(--text-subhead)] text-muted-foreground">{target}</p>}
