@@ -2,7 +2,8 @@
  * The live line on a movement tile (journey §7.5). It always follows the
  * shared gate for that tile's mode, so a tile can never invite what its hub
  * would refuse (audit K-04, A-08). Emergency outranks status, status outranks
- * a hold, and a hold outranks a flare-up's suggestion.
+ * a hold, and a hold outranks a flare-up's suggestion; a hold that only
+ * today's check-in answers keeps the flare's words and adds "check in first".
  */
 import { PERMISSION_TEXT, type Mode, type Permission } from '@/engine/permission';
 import type { Status } from '@/health/status';
@@ -60,14 +61,17 @@ export function movementLine({ mode, permission: p, status, normal, enrolled = t
 }): TileLine {
   if (!p.allowed && (p.disposition === 'emergency' || p.disposition === 'today')) return { text: 'Not today', tone: 'stop' };
   if (status === 'away' || status === 'unwell') return { text: 'Paused', tone: 'quiet' };
-  const flareOutside = status === 'flare' && mode === 'guided' && !enrolled;
+  // Outside the programme the Workout tile starts nothing, so it has nothing to check in for (D35, kiro KV-05).
+  const outside = mode === 'guided' && !enrolled;
+  // The line before any check-in: a flare's own first, then the check-in after it (kiro KV-04).
+  const line = status !== 'flare' ? normal : outside ? STRETCH_SUGGESTED : FLARE[mode] ?? `${normal} · ${STRETCH_SUGGESTED}`;
   if (!p.allowed) {
     // The gate may add detail after its fixed sentence (a stale reading says how old it is), so a reason counts by how it starts.
     const said = (text: string) => p.reasons.some(r => r.startsWith(text));
     const gap = PROFILE_GAP.find(([reason]) => said(reason));
     if (gap) return { text: `Finish setting up · ${gap[1]}`, tone: 'caution' };
     if (p.needsCheckIn && p.reasons.length > 0 && p.reasons.every(r => CHECK_IN_ONLY.some(t => r.startsWith(t)))) {
-      return { text: flareOutside ? STRETCH_SUGGESTED : `${normal} · check in first`, tone: 'normal' };
+      return { text: outside ? line : `${line} · check in first`, tone: 'normal' };
     }
     const known = HOLD_HEADLINE.find(([reason]) => said(reason))?.[1];
     // A treated low's re-check comes before the routine check-in, however the day began, as in v1's gate.
@@ -77,7 +81,7 @@ export function movementLine({ mode, permission: p, status, normal, enrolled = t
     const checkIn = said(PERMISSION_TEXT.noCheckIn) ? 'Check in first' : undefined;
     return { text: known ?? recheck ?? checkIn ?? 'Not now: open to see why', tone: 'caution' };
   }
-  if (status === 'flare') return { text: flareOutside ? STRETCH_SUGGESTED : FLARE[mode] ?? `${normal} · ${STRETCH_SUGGESTED}`, tone: 'normal' };
+  if (status === 'flare') return { text: line, tone: 'normal' };
   if (p.disposition === 'adjust' && p.restrictions.length > 0) return { text: `${normal} · with changes`, tone: 'normal' };
   return { text: normal, tone: 'normal' };
 }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { PERMISSION_TEXT, permission, type Permission } from '@/engine/permission';
+import { PERMISSION_TEXT, permission, type Mode, type Permission } from '@/engine/permission';
 import { evaluateCheckIn } from '@/engine/readiness';
 import { createDefaultProfile } from '@/profile/defaults';
+import type { Status } from '@/health/status';
 import type { DailyCheckIn } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { movementLine, workoutNormal } from './tileLine';
@@ -60,7 +61,7 @@ describe('movementLine (journey §7.5)', () => {
     // In the programme, the flare's recovery session, as before.
     expect(movementLine({ mode: 'guided', permission: base, status: 'flare', normal: 'Full Body B · 45 min', enrolled: true }).text).toBe('Gentle only today');
     // Only during a flare: on an ordinary day the tile still says the programme isn't joined.
-    expect(movementLine({ mode: 'guided', permission: checkInOnly, status: 'normal', normal, enrolled: false }).text).toBe('12-week programme · not joined · check in first');
+    expect(movementLine({ mode: 'guided', permission: checkInOnly, status: 'normal', normal, enrolled: false }).text).toBe('12-week programme · not joined');
     // A stop, a setup gap or a safety hold keeps its own words.
     const stop = { ...base, allowed: false, disposition: 'today' as const, reasons: ['No exercise today.'] };
     expect(movementLine({ mode: 'guided', permission: stop, status: 'flare', normal, enrolled: false }).text).toBe('Not today');
@@ -70,6 +71,36 @@ describe('movementLine (journey §7.5)', () => {
     // Stretch and Walk are not the programme: their flare lines stand.
     expect(movementLine({ mode: 'stretch', permission: base, status: 'flare', normal: 'x', enrolled: false }).text).toBe('Gentle stretch');
     expect(movementLine({ mode: 'walk', permission: base, status: 'flare', normal: 'Just a walk', enrolled: false }).text).toBe('Just a walk · Stretch is suggested today');
+  });
+  it('works out the flare line first, then says "check in first" for a hold only a check-in answers, except where there is nothing to check in for (kiro KV-03 to KV-05)', () => {
+    const checkInOnly = { ...hold(PERMISSION_TEXT.noCheckIn), needsCheckIn: true };
+    const notJoined = workoutNormal({ enrolled: false, label: 'Full Body B', minutes: 45 });
+    // mode, status, the gate (allowed, or held only for the check-in), in the programme, the normal line, the tile's line
+    const rows: [Mode, Status, 'allowed' | 'checkIn', boolean, string, string][] = [
+      ['guided', 'normal', 'allowed', true, 'Full Body B · 45 min', 'Full Body B · 45 min'],
+      ['guided', 'normal', 'checkIn', true, 'Full Body B · 45 min', 'Full Body B · 45 min · check in first'],
+      ['guided', 'normal', 'allowed', false, notJoined, '12-week programme · not joined'],
+      ['guided', 'normal', 'checkIn', false, notJoined, '12-week programme · not joined'],
+      ['guided', 'flare', 'allowed', true, 'Full Body B · 45 min', 'Gentle only today'],
+      ['guided', 'flare', 'checkIn', true, 'Full Body B · 45 min', 'Gentle only today · check in first'],
+      ['guided', 'flare', 'allowed', false, notJoined, 'Stretch is suggested today'],
+      ['guided', 'flare', 'checkIn', false, notJoined, 'Stretch is suggested today'],
+      ['stretch', 'normal', 'allowed', true, '10 or 15 min', '10 or 15 min'],
+      ['stretch', 'normal', 'checkIn', true, '10 or 15 min', '10 or 15 min · check in first'],
+      ['stretch', 'flare', 'allowed', true, '10 or 15 min', 'Gentle stretch'],
+      ['stretch', 'flare', 'checkIn', true, '10 or 15 min', 'Gentle stretch · check in first'],
+      ['walk', 'normal', 'allowed', true, 'Just a walk', 'Just a walk'],
+      ['walk', 'normal', 'checkIn', true, 'Just a walk', 'Just a walk · check in first'],
+      ['walk', 'flare', 'allowed', true, 'Just a walk', 'Just a walk · Stretch is suggested today'],
+      ['walk', 'flare', 'checkIn', true, 'Just a walk', 'Just a walk · Stretch is suggested today · check in first'],
+    ];
+    for (const [mode, status, gate, enrolled, normal, line] of rows) {
+      // Stretch and Walk read the same in the programme or not.
+      for (const joined of mode === 'guided' ? [enrolled] : [true, false]) {
+        const p = gate === 'allowed' ? base : checkInOnly;
+        expect(movementLine({ mode, permission: p, status, normal, enrolled: joined }), `${mode} ${status} ${gate} ${joined}`).toEqual({ text: line, tone: 'normal' });
+      }
+    }
   });
   it('a hold that only needs today’s check-in keeps the normal line and says so (L-03)', () => {
     const p = { ...base, allowed: false, disposition: 'hold' as const, reasons: [PERMISSION_TEXT.noCheckIn], needsCheckIn: true };
