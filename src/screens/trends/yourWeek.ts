@@ -11,13 +11,13 @@ import type { DayRange } from '@/health/aggregate';
 import type { Status } from '@/health/status';
 import type { DisplayPrefs } from '@/screens/track/format';
 import { recordedMovement, wholeMinutes } from '@/screens/track/movement';
-import { addDays, mondayOf, today as dayOf, weekOf } from '@/screens/track/periods';
+import { addDays, daysIn, mondayOf, today as dayOf, weekOf } from '@/screens/track/periods';
 import { formatNumber } from '@/screens/track/units';
 import { pendingWeeklyGoal, weeklyGoalOn, type WeeklyGoalSettings } from '@/screens/track/weeklyGoal';
 import { GLUCOSE_LINES, readingsFor } from './metrics';
 import { countText } from './model';
 import { stepsDays, stretchedDays, type TrendData } from './records';
-import { dailyStats, readingStats, type DayContext } from './stats';
+import { MIN_DAYS, dailyStats, readingStats, type DayContext, type DayFigure } from './stats';
 
 const noon = (day: string) => new Date(`${day}T12:00:00`);
 
@@ -48,6 +48,11 @@ export function weekFacts({ week, data, prefs, ctx }: { week: string; data: Tren
   const short = format(noon(range.from), 'd MMM');
   const prior: DayRange = { from: addDays(shown.from, -7), to: addDays(shown.to, -7) };
   const moved = (r: DayRange) => wholeMinutes(recordedMovement(r, data.observations, data.sessions).minutes);
+  // Days of data as a movement trend counts them, from each day's recorded movement (B-15, D68).
+  const enough = (r: DayRange) => dailyStats(r, daysIn(r).flatMap((day): DayFigure[] => {
+    const minutes = recordedMovement({ from: day, to: day }, data.observations, data.sessions).minutes;
+    return minutes > 0 ? [{ day, value: minutes }] : [];
+  }), ctx, 'counted').days >= MIN_DAYS;
   const steps = dailyStats(shown, stepsDays(shown, data.observations, prefs.hour12), ctx, 'stated');
   const glucose = readingsFor('glucose', shown, data, prefs);
   const g = readingStats(shown, glucose.points, glucose.meters, ctx);
@@ -57,8 +62,9 @@ export function weekFacts({ week, data, prefs, ctx }: { week: string; data: Tren
     title: current ? 'This week' : last ? 'Last week' : `Week of ${short}`,
     name: current ? 'this week' : last ? 'last week' : `in the week of ${short}`,
     minutes: moved(shown),
-    // Only a week wholly in the record is compared: before the first record there was nothing to count (Review Focus 4).
-    ...(ctx.since !== undefined && ctx.since <= prior.from ? { before: moved(prior) } : {}),
+    // Only a week wholly in the record is compared: before the first record there was nothing to count (Review Focus 4);
+    // and, as every trend's comparison, with 3 days of data in both (H3-12).
+    ...(ctx.since !== undefined && ctx.since <= prior.from && enough(shown) && enough(prior) ? { before: moved(prior) } : {}),
     beforeName: current ? 'by this time last week' : 'the week before',
     stretchDays: [...stretchedDays(data.sessions)].filter(d => d >= shown.from && d <= shown.to).length,
     ...(steps.perDay !== undefined ? { steps: { perDay: steps.perDay, days: steps.days } } : {}),

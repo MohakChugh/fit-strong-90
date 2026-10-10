@@ -88,6 +88,24 @@ describe('Your week’s facts and sentences (journey §12.1, B-15)', () => {
     expect(weekSentences(first, prefs)).toEqual(['You moved 30 minutes this week.']);
   });
 
+  it('compares only with 3 days of data in both weeks, as a category’s trend does (H3-12, KT-02, B-15)', () => {
+    // Monday 12 October: one day this week against one day by this time last week.
+    const record = data([moved('a', '2026-10-05', 20), moved('b', '2026-10-06', 25), moved('c', '2026-10-12', 30), moved('d', '2026-10-13', 10)]);
+    const monday = weekFacts({ week: '2026-10-12', data: record, prefs, ctx: ctx({ today: '2026-10-12' }) });
+    expect(monday.before).toBeUndefined();
+    expect(weekSentences(monday, prefs)[0]).toBe('You moved 30 minutes this week.');
+    // By Wednesday each has three days: Monday to Wednesday against last Monday to Wednesday.
+    const wednesday = weekFacts({ week: '2026-10-12', data: record, prefs, ctx: ctx({ today: '2026-10-14' }) });
+    expect(weekSentences(wednesday, prefs)[0]).toBe('You moved 40 minutes this week, 5 fewer than by this time last week.');
+    // An Away day isn't a day of data: a week with five of them has two, and isn't compared.
+    const away = weekFacts({ week: '2026-10-05', data: record, prefs, ctx: ctx({ today: '2026-10-12', statusOn: d => (d >= '2026-10-06' && d <= '2026-10-10' ? 'away' : 'normal') }) });
+    expect(away.before).toBeUndefined();
+    // So is a week whose week before had five: both need 3.
+    const awayBefore = weekFacts({ week: '2026-10-05', data: record, prefs, ctx: ctx({ today: '2026-10-12', statusOn: d => (d >= '2026-09-29' && d <= '2026-10-03' ? 'away' : 'normal') }) });
+    expect(awayBefore.before).toBeUndefined();
+    expect(weekFacts({ week: '2026-10-05', data: record, prefs, ctx: ctx({ today: '2026-10-12' }) }).before).toBe(0);
+  });
+
   it('a finished week is named and compared as one', () => {
     const last = weekFacts({ week: '2026-09-28', data: data(OBS), prefs, ctx: ctx() });
     expect(last).toMatchObject({ title: 'Last week', name: 'last week', minutes: 92, beforeName: 'the week before' });
