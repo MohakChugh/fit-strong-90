@@ -9,8 +9,12 @@ import { summarise } from './record';
 import { PERMISSION_TEXT, type Permission } from '@/engine/permission';
 import type { CheckInRecord } from '@/types/checkin';
 import {
+  STEPS_DENIED,
   clockLine,
+  cueLine,
   distanceFigure,
+  journalLine,
+  routePlaceholder,
   draftWarning,
   endingLine,
   heldAction,
@@ -103,7 +107,7 @@ describe('live figures', () => {
 
     expect(wakeHint({ wake: 'held', walk: s.walk, blocked: null })).toBeUndefined();
     expect(wakeHint({ wake: 'pending', walk: s.walk, blocked: null })).toBeUndefined();
-    expect(wakeHint({ wake: 'unavailable', walk: s.walk, blocked: null })).toBe('Keep the screen on to keep recording.');
+    expect(wakeHint({ wake: 'unavailable', walk: s.walk, blocked: null })).toBe('Keep this screen on to keep tracking.');
     // Paused or held, nothing is being recorded, so a dark screen loses nothing.
     expect(wakeHint({ wake: 'unavailable', walk: { ...s.walk, status: 'paused' }, blocked: null })).toBeUndefined();
     expect(wakeHint({ wake: 'unavailable', walk: s.walk, blocked: 'live' })).toBeUndefined();
@@ -353,5 +357,34 @@ describe('a held walk after a change to the phone’s clock (B-19)', () => {
     expect(clockLine({ clockChangedAt: 1_760_000_000_000 })).toBe(
       'Your phone’s clock changed during this walk, so a reading from before the change can’t be timed. Check your glucose again to carry on.',
     );
+  });
+});
+
+describe('the live walk’s v2 lines (journey §9.2, §9.4)', () => {
+  it('asks to keep the screen on in the journey’s words', () => {
+    expect(wakeHint({ wake: 'unavailable', walk: snapshot().walk, blocked: null })).toBe('Keep this screen on to keep tracking.');
+  });
+
+  it('says when the phone is out of space for the walk in progress', () => {
+    expect(journalLine({ journalFull: false })).toBeUndefined();
+    expect(journalLine({ journalFull: true })).toBe('This phone is out of space. Your walk is kept on this screen; free some space and tap Save.');
+  });
+
+  it('says steps aren’t counted when motion was turned down at the start', () => {
+    expect(STEPS_DENIED).toEqual({ value: 'Steps not counted', note: 'Motion access was turned down when this walk started.' });
+  });
+
+  it('offers the voice after the screen was reopened, and says when cues need a connection', () => {
+    expect(cueLine({ status: 'ready', trouble: null }, true)).toBeUndefined();
+    expect(cueLine({ status: 'idle', trouble: null }, true)).toEqual({ text: 'Voice cues are off until you turn them on.', unlock: true });
+    expect(cueLine({ status: 'ready', trouble: 'blocked' }, true)?.unlock).toBe(true);
+    expect(cueLine({ status: 'unavailable', trouble: null }, false)).toEqual({ text: 'Voice cues need a connection.', unlock: false });
+    expect(cueLine({ status: 'unavailable', trouble: null }, true)).toEqual({ text: 'Voice cues aren’t available right now.', unlock: false });
+  });
+
+  it('waits for a location before drawing, and says when there is none', () => {
+    expect(routePlaceholder({ state: 'acquiring' })).toBe('Finding your location…');
+    expect(routePlaceholder({ state: 'denied' })).toBe('Location is off, so no route is drawn.');
+    expect(routePlaceholder({ state: 'unsupported' })).toBe('Location is off, so no route is drawn.');
   });
 });

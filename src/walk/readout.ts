@@ -16,6 +16,8 @@ import { clock, count, km, pace, span, timeOfDay, wholeMinutes } from './format'
 import { ADDABLE_GAP_MS, type GpsState, type LiveSnapshot, type Notice, type StepsState } from './live';
 import { afterMealTitle } from './plan';
 import type { WalkSummary } from './record';
+import type { VoiceTrouble } from '@/voice/clips';
+import type { VoiceStatus } from './voice';
 
 export interface Figure {
   /** The figure, or a short word in its place. */
@@ -66,8 +68,32 @@ export function clockLine(walk: Pick<Walk, 'clockChangedAt'>): string | undefine
 
 export function wakeHint(snapshot: Pick<LiveSnapshot, 'wake' | 'walk' | 'blocked'>): string | undefined {
   return snapshot.wake === 'unavailable' && snapshot.walk.status === 'running' && !snapshot.blocked
-    ? 'Keep the screen on to keep recording.'
+    ? 'Keep this screen on to keep tracking.'
     : undefined;
+}
+
+/** Steps, when motion access was turned down at the start (journey §9.1). */
+export const STEPS_DENIED: Figure = { value: 'Steps not counted', note: 'Motion access was turned down when this walk started.' };
+
+/** When the phone refused the walk's last checkpoint for want of space (journey §9.4). */
+export function journalLine(s: Pick<LiveSnapshot, 'journalFull'>): string | undefined {
+  return s.journalFull ? 'This phone is out of space. Your walk is kept on this screen; free some space and tap Save.' : undefined;
+}
+
+/**
+ * The voice's line on the live walk (journey §9.2, V-J16). A screen opened
+ * without the tap that starts a walk (a reload, a link) has a locked audio
+ * element, and only a tap unlocks it.
+ */
+export function cueLine(voice: { status: VoiceStatus; trouble: VoiceTrouble | null }, online: boolean): { text: string; unlock: boolean } | undefined {
+  if (voice.trouble === 'blocked' || voice.status === 'idle') return { text: 'Voice cues are off until you turn them on.', unlock: true };
+  if (voice.status === 'unavailable') return { text: online ? 'Voice cues aren’t available right now.' : 'Voice cues need a connection.', unlock: false };
+  return undefined;
+}
+
+/** Where the route will be, before there is one to draw. */
+export function routePlaceholder(gps: LiveSnapshot['gps']): string {
+  return gps.state === 'denied' || gps.state === 'unsupported' ? 'Location is off, so no route is drawn.' : 'Finding your location…';
 }
 
 export function targetLine(observedMs: number, targetMinutes: number | undefined): string | undefined {
