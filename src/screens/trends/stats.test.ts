@@ -50,9 +50,21 @@ describe('counted measures: recorded movement (B-15, D25, K-49)', () => {
     expect(dailyStats(WEEK, [fig('2026-10-05', 30)], ctx(), 'counted')).toMatchObject({ sum: 30, days: 4, perDay: 7.5 });
   });
 
-  it('a status day is not a day of data, but what was recorded on it still counts', () => {
+  it('a status day is no day of data: its minutes stay in the total and out of the average (D88, KT-03)', () => {
     const s = dailyStats(WEEK, [fig('2026-10-05', 30), fig('2026-10-06', 10)], ctx({ statusOn: awayOn('2026-10-06', '2026-10-07') }), 'counted');
-    expect(s).toMatchObject({ sum: 40, days: 2, perDay: 20, status: { away: 2 } });
+    // 30 over Monday and Thursday, never 40 over them.
+    expect(s).toMatchObject({ sum: 40, days: 2, perDay: 15, status: { away: 2 }, outside: 10, restDays: 0 });
+    expect(figureOf(s, 'total')).toBe(40);
+  });
+
+  it('a planned rest day with nothing recorded is no day of data; one with movement in it is (D88, KT-08)', () => {
+    const rest = (day: string) => day === '2026-10-06' || day === '2026-10-07';
+    // Monday 30; Tuesday a rest day, empty; Wednesday a rest day with 20; Thursday nothing: 3 days of data.
+    const s = dailyStats(WEEK, [fig('2026-10-05', 30), fig('2026-10-07', 20)], ctx({ restOn: rest }), 'counted');
+    expect(s).toMatchObject({ sum: 50, days: 3, restDays: 1, outside: 0 });
+    expect(s.perDay).toBeCloseTo(50 / 3, 9);
+    // A stated measure has no rest days: a day with a figure is a day of data.
+    expect(dailyStats(WEEK, [fig('2026-10-06', 6000)], ctx({ restOn: rest }), 'stated')).toMatchObject({ days: 1, perDay: 6000, restDays: 0 });
   });
 
   it('days before the first record are not zeros (Review Focus 4)', () => {

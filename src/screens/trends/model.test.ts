@@ -87,7 +87,7 @@ describe('a counted measure: Walk, with Away days and a rest day (B-15, D25, K-4
     expect(view.title).toBe('Last week');
     expect(view.headline).toEqual({ statistic: 'Total', coverage: '7 days', value: '120', unit: 'min' });
     expect(view.change).toEqual({ text: 'Higher than the week before · +60 min', direction: 'higher', compared: '28 Sep – 4 Oct vs 21–27 Sep' });
-    expect(view.notes).toEqual(['Includes 2 Away days.']);
+    expect(view.notes).toEqual(['Includes 10 min on 2 Away days, not in the average.', 'Includes 1 rest day with nothing recorded, not in the average.']);
     expect(view.stats).toEqual([{ label: 'Days with time recorded', value: '5' }, { label: 'Highest day', value: '40 min · Thu 1 Oct' }]);
   });
 
@@ -97,11 +97,12 @@ describe('a counted measure: Walk, with Away days and a rest day (B-15, D25, K-4
     expect(view.chart.slots[2]).toMatchObject({ mark: 'away', text: 'Wednesday, 30 September: Away. The week before: 30 min.' });
     expect(view.chart.slots[4]).toMatchObject({ mark: 'away', text: 'Friday, 2 October: 10 min (Away). The week before: 10 min.' });
     expect(view.chart.slots[6]).toMatchObject({ mark: 'rest', text: 'Sunday, 4 October: Rest day. The week before: Rest day.' });
-    expect(view.chart.average).toEqual({ value: 24, label: 'Average 24 min a day' });
+    // Over the 4 Normal days with data, never the Away day's 10 minutes or the empty rest day (D88, KT-03, KT-08).
+    expect(view.chart.average).toEqual({ value: 27.5, label: 'Average 28 min a day' });
   });
 
   it('sums the view up with its notes', () => {
-    expect(view.summary).toBe('Walk, Last week. Total, 7 days: 120 min. Higher than the week before, +60 min, 28 Sep – 4 Oct vs 21–27 Sep. Includes 2 Away days.');
+    expect(view.summary).toBe('Walk, Last week. Total, 7 days: 120 min. Higher than the week before, +60 min, 28 Sep – 4 Oct vs 21–27 Sep. Includes 10 min on 2 Away days, not in the average. Includes 1 rest day with nothing recorded, not in the average.');
   });
 });
 
@@ -232,7 +233,9 @@ describe('a counted measure’s first days (J§12.2, early days)', () => {
       def: TRENDS.walk, window: windowOf('sixMonths', TODAY), prefs, ctx: ctx({ statusOn: d => (d === '2026-09-29' ? 'away' : 'normal') }),
       data: data([...walk('d', '2026-09-28', 30), ...walk('e', '2026-09-29', 20)]),
     });
-    expect(view.notes).toEqual(['Includes 1 Away day, not counted as days in the average.']);
+    expect(view.notes).toEqual(['Includes 20 min on 1 Away day, not in the average.']);
+    // 30 on Monday over the record's other 10 days, a week on average: never the Away day's 20.
+    expect(view.headline).toEqual({ statistic: 'A week on average', coverage: 'from 10 days', value: '21', unit: 'min' });
   });
 });
 

@@ -241,7 +241,9 @@ export function dailyView(input: TrendInput): TrendView {
 
   const notes: string[] = [];
   const list = statusList(s.status);
-  if (list) notes.push(rule === 'counted' && statistic !== 'total' ? `Includes ${list}, not counted as days in the average.` : `Includes ${list}.`);
+  // Counted: status days and empty rest days are in the total, out of the average (D88); stated: each figure counts, its day named.
+  if (list) notes.push(rule === 'counted' ? `Includes ${s.outside > 0 ? `${formatNumber(s.outside, d)} ${unit} on ` : ''}${list}, not in the average.` : `Includes ${list}.`);
+  if (s.restDays > 0) notes.push(`Includes ${countText(s.restDays, ['rest day', 'rest days'])} with nothing recorded, not in the average.`);
   if (s.partialDays > 0) {
     notes.push(`${countText(s.partialDays, ['day shows', 'days show'])} at least the steps counted: FitStrong walks only, or walks after a total was entered.`);
   }

@@ -4,8 +4,9 @@
  * - `counted`: recorded movement (minutes of workouts, stretches, walks). The
  *   app records every activity it knows of, so a day of the record with
  *   nothing in it is a real 0, and a day of data. A status day (Away, Unwell,
- *   Flare-up) is shaded and isn't a day of data, though what was recorded on
- *   it still counts (D25, K-49).
+ *   Flare-up) and a planned rest day with nothing recorded are shaded and
+ *   aren't days of data: they are out of the average, both what was done on
+ *   them and the days, though the total keeps it (D25, K-49, D88).
  * - `stated`: steps, water and sleep, which the person enters. A day without
  *   a figure is "Not entered", never 0, and isn't a day of data (D14).
  * - readings: each numeric reading counts once, at its measured time. A
@@ -70,14 +71,18 @@ export interface DayFigure {
 export type DailyRule = 'counted' | 'stated';
 
 export interface DailyStats {
-  /** Everything recorded on the record's days in the range, status days included. */
+  /** Everything recorded on the record's days in the range, status days included: the total. */
   sum: number;
   /** Days of data, by the rule. */
   days: number;
   /** Days of the record in the range. */
   recordDays: number;
-  /** `sum ÷ days`; absent with no day of data. */
+  /** What was recorded on the days of data, over them; absent with no day of data. */
   perDay?: number;
+  /** Counted: what was recorded on status days, in the total but not the average (D88). */
+  outside: number;
+  /** Counted: planned rest days with nothing recorded, left out of the average (D88, KT-08). */
+  restDays: number;
   /** The highest day of data. */
   high?: { day: string; value: number };
   /** Status days in the range, by kind. */
@@ -89,20 +94,30 @@ export interface DailyStats {
 export function dailyStats(range: DayRange, figures: readonly DayFigure[], ctx: DayContext, rule: DailyRule): DailyStats {
   const byDay = new Map(figures.map(f => [f.day, f]));
   const days = recordDays(range, ctx);
-  const out: DailyStats = { sum: 0, days: 0, recordDays: days.length, status: {}, partialDays: 0 };
+  const out: DailyStats = { sum: 0, days: 0, recordDays: days.length, outside: 0, restDays: 0, status: {}, partialDays: 0 };
+  let counted = 0;
   for (const day of days) {
     const status = ctx.statusOn(day);
     if (status !== 'normal') out.status[status] = (out.status[status] ?? 0) + 1;
     const figure = byDay.get(day);
-    if (figure) out.sum += figure.value;
-    const isData = rule === 'counted' ? status === 'normal' : figure !== undefined;
-    if (!isData) continue;
-    out.days += 1;
     const value = figure?.value ?? 0;
+    out.sum += value;
+    if (rule === 'counted' && status !== 'normal') {
+      out.outside += value;
+      continue;
+    }
+    // A rest day with nothing in it is shaded "Rest day", never a 0 (D25), so it is no day of data either.
+    if (rule === 'counted' && !figure && ctx.restOn(day)) {
+      out.restDays += 1;
+      continue;
+    }
+    if (rule === 'stated' && !figure) continue;
+    out.days += 1;
+    counted += value;
     if (figure?.basis === 'walks' || figure?.basis === 'atLeast') out.partialDays += 1;
     if (!out.high || value > out.high.value) out.high = { day, value };
   }
-  if (out.days > 0) out.perDay = out.sum / out.days;
+  if (out.days > 0) out.perDay = counted / out.days;
   return out;
 }
 
