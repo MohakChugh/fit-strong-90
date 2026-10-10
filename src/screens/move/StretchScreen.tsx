@@ -55,7 +55,7 @@ export function StretchScreen() {
   const stopped = !permit.allowed && !permit.needsCheckIn;
 
   return (
-    <Screen title="Stretch" back={{ to: '/move', label: 'Move' }}>
+    <Screen title="Stretch" back={{ to: '/home', label: 'Home' }}>
       <Group header="Area">
         <ChoiceRows<StretchFocus>
           label="Area"

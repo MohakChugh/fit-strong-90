@@ -221,6 +221,18 @@ const navigation = {
         await page.waitForTimeout(500);
         await t.check((await t.route()).startsWith('/day/'), `Back from a cold detail went to ${await t.route()}`);
       }
+      // A hub opened by a link goes Back to Home (journey §8.1, §19.1), not to v1's Move.
+      for (const [route, heading] of [['/hub/stretch', 'Stretch'], ['/hub/walk', 'Walk']]) {
+        await t.goto(route);
+        await ui.heading(page, heading);
+        const home = ui.back(page, 'Home');
+        await t.check(await home.count() === 1, `a cold ${route} has no Back to Home`);
+        if (await home.count() === 1) {
+          await ui.tap(home);
+          await waitRoute(page, '/home');
+          await t.check(await t.route() === '/home', `Back from a cold ${route} went to ${await t.route()}, not Home`);
+        }
+      }
       // The session player stays full screen, and its exit goes back to where it was opened from.
       await t.goto('/session');
       await t.check(await page.getByRole('navigation', { name: 'Main' }).count() === 0, 'the session screen shows the tab bar');

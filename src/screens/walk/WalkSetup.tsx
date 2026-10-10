@@ -129,7 +129,7 @@ export function WalkSetup() {
   };
 
   const needsMeal = kind === 'afterMeal' && !meal;
-  const back = { to: '/move', label: 'Move' };
+  const back = { to: '/home', label: 'Home' };
 
   if (pending) {
     const going = pending.state === 'inProgress';

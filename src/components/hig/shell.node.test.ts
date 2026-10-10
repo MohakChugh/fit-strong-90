@@ -459,6 +459,21 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/movementLine\(\{\s+mode, permission, status, enrolled,/);
   });
 
+  it('a hub with nothing to pop to goes Back to Home, and a Workout page to its hub at its own address (codex V1-09)', () => {
+    expect(read('src/screens/move/StretchScreen.tsx')).toContain("back={{ to: '/home', label: 'Home' }}");
+    expect(read('src/screens/walk/WalkSetup.tsx')).toContain("const back = { to: '/home', label: 'Home' };");
+    for (const file of ['src/screens/move/PlanScreen.tsx', 'src/screens/move/ExercisesScreen.tsx']) {
+      expect(read(file), file).toContain("back={{ to: '/hub/workout', label: 'Move' }}");
+    }
+    for (const file of ['src/screens/move/StretchScreen.tsx', 'src/screens/walk/WalkSetup.tsx', 'src/screens/move/PlanScreen.tsx', 'src/screens/move/ExercisesScreen.tsx']) {
+      expect(read(file), file).not.toContain("to: '/move'");
+    }
+  });
+
+  it('the walk summary, a full-screen task, can be left by Back, keeping the walk to save (codex V1-08, journey §20.4 rule 10)', () => {
+    expect(read('src/screens/walk/WalkSummary.tsx')).toMatch(/<Screen title="Your walk" back=\{\{ to: '\/home', label: 'Home' \}\}>/);
+  });
+
   it('a related card and a related exercise name the screen they were opened from', () => {
     expect(read('src/screens/guide/CardScreen.tsx')).toContain('state={{ path: `/guide/card/${from.id}`, label: from.title }}');
     expect(read('src/screens/move/ExerciseScreen.tsx')).toContain('state={{ from: origin, path: location.pathname, label: ex.name }}');

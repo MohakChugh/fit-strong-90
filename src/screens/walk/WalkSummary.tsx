@@ -105,7 +105,7 @@ export function WalkSummary() {
   const done = () => navigate('/today', { viewTransition: true });
 
   return (
-    <Screen title="Your walk">
+    <Screen title="Your walk" back={{ to: '/home', label: 'Home' }}>
       {walk.endedBy === 'emergency' && <EmergencyGuidance />}
       {walk.endedBy === 'low' && <LowGuidance unit={profile.health.glucoseUnit ?? 'mg/dL'} advice={(s => (s ? lowAdvice(s, t => timeOfDay(t)) : undefined))(lowStage(checkIn, walk, now))} />}
 

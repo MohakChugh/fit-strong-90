@@ -58,7 +58,7 @@ export function ExercisesScreen() {
   return (
     <Screen
       title="Find an exercise"
-      back={{ to: '/move', label: 'Move' }}
+      back={{ to: '/hub/workout', label: 'Move' }}
       trailing={(
         <button type="button" onClick={() => setFilterOpen(true)} aria-haspopup="dialog"
           className="press-feedback flex min-h-11 items-center px-2 text-[length:var(--text-body)] text-tint">

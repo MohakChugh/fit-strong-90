@@ -114,7 +114,7 @@ export function PlanScreen() {
   };
 
   return (
-    <Screen title="Your plan" back={{ to: '/move', label: 'Move' }}>
+    <Screen title="Your plan" back={{ to: '/hub/workout', label: 'Move' }}>
       {planView(isEnrolled(data.settings, data.profile), { joining: flow.open, leaving }) === 'member'
         ? <MemberPlan focusOnArrival={switched} onLeave={leave} />
         : <JoinPlan focusOnArrival={switched} unsaved={!flow.open && flow.draft !== undefined} onJoin={() => dispatch({ type: 'open' })} />}

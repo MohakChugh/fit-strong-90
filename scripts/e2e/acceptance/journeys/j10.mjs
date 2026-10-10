@@ -81,12 +81,25 @@ export const cases = [{
       await t.checkpoint('walk-live-2-minutes');
     }, { input: 'glucose 110 mg/dL meter, now; +60 s; +60 s' });
 
-    await t.step(4, 'Finish, Finish walk, Save walk, Done', async () => {
+    await t.step(4, 'Finish, Finish walk, Back and return, Save walk, Done', async () => {
       await walk.finish(t);
       await t.checkpoint('walk-summary');
       const summary = (await main.innerText()).replace(/[\u00a0\u202f]/g, ' ');
       await t.check(/After breakfast/.test(summary) && /8:40/.test(summary), `the summary does not show the meal and its start: ${summary.replace(/\n/g, ' ⏎ ').slice(0, 300)}`);
       await t.check(!/Saved on this/.test(summary), '“Saved” shows before saving');
+      // Every screen can be left by Back (journey §20.4 rule 10): the unsaved walk is kept, and the Walk hub offers it.
+      const back = ui.header(page).getByRole('button', { name: /^Back\b/ });
+      await t.check(await back.count() === 1, 'the walk summary has no Back');
+      if (await back.count() === 1) {
+        await ui.tap(back);
+        await page.waitForFunction(() => !location.hash.startsWith('#/walk/summary'), null, { timeout: 10000 }).catch(() => {});
+        await t.check((await walk.stored(page))?.id === walkId, 'leaving the summary by Back did not keep the walk to save');
+        await ui.heading(page, 'Walk');
+        const review = ui.button(main, 'Review and save');
+        await t.must(await review.count() === 1, `after Back the Walk hub does not offer the walk to save (${await t.route()})`);
+        await ui.tap(review);
+        await page.getByRole('heading', { level: 1, name: 'Your walk' }).waitFor();
+      }
       const atAck = await walk.save(t);
       const saved = walk.walkObservations(atAck);
       await t.check(saved.length === 2, `when “Saved on this device” shows, ${saved.length} walk observations are stored, not 2`);
