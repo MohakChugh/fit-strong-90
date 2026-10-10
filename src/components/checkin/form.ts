@@ -145,6 +145,21 @@ export function initialBp(saved?: DailyCheckIn): BpFields {
   };
 }
 
+/**
+ * One box of a blood-pressure row typed into (R-01). A row emptied of both
+ * numbers lets go of the half it was opened with: whatever is typed there
+ * next is another measurement, and the half stays in the record, standing on
+ * its own. Filling in the missing box without emptying the row completes it.
+ */
+export function withBpBox(bp: BpFields, key: 's1' | 'd1' | 's2' | 'd2', value: string, at: string): BpFields {
+  const row = key.endsWith('1') ? 1 : 2;
+  const next: BpFields = { ...bp, [key]: value, [`at${row}`]: at };
+  if (next[`s${row}`].trim() || next[`d${row}`].trim()) return next;
+  const { [`half${row}` as 'half1' | 'half2']: _gone, ...rest } = next;
+  void _gone;
+  return rest;
+}
+
 /** Older records asked one question for these. */
 const LEGACY_URGENT: EmergencyFlag[] = ['chest', 'breathless', 'stroke'];
 const LEGACY_CAUDA: EmergencyFlag[] = ['bladderBowel', 'saddle'];

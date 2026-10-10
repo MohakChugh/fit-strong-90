@@ -434,6 +434,55 @@ describe('P-02: a half-entered severe number goes with the measurement Track cor
     expect(walk().gate.allowed).toBe(false);
   });
 
+  /** As the correction sheet saves it: both numbers of one of the day's readings. */
+  async function correctPressure(sys: string, dia: string) {
+    const { EditPressureSheet } = await import('./EditSheets');
+    const { pairBloodPressure } = await import('@/health/aggregate');
+    host = render(createElement(EditPressureSheet, { open: true, onOpenChange: () => {}, reading: pairBloodPressure(pressures())[0] }));
+    await host.settle();
+    const boxes = host.all().filter(n => n.type === 'input' && n.props.inputMode === 'numeric');
+    await host.change(boxes[0], { value: sys });
+    await host.change(boxes[1], { value: dia });
+    await host.click(host.button('Save correction'));
+    await host.settle();
+  }
+  /** Codex round 9 (R-02): a stored half 190 at 09:10 linked back to the day's 190/100 at 09:00, which it cannot complete. */
+  const backward: DailyCheckIn = {
+    ...BASE, bp: { sys: 190, dia: 100 }, bpReadings: [{ sys: 190, dia: 100, at: iso(9, 0) }],
+    bpPartial: [{ sys: 190, at: iso(9, 10), completion: { sys: 190, dia: 100, at: iso(9, 0) } }],
+  };
+  const laterId = `bpp:${iso(9, 10)}:190/`;
+
+  it('R-02: correcting the earlier reading a half cannot belong to leaves the half counting, after a reload', async () => {
+    await seed(backward);
+    await reload();
+    expect(severe()).toEqual(expect.arrayContaining(['bpSevereUnconfirmed', laterId]));
+    await correctPressure('125', '85');
+    await reload();
+    expect(stored()!.bpReadings).toEqual([{ sys: 125, dia: 85, at: iso(9, 0) }]);
+    expect(stored()!.bpPartial).toEqual([{ sys: 190, at: iso(9, 10) }]);
+    expect(severe()).toEqual(expect.arrayContaining(['bpSevereUnconfirmed', laterId]));
+  });
+
+  it('R-02: deleting that earlier reading leaves the half counting too', async () => {
+    await seed(backward);
+    await reload();
+    await remove(pressures()[0].id);
+    await reload();
+    expect(stored()!.bpPartial).toEqual([{ sys: 190, at: iso(9, 10) }]);
+    expect(severe()).toEqual(expect.arrayContaining(['bpSevereUnconfirmed', laterId]));
+  });
+
+  it('R-02: a half linked to a reading without its number (190 to 120/80) is not taken away by correcting that reading', async () => {
+    await seed({ ...BASE, bp: { sys: 120, dia: 80 }, bpReadings: [{ sys: 120, dia: 80, at: iso(9, 10) }], bpPartial: [{ sys: 190, at: iso(9, 0), completion: { sys: 120, dia: 80, at: iso(9, 10) } }] });
+    await reload();
+    expect(severe()).toEqual(expect.arrayContaining(['bpSevereUnconfirmed', halfId]));
+    await correctPressure('125', '85');
+    await reload();
+    expect(stored()!.bpPartial).toEqual([{ sys: 190, at: iso(9, 0) }]);
+    expect(severe()).toEqual(expect.arrayContaining(['bpSevereUnconfirmed', halfId]));
+  });
+
   it('Q-01: and with the independent 190/100 deleted in Track, the real 190 is kept and still counts', async () => {
     await halfThenAnother();
     await remove(pressures()[0].id);

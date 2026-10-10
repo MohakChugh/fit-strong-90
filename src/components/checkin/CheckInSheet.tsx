@@ -25,7 +25,7 @@ import { CheckRow, NumberBox, PainScale, Segmented, Toggle, Wrap } from './parts
 import { BACK_LABEL, EMERGENCY_LABEL, LOW_NEWS, NEWS_LABEL, URINE_LABEL, defaultStartLabel } from './copy';
 import { WORSENING } from './stop';
 import {
-  answerEpisode, buildCheckIn, episodeChoice, formSanity, saveOnEmergency, submitBlocked, visibleQuestions,
+  answerEpisode, buildCheckIn, episodeChoice, formSanity, saveOnEmergency, submitBlocked, visibleQuestions, withBpBox,
   type Answerable, type BackAnswers, type CheckInForm, type EpisodeChoice,
 } from './form';
 import {
@@ -274,8 +274,7 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
     update({ glucoseAt: new Date(y, mo - 1, d, h, m).toISOString() });
   };
   const setBp = (key: 's1' | 'd1' | 's2' | 'd2', value: string) => {
-    const at = key.endsWith('1') ? 'at1' : 'at2';
-    setForm(f => ({ ...f, bp: { ...f.bp, [key]: value.replace(/[^\d]/g, ''), [at]: new Date().toISOString() } }));
+    setForm(f => ({ ...f, bp: withBpBox(f.bp, key, value.replace(/[^\d]/g, ''), new Date().toISOString()) }));
   };
   /** A change that is also an answer: what was touched is saved, and only that (J03, J16). */
   const answer = (key: Answerable) => setForm(f => (f.answered[key] ? f : { ...f, answered: { ...f.answered, [key]: true } }));

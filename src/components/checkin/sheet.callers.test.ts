@@ -796,6 +796,70 @@ describe('a mode the profile alone rules out is refused on the sheet before any 
   });
 });
 
+describe('R-01: a reopened row emptied of both numbers lets go of the half it was opened with', () => {
+  async function reload() {
+    host?.unmount();
+    host = undefined;
+    store.resetForTests();
+    await store.start({ factory: fake, broadcast: null });
+    restorePendingCheckInsForTests();
+  }
+  const walk = (p: UserProfile) => {
+    const g = effectiveCheckIns(store.getState().checkIns, p);
+    return permission({ profile: p, checkIn: g.find(c => c.date === DAY), now: new Date(), recent: g }, 'walk');
+  };
+
+  it('190 saved alone at 09:00; reopened, the box cleared and an independent 190/100 typed there at 09:10, corrected in Track to 120/80: the 190 still holds, after a reload too', async () => {
+    const p = createDefaultProfile(PROFILES.bp);
+    await seed(p);
+    await openSheet('walk');
+    await none();
+    await h().change(h().field('Reading 1, top number'), { value: '190' });
+    await seePlan();
+    const half = stored()!.bpPartial![0];
+    expect(half).toMatchObject({ sys: 190 });
+    clock(9, 10);
+    await openSheet('walk');
+    await changeAnswers();
+    expect(h().field('Reading 1, top number').props.value).toBe('190');
+    await h().change(h().field('Reading 1, top number'), { value: '' });
+    await h().change(h().field('Reading 1, top number'), { value: '190' });
+    await h().change(h().field('Reading 1, bottom number'), { value: '100' });
+    await seePlan();
+    // Another measurement: the half stays as it was, not linked to it.
+    expect(stored()!.bpPartial).toEqual([half]);
+    const [reading] = stored()!.bpReadings!;
+    expect(reading).toMatchObject({ sys: 190, dia: 100 });
+    // As Track's correction sheet saves it.
+    expect(await correctCheckInPressure({ at: reading.at, was: { sys: 190, dia: 100 }, to: { sys: 120, dia: 80 } }, { profile: p, update: store.update, date: DAY }))
+      .toMatchObject({ matched: true, stored: true });
+    await reload();
+    expect(stored()!.bpReadings).toEqual([{ ...reading, sys: 120, dia: 80 }]);
+    expect(stored()!.bpPartial).toEqual([half]);
+    expect(stored()!.readiness.reasons.map(x => x.code)).toContain('bpSevereUnconfirmed');
+    expect(walk(p).allowed).toBe(false);
+  });
+
+  it('the missing number typed wrongly and put right in its box, the row never emptied: still that half’s completion', async () => {
+    const p = createDefaultProfile(PROFILES.bp);
+    await seed(p);
+    await openSheet('walk');
+    await none();
+    await h().change(h().field('Reading 1, top number'), { value: '190' });
+    await seePlan();
+    const half = stored()!.bpPartial![0];
+    clock(9, 5);
+    await openSheet('walk');
+    await changeAnswers();
+    await h().change(h().field('Reading 1, bottom number'), { value: '7' });
+    await h().change(h().field('Reading 1, bottom number'), { value: '' });
+    await h().change(h().field('Reading 1, bottom number'), { value: '100' });
+    await seePlan();
+    const [reading] = stored()!.bpReadings!;
+    expect(stored()!.bpPartial).toEqual([{ ...half, completion: reading }]);
+  });
+});
+
 describe('scan C2-02: after a reload, a waiting update never takes back an answer the device stored', () => {
   async function reload() {
     host?.unmount();

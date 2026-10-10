@@ -492,13 +492,23 @@ const sameInstant = (a: string | undefined, b: string | undefined) => a !== unde
  * Q-01). When Track corrects that reading, the half follows it while the
  * corrected reading still holds the half's number; otherwise its number was
  * part of what was typed wrongly, and it goes, as it does when Track deletes
- * the reading. Every other half is another measurement and is left as it is.
+ * the reading. Every other half is another measurement and is left as it is,
+ * and so is one whose link could never have been to that reading, as the
+ * engine reads it (R-02): it keeps counting, without the link.
  */
 function halvesWith(record: DailyCheckIn, was: BpReading, now?: BpReading): DailyCheckIn {
-  const ofIt = (h: BpPartialReading) => !!h.completion && h.completion.sys === was.sys && h.completion.dia === was.dia
+  const linked = (h: BpPartialReading) => !!h.completion && h.completion.sys === was.sys && h.completion.dia === was.dia
     && (sameInstant(h.completion.at, was.at) || (h.completion.at === undefined && was.at === undefined));
-  if (!record.bpPartial?.some(ofIt)) return record;
-  const bpPartial = record.bpPartial.flatMap(h => (!ofIt(h) ? [h] : now && completes(h, now) ? [{ ...h, completion: now }] : []));
+  if (!record.bpPartial?.some(linked)) return record;
+  const bpPartial = record.bpPartial.flatMap(h => {
+    if (!linked(h)) return [h];
+    if (!completes(h, was)) {
+      const { completion: _impossible, ...standing } = h;
+      void _impossible;
+      return [standing];
+    }
+    return now && completes(h, now) ? [{ ...h, completion: now }] : [];
+  });
   const { bpPartial: _halves, ...rest } = record;
   void _halves;
   return bpPartial.length ? { ...rest, bpPartial } : rest;
