@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CATEGORIES, GROUPS, categoryById, defaultHome } from './categories';
+import { CATEGORIES, GROUPS, categoryById, defaultHome, isHomeLayout } from './categories';
+import type { HomeLayout } from '@/types';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import type { UserProfile } from '@/types/profile';
 import type { UserSettings } from '@/types';
@@ -94,5 +95,24 @@ describe('defaultHome (journey §5.1)', () => {
       learn: ['learn'],
     });
     expect(home.hidden).toEqual([]);
+  });
+});
+
+describe('isHomeLayout: a stored or imported layout this build can draw', () => {
+  const L: HomeLayout = { order: { move: ['workout', 'stretch', 'walk'], eat: ['food'], check: ['glucose', 'water', 'sleep'], learn: ['learn'] }, hidden: [] };
+  it('accepts a layout the operations make', () => {
+    expect(isHomeLayout(L)).toBe(true);
+    expect(isHomeLayout({ ...L, order: { ...L.order, check: ['glucose', 'sleep'] }, hidden: ['water'] })).toBe(true);
+    expect(isHomeLayout(defaultHome({ profile: withHealth({ diabetes: 'type2' }), settings, hasSteps: true }))).toBe(true);
+  });
+  it('refuses an unknown category, one in the wrong group, one twice, or a group over 5', () => {
+    expect(isHomeLayout({ ...L, order: { ...L.order, check: ['glucose', 'mood'] } })).toBe(false);
+    expect(isHomeLayout({ ...L, order: { ...L.order, eat: ['walk'] } })).toBe(false);
+    expect(isHomeLayout({ ...L, order: { ...L.order, move: ['walk', 'walk'] } })).toBe(false);
+    expect(isHomeLayout({ ...L, hidden: ['walk'] })).toBe(false);
+    expect(isHomeLayout({ ...L, order: { ...L.order, check: ['glucose', 'bp', 'back', 'weight', 'water', 'sleep'] } })).toBe(false);
+  });
+  it('refuses anything that is not a layout', () => {
+    for (const x of [null, 'home', [], { order: {} }, { order: L.order }, { ...L, hidden: 'none' }]) expect(isHomeLayout(x)).toBe(false);
   });
 });

@@ -6,7 +6,9 @@
  */
 import type { Category } from '@/categories';
 import type { Mode } from '@/engine/permission';
+import type { DueItem } from '@/health/cadence';
 import { dayPartOf, type DayPart, type Recommendation } from '@/health/recommend';
+import type { Status } from '@/health/status';
 import type { CategoryId } from '@/types';
 import type { SessionPlan } from '@/types/plan';
 import type { Reading } from '@/screens/today/model';
@@ -35,9 +37,14 @@ export function tileHref(category: Pick<Category, 'id' | 'hub'>): string {
 /** The largest text that still takes two tile columns (K-26, A-59). */
 const TWO_UP_SCALE = 1.3;
 
-/** Two columns at 375 CSS px wide and above with text at 130% or less; otherwise one (journey §7.1). */
-export function tileColumns({ width, scale }: { width: number; scale: number }): 1 | 2 {
-  return width >= 375 && scale <= TWO_UP_SCALE + 1e-9 ? 2 : 1;
+/**
+ * Two columns at 375 CSS px wide and above with text at 130% or less;
+ * otherwise one (journey §7.1). A desktop flows them into 3 from 1024 px and
+ * 4 from 1280 px (§7.7); large text keeps one column at any width.
+ */
+export function tileColumns({ width, scale }: { width: number; scale: number }): 1 | 2 | 3 | 4 {
+  if (width < 375 || scale > TWO_UP_SCALE + 1e-9) return 1;
+  return width >= 1280 ? 4 : width >= 1024 ? 3 : 2;
 }
 
 /** What a stretch or a walk is, when the suggestion is about something else. */
@@ -73,4 +80,20 @@ export function readingLine(id: CategoryId, latest: { glucose?: Reading; pressur
     return reading ? { text: reading.value, detail: `Today · ${reading.detail}`, tone: 'normal' } : { text: 'Not entered today', tone: 'normal' };
   }
   return { text: 'Add a reading', tone: 'normal' };
+}
+
+/** Blood pressure readings due today: a weekly check day, or a day of the diagnostic week (`@/health/cadence`). */
+const BP_DAY = new Set<DueItem['kind']>(['bpCheckDay', 'bpWeek']);
+
+/**
+ * The words beside a tile's caution dot when something is due today (journey
+ * §7.2): "Check day" on Blood pressure, from the cadence model's own list,
+ * which v1's Today showed as "Blood pressure check day". Glucose has none:
+ * the model sets no recurring glucose check without a clinician's plan. As the
+ * prompt row does, nothing is asked while Away or Unwell, or beside a stop.
+ */
+export function dueWords(id: CategoryId, { due, status, stopped }: { due: readonly DueItem[]; status: Status; stopped: boolean }): string | undefined {
+  if (stopped || status === 'away' || status === 'unwell') return undefined;
+  if (id === 'bp' && due.some(d => BP_DAY.has(d.kind))) return 'Check day';
+  return undefined;
 }

@@ -56,6 +56,16 @@ describe('settings in an import file are read field by field (D-08)', () => {
     expect(preview(file({ settings: { ...settings, deleted } })).unreadableFields).toEqual([]);
   });
 
+  it('leaves out a Home layout this build cannot draw, so Home falls back to its defaults (journey §7.6)', () => {
+    const home = { order: { move: ['workout', 'walk'], eat: ['food'], check: ['glucose'], learn: [] }, hidden: ['sleep'] };
+    expect(preview(file({ settings: { ...settings, home } })).unreadableFields).toEqual([]);
+    for (const bad of [{ ...home, hidden: ['mood'] }, { ...home, order: { ...home.order, eat: ['walk'] } }, 'grid']) {
+      const raw = file({ settings: { ...settings, home: bad } });
+      expect(preview(raw).unreadableFields).toEqual(['settings.home']);
+      expect(planImport(raw, 'replace', emptySnapshot(), { allowRejected: true }).change.settings?.replace).toEqual(settings);
+    }
+  });
+
   it('needs the same explicit choice as unreadable records before anything is written', () => {
     expect(() => planImport(file({ settings: { ...settings, statusPeriods: 'flare' } }), 'replace', emptySnapshot())).toThrow(/could not be read/);
   });

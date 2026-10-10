@@ -6,6 +6,7 @@ import {
 import type { Category, CategoryId } from '@/categories';
 import { skipNextTransition } from '@/design/motion';
 import { cn } from '@/lib/utils';
+import { useLongPress } from './editor';
 import { FROM_HOME, tileHref } from './model';
 import type { TileLine } from './tileLine';
 
@@ -34,11 +35,27 @@ const TONE: Record<TileLine['tone'], string> = {
   stop: 'text-stop',
 };
 
+/** A category's icon in a circle of its colour, the glyph in its ink (journey §20.3); words beside it carry the meaning. */
+export function TileIcon({ category }: { category: Pick<Category, 'id' | 'colour'> }) {
+  const Icon = ICON[category.id];
+  return (
+    <span
+      aria-hidden
+      className="relative flex size-11 shrink-0 items-center justify-center rounded-full"
+      style={{ background: `color-mix(in oklab, var(${category.colour}) 16%, transparent)`, color: `var(${category.colour}-ink)` }}
+    >
+      <Icon className="size-6" strokeWidth={2.1} />
+    </span>
+  );
+}
+
 /**
  * One tile (journey §7.2, §20.2): solid, with the category's icon in a circle
- * of its colour, the title in body ink and the live line in its tone. At
+ * of its colour, the title in body ink, the live line in its tone, and a
+ * caution dot with words when something is due today ("Check day"). At
  * least 120 px tall and as tall as its words, which wrap and are never cut.
  * Pressing scales an inner layer, so the hit area never shrinks (M2).
+ * Pressing and holding opens its menu (M18), with no link preview over it.
  *
  * The morph into the hub (M3, B-27): only the tapped tile names its plain
  * background layer `hub-card-bg`, for as long as the router's transition to
@@ -47,25 +64,36 @@ const TONE: Record<TileLine['tone'], string> = {
  * the gate holds, and a tap that opens a hub on a hold skips the transition
  * (motion rule 2).
  */
-export function Tile({ category, line, held, urgent, opensOnHold }: {
+export function Tile({ category, line, due, held, urgent, opensOnHold, onLongPress }: {
   category: Category;
   line: TileLine;
+  /** The caution dot's words, when something is due today. */
+  due?: string;
   /** The gate holds or stops this tile's mode as drawn. */
   held: boolean;
   urgent: boolean;
   /** Asked again at the tap: whether the hub would open on a hold or a stop. */
   opensOnHold: () => boolean;
+  /** Pressing and holding: the tile's menu, anchored to it. */
+  onLongPress?: (anchor: HTMLElement) => void;
 }) {
   const transitioning = useViewTransitionState(category.hub);
   const named = transitioning && !held && !urgent;
-  const Icon = ICON[category.id];
+  const press = useLongPress(onLongPress);
   const href = tileHref(category);
   return (
     <Link
       to={href}
       state={FROM_HOME}
-      onClick={() => { if (urgent || opensOnHold()) skipNextTransition(); }}
-      className="block h-full rounded-2xl"
+      {...press.handlers}
+      onClick={e => {
+        if (press.consumed()) {
+          e.preventDefault();
+          return;
+        }
+        if (urgent || opensOnHold()) skipNextTransition();
+      }}
+      className="block h-full rounded-2xl [-webkit-touch-callout:none]"
     >
       <span className="press-feedback relative flex h-full min-h-[120px] flex-col gap-2 p-4">
         <span
@@ -73,18 +101,18 @@ export function Tile({ category, line, held, urgent, opensOnHold }: {
           className="absolute inset-0 rounded-2xl bg-grouped-card"
           style={named ? { viewTransitionName: 'hub-card-bg' } : undefined}
         />
-        <span
-          aria-hidden
-          className="relative flex size-11 shrink-0 items-center justify-center rounded-full"
-          style={{ background: `color-mix(in oklab, var(${category.colour}) 16%, transparent)`, color: `var(${category.colour}-ink)` }}
-        >
-          <Icon className="size-6" strokeWidth={2.1} />
-        </span>
+        <TileIcon category={category} />
         <span className="relative text-[length:var(--text-body)] font-semibold leading-snug text-foreground [overflow-wrap:break-word]">{category.title}</span>
         <span className={cn('relative text-[length:var(--text-subhead)] leading-snug [overflow-wrap:break-word]', TONE[line.tone])}>
           {line.text}
           {line.detail && <span className="block text-muted-foreground">{line.detail}</span>}
         </span>
+        {due && (
+          <span className="relative flex items-center gap-1.5 text-[length:var(--text-subhead)] font-semibold leading-snug text-caution">
+            <span aria-hidden className="size-2.5 shrink-0 rounded-full bg-caution" />
+            {due}
+          </span>
+        )}
       </span>
     </Link>
   );

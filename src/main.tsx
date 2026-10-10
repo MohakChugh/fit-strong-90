@@ -42,8 +42,11 @@ const router = createHashRouter([
         <div id="app">
           <App />
         </div>
-        {/* Above the tab bar on a phone and a tablet, not over it (see --toast-offset-bottom). */}
+        {/* Above the tab bar on a phone and a tablet, not over it (see --toast-offset-bottom).
+            Expanded: a newer toast stacks above an older one, both in full, so an
+            older Undo stays in reach rather than tucked behind (M19, B-04). */}
         <Toaster
+          expand
           position="bottom-right"
           offset={{ bottom: 'var(--toast-offset-bottom)' }}
           mobileOffset={{ bottom: 'var(--toast-offset-bottom)' }}

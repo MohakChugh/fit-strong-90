@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Recommendation } from '@/health/recommend';
 import { CATEGORIES } from '@/categories';
-import { greeting, normalLine, readingLine, tileColumns, tileHref } from './model';
+import type { DueItem } from '@/health/cadence';
+import { dueWords, greeting, normalLine, readingLine, tileColumns, tileHref } from './model';
 
 const at = (time: string) => new Date(`2026-10-08T${time}:00`);
 const suggests = (over: Partial<Recommendation> & { mode?: Recommendation['action']['mode'] }): Recommendation => ({
@@ -35,6 +36,39 @@ describe('tileColumns (journey §7.1, K-26, A-59)', () => {
     expect(tileColumns({ width: 320, scale: 1 })).toBe(1);
     expect(tileColumns({ width: 428, scale: 1.31 })).toBe(1);
     expect(tileColumns({ width: 428, scale: 2 })).toBe(1);
+  });
+  it('flows into 3 columns from 1024 px and 4 from 1280 px on a desktop (journey §7.7)', () => {
+    expect(tileColumns({ width: 1023, scale: 1 })).toBe(2);
+    expect(tileColumns({ width: 1024, scale: 1 })).toBe(3);
+    expect(tileColumns({ width: 1279, scale: 1.3 })).toBe(3);
+    expect(tileColumns({ width: 1280, scale: 1 })).toBe(4);
+    expect(tileColumns({ width: 1920, scale: 1 })).toBe(4);
+  });
+  it('keeps one column for large text at any width', () => {
+    expect(tileColumns({ width: 1280, scale: 1.31 })).toBe(1);
+    expect(tileColumns({ width: 1024, scale: 2 })).toBe(1);
+  });
+});
+
+describe('dueWords: the caution dot with words (journey §7.2)', () => {
+  const item = (kind: DueItem['kind']): DueItem => ({ kind, title: '', detail: '', source: '', action: { label: '', to: '' } });
+  const normal = { status: 'normal' as const, stopped: false };
+  it('marks the blood pressure tile on a check day, weekly or in the diagnostic week', () => {
+    expect(dueWords('bp', { due: [item('bpCheckDay')], ...normal })).toBe('Check day');
+    expect(dueWords('bp', { due: [item('hba1c'), item('bpWeek')], ...normal })).toBe('Check day');
+  });
+  it('marks nothing else: glucose has no recurring check without a clinician’s plan (cadence model)', () => {
+    const due = [item('bpCheckDay'), item('hba1c'), item('b12'), item('hba1cFirst')];
+    for (const id of ['glucose', 'labs', 'weight', 'walk'] as const) expect(dueWords(id, { due, ...normal })).toBeUndefined();
+    expect(dueWords('bp', { due: [item('hba1c')], ...normal })).toBeUndefined();
+    expect(dueWords('bp', { due: [], ...normal })).toBeUndefined();
+  });
+  it('asks nothing while Away or Unwell, or beside a stop, as the prompt row does (D25)', () => {
+    const due = [item('bpCheckDay')];
+    expect(dueWords('bp', { due, status: 'away', stopped: false })).toBeUndefined();
+    expect(dueWords('bp', { due, status: 'unwell', stopped: false })).toBeUndefined();
+    expect(dueWords('bp', { due, status: 'normal', stopped: true })).toBeUndefined();
+    expect(dueWords('bp', { due, status: 'flare', stopped: false })).toBe('Check day');
   });
 });
 

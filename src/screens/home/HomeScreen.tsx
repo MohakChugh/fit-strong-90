@@ -11,7 +11,7 @@
  * and saved-progress banking; this file lays them out.
  */
 
-import { lazy, Suspense, useContext, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { GlassWaterIcon, InfoIcon } from 'lucide-react';
@@ -19,10 +19,11 @@ import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
 import { CheckInSheet } from '@/components/checkin/CheckInSheet';
 import { useStartMovement } from '@/components/checkin/useStartMovement';
-import { categoryById, defaultHome, walkingHeldForFeet, type CategoryId } from '@/categories';
+import { categoryById, defaultHome, isHomeLayout, walkingHeldForFeet, type CategoryId } from '@/categories';
 import { useGuided } from '@/hooks/useGuided';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { checkedIn, type Mode } from '@/engine/permission';
+import { dueItems } from '@/health/cadence';
 import {
   HREF, freezeKey, isEnrolled, nextBoundary, recommend, resumeHref, savedRun, smallHours, trainedOn,
   type RecommendInput, type Recommendation, type RecommendationAction,
@@ -35,7 +36,7 @@ import { waterBlock } from '@/reminders/water';
 import { bankProgress, progressSettled } from '@/session/logging';
 import { clearProgress, loadExpiredProgress, loadSetAside, minutesLeft, releaseSetAside, slotOf, type SavedProgress } from '@/session/persistence';
 import { prefersHour12 } from '@/screens/track/format';
-import { addToDayTotal, getState, isSessionSaved, useStore } from '@/store/useStore';
+import { addToDayTotal, getState, isSessionSaved, setSettings, useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { useClock, useWakeAt } from '@/screens/today/clock';
 import { ChooserSheet } from '@/screens/today/ChooserSheet';
@@ -58,10 +59,13 @@ import {
   type Prompt,
   type TodaySheet,
 } from '@/screens/today/model';
-import { FROM_HOME, greeting, normalLine, readingLine } from './model';
+import { EditTiles } from './EditHome';
+import { useHomeEditor } from './editor';
+import { FROM_HOME, dueWords, greeting, normalLine, readingLine } from './model';
 import { RemindersCapsule } from './RemindersCapsule';
 import { StatusButton } from './StatusButton';
 import { TileGrid, type TileState } from './TileGrid';
+import { TileMenu } from './TileMenu';
 import { movementLine } from './tileLine';
 import { RIGHT_NOW_ID, SLOTS, UrgentContext, recommendSources, withEffectiveToday } from './urgent';
 import { WeekCard } from './WeekCard';
@@ -257,10 +261,27 @@ export function HomeScreen() {
   // but never beside a stop or a check that comes first.
   const offer = quiet ? undefined : planOffer(settings.statusPeriods, settings.startDate, today);
 
-  // ---- Tiles (journey §7.1, §7.2, §7.5) ------------------------------------
-  // The person's own layout once there is one; until then the defaults from
-  // their answers (journey §5.1).
-  const layout = useMemo(() => settings.home ?? defaultHome({ profile: guided.profile, settings, hasSteps }), [settings, guided.profile, hasSteps]);
+  // ---- Tiles (journey §7.1, §7.2, §7.5) and Edit Home (§7.6) ----------------
+  // The person's own layout once there is one, and one this build can draw;
+  // until then the defaults from their answers (journey §5.1).
+  const stored = settings.home !== undefined && isHomeLayout(settings.home) ? settings.home : undefined;
+  const fallback = useMemo(() => defaultHome({ profile: guided.profile, settings, hasSteps }), [settings, guided.profile, hasSteps]);
+  const layout = stored ?? fallback;
+  // The defaults are worked out once, at the end of setup or on the first v2
+  // launch, and kept: after that a change to the answers never reshuffles the
+  // tiles by itself; a newly relevant category is offered in Me (§5.1, Plan 4).
+  // Without a stored profile there is nothing to work them out from yet.
+  const savedDefault = useRef(false);
+  useEffect(() => {
+    if (stored || !profile || savedDefault.current) return;
+    savedDefault.current = true;
+    void setSettings({ home: fallback });
+  }, [stored, profile, fallback]);
+  // While a safety decision stands, nothing beside it moves (motion rule 2, M1).
+  const still = SAFETY.has(recommendation.kind) || urgent !== undefined;
+  const editor = useHomeEditor({ fallback, still, urgent: urgent !== undefined });
+  // What the cadence model says is due: the tiles' caution dots (§7.2).
+  const due = dueItems({ now, ...(profile ? { profile } : {}), observations });
   const recheckAt = guided.checkIn?.readiness.recheckAt;
   // The gate as this render asked it, the same answer the card shows; a tap asks it again.
   const lineOf = (mode: Mode, permission = permissions[mode]) => movementLine({
@@ -271,9 +292,10 @@ export function HomeScreen() {
   const holds = (tone: string) => tone === 'caution' || tone === 'stop';
   const tile = (id: CategoryId): TileState => {
     const { mode } = categoryById(id);
-    if (!mode) return { line: readingLine(id, { ...(glucose ? { glucose } : {}), ...(pressure ? { pressure } : {}) }), held: false };
+    const dot = dueWords(id, { due, status, stopped });
+    if (!mode) return { line: readingLine(id, { ...(glucose ? { glucose } : {}), ...(pressure ? { pressure } : {}) }), held: false, ...(dot ? { due: dot } : {}) };
     const line = lineOf(mode);
-    return { line, held: holds(line.tone) };
+    return { line, held: holds(line.tone), ...(dot ? { due: dot } : {}) };
   };
   const opensOnHold = (id: CategoryId) => {
     const { mode } = categoryById(id);
@@ -362,15 +384,36 @@ export function HomeScreen() {
         stretched={stretched}
         {...(walkingHeldForFeet(guided.profile) ? {} : { steps })}
         dots={weekDots({ today, moved: movedOn, restDays: restDaysOf(enrolled, profile?.trainingDays), ...(settings.statusPeriods ? { statusPeriods: settings.statusPeriods } : {}) })}
-        still={SAFETY.has(recommendation.kind) || urgent !== undefined}
+        still={still}
         onSetGoal={() => open({ kind: 'goal' })}
       />
 
-      <TileGrid layout={layout} tile={tile} urgent={urgent !== undefined} opensOnHold={opensOnHold} />
+      {/* The tiles, or Edit Home in their place; reorders are drawn moving (M17). */}
+      <div ref={editor.flipRef} className="flex flex-col gap-4">
+        {editor.error && <p role="alert" className="px-1 text-[length:var(--text-subhead)] leading-snug text-stop">{editor.error}</p>}
+        {editor.editing
+          ? <EditTiles layout={layout} editor={editor} />
+          : <TileGrid layout={layout} tile={tile} urgent={urgent !== undefined} opensOnHold={opensOnHold} onLongPress={editor.openMenu} />}
+      </div>
+      {/* "Water moved to position 2 of 5" (M17); a repeat is said again. */}
+      <p role="status" className="sr-only">{editor.said.text}{editor.said.n % 2 ? '\u200b' : ''}</p>
 
-      <Group>
-        <Row as={Link} to={HREF.day} state={FROM_HOME} viewTransition label="See today’s log" chevron />
-      </Group>
+      {!editor.editing && (
+        <Group>
+          <Row as={Link} to={HREF.day} state={FROM_HOME} viewTransition label="See today’s log" chevron />
+          <Row label="Edit Home" onClick={() => editor.start()} data-edit-home-row />
+        </Group>
+      )}
+      <TileMenu
+        target={editor.menu}
+        layout={layout}
+        editing={editor.editing}
+        onHide={id => editor.hide(id, 'menu')}
+        onMove={(id, by) => editor.move(id, by, editor.editing ? 'more' : undefined)}
+        onEdit={id => editor.start(id)}
+        onClose={editor.closeMenu}
+        onClosed={editor.menuClosed}
+      />
 
       <ChooserSheet
         open={sheet?.kind === 'choose'}

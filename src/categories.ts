@@ -68,7 +68,8 @@ export function walkingHeldForFeet(profile: UserProfile): boolean {
 }
 
 const MAX_TILES = 9;
-const MAX_PER_GROUP = 5;
+/** At most 5 tiles in a group, by default and after any edit (journey §20.4 rule 13, B-08). */
+export const MAX_PER_GROUP = 5;
 /** Added, in this order, until Home has 9 tiles (journey §5.1). */
 const FILL_INS: CategoryId[] = ['weight', 'sleep', 'learn'];
 /**
@@ -115,3 +116,26 @@ export function defaultHome({ profile, settings, hasSteps }: { profile: UserProf
   for (const id of FILL_INS) place(id);
   return { order, hidden };
 }
+
+const GROUP_IDS = new Set<string>(GROUPS.map(g => g.id));
+
+/**
+ * A layout this build can draw: every id a category it knows, each shown in
+ * its own group or hidden, never both and never twice, and no group over 5.
+ * What a stored or imported `settings.home` must be before Home trusts it.
+ */
+export function isHomeLayout(x: unknown): x is HomeLayout {
+  if (typeof x !== 'object' || x === null || Array.isArray(x)) return false;
+  const { order, hidden } = x as Record<string, unknown>;
+  if (typeof order !== 'object' || order === null || Array.isArray(order) || !Array.isArray(hidden)) return false;
+  const groups = Object.entries(order as Record<string, unknown>);
+  if (groups.length !== GROUP_IDS.size || groups.some(([g, ids]) => !GROUP_IDS.has(g) || !Array.isArray(ids) || ids.length > MAX_PER_GROUP)) return false;
+  const seen = new Set<unknown>();
+  const known = (id: unknown, group?: string) => {
+    if (seen.has(id) || typeof id !== 'string' || !BY_ID.has(id as CategoryId)) return false;
+    seen.add(id);
+    return group === undefined || BY_ID.get(id as CategoryId)?.group === group;
+  };
+  return groups.every(([g, ids]) => (ids as unknown[]).every(id => known(id, g))) && hidden.every(id => known(id));
+}
+

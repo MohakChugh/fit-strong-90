@@ -15,6 +15,7 @@
  * profile, the app asks the questions again before anyone moves.
  */
 
+import { isHomeLayout } from '@/categories';
 import { isDay } from '@/health/observation';
 
 type Check = (x: unknown) => boolean;
@@ -75,6 +76,8 @@ const SETTINGS_SPEC: Spec = {
   habits: HABIT_SPEC,
   statusPeriods: listOf(shape({ kind: oneOf('flare', 'unwell', 'away'), from: day, to: day, planShift: oneOf('moved', 'kept') }, ['kind', 'from'])),
   walkDefaults: shape({ gps: bool, steps: bool }, ['gps', 'steps']),
+  // Whole or not at all: a tile this build has no hub for would leave Home unable to draw.
+  home: isHomeLayout,
   // List by list: one that cannot be read must not take the others with it,
   // or an older backup could bring back what they keep deleted (D-06, R5-01).
   deleted: { observations: listOf(text), sessions: listOf(text), readings: listOf(text) },
