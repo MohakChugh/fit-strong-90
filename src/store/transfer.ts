@@ -34,8 +34,11 @@ import {
 } from '@/health/observation';
 import { StoreFailure, toFailure, type Db, type StoreResult } from './db';
 import { SCHEMA_VERSION, projectV4 } from './migrate';
-import { withReadingRemoved, type CheckInReading } from '@/components/checkin/pending';
-import { evaluateDays } from '@/engine/readiness';
+import { loggedReadings, neverLooser, withReadingRemoved, type CheckInReading } from '@/components/checkin/pending';
+import { evaluateCheckIn, evaluateDays, profileOnlyReadiness } from '@/engine/readiness';
+import { reachableHistory } from '@/engine/reach';
+import { DISPOSITION_ORDER } from '@/types/checkin';
+import { toDateString } from '@/lib/utils';
 import { readProfile, readSettings } from './importCheck';
 import { checkInEventId, liftBodyMetric, liftSessionPain, readingKey } from './project';
 import { commitChange, keptCheckIn, keptSession, readSnapshot, type Change, type Snapshot } from './snapshot';
@@ -805,6 +808,50 @@ export interface ImportOptions {
    * half-replaces a good record.
    */
   allowRejected?: boolean;
+  /** The moment of the import, for which of this device's records hold an incident open (H6-03). Defaults to now. */
+  now?: Date;
+}
+
+/** This device's records a Replace keeps (H6-03): its open incidents, and what their release depends on. */
+export interface OpenIncidents {
+  /** The days' own records, as this device holds them. */
+  checkIns: CheckInRecord[];
+  /** Those days' readings: Track's, and the ones lifted from the records. */
+  observations: Observation[];
+}
+
+const holds = (r: { disposition?: string }) => DISPOSITION_ORDER.indexOf((r.disposition ?? 'reassure') as never) >= DISPOSITION_ORDER.indexOf('hold');
+
+/**
+ * This device's open incidents (journey §4.6, H6-03): whether its own record
+ * holds movement today at hold or worse — an unresolved low, a stop, a red
+ * flag, an emergency answer — asked of the engine as every gate asks it, with
+ * Track's readings; and if it does, every record that answer and its release
+ * depend on: the days the engine reads today (`reachableHistory`), with their
+ * readings. Replace keeps them, so an older backup's normal reading never
+ * releases one. A day that held only on its own day, and holds nothing now,
+ * is not kept.
+ */
+export function openIncidents(base: Pick<Snapshot, 'checkIns' | 'observations' | 'profile' | 'settings'>, now: Date = new Date()): OpenIncidents {
+  const profile = base.profile ?? createDefaultProfile({ weightKg: base.settings?.currentWeight || 0, needsHealthReview: true });
+  const today = toDateString(now);
+  const logged = loggedReadings(base.observations);
+  const withReadings = (c: DailyCheckIn): DailyCheckIn => (logged.has(c.date) ? { ...c, logged: logged.get(c.date) } : c);
+  const reach = reachableHistory(base.checkIns, today, profile);
+  const days = new Set(reach.map(c => c.date));
+  // A day with only Track's readings counts like any other: a low logged in Track is a low.
+  for (const day of logged.keys()) if (day <= today && reach.every(c => c.date !== day)) days.add(day);
+  const mine = base.checkIns.find(c => c.date === today);
+  const own: DailyCheckIn | undefined = mine ? answersOf(mine) : logged.has(today) ? { date: today, urgentSymptoms: false, news: [], readingsOnly: true } : undefined;
+  const r = own
+    ? evaluateCheckIn(profile, withReadings(own), reach.filter(c => c.date < today).map(withReadings), now)
+    : profileOnlyReadiness(profile, { date: today, recent: reach.map(withReadings), now });
+  if (!holds(r) && (r.episodes?.length ?? 0) === 0) return { checkIns: [], observations: [] };
+  return {
+    checkIns: reach,
+    observations: base.observations.filter(o => days.has(o.day) && o.scope === 'pointInTime'
+      && (checkInDayOf(o) === o.day || o.kind === 'glucose' || o.kind === 'bloodPressureSystolic' || o.kind === 'bloodPressureDiastolic')),
+  };
 }
 
 interface MergePlan {
@@ -1140,6 +1187,8 @@ export interface ImportPreview {
   refusedStores?: RecordStore[];
   /** This device's v2 records, by store, that Replace removes (it leaves only the file's). */
   replaceRemoves?: Partial<Record<RecordStore, number>>;
+  /** Replace keeps this device's open safety records and the readings they depend on (H6-03): say so before it happens. */
+  keepsOpen?: boolean;
 }
 
 export interface ImportProblem {
@@ -1185,6 +1234,7 @@ export function previewImport(raw: unknown, existing: Iterable<string> | ImportB
   const records = Object.fromEntries((file.stores ?? []).map(s => [s, file.records?.[s]?.length ?? 0])) as Partial<Record<RecordStore, number>>;
   const refusedStores = (file.stores ?? []).filter(s => (records[s] ?? 0) > 0 && !takes(s, base.settings));
   const replaceRemoves = Object.fromEntries(RECORD_STORES.map(s => [s, base.records?.[s]?.length ?? 0]).filter(([, n]) => (n as number) > 0)) as Partial<Record<RecordStore, number>>;
+  const open = openIncidents({ checkIns: base.checkIns ?? [], observations: base.observations ?? [], profile: base.profile, settings: base.settings });
 
   return {
     ok: true,
@@ -1208,6 +1258,7 @@ export function previewImport(raw: unknown, existing: Iterable<string> | ImportB
     records,
     refusedStores,
     replaceRemoves,
+    keepsOpen: open.checkIns.length + open.observations.length > 0,
   };
 }
 
@@ -1270,15 +1321,35 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
     const taken = (file.stores ?? []).filter(s => takes(s, base.settings));
     // This device's own walk consents, never the file's (B-26).
     const settings = withDeviceConsent(file.settings, base.settings);
+    // This device's open incidents stay, with what their release depends on,
+    // and nothing in the file settles them (§4.6, H6-03): each such day is this
+    // device's record, with whatever the file adds to it, never less.
+    const open = openIncidents(base, options.now);
+    const theirs = new Map(pruned.map(c => [c.date, c]));
+    const kept = new Set(open.checkIns.map(c => c.date));
+    const merged = new Set<CheckInRecord>();
+    const checkIns = [
+      ...pruned.filter(c => !kept.has(c.date)),
+      ...open.checkIns.map(mine => {
+        const other = theirs.get(mine.date);
+        if (!other) return mine;
+        const both = { ...neverLooser(answersOf(mine), answersOf(other)), readiness: mine.readiness } as CheckInRecord;
+        merged.add(both);
+        return both;
+      }),
+    ].sort((a, b) => a.date.localeCompare(b.date));
+    const inFile = new Set(file.observations.map(o => o.id));
+    // Kept readings come before the file's in commit order: they are this device's, from before the file arrived.
+    const readings = open.observations.filter(o => !inFile.has(o.id)).map(stripSeq);
     return {
       change: {
         reset: true,
         schemaVersion: SCHEMA_VERSION,
-        observations: { put: file.observations, keepOrder: true },
+        observations: { put: [...readings, ...file.observations], keepOrder: true },
         sessions: { put: file.sessions },
         ...(settings !== undefined ? { settings: { replace: settings } } : {}),
         ...(file.profile !== undefined ? { profile: file.profile } : {}),
-        checkIns: reevaluated(pruned, cleaned, file.profile),
+        checkIns: reevaluated(checkIns, new Set([...cleaned, ...merged]), file.profile ?? base.profile),
         personalRecords: file.personalRecords,
         bodyMetrics: file.bodyMetrics,
         focusOverrides: file.focusOverrides,

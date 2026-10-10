@@ -10,7 +10,7 @@ import { checkOutcome, checkedLine, type CheckOutcome } from './dataStatus';
 import { shortDate, shortDay } from './dates';
 import { latestOnly } from './latest';
 import { restoreLocked } from './restore';
-import { countsSentence, plural, previewLines, recordCounts } from './summaries';
+import { countsSentence, keepsOpenLine, plural, previewLines, recordCounts } from './summaries';
 import { recordBackupCheck, recordExport } from './write';
 
 type Stage =
@@ -191,6 +191,7 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
             <p className="px-1 text-[length:var(--text-body)] leading-snug">
               This deletes the {countsSentence(here)} on this {device}, with its profile and settings, and keeps only what is in the file{(total(stage.preview.rejected) || stage.preview.unreadableObservations) > 0 ? ', leaving out the records in it that cannot be read' : ''}. It cannot be undone.
             </p>
+            {stage.preview.keepsOpen && <p className="px-1 text-[length:var(--text-body)] leading-snug">{keepsOpenLine(device)}</p>}
             <div className="flex flex-col gap-2">
               <button
                 type="button"
@@ -283,7 +284,7 @@ function PreviewBody({ preview, note, place, device, heldHere, onMerge, onReplac
         <div className="flex flex-col gap-2">
           <PrimaryButton onClick={onReplace}>Restore</PrimaryButton>
           <p className="px-4 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
-            This {device} will hold exactly what the backup holds, settings and profile included.
+            This {device} will hold exactly what the backup holds, settings and profile included.{preview.keepsOpen ? ` ${keepsOpenLine(device)}` : ''}
           </p>
         </div>
       ) : (
@@ -317,7 +318,7 @@ function PreviewBody({ preview, note, place, device, heldHere, onMerge, onReplac
               {heldHere > 0 ? 'Replace everything here' : 'Replace with this backup'}
             </button>
             <p className="px-4 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
-              Makes this {device} hold exactly what is in the file, settings and profile included.
+              Makes this {device} hold exactly what is in the file, settings and profile included.{preview.keepsOpen ? ` ${keepsOpenLine(device)}` : ''}
             </p>
           </div>
         </>

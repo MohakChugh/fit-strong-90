@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
-import type { CheckInRecord, Readiness } from '@/types/checkin';
+import type { CheckInRecord, DailyCheckIn, Readiness } from '@/types/checkin';
+import { evaluateCheckIn, glucoseReadingId } from '@/engine/readiness';
+import { permission } from '@/engine/permission';
+import { effectiveCheckIns } from '@/components/checkin/pending';
 import type { UserSettings, WorkoutSession } from '@/types';
 import { newObservation, type Observation } from '@/health/observation';
 import { routeRecord, type RouteLine } from '@/walk/routeRecord';
@@ -18,6 +21,7 @@ import {
   deliveryMethod,
   encode,
   planImport,
+  openIncidents,
   previewImport,
   toTransferDoc,
   withDeviceConsent,
@@ -806,4 +810,106 @@ describe('v2 record stores in a backup (Plan 6 Task 1)', () => {
   it('refuses food records until Plan 7 can read them', () => {
     expect(previewImport(file({ stores: ['meals'], records: { meals: [{ id: 'm1' }] } }))).toMatchObject({ ok: true, rejected: { meals: 1 } });
   });
+});
+
+describe('Replace keeps this device’s open incidents (journey §4.6, H6-03)', () => {
+  const profile = createDefaultProfile({
+    weightKg: 72,
+    health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
+  });
+  const DAY = '2026-10-08';
+  const at = (h: number, m: number) => new Date(2026, 9, 8, h, m).toISOString();
+  const NOW = new Date(2026, 9, 8, 13, 40);
+  const day = (over: Partial<DailyCheckIn> = {}): CheckInRecord => {
+    const c: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over };
+    return { ...c, readiness: evaluateCheckIn(profile, c) };
+  };
+  /** The backup, made at 13:20: a normal reading at 13:15, recent enough to walk on. */
+  const backup = toTransferDoc({
+    ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings,
+    checkIns: [day({ glucose: { value: 110, unit: 'mg/dL', measuredAt: at(13, 15), source: 'meter' } })],
+  }, '2026-10-08T13:20:00.000+05:30');
+  /** The device after the backup was made: the same morning, then what happened at 13:30. */
+  const device = (later: Partial<DailyCheckIn>, observations: Observation[] = []) => ({
+    ...emptySnapshot(3), profile, settings: { theme: 'dark' } as UserSettings, observations,
+    checkIns: [day({ glucose: { value: 110, unit: 'mg/dL', measuredAt: at(13, 15), source: 'meter' }, ...later })],
+  });
+  /** What the gate says about a walk now, on the record Replace leaves: the real engine, Track's readings attached. */
+  const walkAfter = (base: ReturnType<typeof device>) => {
+    const next = prepare(base, planImport(backup, 'replace', base, { now: NOW }).change).next;
+    const all = effectiveCheckIns(next.checkIns, next.profile ?? profile, next.observations);
+    return permission({ profile: next.profile ?? profile, checkIn: all.find(c => c.date === DAY), recent: all, now: NOW }, 'walk');
+  };
+  const low60 = { value: 60, unit: 'mg/dL' as const, measuredAt: at(13, 30), source: 'meter' as const };
+
+  it('lets the file decide when this device holds nothing open', () => {
+    expect(walkAfter(device({})).allowed).toBe(true);
+  });
+
+  const incidents: [string, Partial<DailyCheckIn>, Observation[]?][] = [
+    ['a low reading, not re-checked yet', { glucose: low60, glucoseEarlier: [{ value: 110, unit: 'mg/dL', measuredAt: at(13, 15), source: 'meter' }] }],
+    ['“I feel low”, with no reading since', { news: ['lowSymptoms'], lowSymptomsAt: at(13, 30) }],
+    ['an emergency answer', { urgentSymptoms: true, emergency: ['chest'] }],
+    ['a stop not yet answered', { news: ['stopped'] }],
+    ['a red flag: new weakness in a leg', { back: { newWeakness: true, newNeuro: true } }],
+    ['a low logged in Track', {}, [newObservation({ id: 'track-low', kind: 'glucose', value: 60, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: at(13, 30) })]],
+  ];
+  it('keeps nothing of a day that held only on its own day', () => {
+    const yesterday = { ...day({ news: ['dizzy'] }), date: '2026-10-07' };
+    const base = { ...device({}), checkIns: [yesterday] };
+    expect(openIncidents(base, NOW)).toEqual({ checkIns: [], observations: [] });
+    const next = prepare(base, planImport(backup, 'replace', base, { now: NOW }).change).next;
+    expect(next.checkIns.map(c => c.date)).toEqual([DAY]);
+  });
+
+  it('never lets the file’s answer settle what this device holds open, and keeps what the file adds', () => {
+    // This device: a severe low at 13:30, unanswered. The file: the same reading, answered as a typing mistake, and chest pain.
+    const severe = { value: 40, unit: 'mg/dL' as const, measuredAt: at(13, 30), source: 'meter' as const, unitConfirmed: true };
+    const base = device({ glucose: severe });
+    const answered = toTransferDoc({
+      ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings,
+      checkIns: [day({
+        glucose: severe, urgentSymptoms: true, emergency: ['chest'],
+        resolutions: [{ kind: 'severeLow', readings: [glucoseReadingId(severe, DAY)], resolution: 'mistake', at: at(13, 35) }],
+      })],
+    }, '2026-10-08T13:36:00.000+05:30');
+    const next = prepare(base, planImport(answered, 'replace', base, { now: NOW }).change).next;
+    const today = next.checkIns.find(c => c.date === DAY)!;
+    expect(today.resolutions ?? []).toEqual([]);
+    // The low still counts as the low it is: the file's "mistake" settles nothing here.
+    expect(evaluateCheckIn(profile, today).reasons.map(r => r.code)).toContain('severeLow');
+    expect(today.emergency).toEqual(['chest']);
+    const after = permission({ profile, checkIn: today, recent: next.checkIns, now: NOW }, 'walk');
+    expect(after.disposition).toBe('emergency');
+  });
+
+  it('keeps the readings an incident’s release depends on, and only on its days', () => {
+    const trackLow = newObservation({ id: 'track-low', kind: 'glucose', value: 60, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: at(13, 30) });
+    const old = newObservation({ id: 'track-old', kind: 'glucose', value: 90, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: '2026-10-01T08:00:00.000+05:30' });
+    const steps1 = newObservation({ id: 'steps-today', kind: 'steps', value: 900, unit: 'steps', scope: 'dayTotal', source: 'manual', at: at(12, 0) });
+    const base = device({}, [old, trackLow, steps1]);
+    const open = openIncidents(base, NOW);
+    expect(open.observations.map(o => o.id)).toEqual(['track-low']);
+    const next = prepare(base, planImport(backup, 'replace', base, { now: NOW }).change).next;
+    expect(next.observations.map(o => o.id)).toEqual(['track-low']);
+  });
+
+  it('keeps a low logged in Track on a day with no check-in of its own here', () => {
+    const trackLow = newObservation({ id: 'track-low', kind: 'glucose', value: 60, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: at(13, 30) });
+    const base = { ...device({}, [trackLow]), checkIns: [] };
+    expect(openIncidents(base, NOW).observations.map(o => o.id)).toEqual(['track-low']);
+    expect(walkAfter(base).allowed).toBe(false);
+  });
+
+  for (const [what, later, observations] of incidents) {
+    it(`keeps ${what}: the older file’s recent normal reading does not release it`, () => {
+      const before = device(later, observations);
+      const all = effectiveCheckIns(before.checkIns, profile, before.observations);
+      const was = permission({ profile, checkIn: all.find(c => c.date === DAY), recent: all, now: NOW }, 'walk');
+      expect(was.allowed).toBe(false);
+      const after = walkAfter(before);
+      expect(after.allowed).toBe(false);
+      expect(after.disposition).toBe(was.disposition);
+    });
+  }
 });

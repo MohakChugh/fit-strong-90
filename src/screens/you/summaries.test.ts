@@ -23,6 +23,7 @@ import {
   profileSections,
   recordCounts,
   reviewNeeded,
+  keepsOpenLine,
 } from './summaries';
 
 const owner = createDefaultProfile({
@@ -271,5 +272,11 @@ describe('calendar copies, as Reminders lists them (A-78)', () => {
       { habit: 'water', names: ['Glass of water'], inCalendar: 6, now: 0 },
       { habit: 'sittingBreak', names: ['Stand up and move'], inCalendar: 2, now: 1 },
     ])).toBe('Glass of water: 6 a day in Calendar, none now. Stand up and move: 2 a day in Calendar, once a day now.');
+  });
+});
+
+describe('what Replace keeps (journey §4.6, H6-03)', () => {
+  it('says today’s safety answers stay, before anything changes', () => {
+    expect(keepsOpenLine('iPhone')).toBe('Today’s safety answers on this iPhone stay, with the readings they depend on: a backup never clears them.');
   });
 });

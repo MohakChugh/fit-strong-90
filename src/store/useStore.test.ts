@@ -1103,3 +1103,39 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
     expect(left.ok && left.value).toEqual([]);
   });
 });
+
+describe('Replace from a backup keeps this device’s open incidents (journey §4.6, H6-03)', () => {
+  it('leaves a low recorded after the backup holding the walk, through the store and the device’s own gate', async () => {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const { evaluateCheckIn } = await import('@/engine/readiness');
+    const { storeStartPermission } = await import('@/walk/gate');
+    const { toTransferDoc } = await import('./transfer');
+    const { emptySnapshot } = await import('./snapshot');
+    await booted();
+    const profile = createDefaultProfile({
+      weightKg: 72,
+      health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
+    });
+    const now = new Date();
+    const date = dayOf(nowAt());
+    const minutesAgo = (m: number) => new Date(now.getTime() - m * 60_000).toISOString();
+    const day = (glucose: { value: number; measuredAt: string }[]) => {
+      const c = {
+        date, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7' as const, energy: 4 as const,
+        glucose: { ...glucose.at(-1)!, unit: 'mg/dL' as const, source: 'meter' as const },
+        ...(glucose.length > 1 ? { glucoseEarlier: glucose.slice(0, -1).map(g => ({ ...g, unit: 'mg/dL' as const, source: 'meter' as const })) } : {}),
+      };
+      return { ...c, readiness: evaluateCheckIn(profile, c) };
+    };
+    // The backup: a normal reading 12 minutes ago. Then, on this phone, a low 5 minutes ago.
+    const backup = toTransferDoc({ ...emptySnapshot(), profile, checkIns: [day([{ value: 110, measuredAt: minutesAgo(12) }])] });
+    await store.update(prev => ({ ...prev, profile, checkIns: [day([{ value: 110, measuredAt: minutesAgo(12) }, { value: 60, measuredAt: minutesAgo(5) }])] }));
+    expect(storeStartPermission(now).allowed).toBe(false);
+    expect(store.previewRecord(backup)).toMatchObject({ ok: true, keepsOpen: true });
+
+    expect((await store.importRecord(backup, 'replace')).ok).toBe(true);
+    const held = storeStartPermission(new Date());
+    expect(held.allowed).toBe(false);
+    expect(store.getState().checkIns.find(c => c.date === date)?.glucose?.value).toBe(60);
+  });
+});

@@ -105,6 +105,11 @@ export function reviewNeeded(profile: UserProfile | undefined): 'health' | 'medi
   return undefined;
 }
 
+/** What Replace keeps of this device, said before anything changes (journey §4.6, H6-03). */
+export function keepsOpenLine(device: string): string {
+  return `Today’s safety answers on this ${device} stay, with the readings they depend on: a backup never clears them.`;
+}
+
 /** B-24's privacy sentence, for this device. Plan 6 adds the one about map pictures when they arrive. */
 export function privacyLine(device: string): string {
   return `Your records are stored on this ${device}. Backups and calendar files leave only when you share them.`;

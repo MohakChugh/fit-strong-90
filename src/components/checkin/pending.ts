@@ -268,6 +268,26 @@ function strictest(stored: DailyCheckIn, pending: DailyCheckIn): DailyCheckIn {
   };
 }
 
+/**
+ * Two copies of one day as one, never looser than `kept` (H6-03): what a
+ * Replace keeps of this device's day beside the file's. `strictest`, with
+ * the device's copy as the newer one, so its readings stay current and every
+ * reading, answer and symptom either holds is kept; then the answers about
+ * serious readings are the device's own, the other's only where they reopen
+ * one, so nothing in it settles what the device holds open; and the later
+ * "feeling low" moment of the two, so no reading between them answers it.
+ */
+export function neverLooser(kept: DailyCheckIn, other: DailyCheckIn): DailyCheckIn {
+  const { resolutions: _theirs, ...merged } = strictest(other, kept);
+  void _theirs;
+  const mine = kept.resolutions ?? [];
+  const resolutions = [...mine, ...(other.resolutions ?? []).filter(a => a.resolution === 'reopened' && !mine.some(k => JSON.stringify(k) === JSON.stringify(a)))];
+  const felt = [kept.lowSymptomsAt, other.lowSymptomsAt]
+    .filter((t): t is string => typeof t === 'string' && !Number.isNaN(Date.parse(t)))
+    .sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1);
+  return { ...merged, ...(resolutions.length ? { resolutions } : {}), ...(felt ? { lowSymptomsAt: felt } : {}) };
+}
+
 const previousDate = (date: string) => {
   const [y, m, d] = date.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
