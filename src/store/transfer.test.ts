@@ -665,7 +665,9 @@ describe('v2 record stores in a backup (Plan 6 Task 1)', () => {
     [{ ...LINE, coords: LINE.coords.map(([a, b]): [number, number] => [a + shift, b]) }])! as unknown as StoredRecord;
   const file = (over: Partial<TransferDoc> = {}) => ({ ...toTransferDoc(emptySnapshot()), ...over });
   const withRoutes = (...routes: StoredRecord[]) => file({ stores: ['routes'], records: { routes } });
-  const holding = (...routes: StoredRecord[]) => prepare(emptySnapshot(), { records: { routes: { put: routes } } }).next;
+  /** A phone that said Yes to keeping routes: the only kind that takes a file's (H6-05). */
+  const yes = prepare(emptySnapshot(), { settings: { patch: { walk: { saveRoutes: true, map: 'off' } } } }).next;
+  const holding = (...routes: StoredRecord[]) => prepare(yes, { records: { routes: { put: routes } } }).next;
   const south = (r: StoredRecord) => (r.bbox as number[])[0];
 
   it('leaves routes out unless they are included, and lists the stores it holds', () => {
@@ -698,8 +700,8 @@ describe('v2 record stores in a backup (Plan 6 Task 1)', () => {
   });
 
   it('restores routes exactly with Replace', () => {
-    const plan = planImport(withRoutes(route('walk-aaaa')), 'replace', emptySnapshot());
-    expect(prepare(emptySnapshot(), plan.change).next.records.routes).toEqual([route('walk-aaaa')]);
+    const plan = planImport(withRoutes(route('walk-aaaa')), 'replace', yes);
+    expect(prepare(yes, plan.change).next.records.routes).toEqual([route('walk-aaaa')]);
     expect(plan.report.records).toEqual({ routes: 1 });
   });
 
@@ -746,16 +748,16 @@ describe('v2 record stores in a backup (Plan 6 Task 1)', () => {
   it('refuses a damaged route unless asked to import the rest', () => {
     const damaged = withRoutes(route('walk-aaaa'), { ...route('walk-bbbb'), bbox: [0, 0, 1, 1] });
     expect(previewImport(damaged)).toMatchObject({ ok: true, rejected: { routes: 1 } });
-    expect(() => planImport(damaged, 'merge', emptySnapshot())).toThrow(/could not be read/);
-    const rest = planImport(damaged, 'merge', emptySnapshot(), { allowRejected: true });
-    expect(prepare(emptySnapshot(), rest.change).next.records.routes.map(r => r.walkId)).toEqual(['walk-aaaa']);
+    expect(() => planImport(damaged, 'merge', yes)).toThrow(/could not be read/);
+    const rest = planImport(damaged, 'merge', yes, { allowRejected: true });
+    expect(prepare(yes, rest.change).next.records.routes.map(r => r.walkId)).toEqual(['walk-aaaa']);
   });
 
   it('keeps the first of two routes for one walk in a file, and refuses the second', () => {
     const twice = withRoutes(route('walk-aaaa'), route('walk-aaaa', 0.01));
     expect(previewImport(twice)).toMatchObject({ ok: true, records: { routes: 1 }, rejected: { routes: 1 } });
-    const rest = planImport(twice, 'replace', emptySnapshot(), { allowRejected: true });
-    expect(prepare(emptySnapshot(), rest.change).next.records.routes.map(south)).toEqual([12.97]);
+    const rest = planImport(twice, 'replace', yes, { allowRejected: true });
+    expect(prepare(yes, rest.change).next.records.routes.map(south)).toEqual([12.97]);
   });
 
   it('refuses a store this build does not know, and more routes than a lifetime holds, before reading them', () => {
@@ -779,6 +781,17 @@ describe('v2 record stores in a backup (Plan 6 Task 1)', () => {
     // What was written, not what the file held.
     expect(replaced.report.records).toEqual({});
   });
+
+  for (const [what, base] of [
+    ['a phone not asked yet', prepare(emptySnapshot(), { settings: { patch: { walk: { saveRoutes: 'unasked', map: 'unasked' } } } }).next],
+    ['a phone with no answers at all', emptySnapshot()],
+  ] as const) {
+    it(`adds no routes to ${what}, and says so first (H6-05, B-26)`, () => {
+      expect(previewImport(withRoutes(route('walk-aaaa')), base)).toMatchObject({ ok: true, records: { routes: 1 }, refusedStores: ['routes'] });
+      expect(prepare(base, planImport(withRoutes(route('walk-aaaa')), 'merge', base).change).next.records.routes).toEqual([]);
+      expect(prepare(base, planImport(withRoutes(route('walk-aaaa')), 'replace', base).change).next.records.routes).toEqual([]);
+    });
+  }
 
   it('says before a Replace that this phone’s routes will go, when the file has none (Review Focus 4)', () => {
     const here = holding(route('walk-aaaa'), route('walk-bbbb'));

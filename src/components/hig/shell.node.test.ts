@@ -257,6 +257,12 @@ describe('a sheet that will not close yet (review C2-07)', () => {
     expect(t.panel.style.transform).toBe('');
   });
 
+  it('the restore preview says what happens to routes on this phone’s own answer, before anything changes (H6-05, B-26)', () => {
+    const flow = read('src/screens/you/RestoreFlow.tsx');
+    expect(flow).toMatch(/saveRoutes=\{walkSettings\(state\.settings\)\.saveRoutes\}/);
+    expect(flow).toMatch(/\{routeNotes\(preview, saveRoutes\)\.map\(n => <Notice key=\{n\}>\{n\}<\/Notice>\)\}/);
+  });
+
   it('is told so by the sheets that refuse while they save', () => {
     expect(read('src/screens/you/RestoreFlow.tsx')).toMatch(/<Sheet open=\{open\} dismissible=\{!locked\}/);
     expect(read('src/screens/workout/sheets.tsx')).toMatch(/<Sheet open=\{open\} dismissible=\{!saving\}/);

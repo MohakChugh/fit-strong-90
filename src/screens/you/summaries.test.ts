@@ -24,6 +24,7 @@ import {
   recordCounts,
   reviewNeeded,
   keepsOpenLine,
+  routeNotes,
 } from './summaries';
 
 const owner = createDefaultProfile({
@@ -278,5 +279,33 @@ describe('calendar copies, as Reminders lists them (A-78)', () => {
 describe('what Replace keeps (journey §4.6, H6-03)', () => {
   it('says today’s safety answers stay, before anything changes', () => {
     expect(keepsOpenLine('iPhone')).toBe('Today’s safety answers on this iPhone stay, with the readings they depend on: a backup never clears them.');
+  });
+});
+
+describe('routes in a restore (journey §18.3, B-26, Review Focus 4, H6-05)', () => {
+  it('says before anything happens that a phone that keeps no routes won’t take the file’s', () => {
+    expect(routeNotes({ records: { routes: 3 }, refusedStores: ['routes'], replaceRemoves: {} })).toEqual(['The file’s 3 routes won’t be added, because this phone doesn’t keep routes.']);
+    expect(routeNotes({ records: { routes: 3 }, refusedStores: ['routes'], replaceRemoves: {} }, false)).toEqual(['The file’s 3 routes won’t be added, because this phone doesn’t keep routes.']);
+  });
+
+  it('says how a phone not asked yet takes them: it asks, and the file can be restored again', () => {
+    expect(routeNotes({ records: { routes: 1 }, refusedStores: ['routes'], replaceRemoves: {} }, 'unasked')).toEqual([
+      'The file’s 1 route won’t be added, because this phone hasn’t been asked yet whether to keep routes. To add them, turn on Keep walk routes in Me → Data, then restore the file again.',
+    ]);
+  });
+
+  it('says that replacing from a file without routes removes this phone’s', () => {
+    expect(routeNotes({ records: {}, refusedStores: [], replaceRemoves: { routes: 2 } })).toEqual(['Replacing removes this phone’s 2 routes, which the file doesn’t hold.']);
+  });
+
+  it('says nothing when the file’s routes are simply added', () => {
+    expect(routeNotes({ records: { routes: 1 }, refusedStores: [], replaceRemoves: {} }, true)).toEqual([]);
+  });
+
+  it('says this phone’s routes go too when the file’s are refused', () => {
+    expect(routeNotes({ records: { routes: 3 }, refusedStores: ['routes'], replaceRemoves: { routes: 2 } })).toEqual([
+      'The file’s 3 routes won’t be added, because this phone doesn’t keep routes.',
+      'Replacing removes this phone’s 2 routes too.',
+    ]);
   });
 });

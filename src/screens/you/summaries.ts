@@ -105,6 +105,26 @@ export function reviewNeeded(profile: UserProfile | undefined): 'health' | 'medi
   return undefined;
 }
 
+/**
+ * What a restore does with routes, said before anything changes (journey
+ * §18.3, B-26, Review Focus 4, H6-05): how many of the file's routes are left
+ * out and why, and on a phone not asked yet, how it takes them.
+ */
+export function routeNotes(preview: Pick<ImportPreview, 'records' | 'refusedStores' | 'replaceRemoves'>, saveRoutes: boolean | 'unasked' = false): string[] {
+  const inFile = preview.records?.routes ?? 0;
+  const here = preview.replaceRemoves?.routes ?? 0;
+  const refused = inFile > 0 && preview.refusedStores?.includes('routes') === true;
+  const notes: string[] = [];
+  if (refused) {
+    notes.push(saveRoutes === 'unasked'
+      ? `The file’s ${plural(inFile, 'route')} won’t be added, because this phone hasn’t been asked yet whether to keep routes. To add them, turn on Keep walk routes in Me → Data, then restore the file again.`
+      : `The file’s ${plural(inFile, 'route')} won’t be added, because this phone doesn’t keep routes.`);
+  }
+  if (here > 0 && inFile === 0) notes.push(`Replacing removes this phone’s ${plural(here, 'route')}, which the file doesn’t hold.`);
+  else if (here > 0 && refused) notes.push(`Replacing removes this phone’s ${plural(here, 'route')} too.`);
+  return notes;
+}
+
 /** What Replace keeps of this device, said before anything changes (journey §4.6, H6-03). */
 export function keepsOpenLine(device: string): string {
   return `Today’s safety answers on this ${device} stay, with the readings they depend on: a backup never clears them.`;

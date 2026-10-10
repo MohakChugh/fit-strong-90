@@ -10,7 +10,8 @@ import { checkOutcome, checkedLine, type CheckOutcome } from './dataStatus';
 import { shortDate, shortDay } from './dates';
 import { latestOnly } from './latest';
 import { restoreLocked } from './restore';
-import { countsSentence, keepsOpenLine, plural, previewLines, recordCounts } from './summaries';
+import { countsSentence, keepsOpenLine, plural, previewLines, recordCounts, routeNotes } from './summaries';
+import { walkSettings } from '@/walk/consent';
 import { recordBackupCheck, recordExport } from './write';
 
 type Stage =
@@ -174,6 +175,7 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
         {stage.kind === 'preview' && (
           <PreviewBody
             preview={stage.preview}
+            saveRoutes={walkSettings(state.settings).saveRoutes}
             {...(note ? { note } : {})}
             place={place}
             device={device}
@@ -191,6 +193,9 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
             <p className="px-1 text-[length:var(--text-body)] leading-snug">
               This deletes the {countsSentence(here)} on this {device}, with its profile and settings, and keeps only what is in the file{(total(stage.preview.rejected) || stage.preview.unreadableObservations) > 0 ? ', leaving out the records in it that cannot be read' : ''}. It cannot be undone.
             </p>
+            {(stage.preview.replaceRemoves?.routes ?? 0) > 0 && (
+              <p className="px-1 text-[length:var(--text-body)] leading-snug">{`Your ${plural(stage.preview.replaceRemoves?.routes ?? 0, 'route')} on this ${device} go too.`}</p>
+            )}
             {stage.preview.keepsOpen && <p className="px-1 text-[length:var(--text-body)] leading-snug">{keepsOpenLine(device)}</p>}
             <div className="flex flex-col gap-2">
               <button
@@ -225,8 +230,10 @@ function fieldsUnreadable(preview: ImportPreview): { health: boolean; settings: 
   return { health, settings: fields.filter(f => f !== 'profile.health' && f !== 'profile.pain').length };
 }
 
-function PreviewBody({ preview, note, place, device, heldHere, onMerge, onReplace }: {
+function PreviewBody({ preview, saveRoutes, note, place, device, heldHere, onMerge, onReplace }: {
   preview: ImportPreview;
+  /** This phone's own answer about keeping routes, for what happens to the file's (B-26). */
+  saveRoutes: boolean | 'unasked';
   note?: string;
   place: 'welcome' | 'you';
   device: string;
@@ -270,6 +277,8 @@ function PreviewBody({ preview, note, place, device, heldHere, onMerge, onReplac
       {unreadable > 0 && (
         <Notice tone="error">{`${plural(unreadable, 'record')} in this file cannot be read. Restoring it leaves ${unreadable === 1 ? 'that one' : 'those'} out and keeps the rest.`}</Notice>
       )}
+      {/* What happens to routes, before anything changes (B-26, H6-05). */}
+      {routeNotes(preview, saveRoutes).map(n => <Notice key={n}>{n}</Notice>)}
       {/* D-08: what is left out of the settings and profile, said before anything changes. */}
       {fieldsUnreadable(preview).health && (
         <Notice tone="error">The health answers in this file cannot be read, so restoring it leaves them out. The app will ask them again before you move.</Notice>

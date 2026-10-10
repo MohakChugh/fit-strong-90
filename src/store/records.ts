@@ -42,8 +42,9 @@ export const RECORD_RULES: Record<RecordStore, RecordRule> = {
     backup: 'optIn',
     problem: routeProblem,
     // Saved routes never change; two different copies are a conflict, and this phone's is kept.
-    // A phone whose person said No to keeping routes never takes them from a file (§9.1, Review Focus 4).
-    accepts: device => device?.walk?.saveRoutes !== false,
+    // Only a phone whose person said Yes to keeping routes takes them from a file: not asked
+    // yet is not a yes, and a new phone asks on its first walk with location (§9.1, B-26, H6-05).
+    accepts: device => device?.walk?.saveRoutes === true,
   },
   // Plan 7 replaces these three with its record types and rules.
   meals: { keyPath: 'id', label: { one: 'meal', many: 'meals' }, limit: 200_000, backup: 'always', problem: notYet('meals') },

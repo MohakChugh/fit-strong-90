@@ -27,11 +27,12 @@ describe('the v2 record stores', () => {
     expect(recordProblem('meals', { id: 'm1' })).toMatch(/cannot read meals yet/);
   });
 
-  it('take a file’s routes only onto a phone that has not said No (Review Focus 4)', () => {
+  it('take a file’s routes only onto a phone that said Yes to keeping them (Review Focus 4, H6-05)', () => {
     const accepts = RECORD_RULES.routes.accepts!;
-    expect(accepts(undefined)).toBe(true);
-    expect(accepts(settings({ saveRoutes: 'unasked', map: 'unasked' }))).toBe(true);
     expect(accepts(settings({ saveRoutes: true, map: 'off' }))).toBe(true);
+    // Not asked yet is not a yes: a new phone asks on its first walk with location (B-26).
+    expect(accepts(undefined)).toBe(false);
+    expect(accepts(settings({ saveRoutes: 'unasked', map: 'unasked' }))).toBe(false);
     expect(accepts(settings({ saveRoutes: false, map: 'off' }))).toBe(false);
   });
 });

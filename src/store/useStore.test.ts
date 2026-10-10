@@ -897,7 +897,7 @@ describe('the v2 record stores (Plan 6 Task 1)', () => {
     expect(doc.records.routes).toHaveLength(1);
   });
 
-  it('brings routes back from a backup that includes them, onto a new phone', async () => {
+  it('brings routes back from a backup that includes them onto a new phone once it says Yes, and asks first (H6-05, B-26)', async () => {
     await booted();
     await store.putRecords('routes', [route('walk-aaaa'), route('walk-bbbb')]);
     const exported = await store.exportRecord({ include: ['routes'] });
@@ -905,8 +905,15 @@ describe('the v2 record stores (Plan 6 Task 1)', () => {
     const file = await decode(exported.value.bytes);
     store.resetForTests();
     const phone = await booted();
+    // A new phone hasn't been asked: the file's routes are left out, and the preview says so.
+    expect(store.previewRecord(file)).toMatchObject({ ok: true, records: { routes: 2 }, refusedStores: ['routes'] });
     const restored = await store.importRecord(file, 'replace');
-    expect(restored.ok && restored.value.records).toEqual({ routes: 2, meals: 0, savedMeals: 0, customFoods: 0 });
+    expect(restored.ok && restored.value.records).toEqual({ meals: 0, savedMeals: 0, customFoods: 0 });
+    expect(store.getState().records.routes).toEqual([]);
+    expect(store.getState().settings.walk?.saveRoutes ?? 'unasked').toBe('unasked');
+    // Once this phone says Yes, the same file brings them back.
+    await store.setSettings({ walk: { saveRoutes: true, map: 'off' } });
+    expect((await store.importRecord(file, 'merge')).ok).toBe(true);
     expect(store.getState().records.routes).toEqual([route('walk-aaaa'), route('walk-bbbb')]);
     // Stored, not only shown.
     store.resetForTests();
