@@ -652,9 +652,25 @@ describe('more of labs and the rows', () => {
   it('a month says its results; the year is said again at each January; the summary names the first', () => {
     const view = labsView('hba1c', data([lab('hba1c', 6.9, '2026-10-07'), lab('hba1c', 7.4, '2026-03-02'), lab('hba1c', 7.1, '2026-06-02')]), prefs, TODAY);
     expect([view.chart.slots[0].text, view.chart.slots[1].text]).toEqual(['March 2026: 7.4% on 2 Mar.', 'April 2026: No results.']);
-    expect(view.summary).toBe('HbA1c. Latest, 3 results: 6.9%. The first was on Monday, 2 March.');
+    expect(view.summary).toBe('HbA1c. Latest, 3 results: 6.9%, measured on Wednesday, 7 October. The first was on Monday, 2 March.');
     const turning = labsView('hba1c', data([lab('hba1c', 7.4, '2025-11-20'), lab('hba1c', 7.0, '2026-02-03')]), prefs, '2026-02-10');
     expect(turning.chart.slots.map(s => s.label)).toEqual(['Nov 2025', 'Dec', 'Jan 2026', 'Feb']);
+  });
+
+  it('the latest result says when it was measured, beside it and in the summary (H3-05, J§4.10)', () => {
+    const view = labsView('hba1c', data([lab('hba1c', 7.4, '2025-11-20'), lab('hba1c', 7.0, '2026-03-02')]), prefs, TODAY);
+    expect(view.headline).toEqual({ statistic: 'Latest', coverage: '2 results', value: '7.0%' });
+    expect(view.change).toEqual({ text: 'Measured Monday, 2 March · 3 months after the one before' });
+    expect(view.summary).toBe('HbA1c. Latest, 2 results: 7.0%, measured on Monday, 2 March. The first was on Thursday, 20 November 2025.');
+    const one = labsView('hba1c', data([lab('hba1c', 7.4, '2025-11-20')]), prefs, TODAY);
+    expect(one.change).toEqual({ text: 'Measured Thursday, 20 November 2025 · First result' });
+    expect(labsView('b12', data([]), prefs, TODAY).change).toEqual({ text: 'No results yet. Add one in Labs.' });
+  });
+
+  it('a row’s date carries its year when it isn’t this year’s (H3-05)', () => {
+    expect(trendRow(TRENDS.labs, data([lab('hba1c', 7.4, '2025-11-20')]), prefs, ctx()).value).toBe('Latest HbA1c: 7.4% · Thu 20 Nov 2025');
+    const old = g(118, '2025-12-30T07:30:00+05:30');
+    expect(trendRow(TRENDS.glucose, data([old]), prefs, ctx({ since: '2025-12-30' })).value).toBe('Latest: 118 mg/dL at 7:30 am · Tue 30 Dec 2025');
   });
 
   it('the Labs row names the latest result of any lab, or says there are none', () => {

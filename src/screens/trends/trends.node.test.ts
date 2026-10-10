@@ -44,3 +44,9 @@ describe('Your week’s line when there is nothing to sum up (H3-21)', () => {
     expect(card).toContain('{empty}</p>');
   });
 });
+
+describe('Labs show when the latest was measured (H3-05)', () => {
+  it('the headline’s line under the value is the model’s, with its date', () => {
+    expect(read('CategoryTrend.tsx')).toContain('<TrendHeadlines headline={view.headline} change={view.change} />');
+  });
+});

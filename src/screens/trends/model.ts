@@ -81,8 +81,8 @@ export interface TrendInput {
 const noon = (day: string) => new Date(`${day}T12:00:00`);
 const cap = (s: string) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
 
-/** "Tue 6 Oct". */
-export const shortDay = (day: string): string => format(noon(day), 'EEE d MMM');
+/** "Tue 6 Oct", and "Tue 30 Dec 2025" outside today's year, so an older clinical value is never undated (H3-05). */
+export const shortDay = (day: string, today: string): string => format(noon(day), day.slice(0, 4) === today.slice(0, 4) ? 'EEE d MMM' : 'EEE d MMM yyyy');
 
 /** "3 days with steps", "1 reading": a count and its noun. */
 export function countText(n: number, [one, many]: readonly [string, string]): string {
@@ -236,7 +236,7 @@ export function dailyView(input: TrendInput): TrendView {
     if (statistic !== 'total' && s.recordDays > 0) stats.push({ label: 'Total', value: `${formatNumber(s.sum, d)} ${unit}` });
   }
   if (s.high && s.high.value > 0) {
-    stats.push({ label: rule === 'stated' ? 'Highest' : 'Highest day', value: `${formatNumber(s.high.value, d)} ${unit} · ${shortDay(s.high.day)}` });
+    stats.push({ label: rule === 'stated' ? 'Highest' : 'Highest day', value: `${formatNumber(s.high.value, d)} ${unit} · ${shortDay(s.high.day, ctx.today)}` });
   }
 
   const notes: string[] = [];
@@ -468,6 +468,8 @@ export interface LabView {
   lab: LabKind;
   title: string;
   headline: Headline;
+  /** When the latest was measured, beside it, and how long after the one before (J§4.10, A-45). */
+  change: Change;
   rows: LabRow[];
   chart: ChartModel;
   table: { columns: string[]; rows: string[][] };
@@ -503,14 +505,16 @@ export function labsView(lab: LabKind, data: TrendData, prefs: DisplayPrefs, tod
     const slot = slotOf(r.day);
     return { slot, at: (Number(r.day.slice(8, 10)) - 0.5) / (daysBetween(months[slot].from, months[slot].to) + 1), value: r.value };
   });
+  const measured = latest ? formatDayLong(latest.day, today) : undefined;
   return {
     lab, title, headline, rows,
+    change: { text: latest && measured ? `Measured ${measured} · ${latest.interval}` : 'No results yet. Add one in Labs.' },
     chart: {
       slots, lines: [], unit: latest?.unit ?? '', decimals: latest ? decimalsFor(lab, latest.unit) : 0,
       series: rows.length ? [{ kind: 'points', id: lab, label: title, colour: `var(${TRENDS.labs.colour})`, shape: 'circle', points }] : [],
     },
     table: { columns: ['Date', 'Result', 'Interval'], rows: rows.map(r => [formatDayLong(r.day, today), shown(r), r.interval]) },
-    summary: `${title}. ${headline.statistic}, ${headline.coverage}: ${headline.value}.${rows.length > 1 ? ` The first was on ${formatDayLong(rows[0].day, today)}.` : ''}`,
+    summary: `${title}. ${headline.statistic}, ${headline.coverage}: ${headline.value}${measured ? `, measured on ${measured}` : ''}.${rows.length > 1 ? ` The first was on ${formatDayLong(rows[0].day, today)}.` : ''}`,
   };
 }
 
@@ -534,7 +538,7 @@ export function trendRow(def: TrendDef, data: TrendData, prefs: DisplayPrefs, ct
       .at(-1);
     return {
       ...base,
-      value: latest ? `Latest ${LAB_TITLE[latest.lab]}: ${formatValue(latest.r.value, latest.lab, latest.r.unit)} · ${shortDay(latest.r.day)}` : 'No results yet',
+      value: latest ? `Latest ${LAB_TITLE[latest.lab]}: ${formatValue(latest.r.value, latest.lab, latest.r.unit)} · ${shortDay(latest.r.day, ctx.today)}` : 'No results yet',
       spark: [],
     };
   }
@@ -544,7 +548,7 @@ export function trendRow(def: TrendDef, data: TrendData, prefs: DisplayPrefs, ct
     const primary = GROUPS[def.id]?.[0].id;
     return {
       ...base,
-      value: last ? `Latest: ${last.text} · ${shortDay(last.day)}` : 'No readings yet',
+      value: last ? `Latest: ${last.text} · ${shortDay(last.day, ctx.today)}` : 'No readings yet',
       spark: r.points.filter(p => primary === undefined || p.series === primary).slice(-10).map(p => p.value),
     };
   }

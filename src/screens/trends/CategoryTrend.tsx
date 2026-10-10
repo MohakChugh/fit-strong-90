@@ -167,7 +167,7 @@ function LabsTrend({ def }: { def: TrendDef }) {
   return (
     <Screen title={def.title} back={{ to: '/trends', label: 'Trends' }}>
       <Segmented label="Which result" options={LAB_OPTIONS.map(o => ({ id: o.kind, label: o.title }))} value={lab} onChange={choose} />
-      <TrendHeadlines headline={view.headline} change={{ text: view.rows.at(-1)?.interval ?? 'No results yet. Add one in Labs.' }} />
+      <TrendHeadlines headline={view.headline} change={view.change} />
       <section aria-label={`${view.title} chart`} className="rounded-xl bg-grouped-card p-4">
         <TrendChart model={view.chart} label={`${view.title} results`} summary={view.summary} table={view.table} view={lab} origin={origin} />
       </section>
