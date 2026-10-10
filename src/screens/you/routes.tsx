@@ -3,6 +3,7 @@ import { AppearanceScreen } from './AppearanceScreen';
 import { DataScreen } from './DataScreen';
 import { FocusScreen } from './FocusScreen';
 import { FoodScreen } from './FoodScreen';
+import { GoalsScreen } from './GoalsScreen';
 import { HabitsScreen } from './HabitsScreen';
 import { MeHome } from './MeHome';
 import { ProfileScreen } from './ProfileScreen';
@@ -26,6 +27,7 @@ export default function YouRoutes() {
     <Routes>
       <Route index element={<MeHome />} />
       <Route path="profile" element={<Profile />} />
+      <Route path="goals" element={<GoalsScreen />} />
       <Route path="food" element={<FoodScreen />} />
       <Route path="reminders" element={<HabitsScreen />} />
       <Route path="voice" element={<VoiceScreen />} />

@@ -24,6 +24,7 @@ const titled = (shown, want) => (want instanceof RegExp ? want.test(shown) : sho
 const YOU_EDITORS = [
   ['Profile & health', /^Profile & health$/],
   ['What you’d like more of', /^What you’d like more of$/],
+  ['Goals', /^Goals$/],
   ['Food', /^Food$/],
   ['Reminders', /^Reminders$/],
   ['Voice & demos', /^Voice & demos$/],

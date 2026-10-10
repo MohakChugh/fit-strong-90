@@ -178,7 +178,7 @@ async function inventory(t, { textScale } = {}) {
 
   await t.step(6, 'Me (v1’s You): every screen, the calendar and the destructive sheets', async () => {
     // v1 You's screens under Me's own names (§19.3): habits → reminders, appearance → display, focus → profile's movement chapter.
-    for (const r of ['/me', '/me/profile', '/me/food', '/me/profile?chapter=movement', '/me/reminders', '/me/voice', '/me/display', '/me/data']) await visit(t, r);
+    for (const r of ['/me', '/me/profile', '/me/food', '/me/profile?chapter=movement', '/me/goals', '/me/reminders', '/me/voice', '/me/display', '/me/data']) await visit(t, r);
     await visit(t, '/me/reminders');
     await sheet(t, 'you-calendar', () => ui.tap(ui.row(main, 'Add to Calendar')));
     await visit(t, '/me/data');

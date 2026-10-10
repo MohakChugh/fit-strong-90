@@ -260,7 +260,7 @@ describe('a sheet that will not close yet (review C2-07)', () => {
     expect(read('src/screens/you/RestoreFlow.tsx')).toMatch(/<Sheet open=\{open\} dismissible=\{!locked\}/);
     expect(read('src/screens/workout/sheets.tsx')).toMatch(/<Sheet open=\{open\} dismissible=\{!saving\}/);
     expect(read('src/screens/move/PlanScreen.tsx').match(/dismissible=\{!saving\}/g)).toHaveLength(2);
-    expect(read('src/screens/you/FocusScreen.tsx')).toMatch(/<Sheet open=\{leaving\} dismissible=\{!busy\}/);
+    expect(read('src/screens/you/ProgrammeGroup.tsx')).toMatch(/<Sheet open=\{leaving\} dismissible=\{!busy\}/);
   });
 });
 

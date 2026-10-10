@@ -21,7 +21,7 @@ const METRIC: Record<string, string> = {
 /** v1 You's screens, and Me's own names for them. */
 const YOU: Record<string, string> = {
   profile: 'profile', food: 'food', habits: 'reminders', voice: 'voice', appearance: 'display', data: 'data',
-  reminders: 'reminders', display: 'display',
+  reminders: 'reminders', display: 'display', goals: 'goals',
 };
 const V1_LEGACY: Record<string, string> = {
   '/dashboard': '/today', '/workout': '/track/workout', '/plan': '/move/plan', '/library': '/move/exercises',

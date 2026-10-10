@@ -17,8 +17,9 @@ const isGoal = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 /**
  * The changes as stored, keeping only what this app could have written:
  * settings can arrive in an imported file, which is checked only as a whole.
+ * Me's Goals lists them (Plan 4).
  */
-function historyOf(settings: StepsGoalSettings | undefined): Change[] {
+export function stepsGoalChanges(settings: StepsGoalSettings | undefined): Change[] {
   const h: unknown = settings?.dailyStepsGoalHistory;
   return Array.isArray(h)
     ? h.filter((c): c is Change => typeof c === 'object' && c !== null && isDay(c.from) && (c.goal === undefined || isGoal(c.goal)))
@@ -33,7 +34,7 @@ export function currentStepsGoal(settings: StepsGoalSettings | undefined): numbe
 /** The goal in force on `day`: the last change made on or before it, or none before the first. */
 export function stepsGoalOn(settings: StepsGoalSettings | undefined, day: string): number | undefined {
   let goal: number | undefined;
-  for (const h of historyOf(settings)) if (h.from <= day) goal = h.goal;
+  for (const h of stepsGoalChanges(settings)) if (h.from <= day) goal = h.goal;
   return goal;
 }
 
@@ -43,7 +44,7 @@ export function stepsGoalOn(settings: StepsGoalSettings | undefined, day: string
  * a second change the same day replaces the first.
  */
 export function withStepsGoal(settings: StepsGoalSettings | undefined, goal: number | undefined, day: string): StepsGoalSettings {
-  const history = [...historyOf(settings).filter(h => h.from !== day), { from: day, ...(goal !== undefined ? { goal } : {}) }]
+  const history = [...stepsGoalChanges(settings).filter(h => h.from !== day), { from: day, ...(goal !== undefined ? { goal } : {}) }]
     .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
   return { dailyStepsGoal: goal, dailyStepsGoalHistory: history };
 }
@@ -61,6 +62,6 @@ export function stepsProgress(steps: number, goal: number | undefined): string |
  */
 export function stepsGoalThroughout(settings: StepsGoalSettings | undefined, from: string, to: string): number | undefined | 'changed' {
   const first = stepsGoalOn(settings, from);
-  const changed = historyOf(settings).some(h => h.from > from && h.from <= to && h.goal !== first);
+  const changed = stepsGoalChanges(settings).some(h => h.from > from && h.from <= to && h.goal !== first);
   return changed ? 'changed' : first;
 }

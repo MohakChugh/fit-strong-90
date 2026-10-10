@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { BellIcon, ChevronRightIcon, CompassIcon, HardDriveIcon, HeartPulseIcon, MicIcon, SaladIcon, SunMoonIcon } from 'lucide-react';
+import { BellIcon, ChevronRightIcon, CompassIcon, HardDriveIcon, HeartPulseIcon, MicIcon, SaladIcon, SunMoonIcon, TargetIcon } from 'lucide-react';
 import { categoryById, newlyRelevant, type CategoryId } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
@@ -11,6 +11,7 @@ import { EditButton } from '@/screens/home/EditButton';
 import { answerOffer, useHomeLayout } from '@/screens/home/homeLayout';
 import { addButton } from '@/screens/home/layout';
 import { TileIcon } from '@/screens/home/Tile';
+import { today as todayOf } from '@/screens/track/periods';
 import { deviceNoun, readInstallEnv } from '@/screens/welcome/install';
 import { FOCUS_CHOICES } from '@/screens/welcome/focus';
 import { finishTitle, notNow, setupProgress, type OpenChapter } from '@/setup/progress';
@@ -19,6 +20,7 @@ import type { HomeLayout } from '@/types';
 import { packName } from '@/voice/packs';
 import { buildId } from './about';
 import { shortDate } from './dates';
+import { goalsLine } from './goals';
 import { REVIEW_LABEL, conditionsLine, foodLine, habitsLine, privacyLine, reviewNeeded } from './summaries';
 
 const THEME = { system: 'Automatic', light: 'Light', dark: 'Dark' } as const;
@@ -41,6 +43,7 @@ export function MeHome() {
     device: deviceNoun(readInstallEnv()),
     build: buildId([...document.scripts].map(s => s.src)),
   }));
+  const day = todayOf(now);
   const { stored, fallback, relevant } = useHomeLayout();
   const finish = setupProgress({ profile, settings });
   // Only once Home has laid its tiles out: until then its defaults include every relevant one.
@@ -76,6 +79,7 @@ export function MeHome() {
         />
         {/* v1's focus choice, by its own name, until Plan 5 puts it in Profile & health's movement chapter. */}
         <Row as={Link} to="/me/profile?chapter=movement" viewTransition icon={<CompassIcon />} label="What you’d like more of" detail={focus?.label ?? 'Not chosen'} chevron />
+        <Row as={Link} to="/me/goals" viewTransition icon={<TargetIcon />} label="Goals" detail={goalsLine(settings, day)} chevron />
         <Row as={Link} to="/me/food" viewTransition icon={<SaladIcon />} label="Food" detail={foodLine(profile?.food)} chevron />
       </Group>
 
