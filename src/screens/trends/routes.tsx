@@ -5,9 +5,9 @@
  * Anything else is an address that has moved (§19.3).
  */
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { MyDay } from '@/screens/track/MyDay';
 import RecordScreen from '@/screens/workout/RecordScreen';
 import CategoryTrend from './CategoryTrend';
+import TrendsScreen from './TrendsScreen';
 
 /** Food's trend address, on to the Food hub with its query and navigation state. */
 function FoodHub() {
@@ -18,8 +18,7 @@ function FoodHub() {
 export default function TrendsRoutes() {
   return (
     <Routes>
-      {/* Until Task 13 builds the tab's root, My Day's Trends view on its own, as before. */}
-      <Route index element={<MyDay view="trends" />} />
+      <Route index element={<TrendsScreen />} />
       <Route path="workout/:id" element={<RecordScreen />} />
       <Route path="food" element={<FoodHub />} />
       <Route path=":id" element={<CategoryTrend />} />

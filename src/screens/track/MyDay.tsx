@@ -6,8 +6,7 @@
  * day, the view and an open Quick Log all live in the URL, so a reload — or
  * Home's `/day/today?add=glucose` — lands in the same place.
  *
- * It is v2's Today's log (`/day/:date`, the day in the path), and until Plan 3
- * builds Trends, the Trends tab too (`view="trends"`).
+ * It is v2's Today's log (`/day/:date`, the day in the path).
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -53,11 +52,9 @@ export interface Origin {
   search?: string;
 }
 
-export function MyDay({ day: pathDay, view: onlyView }: {
+export function MyDay({ day: pathDay }: {
   /** Today's log (`/day/:date`, journey §13): the day from the path, `today` or a date, which paging moves along. */
   day?: string;
-  /** The interim Trends tab: this view alone, with no day to page through. */
-  view?: View;
 }) {
   const state = useStore();
   const current = useToday();
@@ -65,8 +62,8 @@ export function MyDay({ day: pathDay, view: onlyView }: {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const day = clampDay(pathDay ?? params.get('day'), current);
-  const view: View = onlyView ?? (params.get('view') === 'trends' ? 'trends' : 'timeline');
-  const title = onlyView === 'trends' ? 'Trends' : 'My Day';
+  const view: View = params.get('view') === 'trends' ? 'trends' : 'timeline';
+  const title = 'My Day';
   // `?add=` with no kind opens the list; with a kind, that kind's form.
   const asking = params.has('add');
   const request = parseAddParam(params.get('add'));
@@ -128,9 +125,8 @@ export function MyDay({ day: pathDay, view: onlyView }: {
   const onSaved = (result: SavedResult) => {
     setFresh(result.ids);
     setNotice(`Saved on this device: ${result.summary}.`);
-    // Show the record arriving: on its own day, in the timeline. Trends has
-    // no timeline, so it says so and stays.
-    if (!onlyView) change({ day: result.day, view: 'timeline' });
+    // Show the record arriving: on its own day, in the timeline.
+    change({ day: result.day, view: 'timeline' });
   };
 
   const closeLog = (open: boolean) => {
@@ -163,20 +159,18 @@ export function MyDay({ day: pathDay, view: onlyView }: {
         </button>
       )}
     >
-      {!onlyView && (
-        <div className="flex flex-col gap-3">
-          <DateStepper
-            label={formatDayRelative(day, current)}
-            sublabel={day === current || day === addDays(current, -1) ? formatDayLong(day, current) : undefined}
-            previousLabel={`Previous day, ${formatDayLong(addDays(day, -1), current)}`}
-            nextLabel={day >= current ? 'Next day' : `Next day, ${formatDayLong(addDays(day, 1), current)}`}
-            onPrevious={() => goToDay(addDays(day, -1))}
-            onNext={() => goToDay(addDays(day, 1))}
-            nextDisabled={day >= current}
-          />
-          <Segmented label="Show" options={VIEWS} value={view} onChange={v => change({ view: v })} />
-        </div>
-      )}
+      <div className="flex flex-col gap-3">
+        <DateStepper
+          label={formatDayRelative(day, current)}
+          sublabel={day === current || day === addDays(current, -1) ? formatDayLong(day, current) : undefined}
+          previousLabel={`Previous day, ${formatDayLong(addDays(day, -1), current)}`}
+          nextLabel={day >= current ? 'Next day' : `Next day, ${formatDayLong(addDays(day, 1), current)}`}
+          onPrevious={() => goToDay(addDays(day, -1))}
+          onNext={() => goToDay(addDays(day, 1))}
+          nextDisabled={day >= current}
+        />
+        <Segmented label="Show" options={VIEWS} value={view} onChange={v => change({ view: v })} />
+      </div>
 
       <div role="status" aria-live="polite" className="empty:hidden">
         {notice && (
