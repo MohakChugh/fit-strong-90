@@ -43,6 +43,9 @@ function isPlan(v: unknown): v is WalkPlan {
     return false;
   }
   if (v.keepRoute !== undefined && typeof v.keepRoute !== 'boolean') return false;
+  if (v.stepsDenied !== undefined && v.stepsDenied !== true) return false;
+  if (v.from !== undefined && v.from !== '/home' && v.from !== '/hub/walk') return false;
+  if (isObject(v.meal) && v.meal.basis !== undefined && v.meal.basis !== 'had') return false;
   return true;
 }
 

@@ -5,18 +5,24 @@ import { createDefaultProfile } from '@/profile/defaults';
 import { PERMISSION_TEXT, type Permission, type PermissionInput } from '@/engine/permission';
 import { toDateString } from '@/lib/utils';
 import { resetPendingCheckInsForTests, saveCheckInRecord } from '@/components/checkin/pending';
-import { allowsMovement, clinicalGate, deviceClinical, deviceGate, walkInput, walkRefusal, watchClinical } from './gate';
+import { allowsMovement, clinicalGate, deviceClinical, deviceGate, storeStartPermission, walkInput, walkRefusal, watchClinical } from './gate';
 import type { WalkIntent } from './live';
 
 /** The store's own change notifications, so a test can fire them. */
 const storeListeners = vi.hoisted(() => new Set<() => void>());
-vi.mock('@/store/useStore', async importOriginal => ({
-  ...(await importOriginal<typeof import('@/store/useStore')>()),
-  subscribe: (listener: () => void) => {
-    storeListeners.add(listener);
-    return () => void storeListeners.delete(listener);
-  },
-}));
+/** What the device holds, when a test sets it: the store's state otherwise. */
+const device = vi.hoisted(() => ({ state: undefined as unknown }));
+vi.mock('@/store/useStore', async importOriginal => {
+  const real = await importOriginal<typeof import('@/store/useStore')>();
+  return {
+    ...real,
+    getState: () => (device.state ?? real.getState()) as ReturnType<typeof real.getState>,
+    subscribe: (listener: () => void) => {
+      storeListeners.add(listener);
+      return () => void storeListeners.delete(listener);
+    },
+  };
+});
 
 const NOW = new Date('2026-10-08T19:40:00+05:30');
 const TODAY = toDateString(NOW);
@@ -222,5 +228,24 @@ describe('a change to the phone’s clock mid-walk (B-19, the conservative path)
       expect(gate('restart', NOW.getTime() - 60_000)).toBe(false);
       expect(gate('restart', NOW.getTime() - 20 * 60_000)).toBe(true);
     }
+  });
+});
+
+describe('B-01’s final gate, asked of what the device holds at that moment', () => {
+  afterEach(() => { device.state = undefined; });
+  const reading = (minutes: number) => ({ glucose: { value: 140, unit: 'mg/dL' as const, measuredAt: minutesBefore(NOW, minutes), source: 'meter' as const } });
+
+  it('starts on a reading taken 10 minutes ago, and not on one taken 40 minutes ago', () => {
+    device.state = { profile: onInsulin, checkIns: [checkIn(reading(10))], settings: { currentWeight: 70 }, observations: [] };
+    expect(allowsMovement(storeStartPermission(NOW))).toBe(true);
+    device.state = { profile: onInsulin, checkIns: [checkIn(reading(40))], settings: { currentWeight: 70 }, observations: [] };
+    expect(allowsMovement(storeStartPermission(NOW))).toBe(false);
+  });
+
+  it('asks the start question, so no check-in today is no start', () => {
+    device.state = { profile: ordinary, checkIns: [], settings: { currentWeight: 70 }, observations: [] };
+    const p = storeStartPermission(NOW);
+    expect(allowsMovement(p)).toBe(false);
+    expect(p.needsCheckIn).toBe(true);
   });
 });

@@ -515,3 +515,16 @@ describe('a saved walk’s estimate (J§12.4)', () => {
     expect(record.energyNote).toBeUndefined();
   });
 });
+
+describe('a walk after a meal the person had (B-09)', () => {
+  it('records a walk after a meal the person had at a time they stated, tagged but with no start', () => {
+    const w = afterDinner({ kind: 'afterMeal', meal: { which: 'dinner', startedAt: s(-1200), basis: 'had' } });
+    const records = walkObservations(w, { time });
+    expect(records.filter(r => r.kind !== 'backPain' && r.kind !== 'legPain').every(r => r.tag === 'afterMeal' && r.mealStartedAt === undefined)).toBe(true);
+    expect(byKind(records, 'walkDuration')[0].note).toBe('After dinner, which you had at 7:10 pm.');
+    // Read back, it is still a walk after a meal, with no start to show.
+    const [record] = walkRecords(records.map(i => newObservation(i)));
+    expect(record).toMatchObject({ afterMeal: true });
+    expect(record.mealStartedAt).toBeUndefined();
+  });
+});

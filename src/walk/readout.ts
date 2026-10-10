@@ -173,7 +173,11 @@ export function summaryRows(walk: Walk, summary: WalkSummary, options: { locale?
   const time = options.time ?? (t => timeOfDay(t, options.locale));
   const rows: SummaryRow[] = [];
   const meal = walk.plan.kind === 'afterMeal' ? walk.plan.meal : undefined;
-  if (meal) rows.push({ label: afterMealTitle(meal.which), value: `Started ${time(meal.startedAt)}`, detail: 'When the meal started' });
+  if (meal) {
+    rows.push(meal.basis === 'had'
+      ? { label: afterMealTitle(meal.which), value: `Had at ${time(meal.startedAt)}`, detail: 'When you had the meal' }
+      : { label: afterMealTitle(meal.which), value: `Started ${time(meal.startedAt)}`, detail: 'When the meal started' });
+  }
 
   if (walk.plan.gps) {
     if (summary.distanceM !== undefined) {

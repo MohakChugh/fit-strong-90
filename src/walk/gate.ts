@@ -179,6 +179,17 @@ export function deviceGate(
 export const storeGate = deviceGate(() => getState());
 
 /**
+ * B-01's final gate: the start question at this moment, asked of what the
+ * device holds now (answers waiting to be stored included), never of a
+ * screen's copy from before a system prompt.
+ */
+export function storeStartPermission(now: Date = new Date()): Permission {
+  const all = deviceClinical(getState());
+  const clinical: Clinical = { profile: all.profile, checkIns: reachableHistory(all.checkIns, toDateString(now), all.profile) };
+  return startGate(walkInput(clinical, now), 'walk');
+}
+
+/**
  * Anything that could change the answer while a walk records: the store, and
  * the answers waiting to be stored — a refused emergency write appears only
  * there.

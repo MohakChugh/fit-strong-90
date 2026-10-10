@@ -225,6 +225,15 @@ describe('walks kept before B-19', () => {
     expect(withFirst({ offsetMin: -14 * 60 })).not.toBeNull();
   });
 
+  it('refuses a plan field this build does not know the shape of', () => {
+    const w = aWalk();
+    expect(parseWalk({ ...w, plan: { ...w.plan, from: '/elsewhere' } })).toBeNull();
+    expect(parseWalk({ ...w, plan: { ...w.plan, meal: { ...w.plan.meal, basis: 'ate' } } })).toBeNull();
+    expect(parseWalk({ ...w, plan: { ...w.plan, stepsDenied: false } })).toBeNull();
+    expect(parseWalk({ ...w, plan: { ...w.plan, stepsDenied: true } })).not.toBeNull();
+    expect(parseWalk({ ...w, plan: { ...w.plan, from: '/hub/walk', meal: { ...w.plan.meal, basis: 'had' } } })).not.toBeNull();
+  });
+
   it('refuse a route consent that is not a yes or a no', () => {
     const w = aWalk();
     expect(parseWalk({ ...w, plan: { ...w.plan, keepRoute: true } })?.plan.keepRoute).toBe(true);

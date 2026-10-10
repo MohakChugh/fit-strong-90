@@ -21,10 +21,18 @@ import { offsetAt } from './time';
 
 export type WalkKind = 'walk' | 'afterMeal';
 
+/** Where a walk was started from, for Done to return there (motion M12). */
+export type WalkOrigin = '/home' | '/hub/walk';
+
 export interface WalkPlan {
   kind: WalkKind;
   /** After a meal: which one, and when it started (epoch ms). */
-  meal?: { which: Meal; startedAt: number };
+  meal?: {
+    which: Meal;
+    startedAt: number;
+    /** 'had': the person said when they had the meal (B-09), not when it started. Absent: when it started. */
+    basis?: 'had';
+  };
   /** The person's own target, in minutes. Absent means none. */
   targetMinutes?: number;
   /** Measure distance and pace with GPS. */
@@ -33,6 +41,10 @@ export interface WalkPlan {
   steps: boolean;
   /** The person keeps routes on this phone (§9.1): the route is journalled while walking and saved with the walk. */
   keepRoute?: boolean;
+  /** Motion access was turned down at the start (B-01): steps aren't counted, and the walk says so. */
+  stepsDenied?: boolean;
+  /** Where Done returns to. */
+  from?: WalkOrigin;
 }
 
 /**

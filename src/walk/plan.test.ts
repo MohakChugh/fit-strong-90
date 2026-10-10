@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { afterMealSuggestion, choiceChanged, directWalkHref, isWalkId, liveHref, mealFromSearch, mealMinutesAgo, mealStartedLabel, MEAL_STARTED_AGO, newWalkId, setupPlan, walkFromSearch } from './plan';
+import { afterMealSuggestion, choiceChanged, directWalkHref, isWalkId, liveHref, mealFromSearch, mealMinutesAgo, mealStartedLabel, MEAL_STARTED_AGO, newWalkId, originOf, setupPlan, walkFromSearch, walkPlanOf } from './plan';
 import type { WalkPlan } from './clock';
 
 const NOW = Date.UTC(2026, 9, 8, 13, 0, 0);
@@ -141,5 +141,31 @@ describe('keeping the route (§9.1)', () => {
     expect(back?.plan.keepRoute).toBe(true);
     expect(walkFromSearch(new URLSearchParams('id=mgh3k2x1-1a2b3c4d&route=1'), Date.now())?.plan.keepRoute).toBeUndefined();
     expect(liveHref('mgh3k2x1-1a2b3c4d', { kind: 'walk', gps: true, steps: false })).not.toContain('route=');
+  });
+});
+
+describe('the plan in the address (B-01, B-09, M12)', () => {
+  it('carries a refused motion, the origin and an after-meal time the person stated', () => {
+    const plan = { kind: 'afterMeal' as const, meal: { which: 'lunch' as const, startedAt: Date.now() - 600_000, basis: 'had' as const }, gps: false, steps: false, stepsDenied: true, from: '/hub/walk' as const };
+    const back = walkPlanOf(liveHref('mgh3k2x1-1a2b3c4d', plan));
+    expect(back).toMatchObject({ stepsDenied: true, steps: false, from: '/hub/walk', meal: { which: 'lunch', basis: 'had' } });
+    const home = walkPlanOf(liveHref('mgh3k2x1-1a2b3c4d', { kind: 'walk', gps: false, steps: true, from: '/home' }));
+    expect(home).toMatchObject({ steps: true, from: '/home' });
+    expect(home?.stepsDenied).toBeUndefined();
+  });
+
+  it('finds a plan only in a live walk’s address', () => {
+    expect(walkPlanOf('/hub/walk?meal=lunch')).toBeUndefined();
+    expect(walkPlanOf('/hub/walk?id=mgh3k2x1-1a2b3c4d&gps=1')).toBeUndefined();
+    expect(originOf('/hub/walk')).toBe('/hub/walk');
+    expect(originOf('/hub/stretch')).toBe('/home');
+    expect(originOf('/home')).toBe('/home');
+    expect(originOf('/browse')).toBe('/home');
+  });
+
+  it('reads no origin or basis it does not know', () => {
+    const p = walkPlanOf('/walk/live?id=mgh3k2x1-1a2b3c4d&from=elsewhere&meal=lunch&mealAt=' + (Date.now() - 60_000) + '&mealBasis=ate');
+    expect(p?.from).toBeUndefined();
+    expect(p?.meal?.basis).toBeUndefined();
   });
 });

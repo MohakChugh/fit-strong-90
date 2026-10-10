@@ -109,7 +109,7 @@ const joined = (...notes: (string | undefined)[]) => notes.filter(Boolean).join(
 function noteFor(walk: Walk, time: (epochMs: number) => string): string | undefined {
   const parts: string[] = [];
   if (walk.plan.kind === 'afterMeal' && walk.plan.meal) {
-    parts.push(`${afterMealTitle(walk.plan.meal.which)}, which started at ${time(walk.plan.meal.startedAt)}.`);
+    parts.push(`${afterMealTitle(walk.plan.meal.which)}, which ${walk.plan.meal.basis === 'had' ? 'you had' : 'started'} at ${time(walk.plan.meal.startedAt)}.`);
   }
   if (walk.endedBy === 'low') parts.push('Ended because you felt low.');
   if (walk.endedBy === 'emergency') parts.push('Ended because of symptoms that need emergency help.');
@@ -146,8 +146,9 @@ export function walkObservations(walk: Walk, options: ObservationOptions = {}): 
   const withNote = (text: string | undefined) => (text ? { note: text } : {});
   // The meal it followed, as data and not only words, so a walk after dinner
   // can be found as one (D26). The note still names which meal.
+  // A meal the person said they had (B-09) is tagged, but has no start to record.
   const meal = walk.plan.kind === 'afterMeal' && walk.plan.meal
-    ? { tag: 'afterMeal' as const, mealStartedAt: isoAt(walk.plan.meal.startedAt, walk.segments[0].offsetMin) }
+    ? { tag: 'afterMeal' as const, ...(walk.plan.meal.basis === 'had' ? {} : { mealStartedAt: isoAt(walk.plan.meal.startedAt, walk.segments[0].offsetMin) }) }
     : {};
   const out: WalkInput[] = [];
 

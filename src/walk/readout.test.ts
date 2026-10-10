@@ -160,6 +160,14 @@ describe('coming back', () => {
 });
 
 describe('summary rows', () => {
+  it('says "had at" for a meal time the person stated (B-09)', () => {
+    const time = (t: number) => (t === T - 600_000 ? '7:10 pm' : '?');
+    const w = finishWalk(startWalk('abcd-1234', { kind: 'afterMeal', meal: { which: 'lunch', startedAt: T - 600_000, basis: 'had' }, gps: false, steps: false }, T), T + 600_000, 'finish');
+    expect(summaryRows(w, summarise(w), { time })[0]).toEqual({ label: 'After lunch', value: 'Had at 7:10 pm', detail: 'When you had the meal' });
+    const started = finishWalk(startWalk('abcd-1234', { kind: 'afterMeal', meal: { which: 'lunch', startedAt: T - 600_000 }, gps: false, steps: false }, T), T + 600_000, 'finish');
+    expect(summaryRows(started, summarise(started), { time })[0]).toEqual({ label: 'After lunch', value: 'Started 7:10 pm', detail: 'When the meal started' });
+  });
+
   function walked(): Walk {
     let w = startWalk('abcd-1234', { kind: 'afterMeal', meal: { which: 'dinner', startedAt: T - 600_000 }, gps: true, steps: true }, T);
     w = updateOpenSegment(w, s => ({ ...s, gps: [{ start: T, end: T + 1_000_000, distanceM: 1300 }], steps: 2015, motion: true }));
