@@ -157,15 +157,21 @@ function OfferRow({ id, layout, fallback }: { id: CategoryId; layout: HomeLayout
   const category = categoryById(id);
   const button = addButton(layout, id);
   const [problem, setProblem] = useState<string>();
+  const full = `${category.title} couldn’t go on Home: its group is full. Hide a tile in Edit Home, or choose Not now.`;
   const answer = async (add: boolean) => {
     const saved = answerOffer(fallback, id, add);
     if (!saved) {
-      setProblem(`${category.title} couldn’t go on Home: its group is full. Hide a tile in Edit Home, or choose Not now.`);
+      setProblem(full);
       return;
     }
     const result = await saved;
     if (!result.ok) {
       setProblem(`That did not save. ${result.failure.message}`);
+      return;
+    }
+    // Another copy of the app filled the group first: nothing was written, and the offer stays (codex H4-03).
+    if (!result.value) {
+      setProblem(full);
       return;
     }
     if (add) toast(`${category.title} added to Home`);
