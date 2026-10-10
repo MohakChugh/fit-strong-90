@@ -90,8 +90,9 @@ const NOUN: Record<Mode, string> = { guided: 'session', stretch: 'stretch', walk
 
 /**
  * The card, in the copy table's order. A stop outranks status, and status
- * outranks the programme and every hold. A profile gap outranks the other
- * holds. Only then is anything offered (journey §7.5, as `movementLine`).
+ * outranks every hold. A profile gap comes next, before the programme's Join,
+ * so the Workout tile and its hub always name it alike (§4.2), and before the
+ * other holds. Only then is anything offered (journey §7.5, as `movementLine`).
  */
 export function movementCard(i: CardInput): HubCard {
   const p = i.permission;
@@ -108,20 +109,20 @@ export function movementCard(i: CardInput): HubCard {
       primary: { kind: 'status', label: 'Change status' }, secondary: [{ kind: 'anyway', label: 'Start anyway' }],
     };
   }
+  if (!p.allowed && (i.gaps.healthUnreviewed || i.gaps.medicinesUnknown)) {
+    const chapter = i.gaps.healthUnreviewed ? 'your health' : 'your medicines';
+    return {
+      // Home's card for the same gap (`profileFirst`), and before the programme's Join, as the tile says it (§4.2).
+      ...empty, ...refusal, state: 'gap', tone: 'caution', title: i.gaps.healthUnreviewed ? 'Finish your health profile' : 'Your diabetes medicines',
+      primary: { kind: 'profile', label: `Answer the questions about ${chapter}` }, secondary: [REVIEW],
+    };
+  }
   if (i.mode === 'guided' && i.enrolled === false) {
     const join: HubAction = { kind: 'join', label: 'Join the 12-week programme' };
     const flare = i.status === 'flare' && instead.length > 0;
     return {
       ...empty, state: 'join', tone: 'normal', title: 'The 12-week programme', detail: 'Not joined. Stretch and Walk work without it.',
       ...(flare ? { today: 'Stretch is suggested today', primary: instead[0], secondary: [join] } : { primary: join, secondary: instead }),
-    };
-  }
-  if (!p.allowed && (i.gaps.healthUnreviewed || i.gaps.medicinesUnknown)) {
-    const chapter = i.gaps.healthUnreviewed ? 'your health' : 'your medicines';
-    return {
-      // Home's card for the same gap (`profileFirst`), so the two never disagree.
-      ...empty, ...refusal, state: 'gap', tone: 'caution', title: i.gaps.healthUnreviewed ? 'Finish your health profile' : 'Your diabetes medicines',
-      primary: { kind: 'profile', label: `Answer the questions about ${chapter}` }, secondary: [REVIEW],
     };
   }
   if (i.gate === 'hold' || i.gate === 'recheck') {

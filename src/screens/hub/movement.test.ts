@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PERMISSION_TEXT, type Permission } from '@/engine/permission';
-import type { TileLine } from '@/screens/home/tileLine';
+import { movementLine, type TileLine } from '@/screens/home/tileLine';
 import {
   JOIN_HREF, actionTarget, movementCard, restDayOf, resumeAllowed, runAction, sessionParts, stretchReason,
   type CardInput, type HubActionKind, type HubCard,
@@ -288,5 +288,19 @@ describe('the edges the copy table implies', () => {
   it('stretchReason names a pain only for the area the routine serves', () => {
     expect(stretchReason({ chosen: false, flare: false, focus: 'neckShoulders', yesterday: { pain: 3, legPain: 2 }, fromLast: false })).toBeUndefined();
     expect(stretchReason({ chosen: false, flare: false, focus: 'backHips', yesterday: { legPain: 2 }, fromLast: false })).toBeUndefined();
+  });
+});
+
+describe('a profile gap outside the programme: the Workout tile and its hub agree (§4.2)', () => {
+  it('both name the chapter to finish, before the programme’s Join', () => {
+    const gaps = { healthUnreviewed: false, medicinesUnknown: true };
+    const p = held('guided', [PERMISSION_TEXT.medicinesUnknown]);
+    const tile = movementLine({ mode: 'guided', permission: p, status: 'normal', normal: '12-week programme · not joined', enrolled: false });
+    expect(tile.text).toBe('Finish setting up · your medicines');
+    const c = movementCard(input({ mode: 'guided', permission: p, gate: 'hold', gaps, enrolled: false, title: '12-week programme · not joined', line: tile, stretchOpen: false }));
+    expect(c).toMatchObject({ state: 'gap', title: 'Your diabetes medicines', primary: { kind: 'profile', label: 'Answer the questions about your medicines' } });
+    expect(kinds(c)).not.toContain('join');
+    // During a flare too: the gap still comes before the stretch suggestion, as on the tile.
+    expect(movementCard(input({ mode: 'guided', permission: p, gate: 'hold', gaps, enrolled: false, status: 'flare', title: 'x', stretchOpen: false })).state).toBe('gap');
   });
 });
