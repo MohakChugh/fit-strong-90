@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { getMeal } from '@/content';
 import { contextOf, search } from '@/content';
 import {
-  AVOID_HELP, foodSummary, longDate, onlyPartial, parseAvoid, partialDetail, SOURCE_LINK_NOTE, unmatchedNote,
+  AVOID_HELP, foodSummary, longDate, onlyPartial, parseAllergies, parseAvoid, partialDetail, SOURCE_LINK_NOTE, unmatchedNote,
 } from './format';
 import { componentDetail, mealDetail, measureClaimIds } from './mealText';
 
@@ -16,6 +16,17 @@ describe('Guide formatting', () => {
     expect(foodSummary({ pattern: 'vegetarian', avoid: [] })).toBe('Vegetarian');
     expect(foodSummary({ pattern: 'vegan', avoid: ['peanuts'], region: 'south' })).toBe('Vegan · South Indian · no peanuts');
     expect(foodSummary({ pattern: 'eggetarian', avoid: [], region: 'mixed' })).toBe('Vegetarian with eggs');
+  });
+
+  it('names allergies in the summary of what the person eats', () => {
+    expect(foodSummary({ pattern: 'jain', avoid: [], allergies: ['peanut'], customAllergies: ['brinjal'] })).toBe('Jain · allergic to peanut, brinjal');
+  });
+
+  it('keeps allergies in the person’s own words within what a backup can be read back with (30, of 60 characters)', () => {
+    const long = 'x'.repeat(70);
+    expect(parseAllergies(`brinjal, ${long}; Brinjal ,, `)).toEqual(['brinjal', 'x'.repeat(60)]);
+    expect(parseAllergies(Array.from({ length: 31 }, (_, i) => `food${i}`).join(','))).toHaveLength(30);
+    expect(parseAllergies('')).toEqual([]);
   });
 
   it('splits the leave-out field into foods, dropping blanks and repeats', () => {

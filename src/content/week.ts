@@ -1,40 +1,99 @@
-import type { FoodPreferences } from '@/types/profile';
-import { leaveOut, mealPattern } from './allergens';
+import { allergiesOf, recommendable, type AllergenTags } from '@/food/allergens';
+import { foodById } from '@/food/data';
+import type { AllergenId, FoodPreferences } from '@/types/profile';
+import { JAIN_LEAVES_OUT, mealPattern } from './allergens';
 import { MEALS } from './meals';
+import { componentKey, MEAL_DISHES } from './mealDishes';
 import type { MealComponent, MealTemplate, Pattern, Slot } from './schema';
 import { tokens } from './text';
 
 export const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 
-/** The parts of a meal this person eats: a vegan's plate has no dahi. A Jain plate is a vegetarian one. */
+/** The folded words a Jain plate leaves out. */
+const JAIN_WORDS = new Set(JAIN_LEAVES_OUT.flatMap(tokens));
+
+/** The parts of a meal this person eats: a vegan's plate has no dahi. */
 export function componentsFor(meal: MealTemplate, pattern?: Pattern): MealComponent[] {
   const p = mealPattern(pattern);
   return p ? meal.components.filter(c => !c.notFor?.includes(p)) : meal.components;
 }
 
-/** Whether a template suits an eating pattern. Jain food comes from the vegetarian ones, less what `leaveOut` names (board D82). */
+/** Every word a template, and the components this person would eat, go by. */
+function ownWords(meal: MealTemplate, pattern?: Pattern): Set<string> {
+  return new Set([meal.name, ...meal.aliases, ...componentsFor(meal, pattern).flatMap(c => [c.name, ...(c.aliases ?? [])])].flatMap(tokens));
+}
+
+/** The dishes a component this person eats is, from the map. */
+const dishesOf = (meal: MealTemplate, c: MealComponent) => MEAL_DISHES[componentKey(meal.id, c.name)];
+
+/**
+ * Whether a template suits an eating pattern. A Jain plate is a vegetarian
+ * one whose words name nothing Jain cooking leaves out, and whose dishes
+ * all suit it (D100). Other patterns are as the templates were written.
+ */
 export function suits(meal: MealTemplate, pattern?: Pattern): boolean {
   const p = mealPattern(pattern);
-  return p === undefined || meal.patterns.includes(p);
+  if (p === undefined) return true;
+  if (!meal.patterns.includes(p)) return false;
+  if (pattern !== 'jain') return true;
+  if ([...ownWords(meal, pattern)].some(w => JAIN_WORDS.has(w))) return false;
+  return componentsFor(meal, pattern).every(c => (dishesOf(meal, c)?.dishes ?? []).every(id => foodById(id)?.patterns.includes('jain') === true));
+}
+
+/**
+ * A template's allergen tags (B-13): its components' dishes, what a
+ * component with no dish may carry, and every word it and its dishes go
+ * by. A component the map doesn't know leaves the template not fully tagged.
+ */
+export function mealTags(meal: MealTemplate, pattern?: Pattern): AllergenTags {
+  const contains = new Set<AllergenId>();
+  const may = new Set<AllergenId>();
+  const words = ownWords(meal, pattern);
+  let complete = true;
+  for (const c of componentsFor(meal, pattern)) {
+    const mapped = dishesOf(meal, c);
+    if (!mapped) {
+      complete = false;
+      continue;
+    }
+    for (const a of mapped.mayContain ?? []) may.add(a);
+    for (const id of mapped.dishes) {
+      const dish = foodById(id);
+      if (!dish) {
+        complete = false;
+        continue;
+      }
+      for (const a of dish.allergens.contains) contains.add(a);
+      for (const a of dish.allergens.mayContain) may.add(a);
+      if (!dish.allergens.complete) complete = false;
+      for (const w of dish.words) words.add(w);
+    }
+  }
+  return { contains: [...contains], mayContain: [...may].filter(a => !contains.has(a)), complete, words: [...words] };
 }
 
 /**
  * Whether the person asked to leave out something in this meal. Matching is
  * by word, after the same plural folding search uses, against the meal's
- * names and every component they would eat — so "peanut" hides poha with
- * peanuts, and "curd" hides a dahi side, while "nut" does not hide coconut.
+ * names and every component they would eat, as in v1: "peanut" hides poha
+ * with peanuts, "nut" doesn't hide coconut, and "coconut milk" names no
+ * meal (audit R04). Only an allergy goes into each dish's ingredients (D99).
  */
 export function isAvoided(meal: MealTemplate, avoid: readonly string[] = [], pattern?: Pattern): boolean {
   if (avoid.length === 0) return false;
-  const words = new Set(
-    [meal.name, ...meal.aliases, ...componentsFor(meal, pattern).flatMap(c => [c.name, ...(c.aliases ?? [])])]
-      .flatMap(tokens),
-  );
+  const words = ownWords(meal, pattern);
   return avoid.some(term => {
     const wanted = tokens(term);
     return wanted.length > 0 && wanted.every(w => words.has(w));
   });
+}
+
+/** Every filter for one person (A-16, B-13): the pattern, the foods they leave out, and their allergies. */
+export function mealAllowed(meal: MealTemplate, food?: FoodPreferences): boolean {
+  return suits(meal, food?.pattern)
+    && !isAvoided(meal, food?.avoid, food?.pattern)
+    && recommendable(mealTags(meal, food?.pattern), allergiesOf(food));
 }
 
 /**
@@ -51,16 +110,12 @@ export function unmatchedAvoid(avoid: readonly string[] = [], pattern?: Pattern)
 
 /**
  * Meals for the person's food pattern, without anything they asked to leave
- * out: the foods they typed, their allergies and Jain's rule (`leaveOut`).
- * With a region, dishes familiar there come first and every other dish still
- * follows, so a preference narrows the order, never the choice.
+ * out or are allergic to (`mealAllowed`). With a region, dishes familiar
+ * there come first and every other dish still follows, so a preference
+ * narrows the order, never the choice.
  */
 export function mealsFor(food?: FoodPreferences, slot?: Slot): MealTemplate[] {
-  const out = leaveOut(food);
-  const pool = MEALS.filter(m =>
-    (slot === undefined || m.slot === slot)
-    && suits(m, food?.pattern)
-    && !isAvoided(m, out, food?.pattern));
+  const pool = MEALS.filter(m => (slot === undefined || m.slot === slot) && mealAllowed(m, food));
   const region = food?.region && food.region !== 'mixed' ? food.region : undefined;
   if (!region) return pool;
   const local = pool.filter(m => m.regions?.includes(region));

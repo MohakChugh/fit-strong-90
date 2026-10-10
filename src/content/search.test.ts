@@ -154,4 +154,8 @@ describe('meals and setup’s food answers (board D82)', () => {
     expect(meals('poha', contextOf([], { pattern: 'jain', avoid: [] }))).not.toContain('b-poha');
     expect(meals('dalia', contextOf([], { pattern: 'jain', avoid: [] }))).toContain('b-dalia');
   });
+  it('agrees with meal ideas through the recipes too: drumstick is only in sambar’s (Plan 7, B-13)', () => {
+    expect(meals('idli', contextOf([], { pattern: 'vegetarian', avoid: [], customAllergies: ['drumstick'] }))).not.toContain('b-idli-sambar');
+    expect(meals('idli', contextOf([], { pattern: 'vegetarian', avoid: [] }))).toContain('b-idli-sambar');
+  });
 });

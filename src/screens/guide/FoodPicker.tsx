@@ -2,14 +2,19 @@ import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { CheckIcon } from 'lucide-react';
 import { Sheet } from '@/components/hig/Sheet';
 import { PATTERN_DETAIL, PATTERN_LABEL, unmatchedAvoid, withPicked, type Pattern, type Region } from '@/content';
-import type { FoodPreferences } from '@/types/profile';
+import { ALLERGENS } from '@/food/allergens';
+import { FOOD_COPY } from '@/food/copy';
+import { CheckRows } from '@/screens/you/controls';
+import type { AllergenId, FoodPreferences } from '@/types/profile';
 import { cn } from '@/lib/utils';
-import { AVOID_HELP, parseAvoid, REGION_LABEL, unmatchedNote } from './format';
+import { AVOID_HELP, parseAllergies, parseAvoid, REGION_LABEL, unmatchedNote } from './format';
 import { saveFood } from './useGuide';
 
 const PATTERNS: Pattern[] = ['vegetarian', 'eggetarian', 'nonVegetarian', 'vegan', 'jain'];
 
 const REGIONS: (Exclude<Region, 'mixed'> | 'any')[] = ['any', 'north', 'south', 'east', 'west'];
+
+const ALLERGY_OPTIONS = ALLERGENS.map(a => ({ value: a.id, label: a.label }));
 
 /**
  * "What do you eat?" — asked the first time Meal ideas opens, not during
@@ -36,11 +41,15 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
     food?.region && food.region !== 'mixed' ? food.region : 'any',
   );
   const [avoid, setAvoid] = useState(food?.avoid.join(', ') ?? '');
+  const [chosen, setChosen] = useState<AllergenId[]>(food?.allergies ?? []);
+  const [otherAllergies, setOtherAllergies] = useState((food?.customAllergies ?? []).join(', '));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   const avoidId = useId();
   const avoidHelp = useId();
   const avoidNote = useId();
+  const allergyId = useId();
+  const allergyHelp = useId();
   // Said while typing, so an entry that hides nothing is never taken as done.
   const unmatched = unmatchedNote(unmatchedAvoid(parseAvoid(avoid), pattern));
 
@@ -49,8 +58,8 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
     if (!pattern || saving) return;
     setSaving(true);
     setError(undefined);
-    // Only what this sheet asks: setup's allergies, logging level and screening answer stay (board D82).
-    const next = withPicked(food, { pattern, avoid: parseAvoid(avoid), region });
+    // Only what this sheet asks, allergies included (B-13): the logging level, the screening answer and a target stay.
+    const next = withPicked(food, { pattern, avoid: parseAvoid(avoid), region, allergies: chosen, customAllergies: parseAllergies(otherAllergies) });
     const failure = await saveFood(next);
     setSaving(false);
     if (failure) setError(failure);
@@ -71,6 +80,29 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
           />
         ))}
       </Choices>
+
+      <Choices legend="Allergies (optional)">
+        <CheckRows label="Allergies (optional)" options={ALLERGY_OPTIONS} value={chosen} onChange={setChosen} />
+      </Choices>
+
+      <div className="flex flex-col">
+        <label htmlFor={allergyId} className="px-4 pb-2 text-[length:var(--text-footnote)] font-medium uppercase tracking-wide text-muted-foreground">
+          {FOOD_COPY.somethingElse}
+        </label>
+        <input
+          id={allergyId}
+          type="text"
+          value={otherAllergies}
+          onChange={e => setOtherAllergies(e.target.value)}
+          placeholder={FOOD_COPY.somethingElsePlaceholder}
+          autoComplete="off"
+          aria-describedby={allergyHelp}
+          className="h-11 rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50"
+        />
+        <p id={allergyHelp} className="px-4 pt-2 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
+          {FOOD_COPY.allergiesFooter}
+        </p>
+      </div>
 
       <Choices legend="Dishes from (optional)">
         {REGIONS.map(r => (
