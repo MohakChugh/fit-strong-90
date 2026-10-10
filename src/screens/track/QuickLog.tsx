@@ -28,6 +28,7 @@ import {
 import { NOT_ADVICE } from './targets';
 import { DayRow, TimeRow } from './WhenRows';
 import { saveWithGuidance } from './saving';
+import { stepsFromText } from './stepsDay';
 import { clearQuickLogDraft, draftStorage, keptDraft, storeQuickLogDraft, type QuickLogDraft } from './draft';
 import { ChoiceChips, EmergencySigns, ErrorText, Hint, NumberField, PrimaryButton, Segmented, UnitSwitch } from './ui';
 import { toCanonical, type GlucoseUnit } from './units';
@@ -910,6 +911,25 @@ function TotalForm({ kind, fieldRef, onSaved, prefs }: FormProps & { kind: 'step
         describedBy={error ? errorId : undefined}
         unit={spec.unit}
       />
+      {kind === 'steps' && typeof navigator !== 'undefined' && typeof navigator.clipboard?.readText === 'function' && (
+        <button
+          type="button"
+          onClick={() => {
+            // Asked from the tap, as iOS requires; nothing is read until the person taps Paste.
+            void navigator.clipboard.readText().then(
+              text => {
+                const n = stepsFromText(text);
+                if (n === undefined) setError('Nothing to paste: copy the step count first, then tap Paste.');
+                else { setRaw(String(n)); setError(undefined); }
+              },
+              () => setError('Paste isn’t available here. Type the number instead.'),
+            );
+          }}
+          className="press-feedback min-h-11 self-start rounded-full bg-tint/10 px-4 text-[length:var(--text-body)] font-semibold text-tint"
+        >
+          Paste
+        </button>
+      )}
       <Hint className="text-[length:var(--text-subhead)]">{spec.hint}</Hint>
       <DayRow value={day} onChange={setDay} label={spec.day} />
       <SaveBar error={error} busy={busy} onSave={save} errorId={errorId} />

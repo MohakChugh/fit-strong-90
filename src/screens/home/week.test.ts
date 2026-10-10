@@ -87,6 +87,15 @@ describe('Steps today (D14, A-47)', () => {
     expect(stepsLine(TODAY, [], true)).toBe('Steps: not entered');
     expect(stepsLine(TODAY, [steps(9000, 'dayTotal', '2026-10-07T20:00:00+05:30')], true)).toBe('Steps: not entered');
   });
+  it('a FitStrong walk after an entered total reads "at least", with both sources (journey §9.6)', () => {
+    const at = (time: string) => `2026-10-08T${time}.000+05:30`;
+    const obs = [
+      newObservation({ id: 'e', kind: 'steps', value: 6050, unit: 'steps', scope: 'dayTotal', source: 'manual', at: at('12:00:05') }),
+      newObservation({ id: 'wd', kind: 'walkDuration', value: 20, unit: 'min', scope: 'sessionObserved', source: 'measured', at: at('17:00:00'), context: 'walk:w', coverageMs: 1_200_000 }),
+      newObservation({ id: 'ws', kind: 'steps', value: 1250, unit: 'steps', scope: 'sessionObserved', source: 'measured', at: at('17:00:00'), context: 'walk:w', coverageMs: 1_200_000 }),
+    ];
+    expect(stepsLine('2026-10-08', obs, true)).toBe('Steps today: at least 7,300 (6,050 entered at 12:00 pm + 1,250 in walks after 12:00 pm)');
+  });
 });
 
 describe('the week ring’s remembered value (B-32, M1)', () => {

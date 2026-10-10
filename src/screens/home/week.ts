@@ -9,13 +9,12 @@
  */
 import type { DayOfWeek, StatusPeriod, WorkoutSession } from '@/types';
 import { WEEK } from '@/engine/templates';
-import { entryFor, summariseDay } from '@/health/aggregate';
 import type { Observation } from '@/health/observation';
 import { activitiesFrom } from '@/health/recommend';
 import { STATUS_LABEL, statusOn, weekdayOf, type Status } from '@/health/status';
-import { formatClock, hasClockTime } from '@/screens/track/format';
 import { recordedMovement } from '@/screens/track/movement';
 import { addDays, weekOf } from '@/screens/track/periods';
+import { stepsDayFigure } from '@/screens/track/stepsDay';
 
 // ============================================================================
 // Day dots
@@ -120,20 +119,17 @@ export function stretchedLine(days: number): string {
 }
 
 /**
- * Today's steps with where they came from (D14, D10, A-47): a total the
- * person entered, which is the whole day's, or else the steps counted on
- * FitStrong walks. Never a total the app made up: nothing entered says so.
+ * Today's steps with where they came from (D14, D10, A-47), as the Steps hub
+ * says them (`stepsDayFigure`): a total the person entered, which is the
+ * whole day's, "at least" it with the FitStrong walks after it, or else the
+ * steps counted on FitStrong walks. Never a total the app made up: nothing
+ * entered says so.
  */
 export function stepsLine(day: string, observations: readonly Observation[], hour12: boolean): string {
-  const summary = summariseDay(day, observations);
-  const entered = entryFor(summary, 'steps', 'dayTotal');
-  if (entered && entered.total !== null) {
-    const at = hasClockTime(entered.latest) ? ` at ${formatClock(entered.latest.at, hour12)}` : '';
-    return `Steps today: ${entered.total.toLocaleString()} entered${at}`;
-  }
-  const walked = entryFor(summary, 'steps', 'sessionObserved');
-  if (walked && walked.total !== null && walked.total > 0) return `Steps today: ${walked.total.toLocaleString()} in FitStrong walks`;
-  return 'Steps: not entered';
+  const f = stepsDayFigure(day, observations, hour12);
+  if (f.kind === 'none') return 'Steps: not entered';
+  if (f.kind === 'walks') return `Steps today: ${f.value} in FitStrong walks`;
+  return f.kind === 'atLeast' ? `Steps today: ${f.value} (${f.source})` : `Steps today: ${f.value} ${f.source}`;
 }
 
 // ============================================================================
