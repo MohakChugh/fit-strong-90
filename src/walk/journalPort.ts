@@ -32,7 +32,9 @@ export function journalPort(): JournalPort {
       const here = latest.get(id);
       if (here) return here;
       const kept = await readWalkJournals();
-      return kept.ok ? kept.value.find(e => e.id === id) : undefined;
+      // A journal that can't be read is not an empty one (H6-06).
+      if (!kept.ok) throw kept.failure;
+      return kept.value.find(e => e.id === id);
     },
   };
 }

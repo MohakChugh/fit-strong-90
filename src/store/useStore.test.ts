@@ -1108,6 +1108,26 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
     });
   }
 
+  it('takes the route from the walk’s journal inside the save, when the screen has none yet, and only then retires it (H6-06)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.putWalkJournal(journalEntry(walked(), T + 600_000, [LINE]));
+    const saved = await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), routeStartedAt: ROUTE.startedAt });
+    expect(saved.ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([ROUTE]);
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value).toEqual([]);
+  });
+
+  it('keeps a route given by the screen over the journal’s, and saves a walk whose journal holds none (H6-06)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.putWalkJournal(journalEntry(walked(), T + 600_000));
+    expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), routeStartedAt: ROUTE.startedAt })).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+    expect(ofWalk().length).toBeGreaterThan(0);
+  });
+
   it('reads back only the checkpoints it can trust', async () => {
     await booted();
     await store.putWalkJournal(journalEntry(walked(), T));

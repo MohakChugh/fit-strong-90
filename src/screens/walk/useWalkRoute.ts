@@ -4,21 +4,42 @@ import { cachedJournal, journalPort } from '@/walk/journalPort';
 import type { RouteLine, RouteRecord } from '@/walk/routeRecord';
 
 /**
+ * A walk's route, told apart (H6-06): not kept; still being read back;
+ * unreadable just now; or here, with `lines` absent when the walk genuinely
+ * kept none. Saving never waits on it: the save reads the journal's route in
+ * its own transaction when the screen has none.
+ */
+export type WalkRoute =
+  | { state: 'none' }
+  | { state: 'loading' }
+  | { state: 'failed' }
+  | { state: 'ready'; lines?: RouteLine[] };
+
+const NONE: WalkRoute = { state: 'none' };
+const LOADING: WalkRoute = { state: 'loading' };
+
+/**
  * A walk's route: the saved one, or, before the walk is saved, the one
  * journalled as it was walked (this page's copy first, then IndexedDB).
  * Nothing for a walk whose route isn't kept.
  */
-export function useWalkRoute(walkId: string, kept: boolean): RouteLine[] | undefined {
+export function useWalkRoute(walkId: string, kept: boolean): WalkRoute {
   const { records } = useStore();
   const saved = records.routes.find(r => r.walkId === walkId) as RouteRecord | undefined;
-  const [journalled, setJournalled] = useState<RouteLine[] | undefined>(() => cachedJournal(walkId)?.route);
+  const [read, setRead] = useState<WalkRoute | undefined>(() => {
+    const here = cachedJournal(walkId);
+    return here ? { state: 'ready', ...(here.route ? { lines: here.route } : {}) } : undefined;
+  });
   useEffect(() => {
-    if (saved || !kept || journalled) return;
+    if (saved || !kept || read) return;
     let current = true;
-    void journalPort().read(walkId).then(entry => {
-      if (current && entry?.route) setJournalled(entry.route);
-    });
+    journalPort().read(walkId).then(
+      entry => { if (current) setRead({ state: 'ready', ...(entry?.route ? { lines: entry.route } : {}) }); },
+      () => { if (current) setRead({ state: 'failed' }); },
+    );
     return () => { current = false; };
-  }, [walkId, kept, saved, journalled]);
-  return saved?.segments ?? (kept ? journalled : undefined);
+  }, [walkId, kept, saved, read]);
+  if (saved) return { state: 'ready', lines: saved.segments };
+  if (!kept) return NONE;
+  return read ?? LOADING;
 }

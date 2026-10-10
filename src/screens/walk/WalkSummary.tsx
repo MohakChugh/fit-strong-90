@@ -15,7 +15,7 @@ import { energyFix, energyText, walkEnergy } from '@/walk/energy';
 import { clock, spokenClock, timeOfDay } from '@/walk/format';
 import { clearWalk, draftStored, loadWalk, sessionWalkStorage, storeWalk } from '@/walk/persist';
 import { hasRecord, saveOutcome, summarise, walkObservationIds, type SaveOutcome } from '@/walk/record';
-import { draftWarning, endingLine, lowAdvice, lowStage, noRouteLine, splitRows, summaryRows, walkSpan, walkTitle } from '@/walk/readout';
+import { ROUTE_LOADING, ROUTE_UNREADABLE, draftWarning, endingLine, lowAdvice, lowStage, noRouteLine, splitRows, summaryRows, walkSpan, walkTitle } from '@/walk/readout';
 import { splitsOf } from '@/walk/route';
 import { bboxOf } from '@/walk/routeRecord';
 import { walkSave } from '@/walk/save';
@@ -56,7 +56,9 @@ export function WalkSummary() {
   // The kept route: saved, or journalled as it was walked (journey §9.5). Kept
   // only while this phone says yes to keeping routes, as the save asks (H6-04).
   const keepsRoute = walk?.plan.keepRoute === true && walkSettings(settings).saveRoutes === true;
-  const lines = useWalkRoute(walk?.id ?? '', keepsRoute);
+  // Loading, unreadable, or here (with no lines when the walk kept none), told apart (H6-06).
+  const route = useWalkRoute(walk?.id ?? '', keepsRoute);
+  const lines = route.state === 'ready' ? route.lines : undefined;
   const reduce = useReducedMotion();
 
   if (!walk) return <Navigate to="/hub/walk" replace />;
@@ -105,7 +107,8 @@ export function WalkSummary() {
   const saveWalk = async () => {
     setSave({ kind: 'saving' });
     // One transaction: the records, the route and the journal's retirement
-    // (journey §18.3). A retry writes only what is missing.
+    // (journey §18.3). A retry writes only what is missing. A route not in
+    // hand yet is read from the journal inside it, never left behind (H6-06).
     const result = await saveWalkToStore(walkSave(walk, { ...(lines ? { route: lines } : {}), ...(energy.input ? { energy: energy.input } : {}) }));
     // Saved only by a device that is saving; kept for now otherwise, and the
     // draft — the copy that outlives a reload — stays until it truly is.
@@ -155,7 +158,9 @@ export function WalkSummary() {
       {lines && box ? (
         <RouteFrame walkId={walk.id} lines={lines} bbox={box} mapOn={mapOn} />
       ) : (
-        <p className="px-1 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{noRouteLine({ ...walk.plan, keepRoute: keepsRoute })}</p>
+        <p role={route.state === 'none' || route.state === 'ready' ? undefined : 'status'} className="px-1 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
+          {route.state === 'loading' ? ROUTE_LOADING : route.state === 'failed' ? ROUTE_UNREADABLE : noRouteLine({ ...walk.plan, keepRoute: keepsRoute })}
+        </p>
       )}
 
       {rows.length > 0 && (

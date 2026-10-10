@@ -30,6 +30,19 @@ vi.mock('@/components/ui/sheet', async () => {
   };
 });
 
+/** A journal that can't be read, when a test says so; the real one otherwise. */
+const journalFail = vi.hoisted(() => ({ on: false }));
+vi.mock('@/walk/journalPort', async importOriginal => {
+  const real = await importOriginal<typeof import('@/walk/journalPort')>();
+  return {
+    ...real,
+    journalPort: () => {
+      const port = real.journalPort();
+      return { ...port, read: (id: string) => (journalFail.on ? Promise.reject(new Error('unreadable')) : port.read(id)) };
+    },
+  };
+});
+
 const local = new Map<string, string>();
 globalThis.localStorage = {
   getItem: (k: string) => local.get(k) ?? null, setItem: (k: string, v: string) => void local.set(k, v),
@@ -63,6 +76,7 @@ afterEach(() => {
   host?.unmount();
   host = undefined;
   clearWalk(sessionWalkStorage());
+  journalFail.on = false;
   vi.useRealTimers();
 });
 
@@ -116,5 +130,42 @@ describe('the summary’s route, on this phone’s consent as it is now (H6-04)'
     const h = await kept(false);
     expect(drawn(h)).toBe(false);
     expect(h.text()).toContain('No route: routes aren’t kept on this phone.');
+  });
+});
+
+describe('the summary’s route while it is read back (H6-06)', () => {
+  const LINE = { start: START, end: START + 20_000, coords: [[12.97, 77.59], [12.9705, 77.5902], [12.971, 77.5905]] as [number, number][], ms: [0, 10_000, 20_000] };
+  /** A walk that kept its route, reopened after a reload: the route is only in IndexedDB's journal. */
+  async function reloaded() {
+    const { journalEntry } = await import('@/walk/journal');
+    await store.setProfile(createDefaultProfile({ weightKg: 70, birthYear: 1975, health: { diabetes: 'none', medicinesReviewed: true } }));
+    await store.setSettings({ walk: { saveRoutes: true, map: 'off' } });
+    const walk = finishWalk(accrueOpen(startWalk(ID, { kind: 'walk', gps: true, steps: false, keepRoute: true }, START), 20 * MIN, START + 20 * MIN), START + 20 * MIN, 'finish');
+    await store.putWalkJournal(journalEntry(walk, START + 20 * MIN, [LINE]));
+    storeWalk(sessionWalkStorage(), walk);
+  }
+
+  it('says it is finding the route, and a Save tapped meanwhile saves the route with the walk', async () => {
+    await reloaded();
+    const h = (host = render(createElement(WalkSummary)));
+    expect(h.text()).toContain('Finding your route…');
+    await h.click(h.button('Save walk'));
+    await h.settle();
+    expect(h.text()).toContain('Saved on this device');
+    expect(store.getState().records.routes.map(r => r.walkId)).toEqual([ID]);
+    expect(store.getState().records.routes[0].segments).toEqual([LINE]);
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value).toEqual([]);
+  });
+
+  it('says when the route can’t be read just now, and still saves it from the journal', async () => {
+    await reloaded();
+    journalFail.on = true;
+    const h = (host = render(createElement(WalkSummary)));
+    await h.settle();
+    expect(h.text()).toContain('Your route couldn’t be read just now. It’s still kept, and it’s saved with the walk.');
+    await h.click(h.button('Save walk'));
+    await h.settle();
+    expect(store.getState().records.routes.map(r => r.walkId)).toEqual([ID]);
   });
 });

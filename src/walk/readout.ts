@@ -201,6 +201,11 @@ export function splitRows(splits: readonly Split[]): SummaryRow[] {
   return splits.map(s => ({ label: `Kilometre ${s.km}`, value: `${pace(s.ms / 1000)} min` }));
 }
 
+/** The summary's route while it is read back after a reload (H6-06). */
+export const ROUTE_LOADING = 'Finding your route…';
+/** When it can't be read just now: it is still in the journal, and the save takes it from there (H6-06). */
+export const ROUTE_UNREADABLE = 'Your route couldn’t be read just now. It’s still kept, and it’s saved with the walk.';
+
 /** In place of a route (journey §9.5, V-J20). Without the walk's plan, as on a saved walk's detail, the plain line. */
 export function noRouteLine(plan?: Pick<WalkPlan, 'gps' | 'keepRoute'>): string {
   if (!plan) return 'No route kept for this walk.';

@@ -1706,6 +1706,65 @@ describe('the route and the journal (journey §9.2, §9.4, §18.2)', () => {
     expect(again.getSnapshot()!.route.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('never writes over a journalled route before it has been read back after a reload (H6-06)', async () => {
+    const kept = journal();
+    const w = world();
+    const live = createLiveWalk({ ...w.ports, journal: kept.port });
+    live.attach(KEEP);
+    walkFor(w, 30, 0);
+    live.pause();
+    await flush();
+    const before = kept.entries.at(-1)!.route!;
+    expect(before.length).toBeGreaterThan(0);
+    w.kill();
+    // The page comes back; the journal answers slowly.
+    let answer: (e: JournalEntry | undefined) => void = () => {};
+    const slow: JournalPort = { checkpoint: kept.port.checkpoint, read: () => new Promise(resolve => { answer = resolve; }) };
+    const again = createLiveWalk({ ...w.ports, journal: slow });
+    const written = kept.entries.length;
+    again.attach();
+    again.resume();
+    walkFor(w, 20, 100);
+    await flush();
+    // Nothing written while the route is still being read: the journal's copy is the only one.
+    expect(kept.entries.slice(written).every(e => e.route === undefined || e.route.length >= before.length)).toBe(true);
+    answer(kept.entries[written - 1]);
+    await flush();
+    walkFor(w, 16, 200);
+    await flush();
+    const last = kept.entries.at(-1)!.route!;
+    expect(last.length).toBeGreaterThan(before.length);
+    expect(last.slice(0, before.length)).toEqual(before);
+  });
+
+  it('keeps the journalled route when reading it back fails, and reads it again at the next checkpoint (H6-06)', async () => {
+    const kept = journal();
+    const w = world();
+    const live = createLiveWalk({ ...w.ports, journal: kept.port });
+    live.attach(KEEP);
+    walkFor(w, 30, 0);
+    live.pause();
+    await flush();
+    const before = kept.entries.at(-1)!.route!;
+    w.kill();
+    let reads = 0;
+    const flaky: JournalPort = {
+      checkpoint: kept.port.checkpoint,
+      read: async id => { reads += 1; if (reads === 1) throw new StoreFailure('readFailed', 'no'); return kept.port.read(id); },
+    };
+    const written = kept.entries.length;
+    const again = createLiveWalk({ ...w.ports, journal: flaky });
+    again.attach();
+    again.resume();
+    walkFor(w, 5, 100);
+    await flush();
+    expect(kept.entries.slice(written).some(e => e.route !== undefined && e.route.length < before.length)).toBe(false);
+    walkFor(w, 32, 110);
+    await flush();
+    expect(reads).toBeGreaterThan(1);
+    expect(kept.entries.at(-1)!.route!.slice(0, before.length)).toEqual(before);
+  });
+
   it('forgets every point on request, and keeps no route from then on (B-05)', async () => {
     const kept = journal();
     const w = world();
