@@ -530,7 +530,10 @@ describe('wiring that names the opener (S-10, S-11)', () => {
   });
 
   it('the walk summary, a full-screen task, can be left by Back, keeping the walk to save (codex V1-08, journey §20.4 rule 10)', () => {
-    expect(read('src/screens/walk/WalkSummary.tsx')).toMatch(/<Screen title="Your walk" back=\{\{ to: '\/home', label: 'Home' \}\}>/);
+    // Back, like Done, returns to where the walk was started: the Walk hub, or Home (motion M12, Plan 6).
+    const summary = read('src/screens/walk/WalkSummary.tsx');
+    expect(summary).toContain("const origin = walk.plan.from ?? '/home';");
+    expect(summary).toContain("<Screen title=\"Your walk\" back={{ to: origin, label: origin === '/hub/walk' ? 'Walk' : 'Home' }}>");
   });
 
   it('a related card and a related exercise name the screen they were opened from', () => {

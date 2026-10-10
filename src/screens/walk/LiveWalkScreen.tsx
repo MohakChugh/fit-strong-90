@@ -6,6 +6,7 @@ import { Sheet } from '@/components/hig/Sheet';
 import { Stat } from '@/components/hig/Stat';
 import { CheckInSheet } from '@/components/checkin/CheckInSheet';
 import { useGuided } from '@/hooks/useGuided';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
 import type { SymptomReport } from '@/components/checkin/pending';
 import type { GlucoseEntry } from '@/types/checkin';
 import { deriveHealth } from '@/engine/health';
@@ -150,9 +151,11 @@ export default function LiveWalkScreen() {
   }, [live]);
 
   const finished = snapshot?.walk.status === 'finished';
+  const reduce = useReducedMotion();
+  // After the walk is kept (finish() writes the draft first), the figures panel grows into the summary (M13).
   useEffect(() => {
-    if (finished) navigate('/walk/summary', { replace: true });
-  }, [finished, navigate]);
+    if (finished) navigate('/walk/summary', { replace: true, viewTransition: !reduce });
+  }, [finished, navigate, reduce]);
 
   // The cue player, its state read on every render (journey §9.2), and the cues spoken while recording.
   const player = walkVoice();
@@ -325,7 +328,7 @@ export default function LiveWalkScreen() {
           {/* Distance and pace always have a place: "Not measured" when GPS is
               off, as the walk's record says it, never a blank or a zero (J10). */}
           {refusal ? null : (
-            <div className="grid grid-cols-2 overflow-hidden rounded-xl bg-grouped-card">
+            <div className="grid grid-cols-2 overflow-hidden rounded-xl bg-grouped-card" style={reduce ? undefined : { viewTransitionName: 'walk-stats' }}>
               {pace && distance ? (
                 <>
                   <FigureBlock label="Pace" figure={pace} />

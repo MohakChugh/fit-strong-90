@@ -27,6 +27,18 @@ function afterDinner(plan: Partial<WalkPlan> = {}): Walk {
 const byKind = (inputs: ObservationInput[], kind: string) => inputs.filter(i => i.kind === kind);
 
 describe('summary', () => {
+  it('says how much of the walk GPS covered and steps were counted (journey §9.5)', () => {
+    let w = startWalk('abcd-1234', { kind: 'walk', gps: true, steps: true }, T);
+    w = updateOpenSegment(w, x => ({ ...x, gps: [{ start: T, end: T + 90_000, distanceM: 120 }], steps: 180, motion: true }));
+    w = returnToWalk(leaveWalk(w, s(120), 'hidden'), s(180)).walk;
+    w = finishWalk(w, s(240), 'finish');
+    const summary = summarise(w);
+    expect(summary.coveredMs).toBe(90_000);
+    expect(summary.stepsCoveredMs).toBe(120_000);
+    expect(summarise(afterDinner({ gps: false, steps: false }))).not.toHaveProperty('coveredMs');
+    expect(summarise(afterDinner({ gps: false, steps: false }))).not.toHaveProperty('stepsCoveredMs');
+  });
+
   it('reports observed time, measured distance, pace and steps', () => {
     const summary = summarise(afterDinner());
     expect(summary.observedMs).toBe(1_080_000);

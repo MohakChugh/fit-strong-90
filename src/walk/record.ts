@@ -65,6 +65,10 @@ export interface WalkSummary {
   paceSecPerKm?: number;
   /** Absent when steps were off or no motion samples arrived. */
   steps?: number;
+  /** Time GPS measured, in ms (journey §9.5). Absent when GPS was off. */
+  coveredMs?: number;
+  /** Time steps were counted, in ms: the segments that had motion. Absent when steps were off. */
+  stepsCoveredMs?: number;
 }
 
 /** A segment's observed time: accrued tick by tick, so a change to the clock never stretches it (B-19). */
@@ -92,6 +96,8 @@ export function summarise(walk: Walk): WalkSummary {
     ...(walk.plan.gps ? { gpsCoverage: observedMs > 0 ? Math.min(1, coveredMs / observedMs) : 0 } : {}),
     ...(pace !== undefined ? { paceSecPerKm: pace } : {}),
     ...(walk.plan.steps && counted.length ? { steps: counted.reduce((t, s) => t + s.steps, 0) } : {}),
+    ...(walk.plan.gps ? { coveredMs } : {}),
+    ...(walk.plan.steps ? { stepsCoveredMs: counted.reduce((t, s) => t + segmentMs(s), 0) } : {}),
   };
 }
 

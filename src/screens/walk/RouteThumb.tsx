@@ -6,6 +6,8 @@ import type { RouteRecord } from '@/walk/routeRecord';
  * A walk's route in the history (journey §9.5, B-23): our own small drawing,
  * never a map picture. It grows into the detail's frame (M14), except under
  * Reduce Motion, where neither carries the shared name, as Home's tiles do.
+ * A list row draws its icon at 20 px, so the line is 8 of the drawing's 64
+ * units (about 2.5 px) to stay legible there.
  */
 export function RouteThumb({ walkId, route }: { walkId: string; route: Pick<RouteRecord, 'segments' | 'bbox'> }) {
   const reduce = useReducedMotion();
@@ -13,7 +15,7 @@ export function RouteThumb({ walkId, route }: { walkId: string; route: Pick<Rout
   return (
     <svg viewBox="0 0 64 64" aria-hidden className="size-7" style={reduce ? undefined : { viewTransitionName: `route-${walkId}` }}>
       {linePaths(route.segments, view).map((d, i) => (
-        <path key={route.segments[i]?.start ?? i} d={d} fill="none" className="stroke-tint" strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />
+        <path key={route.segments[i]?.start ?? i} d={d} fill="none" className="stroke-tint" strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" />
       ))}
     </svg>
   );

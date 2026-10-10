@@ -11,13 +11,14 @@ import { PERMISSION_TEXT, type Permission } from '@/engine/permission';
 import type { CheckInRecord } from '@/types/checkin';
 import { RECHECK_MINUTES, toMgdl, TREAT } from '@/engine/readiness';
 import { toDateString } from '@/lib/utils';
-import type { GapCause, Walk } from './clock';
+import type { GapCause, Walk, WalkPlan } from './clock';
 import { clock, count, km, pace, span, timeOfDay, wholeMinutes } from './format';
 import { ADDABLE_GAP_MS, type GpsState, type LiveSnapshot, type Notice, type StepsState } from './live';
 import { afterMealTitle } from './plan';
 import type { WalkSummary } from './record';
 import type { VoiceTrouble } from '@/voice/clips';
 import type { VoiceStatus } from './voice';
+import type { Split } from './route';
 
 export interface Figure {
   /** The figure, or a short word in its place. */
@@ -195,7 +196,27 @@ export interface SummaryRow {
  * The summary's rows, in order. Only what was observed or entered is listed,
  * each with how it was observed; anything off for this walk is not a row.
  */
-export function summaryRows(walk: Walk, summary: WalkSummary, options: { locale?: string; time?: (t: number) => string } = {}): SummaryRow[] {
+/** "1 min 30 s" or "18 min": to the second under 10 minutes, where rounding to a minute would hide a dropout. */
+function coverSpan(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s >= 600 || s % 60 === 0) return span(ms);
+  return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
+}
+
+/** One row for each complete kilometre (journey §9.5). A kilometre still under way isn't a split. */
+export function splitRows(splits: readonly Split[]): SummaryRow[] {
+  return splits.map(s => ({ label: `Kilometre ${s.km}`, value: `${pace(s.ms / 1000)} min` }));
+}
+
+/** In place of a route (journey §9.5, V-J20). Without the walk's plan, as on a saved walk's detail, the plain line. */
+export function noRouteLine(plan?: Pick<WalkPlan, 'gps' | 'keepRoute'>): string {
+  if (!plan) return 'No route kept for this walk.';
+  if (!plan.gps) return 'No route: location was off for this walk.';
+  if (!plan.keepRoute) return 'No route: routes aren’t kept on this phone.';
+  return 'No route: no location was found during this walk.';
+}
+
+export function summaryRows(walk: Walk, summary: WalkSummary, options: { locale?: string; time?: (t: number) => string; energy?: { value: string; detail: string } } = {}): SummaryRow[] {
   const time = options.time ?? (t => timeOfDay(t, options.locale));
   const rows: SummaryRow[] = [];
   const meal = walk.plan.kind === 'afterMeal' ? walk.plan.meal : undefined;
@@ -211,7 +232,7 @@ export function summaryRows(walk: Walk, summary: WalkSummary, options: { locale?
       rows.push({
         label: 'Distance',
         value: `${km(summary.distanceM)} km`,
-        detail: short ? 'Measured by GPS. The signal dropped out for part of the walk, so this may be short.' : 'Measured by GPS',
+        detail: `Measured by GPS for ${coverSpan(summary.coveredMs ?? 0)} of ${coverSpan(summary.observedMs)}${short ? '. The signal dropped out for part of the walk, so this may be short.' : ''}`,
       });
     } else {
       rows.push({ label: 'Distance', value: 'Not measured', detail: 'GPS did not measure this walk' });
@@ -221,11 +242,14 @@ export function summaryRows(walk: Walk, summary: WalkSummary, options: { locale?
     }
   }
 
-  if (walk.plan.steps) {
+  if (walk.plan.stepsDenied) {
+    rows.push({ label: 'Steps', value: 'Not counted', detail: STEPS_DENIED.note });
+  } else if (walk.plan.steps) {
     rows.push(summary.steps !== undefined
-      ? { label: 'Steps', value: count(summary.steps, options.locale), detail: 'Counted while the app was open' }
+      ? { label: 'Steps', value: count(summary.steps, options.locale), detail: `Counted while the screen was on: ${wholeMinutes(summary.stepsCoveredMs ?? 0)} of ${wholeMinutes(summary.observedMs)} min` }
       : { label: 'Steps', value: 'Not counted', detail: 'No motion data arrived' });
   }
+  if (options.energy) rows.push({ label: 'Energy (estimate)', ...options.energy });
 
   if (summary.addedMs >= 1000) {
     rows.push({ label: 'Time you added', value: `${wholeMinutes(summary.addedMs)} min`, detail: 'Entered by you for time the app was away' });

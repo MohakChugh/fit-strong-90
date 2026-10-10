@@ -12,9 +12,14 @@ import { Stat } from '@/components/hig/Stat';
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
 import { bpReadingId, checkInDayOf, compareObservations, isBpKind, type Observation } from '@/health/observation';
 import { walkRecords } from '@/walk/record';
+import { RouteFrame } from '@/screens/walk/RouteFrame';
+import { walkSettings } from '@/walk/consent';
+import { roundKcal } from '@/walk/energy';
+import { noRouteLine } from '@/walk/readout';
+import type { RouteRecord } from '@/walk/routeRecord';
 import { getStrength, nameOf } from '@/data/catalog';
 import { sessionSeconds } from '@/session/logging';
-import { removeObservation, removeObservations, removeReading, update, useStore } from '@/store/useStore';
+import { removeObservation, removeReading, removeRecords, removeWalk, update, useStore } from '@/store/useStore';
 import { removeCheckInReading, type CheckInReading } from '@/components/checkin/pending';
 import { BACK_LABEL, EMERGENCY_LABEL, NEWS_LABEL, URINE_LABEL } from '@/components/checkin/copy';
 import type { CheckInRecord } from '@/types/checkin';
@@ -338,15 +343,18 @@ function PressureView({ readingId }: { readingId: string }) {
 
 export function WalkDetail() {
   const { id = '' } = useParams();
-  const { observations } = useStore();
+  const { observations, records, settings } = useStore();
   const prefs = usePrefs();
   const current = useToday();
   const location = useLocation();
   const { back, leave } = useOrigin();
   const [confirming, setConfirming] = useState(false);
+  const [droppingRoute, setDroppingRoute] = useState(false);
   const [error, setError] = useState<string>();
   // The whole walk, every segment and any time added for a gap (walk/record.ts).
   const walk = useMemo(() => walkRecords(observations).find(w => w.id === id), [observations, id]);
+  // Its kept route, if any (journey §9.5): deletable on its own.
+  const route = records.routes.find(r => r.walkId === id) as RouteRecord | undefined;
 
   if (!walk) return <Gone title="Walk" back={back} />;
   const measured = walk.observations.find(o => o.source === 'measured') ?? walk.observations[0];
@@ -360,9 +368,10 @@ export function WalkDetail() {
   const here: Origin = { path: location.pathname, label: 'Walk' };
 
   const remove = async () => {
-    // Every segment's time, movement, distance and steps in one write: all of
-    // them, or none, so a failure leaves the whole walk and its retry (F10).
-    const result = await removeObservations(doomed.map(o => o.id));
+    // Every segment's time, movement, distance and steps in one write, with
+    // its route and any journal: all of them, or none, so a failure leaves the
+    // whole walk and its retry (F10).
+    const result = await removeWalk(walk.id, doomed.map(o => o.id));
     if (!result.ok) return setError(`This walk was not deleted: ${result.failure.message}`);
     setConfirming(false);
     leave();
@@ -376,11 +385,17 @@ export function WalkDetail() {
         label={dateline(measured, prefs, current)}
         size="reading"
       />
+      {route
+        ? <RouteFrame walkId={walk.id} lines={route.segments} bbox={route.bbox} mapOn={walkSettings(settings).map === 'on'} />
+        : <p className="px-1 text-[length:var(--text-subhead)] text-muted-foreground">{noRouteLine()}</p>}
       <Group>
         <Row label="Started" value={formatClock(walk.at, prefs.hour12)} />
         {walk.addedMinutes > 0 && <Row label="Added by you" value={`${formatNumber(walk.addedMinutes)} min`} detail="For time the app was away and could not record" />}
         <Row label="Distance" value={walk.distanceKm !== undefined ? formatObservation({ kind: 'walkDistance', value: walk.distanceKm, unit: 'km' }, prefs) : 'Not measured'} />
         {walk.steps !== undefined && <Row label="Steps" value={formatObservation({ kind: 'steps', value: walk.steps, unit: 'steps' }, prefs)} />}
+        {walk.energyKcal !== undefined && roundKcal(walk.energyKcal) !== undefined && (
+          <Row label="Energy (estimate)" value={`about ${roundKcal(walk.energyKcal)} kcal`} {...(walk.energyNote ? { detail: walk.energyNote } : {})} />
+        )}
         {walk.mealStartedAt && <Row label="Meal started" value={formatClock(walk.mealStartedAt, prefs.hour12)} />}
         <Row label="Source" value={sourceLabel(measured)} />
         {walk.note && <Row label="Note" detail={walk.note} />}
@@ -393,15 +408,25 @@ export function WalkDetail() {
         </Group>
       )}
       <Group footer="Walks are recorded by the app as you walk, so they are not corrected by hand.">
+        {route && <Row label={<span className="text-stop">Delete this route</span>} detail="The walk’s time and distance stay." onClick={() => { setError(undefined); setDroppingRoute(true); }} />}
         <Row label={<span className="text-stop">Delete this walk</span>} onClick={() => { setError(undefined); setConfirming(true); }} />
       </Group>
       <ConfirmSheet
         open={confirming}
         onOpenChange={setConfirming}
         title="Delete this walk?"
-        detail={`Its time, distance and steps are removed from this device. This cannot be undone.${ratings.length > 0 ? ' Your pain ratings from after the walk are kept.' : ''}`}
+        detail={`Its time, distance and steps are removed from this device. This cannot be undone.${ratings.length > 0 ? ' Your pain ratings from after the walk are kept.' : ''}${route ? ' Its route goes too.' : ''}`}
         confirm="Delete"
         onConfirm={() => void remove()}
+        error={error}
+      />
+      <ConfirmSheet
+        open={droppingRoute}
+        onOpenChange={setDroppingRoute}
+        title="Delete this route?"
+        detail="Its locations are removed from this device. The walk’s time, distance and steps stay. This cannot be undone."
+        confirm="Delete route"
+        onConfirm={() => void removeRecords('routes', [walk.id]).then(r => (r.ok ? setDroppingRoute(false) : setError(`The route was not deleted: ${r.failure.message}`)))}
         error={error}
       />
     </Screen>
