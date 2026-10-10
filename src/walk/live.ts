@@ -32,6 +32,7 @@ import {
   segmentDistance,
   splitAtClockChange,
   splitAtMidnight,
+  splitAtOffsetChange,
   startWalk,
   stepOf,
   updateOpenSegment,
@@ -588,11 +589,31 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     }
   }
 
-  /** What every sensor callback and transition does first: accrue, then split at local midnight. Says whether a segment closed (either split opens a new one). */
+  /**
+   * The phone's offset changed (H6-10): a new segment from now, in the new
+   * zone, and GPS a fresh track with it, as at midnight.
+   */
+  function catchUpOffset(now: number) {
+    if (!walk || walk.status !== 'running') return;
+    const split = splitAtOffsetChange(walk, now);
+    if (split === walk) return;
+    walk = split;
+    if (track) {
+      track = newTrack(now);
+      trackBase = [];
+    }
+  }
+
+  /**
+   * What every sensor callback and transition does first: accrue, then split
+   * at local midnight, then at a change of time zone. Says whether a segment
+   * closed (each split opens a new one).
+   */
   function advance(now: number): boolean {
     const before = walk?.segments.length ?? 0;
     accrueNow(now);
     catchUpMidnight(now);
+    catchUpOffset(now);
     return (walk?.segments.length ?? 0) !== before;
   }
 

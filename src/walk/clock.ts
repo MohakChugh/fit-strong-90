@@ -17,7 +17,7 @@
 import { toDateString } from '@/lib/utils';
 import type { Meal } from '@/types/habits';
 import type { GpsRun } from './gps';
-import { offsetAt } from './time';
+import { dayAt, offsetAt } from './time';
 
 export type WalkKind = 'walk' | 'afterMeal';
 
@@ -51,9 +51,11 @@ export interface WalkPlan {
  * Why a segment closed. `midnight` is not a stop: a walk being watched at
  * midnight carries straight on in a new segment, so each segment belongs to
  * one local day and its time, distance and steps are credited to that day
- * (re-audit F17).
+ * (re-audit F17). Nor is `timeZone`: the phone's offset changed, travelling
+ * or at a daylight-saving change, so each segment also keeps one offset
+ * (H6-10).
  */
-export type SegmentEnd = 'paused' | 'hidden' | 'left' | 'interrupted' | 'midnight' | 'clockChange' | 'finished';
+export type SegmentEnd = 'paused' | 'hidden' | 'left' | 'interrupted' | 'midnight' | 'clockChange' | 'timeZone' | 'finished';
 
 export interface Segment {
   /** Epoch ms. */
@@ -173,7 +175,8 @@ export function stepOf(from: Clocks, to: Clocks): { ms: number; jumped: boolean 
 }
 
 function emptySegment(start: number): Segment {
-  return { start, gps: [], steps: 0, motion: false, accruedMs: 0, accruedAt: start, day: toDateString(new Date(start)), offsetMin: offsetAt(start) };
+  const offsetMin = offsetAt(start);
+  return { start, gps: [], steps: 0, motion: false, accruedMs: 0, accruedAt: start, day: dayAt(start, offsetMin), offsetMin };
 }
 
 /** The first local midnight after `t`. `setHours(24)` keeps it right across a clock change. */
@@ -418,6 +421,23 @@ export function splitAtClockChange(walk: Walk, wall: number, ms: number, reading
   const before: Segment = { ...open, end: Math.max(open.start, end), endedBy: 'clockChange', accruedMs: open.accruedMs + ms, accruedAt: end };
   const untimedReadings = [...new Set([...(walk.untimedReadings ?? []), ...readings])];
   return { ...walk, clockChangedAt: wall, untimedReadings, segments: [...walk.segments.slice(0, -1), before, emptySegment(wall)] };
+}
+
+/**
+ * The phone's offset from UTC changed (H6-10): it travelled to another time
+ * zone, or daylight saving began or ended. Its clock didn't jump, so B-19's
+ * check never sees this. The open segment, accrued to `now` by the caller,
+ * closes at `now` in the offset it was recorded in; the next opens at `now`
+ * in the new offset, with that zone's day. No gap: the walk was watched
+ * throughout.
+ */
+export function splitAtOffsetChange(walk: Walk, now: number): Walk {
+  // Only a walk recording has a segment open: a pause, a gap or the finish closed it.
+  const open = openSegment(walk);
+  if (!open || offsetAt(now) === open.offsetMin) return walk;
+  // A clock set back a little as well never closes a segment before it began.
+  const before: Segment = { ...open, end: Math.max(open.start, now), endedBy: 'timeZone' };
+  return { ...walk, segments: [...walk.segments.slice(0, -1), before, emptySegment(now)] };
 }
 
 /** The local days on either side of these instants: where the readings a clock change leaves untimed are kept (B-19). */

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppData } from '@/types';
 import type { CheckInRecord, DailyCheckIn, Readiness } from '@/types/checkin';
 import { createDefaultProfile } from '@/profile/defaults';
@@ -1643,6 +1643,59 @@ describe('a change to the phone’s clock mid-walk (B-19)', () => {
     live.resume();
     expect(w.asked.at(-1)).toBe('restart');
     expect(w.askedWith.at(-1)).toBeDefined();
+  });
+});
+
+describe('a change of time zone mid-walk (H6-10)', () => {
+  it('starts the new segment’s GPS afresh after an immediate remount too, counting nothing twice', () => {
+    const zone = vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(-330);
+    try {
+      const w = world();
+      const live = createLiveWalk(w.ports);
+      live.attach(START);
+      let north = walkFor(w, 30, 0);
+      // The segment carries straight on, its GPS so far kept under the new track.
+      live.detach();
+      live.attach(START);
+      north = walkFor(w, 30, north);
+      zone.mockReturnValue(-390);
+      w.advance(1000);
+      walkFor(w, 20, north + 1.3);
+      const [before, after] = live.getSnapshot()!.walk.segments;
+      expect(after.endedBy).toBeUndefined();
+      expect(before.gps.length).toBeGreaterThan(0);
+      expect(after.gps.every(r => r.start >= after.start)).toBe(true);
+    } finally {
+      zone.mockRestore();
+    }
+  });
+
+  it('walks on in a new segment, in the new zone’s offset and day, with no gap, hold or new reading asked for', () => {
+    const zone = vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(-330);
+    try {
+      const w = world();
+      const live = createLiveWalk(w.ports);
+      live.attach(START);
+      const north = walkFor(w, 60, 0);
+      zone.mockReturnValue(-390);
+      w.advance(1000);
+      walkFor(w, 30, north);
+      const snap = live.getSnapshot()!;
+      expect(snap.walk.segments.map(s => [s.endedBy, s.offsetMin])).toEqual([['timeZone', 330], [undefined, 390]]);
+      expect(snap.observedMs).toBe(91_000);
+      expect(snap.walk.gaps).toEqual([]);
+      expect(snap.walk.clockChangedAt).toBeUndefined();
+      expect(snap.walk.status).toBe('running');
+      // GPS carries on in the new segment, its own track: nothing from before the change counted twice.
+      const [, after] = snap.walk.segments;
+      expect(after.gps.length).toBeGreaterThan(0);
+      expect(after.gps.every(r => r.start >= after.start)).toBe(true);
+      // About 110 m walked in all; the step across the change is not measured.
+      expect(snap.distanceM).toBeGreaterThan(100);
+      expect(snap.distanceM).toBeLessThan(115);
+    } finally {
+      zone.mockRestore();
+    }
   });
 });
 

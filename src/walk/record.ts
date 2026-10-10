@@ -163,7 +163,8 @@ export function walkObservations(walk: Walk, options: ObservationOptions = {}): 
     if (s.accruedMs < MIN_RECORD_MS) return;
     const measured = { scope: 'sessionObserved' as const, source: 'measured' as const, context, ...meal };
     // Cut at each local midnight of the offset the segment was recorded in (F17, B-19); a segment
-    // whose accrued time and span disagree (it can't, since clock changes split segments) is one record.
+    // whose span on the device clock and accrued time disagree is one record: its clock was moved
+    // by less than a change to the clock (H6-09), and the walk splits at midnight itself.
     const pieces = Math.abs((end - s.start) - s.accruedMs) <= 1000 ? byDay(s.start, end, s.offsetMin) : [{ start: s.start, end: s.start + s.accruedMs }];
 
     // Time, a record per day the segment touched.

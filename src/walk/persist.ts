@@ -25,7 +25,7 @@ export type WalkStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 const STATUSES: readonly WalkStatus[] = ['running', 'paused', 'away', 'finished'];
 const ENDINGS: readonly EndedBy[] = ['finish', 'stop', 'low', 'emergency', 'stale', 'interrupted'];
-const SEGMENT_ENDS: readonly string[] = ['paused', 'hidden', 'left', 'interrupted', 'midnight', 'clockChange', 'finished'];
+const SEGMENT_ENDS: readonly string[] = ['paused', 'hidden', 'left', 'interrupted', 'midnight', 'clockChange', 'timeZone', 'finished'];
 const CAUSES: readonly Gap['cause'][] = ['hidden', 'interrupted', 'left'];
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);

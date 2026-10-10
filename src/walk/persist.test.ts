@@ -247,6 +247,12 @@ describe('walks kept before B-19', () => {
     expect(parseWalk({ ...changed, clockChangedAt: 'then' })).toBeNull();
   });
 
+  it('keep a segment closed by a change of time zone, so a reload after one keeps the walk (H6-10)', () => {
+    const w = aWalk();
+    const moved = { ...w, segments: [{ ...w.segments[0], endedBy: 'timeZone' as const }, { ...w.segments[1], offsetMin: 390 }] };
+    expect(parseWalk(JSON.parse(JSON.stringify(moved)))).toEqual(moved);
+  });
+
   it('keep the readings a change to the clock left untimed, and only with the change (B-19, H6-02)', () => {
     const w = aWalk();
     const changed = { ...w, clockChangedAt: T + 300_000, untimedReadings: ['g:2026-10-08T12:50:00.000Z:140mg/dL'] };

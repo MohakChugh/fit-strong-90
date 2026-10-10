@@ -19,6 +19,9 @@ export function isoAt(t: number, offsetMin: number): string {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}.${pad(d.getUTCMilliseconds(), 3)}${zone}`;
 }
 
+/** The local day at that offset, `yyyy-MM-dd`. */
+export const dayAt = (t: number, offsetMin: number): string => isoAt(t, offsetMin).slice(0, 10);
+
 /** The first local midnight after `t` at that offset. */
 export function nextMidnightAt(t: number, offsetMin: number): number {
   const local = t + offsetMin * 60_000;

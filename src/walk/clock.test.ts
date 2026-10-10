@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { toDateString } from '@/lib/utils';
 import {
   accrueOpen,
@@ -18,6 +18,7 @@ import {
   returnToWalk,
   splitAtClockChange,
   splitAtMidnight,
+  splitAtOffsetChange,
   STALE_AFTER_MS,
   startWalk,
   stepOf,
@@ -274,5 +275,50 @@ describe('time under a changed clock (B-19)', () => {
     w = splitAtMidnight(w, mid + 30_000);
     expect(w.segments.map(x => x.accruedMs)).toEqual([60_000, 30_000]);
     expect(w.segments[1].day).not.toBe(w.segments[0].day);
+  });
+});
+
+describe('a change of time zone mid-walk (H6-10)', () => {
+  // The phone's zone, as `getTimezoneOffset` reports it: minutes west of UTC.
+  let zone: MockInstance<() => number>;
+  beforeEach(() => { zone = vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(-330); });
+  afterEach(() => zone.mockRestore());
+  // 11:50 pm on the 8th in India (+05:30).
+  const START = Date.UTC(2026, 9, 8, 18, 20);
+
+  it('closes the segment in the offset it was recorded in, and opens the next in the new one, with that zone’s day', () => {
+    let w = startWalk('abc-123', PLAN, START);
+    expect([w.segments[0].day, w.segments[0].offsetMin]).toEqual(['2026-10-08', 330]);
+    w = accrueOpen(w, 300_000, START + 300_000);
+    expect(splitAtOffsetChange(w, START + 300_000)).toBe(w);
+    // Five minutes on, the phone is an hour east (+06:30): five to one in the morning, on the 9th.
+    zone.mockReturnValue(-390);
+    w = splitAtOffsetChange(w, START + 300_000);
+    expect(w.segments.map(x => [x.endedBy, x.day, x.offsetMin, x.accruedMs])).toEqual([
+      ['timeZone', '2026-10-08', 330, 300_000],
+      [undefined, '2026-10-09', 390, 0],
+    ]);
+    expect([w.segments[0].end, w.segments[1].start, w.segments[1].accruedAt]).toEqual([START + 300_000, START + 300_000, START + 300_000]);
+    // Nothing went unwatched, and the clock itself never jumped.
+    expect(w.gaps).toEqual([]);
+    expect(w.clockChangedAt).toBeUndefined();
+  });
+
+  it('splits only a walk that is recording', () => {
+    const paused = pauseWalk(accrueOpen(startWalk('abc-123', PLAN, START), 60_000, START + 60_000), START + 60_000);
+    zone.mockReturnValue(-240);
+    expect(splitAtOffsetChange(paused, START + 120_000)).toBe(paused);
+  });
+
+  it('never closes a segment before it began, when the clock was set back a little as well', () => {
+    const w = startWalk('abc-123', PLAN, START);
+    zone.mockReturnValue(-390);
+    const split = splitAtOffsetChange(w, START - 30_000);
+    expect(split.segments[0]).toMatchObject({ start: START, end: START, endedBy: 'timeZone' });
+  });
+
+  it('dates a segment by its own offset, so its day and its records agree', () => {
+    zone.mockReturnValue(-390);
+    expect(startWalk('abc-123', PLAN, START).segments[0]).toMatchObject({ day: '2026-10-09', offsetMin: 390 });
   });
 });
