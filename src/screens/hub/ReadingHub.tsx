@@ -15,6 +15,7 @@ import { HistoryList } from './HistoryList';
 import { HubFrame, HubSection, SeeTrends } from './HubFrame';
 import { useHubOrigin } from './hooks';
 import { historyRange, hubAdd, latestFor, readingSpec, weekValues, type ReadingSpec } from './reading';
+import { WeekDay } from './WeekDay';
 
 /**
  * A reading hub (journey §8.2), for Glucose, Blood pressure, Weight, Water,
@@ -152,7 +153,7 @@ function ReadingScreen({ spec }: { spec: ReadingSpec }) {
 
       {week.length > 0 && (
         <HubSection title="This week">
-          <Group>{week.map(d => <Row key={d.day} label={d.name} detail={d.text} />)}</Group>
+          <Group>{week.map(d => <WeekDay key={d.day} day={d} />)}</Group>
         </HubSection>
       )}
 
