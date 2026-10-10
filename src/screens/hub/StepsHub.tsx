@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2Icon, PlusIcon } from 'lucide-react';
+import { CheckCircle2Icon, PlusIcon, TriangleAlertIcon } from 'lucide-react';
 import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
+import { gateFor } from '@/components/checkin/start';
+import { useGuided } from '@/hooks/useGuided';
 import { useStore } from '@/store/useStore';
 import { StepsGoalSheet } from '@/screens/track/GoalSheet';
 import { displayPrefs, parseAddParam } from '@/screens/track/logKinds';
@@ -14,10 +16,12 @@ import { currentStepsGoal, stepsGoalOn, stepsProgress } from '@/screens/track/st
 import { STEPS_NOTE } from '@/screens/track/targets';
 import { Interpretation } from '@/screens/track/ui';
 import { formatNumber } from '@/screens/track/units';
+import { useClock } from '@/screens/today/clock';
 import { useToday } from '@/screens/track/useToday';
 import { HistoryList } from './HistoryList';
 import { HubFrame, HubSection, SeeTrends } from './HubFrame';
 import { useAddLink, useHubOrigin } from './hooks';
+import { feetHold } from './movement';
 import { historyRange } from './reading';
 
 const NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -29,6 +33,8 @@ const NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday
  * - Options: "Daily step goal", which changes by the day (B-16), and "How
  *   steps are counted".
  * - Then the week, every record, and the trend.
+ * While walking is held for the feet it says so in the gate's words, with
+ * no walking advice and no step goal; a total still saves (kiro KH-02).
  * Steps can't be read from Apple Health by a web app. The Shortcut help
  * waits for a device check (D54).
  */
@@ -50,13 +56,19 @@ export default function StepsHub() {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  // Walking held for the feet, by the profile or by today's walk gate, asked at the shared clock (L-09, K-12; kiro KH-02).
+  const guided = useGuided();
+  const { now } = useClock();
+  const held = feetHold(guided.profile, gateFor(guided, 'walk', now));
   const today = stepsDayFigure(current, observations, prefs.hour12);
   const goal = currentStepsGoal(settings);
-  const progress = today.steps !== undefined ? stepsProgress(today.steps, stepsGoalOn(settings, current)) : undefined;
+  // No goal while walking is held: a target to walk towards is advice to walk.
+  const progressOn = (steps: number | undefined, day: string) => (held || steps === undefined ? undefined : stepsProgress(steps, stepsGoalOn(settings, day)));
+  const progress = progressOn(today.steps, current);
   const { from } = weekOf(current);
   const week = NAMES.map((name, i) => ({ name, day: addDays(from, i) })).filter(d => d.day <= current).map(d => {
     const f = stepsDayFigure(d.day, observations, prefs.hour12);
-    const p = f.steps !== undefined ? stepsProgress(f.steps, stepsGoalOn(settings, d.day)) : undefined;
+    const p = progressOn(f.steps, d.day);
     return { ...d, text: f.value ? [`${f.value} steps`, d.day === current ? f.source : undefined, p].filter(Boolean).join(' · ') : 'Not entered' };
   });
   const rows = useMemo(() => metricRows('steps', observations, historyRange({ metric: 'steps' }, observations, current), prefs, current), [observations, prefs, current]);
@@ -87,11 +99,23 @@ export default function StepsHub() {
           </button>
         </div>
       </HubSection>
-      <Interpretation text={STEPS_NOTE.text} tone={STEPS_NOTE.tone} framework={STEPS_NOTE.framework} />
+      {held ? (
+        <section role="status" className="flex flex-col gap-2 rounded-2xl bg-grouped-card p-4 text-[length:var(--text-body)] leading-snug">
+          <p className="flex items-start gap-2 font-semibold text-caution">
+            <TriangleAlertIcon className="mt-0.5 size-5 shrink-0" aria-hidden />
+            <span>Walking is on hold for your feet</span>
+          </p>
+          <p>{held.reason}</p>
+          {held.release && <p className="text-muted-foreground">{held.release}</p>}
+          <p className="text-muted-foreground">A total you enter still saves.</p>
+        </section>
+      ) : (
+        <Interpretation text={STEPS_NOTE.text} tone={STEPS_NOTE.tone} framework={STEPS_NOTE.framework} />
+      )}
 
       <HubSection title="Options">
-        <Group footer="Optional, and yours to change. Each day keeps the goal it had.">
-          <Row as="button" type="button" label="Daily step goal" value={goal !== undefined ? `${formatNumber(goal)} steps` : 'Not set'} chevron onClick={() => setGoalOpen(true)} />
+        <Group {...(held ? {} : { footer: 'Optional, and yours to change. Each day keeps the goal it had.' })}>
+          {!held && <Row as="button" type="button" label="Daily step goal" value={goal !== undefined ? `${formatNumber(goal)} steps` : 'Not set'} chevron onClick={() => setGoalOpen(true)} />}
           <Row as="button" type="button" label="How steps are counted" chevron onClick={() => setHowOpen(true)} />
         </Group>
       </HubSection>

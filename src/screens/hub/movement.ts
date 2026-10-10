@@ -8,12 +8,14 @@
  * the hub sends through `useStartMovement().start`, where the gate is asked
  * again at the tap.
  */
+import { walkingHeldForFeet } from '@/categories';
 import { defaultStartLabel, headline } from '@/components/checkin/copy';
-import type { Mode, Permission } from '@/engine/permission';
+import { PERMISSION_TEXT, type Mode, type Permission } from '@/engine/permission';
 import { HREF, type Gate } from '@/health/recommend';
 import type { Status } from '@/health/status';
 import type { UserSettings } from '@/types';
 import type { SessionPlan, StretchFocus } from '@/types/plan';
+import type { UserProfile } from '@/types/profile';
 import { checkInOnly, type TileLine } from '@/screens/home/tileLine';
 import { startLabelFor } from '@/screens/today/model';
 
@@ -336,6 +338,17 @@ export function runAction(t: ActionTarget, fx: {
  */
 export function offersRoutines(state: CardState): boolean {
   return state !== 'held' && state !== 'stopped' && state !== 'gap' && state !== 'join';
+}
+
+/**
+ * Walking held for the feet (L-09, K-12): a standing foot restriction, or
+ * today's own foot hold as the walk's gate says it. The Steps hub then says
+ * the hold and gives no walking advice and no step goal; an entered total
+ * still saves (kiro KH-02). Undefined while walking isn't held for the feet.
+ */
+export function feetHold(profile: UserProfile, walk: Permission): { reason: string; release?: string } | undefined {
+  if (!walkingHeldForFeet(profile) && !walk.reasons.includes(PERMISSION_TEXT.footWalk)) return undefined;
+  return { reason: PERMISSION_TEXT.footWalk, ...(walk.release ? { release: walk.release } : {}) };
 }
 
 /** Whether a run saved today may be carried on under this status, as `recommend` offers it (A-34): never while Away or Unwell, and only a stretch during a flare. */

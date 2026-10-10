@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PERMISSION_TEXT, type Permission } from '@/engine/permission';
+import { createDefaultProfile } from '@/profile/defaults';
 import { movementLine, type TileLine } from '@/screens/home/tileLine';
 import {
-  JOIN_HREF, actionTarget, movementCard, offersRoutines, pendingWalkCard, restDayOf, resumeAllowed, runAction, sessionParts, stretchReason,
+  JOIN_HREF, actionTarget, feetHold, movementCard, offersRoutines, pendingWalkCard, restDayOf, resumeAllowed, runAction, sessionParts, stretchReason,
   type CardInput, type HubActionKind, type HubCard, type PendingWalkInput,
 } from './movement';
 
@@ -467,5 +468,25 @@ describe('a routine the builder can’t make today: another can be chosen (kiro 
     expect(c.state).toBe('held');
     expect(kinds(c)).not.toContain('start');
     expect(kinds(c)).not.toContain('chooseRoutine');
+  });
+});
+
+describe('feetHold: Steps while walking is held for the feet (kiro KH-02, L-09, K-12)', () => {
+  const RELEASE = 'Walking is back once your foot has healed or a clinician says it is fine.';
+  const wound = createDefaultProfile({ health: { medicinesReviewed: true, diabetes: 'type2', metformin: true, peripheralNeuropathy: 'yes', footStatus: 'current_wound_or_active_charcot' } });
+  const plain = createDefaultProfile({});
+  const footGate = held('walk', [PERMISSION_TEXT.footWalk], { release: RELEASE });
+
+  it('a standing foot restriction, or today’s own foot hold, is the hold, in the gate’s words', () => {
+    expect(feetHold(wound, footGate)).toEqual({ reason: PERMISSION_TEXT.footWalk, release: RELEASE });
+    // A new foot problem in today's check-in holds walking through the gate alone.
+    expect(feetHold(plain, footGate)).toEqual({ reason: PERMISSION_TEXT.footWalk, release: RELEASE });
+    // The standing restriction holds even before the gate is asked about today.
+    expect(feetHold(wound, { ...ok, mode: 'walk' })).toEqual({ reason: PERMISSION_TEXT.footWalk });
+  });
+
+  it('nothing for walking held for another reason, or not held at all', () => {
+    expect(feetHold(plain, held('walk', [PERMISSION_TEXT.noCheckIn], { needsCheckIn: true }))).toBeUndefined();
+    expect(feetHold(plain, { ...ok, mode: 'walk' })).toBeUndefined();
   });
 });

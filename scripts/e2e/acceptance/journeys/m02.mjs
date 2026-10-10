@@ -10,9 +10,12 @@
  *   opens and the address lets the link go; another metric's opens none.
  * - H2-07: the steps form's Paste is at least 48 by 48, and grows with
  *   the text size (§20.4 rule 1).
+ * - KH-02: the Steps hub while walking is held for the feet: no walking
+ *   advice and no step goal, the hold in words, and a total still saves.
  * Synthetic personas only (fixtures/personas.mjs).
  */
 import { persona } from '../fixtures/personas.mjs';
+import { saveForm } from '../lib/data.mjs';
 import * as g from '../lib/guide.mjs';
 import * as hub from '../lib/hub.mjs';
 import * as ui from '../lib/ui.mjs';
@@ -199,4 +202,30 @@ const pasteTarget = {
   },
 };
 
-export const cases = [carryOnUnwell, carryOnFlare, carryOnGate, addWhileOpen, pasteTarget];
+const stepsFootHold = {
+  name: 'KH-02: the Steps hub while walking is held for the feet',
+  async run(t) {
+    // P05: an open foot wound, so Walk is held and Home shows no Steps (L-09); Browse still lists it.
+    const page = await t.open({ seed: persona('P05'), route: '/home' });
+    const main = page.getByRole('main');
+    await t.step(1, 'Browse → Steps: the hold in words, no walking advice and no step goal', async () => {
+      await hub.openHub(t, 'Steps', '/hub/steps');
+      const text = flat(await main.innerText());
+      await t.checkpoint('kh-02-steps-held');
+      await t.check(text.includes('Walking is on hold for your feet'), `the Steps hub does not say walking is held: ${text.slice(0, 300)}`);
+      await t.check(!/building up gradually is what WHO advises/.test(text), 'the Steps hub gives walking advice while walking is held (K-12)');
+      await t.check(await ui.row(main, 'Daily step goal').count() === 0, 'the Steps hub offers a step goal while walking is held');
+    });
+    await t.step(2, 'Add today’s steps → 1,200 → Save: a total still saves', async () => {
+      await ui.tap(ui.button(main, 'Add today’s steps'));
+      const form = page.getByRole('dialog', { name: 'Steps' });
+      await form.waitFor();
+      await ui.type(form.getByRole('textbox', { name: 'Steps for the day', exact: true }), '1200');
+      await t.must(await saveForm(t, form) === 'closed', 'the total did not save');
+      const today = flat(await ui.section(main, 'Today').innerText());
+      await t.check(today.includes('1,200 steps'), `Today reads: ${today}`);
+    }, { input: '1200' });
+  },
+};
+
+export const cases = [carryOnUnwell, carryOnFlare, carryOnGate, addWhileOpen, pasteTarget, stepsFootHold];
