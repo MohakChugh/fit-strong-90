@@ -40,7 +40,7 @@ import { prefersHour12 } from '@/screens/track/format';
 import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
 import { addToDayTotal, getState, isSessionSaved, useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
-import { canLocate, canSenseMotion, requestMotion } from '@/walk/browser';
+import { canLocate, canSenseMotion } from '@/walk/browser';
 import { directWalkHref } from '@/walk/plan';
 import { useClock, useWakeAt } from '@/screens/today/clock';
 import { ChooserSheet } from '@/screens/today/ChooserSheet';
@@ -219,10 +219,10 @@ export function HomeScreen() {
   const act = (action: RecommendationAction) => {
     if (action.walk) {
       // Straight to the live walk (K-32), measuring what the person chose last
-      // time; the motion sensor is asked from this tap, as iOS requires (B-01).
+      // time. The motion sensor is asked in the tap that finally starts the
+      // walk, which may be this one or the check-in's (B-01, useStartMovement).
       const remembered = settings.walkDefaults;
       const measure = { gps: (remembered?.gps ?? false) && canLocate(), steps: (remembered?.steps ?? false) && canSenseMotion() };
-      if (measure.steps) void requestMotion();
       start('walk', directWalkHref(action.walk, Date.now(), measure), 'Start walk');
       return;
     }

@@ -666,9 +666,12 @@ describe('the Right now card runs its action directly (journey §7.4, K-32, B-09
     for (const l of labels.slice(1)) for (const c of ['min-h-12', 'bg-tint/10', 'text-tint']) expect(l.cls.split(' '), `${l.text}: ${c}`).toContain(c);
   });
 
-  it('a walk from the card starts at once, with its id made at the tap and the motion sensor asked from it (B-01)', () => {
+  it('a walk from the card starts at once through the shared start, with its id made at the tap; motion is asked in the tap that finally starts it (B-01)', () => {
     const home = read('src/screens/home/HomeScreen.tsx');
-    expect(home).toMatch(/if \(action\.walk\) \{[\s\S]*?if \(measure\.steps\) void requestMotion\(\);[\s\S]*?start\('walk', directWalkHref\(action\.walk, Date\.now\(\), measure\), 'Start walk'\);/);
+    expect(home).toMatch(/if \(action\.walk\) \{[\s\S]*?start\('walk', directWalkHref\(action\.walk, Date\.now\(\), measure\), 'Start walk'\);/);
+    // Not asked early from the card: the walk's own start sequence asks, in the tap that finally starts it (Plan 6 Task 8).
+    expect(home).not.toMatch(/requestMotion/);
+    expect(read('src/screens/walk/useWalkFlow.tsx')).toMatch(/createStarter\(\{\s*requestMotion,/);
   });
 });
 

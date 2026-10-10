@@ -91,7 +91,8 @@ describe('directWalkHref: a walk started from Home’s card (journey §7.4, K-32
     const href = directWalkHref({ meal: 'lunch', mealStartedAt: MEAL }, NOW2, { gps: false, steps: true });
     const walk = walkFromSearch(new URL(href, 'https://app.test').searchParams, NOW2);
     expect(new URL(href, 'https://app.test').pathname).toBe('/walk/live');
-    expect(walk?.plan).toEqual({ kind: 'afterMeal', meal: { which: 'lunch', startedAt: MEAL }, gps: false, steps: true });
+    // B-09: the time the person said they had the meal, never "started" (Plan 6 Task 8).
+    expect(walk?.plan).toEqual({ kind: 'afterMeal', meal: { which: 'lunch', startedAt: MEAL, basis: 'had' }, gps: false, steps: true });
     expect(isWalkId(walk?.id)).toBe(true);
   });
   it('"Just a walk", with nothing measured unless chosen', () => {
@@ -167,5 +168,17 @@ describe('the plan in the address (B-01, B-09, M12)', () => {
     const p = walkPlanOf('/walk/live?id=mgh3k2x1-1a2b3c4d&from=elsewhere&meal=lunch&mealAt=' + (Date.now() - 60_000) + '&mealBasis=ate');
     expect(p?.from).toBeUndefined();
     expect(p?.meal?.basis).toBeUndefined();
+  });
+});
+
+describe('B-09’s walk: a meal time the person stated', () => {
+  it('marks a meal time the person stated as "had" (B-09), and a "Started" choice as the start', () => {
+    const now = Date.now();
+    expect(setupPlan({ kind: 'afterMeal', meal: 'lunch', mealAgo: 30, mealBasis: 'had', gps: false, steps: false }, now)?.meal).toEqual({ which: 'lunch', startedAt: now - 1_800_000, basis: 'had' });
+    expect(setupPlan({ kind: 'afterMeal', meal: 'lunch', mealAgo: 20, gps: false, steps: false }, now)?.meal).toEqual({ which: 'lunch', startedAt: now - 1_200_000 });
+  });
+
+  it('marks Home’s after-meal walk as "had at" (B-09)', () => {
+    expect(walkPlanOf(directWalkHref({ meal: 'lunch', mealStartedAt: Date.now() - 1_800_000 }, Date.now(), { gps: false, steps: false }))?.meal?.basis).toBe('had');
   });
 });

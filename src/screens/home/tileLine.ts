@@ -27,6 +27,11 @@ const HOLD_HEADLINE: [reason: string, headline: string][] = [
   [PERMISSION_TEXT.stale, 'Check glucose first'],
   [PERMISSION_TEXT.staleNoTime, 'Check glucose first'],
 ];
+/** The gate's short headline for a refusal it knows (journey §7.5), as tiles say it: the walk's preflight uses it when the final gate refuses (Plan 6). */
+export function holdHeadline(p: Permission): string | undefined {
+  return HOLD_HEADLINE.find(([reason]) => p.reasons.some(r => r.startsWith(reason)))?.[1];
+}
+
 /** The setup chapter each profile gap needs (L-03). */
 const PROFILE_GAP: [reason: string, chapter: string][] = [
   [PERMISSION_TEXT.healthUnreviewed, 'your health'],
@@ -73,7 +78,7 @@ export function movementLine({ mode, permission: p, status, normal, enrolled = t
     if (p.needsCheckIn && p.reasons.length > 0 && p.reasons.every(r => CHECK_IN_ONLY.some(t => r.startsWith(t)))) {
       return { text: outside ? line : `${line} · check in first`, tone: 'normal' };
     }
-    const known = HOLD_HEADLINE.find(([reason]) => said(reason))?.[1];
+    const known = holdHeadline(p);
     // A treated low's re-check comes before the routine check-in, however the day began, as in v1's gate.
     const due = recheckAt ? Date.parse(recheckAt) : Number.NaN;
     const at = now && due > now.getTime() ? ` at ${timeOf(due, hour12)}` : '';
