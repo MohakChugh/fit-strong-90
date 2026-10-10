@@ -41,7 +41,7 @@ const caseFilter = args.case ? new RegExp(args.case, 'i') : undefined;
 
 // ---------------------------------------------------------------- journeys
 
-const files = fs.readdirSync(path.join(HERE, 'journeys')).filter(f => /^[js]\d\d\.mjs$/.test(f)).sort();
+const files = fs.readdirSync(path.join(HERE, 'journeys')).filter(f => /^[jmsv]\d\d\.mjs$/.test(f)).sort();
 const journeys = [];
 for (const f of files) {
   const mod = await import(pathToFileURL(path.join(HERE, 'journeys', f)).href);

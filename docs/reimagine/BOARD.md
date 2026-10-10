@@ -717,3 +717,22 @@ Where the build differs from the plan's text, and why:
 - **B-30's fixture covers every routine the hub offers.** At 10 minutes no routine for the back-history profile holds a movement a flare leaves out; at 15, Hips & legs holds one (the supine hamstring stretch), which the resumed run refuses.
 - **The Stretch hub builds its routine on each render** (about 1 ms). The routine's spec is reused in the same render, which a manual `useMemo` can't keep under the React Compiler's lint.
 - **B-09 in the Walk hub: a meal's usual time belongs to that meal.** "(your usual time)" is offered in Started only when the suggestion is the usual time, not "now", and only for the meal it belongs to: choosing another meal falls back to Started, and choosing it again restores the time. "Just a walk" from the after-meal card carries no target unless the person chose one, as switching kinds already did.
+
+### 2026-10-10 — [claude] v2 Plan 4 (Browse and Me): decisions recorded before building
+
+From `docs/superpowers/plans/2026-10-10-fitstrong-v2-plan-4-browse-me.md`, against journey §5.1, §14–§16, §20.4 and §25 (B-03, B-04, B-08, B-14, B-16, B-24, B-25):
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| D56 | Pick mode is Browse's list of categories in a sheet over Edit Home, titled "Add to Home". `#/browse?pick=1` opens Edit Home with it | Home keeps its edit state, its Undo toasts (B-04) and focus (B-03), and the tab stays Home. As a route under the Browse tab, Browse's root would be remembered in pick mode |
+| D57 | Browse keeps its search (§14), though the design research suggested skipping it for low-literacy users | The list stays fully browsable. Search adds the words people use: Indian spellings (chapatti, roti), plain words (sugar, BP) and conditions (sciatica), through aliases |
+| D58 | Browse is the full index §14 lists, so its groups hold more than 5 rows | The 5-choices rule (§20.4 rule 13, B-08) is for a region's main choices. Browse's main choice is its search; each group is a list to scan |
+| D59 | Browse's "Remove from Home" hides the tile, so it is listed under Hidden in Edit Home, and offers no Undo | Nothing is deleted, and More → Add to Home brings it back in one step |
+| D60 | The app's own text size takes the larger of the device's size and its own (§16: "System settings take precedence where the browser reports them") | The app never makes text smaller than the iPhone's Text Size or the browser's; it can only enlarge it |
+| D61 | "Checked" (B-25) is recorded only by Me → Data → Check a backup, which reads the file in Restore's preview and writes nothing else | Restore from a backup stays write-free until a choice is made (J18) |
+| D62 | The backup and calendar records stay in `settings.habits`: `lastExportAt`, `lastExportSeq` and `calendarExport`, joined by `lastExportVia`, `lastCheckedExportAt` and `calendarExport.*.minutes`. These are §18.1's `exports` | No migration |
+| D63 | Me is a tab root, so v1 You's Done goes. The tab bar leaves Me | §5 |
+| D64 | Me → Goals is built here, on Plan 2's weekly goal by the week (B-16). V-J35 and V-J39 move from Plan 8 to this plan | Plan 4 builds what they test |
+| D65 | Every "Finish setting up" row has "Not now", a safety gap's included (§16). It keeps the chapter in Profile & health, and is stored in `settings.setup.declined`, the field Plan 5's setup state keeps | The engine's hold still names the chapter on the tile and the hub |
+| D66 | Me's files stay in `src/screens/you/` | Renaming 30 files is churn with no change in behaviour |
+| D67 | On Me → Reminders, A-78's "Your calendar copies may be out of date" takes the place of D-01's "Calendar may still remind you", and keeps its substance: what Calendar still holds, that the app can't remove it, and how to delete it. D-01's notice stays where the answer that stopped a habit is given: the Water sheet and Profile & health | One warning per screen for the same events (V-J39) |
