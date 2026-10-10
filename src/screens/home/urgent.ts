@@ -44,7 +44,7 @@ export interface Urgent {
    * full-screen task drawing this decision from one drawing an older or
    * another one (`says`, codex W-01).
    */
-  reasons: string[];
+  reasons: readonly string[];
 }
 
 // ============================================================================
