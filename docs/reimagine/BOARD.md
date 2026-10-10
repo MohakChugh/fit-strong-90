@@ -855,3 +855,39 @@ Three merge commits, in order, on Plan 2 and the storage foundation (`a89065a`):
 Follow-ups:
 - Me's "Sources" row (Plan 2's note above): Plan 4's Me links `/hub/learn/sources` directly; `YouHome.tsx` is gone. A wiring test holds it.
 - Checking a backup: an older file from the same date as the latest says both times, "made 8 Oct 2026, 9:05 am, and your latest is from 8 Oct 2026, 6:30 pm", on the device's clock. Dates alone otherwise.
+
+### 2026-10-10 — [claude] v2 Plan 5 (setup and upgrade): decisions before building
+
+The plan is `docs/superpowers/plans/2026-10-10-fitstrong-v2-plan-5-setup.md`. It folds in B-06, B-07, B-08, B-18, B-24 and B-31, and fills Plan 4's setup-progress seam (D65).
+
+| # | Decision | Why |
+| --- | --- | --- |
+| D75 | Setup keeps every answer as given in `settings.setup`: `draft` while unfinished, `answers` after. One function, `profileFrom()`, works out the profile from them. "Not sure" stays `'unsure'` in the answers, and becomes "may have" only there. Me edits a chapter with the same page views, one under another, and saves them together | §6.1; §16 "editable with the same pages" |
+| D76 | §6.3's crosswalk is corrected to v1's field names, and the spec's table is updated in the same commit. No row is dropped; a row whose v1 field doesn't exist says so | §6.3 asks for it |
+| D77 | Chapter 3's pain chip is "Back pain, sciatica or other pain", and chapter 5 lists every v1 area. "What helps" is kept in the answers only, never as `pain.preference`. `pain.neuroHistory` is new, and only Home's tiles read it | The engine reads calf and hamstring pain for everyone (`safety.ts`), and reads `preference` as a confirmed direction (`mobility.ts`); the engine reads today's symptoms, not the history (D29(2)) |
+| D78 | Insulin or a tablet that can cause lows, with diabetes "No" or prediabetes, is read as diabetes `'other'` | The rules about lows apply only with diabetes, and a person on insulin may have it (§6.1 "Not sure" is "may have") |
+| D79 | Upgraders aren't asked v2's new safety questions (eyes and feet without diabetes, "something else") unless they edit Your health. A Me edit owns only its chapters' fields. It re-asks what it makes newly needed: Your medicines, when diabetes or blood pressure is added. While a health review is pending, the three safety chapters open together | §6.6 "New questions are never forced"; the review clears only when every safety chapter is answered in one sitting |
+| D80 | "Look around first" and finishing both set `onboardingComplete`; `settings.setup.stage` says which. While setup is unfinished, the profile hold reads "Finish setting up · Carry on setting up", and `/me/profile` opens setup where it stopped. A Finish setting up row for a safety gap offers no "Not now", and stays listed even where an earlier build stored "Not now" for its chapter (KH-08, amending D65) | §19.1 keeps one launch flag; L-20. Movement waits for a gap, so the one place that finishes it can't disappear while tiles still say "Finish setting up" |
+| D81 | The programme's Join flow is its own four steps (experience, place, days, and length with a start date). Setup, Your plan and Goals all use it. It doesn't ask body weight or goals | Nothing in the engine reads them for the programme |
+| D82 | Chapter 7 writes the food contract Plan 7 consumes (Plan 7's "Plan 5, Tasks 2 and 3"), and Plan 5 lands Plan 7's Task 2 Steps 1, 6 and 8 early, word for word. In `src/types/profile.ts`: `ALLERGEN_IDS` (peanut, treeNut, milk, egg, wheat, soy, sesame, fish, shellfish, mustard) with `AllergenId`; `FoodPattern`, Jain included; and `FoodPreferences` with `allergies?: AllergenId[]`, `customAllergies?` (the person's own words), `level?`, `hardBefore?`, `careTeamTargets?` and `logReminder?`. The screening answer is kept in `food.hardBefore`, on this device, where Plan 7's D102 reads it. Until Plan 7 tags recipes, meal ideas leave out an idea whose own words name an allergen, a custom allergy or a food Jain cooking leaves out (`src/content/allergens.ts`, interim word matching). `food.mealTimes` isn't written: setup's meal times are the after-meal walk's (`habits.mealWalk.finish`) | One contract and one copy of each fact. Plan 7 branches from it, and the branch merges only after Plan 7 (B-22) |
+| D83 | Weight, height and waist changes are dated readings; `height` is a new observation kind (Weight hub). A field shown in pounds or feet and saved unchanged keeps the stored kilograms or centimetres exactly, and adds no reading. An undated v1 weight is never given a date | §18.1, B-16 |
+| D84 | v1's acknowledgement stays, on the Review page, for every first-time profile. In Safari on iPhone, Review offers "Moving to the Home Screen app?" with Make a backup, before finishing. Restored in the installed app, setup carries on at Review | v1's rule; A-27; §6.4 "a backup without a finished profile continues setup" |
+
+**Crosswalk corrections (D76):**
+- Prediabetes is an option of "Which type of diabetes?". It's a v1 value, which Home's Glucose tile and the session gate read.
+- `priorDkaOrInsulinDeficiency` is asked with every diabetes answer, as v1 asks it (`DIABETES_MEDICINES`), not only with type 1, insulin or a "-gliflozin".
+- Clinician limits are also asked with diabetes, as v1 asks them. ACSM screening counts diabetes (`profileRules`).
+- Dizziness on standing is also asked with diabetes (autonomic neuropathy) and with "something else". v1 asked everyone.
+- v1 has no `cardiac` effort-symptom, `footRestriction`, `footWound` or `neuroHistory` field:
+  - effort symptoms are asked at every check-in;
+  - a wound now, or a clinician's weight-bearing limit, is `footStatus: 'current_wound_or_active_charcot'`;
+  - `pain.neuroHistory` is new (D77).
+- The glucose start minimum sits with the insulin questions, which is where it's known whether lows are possible.
+- Chapter 3's eye-treatment and foot-wound questions offer no "Not sure": both are things a person knows (§1.2 "where safety allows").
+- `bpMedicinesReviewed` and `medicinesReviewed` are set only when every medicine they vouch for was answered (`wizardSteps.answeredOnOpen`).
+
+**Adaptations to the live code:**
+- **Names:** every seam the plan expects is there under its expected name (Task 1 Step 1).
+- **The food contract (D82).** The plan's Task 3 was written against an earlier draft of Plan 7. The Plan 7 committed beside it expects Plan 5 to leave the names above, `src/content/allergens.ts` (`ALLERGEN_TERMS`, `JAIN_LEAVES_OUT`, `leaveOut`, `mealPattern`, `withPicked`), meal ideas, search and a meal's page filtering through `leaveOut`, and Meal ideas' food question saving through `withPicked`. Task 3 builds exactly that, so Plan 7's own check (its Task 1 Step 1) passes. Allergies are two fields, not one: chips store canonical ids in `allergies`, and "Something else" stores the person's words in `customAllergies`. The canonical ids are Plan 7's (`wheat`, `shellfish`), not the plan's (`gluten`, `crustacean`). `food.mealTimes` isn't added. When Plan 7 runs, its Task 2 Steps 1, 6 and 8 are already done: skip them, and expect Step 7 to pass.
+- **KH-08 (review finding, Medium):** "Not now" on a safety gap row hid the only clear way to finish setup while the tiles kept saying "Finish setting up". D80 now keeps gap rows, with no "Not now" (Task 7).
+- **KH-15 (review finding, Low):** the profile editor's confirmation is "Saved. Home uses your new answers.": v2 has no Today screen (Task 14).

@@ -249,28 +249,34 @@ Me (§16): Finish setting up · Profile & health by chapter · Goals · Food · 
 
 | Engine field (v1 names) | Question | Asked when |
 | --- | --- | --- |
-| `diabetes` type | Diabetes: "Which type?" 1 · 2 · other · Not sure | diabetes yes or not sure |
-| `hypertension`, `bpTreated` | High blood pressure; "Do you take medicine for it?" | yes or not sure |
-| `cardiac` (heart or circulation, symptoms on effort) | the heart chip and its follow-up | yes or not sure |
-| `kidney` and its stage, if known | the kidney chip and its follow-up | yes or not sure |
-| `fluidRestriction` | "Has a doctor given you a fluid limit?" | heart or kidney yes or not sure, and always on the "something else" path |
-| `retinopathy`, `recentEyeTreatment` | eyes chip: "Treatment in the last 3 months?" | yes or not sure |
-| `neuropathy`, `footWound` (active ulcer), `footRestriction` | foot chip and its follow-ups | yes or not sure |
-| `priorDkaOrInsulinDeficiency` | "Have you ever had DKA, or been told your body makes little insulin?" | type 1, insulin, a "-gliflozin", or not sure |
-| `ketoneTest` | "Can you test ketones (blood or urine)?" | type 1, insulin or a "-gliflozin" |
-| `dizzyOnStanding` | "Do you get dizzy when you stand up?" | BP medicine, a diuretic, or heart chip |
-| `highHypoRisk`, `insulinRegimen`, `sulfonylurea` | the medicine classes | from chapter 4 |
-| `sglt2` | the "-gliflozin" chip | always reachable from chapter 4, whatever the diabetes answer |
-| `metforminSince` (B12 cadence) | "Since when?" | metformin |
-| `clearance`, `clinicianTargets` (D29(4)) | "Has a clinician given you exercise limits or targets?" Yes (enter them) / No / Not sure | heart, kidney, eyes, BP or back answers |
-| `currentlyActive` | "Do you exercise now?" | chapter 6, page 1 |
-| back: `pain.areas`, `side`, `aggravators`, `neuroHistory` | chapter 5 | a back answer |
+| `diabetes` (`none`, `prediabetes`, `type1`, `type2`, `other`) | Diabetes chip; "Which type of diabetes?" Type 1 · Type 2 · Prediabetes · Another type · Not sure (Not sure → `other`) | diabetes yes or not sure. Insulin or a tablet that can cause lows with diabetes "No" or prediabetes reads as `other` (D78) |
+| `hypertension` (`treated`, `untreated`, `unsure`); v1 has no separate `bpTreated` | High blood pressure chip; "Do you take medicine for high blood pressure?" | yes or not sure |
+| `heartOrVascularDisease` (boolean; Not sure → true). Effort symptoms have no profile field: every check-in asks them | the heart chip | always (chapter 3, page 1) |
+| `kidneyDisease` (`ckd`, `dialysis_or_transplant`, `unsure`) | kidney chip; "Are you on dialysis, or have you had a kidney transplant?" | yes or not sure |
+| `fluidRestriction` | "Has a doctor given you a fluid limit?" | heart, kidney or something else, yes or not sure; and on Reminders when water reminders are turned on |
+| `retinopathy` (v1's one field holds `recent_eye_treatment`) | eyes chip; "Eye treatment or surgery in the last 3 months?"; "How bad is the eye disease from diabetes?" | yes or not sure |
+| `peripheralNeuropathy`, `footStatus` (v1 has no `footWound` or `footRestriction`: a wound now, or a clinician's weight-bearing limit, is `current_wound_or_active_charcot`) | foot chip: "Numbness or loss of feeling in your feet?", "A wound, an ulcer or a Charcot foot?"; chapter 5: "Has a clinician told you to keep weight off a foot?" | foot yes or not sure |
+| `priorDkaOrInsulinDeficiency` | "Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?" | any diabetes answer (v1 asks every diabetic) |
+| `ketoneTest` | "Can you test ketones?" | type 1, insulin with another type, a "-gliflozin", or past DKA yes or not sure |
+| `dizzyOnStandingOrAutonomicNeuropathy` | "Do you get dizzy when you stand up?" | BP medicine (treated or not-sure BP, a beta-blocker), a diuretic, heart, diabetes, or something else |
+| `insulin`, `insulinRegimen`, `sulfonylureaOrMeglitinide`, `highHypoRisk` | the medicine classes; "How do you take insulin?"; "A severe low in the last 6 months, or do you often not feel lows coming?" | classes: regular medicines yes or not sure ("No" answers each class No). Insulin page: diabetes with insulin or a lows tablet, or type 1 |
+| `sglt2i` | the "-gliflozin" row | chapter 4, whatever the diabetes answer |
+| `metformin`, `metforminSince` | the metformin row; "Year you started metformin (optional)" | regular medicines; the year with metformin yes |
+| `betaBlocker`, `diuretic` | the beta-blocker and water-tablet rows | regular medicines yes or not sure ("No" answers both No) |
+| `medicinesReviewed`, `bpMedicinesReviewed` | not a question: set when chapter 4 is complete and every medicine they vouch for was answered | — |
+| `glucoseMonitor`, `glucoseUnit`, `bpMonitor` | "What do you have at home?" | always (B-06); the unit with a meter or sensor |
+| `clearance`, `clinicianTargets` (`glucoseStartMin` and `glucoseStartUnit` on the insulin page; `bpStopSystolic`, `hba1cPercent`), `bpExercisePermission` | "Has a clinician cleared you to exercise?"; "Has a clinician given you any limits or targets?" | heart, kidney, eyes, BP, pain or diabetes (v1 also asks with diabetes); the targets with BP or diabetes |
+| `currentlyActive` | "Do you exercise now?" (at least 30 minutes, 3 days a week, for the last 3 months) | chapter 6, page 1 |
+| `needsHealthReview` | not a question: cleared when chapters 3 to 5 are complete in one sitting | — |
+| back: `pain.areas`, `pain.sciaticaSide` (the spec's `side`), `pain.worseWith` (`aggravators`), `pain.neuroHistory` (new; not read by the engine), `pain.preference` (never asked, D77) | chapter 5 | a pain answer: back, sciatica or other pain (D77) |
+
+Corrected by Plan 5 Task 1 against `src/types/profile.ts` and the engine (board D76).
 
 The plan's first task confirms each name against `src/types` and the engine, and corrects this table where a v1 name differs. It never drops a row.
 
 ### 6.4 Edge cases
 
-- **"Look around first"** goes to Home with every movement Start behind the profileGap hold. The Right now card reads "Finish setting up (about 5 minutes)", and Learn, Browse and readings work (J01 kept).
+- **"Look around first"** goes to Home with every movement Start behind the profileGap hold. The Right now card reads "Finish setting up", with "Carry on setting up" (B-06: no time is claimed until it's measured), and Learn, Browse and readings work (J01 kept).
 - **Restore on page 1** runs v1's restore flow: file check, summary, then the "Replace" confirmation.
   - A backup with a finished profile goes straight to Home.
   - A backup without one continues setup with its answers filled in.

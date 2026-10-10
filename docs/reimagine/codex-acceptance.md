@@ -268,15 +268,15 @@ Basis: D4, D6, D8, D16, D23; PLAN Task 3; vision sections 2 and 4.
 
 | Step | Script action | Exact observable outcome |
 |---|---|---|
-| 1 | Open a fresh context at the app root. | `Welcome` heading, `What would you like more of?`, Build strength, Stretch comfortably, Move more and `Explore first`. Local-only explanation is visible. No location, motion or notification request. |
-| 2 | Tap `Explore first`; reload at the next checkpoint. | Focus remains `explore`. Explain Home Screen installation/storage and backup before claiming the record is durable. `navigator.storage.persist()` is attempted when available; a false result is not an app failure. |
-| 3 | Continue to Today without enrolling or giving a medical history. | Browsing and logging are available. No forced gym schedule, body-weight requirement or full medical wizard before reading Guide or entering a past fact. Only four tabs and a root `You` button. |
-| 4 | Open `Choose something else`. | Exactly five rows in fixed order: Stretch, Walk, Guided session, Log something, Learn. No Ask row, chat composer or assistant. Closing restores focus to the opener. |
-| 5 | Open Learn, return, then Log something. Save steps `2000` for `2026-10-07`. | Guide is readable; Quick Log opens in Track. Historical steps are `Manual`, `2000`, for 7 October. Today's missing steps read `Not entered`. |
-| 6 | Open Move, choose Stretch and attempt Start. | Relevant profile/safety questions appear before movement. Unknown treatment is never inferred from defaults. Answer P07's first-movement answers and normal current answers. |
-| 7 | Cancel before active movement, reload, open You. | Answers already acknowledged as saved remain. `startDate` is empty, no active strength programme or session was fabricated. |
+| 1 | Open a fresh context at the app root. | `/setup`, heading `Welcome`, `Your health, in one place.`, the privacy line (B-24), a line on keeping data here, `Get started`, `Restore from a backup`, `Look around first` and the `Display` row. No location, motion or notification request. |
+| 2 | Tap `Look around first`; reload at the next checkpoint. | Home (its greeting), and again after the reload. `settings.setup.stage='lookAround'`, `onboardingComplete=true`, no profile. `navigator.storage.persist()` was attempted where available. |
+| 3 | Look at Home. | Four tabs. Right now: `Finish setting up`, button `Carry on setting up`. `startDate` is empty. |
+| 4 | Open `Something else`. | Exactly five rows in fixed order: Stretch, Walk, Guided session, Log something, Learn. No Ask row, chat composer or assistant. Closing restores focus to the opener. |
+| 5 | Open Learn, return, then Log something. Save steps `2000` for `2026-10-07`. | Learn is readable; Log something opens Today's log. Historical steps are `Manual`, `2000`, for 7 October. Today's missing steps read `Not entered`. |
+| 6 | Stretch: no Start, with the health-questions reason. Home → `Carry on setting up`: setup page 1 → `Get started`. Answer P07's answers through Review: no conditions, no regular medicines, `Neither` and no cuff, `Not sure yet`, exercising now `No, not like that`, `No goal for now`, `Not now`, vegetarian, no food allergies, meal ideas only, reminders off, voice on. Tick the acknowledgement; `Start using FitStrong`. Stretch → the check-in. | Setup's questions come before movement, and no treatment is inferred from a default. After setup, the check-in, then a permission-approved Start. |
+| 7 | Cancel before active movement, reload, open Me. | `startDate` empty, no session, `settings.focus='explore'`. No "Finish setting up" group. |
 
-**Stored:** `settings.focus='explore'`; onboarding may finish without falsely marking health questions reviewed. One manual steps day-total observation for 7 October. After step 6, a profile reflecting the explicit answers and a current check-in may exist. No weight, glucose, sleep, pain or movement observations before those facts are actually entered.
+**Stored:** `settings.setup.stage='done'` with P07's answers and `completedAt`; `focus='explore'`. One manual steps day-total observation for 7 October. A profile with diabetes `none`, hypertension `none` and no pain areas. No weight, glucose, sleep, pain or movement observations before those facts are actually entered.
 
 ### J02, P01: lossless upgrade and one resumable guided session
 
@@ -284,9 +284,9 @@ Basis: D8, D11 as adopted by PLAN Task 5, D13, D28, D30; PLAN Tasks 1 and 5.
 
 | Step | Script action | Exact observable outcome |
 |---|---|---|
-| 1 | Load P01 with its legacy history. | Today opens without repeating first-run setup. `Week 3 of 12`; visible `Why this?` explains the scheduled unfinished session. The historical session, both sets and notes are accessible in Track. Migration has exactly the eight observations specified above. |
+| 1 | Load P01 with its legacy history. | Home opens without repeating first-run setup and with no dialog. The first element after the Right now block is the `FitStrong has a new Home` row. `Week 3 of 12` on the Workout hub; a visible `Why this?` explains the scheduled unfinished session. The historical session, both sets and notes are accessible in Today's log. Migration has exactly the eight observations specified above. |
 | 2 | Reload twice and revisit 25 September. | Same IDs, values, notes and record counts. No duplicate migration projections or second C0. |
-| 3 | Variant: use a fresh P01 seed with `medicinesReviewed`, `metformin`, `metforminSince`, `priorDkaOrInsulinDeficiency` omitted and `needsHealthReview=true`. Attempt Guided session. | Health/medicine review hold. No reliance on the seeded green readiness. Enter no insulin, no SU, no SGLT2, metformin yes since 2019, no prior DKA; save. The known metformin-only branch then permits a check-in with no glucose reading. |
+| 3 | Variant: use a fresh P01 seed with `medicinesReviewed`, `metformin`, `metforminSince` and `priorDkaOrInsulinDeficiency` omitted, and `needsHealthReview=true`. Attempt Guided session. | Health/medicine review hold. No reliance on the seeded green readiness. Me → Profile & health → `Your health answers need a review` opens the three safety chapters, one under another, filled in from the record. Answer what's missing as P01: no clinician targets; regular medicines `Yes`; `Metformin`, since 2019; no DKA; no nerve damage. Save. The known metformin-only branch then permits a check-in with no glucose reading. |
 | 4 | In the main P01 case, start from Today's primary action and enter normal current answers with glucose blank. | One readiness/setup sequence. Clicking the permission-approved `Start session` starts the player; no second approval of the same session. No tab bar in the player. Current step, caption, timer, Pause and symptom-stop control are visible. |
 | 5 | Advance through to the first strength set using Next, leaving skipped work incomplete. Record reps `12`, weight `10 kg`, mark that set done; Pause, then `Save and exit`. | Today offers Continue ahead of a new recommendation. Reload preserves the same plan/session ID, date, step and logged set. Pause time does not auto-complete work. |
 | 6 | Continue, then finish the attempt with the remaining work skipped. Save the summary. | One new session with `status='partial'`, one completed set with actual reps 12 and weight 10, other skipped work incomplete. A save acknowledgment appears only after commit. |
@@ -668,6 +668,55 @@ Basis: D4, D7, D13, D16, D23, D24; PLAN Tasks 2, 3 and 10.
 | 6 | Remove the fault/release the other connection; Retry/reload. | P01 record returns exactly, with correct appearance and onboarding state. An inspection connection closes on version change; no indefinite silent wait. |
 
 **Stored:** navigation and offline use do not mutate clinical facts. No remote account, telemetry containing health context, API credential or backend dependency. Source originals open only on explicit taps, without health-containing query parameters.
+
+## v2 setup journeys (Plan 5)
+
+### V-J10, P01: change my weight
+| Step | Script action | Exact observable outcome |
+|---|---|---|
+| 1 | Load P01. Me → Profile & health → `Edit About you`. | `About you`, with `What should we call you?`, `Body for the exercise demos` and `Your height and weight`, one under another. |
+| 2 | Type `80` in `Weight in kg`; `Save`. | `Saved. Home uses your new answers.` One new `weight` observation: 80 `kg`, `pointInTime`, `manual`, `context='profile'`, day 2026-10-08, no `timeUnknown`. The migrated 78 kg reading of 25 September is unchanged. `profile.weightKg` and `settings.currentWeight` are 80. No other profile field changed, and there's no height reading. |
+| 3 | Open `/hub/weight`. | The latest weight is 80 kg, dated today. |
+| 4 | Variant: `Edit About you` again; Units `ft, in and lb`; `Save` without typing. | `useMetric=false`; `profile.weightKg` is 80 and `heightCm` 175, exactly; no new observation (D83). |
+
+### V-J11, P01: back up, and restore on a new phone
+| Step | Script action | Exact observable outcome |
+|---|---|---|
+| 1 | Load P01. Me → Data → `Back up your record` → Download. | A backup file. |
+| 2 | Close the context; open a fresh one at the root. | Setup page 1 (`Welcome`). |
+| 3 | `Restore from a backup` → the file → `Restore`. | A preview before anything is written; then Home. The record equals the file, logically, as J18 step 9 compares it. |
+| 4 | Variant: a file with `onboardingComplete=false` and a setup draft at `health.conditions` (figure `female`), restored from page 1; `Done`; `Get started`. | After the restore, page 1 stays: the file has no finished profile. Then `/setup/health/conditions` with `Welcome back, let’s carry on.` Back, Back: `Body for the exercise demos` with `Female figure` chosen. |
+
+### V-J13, P01: upgrade from v1
+| Step | Script action | Exact observable outcome |
+|---|---|---|
+| 1 | Load P01 (v4 seed). | Home with no dialog. The first element after the Right now block is the `FitStrong has a new Home` row, with `Show me` and `Got it`. |
+| 2 | `Got it`; reload. | The row is gone and stays gone. `settings.setup`: `stage='done'`, `upgraded=true`, `newHomeSeen=true`, no `completedAt`. |
+| 3 | Today's log for 25 September; the Glucose hub; the Weight hub. | The legacy session on 25 September; glucose 104 mg/dL and weight 78 kg on their hubs, each stored with its own date (25 September). |
+| 4 | Me. | `Finish setting up · 2 short chapters`: `About you` (`What to call you`) and `Your food` (`Logging what you eat`), opening `/me/profile?chapter=about` and `/me/profile?chapter=food`. |
+| 5 | Variant: a fresh P01; `Show me` → `Next`, `Next`, `Done`. | Three cards (`Your tiles are here`, `Trends is new`, `Browse is new`); then the row is gone and `newHomeSeen=true`. |
+
+### V-J17, fresh: uncertain answers, and a draft that won't save
+| Step | Script action | Exact observable outcome |
+|---|---|---|
+| 1 | `Get started`; `Next`; `Skip for now`; `Next`. On `Do you have any of these?` tick `Not sure: Diabetes` and `High blood pressure`. Make settings writes fail; `Next`. | `Your answers aren’t being saved on this phone.`, `Try again` and `Continue without saving`, on the same page with both still ticked. The stored draft is unchanged. |
+| 2a | Writes work again; `Try again`. Answer `Not sure` wherever it's offered, `No` for ketone testing, `Neither` and no cuff for the monitors, then P07's answers for chapters 6 to 8; Review; tick; `Start using FitStrong`. | `Which type of diabetes?` comes next. The stored profile: diabetes `other`, hypertension `unsure`, insulin `unsure`; `sulfonylureaOrMeglitinide`, `sglt2i`, `metformin`, `betaBlocker`, `diuretic` and `priorDkaOrInsulinDeficiency` all `unsure`; `highHypoRisk` and dizziness true. No answer given as Not sure is stored as No. Stretch → the check-in asks for glucose and about ketones. |
+| 2b | Variant: `Continue without saving`; answer as in 2a through Review; `Start using FitStrong`. | On every page after: `Your answers aren’t being saved on this phone. If you close FitStrong, they’re lost.` Home, with Right now `Finish setting up`, and Stretch held for the health questions. No profile and no completion stored. After a reload, setup again, at `Do you have any of these?`. |
+
+### V-J18, P02: a medicine change after setup
+| Step | Script action | Exact observable outcome |
+|---|---|---|
+| 1 | Load P02. Stretch → the check-in. | No ketone rows. |
+| 2 | Me → Profile & health → `Edit Your medicines`. `Do you take any regular medicines?` → `Yes`; tick `A “-gliflozin” medicine`. | `Ketones` appears below: `Can you test ketones?` → `Urine strips`. `What do you have at home?`: `Neither`, and `No` for the cuff. `Save`: `Saved. Home uses your new answers.` and `Each check-in will ask about ketones and the signs of ketoacidosis.` Stored: `sglt2i=true`, `ketoneTest='urine'`, `medicinesReviewed=true`. |
+| 3 | Home → Stretch → the check-in. | `Ketones, urine strip` is asked. |
+
+### V-J37, fresh iPhone Safari: finish setup, then move to the Home Screen app
+| Step | Script action | Exact observable outcome |
+|---|---|---|
+| 1 | iPhone Safari user agent; `persist()` refused. Page 1. | `Installing helps iPhone keep your data, but it isn’t a backup.` and `Show me how`, whose sheet shows the three steps. |
+| 2 | Answer P02's answers through Review. | `Moving to the Home Screen app?` with `Make a backup first, then restore it there. Safari may remove data from websites you haven’t opened for a while.` `Make a backup` → `Save or share` → a file. Tick; `Start using FitStrong` → Home. |
+| 3 | Me → Data. | Storage isn't guaranteed (temporary storage, B-30): the install status is `Not installed`. |
+| 4 | A new context as the installed app (standalone), with empty storage (device loss, B-30). Page 1 → `Restore from a backup` → the file → `Restore` → `Done`; `Get started`. | No install line on page 1. Setup carries on at `Here’s what we’ll do for you`, with `Welcome back, let’s carry on.`; tick; `Start using FitStrong` → Home, with `settings.setup.stage='done'` and P02's answers. |
 
 ## Checks on every screen and sheet
 
