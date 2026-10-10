@@ -850,6 +850,12 @@ describe('Home’s targets and layout (kiro KV-08, KV-10, KV-11, KV-15, KV-18, K
     expect(me).not.toMatch(/now: new Date\(\)/);
   });
 
+  it('Display follows the device’s settings while it is open (codex H4-07)', () => {
+    const display = read('src/screens/you/DisplayScreen.tsx');
+    expect(display).toContain('const [device] = useState(() => systemDisplayStore());');
+    expect(display).toContain('const system = useSyncExternalStore(device.subscribe, device.read, device.read);');
+  });
+
   it('"2 reminders" sits in the header’s wrapping area beside the status, not in the fixed bar', () => {
     const home = read('src/screens/home/HomeScreen.tsx');
     expect(home).not.toMatch(/trailing=\{<RemindersCapsule/);

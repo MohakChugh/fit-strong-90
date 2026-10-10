@@ -8,6 +8,9 @@
  *   memory mode here, since the app offers only Try again then.
  * - H4-06: Goals and Me left open from Sunday into Monday: the week's goal
  *   changes at midnight, and a change that has begun is no longer pending.
+ * - H4-07: the device's Reduce Motion changed while Display is open: the
+ *   switch follows at once, and never claims the device set it after it
+ *   stopped.
  */
 import { docs } from '../lib/harness.mjs';
 import { persona } from '../fixtures/personas.mjs';
@@ -263,4 +266,30 @@ const goalsAtMidnight = {
   },
 };
 
-export const cases = [finishSettingUp, goals, display, systemMotion, deleteTwice, refusedAnswers, goalsAtMidnight];
+const liveMotion = {
+  name: 'H4-07: the device’s Reduce Motion changed while Display is open',
+  async run(t) {
+    const page = await t.open({ seed: persona('P02'), route: '/me/display', reducedMotion: 'reduce' });
+    const main = page.getByRole('main');
+    const sw = () => main.getByRole('switch', { name: 'Reduce motion', exact: true });
+    const says = async () => /On, because this device’s Reduce Motion is on\./.test(flat(await main.innerText()));
+    await t.step(1, 'The device reduces motion: the switch is on, the device’s doing', async () => {
+      await t.check(await sw().getAttribute('aria-checked') === 'true' && await says(), 'the switch does not start on, by the device');
+    });
+    await t.step(2, 'The device stops reducing motion, Display still open: the switch is the app’s own again', async () => {
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      await page.waitForTimeout(400);
+      await t.checkpoint('h4-07-device-off');
+      await t.check(!(await says()), 'Display still says the device’s Reduce Motion is on after it stopped');
+      await t.check(await sw().getAttribute('aria-checked') === 'false', 'the switch still reads on after the device stopped reducing motion');
+      await t.check(!(await sw().isDisabled()) && await sw().getAttribute('aria-disabled') !== 'true', 'the switch is still disabled after the device stopped reducing motion');
+    });
+    await t.step(3, 'And on again: the device’s doing once more', async () => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.waitForTimeout(400);
+      await t.check(await sw().getAttribute('aria-checked') === 'true' && await says(), 'the switch does not follow the device turning Reduce Motion on');
+    });
+  },
+};
+
+export const cases = [finishSettingUp, goals, display, systemMotion, deleteTwice, refusedAnswers, goalsAtMidnight, liveMotion];
