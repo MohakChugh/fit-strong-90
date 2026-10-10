@@ -10,6 +10,7 @@
  */
 import { MINUTE } from '../lib/env.mjs';
 import { docs } from '../lib/harness.mjs';
+import * as hub from '../lib/hub.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as mv from '../lib/move.mjs';
 import { ENROLLED, persona } from '../fixtures/personas.mjs';
@@ -37,7 +38,6 @@ const answers = ({ pain = 1, leg = 1, reach = 'Foot', flags = [], news = [], eme
  */
 async function enterMode(t, mode) {
   const page = t.page;
-  const main = page.getByRole('main');
   if (mode === 'guided') {
     // Only an enrolled persona has a guided session to start (D35).
     const g = await openGuided(t);
@@ -45,12 +45,10 @@ async function enterMode(t, mode) {
     return g;
   }
   if (mode !== 'walk') return mv.enter(t, mode, 'move');
-  // v1's Move tab is the Workout hub, from Home (journey §19.2).
-  await ui.legacyTab(page, 'Move');
-  await ui.tap(ui.row(main, 'Walk', 'link'));
-  await page.getByRole('heading', { level: 1, name: 'Walk', exact: true }).waitFor();
+  // v1's Move → Walk is now Home's Walk tile → the Walk hub (Plan 2).
+  await hub.open(t, 'walk');
   await page.waitForTimeout(300);
-  const start = ui.button(main, 'Start walk');
+  const start = hub.start(page);
   if (!(await start.count())) return { route: await t.route(), setupRefusal: true };
   await ui.tap(start);
   await page.waitForTimeout(500);
@@ -342,7 +340,7 @@ export const cases = [
         await page.waitForTimeout(800);
         if (mode === 'walk') {
           // The Walk setup is the Walk hub, v1's /walk (journey §19.2).
-          if (/^\/hub\/walk$/.test(await t.route())) await ui.tap(ui.button(main, 'Start walk'));
+          if (/^\/hub\/walk$/.test(await t.route())) await ui.tap(hub.start(page));
           await page.waitForTimeout(800);
           await t.must(/^\/walk\/live/.test(await t.route()), `Start walk opened ${await t.route()}`);
         } else {

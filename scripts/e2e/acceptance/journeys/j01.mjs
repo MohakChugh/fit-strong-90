@@ -3,6 +3,7 @@
  * (codex-acceptance.md; basis D4, D6, D8, D16, D23).
  */
 import { docs } from '../lib/harness.mjs';
+import * as hub from '../lib/hub.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as mv from '../lib/move.mjs';
 
@@ -146,7 +147,9 @@ export const cases = [{
     await t.step(5, 'Learn, return, then Log something: steps 2000 for 7 October', async () => {
       await ui.tap(ui.button(main, 'Something else'));
       await ui.tap(ui.row(page.getByRole('dialog'), 'Learn'));
-      await page.getByRole('heading', { level: 1, name: 'Guide', exact: true }).waitFor();
+      await page.getByRole('heading', { level: 1, name: 'Learn', exact: true }).waitFor();
+      // Its skeleton has the title too: read the hub once its content is in.
+      await ui.loaded(page);
       await t.check((await main.innerText()).length > 200, 'Guide has no readable content');
       await t.checkpoint('guide');
       await ui.tap(ui.link(page.getByRole('navigation', { name: 'Main' }), 'Home'));
@@ -189,9 +192,7 @@ export const cases = [{
 
     await t.step(6, 'Move → Stretch → Start: safety questions before movement', async () => {
       const startStretch = async () => {
-        await ui.legacyTab(page, 'Move');
-        await ui.tap(ui.row(main, 'Stretch', 'link'));
-        await ui.heading(page, 'Stretch');
+        await hub.open(t, 'stretch');
         // While the health questions are unanswered the setup refuses before any tap (scan S-15):
         // no Start, the reason on screen, and "Review today’s check-in" in its place.
         const refusal = await mv.setupRefusal(page, 'stretch');
@@ -201,7 +202,7 @@ export const cases = [{
           await t.check(refusal.review, 'the refusing Stretch setup offers no “Review today’s check-in”');
           if (refusal.review) await mv.reviewFromSetup(page);
         } else {
-          await ui.tap(ui.button(main, 'Start stretch'));
+          await ui.tap(hub.start(page));
         }
         await page.waitForTimeout(600);
       };

@@ -10,6 +10,7 @@
  */
 import { MINUTE, NOW } from '../lib/env.mjs';
 import { docs } from '../lib/harness.mjs';
+import * as hub from '../lib/hub.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as mv from '../lib/move.mjs';
 import { persona } from '../fixtures/personas.mjs';
@@ -127,9 +128,8 @@ function glucoseCase(action) {
 async function finishedWalk(t) {
   const page = t.page;
   const main = page.getByRole('main');
-  await ui.legacyTab(page, 'Move');
-  await ui.tap(ui.row(main, 'Walk', 'link'));
-  await ui.tap(ui.button(main, 'Start walk'));
+  await hub.open(t, 'walk');
+  await ui.tap(hub.start(page));
   const sheet = mv.checkInSheet(page);
   await sheet.waitFor();
   await ui.answerCheckIn(t, sheet, ui.normalAnswers('P01'));
@@ -429,8 +429,8 @@ export const cases = [
         await t.check(!stored?.emergency?.length, 'the emergency was stored despite the fault (the fault missed)');
         await ui.tap(ui.button(sheet, 'Close'));
         // Other modes, without a reload (the unsaved answer lives in this page only).
-        await t.hash('/hub/workout');
-        await ui.tap(ui.row(main, 'Stretch', 'link'));
+        // Home → the Stretch tile, through the tabs: no reload, so the unsaved answer stays in this page.
+        await hub.open(t, 'stretch');
         // While the engine refuses, Stretch refuses before any tap (scan S-15): no Start, the reason, and the check-in one tap away.
         const refusal = await mv.setupRefusal(page, 'stretch');
         await t.check(!!refusal, 'Stretch still offers Start stretch over the unsaved emergency');
@@ -439,7 +439,7 @@ export const cases = [
           await t.check(refusal.review, 'the refusing Stretch setup offers no “Review today’s check-in”');
           if (refusal.review) await mv.reviewFromSetup(page);
         } else {
-          await ui.tap(ui.button(main, 'Start stretch'));
+          await ui.tap(hub.start(page));
         }
         await page.waitForTimeout(500);
         const st = await outcome(page);
@@ -456,7 +456,7 @@ export const cases = [
         await t.goto('/home');
         const r2 = await mv.enter(t, 'walk', 'chooser');
         const w = await outcome(page);
-        const walkOffered = r2.sheet ? await mv.sheetStart(r2.sheet).count() > 0 : await ui.button(main, 'Start walk').count() > 0;
+        const walkOffered = r2.sheet ? await mv.sheetStart(r2.sheet).count() > 0 : await hub.start(page).count() > 0;
         await t.check(!walkOffered && /emergency/i.test(w.text), `after reload, Walk is offered over the unsaved emergency (${r2.sheet ? `sheet “${w.title}”` : `went straight to ${r2.route}, which offers Start walk`})`);
         await t.checkpoint('walk-after-reload');
         const snap = await t.db();

@@ -97,7 +97,7 @@ async function inventory(t, { textScale } = {}) {
       await t.checkpoint('move-exercises-no-result');
       await ui.type(search, '');
     }
-    const ex = await firstHref(page, '/move/exercises/');
+    const ex = await firstHref(page, '/hub/workout/exercises/');
     await t.check(!!ex, 'the exercise list offers no exercise to open');
     if (ex) await visit(t, ex, 'move-exercise-detail');
   });
@@ -151,7 +151,7 @@ async function inventory(t, { textScale } = {}) {
 
   await t.step(5, 'Guide (the Learn hub): search, empty result, topic, card, meals, sample week, sources; Browse', async () => {
     await visit(t, '/hub/learn');
-    const search = main.getByRole('searchbox', { name: 'Search Guide' });
+    const search = main.getByRole('searchbox', { name: 'Search Learn' });
     await ui.type(search, 'zzzz');
     await page.waitForTimeout(400);
     await t.checkpoint('guide-search-empty');
@@ -159,10 +159,10 @@ async function inventory(t, { textScale } = {}) {
     await page.waitForTimeout(400);
     await t.checkpoint('guide-search-glucose');
     await visit(t, '/hub/learn');
-    const topic = await firstHref(page, '/guide/topic/');
+    const topic = await firstHref(page, '/hub/learn/topic/');
     if (topic) {
       await visit(t, topic, 'guide-topic');
-      const card = await firstHref(page, '/guide/card/');
+      const card = await firstHref(page, '/hub/learn/card/');
       if (card) await visit(t, card, 'guide-card');
       else t.note('the first topic links to no card');
     } else await t.check(false, 'Guide offers no topic to open');

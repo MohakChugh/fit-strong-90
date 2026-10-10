@@ -190,6 +190,8 @@ async function sequence(t) {
       // A measure's v1 address goes on to its hub or its trend (journey §19.3).
       await waitRoute(t, /^\/(hub|trends)\//);
       await page.waitForFunction(() => !/^My Day$/.test(document.querySelector('main h1')?.textContent?.trim() ?? 'My Day'), null, { timeout: 15000 });
+      // A hub's skeleton has its title too: read the hub once its content is in.
+      await ui.loaded(page);
       const title = (await main.getByRole('heading', { level: 1 }).innerText()).trim();
       const body = flat(await text(main));
       const charts = await main.locator('figure').count();
@@ -246,6 +248,8 @@ async function sequence(t) {
     const add = await data.openAdd(t);
     await ui.tap(ui.row(add, 'Workout'));
     await page.getByRole('heading', { name: 'Workout', exact: true }).waitFor();
+    // The Workout Log's skeleton has the Workout title too: read it once its content is in.
+    await ui.loaded(page);
     await t.must(!/^\/session/.test(await t.route()), `Workout opened the guided player (${await t.route()})`);
     const checkIn = main.getByRole('button', { name: /^(Check in|Update today’s check-in)$/ });
     if (await checkIn.count()) {
@@ -280,8 +284,8 @@ async function sequence(t) {
       `completed sets after reload: ${JSON.stringify(done)}`);
     await t.check(fresh[0].sets.filter(s => s.status !== 'completed').every(s => s.actualReps === null || s.actualReps === undefined),
       'an unperformed set carries actual reps');
-    // The Workout Log is at /trends/workout in v2 (journey §19.3); a saved workout keeps /track/workout/:id.
-    await t.check(/^\/trends\/workout/.test(await t.route()) && await main.getByRole('button', { name: /^Set 1 .*Done$/ }).count() >= 1,
+    // The Workout Log is the Workout hub's, /hub/workout/log (D51); a saved workout keeps /track/workout/:id.
+    await t.check(/^\/hub\/workout\/log/.test(await t.route()) && await main.getByRole('button', { name: /^Set 1 .*Done$/ }).count() >= 1,
       `after reload the Workout Log is not back on the same attempt with set 1 done (${await t.route()})`);
     await t.check(!(await page.getByRole('button', { name: /^(Start|Pause)$/ }).count()), 'a guided player control appeared');
   }, { input: 'reps 12 (or 20 s), weight 10 kg if offered' });
@@ -523,6 +527,8 @@ const fixtureCases = [
         await ui.tap(t.page.getByRole('main').getByRole('link', { name: /^Blood pressure/ }));
         await waitRoute(t, /^\/hub\/bp/);
         await t.page.getByRole('heading', { level: 1, name: 'Blood pressure', exact: true }).waitFor();
+        // The hub's skeleton has its title too: read it once its content is in.
+        await ui.loaded(t.page);
         const detail = flat(await text(t.page.getByRole('main')));
         await t.check(!/130\/90|140\/80/.test(detail), `the blood pressure chart or list mixes the halves: ${detail.slice(0, 300)}`);
         await t.checkpoint('bp-metric');

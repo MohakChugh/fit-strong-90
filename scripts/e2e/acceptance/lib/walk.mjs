@@ -5,17 +5,15 @@
  */
 import zlib from 'node:zlib';
 import fs from 'node:fs';
+import * as hub from './hub.mjs';
 import * as ui from './ui.mjs';
 import { sheetStart } from './player.mjs';
 
 export const WALK_KEY = 'fit-strong-walk';
 
-/** Move (v1's tab, now the Workout hub from Home) → Walk, to the setup screen. */
+/** Home → the Walk tile → the Walk hub (v1's Move → Walk setup). */
 export async function openSetup(t) {
-  const page = t.page;
-  await ui.legacyTab(page, 'Move');
-  await ui.tap(ui.row(page.getByRole('main'), 'Walk', 'link'));
-  await page.getByRole('heading', { level: 1, name: 'Walk', exact: true }).waitFor();
+  await hub.open(t, 'walk');
 }
 
 /** The setup's switches. */
@@ -28,10 +26,14 @@ export const calls = page => page.evaluate(() => ({ ...window.__acc.calls, permi
 /** A fix delivered to every active watcher; returns how many watchers took it. */
 export const emit = (page, lat, lon = 0, accuracy = 3) => page.evaluate(p => window.__acc.emitPosition(p), { lat, lon, accuracy });
 
-/** Tap Start walk; answer the check-in if it opens; land on the live walk. */
+/**
+ * Tap the Walk hub's start ("Start walk", "Check in & start", or B-09's
+ * "I had … at …: walk now"); answer the check-in if it opens; land on the
+ * live walk.
+ */
 export async function start(t, answers) {
   const page = t.page;
-  await ui.tap(ui.button(page.getByRole('main'), 'Start walk'));
+  await ui.tap(hub.start(page));
   await page.waitForTimeout(400);
   const sheet = page.getByRole('dialog', { name: ui.CHECKIN });
   if (await sheet.count()) {

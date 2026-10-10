@@ -17,7 +17,7 @@ export const needs = ['preview'];
 /** v2's four tabs and each root's title (journey §5): Home's is its greeting. */
 const TABS = [['Home', ui.HOME_TITLE], ['Trends', 'Trends'], ['Browse', 'Browse'], ['Me', 'Me']];
 /** v1's other tabs, at their v2 places (`ui.legacyTab`): Move is the Workout hub, Track is Today's log, Guide the Learn hub. */
-const PLACES = [['Move', 'Move'], ['Track', 'My Day'], ['Guide', 'Guide']];
+const PLACES = [['Move', 'Workout'], ['Track', 'My Day'], ['Guide', 'Learn']];
 /** A shown title against a string (exact) or a pattern. */
 const titled = (shown, want) => (want instanceof RegExp ? want.test(shown) : shown === want);
 /** Me's editors, v1 You's: each opened from Me and back to it. */
@@ -257,7 +257,8 @@ const navigation = {
 /** v4's addresses, through v1's, to their v2 places with their query (journey §19.3, src/redirects.ts). */
 const LEGACY = [
   ['/dashboard?from=bookmark', '/home?from=bookmark'],
-  ['/workout?from=bookmark', '/trends/workout?from=bookmark'],
+  // v1's Workout Log is the Workout hub's log now (D51); its trend is Trends'.
+  ['/workout?from=bookmark', '/hub/workout/log?from=bookmark'],
   ['/plan?from=bookmark', '/hub/workout/plan?from=bookmark'],
   // The old library opened an exercise by `?ex=`; the exercise's own page honours it.
   ['/library?ex=goblet-squat', ['/hub/workout/exercises?ex=goblet-squat', '/hub/workout/exercises/goblet-squat']],
@@ -328,7 +329,7 @@ const routes = {
         await ui.tap(main.getByRole('button', { name: 'Reload the app', exact: true }));
         await t.ready();
       }
-      await t.check(await h1Text(page) === 'Guide', `after the download came back, Guide shows “${await h1Text(page)}”`);
+      await t.check(await h1Text(page) === 'Learn', `after the download came back, Learn shows “${await h1Text(page)}”`);
       await ui.tab(page, 'Home');
       await t.check(ui.HOME_TITLE.test(await h1Text(page)), 'navigation is not usable after the recovery');
     });

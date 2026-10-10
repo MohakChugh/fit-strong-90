@@ -328,8 +328,8 @@ async function tabSettled(page, name, ms = 15000) {
 
 /**
  * Where v1's tabs went in v2 (journey §5, §19.2), each reached the way a
- * person reaches it, and each still the v1 screen it was until Plans 2–4
- * rebuild it:
+ * person reaches it. Move is now the Workout hub and Guide the Learn hub
+ * (Plan 2); Track is Today's log (Plan 1):
  * - Today is Home (`tab(page, 'Home')`);
  * - Move is the Workout hub, `/hub/workout`, from Home's Workout tile (a tile
  *   every default Home has, journey §5.1);
@@ -338,9 +338,9 @@ async function tabSettled(page, name, ms = 15000) {
  *   category (Home has a Learn tile only when there is room for one).
  */
 export const LEGACY = {
-  Move: { from: 'Home', path: '/hub/workout', title: 'Move', link: main => main.getByRole('region', { name: 'What would you like to do?', exact: true }).getByRole('link', { name: /^Workout\b/ }) },
+  Move: { from: 'Home', path: '/hub/workout', title: 'Workout', link: main => main.getByRole('region', { name: 'What would you like to do?', exact: true }).getByRole('link', { name: /^Workout\b/ }) },
   Track: { from: 'Home', path: '/day/today', title: 'My Day', link: main => row(main, 'See today’s log', 'link') },
-  Guide: { from: 'Browse', path: '/hub/learn', title: 'Guide', link: main => row(main, 'Learn', 'link') },
+  Guide: { from: 'Browse', path: '/hub/learn', title: 'Learn', link: main => row(main, 'Learn', 'link') },
 };
 
 /** v1's Move, Track or Guide at its v2 place (`LEGACY`); returns once that screen (or its failure screen) is up. */
@@ -350,11 +350,11 @@ export async function legacyTab(page, name) {
   if (!to) throw new Error(`“${name}” was not one of v1’s tabs`);
   await tab(page, to.from);
   await tap(to.link(page.getByRole('main')));
-  const ok = await page.waitForFunction(({ path, title }) => {
+  const ok = await page.waitForFunction(({ path, title, loading }) => {
     const hash = location.hash.replace(/^#/, '').split('?')[0];
     const h1 = [...document.querySelectorAll('main h1')].map(h => h.textContent.trim());
-    return hash === path && (h1.includes(title) || h1.includes('This screen didn’t load'));
-  }, { path: to.path, title: to.title }, { timeout: 15000 }).then(() => true, () => false);
+    return hash === path && (h1.includes(title) || h1.includes('This screen didn’t load')) && !document.querySelector(loading);
+  }, { path: to.path, title: to.title, loading: LOADING }, { timeout: 15000 }).then(() => true, () => false);
   if (!ok) throw new Error(`${to.from} → ${name} did not reach ${to.title} at ${to.path} (at ${new URL(page.url()).hash || '/'})`);
   await page.waitForTimeout(150);
 }
@@ -368,13 +368,25 @@ export function rightNow(page) {
   return page.getByRole('main').getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) }).filter({ hasText: 'Why this?' });
 }
 
-/** Wait until the screen's level-1 heading matches (a string or RegExp); returns the heading text. */
+/**
+ * A lazily loaded screen still on its skeleton: v2's hubs show their bar,
+ * title and Back at once, with the content still loading under
+ * `aria-busy` (journey §8.4). Their title alone does not mean they are up.
+ */
+export const LOADING = 'main div[aria-busy="true"]';
+
+/** Wait until the screen's content has loaded, past any skeleton with its title (`LOADING`). */
+export async function loaded(page, timeout = 15000) {
+  await page.waitForFunction(sel => !document.querySelector(sel), LOADING, { timeout }).catch(() => {});
+}
+
+/** Wait until the screen's level-1 heading matches (a string or RegExp), past its skeleton; returns the heading text. */
 export async function heading(page, want, timeout = 15000) {
   const re = want instanceof RegExp ? want : exact(want);
   await page.waitForFunction(src => {
     const r = new RegExp(src.source, src.flags);
-    return [...document.querySelectorAll('h1')].some(h => r.test(h.textContent.trim()));
-  }, { source: re.source, flags: re.flags }, { timeout }).catch(() => {});
+    return [...document.querySelectorAll('h1')].some(h => r.test(h.textContent.trim())) && !document.querySelector(src.loading);
+  }, { source: re.source, flags: re.flags, loading: LOADING }, { timeout }).catch(() => {});
   return (await page.getByRole('heading', { level: 1 }).allInnerTexts()).map(s => s.trim()).join(' | ');
 }
 

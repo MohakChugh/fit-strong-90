@@ -4,6 +4,7 @@
  */
 import { MINUTE, NOW } from '../lib/env.mjs';
 import { persona } from '../fixtures/personas.mjs';
+import * as hub from '../lib/hub.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as walk from '../lib/walk.mjs';
 
@@ -58,7 +59,8 @@ export const cases = [{
       await page.waitForTimeout(2000);
       const later = await walk.calls(page);
       await t.check(later.geolocation === 1, `location keeps being asked (${later.geolocation} calls)`);
-      await t.check(await ui.button(main, 'Start walk').isEnabled(), 'Start walk is not available after the denial');
+      // After "After a meal", Breakfast and "20 minutes ago" the start reads "I had breakfast at 8:40 am: walk now" (B-09).
+      await t.check(await hub.start(page).isEnabled(), 'the Walk hub’s start is not available after the denial');
       await t.checkpoint('walk-location-denied');
     }, { input: 'Measure distance and pace → permission denied; Count steps off' });
 

@@ -67,6 +67,8 @@ async function stepsGoalControl(t) {
   await page.waitForFunction(() => location.hash.startsWith('#/hub/steps'), null, { timeout: 10000 }).catch(() => {});
   // The Steps title itself: during the push the old My Day h1 is still on screen.
   await page.getByRole('heading', { level: 1, name: 'Steps', exact: true }).waitFor();
+  // The hub's skeleton has its title too: count its controls once its content is in.
+  await ui.loaded(page);
   const control = main.getByRole('button', { name: STEPS_GOAL }).or(main.getByRole('link', { name: STEPS_GOAL }));
   const n = await control.count();
   if (n > 1) throw new Error(`the Steps hub has ${n} controls that look like the steps goal; the locator is ambiguous`);
@@ -211,7 +213,7 @@ async function stepsGoal(t) {
   await t.step('3b', 'The steps suggestion has its study source and is neither a minimum nor a WHO prescription', async () => {
     await g.tabTo(t, 'Guide');
     const main = page.getByRole('main');
-    await ui.type(main.getByRole('searchbox', { name: 'Search Guide' }), 'steps');
+    await ui.type(main.getByRole('searchbox', { name: 'Search Learn' }), 'steps');
     await ui.tap(ui.row(main, 'How many steps a day?', 'link'));
     await page.getByRole('heading', { level: 1, name: 'How many steps a day?' }).waitFor();
     const card = flat(await main.innerText());
@@ -518,7 +520,7 @@ function waterCase(kidney) {
 
         // What the Guide says about water now.
         await g.tabTo(t, 'Guide');
-        await ui.type(main.getByRole('searchbox', { name: 'Search Guide' }), 'water');
+        await ui.type(main.getByRole('searchbox', { name: 'Search Learn' }), 'water');
         await page.waitForTimeout(300);
         await ui.tap(ui.row(main, 'Water', 'link'));
         await page.getByRole('heading', { level: 1, name: 'Water', exact: true }).waitFor();

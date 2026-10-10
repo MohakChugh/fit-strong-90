@@ -42,6 +42,8 @@ async function logWorkout(t) {
   const add = await data.openAdd(t);
   await ui.tap(ui.row(add, 'Workout'));
   await page.getByRole('heading', { name: 'Workout', exact: true }).waitFor();
+  // The Workout Log's skeleton has the Workout title too: read it once its content is in.
+  await ui.loaded(page);
   const checkIn = main.getByRole('button', { name: /^(Check in|Update today’s check-in)$/ });
   if (await checkIn.count()) {
     await ui.tap(checkIn);

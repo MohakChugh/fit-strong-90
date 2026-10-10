@@ -27,7 +27,7 @@ async function searchGuide(t, query) {
   if (!(await t.route()).startsWith('/hub/learn')) await g.tabTo(t, 'Guide');
   const main = page.getByRole('main');
   if (await t.route() !== '/hub/learn' && !(await t.route()).startsWith('/hub/learn?')) await g.tabTo(t, 'Guide');
-  await ui.type(main.getByRole('searchbox', { name: 'Search Guide' }), query);
+  await ui.type(main.getByRole('searchbox', { name: 'Search Learn' }), query);
   await page.waitForTimeout(400);
   const links = await main.getByRole('link').all();
   const results = [];
@@ -43,7 +43,7 @@ async function openTopic(t, topic) {
   const page = t.page;
   await g.tabTo(t, 'Guide');
   const main = page.getByRole('main');
-  const search = main.getByRole('searchbox', { name: 'Search Guide' });
+  const search = main.getByRole('searchbox', { name: 'Search Learn' });
   if (await search.inputValue()) await ui.tap(ui.button(main, 'Clear search'));
   await ui.tap(ui.row(main, topic, 'link'));
   await page.getByRole('heading', { level: 1, name: topic, exact: true }).waitFor();
@@ -423,8 +423,8 @@ function cadenceCase(row) {
         await t.check(!/must|required|overdue!/i.test(today.match(/HbA1c due[^]*?Add a result/)?.[0] ?? ''), 'the HbA1c suggestion is phrased as a mandate');
       });
       await t.step(3, 'The HbA1c chart states both conditions and identifies recommendation 6.2', async () => {
-        // HbA1c's chart is the Labs hub's (journey §19.3, B-14).
-        await t.goto('/hub/labs?metric=hba1c');
+        // HbA1c's chart is its trend's (Plan 3; v1's chart until then).
+        await t.goto('/trends/labs?metric=hba1c');
         await ui.tap(ui.radio(page.getByRole('main').getByRole('radiogroup', { name: 'Period' }), 'Year'));
         const text = (await page.getByRole('main').innerText()).replace(/\s+/g, ' ');
         await t.checkpoint('hba1c-metric');

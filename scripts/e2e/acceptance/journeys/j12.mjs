@@ -121,7 +121,7 @@ async function guideDiabetes(t) {
   await page.waitForTimeout(300);
   const topic = (await main.innerText()).replace(/\s+/g, ' ');
   await home();
-  await page.getByRole('searchbox', { name: 'Search Guide' }).fill('insulin');
+  await page.getByRole('searchbox', { name: 'Search Learn' }).fill('insulin');
   await main.getByText(/^\d+ results?$/).waitFor();
   const results = (await main.innerText()).replace(/\s+/g, ' ');
   await ui.tap(main.getByRole('button', { name: 'Clear search', exact: true }));

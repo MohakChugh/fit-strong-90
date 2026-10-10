@@ -16,6 +16,7 @@
  */
 import { MINUTE, NOW } from '../lib/env.mjs';
 import { docs } from '../lib/harness.mjs';
+import * as hub from '../lib/hub.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as mv from '../lib/move.mjs';
 import { ENROLLED, persona } from '../fixtures/personas.mjs';
@@ -49,18 +50,16 @@ async function walkRefusedOnSheet(t, sheet, label) {
 
 /** Walk from Move (answering the check-in when asked), then from Home's chooser. */
 /**
- * Move (v1's tab, now the Workout hub from Home) → Walk. The setup screen
- * either offers Start walk (which opens the check-in) or, once today's
- * answers already refuse it, says so itself.
+ * Move → Walk is now Home's Walk tile → the Walk hub. Its card either offers
+ * its start (which opens the check-in) or, once today's answers already
+ * refuse the walk, says so itself.
  */
 async function walkFromMove(t, answers, tag) {
   const page = t.page;
   const main = page.getByRole('main');
-  await ui.legacyTab(page, 'Move');
-  await ui.tap(ui.row(main, 'Walk', 'link'));
-  await page.getByRole('heading', { level: 1, name: 'Walk', exact: true }).waitFor();
+  await hub.open(t, 'walk');
   await page.waitForTimeout(300);
-  const start = ui.button(main, 'Start walk');
+  const start = hub.start(page);
   if (!(await start.count())) {
     const text = (await main.innerText()).replace(/\s+/g, ' ');
     await t.checkpoint(`${tag}-walk-setup-refused`);
@@ -101,7 +100,7 @@ async function walkBothWays(t, answers, tag) {
     // Straight into Walk setup (the Walk hub, v1's /walk): its Start must still refuse.
     await t.check(!/^\/walk\/live/.test(fromToday.route), `Home → Walk went straight to ${fromToday.route}`);
     if (/^\/hub\/walk/.test(fromToday.route)) {
-      await ui.tap(ui.button(page.getByRole('main'), 'Start walk'));
+      await ui.tap(hub.start(page));
       const sheet = mv.checkInSheet(page);
       await t.check(await sheet.count() === 1, 'Home → Walk → Start walk opened no refusal');
       if (await sheet.count()) { await walkRefusedOnSheet(t, sheet, 'Home → Walk → Start walk'); await ui.tap(ui.button(sheet, 'Close')); }
@@ -127,10 +126,8 @@ async function startScreenBlocks(page) {
 /** Stretch: the preview must hold only work the restriction allows; it must not be refused outright. */
 async function inspectStretch(t, { forbidden, label }) {
   const page = t.page;
-  // v1's Move is the Workout hub (journey §19.2).
-  await t.goto('/hub/workout');
-  await ui.tap(ui.row(page.getByRole('main'), 'Stretch', 'link'));
-  await page.getByRole('heading', { level: 1, name: 'Stretch', exact: true }).waitFor();
+  // v1's Move → Stretch is now Home's Stretch tile → the Stretch hub (Plan 2).
+  await hub.open(t, 'stretch');
   const names = await stretchPreview(page);
   await t.checkpoint(`${label}-stretch-preview`);
   await t.check(names.length > 0, `${label}: the Stretch preview lists no routine (${(await page.getByRole('main').innerText()).slice(0, 200)})`);
@@ -142,7 +139,7 @@ async function inspectStretch(t, { forbidden, label }) {
 /** After the check-in: Start, then run the player by time, recording what it shows. */
 async function runStretch(t, label, forbidden) {
   const page = t.page;
-  await ui.tap(ui.button(page.getByRole('main'), 'Start stretch'));
+  await ui.tap(hub.start(page));
   await page.waitForTimeout(500);
   const sheet = mv.checkInSheet(page);
   if (await sheet.count()) {
@@ -343,7 +340,7 @@ export const cases = [
         await t.check(health.footStatus === 'healthy' && health.peripheralNeuropathy === 'yes', `the foot facts changed: ${health.footStatus}/${health.peripheralNeuropathy}`);
         // Seated work is still open: a walk restriction is not a blanket ban.
         await inspectStretch(t, { forbidden: WEIGHT_BEARING, label: 'hot-foot' });
-        await ui.tap(ui.button(t.page.getByRole('main'), 'Start stretch'));
+        await ui.tap(hub.start(t.page));
         await t.page.waitForTimeout(500);
         const sheet = mv.checkInSheet(t.page);
         if (await sheet.count()) {

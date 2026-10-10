@@ -717,3 +717,43 @@ Where the build differs from the plan's text, and why:
 - **B-30's fixture covers every routine the hub offers.** At 10 minutes no routine for the back-history profile holds a movement a flare leaves out; at 15, Hips & legs holds one (the supine hamstring stretch), which the resumed run refuses.
 - **The Stretch hub builds its routine on each render** (about 1 ms). The routine's spec is reused in the same render, which a manual `useMemo` can't keep under the React Compiler's lint.
 - **B-09 in the Walk hub: a meal's usual time belongs to that meal.** "(your usual time)" is offered in Started only when the suggestion is the usual time, not "now", and only for the meal it belongs to: choosing another meal falls back to Started, and choosing it again restores the time. "Just a walk" from the after-meal card carries no target unless the person chose one, as switching kinds already did.
+- **The reading hubs read the hour from the shared clock** (`useClock`), for the cadence's "this evening". `Date.now()` in render fails the React Compiler's purity lint.
+- **Steps: one more case pins the day.** A walk the next morning is never added to the day before, so This week's past days can't borrow it. One Paste mutant is equivalent: a decimal is refused whether it is read as one token or two.
+- **Back & leg's red-flag test renders the hub.** `redFlags.test.ts` imported v1's `BackLeg`. It now renders `BackHub`, and its router mock gains `useViewTransitionState`. Its assertion is unchanged.
+- **Learn's own copy says Learn** ("Learn reads English letters and Hindi…", "Every fact in Learn comes from one of these."). One new check: every place the content opens, each `ROUTES` entry and each kind of search result, needs no redirect hop. Without it every address mutant survived.
+- **Me's "Sources" row still links `/guide`** (`src/screens/you/YouHome.tsx`). It works, through the redirect to `/hub/learn`. It is left for Plan 4, which rebuilds Me; its target should be `/hub/learn/sources`.
+
+### 2026-10-10 — [claude] v2 Plan 2: acceptance journeys walked through the hubs
+
+This is Plan 2 Task 15. The hubs replace v1's Move screen and its setups, so the suite's ways in change. Every clinical and safety assertion is unchanged (A-76), with one judgement call flagged at the end.
+
+**Shared helpers (`lib/`)**
+- `hub.mjs` (new): `HUB`, `START`, `STARTERS`, `card` (the region "Right now"), `start`, `tile`, `openHub`, `open`, `refusal`, `begin`, `urgent`. `openHub` goes Home → the tile, or Browse → the category when Home has no tile.
+- A hub's skeleton has the hub's own title (Task 3), so an h1 no longer means the screen is up. `harness.ready()`, `ui.heading`, `ui.legacyTab` and `hub.openHub` now also wait until no `main div[aria-busy="true"]` is left (`ui.LOADING`), and `ui.loaded(page)` does the same after a raw heading wait. Before this, a read after `t.goto` saw "<title> Loading": J06's Weight and Waist, J16's Back & leg, J18's Workout Log, J20's Meal ideas. Two negative checks passed on the skeleton without reading anything (J05's blood pressure halves, and J07's steps goal, which read as pending).
+- `ui.mjs` `LEGACY`: Move's title is "Workout" and Guide's "Learn".
+- `move.mjs`: `enter('move')` is `hub.open` then `hub.start`. The direct stretch uses `hub.start`, `setupRefusal` is `hub.refusal`, and `reviewFromSetup` taps "Review today’s check-in", or "Enter a new reading" while a re-check waits.
+- `walk.mjs`: `openSetup` is `hub.open('walk')`. `start` taps `hub.start`: "Start walk", "Check in & start" or "I had … at …: walk now".
+- `player.mjs`: `runStretchToEnd` (returns `{ ran, seen }`) and `saveStretch`, moved from J08.
+- `safety-a.mjs`: `openCheckIn('move')` and `attempt('move')` go through the hub. Outside the programme the Workout hub's Join counts as "not offered". `surface` reads the Walk hub's card, `throughSetup` taps `hub.start`, and the Learn check reads "Learn".
+- `safety-b.mjs`: `enterFromMove` goes through the hub. `modeAnswer` and `openSheet` open the check-in through `reviewFromSetup`, so either button works. `tabTo`'s heading defaults to the v2 place's title, so J12's Guide waits for "Learn".
+- `safety-c.mjs`: `openGuided` goes through the Workout hub. Not enrolled, it returns `viaProgramme` with the card's text. `STARTERS` adds "Start rest-day mobility", "Start anyway", "Check in & continue", "Just a walk" and "I had … at …: walk now".
+- `run.mjs` warm-up adds `/hub/steps`, `/hub/bp`, `/hub/labs?metric=hba1c` and `/hub/workout/log`.
+
+**Journeys** (step: before → after, and why)
+- J01 step 5: heading "Guide" → "Learn", read once loaded. Step 6: Move → Stretch row → `hub.open('stretch')`; "Start stretch" → `hub.start`.
+- J05 step 6: Trends → each measure's hub, read once loaded. Step 7: the Workout Log is read once loaded, and its address after the reload is `/hub/workout/log`, not `/trends/workout` (D51).
+- J06: "Search Guide" → "Search Learn" (Task 14). HbA1c step 3: `/hub/labs?metric=hba1c` → `/trends/labs?metric=hba1c`. The period control is the trend's (§12), and v1's chart stays there until Plan 3.
+- J07: "Search Guide" → "Search Learn", twice. The steps-goal control is counted once the Steps hub has loaded.
+- J08: Move → Stretch → `hub.open('stretch')`; "Start stretch" → `hub.start`; `runToEnd` and `save` → `player.runStretchToEnd` and `saveStretch`. The summary checkpoint is still taken once "Stretch complete" shows. The setup is read once loaded.
+- J10 step 2: "Start walk" `isEnabled` → `hub.start(page).isEnabled()`. After a meal it reads "I had breakfast at 8:40 am: walk now", so the message names "the Walk hub’s start".
+- J12: "Search Guide" → "Search Learn".
+- J15: `walkFromMove` and `inspectStretch` go through `hub.open`; "Start walk" and "Start stretch" → `hub.start`.
+- J16: the walk in `enterMode`, and step 6's walk start, go through `hub.open` and `hub.start`.
+- J17: `finishedWalk` goes through `hub.open` and `hub.start`. Step 7, the unsaved emergency, goes Home → the Stretch tile (`hub.open`, no reload) instead of `t.hash('/hub/workout')` and its Stretch row.
+- J18: `logWorkout` reads the Workout Log once loaded.
+- J20: `PLACES` reads "Workout" and "Learn"; after the download, "Learn". The legacy `/workout?from=bookmark` arrives at `/hub/workout/log?from=bookmark` (D51).
+- S01: "Search Guide" → "Search Learn". Its link prefixes are now `/hub/workout/exercises/`, `/hub/learn/topic/` and `/hub/learn/card/` (Tasks 6 and 14).
+
+**Judgement call, for review.** `setupProblems` (safety-a) checked that the check-in a refusing setup opens restates its refusal. v1's Walk setup refused only holds a check-in can't clear. While today's answers could clear a hold (a low's re-check, 250 mg/dL with no ketone result, above 300), it offered "Start walk", which opened the questions. v2's card refuses before any tap (S-15), and its "Enter a new reading" or "Review today’s check-in" opens those same questions. So that comparison is now made only where the check-in has an outcome to show. Where the attempt's own `recheckForm` holds, the check-in must open on its questions with nothing to start, or it fails. Every other check is word for word.
+
+**Runs** (large-light, port 49831): J01, J06, J08, J16 and J20, 45/45. J10, J15 and J17 pass. J02–J05, J07, J09, J11–J14 and S01 pass. J18 step 1 and J19 step 7 fail on the backup's schema version, which is 6 since the storage merge (ce27299); that is fixed in its own commit. The full run in all four projects is Task 16's.

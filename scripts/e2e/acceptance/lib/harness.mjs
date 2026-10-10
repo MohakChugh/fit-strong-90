@@ -113,6 +113,8 @@ export class Case {
       const root = document.getElementById('root');
       if (!root || !root.firstElementChild) return false;
       if (root.querySelector(':scope > [aria-busy="true"]')) return false;
+      // A lazily loaded screen still on its skeleton has its title but not its content (v2's hubs, journey §8.4).
+      if (document.querySelector('main div[aria-busy="true"]')) return false;
       return !!document.querySelector('h1, [role="alert"]');
     }, null, { timeout: 30000 });
     await page.waitForTimeout(150);
