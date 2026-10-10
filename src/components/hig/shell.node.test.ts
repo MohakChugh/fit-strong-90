@@ -455,6 +455,10 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/<Screen\s+title=\{greeting\([\s\S]*?\)\}\s+navTitle=\{FROM_HOME\.label\}/);
   });
 
+  it('a tile selects no text while it is pressed and held for its menu, nor shows the system callout (M18, kiro KV-20)', () => {
+    expect(read('src/screens/home/Tile.tsx')).toMatch(/className="block h-full select-none rounded-2xl \[-webkit-touch-callout:none\]"/);
+  });
+
   it('Home’s movement tiles know whether the person is in the programme, so a flare names no programme on the Workout tile (D35, J16 step 1)', () => {
     expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/movementLine\(\{\s+mode, permission, status, enrolled,/);
   });

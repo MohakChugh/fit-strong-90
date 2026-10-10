@@ -93,7 +93,7 @@ export function Tile({ category, line, due, held, urgent, opensOnHold, onLongPre
         }
         if (urgent || opensOnHold()) skipNextTransition();
       }}
-      className="block h-full rounded-2xl [-webkit-touch-callout:none]"
+      className="block h-full select-none rounded-2xl [-webkit-touch-callout:none]"
     >
       <span className="press-feedback relative flex h-full min-h-[120px] flex-col gap-2 p-4">
         <span

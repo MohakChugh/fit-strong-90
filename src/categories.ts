@@ -20,12 +20,24 @@ export interface Category {
   mode?: Mode;
   /** `/hub/{id}` */
   hub: string;
+  /** `/trends/{id}`, for a category that declares a trend; Learn declares none (B-14). */
+  trend?: string;
   /** CSS custom property holding the category colour (graphics) and its ink (text). */
   colour: string;
 }
 
+/**
+ * A Browse row that is not a category (B-14): it has only a target, so it is
+ * never a tile, a hub or a trend.
+ */
+export interface Shortcut {
+  id: string;
+  title: string;
+  to: string;
+}
+
 const c = (id: CategoryId, title: string, group: GroupId, variant: HubVariant, mode?: Mode): Category =>
-  ({ id, title, group, variant, ...(mode ? { mode } : {}), hub: `/hub/${id}`, colour: `--cat-${id}` });
+  ({ id, title, group, variant, ...(mode ? { mode } : {}), hub: `/hub/${id}`, ...(id === 'learn' ? {} : { trend: `/trends/${id}` }), colour: `--cat-${id}` });
 
 export const CATEGORIES: readonly Category[] = [
   c('workout', 'Workout', 'move', 'movement', 'guided'),
@@ -75,7 +87,7 @@ const FILL_INS: CategoryId[] = ['weight', 'sleep', 'learn'];
 /**
  * Dropped, in this order, while the "when" rules alone give more than 9 (journey §5.1).
  * ponytail: those rules give at most 10 tiles and 5 per group today, so only Labs is
- * ever dropped. A new rule that could overfill a group needs its tile listed here.
+ * ever dropped. A tile a new rule takes past a group's 5 still goes to Hidden (`arrange`).
  */
 const DROP_ORDER: CategoryId[] = ['labs', 'water', 'steps'];
 
@@ -103,16 +115,27 @@ export function defaultHome({ profile, settings, hasSteps }: { profile: UserProf
   ];
   // Too many: the dropped tiles go to `hidden`, so Edit Home offers them under Hidden.
   const hidden = DROP_ORDER.filter(id => wanted.includes(id)).slice(0, Math.max(0, wanted.length - MAX_TILES));
+  return arrange(wanted.filter(id => !hidden.includes(id)), hidden);
+}
+
+/**
+ * The tiles in their groups, in order, then the fill-ins up to 9 (journey
+ * §5.1, B-08). A wanted tile that would take its group past 5, or Home past
+ * 9, goes to Hidden after `dropped`, so Edit Home still offers it (kiro
+ * KV-23); a fill-in that doesn't fit is simply not added, so fill-ins never
+ * cause "too many". A group left with no tiles stays empty, and Home hides
+ * its heading (L-14).
+ */
+export function arrange(wanted: readonly CategoryId[], dropped: readonly CategoryId[] = []): HomeLayout {
   const order: Record<GroupId, CategoryId[]> = { move: [], eat: [], check: [], learn: [] };
-  const place = (id: CategoryId) => {
+  const hidden = [...dropped];
+  const place = (id: CategoryId): boolean => {
     const group = categoryById(id).group;
-    if (order[group].length >= MAX_PER_GROUP) return;
-    if (Object.values(order).flat().length >= MAX_TILES) return;
+    if (order[group].length >= MAX_PER_GROUP || Object.values(order).flat().length >= MAX_TILES) return false;
     order[group].push(id);
+    return true;
   };
-  wanted.filter(id => !hidden.includes(id)).forEach(place);
-  // Fill-ins never push past 9 or past 5 in a group, so they never cause "too many".
-  // A group left with no tiles stays empty, and Home hides its heading (L-14).
+  for (const id of wanted) if (!place(id)) hidden.push(id);
   for (const id of FILL_INS) place(id);
   return { order, hidden };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATEGORIES, GROUPS, categoryById, defaultHome, isHomeLayout } from './categories';
+import { CATEGORIES, GROUPS, arrange, categoryById, defaultHome, isHomeLayout, type Category, type Shortcut } from './categories';
 import type { HomeLayout } from '@/types';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import type { UserProfile } from '@/types/profile';
@@ -95,6 +95,46 @@ describe('defaultHome (journey §5.1)', () => {
       learn: ['learn'],
     });
     expect(home.hidden).toEqual([]);
+  });
+});
+
+describe('arrange: tiles into their groups (journey §5.1, B-08)', () => {
+  it('sends a wanted tile the group cap refuses to Hidden, so Edit Home still offers it (kiro KV-23)', () => {
+    const home = arrange(['glucose', 'bp', 'back', 'water', 'labs', 'waist']);
+    expect(home.order.check).toEqual(['glucose', 'bp', 'back', 'water', 'labs']);
+    expect(home.hidden).toEqual(['waist']);
+    expect(isHomeLayout(home)).toBe(true);
+  });
+  it('sends a wanted tile past 9 to Hidden too, after the ones already dropped', () => {
+    const home = arrange(['workout', 'stretch', 'walk', 'steps', 'food', 'glucose', 'bp', 'back', 'water', 'waist'], ['labs']);
+    expect(Object.values(home.order).flat()).toHaveLength(9);
+    expect(home.hidden).toEqual(['labs', 'waist']);
+    expect(isHomeLayout(home)).toBe(true);
+  });
+  it('never sends a fill-in to Hidden: one that does not fit is simply not added', () => {
+    const home = arrange(['glucose', 'bp', 'back', 'water', 'labs']);
+    expect(home.order.check).toEqual(['glucose', 'bp', 'back', 'water', 'labs']);
+    expect(home.order.learn).toEqual(['learn']);
+    expect(home.hidden).toEqual([]);
+  });
+});
+
+describe('categories and shortcuts (B-14)', () => {
+  it('a category declares its trend at its own address, and Learn declares none (kiro KV-06)', () => {
+    for (const c of CATEGORIES) expect(c.trend, c.id).toBe(c.id === 'learn' ? undefined : `/trends/${c.id}`);
+    // Each trend is one category's.
+    const trends = CATEGORIES.flatMap(c => (c.trend ? [c.trend] : []));
+    expect(new Set(trends).size).toBe(trends.length);
+  });
+  it('Water belongs only to Check', () => {
+    expect(CATEGORIES.filter(c => c.id === 'water').map(c => c.group)).toEqual(['check']);
+  });
+  it('a shortcut has only a target: no hub, trend or group, so it can never be pinned as a tile', () => {
+    const shortcut: Shortcut = { id: 'log-workout', title: 'Log a workout', to: '/trends/workout' };
+    // @ts-expect-error a shortcut is not a category
+    const asCategory: Category = shortcut;
+    expect(asCategory).toBe(shortcut);
+    expect(Object.keys(shortcut).sort()).toEqual(['id', 'title', 'to']);
   });
 });
 
