@@ -48,7 +48,13 @@ export type RunnerAction =
   | { type: 'log'; entry: StepLog }
   | { type: 'finish'; now: number }
   /** Jump forward into a later step at one of its segments ("cool-down only" after a low). */
-  | { type: 'seek'; now: number; index: number; segment: number };
+  | { type: 'seek'; now: number; index: number; segment: number }
+  /**
+   * The plan was re-dosed under the run: `from` is the plan the state was
+   * running (N-08). Applied once, to the visit it was worked out for: a render
+   * done twice cannot move the run's place twice.
+   */
+  | { type: 'redose'; now: number; from: SessionPlan; visit: number };
 
 export function initialState(plan: SessionPlan): RunnerState {
   return { planId: plan.id, date: plan.date, status: 'ready', index: 0, stepStartedAt: 0, visit: 0, extraMs: {}, logs: [] };
@@ -242,6 +248,9 @@ export function createRunner(plan: SessionPlan, refused: ReadonlySet<string> = N
       case 'finish':
         return { ...state, status: 'done', finishedAt: action.now, pausedAt: undefined };
 
+      case 'redose':
+        return state.visit === action.visit ? redoseState(action.from, plan, state, action.now) : state;
+
       case 'seek': {
         if (state.status !== 'running' && state.status !== 'paused') return state;
         if (action.index < state.index || action.index >= steps.length) return state;
@@ -263,6 +272,42 @@ export function createRunner(plan: SessionPlan, refused: ReadonlySet<string> = N
   }
 
   return { reduce };
+}
+
+/**
+ * The run's place once the plan is re-dosed under it (R5-04, N-08). Steps
+ * already done are not the runner's to change, and a step not under way has
+ * nothing to carry. A cardio step under way keeps the time already spent, and
+ * what is left is today's dose: past today's work, the person goes straight to
+ * the cool-down's own start, so a shorter dose never counts a cool-down that
+ * was not done; already in the cool-down, it goes on where it was. Time added
+ * to the old dose goes with it, and the coach starts the step again as it is
+ * now.
+ */
+export function redoseState(from: SessionPlan, to: SessionPlan, state: RunnerState, now: number): RunnerState {
+  if (state.status !== 'running' && state.status !== 'paused') return state;
+  const was = from.steps[state.index];
+  const is = to.steps[state.index];
+  if (!was || !is || was.id !== is.id || was.kind !== 'cardio' || is.kind !== 'cardio' || JSON.stringify(was.parts) === JSON.stringify(is.parts)) return state;
+  const elapsed = elapsedInStep(state, now);
+  const workMs = (segs: { segment: Segment; ms: number }[]) => segs.filter(x => x.segment.intensity !== 'cooldown').reduce((t, x) => t + x.ms, 0);
+  const oldSegs = segmentsWithExtra(was, state);
+  const { [is.id]: _old, ...extraMs } = state.extraMs;
+  void _old;
+  const newSegs = segmentsWithExtra(is, { extraMs });
+  const oldWork = workMs(oldSegs);
+  const newWork = workMs(newSegs);
+  const newCool = newSegs.reduce((t, x) => t + x.ms, 0) - newWork;
+  const at = elapsed < oldWork ? Math.min(elapsed, newWork) : newWork + Math.min(elapsed - oldWork, newCool);
+  const anchor = state.status === 'paused' && state.pausedAt !== undefined ? state.pausedAt : now;
+  const coolFrom = newSegs.findIndex(x => x.segment.intensity === 'cooldown');
+  return {
+    ...state,
+    stepStartedAt: anchor - at,
+    extraMs,
+    visit: nextVisit(state),
+    ...(state.coolDownFrom?.index === state.index && coolFrom >= 0 ? { coolDownFrom: { index: state.index, segment: coolFrom } } : {}),
+  };
 }
 
 /**

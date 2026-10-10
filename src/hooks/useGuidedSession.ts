@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { SessionPlan, StepLog } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
-import { coolDownTarget, createRunner, initialState, position, segmentsWithExtra, type RunnerState } from '@/session/runner';
+import { coolDownTarget, createRunner, initialState, position, redoseState, segmentsWithExtra, type RunnerState } from '@/session/runner';
 import { createClock, devTimescale } from '@/session/clock';
 import { saveProgress } from '@/session/persistence';
 import { catchUpText, scriptFor } from '@/session/script';
@@ -107,7 +107,19 @@ export function useGuidedSession({ plan, profile, sessions, resumeState, session
   coolDownOnlyRef.current = coolDownOnly;
   const heldRef = useRef(held);
   heldRef.current = held;
-  const [state, dispatch] = useReducer(runner.reduce, resumeState ?? initialState(plan));
+  const [reduced, dispatch] = useReducer(runner.reduce, resumeState ?? initialState(plan));
+  // The plan can be re-dosed under the run (R5-04). The run's place moves with
+  // it in the render that brings it, before any tick, save or cue can read the
+  // old place against the new dose: a shorter cardio never counts a cool-down
+  // that was not done (N-08).
+  const [ranPlan, setRanPlan] = useState(plan);
+  let state = reduced;
+  if (ranPlan !== plan) {
+    const t = clock.now();
+    state = redoseState(ranPlan, plan, reduced, t);
+    setRanPlan(plan);
+    dispatch({ type: 'redose', now: t, from: ranPlan, visit: reduced.visit });
+  }
   // Today's restrictions can change under the run: a stop leaves the movement
   // out, and the back check about it goes with it. A step that is now refused
   // is passed over at once, paused or not, so it is never shown or asked

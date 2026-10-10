@@ -12,7 +12,7 @@ import type { UserProfile } from '@/types/profile';
 import { evaluateCheckIn, profileOnlyReadiness, withLogged } from './readiness';
 import { permission, resumePermission } from './permission';
 import { buildSessionPlan } from './session';
-import { answerEpisode, buildCheckIn, carryForward, emptyForm, formFromRecord, type CheckInForm } from '@/components/checkin/form';
+import { answerEpisode, buildCheckIn, carryForward, emptyForm, episodeChoice, formFromRecord, visibleQuestions, type CheckInForm } from '@/components/checkin/form';
 import { effectiveRecord } from '@/components/checkin/pending';
 import { reconcilePlan } from '@/session/gate';
 import { reachableHistory } from '@/walk/gate';
@@ -418,5 +418,241 @@ describe('A release given today does not cover the same item reported again late
     const again = saved(p, released, set(true), clockAt(11));
     expect(carryForward(released, again)).toEqual(again);
     expect((again.resolutions ?? []).filter(a => a.resolution === 'reopened')).toHaveLength(1);
+  });
+});
+
+describe('N-03: answers count in the order they were given, whatever offset or precision they are written with', () => {
+  const footDrop = { ...quietBack, newWeakness: true, newNeuro: true };
+  const flag = `flag:newWeakness@${D}`;
+  const said = (kind: EpisodeAnswer['kind'], id: string, resolution: EpisodeAnswer['resolution'], iso: string): EpisodeAnswer => ({ kind, readings: [id], resolution, at: iso });
+
+  it('an assessment imported as 10:05+05:30, then the foot drop ticked again and unticked: still held, and reopened once', () => {
+    const assessed = said('redFlag', flag, 'assessed', '2026-10-08T10:05:00+05:30');
+    const unticked = carryForward(ci(D, { back: footDrop }), ci(D, { back: quietBack, resolutions: [assessed] }));
+    expect(ask(BACK, unticked, [], 'walk').allowed).toBe(true);
+    const again = carryForward(unticked, ci(D, { back: footDrop, resolutions: [assessed] }));
+    const reopened = (again.resolutions ?? []).filter(a => a.resolution === 'reopened');
+    expect(reopened).toHaveLength(1);
+    expect(Date.parse(reopened[0].at)).toBeGreaterThan(Date.parse(assessed.at));
+    // Saving the same thing again adds nothing.
+    expect(carryForward(unticked, again)).toEqual(again);
+    const untickedAgain = carryForward(again, ci(D, { back: quietBack, resolutions: again.resolutions }));
+    expect(ask(BACK, untickedAgain, [], 'walk')).toMatchObject({ allowed: false, disposition: 'today' });
+  });
+
+  it('two earlier releases written with different offsets: the reopening comes after the later of them', () => {
+    const answers = [said('redFlag', flag, 'assessed', '2026-10-08T10:05:00+05:30'), said('redFlag', flag, 'mistake', '2026-10-08T06:00:00Z')];
+    const unticked = carryForward(ci(D, { back: footDrop }), ci(D, { back: quietBack, resolutions: answers }));
+    const again = carryForward(unticked, ci(D, { back: footDrop, resolutions: answers }));
+    const reopened = (again.resolutions ?? []).filter(a => a.resolution === 'reopened');
+    expect(reopened.map(a => Date.parse(a.at))).toEqual([Date.parse('2026-10-08T06:00:00.001Z')]);
+    const untickedAgain = carryForward(again, ci(D, { back: quietBack, resolutions: again.resolutions }));
+    expect(ask(BACK, untickedAgain, [], 'walk')).toMatchObject({ allowed: false, disposition: 'today' });
+  });
+
+  // Yesterday's 650 is an emergency until answered (B01).
+  const night = ci(Y, { glucose: g(650, 7, 23, 50) });
+  const id650 = `g:${at(7, 23, 50)}:650mg/dL`;
+  const morning = (...answers: EpisodeAnswer[]) => ci(D, { glucose: g(110, 8, 9, 0), resolutions: answers });
+
+  it('mixed precision: a reopening at 03:35:00.5 is after a mistake at 03:35:00', () => {
+    const today = morning(said('extremeGlucose', id650, 'mistake', '2026-10-08T03:35:00Z'), said('extremeGlucose', id650, 'reopened', '2026-10-08T03:35:00.5Z'));
+    expect(ask(METFORMIN, today, [night], 'walk').disposition).toBe('emergency');
+  });
+
+  it('the same instant written two ways: the stricter answer stands, whichever is listed first', () => {
+    const mistake = said('extremeGlucose', id650, 'mistake', '2026-10-08T09:05:00+05:30');
+    const reopened = said('extremeGlucose', id650, 'reopened', '2026-10-08T03:35:00Z');
+    expect(ask(METFORMIN, morning(mistake, reopened), [night], 'walk').disposition).toBe('emergency');
+    expect(ask(METFORMIN, morning(reopened, mistake), [night], 'walk').disposition).toBe('emergency');
+    const assessed = said('extremeGlucose', id650, 'assessed', '2026-10-08T03:35:00.000Z');
+    for (const answers of [[mistake, assessed], [assessed, mistake]]) {
+      expect(ask(METFORMIN, morning(...answers), [night], 'walk')).toMatchObject({ allowed: false, disposition: 'today' });
+    }
+  });
+
+  it('the sheet shows the answer that stands', () => {
+    const answers = [said('redFlag', flag, 'assessed', '2026-10-08T10:05:00+05:30'), said('redFlag', flag, 'reopened', '2026-10-08T04:40:00Z')];
+    const form = { ...emptyForm(BACK), resolutions: answers };
+    expect(episodeChoice(form, { kind: 'redFlag', readings: [{ id: flag, label: 'Foot drop' }] })).toBe('open');
+  });
+
+  it('an answer from an earlier sitting, written with an offset, is kept when it is taken back in this one', () => {
+    const imported = said('redFlag', flag, 'assessed', '2026-10-08T15:00:00+05:30');
+    const form = { ...emptyForm(BACK), resolutions: [imported] };
+    const next = answerEpisode(form, 'redFlag', [flag], 'open', new Date('2026-10-08T09:45:00Z'), new Date('2026-10-08T09:40:00Z'));
+    expect(next.resolutions).toEqual([imported, said('redFlag', flag, 'reopened', '2026-10-08T09:45:00.000Z')]);
+  });
+});
+
+describe('R5-03, ties and unknown times: only a provably later usable reading releases what an earlier one holds', () => {
+  const SGLT2 = createDefaultProfile({ health: { ...known, diabetes: 'type2', metformin: true, sglt2i: true, ketoneTest: 'blood' } });
+  const untimed = (value: number) => ({ value, unit: 'mg/dL' as const, source: 'meter' as const });
+  const bp = (sys: number, dia: number, h?: number, m = 0) => ({ sys, dia, ...(h !== undefined ? { at: at(8, h, m) } : {}) });
+
+  it('glucose: 320 at 09:10, then 140 at the same instant, or with no time: still held', () => {
+    for (const current of [g(140, 8, 9, 10), untimed(140)]) {
+      const today = ci(D, { glucose: current, glucoseEarlier: [g(320, 8, 9, 10)] });
+      expect(ask(METFORMIN, today, [], 'walk'), JSON.stringify(current)).toMatchObject({ allowed: false, disposition: 'hold' });
+      expect(evaluateCheckIn(METFORMIN, today, [], NOW).reasons.map(r => r.code)).toContain('high');
+    }
+  });
+
+  it('glucose: a meter reading HI, or 260 with no ketone result, then a normal number at the same instant: still held', () => {
+    const hi = ci(D, { glucose: g(140, 8, 9, 10), glucoseEarlier: [{ display: 'HI', measuredAt: at(8, 9, 10), source: 'meter' }] });
+    expect(evaluateCheckIn(METFORMIN, hi, [], NOW).reasons.map(r => r.code)).toContain('meterHi');
+    expect(ask(METFORMIN, hi, [], 'walk').allowed).toBe(false);
+    // Twice HI is the stronger instruction, said once.
+    const twice = ci(D, { glucoseDisplay: { display: 'HI', measuredAt: at(8, 9, 10), source: 'meter' }, glucoseEarlier: [{ display: 'HI', measuredAt: at(8, 9, 10), source: 'meter' }] });
+    expect(evaluateCheckIn(METFORMIN, twice, [], NOW).reasons.map(r => r.code).filter(c => /Hi$/.test(c))).toEqual(['persistentHi']);
+    const ketones = ci(D, { glucose: untimed(140), glucoseEarlier: [g(260, 8, 9, 10)] });
+    expect(evaluateCheckIn(SGLT2, ketones, [], NOW).reasons.map(r => r.code)).toContain('noKetones');
+  });
+
+  it('glucose: a provably later normal reading still releases it', () => {
+    expect(ask(METFORMIN, ci(D, { glucose: g(140, 8, 9, 11), glucoseEarlier: [g(320, 8, 9, 10)] }), [], 'walk').allowed).toBe(true);
+    expect(ask(METFORMIN, ci(D, { glucose: g(140, 8, 9, 11), glucoseEarlier: [{ display: 'HI', measuredAt: at(8, 9, 10), source: 'meter' }] }), [], 'walk').allowed).toBe(true);
+  });
+
+  it('blood pressure: 170/105, then 120/80 at the same instant, with no time, or after one with no time: still held', () => {
+    for (const [current, earlier] of [[bp(120, 80, 9, 10), bp(170, 105, 9, 10)], [bp(120, 80), bp(170, 105, 9, 10)], [bp(120, 80, 9, 10), bp(170, 105)]]) {
+      const today = ci(D, { bpReadings: [current], bpEarlier: [earlier] });
+      expect(ask(BP, today, [], 'walk'), JSON.stringify([current, earlier])).toMatchObject({ allowed: false, disposition: 'hold' });
+    }
+  });
+
+  it('blood pressure: a provably later normal reading still releases it, and a severe one is still one reading', () => {
+    expect(ask(BP, ci(D, { bpReadings: [bp(120, 80, 9, 11)], bpEarlier: [bp(170, 105, 9, 10)] }), [], 'walk').allowed).toBe(true);
+    // A severe reading at the same instant is one reading, not a confirming second one.
+    const severe = evaluateCheckIn(BP, ci(D, { bpReadings: [bp(120, 80, 9, 10)], bpEarlier: [bp(190, 100, 9, 10)] }), [], NOW);
+    expect(severe.reasons.map(r => r.code)).not.toContain('bpSevere');
+    expect(severe.disposition).not.toBe('reassure');
+  });
+});
+
+describe('N-01: a refused save never loosens what the device holds, even when its reading is newer', () => {
+  const stored = (p: UserProfile, c: DailyCheckIn) => record(p, c);
+  const effective = (p: UserProfile, s: DailyCheckIn, pending: DailyCheckIn) => effectiveRecord(stored(p, s), record(p, pending), p)!;
+  const bp = (sys: number, dia: number, h: number, m = 0) => ({ sys, dia, at: at(8, h, m) });
+
+  it('glucose: 320 at 09:10 stored, a refused 140 at 09:20: still held, on every mode and at the player', () => {
+    const e = effective(METFORMIN, ci(D, { glucose: g(320, 8, 9, 10) }), ci(D, { glucose: g(140, 8, 9, 20), glucoseEarlier: [g(320, 8, 9, 10)] }));
+    for (const mode of ['guided', 'stretch', 'walk'] as const) {
+      expect(permission({ profile: METFORMIN, checkIn: e, now: NOW, recent: [] }, mode), mode).toMatchObject({ allowed: false, disposition: 'hold' });
+      expect(resumePermission({ profile: METFORMIN, checkIn: e, now: NOW, recent: [] }, mode).allowed, mode).toBe(false);
+    }
+    expect(e.readiness.reasons.map(r => r.code)).toContain('high');
+  });
+
+  it('blood pressure: 170/105 at 09:10 stored, a refused 120/80 at 09:20: still held', () => {
+    const e = effective(BP, ci(D, { bpReadings: [bp(170, 105, 9, 10)] }), ci(D, { bpReadings: [bp(120, 80, 9, 20)], bpEarlier: [bp(170, 105, 9, 10)] }));
+    expect(permission({ profile: BP, checkIn: e, now: NOW, recent: [] }, 'walk')).toMatchObject({ allowed: false, disposition: 'hold' });
+  });
+
+  it('a restriction the stored reading sets stays too: 150/95 stored, a refused 120/80, and the plan keeps its limits', () => {
+    const e = effective(BP, ci(D, { bpReadings: [bp(150, 95, 9, 10)] }), ci(D, { bpReadings: [bp(120, 80, 9, 20)], bpEarlier: [bp(150, 95, 9, 10)] }));
+    const p = permission({ profile: BP, checkIn: e, now: NOW, recent: [] }, 'guided');
+    expect(p.allowed).toBe(true);
+    expect(p.codes).toEqual(expect.arrayContaining(['INT', 'capHeavy']));
+    const plan = buildSessionPlan({ profile: BP, date: D, startDate: '2026-09-28', sessions: [], checkIn: e, focusOverride: 'upperB' });
+    expect(plan.changes.join(' ')).toMatch(/140 over 90/);
+  });
+
+  it('a fresh reading the device refused does not make a stale stored one fresh', () => {
+    const later = new Date(2026, 9, 8, 9, 45);
+    const e = effective(INSULIN, ci(D, { glucose: g(140, 8, 9, 0) }), ci(D, { glucose: g(130, 8, 9, 40), glucoseEarlier: [g(140, 8, 9, 0)] }));
+    expect(permission({ profile: INSULIN, checkIn: e, now: later, recent: [] }, 'walk')).toMatchObject({ allowed: false, needsCheckIn: true });
+  });
+
+  it('once the device stores it, the newer reading decides', () => {
+    const now = ci(D, { glucose: g(140, 8, 9, 20), glucoseEarlier: [g(320, 8, 9, 10)] });
+    expect(permission({ profile: METFORMIN, checkIn: effectiveRecord(record(METFORMIN, now), undefined, METFORMIN)!, now: NOW, recent: [] }, 'walk').allowed).toBe(true);
+  });
+
+  it('what the device stored is never written back with the record, by a save, a report or a correction', () => {
+    const e = effective(METFORMIN, ci(D, { glucose: g(320, 8, 9, 10) }), ci(D, { glucose: g(140, 8, 9, 20), glucoseEarlier: [g(320, 8, 9, 10)] }));
+    expect(carryForward(e, ci(D, { glucose: g(150, 8, 9, 30) }))).not.toHaveProperty('durable');
+    expect(carryForward(e, { ...e, news: ['hot'] })).not.toHaveProperty('durable');
+  });
+});
+
+describe('N-04: a half-entered severe number is only ever replaced by its own completion', () => {
+  const BACK_BP = createDefaultProfile({ pain: { areas: ['lowerBack', 'sciatica'], sciaticaSide: 'left' }, health: BP.health });
+  const row = (n: 1 | 2, sys: string, dia: string, taken: string) => (f: CheckInForm): CheckInForm =>
+    ({ ...f, bp: { ...f.bp, [`s${n}`]: sys, [`d${n}`]: dia, [`at${n}`]: taken } });
+  const numb = (f: CheckInForm): CheckInForm => ({ ...f, back: { ...f.back, newSensory: true }, answered: { ...f.answered, backFlags: true } });
+  const typoId = `bp:${at(8, 9, 0)}:190/100`;
+  /** 190/100 at 09:00, replaced by 120/80, then answered "I typed it wrongly". */
+  const released = () => {
+    const first = saved(BACK_BP, undefined, row(1, '190', '100', at(8, 9, 0)), new Date(2026, 9, 8, 9, 0));
+    const replaced = saved(BACK_BP, first, row(1, '120', '80', at(8, 9, 2)), new Date(2026, 9, 8, 9, 2));
+    return saved(BACK_BP, replaced, f => answerEpisode(f, 'severeBp', [typoId], 'mistake', new Date(2026, 9, 8, 9, 3), new Date(2026, 9, 8, 9, 3)), new Date(2026, 9, 8, 9, 3));
+  };
+
+  it('190/100 answered as a typo, then a fresh 190 with the other box empty and new numbness: still an emergency', () => {
+    const before = released();
+    expect(ask(BACK_BP, before, [], 'walk').allowed).toBe(true);
+    const fresh = saved(BACK_BP, before, f => numb(row(2, '190', '', at(8, 9, 10))(f)), new Date(2026, 9, 8, 9, 10));
+    expect(fresh.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 10) }]);
+    expect(ask(BACK_BP, fresh, [], 'walk')).toMatchObject({ allowed: false, disposition: 'emergency' });
+    // And the half stays on the next save, which the old reading cannot take either.
+    const next = saved(BACK_BP, fresh, f => f, new Date(2026, 9, 8, 9, 12));
+    expect(next.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 10) }]);
+  });
+
+  it('a box that is not a number leaves the other to count alone, whatever older reading has the same number', () => {
+    const before = released();
+    const fresh = saved(BACK_BP, before, f => numb(row(2, '190', 'x', at(8, 9, 10))(f)), new Date(2026, 9, 8, 9, 10));
+    expect(fresh.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 10) }]);
+    expect(ask(BACK_BP, fresh, [], 'walk').disposition).toBe('emergency');
+  });
+
+  it('an older reading that still stands never takes a fresh half\u2019s place: answered as a typo later, the half still counts', () => {
+    const first = saved(BACK_BP, undefined, row(1, '190', '100', at(8, 9, 0)), new Date(2026, 9, 8, 9, 0));
+    const replaced = saved(BACK_BP, first, row(1, '120', '80', at(8, 9, 2)), new Date(2026, 9, 8, 9, 2));
+    const fresh = saved(BACK_BP, replaced, f => numb(row(2, '190', '', at(8, 9, 10))(f)), new Date(2026, 9, 8, 9, 10));
+    // Both are asked about: the older reading is another measurement.
+    expect(readingIds(evaluateCheckIn(BACK_BP, fresh, [], NOW))).toEqual(expect.arrayContaining([typoId, `bpp:${at(8, 9, 10)}:190/`]));
+    // Answers built from an older copy of the day keep the half too (B04).
+    expect(carryForward(fresh, replaced).bpPartial).toEqual([{ sys: 190, at: at(8, 9, 10) }]);
+    const afterTypo = saved(BACK_BP, fresh, f => answerEpisode(f, 'severeBp', [typoId], 'mistake', new Date(2026, 9, 8, 9, 12), new Date(2026, 9, 8, 9, 12)), new Date(2026, 9, 8, 9, 12));
+    expect(ask(BACK_BP, afterTypo, [], 'walk').disposition).toBe('emergency');
+  });
+
+  it('a half completed by its own reading is read as that reading, and counts again if that reading is withdrawn', () => {
+    const half = saved(BACK_BP, undefined, row(1, '190', '', at(8, 9, 0)), new Date(2026, 9, 8, 9, 0));
+    const halfId = `bpp:${at(8, 9, 0)}:190/`;
+    expect(half.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 0) }]);
+    const completed = saved(BACK_BP, half, row(1, '190', '100', at(8, 9, 1)), new Date(2026, 9, 8, 9, 1));
+    const r = evaluateCheckIn(BACK_BP, completed, [], NOW);
+    expect(r.reasons.map(x => x.code)).toContain('bpSevereUnconfirmed');
+    // One measurement: the half is not asked about beside the reading that completes it.
+    expect(readingIds(r)).toEqual([]);
+    const replaced = saved(BACK_BP, completed, row(1, '120', '80', at(8, 9, 5)), new Date(2026, 9, 8, 9, 5));
+    expect(readingIds(evaluateCheckIn(BACK_BP, replaced, [], NOW))).toEqual([`bp:${at(8, 9, 1)}:190/100`]);
+    const withdrawn = saved(BACK_BP, replaced, f => answerEpisode(f, 'severeBp', [`bp:${at(8, 9, 1)}:190/100`], 'mistake', new Date(2026, 9, 8, 9, 6), new Date(2026, 9, 8, 9, 6)), new Date(2026, 9, 8, 9, 6));
+    expect(ask(BACK_BP, withdrawn, [], 'walk').allowed).toBe(false);
+    expect(readingIds(evaluateCheckIn(BACK_BP, withdrawn, [], NOW))).toContain(halfId);
+  });
+});
+
+describe('A saved half-reading is asked about symptoms, and escalates on them, as a complete severe reading does', () => {
+  const half = (over: Partial<DailyCheckIn> = {}) => ci(D, { bpPartial: [{ sys: 190, at: at(8, 9, 0) }], ...over });
+  const full = (over: Partial<DailyCheckIn> = {}) => ci(D, { bpReadings: [{ sys: 190, dia: 100, at: at(8, 9, 0) }], ...over });
+
+  it('the sheet asks "Symptoms with the high reading" when the only severe number is a saved half', () => {
+    expect(visibleQuestions(BP, formFromRecord(half(), BP), half()).bpSymptoms).toBe(true);
+    expect(visibleQuestions(BP, formFromRecord(full(), BP), full()).bpSymptoms).toBe(true);
+    // Answered as a typo, there is nothing left to ask about.
+    const typo = half({ resolutions: [answer('severeBp', `bpp:${at(8, 9, 0)}:190/`, 'mistake')] });
+    expect(visibleQuestions(BP, formFromRecord(typo, BP), typo).bpSymptoms).toBe(false);
+  });
+
+  it('with symptoms, an emergency; without, no exercise today: the same as the complete reading', () => {
+    for (const bpSymptoms of [true, false]) {
+      const [h, f] = [half({ bpSymptoms }), full({ bpSymptoms })];
+      expect(ask(BP, h, [], 'walk').disposition, String(bpSymptoms)).toBe(ask(BP, f, [], 'walk').disposition);
+      expect(evaluateCheckIn(BP, h, [], NOW).reasons.some(r => r.code === 'bpEmergency')).toBe(bpSymptoms);
+    }
   });
 });

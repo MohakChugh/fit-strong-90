@@ -320,6 +320,14 @@ export interface DailyCheckIn {
    */
   readingsOnly?: true;
   /**
+   * The record the device has stored for this day, attached by
+   * `effectiveRecord` while answers it has not stored yet are merged in
+   * (N-01). Every rule reads the day as at least as strict as this alone: a
+   * refused or unfinished save can add to what the device holds, never take
+   * from it, even with a newer reading. Never stored.
+   */
+  durable?: DailyCheckIn;
+  /**
    * Red flags and foot problems said earlier today and unticked since
    * (R5-01): a later answer is about now, and releases nothing. Each stays
    * until its own release is given in `resolutions`, as on the days after.

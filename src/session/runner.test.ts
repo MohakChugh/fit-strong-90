@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
 import { buildSessionPlan } from '@/engine/session';
-import { coolDownTarget, createRunner, initialState, position, segmentsWithExtra, stepDurationMs, type RunnerState } from './runner';
+import { coolDownTarget, createRunner, initialState, position, redoseState, segmentsWithExtra, stepDurationMs, type RunnerState } from './runner';
+import type { CardioStep, SessionPlan } from '@/types/plan';
 import { createClock, devTimescale } from './clock';
 import { saveProgress, loadProgress, rehydrate, clearProgress } from './persistence';
 
@@ -323,5 +324,59 @@ describe('a finished run (scan M-03)', () => {
     const moved = runner.reduce(runner.reduce(start(), { type: 'next', now: T0 + 1000 }), { type: 'previous', now: T0 + 2000 });
     expect(moved.index).toBe(0);
     expect(moved.status).toBe('running');
+  });
+});
+
+describe('N-08: a cardio step re-dosed under the run keeps its whole cool-down', () => {
+  const cardioAt = plan.steps.findIndex(s => s.kind === 'cardio');
+  const withCardio = (parts: CardioStep['parts']): SessionPlan => ({ ...plan, steps: plan.steps.map(s => (s.kind === 'cardio' ? { ...s, parts } : s)) });
+  const long = withCardio([{ seconds: 120, intensity: 'easy', label: 'Easy warm-up' }, { seconds: 1200, intensity: 'zone2', label: 'Steady' }, { seconds: 300, intensity: 'cooldown', label: 'Cool-down' }]);
+  const short = withCardio([{ seconds: 60, intensity: 'easy', label: 'Easy warm-up' }, { seconds: 300, intensity: 'zone2', label: 'Steady' }, { seconds: 300, intensity: 'cooldown', label: 'Cool-down' }]);
+  const cardioId = plan.steps[cardioAt].id;
+  /** `seconds` into the cardio step, paused at T0, with 15 s added to its steady part. */
+  const into = (seconds: number): RunnerState => ({
+    planId: plan.id, date: plan.date, status: 'paused', index: cardioAt, stepStartedAt: T0 - seconds * 1000, pausedAt: T0, visit: 3,
+    extraMs: { [cardioId]: { 1: 15_000 } }, logs: [],
+  });
+
+  it('700 s in, still in steady work: today’s work is done, so its cool-down runs whole, from its own start', () => {
+    expect(cardioAt).toBeGreaterThan(0);
+    const s = redoseState(long, short, into(700), T0);
+    const at = position(short, s, T0);
+    expect(at).toMatchObject({ stepIndex: cardioAt, segmentElapsedMs: 0, stepRemainingMs: 300_000 });
+    expect(at.segment.intensity).toBe('cooldown');
+    // Resumed, the clock takes it through the cool-down, not past it.
+    const run = createRunner(short);
+    const resumed = run.reduce(s, { type: 'resume', now: T0 });
+    expect(run.reduce(resumed, { type: 'tick', now: T0 + 299_000 }).index).toBe(cardioAt);
+    expect(run.reduce(resumed, { type: 'tick', now: T0 + 300_000 }).index).toBe(cardioAt + 1);
+  });
+
+  it('100 s in: the place is kept, the work left is today’s, and the cool-down is whole', () => {
+    const at = position(short, redoseState(long, short, into(100), T0), T0);
+    expect(at).toMatchObject({ stepElapsedMs: 100_000, stepRemainingMs: 560_000 });
+    expect(at.segment.intensity).toBe('zone2');
+  });
+
+  it('already in the cool-down: it goes on where it was, for no less than today’s', () => {
+    const at = position(short, redoseState(long, short, into(1335 + 100), T0), T0);
+    expect(at.segment.intensity).toBe('cooldown');
+    expect(at).toMatchObject({ segmentElapsedMs: 100_000, stepRemainingMs: 200_000 });
+  });
+
+  it('time added to the old dose goes with it, and the coach starts the step again as it is now', () => {
+    const s = redoseState(long, short, into(700), T0);
+    expect(s.extraMs[cardioId]).toBeUndefined();
+    expect(s.visit).toBe(4);
+  });
+
+  it('the runner does the same when told the plan changed under it, once, and a step left as it was is left alone', () => {
+    const run = createRunner(short);
+    const told = { type: 'redose' as const, now: T0, from: long, visit: 3 };
+    const once = run.reduce(into(1335 + 100), told);
+    expect(once).toEqual(redoseState(long, short, into(1335 + 100), T0));
+    // Told twice, as a double render can: the place moved once stays where it was moved.
+    expect(run.reduce(once, told)).toEqual(once);
+    expect(redoseState(long, long, into(700), T0)).toEqual(into(700));
   });
 });

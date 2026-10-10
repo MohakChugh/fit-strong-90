@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import type { CheckInRecord, DailyCheckIn } from '@/types/checkin';
-import type { SessionPlan } from '@/types/plan';
+import type { CardioStep, SessionPlan } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import type { RunnerState } from '@/session/runner';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
@@ -1524,5 +1524,155 @@ describe('R5 follow-up: after a walk ended for a low, the line not to set off ag
     walk.unmount();
     expect(text).toContain(`Do not set off again just because a reading is back above ${level}.`);
     if (unit === 'mmol/L') expect(text).not.toMatch(/\b70\b|mg\/dL/);
+  });
+});
+
+describe('N-01 in the player: a check-in save the device refused cannot loosen the session, and is never saved inside it', () => {
+  it('150/95 stored, a refused 120/80: the session keeps its blood pressure limits, and its saved check-in holds no stored copy', async () => {
+    let refuse = false;
+    store.resetForTests();
+    await store.start({ factory: fakeIndexedDB({ failWrite: (_n, row) => (refuse && row.key === 'checkIns' ? new DOMException('Full', 'QuotaExceededError') : undefined) }), broadcast: null });
+    const p = createDefaultProfile({ health: { ...known, hypertension: 'treated', bpMonitor: true, bpMedicinesReviewed: true, betaBlocker: false, diuretic: false } });
+    await seed(p, [ci({ bpReadings: [{ sys: 150, dia: 95, at: iso(8, 50) }] })]);
+    refuse = true;
+    const { saveCheckInRecord } = await import('@/components/checkin/pending');
+    expect((await saveCheckInRecord(ci({ bpReadings: [{ sys: 120, dia: 80, at: iso(8, 58) }] }), { profile: p, update: store.update })).stored).toBe(false);
+    await mount();
+    await h().click(h().button('Start', { exact: true }));
+    expect(progress()!.plan.changes.join(' ')).toMatch(/140 over 90/);
+    clock(11);
+    await tick();
+    expect(h().text()).toMatch(/Session complete/);
+    const session = store.getState().sessions.find(x => x.date === DAY && x.guided)!;
+    expect(session.checkIn?.bpReadings).toEqual([{ sys: 120, dia: 80, at: iso(8, 58) }]);
+    expect(session.checkIn).not.toHaveProperty('durable');
+  });
+});
+
+describe('scan M-02, as the gates read the day: a low logged in Track counts, and one typed wrongly does not', () => {
+  it('a 62 logged in Track during the run: carrying on is the cool-down only', async () => {
+    const p = createDefaultProfile(INSULIN);
+    await seed(p, [ci({ glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } })]);
+    await mount();
+    await h().click(h().button('Start', { exact: true }));
+    await toStrength();
+    await h().click(h().button('Pause', { exact: true }));
+    clock(9, 5);
+    expect((await store.addObservation({ kind: 'glucose', value: 62, unit: 'mg/dL', scope: 'pointInTime', source: 'manual' })).ok).toBe(true);
+    // Settled on Today at 09:21: 110, the symptoms gone. The 62 is only in Track.
+    clock(9, 21);
+    await seed(p, [ci({
+      glucoseEarlier: [{ value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' }],
+      glucose: { value: 110, unit: 'mg/dL', measuredAt: iso(9, 21), source: 'meter' },
+      lowRecovered: true,
+    })]);
+    clock(9, 22);
+    await h().click(h().button('Resume', { exact: true }));
+    const s = run();
+    expect(s.status).toBe('running');
+    expect(s.coolDownFrom).toBeDefined();
+    expect(onCoolDown(s)).toBe(true);
+  });
+
+  it('a 50 answered "I typed it wrongly" never happened: the run carries on where it was', async () => {
+    const p = createDefaultProfile(INSULIN);
+    await seed(p, [ci({ glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } })]);
+    await mount();
+    await h().click(h().button('Start', { exact: true }));
+    await toStrength();
+    await h().click(h().button('Pause', { exact: true }));
+    const at = run().index;
+    clock(9, 6);
+    await seed(p, [ci({
+      glucoseEarlier: [{ value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' }, { value: 50, unit: 'mg/dL', measuredAt: iso(9, 5), source: 'meter' }],
+      glucose: { value: 150, unit: 'mg/dL', measuredAt: iso(9, 6), source: 'meter' },
+      resolutions: [{ kind: 'severeLow', readings: [`g:${iso(9, 5)}:50mg/dL`], resolution: 'mistake', at: iso(9, 6) }],
+    })]);
+    clock(9, 7);
+    await h().click(h().button('Resume', { exact: true }));
+    const s = run();
+    expect(s.status).toBe('running');
+    expect(s.coolDownFrom).toBeUndefined();
+    expect(s.index).toBe(at);
+  });
+});
+
+const { position: placeOf } = await import('@/session/runner');
+
+describe('N-08: re-dosing cardio under the run never skips its cool-down, and never rewrites work already done', () => {
+  const p = () => createDefaultProfile(NONE);
+  const build = (checkIn: DailyCheckIn, profile = p()) => buildSessionPlan({ profile, date: DAY, startDate: START, sessions: [], checkIn, focusOverride: 'upperB' });
+  const cardioOf = (plan: SessionPlan) => plan.steps.findIndex(s => s.kind === 'cardio');
+  /** Paused `seconds` into the plan's cardio step. */
+  const inCardio = (plan: SessionPlan, seconds: number): RunnerState => ({ ...paused(plan, cardioOf(plan)), stepStartedAt: 1_000, pausedAt: 1_000 + seconds * 1000 });
+  const here = () => placeOf(progress()!.plan, run(), Date.now());
+
+  it('resumed 700 s into a saved 120 + 1,200 + 300 dose, with today’s dose shorter: straight to today’s cool-down, run whole', async () => {
+    const fresh = build(ci());
+    const saved: SessionPlan = { ...fresh, steps: fresh.steps.map(s => (s.kind === 'cardio' ? { ...s, parts: [
+      { seconds: 120, intensity: 'easy', label: 'Easy warm-up' }, { seconds: 1200, intensity: 'zone2', label: 'Steady' }, { seconds: 300, intensity: 'cooldown', label: 'Cool-down' }] } : s)) };
+    saveRun(saved, inCardio(saved, 700));
+    await seed(p(), [ci()]);
+    await mount('resume=1');
+    expect(progress()!.plan.steps[cardioOf(saved)]).toMatchObject({ parts: (fresh.steps[cardioOf(fresh)] as CardioStep).parts });
+    const cool = (fresh.steps[cardioOf(fresh)] as CardioStep).parts.filter(x => x.intensity === 'cooldown').reduce((t, x) => t + x.seconds, 0) * 1000;
+    expect(here()).toMatchObject({ stepIndex: cardioOf(saved), segmentElapsedMs: 0, stepRemainingMs: cool });
+    expect(here().segment.intensity).toBe('cooldown');
+    await h().click(h().button('Resume', { exact: true }));
+    vi.setSystemTime(Date.now() + cool - 2000);
+    await tick();
+    expect(run().index).toBe(cardioOf(saved));
+    expect(here().segment.intensity).toBe('cooldown');
+  });
+
+  it('a hot day noted 500 s into today’s intervals, past the hot dose’s shorter work: on at today’s cool-down’s start, not part-way through it', async () => {
+    const plan = build(ci());
+    expect(plan.cardio?.format).toBe('intervals');
+    saveRun(plan, inCardio(plan, 500));
+    await seed(p(), [ci()]);
+    await mount('resume=1');
+    await h().click(h().button('Resume', { exact: true }));
+    expect(here().segment.intensity).toBe('fast');
+    await seed(p(), [ci({ news: ['hot'] })]);
+    await h().settle();
+    const now = progress()!.plan.steps[cardioOf(plan)] as CardioStep;
+    expect(now.parts.some(x => /cool off/.test(x.label))).toBe(true);
+    const cool = now.parts.filter(x => x.intensity === 'cooldown').reduce((t, x) => t + x.seconds, 0) * 1000;
+    expect(here()).toMatchObject({ segmentElapsedMs: 0, stepRemainingMs: cool });
+    expect(here().segment.intensity).toBe('cooldown');
+  });
+
+  it('cardio re-dosed when the run was resumed, and since done, stays as it ran when today changes again', async () => {
+    const fresh = build(ci());
+    const saved: SessionPlan = { ...fresh, steps: fresh.steps.map(s => (s.kind === 'cardio' ? { ...s, parts: [
+      { seconds: 120, intensity: 'easy', label: 'Easy warm-up' }, { seconds: 1200, intensity: 'zone2', label: 'Steady' }, { seconds: 300, intensity: 'cooldown', label: 'Cool-down' }] } : s)) };
+    saveRun(saved, paused(saved, saved.steps.findIndex(s => s.kind === 'set')));
+    await seed(p(), [ci()]);
+    await mount('resume=1');
+    const asRan = (progress()!.plan.steps[cardioOf(saved)] as CardioStep).parts;
+    expect(asRan).toEqual((fresh.steps[cardioOf(fresh)] as CardioStep).parts);
+    await h().click(h().button('Resume', { exact: true }));
+    for (let i = 0; i < 200 && run().index <= cardioOf(saved); i++) await h().click(h().button('Next', { exact: true }));
+    expect(run().index).toBeGreaterThan(cardioOf(saved));
+    await seed(p(), [ci({ news: ['hot'] })]);
+    await h().settle();
+    expect((progress()!.plan.steps[cardioOf(saved)] as CardioStep).parts).toEqual(asRan);
+  });
+
+  it('a change reported mid-run re-doses only what is still to come: the sets already done stay as they ran', async () => {
+    const bpProfile = createDefaultProfile({ health: { ...known, hypertension: 'treated', bpMonitor: true, bpMedicinesReviewed: true, betaBlocker: false, diuretic: false } });
+    const morning = ci({ bpReadings: [{ sys: 128, dia: 80, at: iso(8, 50) }] });
+    await seed(bpProfile, [morning]);
+    await mount();
+    await h().click(h().button('Start', { exact: true }));
+    for (let i = 0; i < 120 && progress()!.plan.steps[run().index].kind !== 'cardio'; i++) await h().click(h().button('Next', { exact: true }));
+    const at = run().index;
+    expect(progress()!.plan.steps[at].kind).toBe('cardio');
+    const done = progress()!.plan.steps.slice(0, at);
+    expect(build({ ...morning, bpReadings: [{ sys: 160, dia: 100, at: iso(9, 1) }] }, bpProfile).steps.slice(0, at)).not.toEqual(done);
+    clock(9, 1);
+    await seed(bpProfile, [{ ...morning, bpReadings: [{ sys: 160, dia: 100, at: iso(9, 1) }], bpEarlier: morning.bpReadings }]);
+    await h().settle();
+    expect(progress()!.plan.steps.slice(0, at)).toEqual(done);
   });
 });

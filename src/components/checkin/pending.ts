@@ -183,8 +183,21 @@ export function effectiveRecord(
 ): CheckInRecord | undefined {
   if (!pending) return stored;
   if (!stored || stored.date !== pending.date) return evaluated(profile, pending, recent);
-  return evaluated(profile, strictest(stored, pending), recent);
+  // The stored record decides at least as strictly as the two together (N-01):
+  // a newer reading the device has not kept cannot release what it holds.
+  const { readiness: _r, durable: _d, ...durable } = stored;
+  void _r;
+  void _d;
+  return evaluated(profile, { ...strictest(stored, pending), durable }, recent);
 }
+
+/** A record to store, from one a gate reads: what the device stored is never written back inside it (N-01). */
+export const recordToStore = (c: CheckInRecord | undefined): CheckInRecord | undefined => {
+  if (!c) return c;
+  const { durable: _d, ...rest } = c;
+  void _d;
+  return rest;
+};
 
 const REACH_ORDER: SymptomReach[] = ['back', 'buttock', 'thigh', 'belowKnee', 'foot'];
 const SLEEP_ORDER: NonNullable<DailyCheckIn['sleep']>[] = ['lt5', '5to7', 'gt7'];
@@ -550,7 +563,7 @@ export async function correctCheckInPressure(
     // The same reading of what waits as every other save (`saveWith`): a copy
     // kept from before a reload is evidence, never an answer to store.
     const mine = list.find(x => x.date === date);
-    const base = effectiveRecord(mine, waitingFor(date, mine), profile, recent);
+    const base = recordToStore(effectiveRecord(mine, waitingFor(date, mine), profile, recent));
     const fixed = base ? withPressureCorrected(base, c) : undefined;
     record = fixed ? evaluated(profile, fixed, recent) : undefined;
     if (!record) return prev;
@@ -740,7 +753,7 @@ async function reviseCheckIn(
     const list = prev.checkIns ?? [];
     const recent = list.filter(x => x.date < date);
     const mine = list.find(x => x.date === date);
-    const base = effectiveRecord(mine, waitingFor(date, mine), profile, recent);
+    const base = recordToStore(effectiveRecord(mine, waitingFor(date, mine), profile, recent));
     const fixed = base ? fix(base) : undefined;
     record = fixed ? evaluated(profile, fixed, recent) : undefined;
     if (!record) return prev;

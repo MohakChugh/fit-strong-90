@@ -21,7 +21,7 @@ import type {
 import type { UserProfile } from '@/types/profile';
 import { deriveHealth } from '@/engine/health';
 import { checkedIn } from '@/engine/permission';
-import { endsTheDay, evaluateCheckIn, flagsIn, glucoseSanity, profileOnlyReadiness, reopenedByReport, toMgdl, type GlucoseSanity } from '@/engine/readiness';
+import { bpPartialId, endsTheDay, evaluateCheckIn, flagsIn, glucoseSanity, profileOnlyReadiness, reopenedByReport, severePartial, standingAnswer, toMgdl, type GlucoseSanity } from '@/engine/readiness';
 
 /**
  * Which glucose readings reach the readiness engine: plausible ones, and an
@@ -329,6 +329,10 @@ export function visibleQuestions(
   const ketones = d.ketoneRisk || high || hasKetones ? kind : null;
   const bp = h.bpMonitor;
   const savedBp = [...(previous?.bpReadings ?? (previous?.bp ? [previous.bp] : [])), ...(previous?.bpEarlier ?? [])];
+  // A severe number saved without its other half is as severe (B07): its
+  // symptoms are asked about until it is answered as a typo.
+  const savedHalf = !!previous && (previous.bpPartial ?? [])
+    .some(r => severePartial(r) && standingAnswer(form.resolutions, bpPartialId(r, previous.date))?.resolution !== 'mistake');
   return {
     // Evaluated here rather than read off the stored readiness: a record saved
     // by an older version has none, and yesterday's readings are asked about
@@ -343,7 +347,7 @@ export function visibleQuestions(
     back: profile.pain.areas.includes('lowerBack') || profile.pain.areas.includes('sciatica'),
     sciatica: profile.pain.areas.includes('sciatica'),
     bp,
-    bpSymptoms: bp && (anySevereComponent(form.bp) || savedBp.some(isSevereBp)),
+    bpSymptoms: bp && (anySevereComponent(form.bp) || savedBp.some(isSevereBp) || savedHalf),
     lowRecovered: glucose && lowToday(previous) && mg !== undefined && mg >= 70,
   };
 }
@@ -355,8 +359,7 @@ export type EpisodeChoice = 'open' | 'mistake' | 'assessed' | 'resolved';
 /** What the form currently says about one kind's readings: an answer given here, else what was saved. */
 export function episodeChoice(form: CheckInForm, e: EpisodeSummary): EpisodeChoice {
   const each = e.readings.map(r => {
-    let latest: EpisodeAnswer | undefined;
-    for (const a of form.resolutions) if (a.readings.includes(r.id) && (!latest || a.at >= latest.at)) latest = a;
+    const latest = standingAnswer(form.resolutions, r.id);
     if (latest) return latest.resolution === 'reopened' ? 'open' : latest.resolution;
     return r.settled ?? 'open';
   });
@@ -372,8 +375,8 @@ export function episodeChoice(form: CheckInForm, e: EpisodeSummary): EpisodeChoi
 export function answerEpisode(
   form: CheckInForm, kind: EpisodeSummary['kind'], readings: string[], choice: EpisodeChoice, now: Date, openedAt: Date,
 ): CheckInForm {
-  const since = openedAt.toISOString();
-  const same = (a: EpisodeAnswer) => a.kind === kind && a.at >= since && a.readings.length === readings.length && a.readings.every(id => readings.includes(id));
+  // Given in this sitting, by instant: an answer from another device can carry any offset (N-03).
+  const same = (a: EpisodeAnswer) => a.kind === kind && Date.parse(a.at) >= openedAt.getTime() && a.readings.length === readings.length && a.readings.every(id => readings.includes(id));
   const kept = form.resolutions.filter(a => !same(a));
   const earlier = kept.some(a => a.readings.some(id => readings.includes(id)) && a.resolution !== 'reopened');
   const at = now.toISOString();
@@ -598,13 +601,12 @@ export function buildCheckIn(
       : undefined;
   }
   // A severe number with the other box empty is kept as it is (B07): it
-  // counts on its own, and the missing half is never invented. A partial
-  // reading completed later is the same reading, so it goes.
-  const completed = [...(bpReadings ?? []), ...bpEarlier];
+  // counts on its own, and the missing half is never invented. It stays in
+  // the record: the engine reads it as the complete reading that completes it
+  // while that reading stands, and never matches it to another (N-04).
   const typedPartial = v.bp ? formPartials(form.bp, stamp) : [];
   const bpPartial = [...(previous?.bpPartial ?? []), ...typedPartial]
-    .filter((r, i, all) => all.findIndex(x => samePartial(x, r)) === i)
-    .filter(r => !completed.some(c => (r.sys !== undefined && c.sys === r.sys) || (r.dia !== undefined && c.dia === r.dia)));
+    .filter((r, i, all) => all.findIndex(x => samePartial(x, r)) === i);
   // A toggle left where it started is not an answer either.
   const bpSymptoms = v.bpSymptoms && said.bpSymptoms ? form.bpSymptoms : previous?.bpSymptoms;
   const lowRecovered = v.lowRecovered && said.lowRecovered ? form.lowRecovered : previous?.lowRecovered;
@@ -670,9 +672,7 @@ export function carryForward(saved: DailyCheckIn | undefined, next: DailyCheckIn
   // A partial severe number, a reported low and an exercise that made symptoms
   // worse are evidence too: answers built from an older copy of the day must
   // not drop them (round 3 B04).
-  const complete = [...bpEarlier, ...(next.bpReadings ?? [])];
-  const bpPartial = appendUnique(next.bpPartial ?? [], (saved.bpPartial ?? [])
-    .filter(r => !complete.some(c => (r.sys !== undefined && c.sys === r.sys) || (r.dia !== undefined && c.dia === r.dia))), samePartial);
+  const bpPartial = appendUnique(next.bpPartial ?? [], saved.bpPartial ?? [], samePartial);
   const provoked = [...new Set([...(saved.provoked ?? []), ...(next.provoked ?? [])])];
   const lowSymptomsAt = next.lowSymptomsAt ?? saved.lowSymptomsAt;
   // A red flag or foot problem said earlier today is not released by a later
@@ -685,9 +685,11 @@ export function carryForward(saved: DailyCheckIn | undefined, next: DailyCheckIn
   // Either, ticked again after an answer released it, is a new report: that
   // answer no longer settles it, and it is asked about again by name.
   const reopened = reopenedByReport(saved, next);
-  const { flagsEarlier: _flags, newsEarlier: _news, ...rest } = next;
+  // What the device had stored is read with the record, never saved inside it (N-01).
+  const { flagsEarlier: _flags, newsEarlier: _news, durable: _durable, ...rest } = next;
   void _flags;
   void _news;
+  void _durable;
   return {
     ...rest,
     ...(reopened.length ? { resolutions: [...(next.resolutions ?? []), ...reopened] } : {}),

@@ -390,6 +390,7 @@ describe('applyImport', () => {
       ['resolutions', [{ ...answer, at: 'not a time' }]], ['lowSymptomsAt', '5'],
       // Never stored: the gates attach these to a day for themselves, and stored they would act as readings or skip its red flags.
       ['logged', { glucose: [{ value: 110, unit: 'mg/dL', measuredAt: at }] }], ['readingsOnly', true],
+      ['durable', { date: '2026-10-09', urgentSymptoms: false, news: [], sleep: '5to7', energy: 4 }],
       // What the day's details show of the suggestion made at the time.
       ['readiness', { ...readiness, reasons: undefined }], ['readiness', { ...readiness, reasons: [null] }],
     ];
@@ -422,13 +423,18 @@ describe('applyImport', () => {
       ['glucoseEarlier', [{ value: 650, unit: 'MG/DL', measuredAt: at }], 'a glucose reading in a unit this app does not know ("MG/DL")'],
       ['glucoseEarlier', [{ value: 650, unit: 'mg/dL', measuredAt: '2001' }], 'a glucose reading whose time cannot be read'],
       ['glucoseEarlier', 'high', 'a glucose reading this app cannot read'],
-      // Read by its display wherever it has one, as the engine reads it.
-      ['glucoseEarlier', [{ value: 120, unit: 'mg/dL', display: 'XX', measuredAt: at }], 'a glucose meter display other than HI or LO ("XX")'],
+      // The engine reads a display before a number, so one holding both is not the number it says (N-07).
+      ['glucose', { value: 650, unit: 'mg/dL', display: 'XX', measuredAt: at }, 'a glucose reading that is both a number and a meter display'],
+      ['glucoseDisplay', { display: 'HI', value: 650, unit: 'mg/dL', measuredAt: at }, 'a glucose reading that is both a number and a meter display'],
+      ['glucoseEarlier', [{ value: 120, unit: 'mg/dL', display: 'XX', measuredAt: at }], 'a glucose reading that is both a number and a meter display'],
       ['ketones', { kind: 'saliva', value: 3.5, measuredAt: at }, 'a ketone reading of a kind this app does not know ("saliva")'],
       ['ketones', { kind: 'blood', value: 'high', measuredAt: at }, 'a blood ketone reading whose number cannot be read'],
       ['ketones', { kind: 'blood', value: 3.5, measuredAt: 5 }, 'a ketone reading whose time cannot be read'],
       ['ketonesEarlier', [{ kind: 'urine', category: 'lots', measuredAt: at }], 'a urine ketone strip reading this app does not know ("lots")'],
       ['ketonesEarlier', [{ kind: 'urine', value: 'x' }], 'a urine ketone strip reading whose number cannot be read'],
+      // A strip read is a colour, or before v5 the number for it: one with neither has no result (N-07).
+      ['ketones', { kind: 'urine', measuredAt: at }, 'a urine ketone strip reading with no result'],
+      ['ketonesEarlier', [{ kind: 'urine' }], 'a urine ketone strip reading with no result'],
       ['ketonesEarlier', [null], 'a ketone reading this app cannot read'],
       ['ketonesEarlier', 'large', 'a ketone reading this app cannot read'],
       ['bp', { sys: 185, dia: null }, 'a blood pressure reading whose numbers cannot be read'],
@@ -437,6 +443,8 @@ describe('applyImport', () => {
       ['bpEarlier', [{ sys: 185, dia: 125, at: '2001' }], 'a blood pressure reading whose time cannot be read'],
       ['bpPartial', [{ dia: 'high', at }], 'a blood pressure reading whose numbers cannot be read'],
       ['bpPartial', [{ sys: 200, at: '5' }], 'a blood pressure reading whose time cannot be read'],
+      // A partial reading is one number with the other box empty, never neither (N-07).
+      ['bpPartial', [{ at }], 'a blood pressure reading with no numbers in it'],
       ['bpPartial', [null], 'a blood pressure reading this app cannot read'],
       ['bpPartial', { sys: 200, at }, 'a blood pressure reading this app cannot read'],
     ];

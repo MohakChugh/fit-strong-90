@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Observation } from '@/health/observation';
 import { entryFor, summariseDay } from '@/health/aggregate';
 import { fakeIndexedDB } from './fakeIdb';
@@ -138,5 +138,50 @@ describe('a long check-in history, merged (R5-04)', () => {
     const ms = performance.now() - start;
     expect(preview.ok && preview.conflicts?.checkIns).toBe(1);
     expect(ms).toBeLessThan(1500);
+  });
+
+  // The engine's own work for a day grows with the history it is given, and
+  // is its own to bound; what is measured here is that the merge goes over
+  // the history once, not once more for every day it works out again (N-06).
+  it('works out 10,000 cleaned days of 50,000 again, giving each only the days before it, in one pass', async () => {
+    const calls: [string, number, string | undefined][] = [];
+    vi.resetModules();
+    vi.doMock('@/engine/readiness', async (original: () => Promise<typeof import('@/engine/readiness')>) => ({
+      ...(await original()),
+      evaluateCheckIn: (_profile: unknown, c: { date: string }, recent: { date: string }[]) => {
+        calls.push([c.date, recent.length, recent.at(-1)?.date]);
+        return readiness;
+      },
+    }));
+    try {
+      const { previewImport } = await import('./transfer');
+      const { readingKey } = await import('./project');
+      const { createDefaultProfile } = await import('@/profile/defaults');
+      const at = (i: number) => `${day(i)}T08:00:00.000Z`;
+      const deleted = (i: number) => i % 5 === 0;
+      const checkIns = Array.from({ length: 50_000 }, (_, i) => ({
+        date: day(i), urgentSymptoms: false, news: [], sleep: '5to7', energy: 4, readiness,
+        ...(deleted(i) ? { glucose: { value: 300, unit: 'mg/dL', measuredAt: at(i) } } : {}),
+      }));
+      // Deleted on this device, the file's record of each of those days still naming it.
+      const readings = checkIns.filter((_, i) => deleted(i))
+        .map((c, n) => readingKey({ kind: 'glucose', at: at(n * 5), value: 300, unit: 'mg/dL', context: `checkIn:${c.date}` })!);
+      const raw = { format: TRANSFER_FORMAT, version: 1, exportedAt: `${DAY}T19:00:00.000+05:30`, schemaVersion: 5,
+        observations: [], sessions: [], checkIns, personalRecords: [], bodyMetrics: [], focusOverrides: {}, contentState: [] };
+      const here = { profile: createDefaultProfile({ weightKg: 80 }), settings: { deleted: { readings } }, checkIns: [] };
+      const start = performance.now();
+      const preview = previewImport(raw, here as never);
+      const ms = performance.now() - start;
+      expect(preview.ok).toBe(true);
+      expect(calls).toHaveLength(10_000);
+      expect(calls.every(([date, earlier, last]) => {
+        const i = Math.round((Date.parse(date) - Date.UTC(1900, 0, 1)) / 86_400_000);
+        return earlier === i && last === (i === 0 ? undefined : day(i - 1));
+      })).toBe(true);
+      expect(ms).toBeLessThan(1500);
+    } finally {
+      vi.doUnmock('@/engine/readiness');
+      vi.resetModules();
+    }
   });
 });

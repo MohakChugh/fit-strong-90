@@ -1324,3 +1324,39 @@ describe('R5 follow-up: a release given today does not cover the same item ticke
     expect(h().button('Not checked yet').props['aria-checked']).toBe(true);
   });
 });
+
+describe('N-01: what the device had stored is read with a waiting save, and never written back inside a record', () => {
+  it('a blood pressure correction made while a refused save waits stores the record without it', async () => {
+    const p = createDefaultProfile(PROFILES.bp);
+    const taken = at(2026, 10, 9, 8, 50).toISOString();
+    await seed(p, [{ date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, bpReadings: [{ sys: 150, dia: 95, at: taken }] }]);
+    refuse = () => true;
+    expect((await reportSymptoms({ news: ['hot'] }, { profile: p, update: store.update, date: DAY })).stored).toBe(false);
+    refuse = () => false;
+    const fixed = await correctCheckInPressure({ at: taken, was: { sys: 150, dia: 95 }, to: { sys: 145, dia: 92 } }, { profile: p, update: store.update, date: DAY });
+    expect(fixed).toMatchObject({ matched: true, stored: true });
+    expect(stored()?.bpReadings).toEqual([{ sys: 145, dia: 92, at: taken }]);
+    expect(stored()?.news).toContain('hot');
+    expect(stored()).not.toHaveProperty('durable');
+  });
+});
+
+describe('A saved half-reading, reopened: the symptom question is still asked', () => {
+  it('190 with the other box empty, saved; on the next visit "Symptoms with the high reading" is there, and it calls for help', async () => {
+    const p = createDefaultProfile(PROFILES.bp);
+    await seed(p);
+    await openSheet('walk');
+    await none();
+    await h().change(h().field('Reading 1, top number'), { value: '190' });
+    await seePlan();
+    expect(stored()?.bpPartial).toEqual([{ sys: 190, at: expect.any(String) }]);
+    clock(9, 5);
+    await openSheet('walk');
+    await changeAnswers();
+    expect(h().field('Reading 1, top number').props.value).toBe('');
+    await h().click(h().button('Symptoms with the high reading'));
+    expect(h().text()).toMatch(/Call emergency services now/);
+    expect(stored()?.bpSymptoms).toBe(true);
+    expect(asked(p).disposition).toBe('emergency');
+  });
+});

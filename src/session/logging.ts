@@ -10,6 +10,7 @@ import { calculateVolume, detectPR, getDayOfWeekFromDate, isLoadedRepSet } from 
 import { focusMuscleGroup } from '@/engine/templates';
 import { stepSeconds } from '@/engine/timing';
 import { updateLadder } from '@/engine/progression';
+import { withLogged } from '@/engine/readiness';
 import { position, type RunnerState } from './runner';
 
 export interface LogOptions {
@@ -30,6 +31,21 @@ export function activeSeconds(plan: SessionPlan, state: RunnerState): number | u
   // Runs saved before the runner tracked active time: an estimate.
   const covered = position(plan, state, state.finishedAt).sessionElapsedMs;
   return Math.round(Math.min(state.finishedAt - state.startedAt, covered) / 1000);
+}
+
+/**
+ * The check-in as the session keeps it (N-02). The screens hold the day as
+ * every gate reads it, with Track's readings attached (`logged`), for a day
+ * with no check-in a mark saying so (`readingsOnly`), and while answers wait
+ * to be stored, the record that is (`durable`). None is ever stored, and an
+ * import refuses them: the readings are folded in once by the engine's own
+ * projection, and the rest goes.
+ */
+function keptCheckIn(c: CheckInRecord): CheckInRecord {
+  const { readingsOnly: _onlyReadings, durable: _stored, ...kept } = withLogged(c) as CheckInRecord;
+  void _onlyReadings;
+  void _stored;
+  return kept;
 }
 
 export function toWorkoutSession(plan: SessionPlan, state: RunnerState, opts: LogOptions): WorkoutSession {
@@ -114,7 +130,7 @@ export function toWorkoutSession(plan: SessionPlan, state: RunnerState, opts: Lo
     ...(cardioStep && cardioDone && plan.cardio
       ? { cardio: { modality: plan.cardio.modality, minutes: Math.round(stepSeconds(cardioStep) / 60), format: plan.cardio.format } }
       : {}),
-    ...(opts.checkIn ? { checkIn: opts.checkIn } : {}),
+    ...(opts.checkIn ? { checkIn: keptCheckIn(opts.checkIn) } : {}),
     ...(opts.painAfter !== undefined ? { painAfter: opts.painAfter } : {}),
     ...(Object.keys(symptomChecks).length ? { symptomChecks } : {}),
     durationSeconds: seconds,

@@ -20,10 +20,11 @@
  */
 
 import type { BodyMetric, PersonalRecord, UserSettings, WorkoutSession } from '@/types';
-import type { CheckInRecord } from '@/types/checkin';
+import type { CheckInRecord, DailyCheckIn } from '@/types/checkin';
 import type { DayFocus } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import { compareObservations, type Observation } from '@/health/observation';
+import { withLogged } from '@/engine/readiness';
 import { doc, type Db, type Doc, type Rows, type StoreFailure, type StoreName, type TxHandle } from './db';
 import { readingKey } from './project';
 
@@ -295,6 +296,33 @@ function docValue(s: Snapshot, key: Doc['key']): unknown {
 const isRecord = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
 
 /**
+ * A session's copy of its day's check-in as it is now kept (N-02, see
+ * `toWorkoutSession`): Track's readings folded in once by the engine's own
+ * projection, and without what only the screens' copy carries (`logged`,
+ * `readingsOnly`, `durable`). Earlier builds kept the screens' copy, so it is
+ * read this way wherever it comes in: from this device's store and from a
+ * backup. One whose `logged` cannot be folded in is left as it is, for an
+ * import to refuse.
+ */
+export function keptCheckIn<T extends DailyCheckIn>(c: T): T {
+  if (c.logged === undefined && c.readingsOnly === undefined && c.durable === undefined) return c;
+  const logged: unknown = c.logged;
+  const lists = (x: unknown) => x === undefined || (Array.isArray(x) && x.every(isRecord));
+  if (logged !== undefined && !(isRecord(logged) && lists(logged.glucose) && lists(logged.bp))) return c;
+  const { readingsOnly: _onlyReadings, durable: _stored, ...kept } = withLogged(c) as T;
+  void _onlyReadings;
+  void _stored;
+  return kept as T;
+}
+
+/** A session with its check-in copy as it is kept; the same session when it already is. */
+export function keptSession<T extends { checkIn?: unknown }>(s: T): T {
+  if (!isRecord(s.checkIn)) return s;
+  const kept = keptCheckIn(s.checkIn as unknown as DailyCheckIn);
+  return kept === (s.checkIn as unknown) ? s : { ...s, checkIn: kept };
+}
+
+/**
  * A snapshot from raw rows. Rows were validated on the way in, so this only
  * guards against shapes that would crash a render — a non-object row, a
  * document that is not the type it should be.
@@ -319,7 +347,7 @@ export function fromRows(rows: Rows): Snapshot {
     revision: Number.isSafeInteger(revision) && revision >= 0 ? revision : 0,
     ...(typeof schemaVersion === 'number' ? { schemaVersion } : {}),
     observations: (rows.observations.filter(isRecord) as unknown as Observation[]).sort(compareObservations),
-    sessions: (rows.sessions.filter(row => isRecord(row) && typeof row.id === 'string') as unknown as WorkoutSession[]).sort(bySessionOrder),
+    sessions: (rows.sessions.filter(row => isRecord(row) && typeof row.id === 'string') as unknown as WorkoutSession[]).map(keptSession).sort(bySessionOrder),
     ...(isRecord(settings) ? { settings: settings as unknown as UserSettings } : {}),
     ...(isRecord(profile) ? { profile: profile as unknown as UserProfile } : {}),
     checkIns: list<CheckInRecord>('checkIns'),

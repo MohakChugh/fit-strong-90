@@ -216,6 +216,19 @@ describe('readings that share an id from before ids were unique (D-02)', () => {
     expect(glucose(a.store.getState().observations)).toEqual([[160, '18:30'], [64, '08:30']]);
   });
 
+  it('keeps a correction of both the time and the number as a second reading, on purpose (R5-02)', async () => {
+    const a = await device();
+    await a.store.importRecord(await fileOf(legacy(62, '08:30', 124, 78)), 'replace');
+    // The same old reading, corrected on another device in both its number and its time.
+    const corrected = legacy(62, '08:30', 124, 78)
+      .map(o => (o.kind === 'glucose' ? { ...o, value: 64, at: `${DAY}T09:15:00.000+05:30`, editedAt: `${DAY}T10:00:00.000+05:30` } : o));
+    expect((await a.store.importRecord(await fileOf(corrected), 'merge')).ok).toBe(true);
+    // Under an id two devices could each have given, it cannot be told from a
+    // second reading, so it is kept as one: a reading too many can be deleted,
+    // one too few could hide a low.
+    expect(glucose(a.store.getState().observations)).toEqual([[62, '08:30'], [64, '09:15']]);
+  });
+
   it('keeps a third device’s reading too', async () => {
     const a = await device();
     await a.store.importRecord(await fileOf(legacy(62, '12:00', 124, 78)), 'replace');
@@ -295,6 +308,161 @@ describe('readings that share an id from before ids were unique (D-02)', () => {
     const corrected = legacy(65, '08:30', 124, 78).map(o => (o.kind === 'glucose' ? { ...o, editedAt: `${DAY}T09:00:00.000+05:30` } : o));
     expect((await a.store.importRecord(await fileOf(corrected), 'merge')).ok).toBe(true);
     expect(glucose(a.store.getState().observations)).toEqual([[65, '08:30']]);
+  });
+});
+
+describe('a guided session saved with the day’s check-in, backed up and restored (N-02)', () => {
+  const at = `${DAY}T08:30:00.000+05:30`;
+  const track = `${DAY}T09:00:00.000+05:30`;
+
+  /** A session saved as the player saves one, with the check-in the day's screens hold (`useGuided().checkIn`). */
+  async function sessionSaved(d: Awaited<ReturnType<typeof device>>, withTrack: boolean, withCheckIn = true) {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const { effectiveCheckIns } = await import('@/components/checkin/pending');
+    const { evaluateCheckIn } = await import('@/engine/readiness');
+    const { buildSessionPlan } = await import('@/engine/session');
+    const { createRunner, initialState } = await import('@/session/runner');
+    const { toWorkoutSession, withGuidedSession } = await import('@/session/logging');
+    const profile = createDefaultProfile({ weightKg: 80, health: { diabetes: 'type2', metformin: true, medicinesReviewed: true, glucoseMonitor: 'meter' } });
+    await d.store.setProfile(profile);
+    if (withCheckIn) await saveCheckIn(d.store, checkIn(120, at, 124, 78));
+    if (withTrack) {
+      const logged = await d.store.addObservation({ kind: 'glucose', value: 140, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: track });
+      if (!logged.ok) throw logged.failure;
+    }
+    const state = d.store.getState();
+    const checkIns = effectiveCheckIns(state.checkIns, profile, state.observations);
+    const today = checkIns.find(c => c.date === DAY)!;
+    const held = { ...today, readiness: evaluateCheckIn(profile, today, checkIns.filter(c => c.date < DAY)) };
+    expect(held.logged !== undefined).toBe(withTrack);
+    const plan = buildSessionPlan({ profile, date: DAY, startDate: DAY, sessions: [] });
+    const runner = createRunner(plan);
+    const run = runner.reduce(runner.reduce(initialState(plan), { type: 'start', now: 0 }), { type: 'tick', now: plan.totalSeconds * 1000 + 1 });
+    const session = toWorkoutSession(plan, run, { sessionId: 'guided-1', checkIn: held });
+    expect((await d.store.update(prev => withGuidedSession(prev, session))).ok).toBe(true);
+    return { held, session };
+  }
+
+  /** The session's copy of its check-in: what the day said, with Track's reading in it once, and nothing only the screens carry. */
+  const kept = (d: Awaited<ReturnType<typeof device>>, withTrack: boolean) => {
+    const copy = d.store.getState().sessions.find(s => s.id === 'guided-1')?.checkIn;
+    expect(copy).toBeDefined();
+    expect(copy!.logged).toBeUndefined();
+    expect(copy!.readingsOnly).toBeUndefined();
+    expect(copy!.durable).toBeUndefined();
+    expect(copy!.glucose).toEqual(withTrack ? expect.objectContaining({ value: 140, measuredAt: track }) : { value: 120, unit: 'mg/dL', measuredAt: at });
+    expect(copy!.glucoseEarlier ?? []).toEqual(withTrack ? [{ value: 120, unit: 'mg/dL', measuredAt: at }] : []);
+  };
+
+  for (const withTrack of [true, false]) {
+    it(`round-trips ${withTrack ? 'with a reading logged in Track that day' : 'with the check-in’s readings alone'}, replaced or merged`, async () => {
+      const a = await device();
+      await sessionSaved(a, withTrack);
+      kept(a, withTrack);
+      const file = await a.backup();
+
+      const b = await device();
+      const preview = b.store.previewRecord(file);
+      if (!preview.ok) throw new Error(preview.reason);
+      expect(preview.rejected?.sessions).toBe(0);
+      expect(preview.sessions).toBe(1);
+      expect((await b.store.importRecord(file, 'replace')).ok).toBe(true);
+      kept(b, withTrack);
+
+      const c = await device();
+      await saveCheckIn(c.store, { ...checkIn(98, `${DAY}T07:00:00.000+05:30`, 118, 76), date: '2026-10-06' });
+      expect((await c.store.importRecord(file, 'merge')).ok).toBe(true);
+      kept(c, withTrack);
+    });
+  }
+
+  it('reads a backup made before, whose session kept the screens’ copy with Track’s readings attached', async () => {
+    const a = await device();
+    const { held } = await sessionSaved(a, true);
+    const file = await a.backup() as { sessions: { checkIn?: unknown }[] };
+    // As the previous version wrote it, the stored record the screens attach included.
+    const { readiness: _r, ...stored } = held;
+    void _r;
+    const older = { ...file, sessions: file.sessions.map(s => ({ ...s, checkIn: { ...held, durable: stored } })) };
+    for (const mode of ['replace', 'merge'] as const) {
+      const b = await device();
+      const preview = b.store.previewRecord(older);
+      expect(preview.ok && preview.rejected?.sessions).toBe(0);
+      expect((await b.store.importRecord(older, mode)).ok).toBe(true);
+      kept(b, true);
+    }
+  });
+
+  it('round-trips a session saved while answers were still waiting, without the stored record the screens attach', async () => {
+    const a = await device();
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const { effectiveRecord } = await import('@/components/checkin/pending');
+    const { buildSessionPlan } = await import('@/engine/session');
+    const { createRunner, initialState } = await import('@/session/runner');
+    const { toWorkoutSession, withGuidedSession } = await import('@/session/logging');
+    const profile = createDefaultProfile({ weightKg: 80, health: { diabetes: 'type2', metformin: true, medicinesReviewed: true, glucoseMonitor: 'meter' } });
+    await a.store.setProfile(profile);
+    await saveCheckIn(a.store, checkIn(120, at, 124, 78));
+    const stored = a.store.getState().checkIns.find(c => c.date === DAY)!;
+    // An answer not stored yet, merged in as the screens merge it: the stored record rides along (`durable`).
+    const held = effectiveRecord(stored, { ...stored, energy: 2 }, profile, [])!;
+    expect(held.durable).toBeDefined();
+    const plan = buildSessionPlan({ profile, date: DAY, startDate: DAY, sessions: [] });
+    const runner = createRunner(plan);
+    const run = runner.reduce(runner.reduce(initialState(plan), { type: 'start', now: 0 }), { type: 'tick', now: plan.totalSeconds * 1000 + 1 });
+    expect((await a.store.update(prev => withGuidedSession(prev, toWorkoutSession(plan, run, { sessionId: 'guided-1', checkIn: held })))).ok).toBe(true);
+    kept(a, false);
+    const file = await a.backup();
+    // And as the previous version wrote it, the stored record kept inside the session's copy.
+    const older = { ...(file as { sessions: object[] }), sessions: (file as { sessions: object[] }).sessions.map(s => ({ ...s, checkIn: held })) };
+    for (const [mode, raw] of [['replace', file], ['merge', file], ['replace', older], ['merge', older]] as const) {
+      const b = await device();
+      expect((await b.store.importRecord(raw, mode)).ok).toBe(true);
+      kept(b, false);
+      expect(b.store.getState().sessions.find(s => s.id === 'guided-1')?.checkIn?.energy).toBe(2);
+    }
+  });
+
+  it('reads a session this device stored that way before, as it now keeps them', async () => {
+    const a = await device();
+    const { held, session } = await sessionSaved(a, true);
+    expect((await a.store.putSession({ ...session, checkIn: held })).ok).toBe(true);
+    expect((await a.store.reload()).ok).toBe(true);
+    kept(a, true);
+    const b = await device();
+    expect((await b.store.importRecord(await a.backup(), 'replace')).ok).toBe(true);
+    kept(b, true);
+  });
+
+  it('keeps a day with no check-in but a reading in Track as that reading, without the mark only the screens carry', async () => {
+    const a = await device();
+    const { held } = await sessionSaved(a, true, false);
+    expect(held.readingsOnly).toBe(true);
+    const copy = () => a.store.getState().sessions.find(s => s.id === 'guided-1')!.checkIn!;
+    expect(copy().readingsOnly).toBeUndefined();
+    expect(copy().logged).toBeUndefined();
+    expect(copy().glucose).toEqual(expect.objectContaining({ value: 140, measuredAt: track }));
+    const b = await device();
+    expect((await b.store.importRecord(await a.backup(), 'replace')).ok).toBe(true);
+    expect(b.store.getState().sessions.find(s => s.id === 'guided-1')?.checkIn?.readingsOnly).toBeUndefined();
+    // And from a backup made before, which kept the mark with the session.
+    const file = await a.backup() as { sessions: { checkIn?: unknown }[] };
+    const older = { ...file, sessions: file.sessions.map(s => ({ ...s, checkIn: held })) };
+    const c = await device();
+    expect((await c.store.importRecord(older, 'replace')).ok).toBe(true);
+    const restored = c.store.getState().sessions.find(s => s.id === 'guided-1')!.checkIn!;
+    expect(restored.readingsOnly).toBeUndefined();
+    expect(restored.logged).toBeUndefined();
+    expect(restored.glucose).toEqual(expect.objectContaining({ value: 140, measuredAt: track }));
+  });
+
+  it('refuses, as before, a session whose attached readings cannot be read, and is not thrown by it', async () => {
+    const a = await device();
+    const { held } = await sessionSaved(a, true);
+    const file = await a.backup() as { sessions: { checkIn?: unknown }[] };
+    const damaged = { ...file, sessions: file.sessions.map(s => ({ ...s, checkIn: { ...held, logged: { glucose: 'high' } } })) };
+    const preview = a.store.previewRecord(damaged);
+    expect(preview.ok && preview.rejected?.sessions).toBe(1);
   });
 });
 
@@ -491,6 +659,70 @@ describe('a reading deleted from a check-in, and an older backup merged (R5-01)'
       expect((await a.store.importRecord(older, 'merge', { onConflict })).ok).toBe(true);
       expect(glucose(a.store.getState().observations)).toEqual([]);
       expect(a.store.getState().checkIns.find(c => c.date === DAY)?.glucose).toBeUndefined();
+    }
+  });
+
+  it('keeps a deleted reading out of the file’s own record, though the file holds no lifted copy of it (N-05)', async () => {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const { evaluateCheckIn } = await import('@/engine/readiness');
+    const profile = createDefaultProfile({ weightKg: 80, health: { diabetes: 'type2', metformin: true, medicinesReviewed: true, glucoseMonitor: 'meter' } });
+    const a = await device();
+    await a.store.setProfile(profile);
+    await saveCheckIn(a.store, typo);
+    // Deleted from the series alone, as a direct deletion does: the day's record still says 600.
+    const id = a.store.getState().observations.find(o => o.kind === 'glucose')!.id;
+    expect((await a.store.removeObservation(id)).ok).toBe(true);
+    const file = await a.backup() as { observations: Observation[]; checkIns: CheckInRecord[]; settings: { deleted?: { readings?: string[] } } };
+    expect(file.observations.some(o => o.kind === 'glucose')).toBe(false);
+    expect(file.checkIns.find(c => c.date === DAY)?.glucose?.value).toBe(600);
+    expect(file.settings.deleted?.readings).toHaveLength(1);
+
+    const clean = (d: Awaited<ReturnType<typeof device>>) => {
+      const day = d.store.getState().checkIns.find(c => c.date === DAY)!;
+      expect(day.glucose).toBeUndefined();
+      expect(day.bpReadings).toEqual([{ sys: 124, dia: 78, at }]);
+      const { readiness, ...plain } = day;
+      expect(readiness).toEqual(evaluateCheckIn(profile, plain, []));
+    };
+    for (const onConflict of ['keepDevice', 'takeFile'] as const) {
+      const b = await device();
+      await b.store.setProfile(profile);
+      expect((await b.store.importRecord(file, 'merge', { onConflict })).ok).toBe(true);
+      expect(glucose(b.store.getState().observations)).toEqual([]);
+      clean(b);
+    }
+    // Replacing takes the file as it is, its record of what was deleted included.
+    const c = await device();
+    expect((await c.store.importRecord(file, 'replace')).ok).toBe(true);
+    clean(c);
+  });
+
+  it('and out of a record this device deleted it from, when the file holds the record alone (N-05)', async () => {
+    const a = await device();
+    await saveCheckIn(a.store, typo);
+    const withCopy = await a.backup() as { observations: Observation[] };
+    const b = await device();
+    await b.store.importRecord(withCopy, 'replace');
+    await deleteTypo(b);
+    const recordAlone = { ...withCopy, observations: withCopy.observations.filter(o => o.kind !== 'glucose') };
+    for (const onConflict of ['keepDevice', 'takeFile'] as const) {
+      expect((await b.store.importRecord(recordAlone, 'merge', { onConflict })).ok).toBe(true);
+      expect(b.store.getState().checkIns.find(c => c.date === DAY)?.glucose).toBeUndefined();
+    }
+  });
+
+  it('a file that holds a reading and says it was deleted keeps it, in the series and the day’s record alike', async () => {
+    const a = await device();
+    await saveCheckIn(a.store, typo);
+    const file = await a.backup() as { settings?: { deleted?: { readings?: string[] } } };
+    const { readingKey } = await import('./project');
+    const key = readingKey(a.store.getState().observations.find(o => o.kind === 'glucose')!)!;
+    const both = { ...file, settings: { ...file.settings, deleted: { readings: [key] } } };
+    for (const mode of ['merge', 'replace'] as const) {
+      const b = await device();
+      expect((await b.store.importRecord(both, mode)).ok).toBe(true);
+      expect(glucose(b.store.getState().observations)).toEqual([[600, '08:30']]);
+      expect(b.store.getState().checkIns.find(c => c.date === DAY)?.glucose?.value).toBe(600);
     }
   });
 
