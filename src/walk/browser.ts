@@ -10,6 +10,7 @@ import { createLiveWalk, type GeoError, type GeoPort, type LivePorts, type LiveW
 import { storeGate, watchClinical } from './gate';
 import { createWakeLockPort } from './wakeLock';
 import { sessionWalkStorage } from './persist';
+import { journalPort } from './journalPort';
 
 type MotionPermission = 'granted' | 'denied';
 
@@ -148,9 +149,10 @@ function visibilityPort(): VisibilityPort {
 
 export function browserPorts(): LivePorts {
   return {
-    mayRun: storeGate,
+    mayRun: (intent, walk) => storeGate(intent, walk?.clockChangedAt),
     watchClinical,
     now: () => Date.now(),
+    monotonic: () => performance.now(),
     later(fn, ms) {
       const id = window.setTimeout(fn, ms);
       return () => window.clearTimeout(id);
@@ -160,6 +162,7 @@ export function browserPorts(): LivePorts {
     geolocation: geolocationPort(),
     motion: motionPort(),
     wakeLock: wakeLockPort(),
+    journal: journalPort(),
   };
 }
 

@@ -204,7 +204,7 @@ function walkRow(w: WalkRecord, prefs: DisplayPrefs): TimelineRow {
     ...(w.minutes > 0 ? { value: minutes(w.minutes) } : {}),
     detail: join(
       formatClock(w.at, prefs.hour12),
-      w.mealStartedAt !== undefined && tagLabel('afterMeal'),
+      w.afterMeal && tagLabel('afterMeal'),
       w.distanceKm !== undefined && formatObservation({ kind: 'walkDistance', value: w.distanceKm, unit: 'km' }, prefs),
       w.steps !== undefined && formatObservation({ kind: 'steps', value: w.steps, unit: 'steps' }, prefs),
       w.addedMinutes > 0 && `${minutes(w.addedMinutes)} added by you`,

@@ -16,7 +16,7 @@ import { render, type Host } from '@/test/host';
 import { formatTime } from '@/lib/time';
 
 const navigate = vi.hoisted(() => ({ to: vi.fn() }));
-vi.mock('react-router-dom', () => ({ useNavigate: () => navigate.to }));
+vi.mock('react-router-dom', () => ({ useNavigate: () => navigate.to, useLocation: () => ({ pathname: '/home', search: '', state: null, key: 'k0' }) }));
 
 const local = new Map<string, string>();
 globalThis.localStorage = {

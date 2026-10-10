@@ -7,15 +7,23 @@ import { Sheet } from '@/components/hig/Sheet';
 import { Stat } from '@/components/hig/Stat';
 import { useGuided } from '@/hooks/useGuided';
 import { todayString } from '@/lib/utils';
-import { addObservations, getState, removeObservations, useStorageNotice, useStore } from '@/store/useStore';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { getState, removeWalk, saveWalk as saveWalkToStore, useStorageNotice, useStore } from '@/store/useStore';
 import type { Walk } from '@/walk/clock';
+import { walkSettings } from '@/walk/consent';
+import { energyText, walkEnergy } from '@/walk/energy';
 import { clock, spokenClock, timeOfDay } from '@/walk/format';
 import { clearWalk, draftStored, loadWalk, sessionWalkStorage, storeWalk } from '@/walk/persist';
-import { hasRecord, saveObservations, saveOutcome, summarise, walkObservationIds, walkObservations, type SaveOutcome } from '@/walk/record';
-import { draftWarning, endingLine, lowAdvice, lowStage, summaryRows, walkSpan, walkTitle } from '@/walk/readout';
+import { hasRecord, saveOutcome, summarise, walkObservationIds, type SaveOutcome } from '@/walk/record';
+import { draftWarning, endingLine, lowAdvice, lowStage, noRouteLine, splitRows, summaryRows, walkSpan, walkTitle } from '@/walk/readout';
+import { splitsOf } from '@/walk/route';
+import { bboxOf } from '@/walk/routeRecord';
+import { walkSave } from '@/walk/save';
 import { useNow } from '@/screens/workout/useNow';
 import { EmergencyGuidance, LowGuidance } from './guidance';
 import { PainPicker, PrimaryButton, SecondaryButton } from './parts';
+import { RouteFrame } from './RouteFrame';
+import { useWalkRoute } from './useWalkRoute';
 
 type SaveState = { kind: 'idle' } | { kind: 'saving' } | SaveOutcome;
 
@@ -30,7 +38,7 @@ type SaveState = { kind: 'idle' } | { kind: 'saving' } | SaveOutcome;
 export function WalkSummary() {
   const navigate = useNavigate();
   const { profile, checkIn } = useGuided();
-  const { observations, status } = useStore();
+  const { observations, status, settings } = useStore();
   // "Continue without saving": writes live in memory until the app closes (M-07).
   const memoryOnly = status === 'unavailable';
   const notice = useStorageNotice();
@@ -45,12 +53,26 @@ export function WalkSummary() {
 
   // Re-read while open after a low, so "waiting" turns into "due" on time.
   const now = useNow(walk?.endedBy === 'low', 15_000);
+  // The kept route: saved, or journalled as it was walked (journey §9.5).
+  const lines = useWalkRoute(walk?.id ?? '', walk?.plan.keepRoute === true);
+  const reduce = useReducedMotion();
 
-  if (!walk) return <Navigate to="/walk" replace />;
+  if (!walk) return <Navigate to="/hub/walk" replace />;
   if (walk.status !== 'finished') return <Navigate to="/walk/live" replace />;
 
   const summary = summarise(walk);
-  const rows = summaryRows(walk, summary);
+  // About how much energy it used, with the weight in effect then (journey §12.4, B-16, B-18).
+  const energy = walkEnergy(walk, {
+    observations,
+    ...(profile.birthYear !== undefined ? { birthYear: profile.birthYear } : {}),
+    ...(profile.weightKg > 0 ? { profileKg: profile.weightKg } : {}),
+  });
+  const rows = summaryRows(walk, summary, { energy: energyText(energy.estimate, energy.weight) });
+  const box = lines ? bboxOf(lines) : undefined;
+  const splits = lines ? splitRows(splitsOf(lines)) : [];
+  const mapOn = walkSettings(settings).map === 'on';
+  // Done returns to where the walk was started (M12).
+  const origin = walk.plan.from ?? '/home';
   const ending = endingLine(walk);
   const back = profile.pain.areas.includes('lowerBack') || profile.pain.areas.includes('sciatica');
   const leg = profile.pain.areas.includes('sciatica');
@@ -78,10 +100,9 @@ export function WalkSummary() {
 
   const saveWalk = async () => {
     setSave({ kind: 'saving' });
-    // Asked of the store before every batch, not of this render: what is
-    // already on the device is left out, and the rest goes in one batch.
-    const storedIds = () => new Set(getState().observations.map(o => o.id));
-    const result = await saveObservations(walkObservations(walk), storedIds, addObservations);
+    // One transaction: the records, the route and the journal's retirement
+    // (journey §18.3). A retry writes only what is missing.
+    const result = await saveWalkToStore(walkSave(walk, { ...(lines ? { route: lines } : {}), ...(energy.input ? { energy: energy.input } : {}) }));
     // Saved only by a device that is saving; kept for now otherwise, and the
     // draft — the copy that outlives a reload — stays until it truly is.
     const outcome = saveOutcome(result, getState().status === 'unavailable');
@@ -92,26 +113,27 @@ export function WalkSummary() {
   const discard = async () => {
     // Every record of this walk on the device, found by its context — not a
     // list kept with the draft, which a reload mid-save could lose — removed
-    // in one transaction, so a discarded walk leaves nothing behind (F09).
-    const removed = await removeObservations(walkObservationIds(walk.id, getState().observations));
+    // with its route and its journal in one transaction, so a discarded walk
+    // leaves nothing behind (F09).
+    const removed = await removeWalk(walk.id, walkObservationIds(walk.id, getState().observations));
     if (!removed.ok) {
       setDiscardError(removed.failure.message);
       return;
     }
     clearWalk(storage);
-    navigate('/walk', { replace: true });
+    navigate(walk.plan.from ?? '/hub/walk', { replace: true });
   };
 
-  const done = () => navigate('/today', { viewTransition: true });
+  const done = () => navigate(origin, { viewTransition: true });
 
   return (
-    <Screen title="Your walk" back={{ to: '/home', label: 'Home' }}>
+    <Screen title="Your walk" back={{ to: origin, label: origin === '/hub/walk' ? 'Walk' : 'Home' }}>
       {/* The guidance is for how this walk ended. The decision standing now is the
           task's shared surface, above it, whatever it is (codex V1-03, W-01). */}
       {walk.endedBy === 'emergency' && <EmergencyGuidance />}
       {walk.endedBy === 'low' && <LowGuidance unit={profile.health.glucoseUnit ?? 'mg/dL'} advice={(s => (s ? lowAdvice(s, t => timeOfDay(t)) : undefined))(lowStage(checkIn, walk, now))} />}
 
-      <section className="flex flex-col gap-3 rounded-xl bg-grouped-card p-4">
+      <section className="flex flex-col gap-3 rounded-xl bg-grouped-card p-4" style={reduce ? undefined : { viewTransitionName: 'walk-stats' }}>
         <p className="text-[length:var(--text-subhead)] text-muted-foreground">
           {walkTitle(walk)} · {walkSpan(summary.from, summary.to, { today: todayString() })}
         </p>
@@ -126,9 +148,21 @@ export function WalkSummary() {
         {draftNote && <p role="status" className="text-[length:var(--text-subhead)] font-medium leading-snug text-caution">{draftNote}</p>}
       </section>
 
+      {lines && box ? (
+        <RouteFrame walkId={walk.id} lines={lines} bbox={box} mapOn={mapOn} />
+      ) : (
+        <p className="px-1 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{noRouteLine(walk.plan)}</p>
+      )}
+
       {rows.length > 0 && (
         <Group>
           {rows.map(r => <Row key={r.label} label={r.label} value={r.value} detail={r.detail} numeric />)}
+        </Group>
+      )}
+
+      {splits.length > 0 && (
+        <Group header="Splits" footer="Each complete kilometre, worked out from your route.">
+          {splits.map(r => <Row key={r.label} label={r.label} value={r.value} numeric />)}
         </Group>
       )}
 

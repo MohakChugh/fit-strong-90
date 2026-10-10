@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { afterMealSuggestion, choiceChanged, directWalkHref, isWalkId, liveHref, mealFromSearch, mealMinutesAgo, mealStartedLabel, MEAL_STARTED_AGO, newWalkId, setupPlan, walkFirst, walkFromSearch } from './plan';
+import { afterMealSuggestion, choiceChanged, directWalkHref, isWalkId, liveHref, mealFromSearch, mealMinutesAgo, mealStartedLabel, MEAL_STARTED_AGO, newWalkId, originOf, setupPlan, walkFirst, walkFromSearch, walkPlanOf } from './plan';
 import type { WalkPlan } from './clock';
 
 const NOW = Date.UTC(2026, 9, 8, 13, 0, 0);
@@ -91,7 +91,8 @@ describe('directWalkHref: a walk started from Home’s card (journey §7.4, K-32
     const href = directWalkHref({ meal: 'lunch', mealStartedAt: MEAL }, NOW2, { gps: false, steps: true });
     const walk = walkFromSearch(new URL(href, 'https://app.test').searchParams, NOW2);
     expect(new URL(href, 'https://app.test').pathname).toBe('/walk/live');
-    expect(walk?.plan).toEqual({ kind: 'afterMeal', meal: { which: 'lunch', startedAt: MEAL }, gps: false, steps: true });
+    // B-09: the time the person said they had the meal, never "started" (Plan 6 Task 8).
+    expect(walk?.plan).toEqual({ kind: 'afterMeal', meal: { which: 'lunch', startedAt: MEAL, basis: 'had' }, gps: false, steps: true });
     expect(isWalkId(walk?.id)).toBe(true);
   });
   it('"Just a walk", with nothing measured unless chosen', () => {
@@ -160,5 +161,54 @@ describe('walkFirst: a walk asked for from Home while another is still on this d
   it('"Just a walk" is a new walk; a walk from another day is named by its day, on the device’s clock', () => {
     const first = walkFirst({ state: 'unsaved', startedAt: at(18, 5, 6), href: '/walk/summary' }, {}, NOW3, false);
     expect(first?.detail).toBe('The walk you started on Tuesday at 18:05 has finished, and isn’t saved yet. Save it, or discard it, then start a new walk.');
+  });
+});
+
+describe('keeping the route (§9.1)', () => {
+  it('travels in the live walk’s address, and only with GPS', () => {
+    const href = liveHref('mgh3k2x1-1a2b3c4d', { kind: 'walk', gps: true, steps: false, keepRoute: true });
+    expect(href).toContain('route=1');
+    const back = walkFromSearch(new URLSearchParams(href.split('?')[1]), Date.now());
+    expect(back?.plan.keepRoute).toBe(true);
+    expect(walkFromSearch(new URLSearchParams('id=mgh3k2x1-1a2b3c4d&route=1'), Date.now())?.plan.keepRoute).toBeUndefined();
+    expect(liveHref('mgh3k2x1-1a2b3c4d', { kind: 'walk', gps: true, steps: false })).not.toContain('route=');
+  });
+});
+
+describe('the plan in the address (B-01, B-09, M12)', () => {
+  it('carries a refused motion, the origin and an after-meal time the person stated', () => {
+    const plan = { kind: 'afterMeal' as const, meal: { which: 'lunch' as const, startedAt: Date.now() - 600_000, basis: 'had' as const }, gps: false, steps: false, stepsDenied: true, from: '/hub/walk' as const };
+    const back = walkPlanOf(liveHref('mgh3k2x1-1a2b3c4d', plan));
+    expect(back).toMatchObject({ stepsDenied: true, steps: false, from: '/hub/walk', meal: { which: 'lunch', basis: 'had' } });
+    const home = walkPlanOf(liveHref('mgh3k2x1-1a2b3c4d', { kind: 'walk', gps: false, steps: true, from: '/home' }));
+    expect(home).toMatchObject({ steps: true, from: '/home' });
+    expect(home?.stepsDenied).toBeUndefined();
+  });
+
+  it('finds a plan only in a live walk’s address', () => {
+    expect(walkPlanOf('/hub/walk?meal=lunch')).toBeUndefined();
+    expect(walkPlanOf('/hub/walk?id=mgh3k2x1-1a2b3c4d&gps=1')).toBeUndefined();
+    expect(originOf('/hub/walk')).toBe('/hub/walk');
+    expect(originOf('/hub/stretch')).toBe('/home');
+    expect(originOf('/home')).toBe('/home');
+    expect(originOf('/browse')).toBe('/home');
+  });
+
+  it('reads no origin or basis it does not know', () => {
+    const p = walkPlanOf('/walk/live?id=mgh3k2x1-1a2b3c4d&from=elsewhere&meal=lunch&mealAt=' + (Date.now() - 60_000) + '&mealBasis=ate');
+    expect(p?.from).toBeUndefined();
+    expect(p?.meal?.basis).toBeUndefined();
+  });
+});
+
+describe('B-09’s walk: a meal time the person stated', () => {
+  it('marks a meal time the person stated as "had" (B-09), and a "Started" choice as the start', () => {
+    const now = Date.now();
+    expect(setupPlan({ kind: 'afterMeal', meal: 'lunch', mealAgo: 30, mealBasis: 'had', gps: false, steps: false }, now)?.meal).toEqual({ which: 'lunch', startedAt: now - 1_800_000, basis: 'had' });
+    expect(setupPlan({ kind: 'afterMeal', meal: 'lunch', mealAgo: 20, gps: false, steps: false }, now)?.meal).toEqual({ which: 'lunch', startedAt: now - 1_200_000 });
+  });
+
+  it('marks Home’s after-meal walk as "had at" (B-09)', () => {
+    expect(walkPlanOf(directWalkHref({ meal: 'lunch', mealStartedAt: Date.now() - 1_800_000 }, Date.now(), { gps: false, steps: false }))?.meal?.basis).toBe('had');
   });
 });

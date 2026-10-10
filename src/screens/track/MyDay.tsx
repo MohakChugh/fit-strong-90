@@ -19,6 +19,8 @@ import { markInPlace } from '@/components/hig/navigation';
 import { Group, Row } from '@/components/hig/List';
 import { Ring } from '@/components/hig/Ring';
 import { useStore } from '@/store/useStore';
+import { RouteThumb } from '@/screens/walk/RouteThumb';
+import type { RouteRecord } from '@/walk/routeRecord';
 import { formatDayLong, formatDayRelative, formatDayShort } from './format';
 import { draftSaved, draftStorage, loadQuickLogDraft } from './draft';
 import { GoalSheet } from './GoalSheet';
@@ -213,7 +215,9 @@ function TimelineView({ day, current, fresh, origin, prefs, onAdd, onGoal }: {
   onAdd: () => void;
   onGoal: () => void;
 }) {
-  const { observations, sessions, checkIns, settings } = useStore();
+  const { observations, sessions, checkIns, settings, records } = useStore();
+  // A walk's kept route, drawn small beside it (journey §9.5, B-23): our own drawing, never a map picture.
+  const routeOf = useMemo(() => new Map(records.routes.map(r => [r.walkId as string, r as unknown as RouteRecord])), [records.routes]);
   const view: DayView = useMemo(
     () => assembleDay(day, { observations, sessions, checkIns, settings }, prefs),
     [day, observations, sessions, checkIns, settings, prefs],
@@ -293,6 +297,7 @@ function TimelineView({ day, current, fresh, origin, prefs, onAdd, onGoal }: {
               viewTransition
               label={r.title}
               detail={r.detail}
+              icon={r.ref.type === 'walk' && routeOf.has(r.ref.id) ? <RouteThumb walkId={r.ref.id} route={routeOf.get(r.ref.id)!} /> : undefined}
               value={r.value !== undefined ? <span className={isFresh(r.ids) ? `inline-block ${SETTLE}` : undefined}>{r.value}</span> : undefined}
               numeric
               chevron

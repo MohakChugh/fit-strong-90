@@ -134,6 +134,15 @@ describe('assembleDay', () => {
     expect(view.rows[0]).toMatchObject({ title: 'Walk', value: '32 min', detail: '18:10 · 2.1 km · Measured on a walk', ref: { type: 'walk', id: 'w1' } });
   });
 
+  it('tags a walk after a meal even when only the time the meal was had is known (B-09)', () => {
+    const at = '2026-10-08T13:40:00.000+05:30';
+    const view = assembleDay(day, {
+      ...empty,
+      observations: [obs({ id: 'd', kind: 'walkDuration', unit: 'min', value: 10, scope: 'sessionObserved', source: 'measured', coverageMs: 600_000, context: 'walk:w1', tag: 'afterMeal', at })],
+    }, DEFAULT_PREFS);
+    expect(view.rows[0].detail).toContain('After a meal');
+  });
+
   it('only shows the day asked for', () => {
     const view = assembleDay(day, { ...empty, observations: [obs({ id: 'y', at: '2026-10-07T23:59:00.000+05:30' })] }, DEFAULT_PREFS);
     expect(view.empty).toBe(true);

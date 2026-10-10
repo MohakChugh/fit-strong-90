@@ -15,6 +15,7 @@ import { setSettings } from '@/store/useStore';
 import type { Meal } from '@/types/habits';
 import type { WalkKind } from '@/walk/clock';
 import { canLocate, canSenseMotion, requestLocation, requestMotion } from '@/walk/browser';
+import { routeNote, walkSettings } from '@/walk/consent';
 import { timeOfDay } from '@/walk/format';
 import { peekWalk } from '@/walk/persist';
 import {
@@ -36,7 +37,7 @@ const STARTED_ID = 'walk-meal-started';
 const USUAL = -1;
 
 const LOCATION_NOTE = {
-  denied: 'Location is off for this app, so the walk will be timed only. To measure distance, allow location for this app in your device’s settings.',
+  denied: 'Walk without location: this walk is timed only, with steps if you count them. To measure distance, allow location for this app in your device’s settings.',
   unsupported: 'This browser cannot share your location, so the walk will be timed only.',
 } as const;
 
@@ -84,6 +85,8 @@ export default function WalkHub() {
   // The meal's time: its usual end while that is the choice, otherwise minutes before now ("Just now" by default).
   const [mealAt, setMealAt] = useState<number | undefined>(context?.usual ? context.at : undefined);
   const [mealAgo, setMealAgo] = useState(0);
+  // B-09's suggested time is when the person had the meal; a "Started" choice is when it started.
+  const [startChosen, setStartChosen] = useState(false);
   const [target, setTarget] = useState(context ? AFTER_MEAL_TARGET : NO_TARGET);
   const [targetChosen, setTargetChosen] = useState(false);
 
@@ -130,6 +133,14 @@ export default function WalkHub() {
       setSteps(false);
       return;
     }
+    // The step card comes before the system's question (K-29): until it has been
+    // seen, the switch only records the choice, and the card and the question
+    // come at Start, in that order.
+    if (!walkSettings(state.settings).stepCardSeen) {
+      setSteps(true);
+      setStepsNote(undefined);
+      return;
+    }
     // Asked straight from the tap: iOS refuses motion access without one.
     const asking = requestMotion();
     setStepsBusy(true);
@@ -143,7 +154,10 @@ export default function WalkHub() {
   const chooseMeal = (next: Meal) => {
     setMeal(next);
     setMealAt(context?.usual && next === context.meal ? context.at : undefined);
+    setStartChosen(false);
   };
+  /** The time in use is B-09's suggestion for the meal in view, so the plan says when the meal was had. */
+  const hadAt = !!context && meal === context.meal && !startChosen;
   const usual = context?.usual && meal === context.meal ? context.at : undefined;
 
   const at = mealAt ?? now.getTime() - mealAgo * 60_000;
@@ -162,6 +176,7 @@ export default function WalkHub() {
     const plan = setupPlan({
       kind: which, meal: which === 'afterMeal' ? meal : undefined,
       mealAgo: mealAt !== undefined ? mealMinutesAgo(mealAt, tapAt) : mealAgo,
+      ...(which === 'afterMeal' && hadAt ? { mealBasis: 'had' as const } : {}),
       ...(minutes !== NO_TARGET ? { targetMinutes: minutes } : {}), gps, steps,
     }, tapAt);
     return plan ? liveHref(newWalkId(tapAt), plan) : undefined;
@@ -175,8 +190,8 @@ export default function WalkHub() {
     document.getElementById(STARTED_ID)?.focus();
   };
   const act = (k: HubActionKind) => {
-    // A remembered "Count steps" still needs this launch's motion permission on an iPhone, and only a tap can ask (B-01): this is that tap.
-    if (steps && k !== 'otherTime' && k !== 'status') void requestMotion();
+    // No motion request here: B-01 asks in the tap that finally starts the walk,
+    // which may be the check-in's or a first-walk question's (useStartMovement).
     const tapAt = Date.now();
     const plain = hrefFor('walk', tapAt)!;
     runAction(actionTarget(k, { mode: 'walk', href: hrefFor(kind, tapAt) ?? plain, plainHref: plain, startLabel: 'Start walk' }), {
@@ -231,10 +246,13 @@ export default function WalkHub() {
                   value={mealAt !== undefined ? USUAL : mealAgo}
                   options={startedOptions}
                   onChange={v => {
-                    if (v === USUAL) setMealAt(usual);
-                    else {
+                    if (v === USUAL) {
+                      setMealAt(usual);
+                      setStartChosen(false);
+                    } else {
                       setMealAgo(v);
                       setMealAt(undefined);
+                      setStartChosen(true);
                     }
                   }}
                 />
@@ -260,7 +278,7 @@ export default function WalkHub() {
                 {rememberNote && <span role="status" className="mt-1 block text-stop">{rememberNote}</span>}
               </>}
             >
-              <SwitchRow label="Measure distance and pace" detail={gpsBusy ? 'Asking for your location…' : gpsNote ?? 'Uses GPS. Your route is never stored.'} checked={gps} busy={gpsBusy} onToggle={() => void toggleGps()} />
+              <SwitchRow label="Measure distance and pace" detail={gpsBusy ? 'Asking for your location…' : gpsNote ?? routeNote(walkSettings(state.settings))} checked={gps} busy={gpsBusy} onToggle={() => void toggleGps()} />
               <SwitchRow label="Count steps" detail={stepsBusy ? 'Asking for motion access…' : stepsNote ?? 'Uses the motion sensor, with the phone in your hand or pocket.'} checked={steps} busy={stepsBusy} onToggle={() => void toggleSteps()} />
             </Group>
           </div>

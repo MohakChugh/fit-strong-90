@@ -41,7 +41,7 @@ import { prefersHour12 } from '@/screens/track/format';
 import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
 import { addToDayTotal, getState, isSessionSaved, useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
-import { canLocate, canSenseMotion, requestMotion } from '@/walk/browser';
+import { canLocate, canSenseMotion } from '@/walk/browser';
 import { peekWalk } from '@/walk/persist';
 import { directWalkHref, walkFirst, type WalkFirst } from '@/walk/plan';
 import { useClock, useWakeAt } from '@/screens/today/clock';
@@ -76,6 +76,7 @@ import { TileMenu } from './TileMenu';
 import { movementLine } from './tileLine';
 import { RIGHT_NOW_ID, SLOTS, UrgentContext, recommendSources, withEffectiveToday } from './urgent';
 import { WeekCard } from './WeekCard';
+import { WalkRecoveryRow } from './WalkRecoveryRow';
 import { movedDays, restDaysOf, stepsLine, stretchDays, weekDots } from './week';
 
 // Track's own goal editor, so the rule for a valid goal lives in one place.
@@ -233,10 +234,10 @@ export function HomeScreen() {
         return;
       }
       // Straight to the live walk (K-32), measuring what the person chose last
-      // time; the motion sensor is asked from this tap, as iOS requires (B-01).
+      // time. The motion sensor is asked in the tap that finally starts the
+      // walk, which may be this one or the check-in's (B-01, useStartMovement).
       const remembered = settings.walkDefaults;
       const measure = { gps: (remembered?.gps ?? false) && canLocate(), steps: (remembered?.steps ?? false) && canSenseMotion() };
-      if (measure.steps) void requestMotion();
       start('walk', directWalkHref(action.walk, Date.now(), measure), 'Start walk');
       return;
     }
@@ -374,6 +375,10 @@ export function HomeScreen() {
           Something else
         </button>
       </div>
+
+      {/* A walk the app lost mid-way, offered to save (journey §9.4): under the
+          Right now card, so an urgent surface always ranks above it (A-57). */}
+      <WalkRecoveryRow />
 
       {/* Quiet, and only once today is checked in: a new symptom or reading
           can always be added, whatever the suggestion above says (J03 step 4). */}

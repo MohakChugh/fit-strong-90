@@ -37,7 +37,7 @@ vi.mock('@/walk/browser', async () => {
   const { storeGate, watchClinical } = await import('@/walk/gate');
   return {
     liveWalk: () => (walk.live ??= createLiveWalk({
-      mayRun: storeGate,
+      mayRun: (intent, w) => storeGate(intent, w?.clockChangedAt),
       watchClinical,
       now: () => Date.now(),
       later(fn, ms) {

@@ -137,3 +137,13 @@ describe('the glucose check before cardio, in either unit', () => {
     }
   });
 });
+
+describe('the walk’s cues (journey §9.2)', () => {
+  it('are recorded in every pack', async () => {
+    const { WALK_CUES } = await import('@/walk/cues');
+    for (const id of deployed) {
+      const m = read(id);
+      expect(WALK_CUES.map(c => c.line).filter(l => !(clipKey(l) in m.lines)), id).toEqual([]);
+    }
+  });
+});

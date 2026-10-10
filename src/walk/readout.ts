@@ -11,11 +11,14 @@ import { PERMISSION_TEXT, type Permission } from '@/engine/permission';
 import type { CheckInRecord } from '@/types/checkin';
 import { RECHECK_MINUTES, toMgdl, TREAT } from '@/engine/readiness';
 import { toDateString } from '@/lib/utils';
-import type { GapCause, Walk } from './clock';
+import type { GapCause, Walk, WalkPlan } from './clock';
 import { clock, count, km, pace, span, timeOfDay, wholeMinutes } from './format';
 import { ADDABLE_GAP_MS, type GpsState, type LiveSnapshot, type Notice, type StepsState } from './live';
 import { afterMealTitle } from './plan';
 import type { WalkSummary } from './record';
+import type { VoiceTrouble } from '@/voice/clips';
+import type { VoiceStatus } from './voice';
+import type { Split } from './route';
 
 export interface Figure {
   /** The figure, or a short word in its place. */
@@ -57,10 +60,41 @@ export function draftWarning(kept: boolean, where: 'live' | 'summary'): string |
 }
 
 /** Shown only while recording, when the screen may go dark and stop it. */
+/** On a held walk after a change to the phone's clock (B-19). */
+export function clockLine(walk: Pick<Walk, 'clockChangedAt'>): string | undefined {
+  return walk.clockChangedAt === undefined
+    ? undefined
+    : 'Your phone’s clock changed during this walk, so a reading from before the change can’t be timed. Check your glucose again to carry on.';
+}
+
 export function wakeHint(snapshot: Pick<LiveSnapshot, 'wake' | 'walk' | 'blocked'>): string | undefined {
   return snapshot.wake === 'unavailable' && snapshot.walk.status === 'running' && !snapshot.blocked
-    ? 'Keep the screen on to keep recording.'
+    ? 'Keep this screen on to keep tracking.'
     : undefined;
+}
+
+/** Steps, when motion access was turned down at the start (journey §9.1). */
+export const STEPS_DENIED: Figure = { value: 'Steps not counted', note: 'Motion access was turned down when this walk started.' };
+
+/** When the phone refused the walk's last checkpoint for want of space (journey §9.4). */
+export function journalLine(s: Pick<LiveSnapshot, 'journalFull'>): string | undefined {
+  return s.journalFull ? 'This phone is out of space. Your walk is kept on this screen; free some space and tap Save.' : undefined;
+}
+
+/**
+ * The voice's line on the live walk (journey §9.2, V-J16). A screen opened
+ * without the tap that starts a walk (a reload, a link) has a locked audio
+ * element, and only a tap unlocks it.
+ */
+export function cueLine(voice: { status: VoiceStatus; trouble: VoiceTrouble | null }, online: boolean): { text: string; unlock: boolean } | undefined {
+  if (voice.trouble === 'blocked' || voice.status === 'idle') return { text: 'Voice cues are off until you turn them on.', unlock: true };
+  if (voice.status === 'unavailable') return { text: online ? 'Voice cues aren’t available right now.' : 'Voice cues need a connection.', unlock: false };
+  return undefined;
+}
+
+/** Where the route will be, before there is one to draw. */
+export function routePlaceholder(gps: LiveSnapshot['gps']): string {
+  return gps.state === 'denied' || gps.state === 'unsupported' ? 'Location is off, so no route is drawn.' : 'Finding your location…';
 }
 
 export function targetLine(observedMs: number, targetMinutes: number | undefined): string | undefined {
@@ -162,11 +196,35 @@ export interface SummaryRow {
  * The summary's rows, in order. Only what was observed or entered is listed,
  * each with how it was observed; anything off for this walk is not a row.
  */
-export function summaryRows(walk: Walk, summary: WalkSummary, options: { locale?: string; time?: (t: number) => string } = {}): SummaryRow[] {
+/** "1 min 30 s" or "18 min": to the second under 10 minutes, where rounding to a minute would hide a dropout. */
+function coverSpan(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s >= 600 || s % 60 === 0) return span(ms);
+  return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
+}
+
+/** One row for each complete kilometre (journey §9.5). A kilometre still under way isn't a split. */
+export function splitRows(splits: readonly Split[]): SummaryRow[] {
+  return splits.map(s => ({ label: `Kilometre ${s.km}`, value: `${pace(s.ms / 1000)} min` }));
+}
+
+/** In place of a route (journey §9.5, V-J20). Without the walk's plan, as on a saved walk's detail, the plain line. */
+export function noRouteLine(plan?: Pick<WalkPlan, 'gps' | 'keepRoute'>): string {
+  if (!plan) return 'No route kept for this walk.';
+  if (!plan.gps) return 'No route: location was off for this walk.';
+  if (!plan.keepRoute) return 'No route: routes aren’t kept on this phone.';
+  return 'No route: no location was found during this walk.';
+}
+
+export function summaryRows(walk: Walk, summary: WalkSummary, options: { locale?: string; time?: (t: number) => string; energy?: { value: string; detail: string } } = {}): SummaryRow[] {
   const time = options.time ?? (t => timeOfDay(t, options.locale));
   const rows: SummaryRow[] = [];
   const meal = walk.plan.kind === 'afterMeal' ? walk.plan.meal : undefined;
-  if (meal) rows.push({ label: afterMealTitle(meal.which), value: `Started ${time(meal.startedAt)}`, detail: 'When the meal started' });
+  if (meal) {
+    rows.push(meal.basis === 'had'
+      ? { label: afterMealTitle(meal.which), value: `Had at ${time(meal.startedAt)}`, detail: 'When you had the meal' }
+      : { label: afterMealTitle(meal.which), value: `Started ${time(meal.startedAt)}`, detail: 'When the meal started' });
+  }
 
   if (walk.plan.gps) {
     if (summary.distanceM !== undefined) {
@@ -174,7 +232,7 @@ export function summaryRows(walk: Walk, summary: WalkSummary, options: { locale?
       rows.push({
         label: 'Distance',
         value: `${km(summary.distanceM)} km`,
-        detail: short ? 'Measured by GPS. The signal dropped out for part of the walk, so this may be short.' : 'Measured by GPS',
+        detail: `Measured by GPS for ${coverSpan(summary.coveredMs ?? 0)} of ${coverSpan(summary.observedMs)}${short ? '. The signal dropped out for part of the walk, so this may be short.' : ''}`,
       });
     } else {
       rows.push({ label: 'Distance', value: 'Not measured', detail: 'GPS did not measure this walk' });
@@ -184,11 +242,14 @@ export function summaryRows(walk: Walk, summary: WalkSummary, options: { locale?
     }
   }
 
-  if (walk.plan.steps) {
+  if (walk.plan.stepsDenied) {
+    rows.push({ label: 'Steps', value: 'Not counted', detail: STEPS_DENIED.note });
+  } else if (walk.plan.steps) {
     rows.push(summary.steps !== undefined
-      ? { label: 'Steps', value: count(summary.steps, options.locale), detail: 'Counted while the app was open' }
+      ? { label: 'Steps', value: count(summary.steps, options.locale), detail: `Counted while the screen was on: ${wholeMinutes(summary.stepsCoveredMs ?? 0)} of ${wholeMinutes(summary.observedMs)} min` }
       : { label: 'Steps', value: 'Not counted', detail: 'No motion data arrived' });
   }
+  if (options.energy) rows.push({ label: 'Energy (estimate)', ...options.energy });
 
   if (summary.addedMs >= 1000) {
     rows.push({ label: 'Time you added', value: `${wholeMinutes(summary.addedMs)} min`, detail: 'Entered by you for time the app was away' });
@@ -217,6 +278,9 @@ export function walkSpan(from: number, to: number, options: { today?: string; ti
 export function endingLine(walk: Walk, time: (t: number) => string = t => timeOfDay(t)): string | undefined {
   if (walk.endedBy === 'stale') {
     return `This walk was left open, so it was finished at ${time(walk.finishedAt ?? walk.seenAt)}, when the app last saw it. Here is what was recorded.`;
+  }
+  if (walk.endedBy === 'interrupted') {
+    return `The app closed during this walk, so it ends at ${time(walk.finishedAt ?? walk.seenAt)}, when it was last kept. Here is what was recorded.`;
   }
   if (walk.endedBy === 'emergency') return 'This walk ended because of symptoms that need emergency help.';
   return undefined;

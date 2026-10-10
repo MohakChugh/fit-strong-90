@@ -3,13 +3,20 @@ import { format } from 'date-fns';
 import { createDefaultProfile } from '@/profile/defaults';
 import { toDateString } from '@/lib/utils';
 import { evaluateCheckIn, TREAT } from '@/engine/readiness';
-import { addGapTime, finishWalk, leaveWalk, returnToWalk, startWalk, updateOpenSegment, type Walk } from './clock';
+import { addGapTime, finishWalk, leaveWalk, returnToWalk, startWalk, updateOpenSegment, type Walk, type WalkPlan } from './clock';
 import type { LiveSnapshot } from './live';
 import { summarise } from './record';
 import { PERMISSION_TEXT, type Permission } from '@/engine/permission';
 import type { CheckInRecord } from '@/types/checkin';
 import {
+  STEPS_DENIED,
+  clockLine,
+  noRouteLine,
+  splitRows,
+  cueLine,
   distanceFigure,
+  journalLine,
+  routePlaceholder,
   draftWarning,
   endingLine,
   heldAction,
@@ -49,6 +56,8 @@ function snapshot(over: Partial<LiveSnapshot> = {}): LiveSnapshot {
     notice: null,
     blocked: null,
     draftKept: true,
+    route: [],
+    journalFull: false,
     ...over,
   };
 }
@@ -100,7 +109,7 @@ describe('live figures', () => {
 
     expect(wakeHint({ wake: 'held', walk: s.walk, blocked: null })).toBeUndefined();
     expect(wakeHint({ wake: 'pending', walk: s.walk, blocked: null })).toBeUndefined();
-    expect(wakeHint({ wake: 'unavailable', walk: s.walk, blocked: null })).toBe('Keep the screen on to keep recording.');
+    expect(wakeHint({ wake: 'unavailable', walk: s.walk, blocked: null })).toBe('Keep this screen on to keep tracking.');
     // Paused or held, nothing is being recorded, so a dark screen loses nothing.
     expect(wakeHint({ wake: 'unavailable', walk: { ...s.walk, status: 'paused' }, blocked: null })).toBeUndefined();
     expect(wakeHint({ wake: 'unavailable', walk: s.walk, blocked: 'live' })).toBeUndefined();
@@ -157,6 +166,14 @@ describe('coming back', () => {
 });
 
 describe('summary rows', () => {
+  it('says "had at" for a meal time the person stated (B-09)', () => {
+    const time = (t: number) => (t === T - 600_000 ? '7:10 pm' : '?');
+    const w = finishWalk(startWalk('abcd-1234', { kind: 'afterMeal', meal: { which: 'lunch', startedAt: T - 600_000, basis: 'had' }, gps: false, steps: false }, T), T + 600_000, 'finish');
+    expect(summaryRows(w, summarise(w), { time })[0]).toEqual({ label: 'After lunch', value: 'Had at 7:10 pm', detail: 'When you had the meal' });
+    const started = finishWalk(startWalk('abcd-1234', { kind: 'afterMeal', meal: { which: 'lunch', startedAt: T - 600_000 }, gps: false, steps: false }, T), T + 600_000, 'finish');
+    expect(summaryRows(started, summarise(started), { time })[0]).toEqual({ label: 'After lunch', value: 'Started 7:10 pm', detail: 'When the meal started' });
+  });
+
   function walked(): Walk {
     let w = startWalk('abcd-1234', { kind: 'afterMeal', meal: { which: 'dinner', startedAt: T - 600_000 }, gps: true, steps: true }, T);
     w = updateOpenSegment(w, s => ({ ...s, gps: [{ start: T, end: T + 1_000_000, distanceM: 1300 }], steps: 2015, motion: true }));
@@ -168,9 +185,9 @@ describe('summary rows', () => {
     const w = walked();
     expect(summaryRows(w, summarise(w), { locale: 'en-US', time })).toEqual([
       { label: 'After dinner', value: 'Started 7:10 pm', detail: 'When the meal started' },
-      { label: 'Distance', value: '1.30 km', detail: 'Measured by GPS' },
+      { label: 'Distance', value: '1.30 km', detail: 'Measured by GPS for 17 min of 18 min' },
       { label: 'Average pace', value: '12:49 min/km', detail: 'GPS estimate' },
-      { label: 'Steps', value: '2,015', detail: 'Counted while the app was open' },
+      { label: 'Steps', value: '2,015', detail: 'Counted while the screen was on: 18 of 18 min' },
       { label: 'Not recorded', value: '5 min', detail: 'The app was away, so this time is not counted' },
     ]);
   });
@@ -333,5 +350,85 @@ describe('after a walk ended for a low (X2-13)', () => {
     const due = lowAdvice({ stage: 'due', since: at(11), recheckAt: at(26) }, time);
     expect(due.lines[0]).toBe('Check your glucose now.');
     expect(due.lines.join(' ')).toContain(TREAT);
+  });
+});
+
+describe('a held walk after a change to the phone’s clock (B-19)', () => {
+  it('says why a reading from before the change no longer counts, and nothing otherwise', () => {
+    expect(clockLine({})).toBeUndefined();
+    expect(clockLine({ clockChangedAt: 1_760_000_000_000 })).toBe(
+      'Your phone’s clock changed during this walk, so a reading from before the change can’t be timed. Check your glucose again to carry on.',
+    );
+  });
+});
+
+describe('the live walk’s v2 lines (journey §9.2, §9.4)', () => {
+  it('asks to keep the screen on in the journey’s words', () => {
+    expect(wakeHint({ wake: 'unavailable', walk: snapshot().walk, blocked: null })).toBe('Keep this screen on to keep tracking.');
+  });
+
+  it('says when the phone is out of space for the walk in progress', () => {
+    expect(journalLine({ journalFull: false })).toBeUndefined();
+    expect(journalLine({ journalFull: true })).toBe('This phone is out of space. Your walk is kept on this screen; free some space and tap Save.');
+  });
+
+  it('says steps aren’t counted when motion was turned down at the start', () => {
+    expect(STEPS_DENIED).toEqual({ value: 'Steps not counted', note: 'Motion access was turned down when this walk started.' });
+  });
+
+  it('offers the voice after the screen was reopened, and says when cues need a connection', () => {
+    expect(cueLine({ status: 'ready', trouble: null }, true)).toBeUndefined();
+    expect(cueLine({ status: 'idle', trouble: null }, true)).toEqual({ text: 'Voice cues are off until you turn them on.', unlock: true });
+    expect(cueLine({ status: 'ready', trouble: 'blocked' }, true)?.unlock).toBe(true);
+    expect(cueLine({ status: 'unavailable', trouble: null }, false)).toEqual({ text: 'Voice cues need a connection.', unlock: false });
+    expect(cueLine({ status: 'unavailable', trouble: null }, true)).toEqual({ text: 'Voice cues aren’t available right now.', unlock: false });
+  });
+
+  it('waits for a location before drawing, and says when there is none', () => {
+    expect(routePlaceholder({ state: 'acquiring' })).toBe('Finding your location…');
+    expect(routePlaceholder({ state: 'denied' })).toBe('Location is off, so no route is drawn.');
+    expect(routePlaceholder({ state: 'unsupported' })).toBe('Location is off, so no route is drawn.');
+  });
+});
+
+describe('the v2 summary (journey §9.5)', () => {
+  const done = (plan: Partial<WalkPlan>, seconds: number, gps?: { ms: number; m: number }) => {
+    let w = startWalk('abcd-1234', { kind: 'walk', gps: true, steps: false, ...plan }, T);
+    if (gps) w = updateOpenSegment(w, x => ({ ...x, gps: [{ start: T, end: T + gps.ms, distanceM: gps.m }] }));
+    return finishWalk(w, T + seconds * 1000, 'finish');
+  };
+
+  it('states the covered time to the second on a short walk, where minutes would hide a dropout', () => {
+    const w = done({}, 120, { ms: 90_000, m: 90 });
+    expect(summaryRows(w, summarise(w), { time })[0].detail).toBe('Measured by GPS for 1 min 30 s of 2 min. The signal dropped out for part of the walk, so this may be short.');
+  });
+
+  it('says steps weren’t counted when motion was turned down at the start', () => {
+    const w = done({ gps: false, stepsDenied: true }, 600);
+    expect(summaryRows(w, summarise(w), { time })).toContainEqual({ label: 'Steps', value: 'Not counted', detail: 'Motion access was turned down when this walk started.' });
+  });
+
+  it('adds the energy estimate with what it was worked out from', () => {
+    const w = done({ gps: false }, 600);
+    const energy = { value: 'about 20 kcal', detail: 'From 10 min without distance, counted at an easy pace. Using 78 kg, from your profile.' };
+    expect(summaryRows(w, summarise(w), { time, energy })).toContainEqual({ label: 'Energy (estimate)', ...energy });
+  });
+
+  it('lists each complete kilometre, and says why a walk has no route', () => {
+    expect(splitRows([{ km: 1, ms: 725_000 }, { km: 2, ms: 690_000 }])).toEqual([
+      { label: 'Kilometre 1', value: '12:05 min' },
+      { label: 'Kilometre 2', value: '11:30 min' },
+    ]);
+    expect(noRouteLine({ gps: false })).toBe('No route: location was off for this walk.');
+    expect(noRouteLine({ gps: true })).toBe('No route: routes aren’t kept on this phone.');
+    expect(noRouteLine({ gps: true, keepRoute: true })).toBe('No route: no location was found during this walk.');
+    expect(noRouteLine()).toBe('No route kept for this walk.');
+  });
+});
+
+describe('a walk the app lost (journey §9.4, B-19)', () => {
+  it('says a walk the app lost ends where it was last kept', () => {
+    const w = { ...finishWalk(startWalk('abcd-1234', { kind: 'walk', gps: false, steps: false }, T), T + 600_000, 'interrupted') };
+    expect(endingLine(w, time)).toBe('The app closed during this walk, so it ends at 7:10 pm, when it was last kept. Here is what was recorded.');
   });
 });

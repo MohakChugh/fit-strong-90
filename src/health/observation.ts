@@ -41,7 +41,9 @@ export type ObservationKind =
   | 'mood'
   | 'hba1c'
   | 'b12'
-  | 'vitaminD';
+  | 'vitaminD'
+  /** A walk's active-energy estimate (journey §12.4): kept with its walk, never summed into a day's movement. */
+  | 'activeEnergy';
 
 /**
  * When a reading was taken, relative to the thing that moves it.
@@ -154,6 +156,7 @@ export const KINDS: Record<ObservationKind, KindSpec> = {
   hba1c: { units: ['%', 'mmol/mol'], scopes: ['pointInTime'], label: 'HbA1c' },
   b12: { units: ['pg/mL', 'pmol/L'], scopes: ['pointInTime'], label: 'Vitamin B12' },
   vitaminD: { units: ['ng/mL', 'nmol/L'], scopes: ['pointInTime'], label: 'Vitamin D' },
+  activeEnergy: { units: ['kcal'], scopes: ['sessionObserved'], label: 'Active energy (estimate)' },
 };
 
 /** Kinds a walk records, which may carry the meal it followed. */

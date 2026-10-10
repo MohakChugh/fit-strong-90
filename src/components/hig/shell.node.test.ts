@@ -533,7 +533,10 @@ describe('wiring that names the opener (S-10, S-11)', () => {
   });
 
   it('the walk summary, a full-screen task, can be left by Back, keeping the walk to save (codex V1-08, journey §20.4 rule 10)', () => {
-    expect(read('src/screens/walk/WalkSummary.tsx')).toMatch(/<Screen title="Your walk" back=\{\{ to: '\/home', label: 'Home' \}\}>/);
+    // Back, like Done, returns to where the walk was started: the Walk hub, or Home (motion M12, Plan 6).
+    const summary = read('src/screens/walk/WalkSummary.tsx');
+    expect(summary).toContain("const origin = walk.plan.from ?? '/home';");
+    expect(summary).toContain("<Screen title=\"Your walk\" back={{ to: origin, label: origin === '/hub/walk' ? 'Walk' : 'Home' }}>");
   });
 
   it('a related card and a related exercise name the screen they were opened from', () => {
@@ -799,13 +802,17 @@ describe('the Right now card runs its action directly (journey §7.4, K-32, B-09
 
   it('a walk from the card with another walk still on this device deals with that one first, and starts nothing (codex W-04)', () => {
     const home = read('src/screens/home/HomeScreen.tsx');
-    expect(home).toMatch(/if \(action\.walk\) \{[\s\S]*?const first = walkFirst\(peekWalk\(\), action\.walk, Date\.now\(\), HOUR12\);\s*if \(first\) \{\s*setWalkAhead\(\{ first, open: true \}\);\s*return;\s*\}[\s\S]*?if \(measure\.steps\) void requestMotion\(\);[\s\S]*?start\('walk'/);
+    // Before the shared start, which runs the walk's own flow and B-01's sequence (Plan 6 Task 8).
+    expect(home).toMatch(/if \(action\.walk\) \{[\s\S]*?const first = walkFirst\(peekWalk\(\), action\.walk, Date\.now\(\), HOUR12\);\s*if \(first\) \{\s*setWalkAhead\(\{ first, open: true \}\);\s*return;\s*\}[\s\S]*?start\('walk', directWalkHref\(action\.walk, Date\.now\(\), measure\), 'Start walk'\);/);
     expect(home).toContain('onClick={() => navigate(walkAhead.first.action.to, { viewTransition: true })}');
   });
 
-  it('a walk from the card starts at once, with its id made at the tap and the motion sensor asked from it (B-01)', () => {
+  it('a walk from the card starts at once through the shared start, with its id made at the tap; motion is asked in the tap that finally starts it (B-01)', () => {
     const home = read('src/screens/home/HomeScreen.tsx');
-    expect(home).toMatch(/if \(action\.walk\) \{[\s\S]*?if \(measure\.steps\) void requestMotion\(\);[\s\S]*?start\('walk', directWalkHref\(action\.walk, Date\.now\(\), measure\), 'Start walk'\);/);
+    expect(home).toMatch(/if \(action\.walk\) \{[\s\S]*?start\('walk', directWalkHref\(action\.walk, Date\.now\(\), measure\), 'Start walk'\);/);
+    // Not asked early from the card: the walk's own start sequence asks, in the tap that finally starts it (Plan 6 Task 8).
+    expect(home).not.toMatch(/requestMotion/);
+    expect(read('src/screens/walk/useWalkFlow.tsx')).toMatch(/createStarter\(\{\s*requestMotion,/);
   });
 });
 

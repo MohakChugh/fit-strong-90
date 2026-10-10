@@ -4,6 +4,8 @@ import { useGuided } from '@/hooks/useGuided';
 import type { Mode, Permission } from '@/engine/permission';
 import { nextBoundary } from '@/health/recommend';
 import { useClock, useWakeAt } from '@/screens/today/clock';
+import { useWalkFlow } from '@/screens/walk/useWalkFlow';
+import { freshLiveHref, walkPlanOf } from '@/walk/plan';
 import { CheckInSheet } from './CheckInSheet';
 import { gateFor, startDecision } from './start';
 
@@ -20,6 +22,9 @@ interface Target {
  * mode; otherwise it opens the check-in sheet for that mode, whose Start
  * button then goes to `href`. The caller renders `sheet` once. No screen
  * writes its own safety gate.
+ *
+ * A start to `/walk/live` is a walk: its first-walk questions and B-01's
+ * start sequence run in place of the navigation (Plan 6).
  */
 export function useStartMovement(): {
   start: (mode: Mode, href: string, startLabel: string) => void;
@@ -47,12 +52,23 @@ export function useStartMovement(): {
     [profile, checkIn, recent, now],
   );
 
-  const start = useCallback((mode: Mode, href: string, startLabel: string) => {
-    if (startDecision(permissionFor(mode)) === 'go') navigate(href, { viewTransition: true });
+  // A walk's questions and start sequence (journey §9.1, B-01). A refusal that a check-in answers opens the sheet below.
+  const walk = useWalkFlow(plan => setTarget({ mode: 'walk', href: freshLiveHref(plan), startLabel: 'Start walk' }));
+
+  /** Where an allowed start goes: a walk through its own flow, in this tap; anything else straight to its screen. */
+  const go = (href: string) => {
+    const plan = walkPlanOf(href);
+    if (plan) walk.begin(plan);
+    else navigate(href, { viewTransition: true });
+  };
+
+  const start = (mode: Mode, href: string, startLabel: string) => {
+    if (startDecision(permissionFor(mode)) === 'go') go(href);
     else setTarget({ mode, href, startLabel });
-  }, [permissionFor, navigate]);
+  };
 
   const sheet = (
+    <>
     <CheckInSheet
       open={target !== null}
       onOpenChange={open => { if (!open) setTarget(null); }}
@@ -66,9 +82,11 @@ export function useStartMovement(): {
       onStart={() => {
         const t = target;
         setTarget(null);
-        if (t) navigate(t.href, { viewTransition: true });
+        if (t) go(t.href);
       }}
     />
+    {walk.ui}
+    </>
   );
 
   return { start, sheet, permissionFor };

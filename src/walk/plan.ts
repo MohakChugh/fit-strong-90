@@ -9,7 +9,7 @@ import { format } from 'date-fns';
 import { timeOf } from '@/lib/time';
 import { toDateString } from '@/lib/utils';
 import type { Meal } from '@/types/habits';
-import type { WalkPlan } from './clock';
+import type { WalkOrigin, WalkPlan } from './clock';
 import type { WalkPeek } from './persist';
 
 export const MEALS: readonly Meal[] = ['breakfast', 'lunch', 'dinner'];
@@ -28,6 +28,8 @@ export interface SetupChoice {
   meal: Meal | undefined;
   /** When the meal started, in minutes before now. */
   mealAgo: number;
+  /** 'had': the time is when the person had the meal (B-09's button), not when it started. */
+  mealBasis?: 'had';
   targetMinutes?: number;
   gps: boolean;
   steps: boolean;
@@ -38,7 +40,7 @@ export function setupPlan(c: SetupChoice, now: number): WalkPlan | undefined {
   if (c.kind === 'afterMeal' && !c.meal) return undefined;
   return {
     kind: c.kind,
-    ...(c.kind === 'afterMeal' && c.meal ? { meal: { which: c.meal, startedAt: now - c.mealAgo * 60_000 } } : {}),
+    ...(c.kind === 'afterMeal' && c.meal ? { meal: { which: c.meal, startedAt: now - c.mealAgo * 60_000, ...(c.mealBasis ? { basis: c.mealBasis } : {}) } } : {}),
     ...(c.targetMinutes ? { targetMinutes: c.targetMinutes } : {}),
     gps: c.gps,
     steps: c.steps,
@@ -117,7 +119,8 @@ export function isWalkId(value: unknown): value is string {
  */
 export function directWalkHref(walk: { meal?: Meal; mealStartedAt?: number }, now: number, measure: MeasureChoice): string {
   const plan: WalkPlan = walk.meal && walk.mealStartedAt !== undefined
-    ? { kind: 'afterMeal', meal: { which: walk.meal, startedAt: walk.mealStartedAt }, gps: measure.gps, steps: measure.steps }
+    // B-09: the time the person had the meal, not when it started.
+    ? { kind: 'afterMeal', meal: { which: walk.meal, startedAt: walk.mealStartedAt, basis: 'had' }, gps: measure.gps, steps: measure.steps }
     : { kind: 'walk', gps: measure.gps, steps: measure.steps };
   return liveHref(newWalkId(now), plan);
 }
@@ -156,16 +159,25 @@ export function walkFirst(pending: Pick<WalkPeek, 'state' | 'startedAt' | 'href'
     };
 }
 
+/** A new walk's address, its id made at this moment: the start's own tap (B-01). */
+export function freshLiveHref(plan: WalkPlan, now: number = Date.now()): string {
+  return liveHref(newWalkId(now), plan);
+}
+
 /** The live screen's address for a new walk. */
 export function liveHref(id: string, plan: WalkPlan): string {
   const q = new URLSearchParams({ id });
   if (plan.kind === 'afterMeal' && plan.meal) {
     q.set('meal', plan.meal.which);
     q.set('mealAt', String(Math.round(plan.meal.startedAt)));
+    if (plan.meal.basis === 'had') q.set('mealBasis', 'had');
   }
   if (plan.targetMinutes !== undefined) q.set('target', String(plan.targetMinutes));
   if (plan.gps) q.set('gps', '1');
-  if (plan.steps) q.set('steps', '1');
+  if (plan.stepsDenied) q.set('steps', 'denied');
+  else if (plan.steps) q.set('steps', '1');
+  if (plan.keepRoute) q.set('route', '1');
+  if (plan.from) q.set('from', plan.from === '/hub/walk' ? 'walk' : 'home');
   return `/walk/live?${q.toString()}`;
 }
 
@@ -200,12 +212,28 @@ export function walkFromSearch(search: URLSearchParams, now: number): { id: stri
     id,
     plan: {
       kind: mealOk ? 'afterMeal' : 'walk',
-      ...(mealOk ? { meal: { which, startedAt: Math.min(at, now) } } : {}),
+      ...(mealOk ? { meal: { which, startedAt: Math.min(at, now), ...(search.get('mealBasis') === 'had' ? { basis: 'had' as const } : {}) } } : {}),
       ...(targetOk ? { targetMinutes: target } : {}),
       gps: search.get('gps') === '1',
       steps: search.get('steps') === '1',
+      // A route is kept only from GPS, and only when the person said so on this phone (§9.1).
+      ...(search.get('route') === '1' && search.get('gps') === '1' ? { keepRoute: true } : {}),
+      ...(search.get('steps') === 'denied' ? { stepsDenied: true } : {}),
+      ...(search.get('from') === 'walk' ? { from: '/hub/walk' as const } : search.get('from') === 'home' ? { from: '/home' as const } : {}),
     },
   };
+}
+
+/** The origin a start was made from (motion M12): the Walk hub, or Home for everything else. */
+export function originOf(pathname: string): WalkOrigin {
+  return pathname.startsWith('/hub/walk') ? '/hub/walk' : '/home';
+}
+
+/** The plan in a live walk's address, or nothing for any other address. */
+export function walkPlanOf(href: string, now: number = Date.now()): WalkPlan | undefined {
+  const prefix = '/walk/live?';
+  if (!href.startsWith(prefix)) return undefined;
+  return walkFromSearch(new URLSearchParams(href.slice(prefix.length)), now)?.plan;
 }
 
 /** The meal another screen asked for, e.g. Home's after-dinner prompt linking to `/hub/walk?meal=dinner`. */

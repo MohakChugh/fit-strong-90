@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CandyIcon, FlagIcon, HandIcon, PauseIcon, PlayIcon, TriangleAlertIcon } from 'lucide-react';
 import { Screen } from '@/components/hig/Screen';
@@ -6,6 +6,7 @@ import { Sheet } from '@/components/hig/Sheet';
 import { Stat } from '@/components/hig/Stat';
 import { CheckInSheet } from '@/components/checkin/CheckInSheet';
 import { useGuided } from '@/hooks/useGuided';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
 import type { SymptomReport } from '@/components/checkin/pending';
 import type { GlucoseEntry } from '@/types/checkin';
 import { deriveHealth } from '@/engine/health';
@@ -16,8 +17,13 @@ import { clock, spokenClock, timeOfDay } from '@/walk/format';
 import { feelLow, lowReading } from '@/walk/low';
 import { walkFromSearch } from '@/walk/plan';
 import {
+  STEPS_DENIED,
+  clockLine,
+  cueLine,
   distanceFigure,
   draftWarning,
+  journalLine,
+  routePlaceholder,
   heldAction,
   heldLowAdvice,
   lowOpen,
@@ -40,6 +46,9 @@ import { StopSheet } from './StopSheet';
 import { PrimaryButton, SecondaryButton } from './parts';
 import { OwnsUrgent } from '@/screens/home/UrgentBanner';
 import { useLiveWalk } from './useLiveWalk';
+import { LiveRoute } from './RouteView';
+import { useWalkCues } from './useWalkCues';
+import { walkVoice } from '@/walk/voice';
 
 /** A figure's block: a number with its unit, or a word in its place, and how it was observed. */
 function FigureBlock({ label, figure, action, className }: { label: string; figure: Figure; action?: ReactNode; className?: string }) {
@@ -142,9 +151,17 @@ export default function LiveWalkScreen() {
   }, [live]);
 
   const finished = snapshot?.walk.status === 'finished';
+  const reduce = useReducedMotion();
+  // After the walk is kept (finish() writes the draft first), the figures panel grows into the summary (M13).
   useEffect(() => {
-    if (finished) navigate('/walk/summary', { replace: true });
-  }, [finished, navigate]);
+    if (finished) navigate('/walk/summary', { replace: true, viewTransition: !reduce });
+  }, [finished, navigate, reduce]);
+
+  // The cue player, its state read on every render (journey §9.2), and the cues spoken while recording.
+  const player = walkVoice();
+  const voiceTrouble = useSyncExternalStore(player.subscribe, () => player.trouble);
+  const voiceStatus = useSyncExternalStore(player.subscribe, () => player.status);
+  useWalkCues(snapshot, profile.voice.muted);
 
   if (!snapshot || finished) return <div className="min-h-dvh" aria-busy="true" />;
 
@@ -157,7 +174,9 @@ export default function LiveWalkScreen() {
    * before anyone taps Resume (N06). Resume still asks for itself.
    */
   const question = snapshot.blocked ?? (running ? null : 'restart');
-  const refusal = question ? walkRefusal(walkInput(clinical, new Date(snapshot.now)), question) : undefined;
+  const refusal = question ? walkRefusal(walkInput(clinical, new Date(snapshot.now), snapshot.walk.clockChangedAt), question) : undefined;
+  // Only when the hold is the one the clock change causes: a reading that can't be timed (B-19).
+  const clockNote = refusal?.reasons.includes(PERMISSION_TEXT.staleNoTime) ? clockLine(snapshot.walk) : undefined;
   const emergency = refusal?.disposition === 'emergency';
   const low = lowOpen(checkIn, snapshot.walk);
   const action = refusal ? heldAction(refusal, low) : 'none';
@@ -169,7 +188,9 @@ export default function LiveWalkScreen() {
   const target = targetLine(snapshot.observedMs, snapshot.walk.plan.targetMinutes);
   const pace = paceFigure(snapshot.gps);
   const distance = distanceFigure(snapshot);
-  const steps = stepsFigure(snapshot.stepsState, snapshot.steps);
+  const steps = snapshot.walk.plan.stepsDenied ? STEPS_DENIED : stepsFigure(snapshot.stepsState, snapshot.steps);
+  const full = journalLine(snapshot);
+  const cue = profile.voice.muted ? undefined : cueLine({ status: voiceStatus, trouble: voiceTrouble }, typeof navigator === 'undefined' || navigator.onLine);
 
   const stopNow = () => {
     live.pause();
@@ -224,6 +245,18 @@ export default function LiveWalkScreen() {
             </p>
             {hint && <p className="text-[length:var(--text-subhead)] font-medium text-caution">{hint}</p>}
             {draftNote && <p role="status" className="text-[length:var(--text-subhead)] font-medium leading-snug text-caution">{draftNote}</p>}
+            {full && <p role="status" className="text-[length:var(--text-subhead)] font-medium leading-snug text-caution">{full}</p>}
+            {cue && (
+              <div className="flex flex-wrap items-center gap-x-3">
+                <p role="status" className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{cue.text}</p>
+                {cue.unlock && (
+                  // In this tap: iOS unlocks audio only inside one (A-53).
+                  <button type="button" onClick={() => void player.unlock(profile.voice.pack ?? 'af_heart')} className="min-h-11 text-[length:var(--text-subhead)] font-semibold text-tint">
+                    Turn the voice on
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <div aria-live="polite">
@@ -236,6 +269,7 @@ export default function LiveWalkScreen() {
                   </p>
                   {refusal.reasons.map(r => <p key={r}>{r}</p>)}
                   {refusal.release && <p className="text-muted-foreground">{refusal.release}</p>}
+                  {clockNote && <p className="text-muted-foreground">{clockNote}</p>}
                   <p className="text-muted-foreground">Your walk so far is kept. Finish to save it.</p>
                   {action === 'checkIn' && (
                     <button type="button" onClick={() => setSheet('checkIn')} className="press-feedback mt-1 min-h-11 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
@@ -269,8 +303,14 @@ export default function LiveWalkScreen() {
             />
           )}
 
+          {/* The route on a plain grid, with location on (journey §9.2, M13): no map pictures while walking. */}
+          {snapshot.walk.plan.gps && (
+            <LiveRoute lines={snapshot.route} {...(snapshot.here ? { here: snapshot.here } : {})} waiting={routePlaceholder(snapshot.gps)} />
+          )}
+
           <div className="flex flex-col items-center gap-2 text-center">
-            <div role="timer">
+            {/* Paused, the time dims, with no pulse (M13, A-67). */}
+            <div role="timer" className={cn(!running && 'opacity-60')}>
               <Stat
                 label="Walking time"
                 unit=""
@@ -288,7 +328,7 @@ export default function LiveWalkScreen() {
           {/* Distance and pace always have a place: "Not measured" when GPS is
               off, as the walk's record says it, never a blank or a zero (J10). */}
           {refusal ? null : (
-            <div className="grid grid-cols-2 overflow-hidden rounded-xl bg-grouped-card">
+            <div className="grid grid-cols-2 overflow-hidden rounded-xl bg-grouped-card" style={reduce ? undefined : { viewTransitionName: 'walk-stats' }}>
               {pace && distance ? (
                 <>
                   <FigureBlock label="Pace" figure={pace} />

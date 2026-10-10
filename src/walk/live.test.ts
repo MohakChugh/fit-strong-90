@@ -11,7 +11,9 @@ import { feelLow, lowReading } from './low';
 import { legReport, stopReport, type LegAnswers } from './stop';
 import { createStepDetector } from './steps';
 import type { Fix } from './gps';
-import { createLiveWalk, MOTION_WAIT_MS, NOTICE_MIN_GAP_MS, type GeoError, type LivePorts, type WalkIntent } from './live';
+import { createLiveWalk, MOTION_WAIT_MS, NOTICE_MIN_GAP_MS, type GeoError, type JournalPort, type LivePorts, type WalkIntent } from './live';
+import type { JournalEntry } from './journal';
+import { StoreFailure, type StoreResult } from '@/store/db';
 import { clearWalk, loadWalk, type WalkStorage } from './persist';
 import { walkObservations } from './record';
 
@@ -31,14 +33,18 @@ function world(options: {
   wakeLock?: boolean | 'refuse';
   storage?: WalkStorage;
   /** A real gate in place of the switchable one, given this world's clock. */
-  gate?: (now: () => Date) => (intent: WalkIntent) => boolean;
+  gate?: (now: () => Date) => (intent: WalkIntent, clockChangedAt?: number) => boolean;
   watchClinical?: (onChange: () => void) => () => void;
 } = {}) {
   /** What the safety engine would answer, question by question. Tests flip it between arrivals. */
   const yes: Record<WalkIntent, boolean> = { start: true, restart: true, live: true };
   let allow = { ...yes };
   const asked: WalkIntent[] = [];
+  /** For each question, the clock change the walk had seen, if any (B-19). */
+  const askedWith: (number | undefined)[] = [];
   let now = T0;
+  /** How far the device clock has been moved away from the monotonic one (B-19). Timers run on the monotonic one. */
+  let skew = 0;
   let timers: { at: number; fn: () => void; id: number }[] = [];
   let nextId = 0;
   const map = new Map<string, string>();
@@ -66,15 +72,17 @@ function world(options: {
 
   const realGate = options.gate?.(() => new Date(now));
   const ports: LivePorts = {
-    mayRun(intent) {
+    mayRun(intent, walk) {
       asked.push(intent);
-      return realGate ? realGate(intent) : allow[intent];
+      askedWith.push(walk?.clockChangedAt);
+      return realGate ? realGate(intent, walk?.clockChangedAt) : allow[intent];
     },
     ...(options.watchClinical ? { watchClinical: options.watchClinical } : {}),
     now: () => now,
+    monotonic: () => now - skew,
     later(fn, ms) {
       const id = nextId++;
-      timers.push({ at: now + ms, fn, id });
+      timers.push({ at: now - skew + ms, fn, id });
       return () => {
         timers = timers.filter(t => t.id !== id);
       };
@@ -127,17 +135,17 @@ function world(options: {
     }),
   };
 
-  /** Move the clock on, running any timers that fall due, in order. */
+  /** Move the clock on, running any timers that fall due, in order. Timers keep monotonic time, as `setTimeout` does. */
   function advance(ms: number) {
-    const end = now + ms;
+    const end = now - skew + ms;
     for (;;) {
       const due = timers.filter(t => t.at <= end).sort((a, b) => a.at - b.at)[0];
       if (!due) break;
       timers = timers.filter(t => t !== due);
-      now = Math.max(now, due.at);
+      now = Math.max(now, due.at + skew);
       due.fn();
     }
-    now = end;
+    now = end + skew;
   }
 
   return {
@@ -152,6 +160,12 @@ function world(options: {
       allow = { ...yes };
     },
     get asked() { return asked; },
+    get askedWith() { return askedWith; },
+    /** The phone's clock is changed by `ms`: the device clock moves, the monotonic one doesn't (B-19). */
+    jumpClock(ms: number) {
+      now += ms;
+      skew += ms;
+    },
     get now() { return now; },
     set now(t: number) { now = t; },
     /** The page dies: every timer and listener with it, storage survives. */
@@ -1434,5 +1448,142 @@ describe('finishing', () => {
     expect(loadWalk(w.storage)!.status).toBe('finished');
     w.advance(60_000);
     expect(live.getSnapshot()!.observedMs).toBe(120_000);
+  });
+});
+
+describe('a change to the phone’s clock mid-walk (B-19)', () => {
+  it('keeps the time recorded right, splits the segment at the change, and takes fixes in the new clock', () => {
+    const w = world();
+    const live = createLiveWalk(w.ports);
+    live.attach(START);
+    walkFor(w, 60, 0);
+    w.jumpClock(-3_600_000);
+    w.advance(1000);
+    walkFor(w, 30, 80);
+    const snap = live.getSnapshot()!;
+    expect(snap.observedMs).toBe(91_000);
+    expect(snap.walk.segments.map(s => s.endedBy)).toEqual(['clockChange', undefined]);
+    expect(snap.walk.clockChangedAt).toBeDefined();
+    expect(snap.walk.segments[1].gps.length).toBeGreaterThan(0);
+  });
+
+  it('never runs the walk’s time backwards when the clock is set back a little', () => {
+    const w = world();
+    const live = createLiveWalk(w.ports);
+    live.attach(START);
+    w.advance(60_000);
+    const before = live.getSnapshot()!.observedMs;
+    // Under two minutes: not a change to the clock, but nothing walked is taken away either.
+    w.jumpClock(-30_000);
+    w.advance(1000);
+    expect(live.getSnapshot()!.observedMs).toBeGreaterThanOrEqual(before);
+    expect(live.getSnapshot()!.walk.segments).toHaveLength(1);
+    expect(live.getSnapshot()!.walk.clockChangedAt).toBeUndefined();
+  });
+
+  it('asks the gate about a restart with the change it saw', () => {
+    const w = world();
+    const live = createLiveWalk(w.ports);
+    live.attach(START);
+    w.advance(30_000);
+    w.jumpClock(3_600_000);
+    w.advance(1000);
+    live.pause();
+    live.resume();
+    expect(w.asked.at(-1)).toBe('restart');
+    expect(w.askedWith.at(-1)).toBeDefined();
+  });
+});
+
+describe('the route and the journal (journey §9.2, §9.4, §18.2)', () => {
+  function journal() {
+    const entries: JournalEntry[] = [];
+    let answer: StoreResult = { ok: true, value: undefined };
+    const port: JournalPort = {
+      checkpoint: async e => { entries.push(e); return answer; },
+      read: async id => entries.filter(e => e.id === id).at(-1),
+    };
+    return { port, entries, fail(failure: StoreFailure) { answer = { ok: false, failure }; } };
+  }
+  const KEEP = { id: START.id, plan: { ...PLAN, keepRoute: true } };
+
+  it('draws the walk as it goes, one line per stretch of signal, never across a gap', () => {
+    const w = world();
+    const live = createLiveWalk(w.ports);
+    live.attach(START);
+    walkFor(w, 30, 0);
+    w.hide();
+    w.advance(60_000);
+    w.show();
+    walkFor(w, 30, 200);
+    const snap = live.getSnapshot()!;
+    expect(snap.route).toHaveLength(2);
+    expect(snap.here).toBeDefined();
+  });
+
+  it('checkpoints at the start, every 15 seconds and at every change, with the route only when it is kept', async () => {
+    const kept = journal();
+    const w = world();
+    const live = createLiveWalk({ ...w.ports, journal: kept.port });
+    live.attach(KEEP);
+    walkFor(w, 31, 0);
+    live.pause();
+    await flush();
+    // The start, 15 s, 30 s and the pause.
+    expect(kept.entries.map(e => e.at - T0)).toEqual([0, 15_000, 30_000, 31_000]);
+    expect(kept.entries.at(-1)!.walk.status).toBe('paused');
+    expect(kept.entries.at(-1)!.route?.[0].coords.length).toBeGreaterThan(1);
+
+    const plain = journal();
+    const w2 = world();
+    createLiveWalk({ ...w2.ports, journal: plain.port }).attach(START);
+    walkFor(w2, 20, 0);
+    expect(plain.entries.length).toBeGreaterThan(0);
+    expect(plain.entries.every(e => e.route === undefined)).toBe(true);
+  });
+
+  it('says when the phone is out of space for the journal', async () => {
+    const full = journal();
+    full.fail(new StoreFailure('quotaExceeded', 'full'));
+    const w = world();
+    const live = createLiveWalk({ ...w.ports, journal: full.port });
+    live.attach(KEEP);
+    await flush();
+    w.advance(1000);
+    expect(live.getSnapshot()!.journalFull).toBe(true);
+  });
+
+  it('brings a kept route back after the page reloads', async () => {
+    const kept = journal();
+    const w = world();
+    const live = createLiveWalk({ ...w.ports, journal: kept.port });
+    live.attach(KEEP);
+    walkFor(w, 30, 0);
+    live.pause();
+    await flush();
+    w.kill();
+    const again = createLiveWalk({ ...w.ports, journal: kept.port });
+    again.attach();
+    await flush();
+    expect(again.getSnapshot()!.route.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('forgets every point on request, and keeps no route from then on (B-05)', async () => {
+    const kept = journal();
+    const w = world();
+    const live = createLiveWalk({ ...w.ports, journal: kept.port });
+    live.attach(KEEP);
+    walkFor(w, 30, 0);
+    // A line from a track already ended, and one still being drawn.
+    w.hide();
+    w.advance(60_000);
+    w.show();
+    walkFor(w, 20, 200);
+    expect(live.getSnapshot()!.route).toHaveLength(2);
+    live.forgetRoute();
+    await flush();
+    expect(live.getSnapshot()!.route).toEqual([]);
+    expect(live.getSnapshot()!.walk.plan.keepRoute).toBe(false);
+    expect(kept.entries.at(-1)!.route).toBeUndefined();
   });
 });

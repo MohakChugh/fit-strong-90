@@ -1,0 +1,70 @@
+/**
+ * The first walk's questions (journey §9.1, A-51, K-09): two separate route
+ * consents and the one-time step card, each asked once and answerable later
+ * in Me → Data. This phone's own answers, never switched on by an import (B-26).
+ */
+import type { UserSettings } from '@/types';
+import type { WalkPlan } from './clock';
+
+export type WalkSettings = NonNullable<UserSettings['walk']>;
+
+export const UNASKED: WalkSettings = { saveRoutes: 'unasked', map: 'unasked' };
+
+export function walkSettings(s: Pick<UserSettings, 'walk'>): WalkSettings {
+  return s.walk ?? UNASKED;
+}
+
+export type PreflightPage = 'keepRoute' | 'mapPictures' | 'stepCard';
+
+/** What this walk still has to ask, in order. The map question waits on the route one; the step card comes last, just before motion is asked for. */
+export function preflightPages(walk: WalkSettings, plan: Pick<WalkPlan, 'gps' | 'steps'>): PreflightPage[] {
+  const pages: PreflightPage[] = [];
+  if (plan.gps && walk.saveRoutes === 'unasked') pages.push('keepRoute');
+  if (plan.gps && walk.saveRoutes !== false && walk.map === 'unasked') pages.push('mapPictures');
+  if (plan.steps && !walk.stepCardSeen) pages.push('stepCard');
+  return pages;
+}
+
+export type PreflightAnswer = { page: 'keepRoute'; keep: boolean } | { page: 'mapPictures'; show: boolean } | { page: 'stepCard' };
+
+export function answered(walk: WalkSettings, a: PreflightAnswer): WalkSettings {
+  switch (a.page) {
+    case 'keepRoute': return { ...walk, saveRoutes: a.keep };
+    case 'mapPictures': return { ...walk, map: a.show ? 'on' : 'off' };
+    case 'stepCard': return { ...walk, stepCardSeen: true };
+  }
+}
+
+/** The plan as it finally starts: the route kept only on this phone's yes, and only with location (§9.1). */
+export function withConsent(plan: WalkPlan, walk: WalkSettings): WalkPlan {
+  const { keepRoute: _asked, ...rest } = plan;
+  void _asked;
+  return { ...rest, ...(plan.gps && walk.saveRoutes === true ? { keepRoute: true } : {}) };
+}
+
+/** Under the "Measure distance and pace" switch. */
+export function routeNote(walk: WalkSettings): string {
+  if (walk.saveRoutes === true) return 'Uses GPS. Your route is kept on this phone.';
+  if (walk.saveRoutes === false) return 'Uses GPS. Your route isn’t kept.';
+  return 'Uses GPS. You’ll be asked whether to keep your route.';
+}
+
+export const CONSENT = {
+  keepRoute: {
+    title: 'Keep a record of your route on this phone?',
+    detail: 'Routes are kept only on this phone. You can change this later in Me → Data.',
+    yes: 'Yes, keep routes',
+    no: 'No, don’t keep routes',
+  },
+  mapPictures: {
+    title: 'Show map pictures under your saved routes?',
+    detail: 'Map pictures come from OpenStreetMap. When you open a walk, they receive your internet address and the map squares for that area, so they can tell roughly where you walked. Your readings and your route file are never sent.',
+    yes: 'Show map pictures',
+    no: 'No pictures',
+  },
+  stepCard: {
+    title: 'Counting steps',
+    detail: 'FitStrong counts steps only while it’s open on the screen.',
+    go: 'Start walk',
+  },
+} as const;

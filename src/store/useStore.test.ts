@@ -7,6 +7,9 @@ import { DB_NAME, DB_VERSION, openDb, readDoc } from './db';
 import { fakeIndexedDB } from './fakeIdb';
 import { commitChange } from './snapshot';
 import { decode } from './transfer';
+import { finishWalk, startWalk } from '@/walk/clock';
+import { journalEntry, type JournalEntry } from '@/walk/journal';
+import { walkObservations } from '@/walk/record';
 
 const local = new Map<string, string>();
 globalThis.localStorage = {
@@ -1044,5 +1047,59 @@ describe('a phone the previous build left behind, and its other tabs (journey §
     expect(store.getState().records.routes).toHaveLength(1);
     expect(store.getState().sessions).toEqual([session]);
     db.close();
+  });
+});
+
+describe('saving a walk with its route and its journal (journey §18.3, A-55)', () => {
+  const WALK = 'mgh3k2x1-1a2b3c4d';
+  const T = Date.UTC(2026, 9, 8, 3, 30, 0);
+  const LINE = { start: T, end: T + 20_000, coords: [[12.97, 77.59], [12.9705, 77.5902], [12.971, 77.5905]] as [number, number][], ms: [0, 10_000, 20_000] };
+  const ROUTE = { walkId: WALK, version: 1 as const, startedAt: '2026-10-08T09:00:00.000+05:30', segments: [LINE], bbox: [12.97, 77.59, 12.971, 77.5905] as [number, number, number, number] };
+  const walked = () => finishWalk(startWalk(WALK, { kind: 'walk', gps: true, steps: false, keepRoute: true }, T), T + 600_000, 'finish');
+  const ofWalk = () => store.getState().observations.filter(o => o.context === `walk:${WALK}`);
+
+  it('writes the records and the route, and retires the journal, together and once', async () => {
+    await booted();
+    expect((await store.putWalkJournal(journalEntry(walked(), T + 600_000))).ok).toBe(true);
+    const input = { walkId: WALK, observations: walkObservations(walked()), route: ROUTE };
+    expect((await store.saveWalk(input)).ok).toBe(true);
+    const first = ofWalk();
+    expect((await store.saveWalk(input)).ok).toBe(true);
+    // A second tap writes nothing it already wrote: the stored records are untouched.
+    expect(ofWalk()).toEqual(first);
+    expect(ofWalk()).toHaveLength(walkObservations(walked()).length);
+    expect(store.getState().records.routes.map(r => r.walkId)).toEqual([WALK]);
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value).toEqual([]);
+  });
+
+  it('leaves everything as it was when the save fails: no records, no route, the journal kept (V-J34)', async () => {
+    await booted({ quotaAfter: 0, quotaStore: 'routes' });
+    await store.putWalkJournal(journalEntry(walked(), T));
+    const result = await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    expect(!result.ok && result.failure.code).toBe('quotaExceeded');
+    expect(ofWalk()).toEqual([]);
+    expect(store.getState().records.routes).toEqual([]);
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value.map(e => e.id)).toEqual([WALK]);
+  });
+
+  it('reads back only the checkpoints it can trust', async () => {
+    await booted();
+    await store.putWalkJournal(journalEntry(walked(), T));
+    await store.putWalkJournal({ ...journalEntry(walked(), T), id: 'walk-zzzz', version: 9 } as unknown as JournalEntry);
+    const read = await store.readWalkJournals();
+    expect(read.ok && read.value.map(e => e.id)).toEqual([WALK]);
+  });
+
+  it('removes a walk, its route and its journal together', async () => {
+    await booted();
+    await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    await store.putWalkJournal(journalEntry(walked(), T));
+    expect((await store.removeWalk(WALK, ofWalk().map(o => o.id))).ok).toBe(true);
+    expect(ofWalk()).toEqual([]);
+    expect(store.getState().records.routes).toEqual([]);
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value).toEqual([]);
   });
 });

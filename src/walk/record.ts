@@ -25,9 +25,10 @@
 import { nowAt, type Observation, type ObservationInput } from '@/health/observation';
 import { sum } from '@/health/aggregate';
 import { StoreFailure, type StoreResult } from '@/store/db';
-import { measuredRuns, nextMidnight, type Walk } from './clock';
+import { measuredRuns, type Segment, type Walk } from './clock';
 import { afterMealTitle } from './plan';
 import { timeOfDay } from './format';
+import { isoAt, nextMidnightAt } from './time';
 
 /** A segment shorter than this observed nothing worth a record. */
 export const MIN_RECORD_MS = 1000;
@@ -64,9 +65,14 @@ export interface WalkSummary {
   paceSecPerKm?: number;
   /** Absent when steps were off or no motion samples arrived. */
   steps?: number;
+  /** Time GPS measured, in ms (journey §9.5). Absent when GPS was off. */
+  coveredMs?: number;
+  /** Time steps were counted, in ms: the segments that had motion. Absent when steps were off. */
+  stepsCoveredMs?: number;
 }
 
-const segmentMs = (s: { start: number; end?: number }) => Math.max(0, (s.end ?? s.start) - s.start);
+/** A segment's observed time: accrued tick by tick, so a change to the clock never stretches it (B-19). */
+const segmentMs = (s: Segment) => s.accruedMs;
 
 export function summarise(walk: Walk): WalkSummary {
   const observedMs = walk.segments.reduce((t, s) => t + segmentMs(s), 0);
@@ -90,6 +96,8 @@ export function summarise(walk: Walk): WalkSummary {
     ...(walk.plan.gps ? { gpsCoverage: observedMs > 0 ? Math.min(1, coveredMs / observedMs) : 0 } : {}),
     ...(pace !== undefined ? { paceSecPerKm: pace } : {}),
     ...(walk.plan.steps && counted.length ? { steps: counted.reduce((t, s) => t + s.steps, 0) } : {}),
+    ...(walk.plan.gps ? { coveredMs } : {}),
+    ...(walk.plan.steps ? { stepsCoveredMs: counted.reduce((t, s) => t + segmentMs(s), 0) } : {}),
   };
 }
 
@@ -107,25 +115,25 @@ const joined = (...notes: (string | undefined)[]) => notes.filter(Boolean).join(
 function noteFor(walk: Walk, time: (epochMs: number) => string): string | undefined {
   const parts: string[] = [];
   if (walk.plan.kind === 'afterMeal' && walk.plan.meal) {
-    parts.push(`${afterMealTitle(walk.plan.meal.which)}, which started at ${time(walk.plan.meal.startedAt)}.`);
+    parts.push(`${afterMealTitle(walk.plan.meal.which)}, which ${walk.plan.meal.basis === 'had' ? 'you had' : 'started'} at ${time(walk.plan.meal.startedAt)}.`);
   }
   if (walk.endedBy === 'low') parts.push('Ended because you felt low.');
   if (walk.endedBy === 'emergency') parts.push('Ended because of symptoms that need emergency help.');
   return parts.length ? parts.join(' ') : undefined;
 }
 
-/** An interval cut at each local midnight inside it, so each day gets its own share. */
-function byDay(start: number, end: number): { start: number; end: number }[] {
+/** An interval cut at each local midnight inside it, at the offset it was recorded in, so each day gets its own share. */
+function byDay(start: number, end: number, offsetMin: number): { start: number; end: number }[] {
   const pieces: { start: number; end: number }[] = [];
   for (let from = start; from < end; ) {
-    const to = Math.min(end, nextMidnight(from));
+    const to = Math.min(end, nextMidnightAt(from, offsetMin));
     pieces.push({ start: from, end: to });
     from = to;
   }
   return pieces;
 }
 
-const crossesMidnight = (start: number, end: number) => nextMidnight(start) < end;
+const crossesMidnight = (start: number, end: number, offsetMin: number) => nextMidnightAt(start, offsetMin) < end;
 
 const UNDIVIDED = 'Measured across midnight, so it is not divided between the two days.';
 
@@ -144,21 +152,25 @@ export function walkObservations(walk: Walk, options: ObservationOptions = {}): 
   const withNote = (text: string | undefined) => (text ? { note: text } : {});
   // The meal it followed, as data and not only words, so a walk after dinner
   // can be found as one (D26). The note still names which meal.
+  // A meal the person said they had (B-09) is tagged, but has no start to record.
   const meal = walk.plan.kind === 'afterMeal' && walk.plan.meal
-    ? { tag: 'afterMeal' as const, mealStartedAt: nowAt(new Date(walk.plan.meal.startedAt)) }
+    ? { tag: 'afterMeal' as const, ...(walk.plan.meal.basis === 'had' ? {} : { mealStartedAt: isoAt(walk.plan.meal.startedAt, walk.segments[0].offsetMin) }) }
     : {};
   const out: WalkInput[] = [];
 
   walk.segments.forEach((s, i) => {
     const end = s.end ?? s.start;
-    if (end - s.start < MIN_RECORD_MS) return;
+    if (s.accruedMs < MIN_RECORD_MS) return;
     const measured = { scope: 'sessionObserved' as const, source: 'measured' as const, context, ...meal };
+    // Cut at each local midnight of the offset the segment was recorded in (F17, B-19); a segment
+    // whose accrued time and span disagree (it can't, since clock changes split segments) is one record.
+    const pieces = Math.abs((end - s.start) - s.accruedMs) <= 1000 ? byDay(s.start, end, s.offsetMin) : [{ start: s.start, end: s.start + s.accruedMs }];
 
     // Time, a record per day the segment touched.
-    byDay(s.start, end).forEach((piece, k) => {
+    pieces.forEach((piece, k) => {
       const ms = piece.end - piece.start;
       if (ms < MIN_RECORD_MS) return;
-      const at = { at: nowAt(new Date(piece.start)), coverageMs: ms, ...withNote(note) };
+      const at = { at: isoAt(piece.start, s.offsetMin), coverageMs: ms, ...withNote(note) };
       const id = (kind: string) => `${walk.id}:s${i}${k ? `.${k}` : ''}:${kind}`;
       out.push({ ...measured, ...at, id: id('walkDuration'), kind: 'walkDuration', value: minutes(ms) });
       out.push({ ...measured, ...at, id: id('movementMinutes'), kind: 'movementMinutes', value: minutes(ms) });
@@ -170,31 +182,34 @@ export function walkObservations(walk: Walk, options: ObservationOptions = {}): 
         const from = Math.max(run.start, s.start);
         const to = Math.min(run.end, end);
         if (to <= from) return;
-        const undivided = crossesMidnight(from, to);
+        const undivided = crossesMidnight(from, to, s.offsetMin);
         out.push({
           ...measured, id: `${walk.id}:s${i}:r${j}:walkDistance`, kind: 'walkDistance', value: Math.round(run.distanceM) / 1000,
-          at: nowAt(new Date(from)), coverageMs: to - from, ...withNote(joined(note, undivided ? UNDIVIDED : undefined)),
+          at: isoAt(from, s.offsetMin), coverageMs: to - from, ...withNote(joined(note, undivided ? UNDIVIDED : undefined)),
         });
       });
     }
 
     if (walk.plan.steps && s.motion) {
-      const undivided = crossesMidnight(s.start, end);
+      const undivided = crossesMidnight(s.start, end, s.offsetMin);
       out.push({
         ...measured, id: `${walk.id}:s${i}:steps`, kind: 'steps', value: s.steps,
-        at: nowAt(new Date(s.start)), coverageMs: end - s.start, ...withNote(joined(note, undivided ? UNDIVIDED : undefined)),
+        at: isoAt(s.start, s.offsetMin), coverageMs: s.accruedMs, ...withNote(joined(note, undivided ? UNDIVIDED : undefined)),
       });
     }
   });
 
+  // A gap takes the offset of the segment before it.
+  const offsetOf = (t: number) => (walk.segments.filter(x => x.start <= t).at(-1) ?? walk.segments[0]).offsetMin;
   walk.gaps.forEach((g, i) => {
     if (!g.added || g.end - g.start < MIN_RECORD_MS) return;
     const added = joined('Added by you: time the app was away, which it could not record.', note);
-    byDay(g.start, g.end).forEach((piece, k) => {
+    const offset = offsetOf(g.start);
+    byDay(g.start, g.end, offset).forEach((piece, k) => {
       const ms = piece.end - piece.start;
       if (ms < MIN_RECORD_MS) return;
       const shared = {
-        scope: 'sessionObserved' as const, source: 'manual' as const, at: nowAt(new Date(piece.start)), coverageMs: ms, context, ...meal,
+        scope: 'sessionObserved' as const, source: 'manual' as const, at: isoAt(piece.start, offset), coverageMs: ms, context, ...meal,
         ...withNote(added),
       };
       const id = (kind: string) => `${walk.id}:g${i}${k ? `.${k}` : ''}:${kind}`;
@@ -297,6 +312,11 @@ export interface WalkRecord {
   paceSecPerKm?: number;
   /** When the meal it followed started, ISO with offset, for a walk after a meal. */
   mealStartedAt?: string;
+  /** Tagged after a meal, whether or not its start was recorded (B-09). */
+  afterMeal: boolean;
+  /** The walk's active-energy estimate, unrounded, and what it was worked out from (J§12.4, B-16). */
+  energyKcal?: number;
+  energyNote?: string;
   /** The walk's own note, e.g. "After dinner, which started at 7:40 pm." */
   note?: string;
   observations: Observation[];
@@ -361,6 +381,8 @@ export function walkRecords(observations: readonly Observation[]): WalkRecord[] 
     const note = timed.find(o => o.source === 'measured' && o.note)?.note;
     const mealStartedAt = group.find(o => o.tag === 'afterMeal' && o.mealStartedAt)?.mealStartedAt;
     const pace = paceOf(group);
+    // Kept as its own record, so later weight changes never rewrite it (B-16); never in the walk's minutes.
+    const energy = group.find(o => o.kind === 'activeEnergy');
     records.push({
       id,
       day: first.day,
@@ -373,6 +395,9 @@ export function walkRecords(observations: readonly Observation[]): WalkRecord[] 
       ...(legPain !== undefined ? { legPain } : {}),
       ...(pace !== undefined ? { paceSecPerKm: pace } : {}),
       ...(mealStartedAt !== undefined ? { mealStartedAt } : {}),
+      afterMeal: group.some(o => o.tag === 'afterMeal'),
+      ...(energy ? { energyKcal: energy.value } : {}),
+      ...(energy?.note ? { energyNote: energy.note } : {}),
       ...(note !== undefined ? { note } : {}),
       observations: group,
     });

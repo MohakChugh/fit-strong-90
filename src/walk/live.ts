@@ -15,6 +15,7 @@
  */
 
 import {
+  accrueOpen,
   addGapTime,
   creditSteps,
   finishWalk,
@@ -28,8 +29,10 @@ import {
   resumeWalk,
   returnToWalk,
   segmentDistance,
+  splitAtClockChange,
   splitAtMidnight,
   startWalk,
+  stepOf,
   updateOpenSegment,
   type EndedBy,
   type Gap,
@@ -37,9 +40,12 @@ import {
   type WalkPlan,
   type WalkStatus,
 } from './clock';
+import type { StoreResult } from '@/store/db';
 import { createTrack, type Fix, type GpsRun, type PaceState, type Track } from './gps';
+import { checkpointDue, journalEntry, type JournalEntry } from './journal';
 import { createStepDetector } from './steps';
 import { lastStartedId, loadWalk, markStarted, storeWalk, type WalkStorage } from './persist';
+import type { LatLon, RouteLine } from './routeRecord';
 
 export type GeoError = 'denied' | 'unavailable' | 'timeout';
 
@@ -84,6 +90,13 @@ export interface VisibilityPort {
  */
 export type WalkIntent = 'start' | 'restart' | 'live';
 
+export interface JournalPort {
+  /** Keep this checkpoint (journey §9.4). Resolves whether it was kept. */
+  checkpoint(entry: JournalEntry): Promise<StoreResult>;
+  /** The latest checkpoint kept for a walk, if any. */
+  read(id: string): Promise<JournalEntry | undefined>;
+}
+
 export interface LivePorts {
   /**
    * May this walk move right now? Asked at every transition into recording,
@@ -92,7 +105,7 @@ export interface LivePorts {
    * (re-audit F06). `browser.ts` answers from the readiness engine, with what
    * the live screen knows (B04).
    */
-  mayRun(intent: WalkIntent): boolean;
+  mayRun(intent: WalkIntent, walk?: Walk): boolean;
   /**
    * Tells the controller when anything that could change that answer
    * changes — the store, or an answer waiting to be stored — so a walk
@@ -100,6 +113,8 @@ export interface LivePorts {
    */
   watchClinical?(onChange: () => void): () => void;
   now(): number;
+  /** The monotonic clock, ms (B-19). Absent: the device clock, so no change is ever seen. */
+  monotonic?(): number;
   /** Run `fn` after `ms`. Returns a function that cancels it. */
   later(fn: () => void, ms: number): () => void;
   storage: WalkStorage | undefined;
@@ -107,6 +122,8 @@ export interface LivePorts {
   geolocation?: GeoPort;
   motion?: MotionPort;
   wakeLock?: WakeLockPort;
+  /** Where the walk is kept against a closed or crashed app (journey §9.4). */
+  journal?: JournalPort;
 }
 
 /** A gap shorter than this is recorded but not announced: a glance at a notification. */
@@ -162,6 +179,12 @@ export interface LiveSnapshot {
    * would bring back an older copy (re-audit F08). Every tick tries again.
    */
   draftKept: boolean;
+  /** Every line of the route so far in this page, never joined (B-17): for the drawing, whether or not it is kept. */
+  route: RouteLine[];
+  /** The walker, while GPS is measuring. */
+  here?: LatLon;
+  /** The last checkpoint was refused for want of space (journey §9.4). */
+  journalFull: boolean;
 }
 
 export type AttachResult = 'created' | 'resumed' | 'none';
@@ -197,6 +220,8 @@ export interface LiveWalk {
   dismissNotice(): void;
   /** From a tap: ask again for motion, after iOS forgot the grant. */
   enableMotion(): Promise<void>;
+  /** Erase every point kept for this walk and keep none from now on (B-05). */
+  forgetRoute(): void;
 }
 
 export function createLiveWalk(ports: LivePorts): LiveWalk {
@@ -229,9 +254,41 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
 
   let draftKept = true;
 
-  /** Keep the walk in progress, and remember whether that worked, to say so. */
-  function persist() {
-    if (walk) draftKept = storeWalk(ports.storage, walk);
+  const mono = () => ports.monotonic?.() ?? ports.now();
+  /** The monotonic reading at the moment the open segment's accrual last reached `accruedAt`. */
+  let monoAt: number | undefined;
+
+  /** Lines from tracks already ended in this page (B-17). */
+  let routeBase: RouteLine[] = [];
+  let lastCheckpoint: number | undefined;
+  let journalFull = false;
+
+  const allLines = (): RouteLine[] => [...routeBase, ...(track?.lines ?? [])];
+
+  /** A fresh track from `start`, the ended one's lines kept for the drawing. */
+  function newTrack(start: number): Track {
+    if (track) routeBase = [...routeBase, ...track.lines];
+    return createTrack(start, { route: true });
+  }
+
+  /**
+   * Keep the walk in progress, and remember whether that worked, to say so:
+   * the tab's draft every time, the journal at every change and every 15 s
+   * (journey §9.4). The journal holds the route only while it is kept.
+   */
+  function persist(checkpoint: 'now' | 'due' = 'now') {
+    if (!walk) return;
+    draftKept = storeWalk(ports.storage, walk);
+    const now = ports.now();
+    if (!ports.journal || (checkpoint === 'due' && !checkpointDue(lastCheckpoint, now))) return;
+    lastCheckpoint = now;
+    const entry = journalEntry(walk, now, walk.plan.keepRoute ? allLines() : undefined);
+    void ports.journal.checkpoint(entry).then(result => {
+      const full = !result.ok && result.failure.code === 'quotaExceeded';
+      if (full === journalFull) return;
+      journalFull = full;
+      emit();
+    });
   }
 
   function gpsState(now: number): LiveSnapshot['gps'] {
@@ -270,6 +327,10 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
         notice,
         blocked,
         draftKept,
+        // ponytail: the lines are copied on each emit, O(points) at 1 Hz. Upgrade: a version-keyed cache if profiling shows it.
+        route: allLines(),
+        ...(track?.here ? { here: track.here } : {}),
+        journalFull,
       };
     }
     for (const listener of [...listeners]) listener();
@@ -280,7 +341,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     const now = ports.now();
     // The day may have ended since the last tick: split first, so the fix
     // lands in the day it was taken in (re-audit N03).
-    catchUpMidnight(now);
+    advance(now);
     if (!track || track.push(fix, now) !== 'accepted') return;
     const t = track;
     walk = updateOpenSegment(walk, s => ({ ...s, gps: [...trackBase, ...t.runs] }));
@@ -293,6 +354,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     gpsDenied = true;
     stopGps?.();
     stopGps = undefined;
+    if (track) routeBase = [...routeBase, ...track.lines];
     track = null;
     emit();
   }
@@ -302,7 +364,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     const now = ports.now();
     // As for a fix: a day that has ended is split before anything is added.
     // The detector keeps its rhythm, so no walking run is lost at midnight.
-    catchUpMidnight(now);
+    advance(now);
     lastSample = now;
     if (detector.push(t, x, y, z) > 0) {
       // Each step to the segment it happened in, by its own time (N03).
@@ -325,8 +387,9 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
   function startSensors(now: number) {
     const segment = walk && openSegment(walk);
     if (!walk || !segment) return;
+    monoAt = mono();
     if (walk.plan.gps && ports.geolocation && !gpsDenied) {
-      track = createTrack(segment.start);
+      track = newTrack(segment.start);
       trackBase = segment.gps;
       stopGps = ports.geolocation.watch(onFix, onGeoError);
     }
@@ -336,6 +399,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
   function stopSensors() {
     stopGps?.();
     stopGps = undefined;
+    if (track) routeBase = [...routeBase, ...track.lines];
     track = null;
     stopMotion?.();
     stopMotion = undefined;
@@ -377,7 +441,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
    * so the screen can show why and offer to save what was recorded.
    */
   function mayRun(intent: WalkIntent): boolean {
-    const allowed = ports.mayRun(intent);
+    const allowed = ports.mayRun(intent, walk ?? undefined);
     blocked = allowed ? null : intent;
     return allowed;
   }
@@ -389,7 +453,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
    */
   function holdBack(now: number) {
     if (!walk || walk.status !== 'running') return;
-    catchUpMidnight(now);
+    advance(now);
     stopSensors();
     walk = pauseWalk(walk, now);
     notice = null;
@@ -408,7 +472,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     }
     // Held: the same question again. A yes lifts the hold so Resume is
     // offered; it never moves the walk by itself.
-    if (blocked && ports.mayRun(blocked)) {
+    if (blocked && ports.mayRun(blocked, walk)) {
       blocked = null;
       emit();
     }
@@ -449,21 +513,53 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     walk = split;
     const open = openSegment(walk);
     if (track && open) {
-      track = createTrack(open.start);
+      track = newTrack(open.start);
       trackBase = [];
     }
+  }
+
+  /**
+   * Bring the open segment's time up to now (B-19). A step on which the device
+   * clock and the monotonic clock disagree is a change to the clock: the
+   * monotonic step counts, the segment closes at the change, and GPS starts a
+   * fresh track from the new time, since fixes now carry it.
+   */
+  function accrueNow(now: number) {
+    const open = walk && walk.status === 'running' ? openSegment(walk) : undefined;
+    if (!walk || !open) return;
+    const m = mono();
+    const step = stepOf({ wall: open.accruedAt, mono: monoAt ?? m }, { wall: now, mono: m });
+    monoAt = m;
+    if (!step.jumped) {
+      walk = accrueOpen(walk, step.ms, now);
+      return;
+    }
+    walk = splitAtClockChange(walk, now, step.ms);
+    if (track) {
+      track = newTrack(now);
+      trackBase = [];
+    }
+  }
+
+  /** What every sensor callback and transition does first: accrue, then split at local midnight. Says whether a segment closed (either split opens a new one). */
+  function advance(now: number): boolean {
+    const before = walk?.segments.length ?? 0;
+    accrueNow(now);
+    catchUpMidnight(now);
+    return (walk?.segments.length ?? 0) !== before;
   }
 
   function tick() {
     cancelTick = undefined;
     if (!walk) return;
     const now = ports.now();
-    catchUpMidnight(now);
+    const split = advance(now);
     walk = heartbeat(walk, now);
     // Asked every second, so nothing new about the person's health has to
     // wait for the screen to notice before the walk stops.
     if (walk.status === 'running' && !mayRun('live')) holdBack(now);
-    persist();
+    // A segment closing is a change of state: a checkpoint now, else when one is due.
+    persist(split ? 'now' : 'due');
     emit();
     scheduleTick();
   }
@@ -473,7 +569,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     const now = ports.now();
     if (!visible) {
       if (walk.status === 'running') {
-        catchUpMidnight(now);
+        advance(now);
         stopSensors();
         walk = leaveWalk(walk, now, 'hidden');
       }
@@ -512,6 +608,16 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
         // Restored to be read and saved. Whether it may move is a separate
         // question, asked below.
         walk = restoreWalk(stored, now);
+        // A kept route comes back from the journal, for the drawing and the save.
+        const id = walk.id;
+        if (walk.plan.keepRoute && ports.journal) {
+          void ports.journal.read(id).then(entry => {
+            if (!entry?.route || walk?.id !== id || !walk.plan.keepRoute) return;
+            const known = new Set(allLines().map(l => l.start));
+            routeBase = [...entry.route.filter(l => !known.has(l.start)), ...routeBase];
+            emit();
+          });
+        }
       } else if (request && lastStartedId(ports.storage) !== request.id) {
         if (!mayRun('start')) return 'none';
         walk = startWalk(request.id, request.plan, now);
@@ -544,7 +650,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     detach() {
       if (!walk) return;
       const now = ports.now();
-      catchUpMidnight(now);
+      advance(now);
       stopSensors();
       cancelTick?.();
       cancelTick = undefined;
@@ -556,6 +662,9 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
       walk = walk.status === 'running' ? leaveWalk(walk, now, 'left') : heartbeat(walk, now);
       persist();
       walk = null;
+      routeBase = [];
+      lastCheckpoint = undefined;
+      journalFull = false;
       notice = null;
       blocked = null;
       draftKept = true;
@@ -567,7 +676,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     pause() {
       if (!walk || walk.status !== 'running') return;
       const now = ports.now();
-      catchUpMidnight(now);
+      advance(now);
       stopSensors();
       walk = pauseWalk(walk, now);
       notice = null;
@@ -599,7 +708,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     finish(endedBy) {
       if (!walk || walk.status === 'finished') return;
       const now = ports.now();
-      catchUpMidnight(now);
+      advance(now);
       stopSensors();
       walk = finishWalk(walk, now, endedBy);
       notice = null;
@@ -634,6 +743,15 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
       } else if (walk.status === 'running') {
         listenForMotion(ports.now());
       }
+      emit();
+    },
+
+    forgetRoute() {
+      if (!walk) return;
+      routeBase = [];
+      track?.forgetPoints();
+      walk = { ...walk, plan: { ...walk.plan, keepRoute: false } };
+      persist();
       emit();
     },
   };

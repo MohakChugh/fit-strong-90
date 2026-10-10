@@ -3,6 +3,7 @@ import { newObservation, type Observation, type ObservationInput } from '@/healt
 import { StoreFailure, type StoreResult } from '@/store/db';
 import { addGapTime, finishWalk, leaveWalk, pauseWalk, resumeWalk, returnToWalk, startWalk, updateOpenSegment, type Walk, type WalkPlan } from './clock';
 import { hasRecord, saveObservations, saveOutcome, summarise, walkObservationIds, walkObservations, walkRecords } from './record';
+import { isoAt } from './time';
 
 const T = Date.UTC(2026, 9, 8, 13, 0, 0);
 const s = (seconds: number) => T + seconds * 1000;
@@ -26,6 +27,18 @@ function afterDinner(plan: Partial<WalkPlan> = {}): Walk {
 const byKind = (inputs: ObservationInput[], kind: string) => inputs.filter(i => i.kind === kind);
 
 describe('summary', () => {
+  it('says how much of the walk GPS covered and steps were counted (journey §9.5)', () => {
+    let w = startWalk('abcd-1234', { kind: 'walk', gps: true, steps: true }, T);
+    w = updateOpenSegment(w, x => ({ ...x, gps: [{ start: T, end: T + 90_000, distanceM: 120 }], steps: 180, motion: true }));
+    w = returnToWalk(leaveWalk(w, s(120), 'hidden'), s(180)).walk;
+    w = finishWalk(w, s(240), 'finish');
+    const summary = summarise(w);
+    expect(summary.coveredMs).toBe(90_000);
+    expect(summary.stepsCoveredMs).toBe(120_000);
+    expect(summarise(afterDinner({ gps: false, steps: false }))).not.toHaveProperty('coveredMs');
+    expect(summarise(afterDinner({ gps: false, steps: false }))).not.toHaveProperty('stepsCoveredMs');
+  });
+
   it('reports observed time, measured distance, pace and steps', () => {
     const summary = summarise(afterDinner());
     expect(summary.observedMs).toBe(1_080_000);
@@ -440,5 +453,90 @@ describe('walkRecords', () => {
     const earlier = finishWalk(startWalk('aaaa-0001', { kind: 'walk', gps: false, steps: false }, s(100)), s(400), 'finish');
     const records = walkRecords([...walkObservations(later), ...walkObservations(earlier)].map(newObservation));
     expect(records.map(r => [r.id, r.minutes, r.distanceKm])).toEqual([['aaaa-0001', 5, undefined], ['zzzz-0002', 10, undefined]]);
+  });
+});
+
+describe('records at the offset each segment was recorded in (B-19)', () => {
+  it('keeps a segment whose span and accrued time disagree as one record of the time accrued', () => {
+    let w = startWalk('mgh3k2x1-1a2b3c4d', { kind: 'walk', gps: false, steps: true }, s(0));
+    w = updateOpenSegment(w, x => ({ ...x, steps: 300, motion: true }));
+    w = finishWalk(w, s(600), 'finish');
+    // As if the clock had moved under it: ten minutes of span, four accrued.
+    const moved = { ...w, segments: [{ ...w.segments[0], accruedMs: 240_000 }] };
+    const out = walkObservations(moved);
+    expect(byKind(out, 'walkDuration').map(o => o.coverageMs)).toEqual([240_000]);
+    expect(byKind(out, 'steps')[0].coverageMs).toBe(240_000);
+    expect(summarise(moved).observedMs).toBe(240_000);
+    // Nothing accrued is nothing observed, whatever the span.
+    expect(walkObservations({ ...w, segments: [{ ...w.segments[0], accruedMs: 500 }] })).toEqual([]);
+  });
+
+  it('dates distance at the segment’s offset, and cuts at midnight of that offset, not this device’s', () => {
+    // 23:50 to 00:10 in New York (-05:00), with GPS throughout: that midnight is no midnight at +05:30.
+    const start = Date.parse('2026-10-08T23:50:00-05:00');
+    let w = startWalk('mgh3k2x1-1a2b3c4d', { kind: 'walk', gps: true, steps: false }, start);
+    w = { ...w, segments: w.segments.map(x => ({ ...x, offsetMin: -300 })) };
+    w = updateOpenSegment(w, x => ({ ...x, gps: [{ start: start + 5000, end: start + 500_000, distanceM: 640 }] }));
+    w = finishWalk(w, start + 1_200_000, 'finish');
+    const out = walkObservations(w);
+    expect(byKind(out, 'walkDuration').map(o => [o.at, o.coverageMs])).toEqual([
+      [isoAt(start, -300), 600_000],
+      [isoAt(start + 600_000, -300), 600_000],
+    ]);
+    expect(byKind(out, 'walkDistance')[0].at).toBe(isoAt(start + 5000, -300));
+  });
+
+  it('dates the meal and time the person added at the offset the walk was recorded in', () => {
+    let w = addGapTime(afterDinner(), 0);
+    w = { ...w, segments: w.segments.map(x => ({ ...x, offsetMin: -300 })) };
+    const out = walkObservations(w, { time });
+    expect(out[0].mealStartedAt).toBe(isoAt(s(-1200), -300));
+    const added = out.filter(o => o.source === 'manual' && o.kind === 'walkDuration');
+    expect(added.map(o => o.at)).toEqual([isoAt(s(600), -300)]);
+  });
+
+  it('dates a segment’s records at its own offset, wherever they are saved', () => {
+    // Two offsets, so at least one is not the offset of the device running the test.
+    for (const [offset, zone] of [[330, '+05:30'], [-300, '-05:00']] as const) {
+      let w = startWalk('mgh3k2x1-1a2b3c4d', { kind: 'walk', gps: false, steps: false }, s(0));
+      w = { ...w, segments: w.segments.map(x => ({ ...x, offsetMin: offset })) };
+      w = finishWalk(w, s(600), 'finish');
+      const [duration] = byKind(walkObservations(w), 'walkDuration');
+      expect(duration.at).toBe(isoAt(s(0), offset));
+      expect(duration.at?.endsWith(zone)).toBe(true);
+      expect(duration.coverageMs).toBe(600_000);
+    }
+  });
+});
+
+describe('a saved walk’s estimate (J§12.4)', () => {
+  it('reads the estimate back with the walk, never into its minutes', () => {
+    const w = afterDinner();
+    const energy = newObservation({ id: `${w.id}:activeEnergy`, kind: 'activeEnergy', value: 41.6, scope: 'sessionObserved', source: 'measured', at: walkObservations(w)[0].at!, coverageMs: 1_080_000, context: `walk:${w.id}`, note: 'From 18 min with distance. Using 78 kg, from your profile.' });
+    const saved = walkObservations(w).map(i => newObservation(i));
+    const [record] = walkRecords([...saved, energy]);
+    expect(record).toMatchObject({ energyKcal: 41.6, energyNote: 'From 18 min with distance. Using 78 kg, from your profile.', afterMeal: true });
+    expect(record.minutes).toBe(walkRecords(saved)[0].minutes);
+  });
+
+  it('says a walk without a meal was not after one, and one without an estimate has none', () => {
+    const plain = finishWalk(startWalk('mgh3k2x1-1a2b3c4d', { kind: 'walk', gps: false, steps: false }, s(0)), s(600), 'finish');
+    const [record] = walkRecords(walkObservations(plain).map(i => newObservation(i)));
+    expect(record.afterMeal).toBe(false);
+    expect(record.energyKcal).toBeUndefined();
+    expect(record.energyNote).toBeUndefined();
+  });
+});
+
+describe('a walk after a meal the person had (B-09)', () => {
+  it('records a walk after a meal the person had at a time they stated, tagged but with no start', () => {
+    const w = afterDinner({ kind: 'afterMeal', meal: { which: 'dinner', startedAt: s(-1200), basis: 'had' } });
+    const records = walkObservations(w, { time });
+    expect(records.filter(r => r.kind !== 'backPain' && r.kind !== 'legPain').every(r => r.tag === 'afterMeal' && r.mealStartedAt === undefined)).toBe(true);
+    expect(byKind(records, 'walkDuration')[0].note).toBe('After dinner, which you had at 7:10 pm.');
+    // Read back, it is still a walk after a meal, with no start to show.
+    const [record] = walkRecords(records.map(i => newObservation(i)));
+    expect(record).toMatchObject({ afterMeal: true });
+    expect(record.mealStartedAt).toBeUndefined();
   });
 });

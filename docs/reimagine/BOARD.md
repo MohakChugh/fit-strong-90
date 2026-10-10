@@ -808,3 +808,37 @@ From `docs/superpowers/plans/2026-10-10-fitstrong-v2-plan-4-browse-me.md`, again
 | D65 | Every "Finish setting up" row has "Not now", a safety gap's included (§16). It keeps the chapter in Profile & health, and is stored in `settings.setup.declined`, the field Plan 5's setup state keeps | The engine's hold still names the chapter on the tile and the hub |
 | D66 | Me's files stay in `src/screens/you/` | Renaming 30 files is churn with no change in behaviour |
 | D67 | On Me → Reminders, A-78's "Your calendar copies may be out of date" takes the place of D-01's "Calendar may still remind you", and keeps its substance: what Calendar still holds, that the app can't remove it, and how to delete it. D-01's notice stays where the answer that stopped a habit is given: the Water sheet and Profile & health | One warning per screen for the same events (V-J39) |
+
+### 2026-10-10 — [claude] Energy: the Compendium values, checked at the source (B-18)
+
+Checked at pacompendium.com on 2026-10-10: the 2024 Adult Compendium's walking page (https://pacompendium.com/walking/), the 2024 Older Adult Compendium page (https://pacompendium.com/older-adult-compendium/) and its PDF (https://pacompendium.com/wp-content/uploads/2024/02/2_2024-older-adult-compendium_1_2024.pdf), read from the pages' and the PDF's own text. The PDF's MET column is headed "MET60 (2.7 ml/kg/min)", and the Older Adult page says: "The Older Adult Compendium presents the energy expenditure as MET 60+ with a baseline value of 2.7 ml/kg/min to adjust for lower resting energy expenditure in older adults."
+
+| Compendium | Code | Description | MET | Source |
+| --- | --- | --- | --- | --- |
+| Adult | 17151 | Walking, less than 2.0 mph, level, strolling, very slow | 2.3 | Confirmed |
+| Adult | 17152 | Walking, 2.0 to 2.4 mph, level, slow pace, firm surface | 2.8 | Confirmed |
+| Adult | 17170 | Walking, 2.5 mph, firm, level surface | 3.0 | Confirmed |
+| Adult | 17190 | Walking, 2.8 to 3.4 mph, level, moderate pace, firm surface | 3.8 | Confirmed |
+| Adult | 17200 | Walking, 3.5 to 3.9 mph, level, brisk, firm surface, walking for exercise | 4.8 | Confirmed |
+| Adult | 17220 | Walking, 4.0 to 4.4 mph (6.4 to 7.1 km/h), level, firm surface, very brisk pace | 5.5 | Confirmed; the page's wording adds "(6.4 to 7.1 km/h)" |
+| Adult | 17230 | Walking, 4.5 to 4.9 mph, level, firm surface, very, very brisk | 7.0 | Confirmed |
+| Older Adult | 1715160 | Walking, less than 1.0 mph, level, strolling, very slow | 3.0 | Confirmed (page and PDF) |
+| Older Adult | 1715260 | Walking, 1.0 to 1.9 mph, level, slow pace, firm surface | 4.0 | Confirmed (page and PDF) |
+| Older Adult | 1715360 | Walking, 2.0 mph, level, slow pace, firm surface | 3.8 | Confirmed (page and PDF) |
+| Older Adult | 1717060 | Walking, 2.2 to 2.7 mph, level, firm surface | 4.5 | Confirmed (page and PDF) |
+| Older Adult | 1719060 | Walking, 2.8 to 3.2 mph, level, moderate pace, firm surface | 5.3 | Confirmed (page and PDF) |
+| Older Adult | 1720060 | Walking, 3.3 to 3.7 mph, level, brisk, firm surface, walking for exercise | 6.0 | Confirmed (page and PDF) |
+| Older Adult | 1722060 | Walking, 4.0 to 4.2 mph, level, firm surface, very brisk pace | 7.3 | Confirmed (page and PDF) |
+| Older Adult | 1723060 | Walking, 4.5 mph, level, firm surface, very, very brisk | 9.0 | Confirmed (page and PDF) |
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| D85 | Energy for 60 and over uses the Older Adult rows above, as printed (the 1.0–1.9 mph row is higher than the 2.0 mph row; the Compendium asks that its values aren't changed), against its own resting rate: active kcal = (MET60+ − 1) × 2.7 ÷ 3.5 × kg × hours. Time without a usable speed counts at 1715360 (3.8), the slow-pace row, as 17152 does for adults | B-18; MET60+ is defined against 2.7 mL·kg⁻¹·min⁻¹ (the PDF's column heading and the page's definition) |
+
+- **Speed bands:** each band runs from its own lower speed to the next row's. A gap between two rows, such as 2.4 to 2.5 mph, takes the slower row's value. At 5 mph or faster there is no estimate (the Adult Compendium's next row, 17231, is 5.0 to 5.5 mph).
+- **Ages:** 19–59 this year, for certain, use the Adult Compendium. A birth year that makes someone 59-or-60 uses the Older Adult rows (B-31). 18-or-19, or no birth year, gives no figure.
+- **Citations** (as the home page gives them):
+  - Herrmann SD, Willis EA, Ainsworth BE, Barreira TV, Hastert M, Kracht CL, Schuna Jr. JM, Cai Z, Quan M, Tudor-Locke C, Whitt-Glover MC, Jacobs DR. 2024 Adult Compendium of Physical Activities: A third update of the energy costs of human activities. J Sport Health Sci 2024;13(1):6–12.
+  - Willis EA, Herrmann SD, Hastert M, Kracht CL, Barreira TV, Schuna Jr. JM, Cai Z, Quan M, Conger SA, Brown WJ, Ainsworth BE. Older Adult Compendium of Physical Activities: Energy costs of human activities in adults aged 60 and older. J Sport Health Sci 2024;13(1):13–17.
+- **Terms** (the home page's "Using the Compendium", read the same day): "The Adult, Older Adult, and Wheelchair Compendia are free to use for commercial purposes." "Please do not change MET values or combine activities with different MET levels." "Please cite the Compendium website or publication(s)." The MET values are used unchanged and uncombined, one row per covered interval.
+- **Open: where the citation shows.** Learn's sources don't list these yet: every Learn source must back one of its claims (`src/content/integrity.ts` refuses an orphan), and Plan 6 writes no Learn content. Until Learn has an energy answer citing both papers, or the walk summary gains a "How this is estimated" line, the app uses the values without showing their citation. To decide with Plan 6's other decisions (Task 18).
