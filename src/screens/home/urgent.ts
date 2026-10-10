@@ -210,7 +210,9 @@ const WEIGHT: Record<Urgent['kind'], Disposition> = { emergency: 'emergency', se
  * first" after an emergency was answered on another screen, hides nothing.
  */
 export function says(drawn: { allowed: boolean; disposition: Disposition; reasons: readonly string[] }, urgent: Urgent): boolean {
-  return !drawn.allowed && drawn.disposition === WEIGHT[urgent.kind] && urgent.reasons.every(r => drawn.reasons.includes(r));
+  // A decision with no sentences of its own can't be shown to be drawn anywhere: the surface stays.
+  return !drawn.allowed && drawn.disposition === WEIGHT[urgent.kind] && urgent.reasons.length > 0
+    && urgent.reasons.every(r => drawn.reasons.includes(r));
 }
 
 // ============================================================================

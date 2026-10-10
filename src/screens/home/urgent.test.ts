@@ -213,6 +213,15 @@ describe('a task’s own screen says the decision only while it draws that decis
     expect(says(drawn(diabetic, chest, at('13:32')), recheck)).toBe(false);
   });
 
+  it('a decision with no sentences of its own is said by nothing, so the surface always stays (review of W-01)', () => {
+    // A re-check timed by the stored record while today's reasons hold nothing: no screen can be shown to draw it.
+    const today: CheckInRecord = { ...record(diabetic, answered()), readiness: { ...record(diabetic, answered()).readiness, recheckAt: iso('00:10') } };
+    const recheck = urgentOf({ profile: diabetic, checkIn: today, checkIns: [today], permissions: allHeld }, at('00:02'), true)!;
+    expect(recheck).toMatchObject({ kind: 'recheck', reasons: [] });
+    expect(says(drawn(diabetic, undefined, at('00:02')), recheck)).toBe(false);
+    expect(says(held('guided'), recheck)).toBe(false);
+  });
+
   it('an answer that allows movement says nothing', () => {
     const fine = record(diabetic, answered({ glucose: { value: 110, unit: 'mg/dL', measuredAt: iso('09:00') } }));
     const chest = record(diabetic, answered({ urgentSymptoms: true, emergency: ['chest'] }));

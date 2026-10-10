@@ -480,10 +480,21 @@ export interface SheetExit {
   waiting: boolean;
 }
 
+/** The same surface at the top of an open sheet: the decision it is, and how to draw it there. */
+export interface SheetTop {
+  /**
+   * Which decision it is: its kind, headline and when. One arriving, or
+   * escalating, has a new key and is brought into view; its time coming due
+   * ("Re-check now") is the same decision, and moves nobody (codex W-02).
+   */
+  key: string;
+  /** The surface, with the sheet's way out (`SheetExit`). */
+  draw: (exit: SheetExit) => ReactNode;
+}
+
 /**
  * The same surface at the top of an open sheet, which takes the whole page's
- * attention (codex V1-02), with the sheet's way out (`SheetExit`). Nothing
- * while no urgent decision stands.
+ * attention (codex V1-02). Nothing while no urgent decision stands.
  */
-export const SheetTopContext = createContext<((exit: SheetExit) => ReactNode) | null>(null);
+export const SheetTopContext = createContext<SheetTop | null>(null);
 

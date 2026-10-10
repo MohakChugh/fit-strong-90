@@ -103,11 +103,12 @@ function useSwipeToDismiss({ open, dismissible, onOpenChange }: { open: boolean;
  * The shared safety surface at the top of an open sheet (codex V1-02), and
  * what its way on does here.
  *
- * - A decision arriving, or changing, while the sheet is open is brought into
- *   view at the top of its body, heading first, however far down the person
- *   had scrolled: inserted above content they were reading, it would
+ * - A decision arriving, or escalating, while the sheet is open is brought
+ *   into view at the top of its body, heading first, however far down the
+ *   person had scrolled: inserted above content they were reading, it would
  *   otherwise stay out of sight (codex W-02). Nothing else moves: the form
- *   under it and anything being saved stay as they are.
+ *   under it and anything being saved stay as they are, and the decision's
+ *   time coming due ("Re-check now") pulls nobody away from what they type.
  * - "What to do" closes the sheet through its own close, and goes on only
  *   once the sheet has closed (codex W-05). A sheet that refuses to close,
  *   one saving, keeps the person and its save; the way on waits, and says
@@ -122,12 +123,12 @@ function useSurfaceAtTop({ open, dismissible, ownsUrgent, onOpenChange }: {
 }): { surface: ReactNode; body: RefObject<HTMLDivElement | null> } {
   /** The sheet's scrolling body. */
   const body = useRef<HTMLDivElement>(null);
-  // The same function for as long as the decision's words stand (`UrgentProvider`).
   const top = useContext(SheetTopContext);
   const shown = ownsUrgent ? null : top;
-  const arrived = open ? shown : null;
+  // The decision drawn while open, by which decision it is: not by its words, which change as its time comes due.
+  const arrived = open && shown ? shown.key : null;
   useLayoutEffect(() => {
-    if (arrived && body.current) body.current.scrollTop = 0;
+    if (arrived !== null && body.current) body.current.scrollTop = 0;
   }, [arrived]);
 
   // A way on asked for, and one to take now; each a new object, so each is taken once.
@@ -141,9 +142,11 @@ function useSurfaceAtTop({ open, dismissible, ownsUrgent, onOpenChange }: {
     // It could have closed and didn't: nothing waits to go later, out of the blue.
     setLeaving(null);
   }
-  useEffect(() => going?.go(), [going]);
+  useEffect(() => {
+    going?.go();
+  }, [going]);
 
-  const surface = shown?.({
+  const surface = shown?.draw({
     leave: go => {
       setLeaving({ go });
       onOpenChange(false);

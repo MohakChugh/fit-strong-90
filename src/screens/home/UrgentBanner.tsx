@@ -6,6 +6,9 @@ import { markTab, ScreenTopContext, SheetTopContext, type SheetExit } from '@/co
 import { cn } from '@/lib/utils';
 import { RIGHT_NOW_ID, UrgentContext, says, useUrgent, type Urgent } from './urgent';
 
+/** Said in a sheet while its way on waits for it to finish saving (codex W-05). */
+const WAITING = 'Waiting for this to finish saving.';
+
 /** "Low glucose at 1:30 pm · Re-check at 1:45 pm". */
 const lineOf = (u: Urgent) => [u.when, u.next].filter(Boolean).join(' · ');
 
@@ -68,7 +71,9 @@ export function UrgentBanner({ urgent, exit }: { urgent: Urgent; exit?: SheetExi
         : home
           ? <button type="button" onClick={showRightNow} className={button}>What to do</button>
           : <Link to="/home" onClick={() => markTab('home')} className={button}>What to do</Link>}
-      {exit?.waiting && <p role="status" className="text-[length:var(--text-body)] font-medium leading-snug">Waiting for this to finish saving.</p>}
+      {exit?.waiting && <p aria-hidden className="text-[length:var(--text-body)] font-medium leading-snug">{WAITING}</p>}
+      {/* In the page from the start, so a screen reader hears the wait when it begins. */}
+      {exit && <span aria-live="polite" className="sr-only">{exit.waiting ? WAITING : ''}</span>}
     </section>
   );
 }
@@ -92,7 +97,9 @@ export function UrgentProvider({ children }: { children: ReactNode }) {
   }, [urgent]);
   useEffect(() => () => { delete document.documentElement.dataset.urgent; }, []);
   const banner = useMemo(() => (urgent ? <UrgentBanner urgent={urgent} /> : null), [urgent]);
-  const inSheet = useMemo(() => (urgent ? (exit: SheetExit) => <UrgentBanner urgent={urgent} exit={exit} /> : null), [urgent]);
+  const inSheet = useMemo(() => (urgent
+    ? { key: [urgent.kind, urgent.headline, urgent.when].join('|'), draw: (exit: SheetExit) => <UrgentBanner urgent={urgent} exit={exit} /> }
+    : null), [urgent]);
   return (
     <UrgentContext value={urgent}>
       <ScreenTopContext value={banner}>

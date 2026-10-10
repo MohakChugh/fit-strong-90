@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createElement as h, useState, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, type HostNode } from '@/test/host';
+import { render, textOf, type HostNode } from '@/test/host';
 import type { SheetExit } from './navigation';
 import { contrast } from '@/design/contrast';
 
@@ -600,7 +600,9 @@ describe('the safety surface wherever the person is (codex V1-02, V1-03, journey
     const session = read('src/pages/SessionPage.tsx');
     // No claim for every kind, nor one for a decision the page does not draw.
     expect(session).not.toMatch(/<OwnsUrgent \/>|\{halt && <OwnsUrgent/);
-    expect(session.match(/<OwnsUrgent shows=\{drawnHere\((permission|guidance)\)\} \/>/g)).toHaveLength(3);
+    // Only the reading screen, which draws the decision with its timed re-check; not the check-in asked here, nor the done summary's strip.
+    expect(session.match(/<OwnsUrgent shows=\{drawnHere\((permission|guidance)\)\} \/>/g)).toEqual(['<OwnsUrgent shows={drawnHere(permission)} />']);
+    expect(session).toMatch(/\{permission && <OwnsUrgent shows=\{drawnHere\(permission\)\} \/>\}\s*\{permission\?\.reasons\.slice\(0, 2\)/);
     expect(read('src/screens/walk/LiveWalkScreen.tsx')).toMatch(/\{refusal && <OwnsUrgent shows=\{refusal\} \/>\}/);
     expect(read('src/screens/walk/WalkSummary.tsx')).not.toContain('OwnsUrgent');
   });
@@ -609,7 +611,7 @@ describe('the safety surface wherever the person is (codex V1-02, V1-03, journey
     // The page a sheet makes inert, as the app's index.html has it.
     Object.assign(document, { getElementById: () => null });
     const onOpenChange = vi.fn();
-    const top = (exit: SheetExit) => h('button', { type: 'button', 'data-urgent-kind': 'emergency', onClick: () => exit.leave(() => {}) }, 'What to do');
+    const top = { key: 'emergency', draw: (exit: SheetExit) => h('button', { type: 'button', 'data-urgent-kind': 'emergency', onClick: () => exit.leave(() => {}) }, 'What to do') };
     const host = render(h(nav.SheetTopContext, { value: top }, h(Sheet, { open: true, onOpenChange, title: 'Add to Home', children: h('p', null, 'Choose a tile') })));
     const surface = host.all().find(n => n.props['data-urgent-kind'] !== undefined)!;
     expect(surface).toBeDefined();
@@ -628,54 +630,61 @@ describe('the safety surface wherever the person is (codex V1-02, V1-03, journey
       const [n] = useState(() => ++mounts);
       return h('p', null, `Draft ${n}`);
     }
-    const strip = (words: string) => () => h('section', { 'data-urgent-kind': 'emergency' }, words);
-    const sheet = (top: (() => ReactNode) | null, ownsUrgent = false) =>
+    const strip = (key: string, words: string) => ({ key, draw: () => h('section', { 'data-urgent-kind': 'emergency' }, words) });
+    const sheet = (top: { key: string; draw: () => ReactNode } | null, ownsUrgent = false) =>
       h(nav.SheetTopContext, { value: top }, h(Sheet, { open: true, onOpenChange: () => {}, title: 'Add to Home', detent: 'large', ownsUrgent, children: h(Draft) }));
     const host = render(sheet(null));
     const body = host.all().find(n => n.props.tabIndex === -1)!.element!;
     body.scrollTop = 640;
-    // An emergency is answered on another screen while the person reads far down the sheet.
-    const emergency = strip('Call emergency services now');
-    host.update(sheet(emergency));
+    // A re-check is due while the person reads far down the sheet.
+    host.update(sheet(strip('recheck|Re-check your glucose|Low glucose at 1:30 pm', 'Re-check at 1:45 pm')));
     expect(surfaces(host.all())).toBe(1);
     expect(body.scrollTop).toBe(0);
-    // Reading on while it stands: nothing pulls the person back up.
+    // Reading on while it stands: nothing pulls the person back up, its time coming due included.
     body.scrollTop = 300;
-    host.update(sheet(emergency));
+    host.update(sheet(strip('recheck|Re-check your glucose|Low glucose at 1:30 pm', 'Re-check now')));
+    expect(host.text()).toContain('Re-check now');
     expect(body.scrollTop).toBe(300);
-    // The decision changes: into view again.
-    host.update(sheet(strip('Re-check now')));
+    // It escalates: an emergency is answered on another screen. Into view again.
+    host.update(sheet(strip('emergency|Call emergency services now|Emergency answer today', 'Call emergency services now')));
     expect(body.scrollTop).toBe(0);
     // The form under it was never drawn again from scratch.
     expect(host.text()).toContain('Draft 1');
     expect(mounts).toBe(1);
     // The check-in sheet draws its own outcome, where it is.
     body.scrollTop = 200;
-    host.update(sheet(strip('Something else'), true));
+    host.update(sheet(strip('seekHelp|No exercise today. Get medical advice today.|Low glucose at 9:05 am', 'Something else'), true));
     expect(body.scrollTop).toBe(200);
   });
 
   describe('its way on from a sheet goes only once the sheet has closed (codex W-05)', () => {
     const urgent = { kind: 'emergency', tone: 'stop', headline: 'Call emergency services now', when: 'Emergency answer today', reasons: [] } as const;
     const WAITING = 'Waiting for this to finish saving.';
+    const raf = globalThis.requestAnimationFrame;
     beforeEach(() => {
       Object.assign(document, { getElementById: () => null });
       Object.assign(globalThis, { requestAnimationFrame: (f: () => void) => setTimeout(f, 0) });
       router.location = { pathname: '/hub/workout', search: '', state: null, key: 'k1' };
     });
+    afterEach(() => Object.assign(globalThis, { requestAnimationFrame: raf }));
+    const surface = { key: 'emergency|Call emergency services now|Emergency answer today', draw: (exit: SheetExit) => h(UrgentBanner, { urgent, exit }) };
+    /** The announcement a screen reader hears, in the page from the start. */
+    const live = (host: ReturnType<typeof render>) => host.all().find(n => n.props['aria-live'] === 'polite');
     /** "Finish workout": it refuses closing while it saves, and closes once the save is stored. */
     function Finish({ saving, saved = false }: { saving: boolean; saved?: boolean }) {
       const [open, setOpen] = useState(true);
-      return h(nav.SheetTopContext, { value: (exit: SheetExit) => h(UrgentBanner, { urgent, exit }) },
+      return h(nav.SheetTopContext, { value: surface },
         h(Sheet, { open: open && !saved, dismissible: !saving, onOpenChange: (o: boolean) => { if (!saving) setOpen(o); }, title: 'Finish workout', children: h('p', null, saving ? 'Saving…' : 'Save workout') }));
     }
 
     it('while the sheet saves, What to do waits, and says so; the save goes on, and once stored and closed it goes Home', async () => {
       const host = render(h(Finish, { saving: true }));
+      expect(live(host)).toBeDefined();
       await host.click(host.button('What to do'));
       await host.settle();
       expect(router.navigate).not.toHaveBeenCalled();
       expect(host.text()).toContain(WAITING);
+      expect(textOf(live(host)!.children)).toBe(WAITING);
       expect(host.text()).toContain('Saving…');
       host.update(h(Finish, { saving: false, saved: true }));
       await host.settle();
@@ -699,7 +708,7 @@ describe('the safety surface wherever the person is (codex V1-02, V1-03, journey
 
     it('a sheet that can close goes Home once it has closed, not before', async () => {
       const refuse = vi.fn();
-      const host = render(h(nav.SheetTopContext, { value: (exit: SheetExit) => h(UrgentBanner, { urgent, exit }) },
+      const host = render(h(nav.SheetTopContext, { value: surface },
         h(Sheet, { open: true, onOpenChange: refuse, title: 'Add to Home', children: null })));
       await host.click(host.button('What to do'));
       await host.settle();

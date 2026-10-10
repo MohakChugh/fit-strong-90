@@ -257,9 +257,12 @@ function ArrivalGate({ arrival, input, mode, resuming, readiness, onBack }: {
 }
 
 /**
- * What a player screen draws of the gate's answer, its first two reasons:
- * the claim it makes, so the shared surface steps aside only while those say
- * the decision standing now (codex W-01).
+ * What the player's reading screen draws of the gate's answer, with its own
+ * timed re-check: its first two reasons. The claim it makes, so the shared
+ * surface steps aside only while those say the decision standing now (codex
+ * W-01). Screens that show only reasons, without the decision's words and
+ * time (the check-in asked here, the done summary), claim nothing: the
+ * surface says the decision whole above them.
  */
 const drawnHere = (p: Permission) => ({ allowed: p.allowed, disposition: p.disposition, reasons: p.reasons.slice(0, 2) });
 
@@ -1179,7 +1182,6 @@ function CheckInScreen({ permission, profile, date, record, recent, mode, starti
         <h1 ref={heading} tabIndex={-1} className="px-1 text-[length:var(--text-title-2)] font-bold leading-tight outline-none">
           {starting ? 'Check in to start' : 'Check in to carry on'}
         </h1>
-        <OwnsUrgent shows={drawnHere(permission)} />
         {permission.reasons.slice(0, 2).map(r => <p key={r} className="px-1 text-[length:var(--text-body)]">{r}</p>)}
         <CheckInBody open onOpenChange={() => {}} profile={profile} date={date} {...(record ? { initial: record } : {})} recent={recent}
           onSave={onSave} onStart={onCarryOn} mode={mode} {...(starting ? {} : { startLabel: 'Carry on' })} />
@@ -1432,7 +1434,6 @@ function Summary({ plan, state, guidance, onSave, onExit }: {
         </div>
         {guidance && guidance.reasons.length > 0 && (
           <div role="status" className="flex flex-col gap-1.5 rounded-xl bg-caution/15 px-4 py-3 text-[length:var(--text-subhead)] leading-snug">
-            <OwnsUrgent shows={drawnHere(guidance)} />
             {guidance.reasons.slice(0, 2).map(r => <p key={r}>{r}</p>)}
           </div>
         )}
