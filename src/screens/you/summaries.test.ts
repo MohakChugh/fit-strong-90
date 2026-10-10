@@ -273,3 +273,12 @@ describe('calendar copies, as Reminders lists them (A-78)', () => {
     ])).toBe('Glass of water: 6 a day in Calendar, none now. Stand up and move: 2 a day in Calendar, once a day now.');
   });
 });
+
+describe('the Food row on Me (Plan 7)', () => {
+  it('names allergies and the logging level, after what the person eats', () => {
+    expect(foodLine({ pattern: 'jain', avoid: [], allergies: ['peanut'], customAllergies: ['brinjal'], level: 'meals' })).toBe('Jain · allergic to peanut and brinjal · meals only, no numbers');
+    expect(foodLine({ pattern: 'vegetarian', avoid: ['mushrooms'], level: 'estimates' })).toBe('Vegetarian · leaves out mushrooms · meals with estimates');
+    expect(foodLine({ pattern: 'vegan', avoid: [], level: 'ideas' })).toBe('Vegan');
+    expect(foodLine({ pattern: 'vegetarian', avoid: ['mushrooms'], allergies: ['milk'] })).toBe('Vegetarian · allergic to milk · leaves out mushrooms');
+  });
+});

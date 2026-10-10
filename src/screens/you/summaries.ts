@@ -18,6 +18,8 @@ import { waterBlock } from '@/reminders/water';
 import { movementBlock } from '@/reminders/advice';
 import type { StaleCopy } from '@/reminders/calendarNotice';
 import type { ImportPreview } from '@/store/transfer';
+import { allergenName } from '@/food/allergens';
+import { LEVEL_LABEL } from '@/food/copy';
 import { shortDate, shortDay } from './dates';
 
 /** Formats minutes after midnight for display, in the phone's own style. */
@@ -277,8 +279,13 @@ export const FOOD_REGION: Record<NonNullable<FoodPreferences['region']>, string>
 
 export function foodLine(food: FoodPreferences | undefined): string {
   if (!food) return 'Not set';
-  const avoid = food.avoid.length > 0 ? `leaves out ${listOf(food.avoid)}` : undefined;
-  return [FOOD_PATTERN[food.pattern], avoid].filter(Boolean).join(' · ');
+  const allergies = [...(food.allergies ?? []).map(allergenName), ...(food.customAllergies ?? [])];
+  return [
+    FOOD_PATTERN[food.pattern],
+    allergies.length > 0 ? `allergic to ${listOf(allergies)}` : undefined,
+    food.avoid.length > 0 ? `leaves out ${listOf(food.avoid)}` : undefined,
+    food.level && food.level !== 'ideas' ? LEVEL_LABEL[food.level].toLowerCase() : undefined,
+  ].filter(Boolean).join(' · ');
 }
 
 /** The longest a "leave out" entry may be, and how many there may be. */
