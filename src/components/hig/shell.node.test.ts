@@ -800,6 +800,12 @@ describe('Home’s targets and layout (kiro KV-08, KV-10, KV-11, KV-15, KV-18, K
     expect(paste?.[1]).not.toMatch(/\bmin-h-11\b/);
   });
 
+  it('Back & leg’s emergency signs are body text in normal ink, before History (kiro KH-11)', () => {
+    const hub = read('src/screens/hub/BackHub.tsx');
+    expect(hub).toMatch(/<div className="px-1 text-\[length:var\(--text-body\)\] leading-snug">\s*<p>A pain number never rules out an emergency\. Get emergency care now for any of these:<\/p>\s*<EmergencySigns/);
+    expect(hub.indexOf('<EmergencySigns')).toBeLessThan(hub.indexOf('<HistoryList'));
+  });
+
   it('the Steps hub, while walking is held for the feet, says the hold and offers no walking advice or step goal (kiro KH-02)', () => {
     const hub = read('src/screens/hub/StepsHub.tsx');
     expect(hub).toContain("const held = feetHold(guided.profile, gateFor(guided, 'walk', now));");

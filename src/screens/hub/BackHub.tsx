@@ -165,14 +165,16 @@ export default function BackHub() {
         </div>
       </HubSection>
 
+      {/* The red flags in body text and normal ink, before History, where they are read (kiro KH-11). */}
+      <div className="px-1 text-[length:var(--text-body)] leading-snug">
+        <p>A pain number never rules out an emergency. Get emergency care now for any of these:</p>
+        <EmergencySigns className="mt-1" />
+        <p className="mt-2 text-[length:var(--text-footnote)] text-muted-foreground">General information, not medical advice.</p>
+      </div>
+
       <HistoryList rows={history.map(r => ({ key: r.key, label: r.label, detail: r.detail, ref: r.ref, ids: r.ids }))} origin={origin} empty="No pain scores yet." fresh={fresh} />
       <SeeTrends category={category} origin={origin} />
 
-      <div className="px-1 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
-        <p>A pain number never rules out an emergency. Get emergency care now for any of these:</p>
-        <EmergencySigns className="mt-1" />
-        <p className="mt-1">General information, not medical advice.</p>
-      </div>
 
       <QuickLog open={logOpen} onOpenChange={setLogOpen} initial={{ kind: 'backLeg' }} onSaved={onSaved} prefs={prefs} />
       <CheckInSheet open={updating} onOpenChange={setUpdating} profile={guidedProfile} date={date} {...(checkIn ? { initial: checkIn } : {})} recent={recent} onSave={saveCheckIn} />

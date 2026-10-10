@@ -12,6 +12,8 @@
  *   the text size (§20.4 rule 1).
  * - KH-02: the Steps hub while walking is held for the feet: no walking
  *   advice and no step goal, the hold in words, and a total still saves.
+ * - KH-11: Back & leg's emergency signs in body text and normal ink,
+ *   before History.
  * Synthetic personas only (fixtures/personas.mjs).
  */
 import { persona } from '../fixtures/personas.mjs';
@@ -228,4 +230,33 @@ const stepsFootHold = {
   },
 };
 
-export const cases = [carryOnUnwell, carryOnFlare, carryOnGate, addWhileOpen, pasteTarget, stepsFootHold];
+const backSigns = {
+  name: 'KH-11: Back & leg’s emergency signs, readable and before History',
+  async run(t) {
+    const page = await t.open({ seed: persona('P01'), route: '/hub/back' });
+    await t.step(1, 'The signs are body text in normal ink, above History', async () => {
+      await ui.heading(page, 'Back & leg');
+      const read = await page.evaluate(() => {
+        const main = document.querySelector('main');
+        const intro = [...main.querySelectorAll('p')].find(p => p.textContent.startsWith('A pain number never rules out an emergency.'));
+        const sign = intro?.parentElement?.querySelector('li');
+        const history = [...main.querySelectorAll('h2')].find(h => h.textContent.trim() === 'History');
+        const ink = getComputedStyle(main.querySelector('h1')).color;
+        const px = el => (el ? parseFloat(getComputedStyle(el).fontSize) : 0);
+        return {
+          found: !!intro && !!sign && !!history,
+          introPx: px(intro), signPx: px(sign), bodyPx: parseFloat(getComputedStyle(document.documentElement).fontSize) * 17 / 16,
+          normalInk: !!sign && getComputedStyle(sign).color === ink && getComputedStyle(intro).color === ink,
+          beforeHistory: !!intro && !!history && !!(intro.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING),
+        };
+      });
+      await t.checkpoint('kh-11-back-signs');
+      await t.must(read.found, 'Back & leg has no emergency signs or no History');
+      await t.check(read.introPx >= read.bodyPx - 0.5 && read.signPx >= read.bodyPx - 0.5, `the signs are ${read.introPx} and ${read.signPx} px, under body text (${read.bodyPx} px)`);
+      await t.check(read.normalInk, 'the signs are in muted ink');
+      await t.check(read.beforeHistory, 'the signs come after History');
+    });
+  },
+};
+
+export const cases = [carryOnUnwell, carryOnFlare, carryOnGate, addWhileOpen, pasteTarget, stepsFootHold, backSigns];
