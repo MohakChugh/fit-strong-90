@@ -18,6 +18,9 @@ import { Screen } from '@/components/hig/Screen';
 import { markInPlace } from '@/components/hig/navigation';
 import { Group, Row } from '@/components/hig/List';
 import { Ring } from '@/components/hig/Ring';
+import { numbersView } from '@/food/level';
+import { mealsIn } from '@/food/records';
+import { useFoodUndoScope } from '@/screens/food/undo';
 import { useStore } from '@/store/useStore';
 import { RouteThumb } from '@/screens/walk/RouteThumb';
 import type { RouteRecord } from '@/walk/routeRecord';
@@ -62,6 +65,8 @@ export function MyDay({ day: pathDay, view: onlyView }: {
   const state = useStore();
   const current = useToday();
   const location = useLocation();
+  // A meal deleted from here keeps its Undo until the person leaves (B-04).
+  useFoodUndoScope(location.pathname);
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const day = clampDay(pathDay ?? params.get('day'), current);
@@ -215,12 +220,12 @@ function TimelineView({ day, current, fresh, origin, prefs, onAdd, onGoal }: {
   onAdd: () => void;
   onGoal: () => void;
 }) {
-  const { observations, sessions, checkIns, settings, records } = useStore();
+  const { observations, sessions, checkIns, settings, records, profile } = useStore();
   // A walk's kept route, drawn small beside it (journey §9.5, B-23): our own drawing, never a map picture.
   const routeOf = useMemo(() => new Map(records.routes.map(r => [r.walkId as string, r as unknown as RouteRecord])), [records.routes]);
   const view: DayView = useMemo(
-    () => assembleDay(day, { observations, sessions, checkIns, settings }, prefs),
-    [day, observations, sessions, checkIns, settings, prefs],
+    () => assembleDay(day, { observations, sessions, checkIns, settings, meals: mealsIn(records), numbers: numbersView(profile) }, prefs),
+    [day, observations, sessions, checkIns, settings, prefs, records, profile],
   );
   // Keyed on the week's first day, a string, so the sum is not redone on
   // every render for a range object that is new each time.

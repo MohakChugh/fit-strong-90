@@ -16,6 +16,10 @@
  * Pure and synchronous, so it is tested on its own and safe in a render.
  */
 
+import { mealRowDetail, SLOT_LABEL } from '@/food/format';
+import type { NumbersView } from '@/food/level';
+import { logHref } from '@/food/links';
+import type { MealRecord } from '@/food/types';
 import type { WorkoutSession } from '@/types';
 import type { CheckInRecord } from '@/types/checkin';
 import { pairBloodPressure, summariseDay, type BpReading } from '@/health/aggregate';
@@ -38,7 +42,9 @@ export type RecordRef =
   | { type: 'session'; id: string }
   /** A hand-logged workout: its record lives in the Workout Log, where its sets are corrected. */
   | { type: 'workout'; id: string }
-  | { type: 'checkIn'; date: string };
+  | { type: 'checkIn'; date: string }
+  /** A logged meal: it opens in "Log a meal", to correct it (journey §11.3). */
+  | { type: 'meal'; id: string };
 
 export function recordPath(ref: RecordRef): string {
   switch (ref.type) {
@@ -48,6 +54,7 @@ export function recordPath(ref: RecordRef): string {
     case 'session': return `/track/session/${encodeURIComponent(ref.id)}`;
     case 'workout': return `/track/workout/${encodeURIComponent(ref.id)}`;
     case 'checkIn': return `/track/check-in/${ref.date}`;
+    case 'meal': return logHref({ edit: ref.id });
   }
 }
 
@@ -92,6 +99,10 @@ export interface DayData {
   checkIns: readonly CheckInRecord[];
   /** For a steps goal: each day is read against its own (J07). */
   settings?: StepsGoalSettings;
+  /** Logged meals (Plan 7), each on the day it was eaten. */
+  meals?: readonly MealRecord[];
+  /** What a meal's line may show (B-11): absent shows no figure. */
+  numbers?: NumbersView;
 }
 
 const join = (...parts: (string | undefined | false)[]) => parts.filter((p): p is string => !!p).join(' · ');
@@ -242,6 +253,20 @@ function sessionRow(s: WorkoutSession, folded: Observation[], prefs: DisplayPref
   };
 }
 
+/** A meal: what was eaten, at its time, with its estimate only when numbers are shown (B-11, Review Focus 3). */
+function mealRow(m: MealRecord, numbers: NumbersView, prefs: DisplayPrefs): TimelineRow {
+  return {
+    key: `meal:${m.id}`,
+    ref: { type: 'meal', id: m.id },
+    title: SLOT_LABEL[m.meal],
+    detail: mealRowDetail(m, numbers, prefs.hour12),
+    ids: [m.id],
+    at: Date.parse(m.at),
+    // After any reading at the same moment.
+    order: OBSERVATION_KINDS.length,
+  };
+}
+
 /**
  * Untimed records first (a check-in leads them), then everything by time.
  * Records with no time keep the registry's order — weight before waist —
@@ -319,6 +344,8 @@ export function assembleDay(day: string, data: DayData, prefs: DisplayPrefs): Da
   const rest = dayObs.filter(o => !used.has(o.id) && o.scope !== 'dayTotal');
   for (const r of pairBloodPressure(rest.filter(o => isBpKind(o.kind)))) rows.push(pressureRow(r, prefs));
   for (const o of rest) if (!isBpKind(o.kind)) rows.push(readingRow(o, prefs));
+  // A meal is listed on the day it was eaten: a correction past midnight moves it (Review Focus 4).
+  for (const m of data.meals ?? []) if (m.day === day) rows.push(mealRow(m, data.numbers ?? { show: false }, prefs));
 
   rows.sort(byTime);
   return { day, totals, rows, empty: totals.length === 0 && rows.length === 0 };

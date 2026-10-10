@@ -66,7 +66,28 @@ export function endFoodUndos(scope?: string): void {
   offers = scope === undefined ? [] : offers.filter(o => o.scope !== scope);
 }
 
+/** How many mounted screens hold each scope. */
+const holders = new Map<string, number>();
+
+/**
+ * Holds a screen's scope while it's mounted; the function returned lets go.
+ * A screen remounted at once (React StrictMode runs every effect twice in
+ * development) hasn't been left, so its Undo is ended only if nothing holds
+ * the scope once the current turn is over.
+ */
+export function holdFoodUndoScope(path: string): () => void {
+  holders.set(path, (holders.get(path) ?? 0) + 1);
+  return () => {
+    const left = (holders.get(path) ?? 1) - 1;
+    if (left > 0) holders.set(path, left);
+    else holders.delete(path);
+    setTimeout(() => {
+      if (!holders.has(path)) endFoodUndos(path);
+    }, 0);
+  };
+}
+
 /** A screen food Undo toasts can belong to: leaving it ends its own. */
 export function useFoodUndoScope(path: string): void {
-  useEffect(() => () => endFoodUndos(path), [path]);
+  useEffect(() => holdFoodUndoScope(path), [path]);
 }

@@ -9,7 +9,7 @@ vi.mock('sonner', () => ({
   }),
 }));
 
-const { endFoodUndos, offerFoodUndo } = await import('./undo');
+const { endFoodUndos, holdFoodUndoScope, offerFoodUndo } = await import('./undo');
 
 const offer = (text: string, scope: string, undo: () => Promise<string | undefined> = async () => undefined) =>
   offerFoodUndo({ text, restored: `${text} back`, scope, undo });
@@ -50,6 +50,40 @@ describe('Undo for a food delete (B-04, B-05)', () => {
     shown[0].options!.action!.onClick(event);
     await vi.waitFor(() => expect(shown.map(s => s.text)).toContain('Lunch deleted back'));
     expect(dismissed).toEqual([keyOf('Lunch deleted')]);
+  });
+  it('ends a screen’s Undo when the screen is left, not when it remounts at once (React StrictMode)', () => {
+    vi.useFakeTimers();
+    try {
+      const release = holdFoodUndoScope('/day/2026-10-06');
+      offer('Breakfast deleted', '/day/2026-10-06');
+      // StrictMode: the effect is cleaned up and run again straight away.
+      release();
+      const again = holdFoodUndoScope('/day/2026-10-06');
+      vi.runAllTimers();
+      expect(dismissed).toEqual([]);
+      // Leaving for real ends it.
+      again();
+      vi.runAllTimers();
+      expect(dismissed).toEqual([keyOf('Breakfast deleted')]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('keeps a scope while any screen holding it is still mounted', () => {
+    vi.useFakeTimers();
+    try {
+      const one = holdFoodUndoScope('/hub/food');
+      const two = holdFoodUndoScope('/hub/food');
+      offer('Lunch deleted', '/hub/food');
+      one();
+      vi.runAllTimers();
+      expect(dismissed).toEqual([]);
+      two();
+      vi.runAllTimers();
+      expect(dismissed).toEqual([keyOf('Lunch deleted')]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it('forgets a toast the person dismissed, so it no longer counts towards the two', () => {
     offer('Lunch deleted', '/hub/food');
