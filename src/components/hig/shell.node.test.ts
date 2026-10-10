@@ -856,6 +856,14 @@ describe('Home’s targets and layout (kiro KV-08, KV-10, KV-11, KV-15, KV-18, K
     expect(display).toContain('const system = useSyncExternalStore(device.subscribe, device.read, device.read);');
   });
 
+  it('Sources and licences lists the licences of what the app is built from (kiro KH-17)', () => {
+    const sources = read('src/screens/guide/SourcesScreen.tsx');
+    expect(sources).toContain('<Group header="Licences">');
+    expect(sources).toMatch(/MakeHuman \(MPFB2\) assets', 'CC0 1\.0'/);
+    expect(sources).toMatch(/Kokoro-82M speech model', 'Apache License 2\.0'/);
+    expect(sources).toMatch(/\[ATTRIBUTION\.text, 'Map data under the Open Database Licence \(ODbL\)'\], href: ATTRIBUTION\.href/);
+  });
+
   it('"2 reminders" sits in the header’s wrapping area beside the status, not in the fixed bar', () => {
     const home = read('src/screens/home/HomeScreen.tsx');
     expect(home).not.toMatch(/trailing=\{<RemindersCapsule/);

@@ -11,6 +11,8 @@
  * - H4-07: the device's Reduce Motion changed while Display is open: the
  *   switch follows at once, and never claims the device set it after it
  *   stopped.
+ * - KH-17: About's "Sources and licences" names the licences of what the
+ *   app is built from, as well as Learn's sources.
  */
 import { docs } from '../lib/harness.mjs';
 import { persona } from '../fixtures/personas.mjs';
@@ -292,4 +294,23 @@ const liveMotion = {
   },
 };
 
-export const cases = [finishSettingUp, goals, display, systemMotion, deleteTwice, refusedAnswers, goalsAtMidnight, liveMotion];
+const licences = {
+  name: 'KH-17: Sources and licences names the licences',
+  async run(t) {
+    const page = await t.open({ seed: persona('P02'), route: '/me' });
+    const main = page.getByRole('main');
+    await t.step(1, 'Me → About → Sources and licences: the figure, the voice and the maps, each with its licence', async () => {
+      await ui.tap(ui.row(main, 'Sources and licences', 'link'));
+      await ui.heading(page, 'Sources');
+      const group = ui.section(main, 'Licences');
+      await t.must(await group.count() === 1, `Sources and licences has no Licences: ${flat(await main.innerText()).slice(-400)}`);
+      const text = flat(await group.innerText());
+      await t.checkpoint('kh-17-licences');
+      await t.check(/The coach figure.*MakeHuman \(MPFB2\).*CC0 1\.0/.test(text), `the figure’s licence: ${text}`);
+      await t.check(/The coach’s voice.*Kokoro-82M.*Apache License 2\.0/.test(text), `the voice’s licence: ${text}`);
+      await t.check(/Map pictures.*© OpenStreetMap contributors.*Open Database Licence \(ODbL\)/.test(text), `the maps’ licence: ${text}`);
+    });
+  },
+};
+
+export const cases = [finishSettingUp, goals, display, systemMotion, deleteTwice, refusedAnswers, goalsAtMidnight, liveMotion, licences];
