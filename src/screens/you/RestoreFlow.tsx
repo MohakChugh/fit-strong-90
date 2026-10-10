@@ -1,4 +1,6 @@
 import { useState, type ChangeEvent, type ReactNode } from 'react';
+import { cn } from '@/lib/utils';
+import { TARGET } from '@/components/hig/targets';
 import { toast } from 'sonner';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
@@ -201,7 +203,7 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
               <button
                 type="button"
                 onClick={() => void apply(stage.raw, stage.preview, 'replace')}
-                className="press-feedback min-h-[3.25rem] w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white"
+                className={cn('press-feedback w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white', TARGET.primary)}
               >
                 Replace everything
               </button>

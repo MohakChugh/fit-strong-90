@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { cn } from '@/lib/utils';
+import { TARGET } from '@/components/hig/targets';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
 import { clearAllAndRestart, exportRecord, getState, useStore } from '@/store/useStore';
@@ -188,7 +190,7 @@ function DeleteBody({ device, close }: { device: string; close: () => void }) {
           <button
             type="button"
             onClick={() => setStep('confirm')}
-            className="press-feedback min-h-[3.25rem] w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white"
+            className={cn('press-feedback w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white', TARGET.primary)}
           >
             Delete everything
           </button>
@@ -209,7 +211,7 @@ function DeleteBody({ device, close }: { device: string; close: () => void }) {
           type="button"
           disabled={busy}
           onClick={() => void erase()}
-          className="press-feedback min-h-[3.25rem] w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white disabled:opacity-60"
+          className={cn('press-feedback w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white disabled:opacity-60', TARGET.primary)}
         >
           {busy ? 'Erasing…' : 'Erase all'}
         </button>
