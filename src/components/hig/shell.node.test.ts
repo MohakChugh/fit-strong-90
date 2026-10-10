@@ -784,6 +784,12 @@ describe('the Right now card runs its action directly (journey §7.4, K-32, B-09
     for (const l of labels.slice(1)) for (const c of ['min-h-12', 'bg-tint/10', 'text-tint']) expect(l.cls.split(' '), `${l.text}: ${c}`).toContain(c);
   });
 
+  it('a walk from the card with another walk still on this device deals with that one first, and starts nothing (codex W-04)', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    expect(home).toMatch(/if \(action\.walk\) \{[\s\S]*?const first = walkFirst\(peekWalk\(\), action\.walk, Date\.now\(\), HOUR12\);\s*if \(first\) \{\s*setWalkAhead\(\{ first, open: true \}\);\s*return;\s*\}[\s\S]*?if \(measure\.steps\) void requestMotion\(\);[\s\S]*?start\('walk'/);
+    expect(home).toContain('onClick={() => navigate(walkAhead.first.action.to, { viewTransition: true })}');
+  });
+
   it('a walk from the card starts at once, with its id made at the tap and the motion sensor asked from it (B-01)', () => {
     const home = read('src/screens/home/HomeScreen.tsx');
     expect(home).toMatch(/if \(action\.walk\) \{[\s\S]*?if \(measure\.steps\) void requestMotion\(\);[\s\S]*?start\('walk', directWalkHref\(action\.walk, Date\.now\(\), measure\), 'Start walk'\);/);

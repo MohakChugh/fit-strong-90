@@ -16,6 +16,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { GlassWaterIcon, InfoIcon } from 'lucide-react';
 import { Screen } from '@/components/hig/Screen';
+import { Sheet } from '@/components/hig/Sheet';
 import { Group, Row } from '@/components/hig/List';
 import { CheckInSheet } from '@/components/checkin/CheckInSheet';
 import { opensOnHold } from '@/components/checkin/start';
@@ -40,7 +41,8 @@ import { prefersHour12 } from '@/screens/track/format';
 import { addToDayTotal, getState, isSessionSaved, useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { canLocate, canSenseMotion, requestMotion } from '@/walk/browser';
-import { directWalkHref } from '@/walk/plan';
+import { peekWalk } from '@/walk/persist';
+import { directWalkHref, walkFirst, type WalkFirst } from '@/walk/plan';
 import { useClock, useWakeAt } from '@/screens/today/clock';
 import { ChooserSheet } from '@/screens/today/ChooserSheet';
 import { RecommendationCard } from '@/screens/today/RecommendationCard';
@@ -185,6 +187,8 @@ export function HomeScreen() {
 
   // "Update" on today's check-in: the same sheet, answers only (J03 step 4).
   const [updating, setUpdating] = useState(false);
+  // A walk asked for while another is still on this device, which comes first (codex W-04): kept while the sheet closes.
+  const [walkAhead, setWalkAhead] = useState<{ first: WalkFirst; open: boolean }>();
 
   const open = (next: TodaySheet) => {
     if (next.kind === 'goal') setGoalLoaded(true);
@@ -217,6 +221,14 @@ export function HomeScreen() {
   // check-in first when one is due; there is no hub step in between.
   const act = (action: RecommendationAction) => {
     if (action.walk) {
+      // A walk still on this device, unfinished or not saved, comes first, kept
+      // as it is: the live screen would otherwise open it in place of this one
+      // without a word (codex W-04). The new walk is asked for again afterwards.
+      const first = walkFirst(peekWalk(), action.walk, Date.now(), HOUR12);
+      if (first) {
+        setWalkAhead({ first, open: true });
+        return;
+      }
       // Straight to the live walk (K-32), measuring what the person chose last
       // time; the motion sensor is asked from this tap, as iOS requires (B-01).
       const remembered = settings.walkDefaults;
@@ -492,6 +504,15 @@ export function HomeScreen() {
         <Suspense fallback={null}>
           <GoalSheet open={sheet?.kind === 'goal'} onOpenChange={closeSheet} goal={goal} />
         </Suspense>
+      )}
+      {walkAhead && (
+        <Sheet open={walkAhead.open} onOpenChange={o => { if (!o) setWalkAhead({ ...walkAhead, open: false }); }} title={walkAhead.first.title}>
+          <p className="px-1 text-[length:var(--text-body)] leading-snug">{walkAhead.first.detail}</p>
+          <button type="button" onClick={() => navigate(walkAhead.first.action.to, { viewTransition: true })}
+            className="press-feedback flex min-h-12 w-full items-center justify-center rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
+            {walkAhead.first.action.label}
+          </button>
+        </Sheet>
       )}
       {startSheet}
     </Screen>

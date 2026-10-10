@@ -5,8 +5,12 @@
  * navigates; nothing is created until the live screen opens.
  */
 
+import { format } from 'date-fns';
+import { timeOf } from '@/lib/time';
+import { toDateString } from '@/lib/utils';
 import type { Meal } from '@/types/habits';
 import type { WalkPlan } from './clock';
+import type { WalkPeek } from './persist';
 
 export const MEALS: readonly Meal[] = ['breakfast', 'lunch', 'dinner'];
 
@@ -86,6 +90,40 @@ export function directWalkHref(walk: { meal?: Meal; mealStartedAt?: number }, no
     ? { kind: 'afterMeal', meal: { which: walk.meal, startedAt: walk.mealStartedAt }, gps: measure.gps, steps: measure.steps }
     : { kind: 'walk', gps: measure.gps, steps: measure.steps };
   return liveHref(newWalkId(now), plan);
+}
+
+/** What asking for a new walk does while another is still on this device. */
+export interface WalkFirst {
+  title: string;
+  detail: string;
+  /** The one way on: to the walk already on this device, kept as it is. */
+  action: { label: string; to: WalkPeek['href'] };
+}
+
+/**
+ * A new walk asked for, from Home's Right now card, while another is still on
+ * this device, unfinished or finished and not saved (codex W-04). The live
+ * screen would open that walk in place of the new one, without a word, so it
+ * is dealt with first, kept as it is: carried on if it isn't finished,
+ * reviewed and saved (or discarded) if it is. Only then is a new one
+ * started. Nothing when there is none: the new walk starts as asked.
+ */
+export function walkFirst(pending: Pick<WalkPeek, 'state' | 'startedAt' | 'href'> | null, wanted: { meal?: Meal }, now: number, hour12: boolean): WalkFirst | undefined {
+  if (!pending) return undefined;
+  const day = toDateString(new Date(pending.startedAt)) === toDateString(new Date(now)) ? '' : ` on ${format(pending.startedAt, 'EEEE')}`;
+  const started = `The walk you started${day} at ${timeOf(pending.startedAt, hour12)}`;
+  const next = wanted.meal ? `your walk after ${wanted.meal}` : 'a new walk';
+  return pending.state === 'unsaved'
+    ? {
+      title: 'Your last walk isn’t saved',
+      detail: `${started} has finished, and isn’t saved yet. Save it, or discard it, then start ${next}.`,
+      action: { label: 'Review and save your last walk', to: pending.href },
+    }
+    : {
+      title: 'A walk is still going',
+      detail: `${started} hasn’t been finished. Carry on with it, and finish it, before you start ${next}.`,
+      action: { label: 'Carry on your walk', to: pending.href },
+    };
 }
 
 /** The live screen's address for a new walk. */
