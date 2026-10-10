@@ -8,6 +8,7 @@ import {
   calendarExportOf,
   calendarNotice,
   calendarStillReminds,
+  eventContent,
   exportedStill,
   staleCalendarCopies,
   withCalendarExport,
@@ -28,12 +29,20 @@ const exported = (h: HabitSettings, day = TODAY, at = `${day}T10:00:00.000+05:30
   ({ ...h, calendarExport: withCalendarExport(h.calendarExport, calendarExportOf(calendarEvents(h, healthy), at, day)) });
 
 describe('calendarExportOf', () => {
-  it('records, for each habit in the file, when it was made, until when its events repeat, how many and what they are called', () => {
-    expect(calendarExportOf(calendarEvents(habits, healthy), AT, TODAY)).toEqual({
-      water: { at: AT, until: '2027-01-06', events: 6, titles: ['Glass of water'], minutes: [660, 780, 900, 1020, 1140, 1260] },
-      sittingBreak: { at: AT, until: '2027-01-06', events: 2, titles: ['Stand up and move'], minutes: [570, 600] },
-      mealWalk: { at: AT, until: '2027-01-06', events: 1, titles: ['Walk after dinner'], minutes: [1140] },
+  it('records, for each habit in the file, when it was made, until when its events repeat, how many, what they are called, and what each says', () => {
+    const events = calendarEvents(habits, healthy);
+    const said = (habit: string) => events.filter(e => e.habit === habit).map(eventContent);
+    expect(calendarExportOf(events, AT, TODAY)).toEqual({
+      water: { at: AT, until: '2027-01-06', events: 6, titles: ['Glass of water'], minutes: [660, 780, 900, 1020, 1140, 1260], contents: said('water') },
+      sittingBreak: { at: AT, until: '2027-01-06', events: 2, titles: ['Stand up and move'], minutes: [570, 600], contents: said('sittingBreak') },
+      mealWalk: { at: AT, until: '2027-01-06', events: 1, titles: ['Walk after dinner'], minutes: [1140], contents: said('mealWalk') },
     });
+    // The same words give the same fingerprint, and any change in them another.
+    const [first] = events;
+    expect(eventContent(first)).toBe(eventContent({ ...first }));
+    for (const change of [{ note: `${first.note}.` }, { alert: 'Water' }, { durationMinutes: first.durationMinutes + 1 }]) {
+      expect(eventContent({ ...first, ...change }), JSON.stringify(change)).not.toBe(eventContent(first));
+    }
     expect(CALENDAR_DAYS).toBe(90);
   });
 });
@@ -157,5 +166,38 @@ describe('staleCalendarCopies: the copies may be out of date (A-78)', () => {
   });
   it('says nothing once a file has run out', () => {
     expect(staleCalendarCopies({ ...exported(habits, '2026-06-01'), quietHours: { from: '17:00', to: '20:00' } }, healthy, TODAY)).toEqual([]);
+  });
+});
+
+describe('the copies say what they said: a changed note, alert or length dates them (codex H4-05, A-78)', () => {
+  const water = (h: HabitSettings, profile = healthy) => calendarEvents(h, profile).filter(e => e.habit === 'water');
+
+  it('a 250 ml glass changed to 100 ml, the times as they were: Calendar still says 250 ml', () => {
+    const file = exported(habits);
+    const smaller = { ...file, water: { ...file.water!, glassMl: 100 } };
+    // The schedule is the file's own; only what each event says has changed.
+    expect(water(smaller).map(e => e.minute)).toEqual(file.calendarExport!.water!.minutes);
+    expect(water(smaller)[0].note).toBe('Your 100 ml glass, if it suits you now.');
+    expect(water(file)[0].note).toBe('Your 250 ml glass, if it suits you now.');
+    expect(staleCalendarCopies(smaller, healthy, TODAY)).toEqual([{ habit: 'water', names: ['Glass of water'], inCalendar: 6, now: 6, wording: true }]);
+  });
+
+  it('a clinical precaution added to the walk’s note since, at the same time', () => {
+    const file = exported(habits);
+    const sugar = createDefaultProfile({ weightKg: 80, health: { medicinesReviewed: true, fluidRestriction: false, diabetes: 'type2', metformin: true, sulfonylureaOrMeglitinide: true } });
+    const walk = (profile: typeof healthy) => calendarEvents(file, profile).find(e => e.habit === 'mealWalk')!;
+    expect(walk(sugar).minute).toBe(walk(healthy).minute);
+    expect(walk(sugar).note).not.toBe(walk(healthy).note);
+    expect(staleCalendarCopies(file, sugar, TODAY).map(s => s.habit)).toContain('mealWalk');
+  });
+
+  it('records what each event says, and a file made before that was kept is judged by its times and names', () => {
+    const file = exported(habits);
+    expect(file.calendarExport!.water!.contents).toHaveLength(6);
+    const entry = { ...file.calendarExport!.water! };
+    delete entry.contents;
+    const older = { ...file, calendarExport: { ...file.calendarExport, water: entry }, water: { ...file.water!, glassMl: 100 } };
+    // ponytail: such a file can't say what its events said; a new file records it.
+    expect(staleCalendarCopies(older, healthy, TODAY)).toEqual([]);
   });
 });
