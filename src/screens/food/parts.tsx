@@ -5,7 +5,7 @@
  * food, and Quick add.
  */
 import { useId, useState } from 'react';
-import { CheckIcon, ChevronLeftIcon, PlusIcon } from 'lucide-react';
+import { ChevronLeftIcon, PlusIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import { ALLERGENS, allergenList, allergyWarning, type Allergies } from '@/food/allergens';
 import { FOOD_COPY } from '@/food/copy';
@@ -99,7 +99,8 @@ export function FoodRow({ food, numbers, warning, added, onOpen, onAdd }: {
         onClick={onAdd}
         className="press-feedback flex min-h-12 min-w-12 shrink-0 items-center justify-center gap-1 rounded-full bg-tint px-3 text-[length:var(--text-subhead)] font-semibold text-on-tint"
       >
-        {added ? <><CheckIcon className="size-4" aria-hidden />{FOOD_COPY.added}</> : <><PlusIcon className="size-4" aria-hidden />{FOOD_COPY.add}</>}
+        {/* "Added ✓" carries its own tick, so no icon beside it. */}
+        {added ? FOOD_COPY.added : <><PlusIcon className="size-4" aria-hidden />{FOOD_COPY.add}</>}
       </button>
     </div>
   );

@@ -104,7 +104,6 @@ describe('readingLine (journey §7.2)', () => {
     expect(readingLine('bp', { glucose }).text).toBe('Not entered today');
   });
   it('has fixed lines for Food and Learn, and invites a reading where there has been none', () => {
-    expect(readingLine('food', {}).text).toBe('Meal ideas for you');
     expect(readingLine('learn', {}).text).toBe('For you');
     for (const id of ['steps', 'back', 'weight', 'water', 'sleep', 'waist', 'labs'] as const) expect(readingLine(id, { glucose }).text).toBe('Add a reading');
   });

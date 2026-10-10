@@ -16,9 +16,7 @@ const WalkRoutes = lazy(() => import('@/screens/walk/routes'));
 const WalkSummary = lazy(() => import('@/screens/walk/WalkSummary').then(m => ({ default: m.WalkSummary })));
 const LiveWalkScreen = lazy(() => import('@/screens/walk/LiveWalkScreen'));
 const GuideRoutes = lazy(() => import('@/screens/guide/routes'));
-const MealIdeasScreen = lazy(() => import('@/screens/guide/MealIdeasScreen'));
-const MealDetailScreen = lazy(() => import('@/screens/guide/MealDetailScreen'));
-const SampleWeekScreen = lazy(() => import('@/screens/guide/SampleWeekScreen'));
+const FoodRoutes = lazy(() => import('@/screens/food/routes'));
 const BackHub = lazy(() => import('@/screens/hub/BackHub'));
 const MetricFor = lazy(() => import('@/screens/track/MetricDetail').then(m => ({ default: m.MetricFor })));
 const ReadingHub = lazy(() => import('@/screens/hub/ReadingHub'));
@@ -100,10 +98,7 @@ export function AppRoutes({ onboarded }: { onboarded: boolean }) {
         <Route path="/hub/stretch" element={hub(<StretchHub />)} />
         <Route path="/hub/walk/*" element={hub(<WalkRoutes />)} />
         <Route path="/hub/learn/*" element={hub(<GuideRoutes />)} />
-        <Route path="/hub/food" element={hub(<MealIdeasScreen />)} />
-        <Route path="/hub/food/ideas" element={hub(<MealIdeasScreen />)} />
-        <Route path="/hub/food/ideas/:mealId" element={hub(<MealDetailScreen />)} />
-        <Route path="/hub/food/week" element={hub(<SampleWeekScreen />)} />
+        <Route path="/hub/food/*" element={hub(<FoodRoutes />)} />
         <Route path="/hub/back" element={hub(<BackHub />)} />
         <Route path="/hub/steps" element={hub(<StepsHub />)} />
         <Route path="/hub/:id" element={hub(<ReadingHub />)} />
