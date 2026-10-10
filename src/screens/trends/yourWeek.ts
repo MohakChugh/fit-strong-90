@@ -36,8 +36,9 @@ export interface WeekFacts {
   beforeName: string;
   stretchDays: number;
   steps?: { perDay: number; days: number };
-  glucose?: { numeric: number; lo: number; hi: number; lows: number; highs: number };
-  pressure?: { readings: number; severe: number };
+  /** Readings past a line, a meter's LO and HI among them: never how many were taken (KT-05, A-15, K-51). */
+  glucose?: { lows: number; highs: number };
+  pressure?: { severe: number };
 }
 
 export function weekFacts({ week, data, prefs, ctx }: { week: string; data: TrendData; prefs: DisplayPrefs; ctx: DayContext }): WeekFacts {
@@ -56,7 +57,7 @@ export function weekFacts({ week, data, prefs, ctx }: { week: string; data: Tren
   const steps = dailyStats(shown, stepsDays(shown, data.observations, prefs.hour12), ctx, 'stated');
   const glucose = readingsFor('glucose', shown, data, prefs);
   const g = readingStats(shown, glucose.points, glucose.meters, ctx);
-  const pressure = readingsFor('bp', shown, data, prefs).texts;
+  const severe = readingsFor('bp', shown, data, prefs).texts.filter(t => t.note === 'Very high').length;
   return {
     week: range.from,
     title: current ? 'This week' : last ? 'Last week' : `Week of ${short}`,
@@ -68,12 +69,16 @@ export function weekFacts({ week, data, prefs, ctx }: { week: string; data: Tren
     beforeName: current ? 'by this time last week' : 'the week before',
     stretchDays: [...stretchedDays(data.sessions)].filter(d => d >= shown.from && d <= shown.to).length,
     ...(steps.perDay !== undefined ? { steps: { perDay: steps.perDay, days: steps.days } } : {}),
-    ...(g.n + g.hi + g.lo > 0 ? { glucose: { numeric: g.n, lo: g.lo, hi: g.hi, lows: g.lows, highs: g.highs } } : {}),
-    ...(pressure.length > 0 ? { pressure: { readings: pressure.length, severe: pressure.filter(t => t.note === 'Very high').length } } : {}),
+    ...(g.lows + g.highs > 0 ? { glucose: { lows: g.lows, highs: g.highs } } : {}),
+    ...(severe > 0 ? { pressure: { severe } } : {}),
   };
 }
 
-/** At most 4 sentences: movement, stretching, the readings with their context, then steps (§12.1). Facts, never verdicts. */
+/**
+ * At most 4 sentences: movement, stretching, the readings past a line with
+ * their context, then steps (§12.1). Facts, never verdicts, and never how
+ * often anyone tests (KT-05).
+ */
 export function weekSentences(f: WeekFacts, prefs: DisplayPrefs): string[] {
   const out: string[] = [];
   if (f.minutes > 0) {
@@ -84,20 +89,17 @@ export function weekSentences(f: WeekFacts, prefs: DisplayPrefs): string[] {
         : `${moved}, ${formatNumber(Math.abs(diff))} ${diff > 0 ? 'more' : 'fewer'} than ${f.beforeName}.`);
   }
   if (f.stretchDays > 0) out.push(`You stretched on ${countText(f.stretchDays, ['day', 'days'])} ${f.name}.`);
+  const were = (n: number) => (n === 1 ? 'was' : 'were');
   if (f.glucose) {
-    const { numeric, lo, hi, lows, highs } = f.glucose;
-    const meter = [lo > 0 ? `${formatNumber(lo)} meter LO` : '', hi > 0 ? `${formatNumber(hi)} meter HI` : ''].filter(Boolean).join(' and ');
+    const { lows, highs } = f.glucose;
     const line = GLUCOSE_LINES[prefs.glucose];
     const past = [
-      lows > 0 ? `${formatNumber(lows)} ${lows === 1 ? 'was' : 'were'} below ${line.low}` : '',
-      highs > 0 ? `${formatNumber(highs)} ${highs === 1 ? 'was' : 'were'} above ${line.high}` : '',
+      lows > 0 ? `${were(lows)} below ${line.low}` : '',
+      highs > 0 ? `${lows > 0 ? `${formatNumber(highs)} ` : ''}${were(highs)} above ${line.high}` : '',
     ].filter(Boolean).join(' and ');
-    out.push(`${countText(numeric + lo + hi, ['glucose reading', 'glucose readings'])} ${f.name}${meter ? ` (${formatNumber(numeric)} with a number, ${meter})` : ''}${past ? `; ${past}` : ''}.`);
+    out.push(`${countText(lows > 0 ? lows : highs, ['glucose reading', 'glucose readings'])} ${past} ${f.name}.`);
   }
-  if (f.pressure) {
-    const { readings, severe } = f.pressure;
-    out.push(`${countText(readings, ['blood pressure reading', 'blood pressure readings'])} ${f.name}${severe > 0 ? `; ${formatNumber(severe)} ${severe === 1 ? 'was' : 'were'} 180/120 mmHg or higher` : ''}.`);
-  }
+  if (f.pressure) out.push(`${countText(f.pressure.severe, ['blood pressure reading', 'blood pressure readings'])} ${were(f.pressure.severe)} 180/120 mmHg or higher ${f.name}.`);
   if (f.steps) out.push(`${formatNumber(f.steps.perDay)} steps a day on average ${f.name}, from ${countText(f.steps.days, ['day with steps', 'days with steps'])}.`);
   return out.slice(0, 4);
 }

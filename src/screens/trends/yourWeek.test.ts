@@ -57,8 +57,8 @@ describe('Your week’s facts and sentences (journey §12.1, B-15)', () => {
     expect(weekSentences(facts, prefs)).toEqual([
       'You moved 64 minutes this week, 12 more than by this time last week.',
       'You stretched on 2 days this week.',
-      '6 glucose readings this week (5 with a number, 1 meter LO); 2 were below 70 mg/dL.',
-      '4 blood pressure readings this week; 1 was 180/120 mmHg or higher.',
+      '2 glucose readings were below 70 mg/dL this week.',
+      '1 blood pressure reading was 180/120 mmHg or higher this week.',
     ]);
     expect(weekSentences(facts, prefs).join(' ')).not.toMatch(/great|well done|good job|keep it up|only|better|worse|should|missed/i);
   });
@@ -72,9 +72,18 @@ describe('Your week’s facts and sentences (journey §12.1, B-15)', () => {
     expect(lastWeekStretch.stretchDays).toBe(2);
   });
 
-  it('a meter’s LO alone is still a glucose reading, said with what it was', () => {
+  it('a meter’s LO alone is a glucose reading below 70', () => {
     const onlyLo = weekFacts({ week: '2026-10-05', data: data([], [], [LO]), prefs, ctx: ctx() });
-    expect(weekSentences(onlyLo, prefs)).toEqual(['1 glucose reading this week (0 with a number, 1 meter LO); 1 was below 70 mg/dL.']);
+    expect(weekSentences(onlyLo, prefs)).toEqual(['1 glucose reading was below 70 mg/dL this week.']);
+  });
+
+  it('never counts how often anyone tests: readings are said only past a line (KT-05, A-15, K-51)', () => {
+    const usual = weekFacts({ week: '2026-10-05', data: data([g(118, '2026-10-05T07:30:00+05:30'), g(124, '2026-10-06T07:30:00+05:30'), ...bp(128, 82, '2026-10-06')]), prefs, ctx: ctx() });
+    expect(weekSentences(usual, prefs)).toEqual([]);
+    const both = weekFacts({ week: '2026-10-05', data: data([g(62, '2026-10-05T07:30:00+05:30'), g(280, '2026-10-06T13:00:00+05:30'), g(300, '2026-10-07T13:00:00+05:30')]), prefs: { ...prefs, glucose: 'mmol/L' }, ctx: ctx() });
+    expect(weekSentences(both, { ...prefs, glucose: 'mmol/L' })).toEqual(['1 glucose reading was below 3.9 mmol/L and 2 were above 13.9 mmol/L this week.']);
+    const high = weekFacts({ week: '2026-10-05', data: data([g(280, '2026-10-06T13:00:00+05:30')]), prefs, ctx: ctx() });
+    expect(weekSentences(high, prefs)).toEqual(['1 glucose reading was above 250 mg/dL this week.']);
   });
 
   it('steps, when there is room for them', () => {
