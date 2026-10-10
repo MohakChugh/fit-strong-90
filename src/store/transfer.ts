@@ -904,16 +904,19 @@ export function openIncidents(base: Pick<Snapshot, 'checkIns' | 'observations' |
   // The days as every gate reads them (`effectiveCheckIns`): each record with
   // Track's readings, and a day with only Track's readings as a record of its
   // own — a low logged in Track is a low, today or carried from an earlier day.
-  const view: DailyCheckIn[] = [...new Set([...stored.keys(), ...logged.keys()])].sort().flatMap(date => {
+  // A record with nothing logged is the stored one itself, so the engine's
+  // per-record answers are worked out once, not at every import (C2-05).
+  const view: DailyCheckIn[] = [...new Set([...stored.keys(), ...logged.keys()])].sort().flatMap((date): DailyCheckIn[] => {
     const mine = stored.get(date);
     const readings = logged.get(date);
+    if (!readings) return mine ? [mine] : [];
     const plain: DailyCheckIn = mine ? answersOf(mine) : { date, urgentSymptoms: false, news: [], readingsOnly: true };
-    return readings ? [{ ...plain, logged: readings }] : [plain];
+    return [{ ...plain, logged: readings }];
   });
   const reach = reachableHistory(view as CheckInRecord[], today, profile);
   const own = reach.find(c => c.date === today);
   const earlier = reach.filter(c => c.date < today);
-  const r = own ? evaluateCheckIn(profile, own, earlier, now) : profileOnlyReadiness(profile, { date: today, recent: reach, now });
+  const r = own ? evaluateCheckIn(profile, answersOf(own), earlier, now) : profileOnlyReadiness(profile, { date: today, recent: reach, now });
   const known = new Set<string>();
   for (const c of view) {
     for (const id of readingIdsIn(c)) known.add(id);
