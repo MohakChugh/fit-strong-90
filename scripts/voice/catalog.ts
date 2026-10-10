@@ -13,6 +13,7 @@ import { segmentsFor } from '@/engine/timing';
 import { getCoaching } from '@/data/coaching';
 import { CATALOG } from '@/data/catalog';
 import { splitSentences } from '@/voice/sentences';
+import { WALK_CUES } from '@/walk/cues';
 import type { WorkoutSession } from '@/types';
 import type { DailyCheckIn } from '@/types/checkin';
 import type { SessionPlan } from '@/types/plan';
@@ -122,6 +123,8 @@ for (const input of PROFILES) {
 
 // A returning person's weight notes need a history, which these plans lack.
 for (const line of Object.values(LOAD_LINES)) add(line);
+// The walk's cues at fixed minutes (journey §9.2, Plan 6).
+for (const cue of WALK_CUES) add(cue.line);
 
 const sorted = [...lines].sort();
 fs.writeFileSync('scripts/voice/lines.json', JSON.stringify(sorted, null, 0));
