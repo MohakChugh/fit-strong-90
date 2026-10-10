@@ -5,6 +5,7 @@
  * are keyed, read, merged and backed up. Plan 7 fills in the food stores'
  * rules; nothing else in the store changes for them.
  */
+import { customFoodProblem, mealProblem, newerByUpdate, newerMeal, savedMealProblem } from '@/food/records';
 import type { UserSettings } from '@/types';
 import { routeProblem } from '@/walk/routeRecord';
 
@@ -32,8 +33,6 @@ export interface RecordRule {
   accepts?(device: UserSettings | undefined): boolean;
 }
 
-const notYet = (what: string) => (): string => `This version of the app cannot read ${what} yet.`;
-
 export const RECORD_RULES: Record<RecordStore, RecordRule> = {
   routes: {
     keyPath: 'walkId',
@@ -45,10 +44,10 @@ export const RECORD_RULES: Record<RecordStore, RecordRule> = {
     // A phone whose person said No to keeping routes never takes them from a file (§9.1, Review Focus 4).
     accepts: device => device?.walk?.saveRoutes !== false,
   },
-  // Plan 7 replaces these three with its record types and rules.
-  meals: { keyPath: 'id', label: { one: 'meal', many: 'meals' }, limit: 200_000, backup: 'always', problem: notYet('meals') },
-  savedMeals: { keyPath: 'id', label: { one: 'saved meal', many: 'saved meals' }, limit: 10_000, backup: 'always', problem: notYet('saved meals') },
-  customFoods: { keyPath: 'id', label: { one: 'custom food', many: 'custom foods' }, limit: 10_000, backup: 'always', problem: notYet('custom foods') },
+  // Plan 7's food records (journey §18.2; board D104): each read whole, and merged by the copy changed last.
+  meals: { keyPath: 'id', label: { one: 'meal', many: 'meals' }, limit: 200_000, backup: 'always', problem: mealProblem, newer: newerMeal },
+  savedMeals: { keyPath: 'id', label: { one: 'usual meal', many: 'usual meals' }, limit: 10_000, backup: 'always', problem: savedMealProblem, newer: newerByUpdate },
+  customFoods: { keyPath: 'id', label: { one: 'own food', many: 'own foods' }, limit: 10_000, backup: 'always', problem: customFoodProblem, newer: newerByUpdate },
 };
 
 /** The stores a backup holds unless the person chooses otherwise. */
