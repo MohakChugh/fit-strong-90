@@ -40,7 +40,9 @@ describe('v1 → v2 redirects (journey §19.3)', () => {
     ['/you/appearance', '', '/me/display'],
     ['/you/habits', '', '/me/reminders'],
     ['/you/focus', '', '/me/profile?chapter=movement'],
-    ['/welcome/health', '', '/setup'],
+    // Set up already (the only time these redirects run): Home, with the query, in one hop (codex V1-10).
+    ['/welcome/health', '', '/home'],
+    ['/welcome', '?goal=1', '/home?goal=1'],
     ['/dashboard', '?checkin=1', '/home?checkin=1'],
     ['/settings', '', '/me'],
     ['/workout', '', '/trends/workout'],
@@ -54,6 +56,15 @@ describe('v1 → v2 redirects (journey §19.3)', () => {
 
   it('sends an unknown address to Home with a notice (Review Focus 2)', () => {
     expect(redirectFor('/nowhere/at/all', '')).toBe('/home?moved=1');
+    // A metric kind v1 never had is unknown too, not some other metric's hub (kiro KV-21).
+    expect(redirectFor('/track/metric/nonsense', '')).toBe('/home?moved=1');
+    expect(redirectFor('/track/metric/constructor', '?period=week')).toBe('/home?moved=1');
+  });
+
+  it('sends v1’s setup addresses to setup while nothing is set up yet', () => {
+    expect(redirectFor('/welcome', '?goal=1', { onboarded: false })).toBe('/setup?goal=1');
+    expect(redirectFor('/welcome/keep', '', { onboarded: false })).toBe('/setup');
+    expect(redirectFor('/onboarding', '', { onboarded: false })).toBe('/setup');
   });
 
   it('keeps the query on every redirect, beside a query of its own (K-17)', () => {
@@ -70,7 +81,7 @@ describe('v1 → v2 redirects (journey §19.3)', () => {
   it('sends v1’s legacy list through its v1 target to that target’s v2 place, in one hop', () => {
     for (const [from, to] of [
       ['/plan', '/hub/workout/plan'], ['/library', '/hub/workout/exercises'], ['/progress', '/day/today'],
-      ['/history', '/day/today'], ['/profile', '/me/profile'], ['/onboarding', '/setup'],
+      ['/history', '/day/today'], ['/profile', '/me/profile'], ['/onboarding', '/home'],
     ]) expect(redirectFor(from, ''), from).toBe(to);
   });
 
@@ -100,7 +111,8 @@ describe('v1 → v2 redirects (journey §19.3)', () => {
       read.push(area);
       const paths = [...source.matchAll(/path="([^"*]+)"/g)].map(m => m[1]);
       for (const p of paths) {
-        const full = `${base}/${p.replace(/:[a-zA-Z]+/g, 'x')}`;
+        // A metric address needs a real kind: an unknown one is unknown (every kind is checked above).
+        const full = `${base}/${p.replace(':kind', 'glucose').replace(/:[a-zA-Z]+/g, 'x')}`;
         const target = redirectFor(full, '');
         // Either kept as is (a record or task), or sent to a real v2 address, never to the unknown fallback.
         expect(target === undefined || !target.startsWith('/home?moved'), `${full} → ${target}`).toBe(true);

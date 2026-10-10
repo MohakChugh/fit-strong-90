@@ -36,7 +36,14 @@ const SessionPage = lazy(() => import('@/pages/SessionPage'));
  */
 export function LegacyRedirect() {
   const { pathname, search, state } = useLocation();
-  return <Navigate to={redirectFor(pathname, search) ?? '/home?moved=1'} replace state={state} />;
+  // Mounted only once set up, so v1's setup addresses go Home, in one hop.
+  return <Navigate to={redirectFor(pathname, search, { onboarded: true }) ?? '/home?moved=1'} replace state={state} />;
+}
+
+/** A redirect of the route table's own, keeping the address's query and navigation state (journey §19.3, K-17). */
+function Keeping({ to }: { to: string }) {
+  const { search, state } = useLocation();
+  return <Navigate to={{ pathname: to, search }} replace state={state} />;
 }
 
 /** Full-screen tasks: a main landmark, the storage notice, and a failure that stays contained. */
@@ -63,16 +70,16 @@ export function AppRoutes({ onboarded }: { onboarded: boolean }) {
     return (
       <Routes>
         <Route path="/setup/*" element={<Task><WelcomeRoutes /></Task>} />
-        <Route path="*" element={<Navigate to="/setup" replace />} />
+        <Route path="*" element={<Keeping to="/setup" />} />
       </Routes>
     );
   }
 
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/home" replace />} />
+      <Route path="/" element={<Keeping to="/home" />} />
       {/* Set up already: setup's addresses go Home, which is also how finishing setup arrives there. */}
-      <Route path="/setup/*" element={<Navigate to="/home" replace />} />
+      <Route path="/setup/*" element={<Keeping to="/home" />} />
       <Route path="/session" element={<Task><SessionPage /></Task>} />
       <Route path="/walk/live" element={<Task><LiveWalkScreen /></Task>} />
       <Route path="/walk/summary" element={<Task><WalkSummary /></Task>} />

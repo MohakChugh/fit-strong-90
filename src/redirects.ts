@@ -44,11 +44,18 @@ function keep(to: string, search: string): string {
   return `${path}?${q}`;
 }
 
-export function redirectFor(pathname: string, search: string): string | undefined {
+/** Anything this version doesn't have: Home, saying "That page has moved" (journey §19.3). */
+const MOVED = '/home?moved=1';
+
+/**
+ * Where a v1 address goes now. v1's setup addresses go to setup while
+ * nothing is set up, and Home once it is, in one hop (journey §19.3).
+ */
+export function redirectFor(pathname: string, search: string, { onboarded = true }: { onboarded?: boolean } = {}): string | undefined {
   const p = pathname.replace(/\/+$/, '') || '/';
   if (V2_ROOTS.some(r => under(p, r)) || KEPT.test(p)) return undefined;
   const legacy = own(V1_LEGACY, p);
-  if (legacy) return redirectFor(legacy, search) ?? keep(legacy, search);
+  if (legacy) return redirectFor(legacy, search, { onboarded }) ?? keep(legacy, search);
   if (p === '/' || p === '/today') return keep('/home', search);
   if (p === '/move') return keep('/hub/workout', search);
   if (p === '/move/stretch') return keep('/hub/stretch', search);
@@ -64,8 +71,11 @@ export function redirectFor(pathname: string, search: string): string | undefine
     return `${view === 'trends' ? '/trends' : `/day/${day ?? 'today'}`}${rest ? `?${rest}` : ''}`;
   }
   const metric = /^\/track\/metric\/([^/]+)$/.exec(p);
-  // A kind v1 never had falls back to Glucose; every kind it had is in METRIC (redirects.test.ts).
-  if (metric) return keep(own(METRIC, metric[1]) ?? '/hub/glucose', search);
+  // Every kind v1 had is in METRIC (redirects.test.ts); any other is unknown.
+  if (metric) {
+    const to = own(METRIC, metric[1]);
+    return to ? keep(to, search) : MOVED;
+  }
   if (p === '/track/back') return keep('/hub/back', search);
   if (p === '/track/workout') return keep('/trends/workout', search);
   if (p === '/guide') return keep('/hub/learn', search);
@@ -78,6 +88,6 @@ export function redirectFor(pathname: string, search: string): string | undefine
   const you = /^\/you\/([^/]+)$/.exec(p);
   const section = you ? own(YOU, you[1]) : undefined;
   if (section) return keep(`/me/${section}`, search);
-  if (under(p, '/welcome')) return keep('/setup', search);
-  return '/home?moved=1';
+  if (under(p, '/welcome')) return keep(onboarded ? '/home' : '/setup', search);
+  return MOVED;
 }
