@@ -13,23 +13,30 @@ import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, type Host } from '@/test/host';
 
-const router = vi.hoisted(() => ({ navigate: vi.fn() }));
+const HUB = { pathname: '/hub/walk', search: '', state: null, key: 'k0' };
+const router = vi.hoisted(() => ({ navigate: vi.fn(), location: { pathname: '', search: '', state: null, key: '' } }));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => router.navigate,
-  useLocation: () => ({ pathname: '/hub/walk', search: '', state: null, key: 'k0' }),
+  useLocation: () => router.location,
 }));
 vi.mock('@/components/ui/sheet', async () => {
-  const { createElement: h, Fragment } = await import('react');
+  const { createElement: h, createContext, useContext } = await import('react');
+  // Close closes, as the vendored sheet's does: through the sheet's own `onOpenChange`.
+  const Closing = createContext<(open: boolean) => void>(() => {});
   return {
-    Sheet: ({ open, children }: { open: boolean; children?: ReactNode }) => (open ? h(Fragment, null, children) : null),
+    Sheet: ({ open, onOpenChange, children }: { open: boolean; onOpenChange: (open: boolean) => void; children?: ReactNode }) =>
+      (open ? h(Closing.Provider, { value: onOpenChange }, children) : null),
     SheetContent: ({ children }: { children?: ReactNode }) => h('div', { role: 'dialog' }, children),
     SheetTitle: ({ children }: { children?: ReactNode }) => h('h2', null, children),
-    SheetClose: ({ children }: { children?: ReactNode }) => h('button', { type: 'button' }, children),
+    SheetClose: ({ children }: { children?: ReactNode }) => {
+      const close = useContext(Closing);
+      return h('button', { type: 'button', onClick: () => close(false) }, children);
+    },
   };
 });
-const platform = vi.hoisted(() => ({ motion: vi.fn(), audio: vi.fn() }));
+const platform = vi.hoisted(() => ({ motion: vi.fn(), audio: vi.fn(), drop: vi.fn() }));
 vi.mock('@/walk/browser', () => ({ requestMotion: platform.motion }));
-vi.mock('@/walk/voice', () => ({ walkVoice: () => ({ unlock: platform.audio, say: async () => 'skipped', cancel() {}, trouble: null, status: 'idle', subscribe: () => () => {} }) }));
+vi.mock('@/walk/voice', () => ({ walkVoice: () => ({ unlock: platform.audio, say: async () => 'skipped', cancel: platform.drop, trouble: null, status: 'idle', subscribe: () => () => {} }) }));
 
 const local = new Map<string, string>();
 globalThis.localStorage = {
@@ -84,8 +91,10 @@ beforeEach(async () => {
   store.resetForTests();
   resetPendingCheckInsForTests();
   router.navigate = vi.fn();
+  router.location = HUB;
   platform.motion.mockReset().mockResolvedValue('granted');
   platform.audio.mockReset().mockResolvedValue(true);
+  platform.drop.mockReset();
   plan = { kind: 'walk', gps: true, steps: true };
   await store.start({ factory: fakeIndexedDB(), broadcast: null });
 });
@@ -161,5 +170,68 @@ describe('a start refused at the last moment (J§4.1, V-J19, Review Focus 5)', (
     expect(router.navigate).toHaveBeenCalledTimes(1);
     expect(router.navigate.mock.calls[0][0]).toMatch(/^\/walk\/live\?.*from=walk/);
     expect(router.navigate.mock.calls[0][0]).not.toMatch(/route=1/);
+  });
+});
+
+describe('a start given up while its answers are pending (H6-08, KH-14)', () => {
+  /** iOS's motion prompt, still open: its answer comes when the person gives it. */
+  function prompt() {
+    let answer!: (a: string) => void;
+    platform.motion.mockReturnValueOnce(new Promise<string>(r => { answer = r; }));
+    return (a: string) => answer(a);
+  }
+  const DONE = { saveRoutes: false, map: 'off', stepCardSeen: true } as const;
+
+  it('Close starts nothing, whenever the answer comes, drops the audio, and Start works again', async () => {
+    const answer = prompt();
+    const h = await seeded(createDefaultProfile(PLAIN), { saveRoutes: false, map: 'off' });
+    tap(h, 'Begin');
+    await h.settle();
+    expect(h.text()).toContain('FitStrong counts steps only while it’s open on the screen.');
+    tap(h, 'Start walk');
+    expect(platform.motion).toHaveBeenCalledTimes(1);
+    await h.click(h.button('Close', { exact: true }));
+    expect(platform.drop).toHaveBeenCalled();
+    answer('granted');
+    await h.settle();
+    expect(router.navigate).not.toHaveBeenCalled();
+    // A new tap is a new start, with its own answers.
+    tap(h, 'Begin');
+    await h.settle();
+    expect(router.navigate).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaving the screen starts nothing', async () => {
+    const answer = prompt();
+    const h = await seeded(createDefaultProfile(PLAIN), DONE);
+    tap(h, 'Begin');
+    h.unmount();
+    host = undefined;
+    answer('granted');
+    await new Promise(r => setTimeout(r, 0));
+    expect(router.navigate).not.toHaveBeenCalled();
+    expect(platform.drop).toHaveBeenCalled();
+  });
+
+  it('going to another screen while this one stays starts nothing', async () => {
+    const answer = prompt();
+    const h = await seeded(createDefaultProfile(PLAIN), DONE);
+    tap(h, 'Begin');
+    router.location = { ...HUB, pathname: '/today', key: 'k1' };
+    h.update(createElement(Harness));
+    await h.settle();
+    answer('granted');
+    await h.settle();
+    expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  it('answers Start again after a start the live screen sent back, this screen still open (KH-14)', async () => {
+    const h = await seeded(createDefaultProfile(PLAIN), DONE);
+    tap(h, 'Begin');
+    await h.settle();
+    expect(router.navigate).toHaveBeenCalledTimes(1);
+    tap(h, 'Begin');
+    await h.settle();
+    expect(router.navigate).toHaveBeenCalledTimes(2);
   });
 });

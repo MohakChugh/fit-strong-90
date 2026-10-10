@@ -12,4 +12,14 @@ describe('the walks the start flow has just started (H6-04)', () => {
     expect(takeStarted(asked.id)).toBeUndefined();
     expect(takeStarted('mgh3k2x1-zzzzzzzz')).toBeUndefined();
   });
+
+  it('keeps only the latest start: an address from an earlier tap, left in history, starts nothing (KH-14)', () => {
+    const plan = { kind: 'walk' as const, gps: false, steps: false };
+    const at = Date.UTC(2026, 9, 8, 3, 30);
+    const id = (href: string) => walkFromSearch(new URLSearchParams(href.split('?')[1]), at + 60_000)!.id;
+    const earlier = id(startedHref(plan, at));
+    const latest = id(startedHref(plan, at + 1000));
+    expect(takeStarted(earlier)).toBeUndefined();
+    expect(takeStarted(latest)).toEqual(plan);
+  });
 });

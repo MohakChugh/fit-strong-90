@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useGuided } from '@/hooks/useGuided';
 import { getState, setSettings } from '@/store/useStore';
@@ -20,7 +20,7 @@ import { PreflightSheet, type PreflightStage } from './PreflightSheet';
  */
 export function useWalkFlow(onCheckIn: (plan: WalkPlan) => void): { begin(plan: WalkPlan): void; ui: ReactNode } {
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const { pathname, key } = useLocation();
   const { profile } = useGuided();
   const [stage, setStage] = useState<PreflightStage | null>(null);
   const pack = profile.voice.pack ?? 'af_heart';
@@ -28,10 +28,14 @@ export function useWalkFlow(onCheckIn: (plan: WalkPlan) => void): { begin(plan: 
   const starter = useMemo(() => createStarter({
     requestMotion,
     unlockAudio: () => walkVoice().unlock(pack),
+    dropAudio: () => walkVoice().cancel(),
     gate: () => storeStartPermission(),
     // The one way a new walk reaches the live screen (H6-04).
     go: plan => navigate(startedHref(plan), { viewTransition: true }),
   }), [navigate, pack]);
+  // A start given up while its answers are pending — another screen, or this
+  // one gone — never navigates later (H6-08). Close gives it up below.
+  useEffect(() => () => starter.cancel(), [starter, key]);
 
   /**
    * The tap that finally starts the walk: B-01's sequence, inside this
@@ -66,7 +70,7 @@ export function useWalkFlow(onCheckIn: (plan: WalkPlan) => void): { begin(plan: 
       stage={stage}
       onAnswer={answer}
       onCheckIn={() => { const s = stage; setStage(null); if (s) onCheckIn(s.plan); }}
-      onClose={() => setStage(null)}
+      onClose={() => { starter.cancel(); setStage(null); }}
     />
   );
   return { begin, ui };
