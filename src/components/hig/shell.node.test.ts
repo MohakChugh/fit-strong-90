@@ -793,6 +793,13 @@ describe('Home’s targets and layout (kiro KV-08, KV-10, KV-11, KV-15, KV-18, K
     }
   });
 
+  it('the steps form’s Paste is at least 48 by 48, in rem so it grows with the text (journey §20.4 rule 1; codex H2-07, kiro KH-10)', () => {
+    const paste = /className="([^"]*)"\s*>\s*Paste\s*</.exec(read('src/screens/track/QuickLog.tsx'));
+    expect(paste?.[1]).toMatch(/\bmin-h-12\b/);
+    expect(paste?.[1]).toMatch(/\bmin-w-12\b/);
+    expect(paste?.[1]).not.toMatch(/\bmin-h-11\b/);
+  });
+
   it('"2 reminders" sits in the header’s wrapping area beside the status, not in the fixed bar', () => {
     const home = read('src/screens/home/HomeScreen.tsx');
     expect(home).not.toMatch(/trailing=\{<RemindersCapsule/);

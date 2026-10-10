@@ -8,6 +8,8 @@
  *   on the hub (§4.1).
  * - H2-06: an Add link reaches a hub that is already open: its own form
  *   opens and the address lets the link go; another metric's opens none.
+ * - H2-07: the steps form's Paste is at least 48 by 48, and grows with
+ *   the text size (§20.4 rule 1).
  * Synthetic personas only (fixtures/personas.mjs).
  */
 import { persona } from '../fixtures/personas.mjs';
@@ -173,4 +175,28 @@ const addWhileOpen = {
   },
 };
 
-export const cases = [carryOnUnwell, carryOnFlare, carryOnGate, addWhileOpen];
+/** A control's box on screen, in CSS pixels. */
+const box = async locator => (await locator.boundingBox()) ?? { width: 0, height: 0 };
+
+const pasteTarget = {
+  name: 'H2-07: Paste is a 48 px target that grows with the text',
+  async run(t) {
+    for (const [n, scale] of [[1, 1], [2, 2]]) {
+      await t.step(n, `Steps → Add today’s steps at ${scale * 100}% text: Paste is at least ${48 * scale} px each way`, async () => {
+        if (n > 1) await t.context.close();
+        const page = await t.open({ seed: persona('P01'), route: '/hub/steps', ...(scale > 1 ? { textScale: scale } : {}) });
+        await ui.heading(page, 'Steps');
+        await ui.tap(ui.button(page.getByRole('main'), 'Add today’s steps'));
+        const form = page.getByRole('dialog', { name: 'Steps' });
+        await form.waitFor();
+        const paste = ui.button(form, 'Paste');
+        await t.must(await paste.count() === 1, 'the steps form has no Paste');
+        const b = await box(paste);
+        if (n === 1) await t.checkpoint('h2-07-paste');
+        await t.check(b.width >= 48 * scale - 0.5 && b.height >= 48 * scale - 0.5, `Paste is ${b.width.toFixed(1)} × ${b.height.toFixed(1)} px at ${scale * 100}% text`);
+      });
+    }
+  },
+};
+
+export const cases = [carryOnUnwell, carryOnFlare, carryOnGate, addWhileOpen, pasteTarget];
