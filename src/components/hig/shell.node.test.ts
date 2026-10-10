@@ -543,6 +543,12 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     expect(read('src/screens/guide/CardScreen.tsx')).toContain('state={{ path: `/hub/learn/card/${from.id}`, label: from.title }}');
     expect(read('src/screens/move/ExerciseScreen.tsx')).toContain('state={{ from: origin, path: location.pathname, label: ex.name }}');
   });
+
+  it('Me’s Sources row opens Learn’s sources at their own address, not v1’s Guide through a redirect (Plan 2’s board note)', () => {
+    const me = read('src/screens/you/MeHome.tsx');
+    expect(me).toContain('<Row as={Link} to="/hub/learn/sources" viewTransition label="Sources and licences" chevron />');
+    expect(me).not.toMatch(/to="\/guide/);
+  });
 });
 
 describe('the safety surface wherever the person is (codex V1-02, V1-03, journey §4.7, B-02)', () => {

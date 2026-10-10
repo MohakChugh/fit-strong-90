@@ -842,3 +842,16 @@ Checked at pacompendium.com on 2026-10-10: the 2024 Adult Compendium's walking p
   - Willis EA, Herrmann SD, Hastert M, Kracht CL, Barreira TV, Schuna Jr. JM, Cai Z, Quan M, Conger SA, Brown WJ, Ainsworth BE. Older Adult Compendium of Physical Activities: Energy costs of human activities in adults aged 60 and older. J Sport Health Sci 2024;13(1):13–17.
 - **Terms** (the home page's "Using the Compendium", read the same day): "The Adult, Older Adult, and Wheelchair Compendia are free to use for commercial purposes." "Please do not change MET values or combine activities with different MET levels." "Please cite the Compendium website or publication(s)." The MET values are used unchanged and uncombined, one row per covered interval.
 - **Open: where the citation shows.** Learn's sources don't list these yet: every Learn source must back one of its claims (`src/content/integrity.ts` refuses an orphan), and Plan 6 writes no Learn content. Until Learn has an energy answer citing both papers, or the walk summary gains a "How this is estimated" line, the app uses the values without showing their citation. To decide with Plan 6's other decisions (Task 18).
+
+### 2026-10-10 — [claude] v2 integration: Plan 1's re-check fixes, Plan 4 and Plan 6 merged into feat/v2-journey
+
+Three merge commits, in order, on Plan 2 and the storage foundation (`a89065a`): `feat/v2-p1fix` (W-01 to W-06, V1-12, the Workout Log emergency fix), `feat/v2-p4` (Browse and Me, Tasks 1–11) and `feat/v2-p6` (Walk, Tasks 2–13). Each conflict kept both sides' intent; the merge commits say how, file by file. The ones that change what a reader of either plan would expect:
+- **V-J12 is one journey with both plans' cases** (Plan 4 Task 5 Step 7): Plan 2's id `VJ12`, title and two cases, then Plan 4's four.
+- **The walk summary claims no decision** (W-01) with Plan 6's Back and Done to the walk's origin (M12).
+- **Home's walk start** deals with a walk still on the device first (W-04), then goes through the shared start, which asks for motion in the tap that finally starts the walk (Plan 6 Task 8). W-04's wiring test keeps its order check without the early motion request it used to pin.
+- **The Sheet** keeps W-02's reveal and W-05's leave-once-closed, and Plan 4's `returnFocus` (B-03).
+- **Edit Home** builds each change on the newest one asked for (W-03), over Plan 4's `layoutNow`.
+
+Follow-ups:
+- Me's "Sources" row (Plan 2's note above): Plan 4's Me links `/hub/learn/sources` directly; `YouHome.tsx` is gone. A wiring test holds it.
+- Checking a backup: an older file from the same date as the latest says both times, "made 8 Oct 2026, 9:05 am, and your latest is from 8 Oct 2026, 6:30 pm", on the device's clock. Dates alone otherwise.

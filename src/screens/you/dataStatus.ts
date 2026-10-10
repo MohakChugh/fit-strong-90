@@ -2,6 +2,7 @@
  * What Me → Data says about where the record is and how safe it is (journey
  * §6.5, §16; B-24, B-25), as plain lines. Pure, so each sentence is tested.
  */
+import { prefersHour12, timeOf } from '@/lib/time';
 import type { ImportPreview } from '@/store/transfer';
 import type { HabitSettings } from '@/types/habits';
 import type { InstallContext } from '@/screens/welcome/install';
@@ -57,13 +58,25 @@ export function checkOutcome(
   return preview.exportedAt === latest ? 'latest' : 'other';
 }
 
-export function checkedLine(outcome: CheckOutcome, made: string | undefined, latest: string | undefined, device: string): string {
+/**
+ * A backup's date, "8 Oct 2026", and its time too, "8 Oct 2026, 9:05 am",
+ * when the other backup it is set beside reads the same date: the dates alone
+ * would not tell the two apart.
+ */
+function madeOn(at: string, beside: string, hour12: boolean): string {
+  const date = shortDate(at);
+  const readable = Number.isFinite(Date.parse(at)) && Number.isFinite(Date.parse(beside));
+  // ponytail: to the minute. Two backups made within the same minute read alike; seconds would split them if that ever matters.
+  return readable && date === shortDate(beside) ? `${date}, ${timeOf(at, hour12)}` : date;
+}
+
+export function checkedLine(outcome: CheckOutcome, made: string | undefined, latest: string | undefined, device: string, hour12: boolean = prefersHour12()): string {
   switch (outcome) {
     case 'latest': return `Checked. This is your latest backup, made ${shortDate(made ?? '')}, and it reads back whole.`;
     case 'damaged': return 'Parts of this file can’t be read, so it isn’t a whole backup. Make a new one.';
     case 'undated': return 'This file reads back, but it doesn’t say when it was made, so it can’t be matched to your latest backup.';
     case 'other': return latest
-      ? `This file reads back, but it isn’t your latest backup: it was made ${shortDate(made ?? '')}, and your latest is from ${shortDate(latest)}.`
+      ? `This file reads back, but it isn’t your latest backup: it was made ${madeOn(made ?? '', latest, hour12)}, and your latest is from ${madeOn(latest, made ?? '', hour12)}.`
       : `This file reads back, but no backup has been made on this ${device} yet, so there is nothing to match it to.`;
   }
 }

@@ -46,6 +46,38 @@ describe('a backup file read back (B-25; Review Focus 5)', () => {
     expect(checkedLine('undated', undefined, AT, 'iPhone')).toBe('This file reads back, but it doesn’t say when it was made, so it can’t be matched to your latest backup.');
     expect(checkedLine('damaged', AT, AT, 'iPhone')).toBe('Parts of this file can’t be read, so it isn’t a whole backup. Make a new one.');
   });
+
+  describe('an older file from the same date as the latest says both times, as the dates alone can’t tell them apart', () => {
+    // Local times, so the times read the same in any time zone.
+    const MORNING = new Date(2026, 9, 8, 9, 5).toISOString();
+    const EVENING = new Date(2026, 9, 8, 18, 30).toISOString();
+    const DAY = shortDate(MORNING);
+
+    it('on a 12-hour clock', () => {
+      expect(DAY).toBe(shortDate(EVENING));
+      expect(checkedLine('other', MORNING, EVENING, 'iPhone', true))
+        .toBe(`This file reads back, but it isn’t your latest backup: it was made ${DAY}, 9:05 am, and your latest is from ${DAY}, 6:30 pm.`);
+    });
+
+    it('on a 24-hour clock', () => {
+      expect(checkedLine('other', MORNING, EVENING, 'iPhone', false))
+        .toBe(`This file reads back, but it isn’t your latest backup: it was made ${DAY}, 09:05, and your latest is from ${DAY}, 18:30.`);
+    });
+
+    it('a file from another date keeps the dates alone', () => {
+      const before = new Date(2026, 9, 7, 9, 5).toISOString();
+      expect(checkedLine('other', before, EVENING, 'iPhone', true))
+        .toBe(`This file reads back, but it isn’t your latest backup: it was made ${shortDate(before)}, and your latest is from ${DAY}.`);
+    });
+
+    it('a date that can’t be read is never given a time, even beside another that can’t', () => {
+      // Both read "on a date that cannot be read": the same words, but not the same date, and no time to give.
+      const neither = checkedLine('other', 'not a date', 'nor this', 'iPhone', true);
+      expect(neither).toContain('it was made on a date that cannot be read, and your latest is from');
+      expect(neither).toMatch(/cannot be read\.$/);
+      expect(checkedLine('other', 'not a date', EVENING, 'iPhone', true)).not.toMatch(/\d:\d\d/);
+    });
+  });
 });
 
 describe('install status (B-24)', () => {
