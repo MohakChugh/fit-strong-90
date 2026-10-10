@@ -11,7 +11,7 @@ import type { SymptomReport } from '@/components/checkin/pending';
 import type { GlucoseEntry } from '@/types/checkin';
 import { deriveHealth } from '@/engine/health';
 import { PERMISSION_TEXT } from '@/engine/permission';
-import { reachableHistory, walkInput, walkRefusal, type Clinical } from '@/walk/gate';
+import { reachableHistory, untimedOf, walkInput, walkRefusal, type Clinical } from '@/walk/gate';
 import { cn, toDateString } from '@/lib/utils';
 import { clock, spokenClock, timeOfDay } from '@/walk/format';
 import { feelLow, lowReading } from '@/walk/low';
@@ -19,7 +19,6 @@ import { needToStop } from '@/walk/stop';
 import { walkFromSearch } from '@/walk/plan';
 import {
   STEPS_DENIED,
-  clockLine,
   cueLine,
   distanceFigure,
   draftWarning,
@@ -175,9 +174,8 @@ export default function LiveWalkScreen() {
    * before anyone taps Resume (N06). Resume still asks for itself.
    */
   const question = snapshot.blocked ?? (running ? null : 'restart');
-  const refusal = question ? walkRefusal(walkInput(clinical, new Date(snapshot.now), snapshot.walk.clockChangedAt), question) : undefined;
-  // Only when the hold is the one the clock change causes: a reading that can't be timed (B-19).
-  const clockNote = refusal?.reasons.includes(PERMISSION_TEXT.staleNoTime) ? clockLine(snapshot.walk) : undefined;
+  // After a change to the phone's clock, the readings from before it, which the engine holds on (B-19); its reason says so.
+  const refusal = question ? walkRefusal(walkInput(clinical, new Date(snapshot.now), untimedOf(snapshot.walk)), question) : undefined;
   const emergency = refusal?.disposition === 'emergency';
   const low = lowOpen(checkIn, snapshot.walk);
   const action = refusal ? heldAction(refusal, low) : 'none';
@@ -275,7 +273,6 @@ export default function LiveWalkScreen() {
                   </p>
                   {refusal.reasons.map(r => <p key={r}>{r}</p>)}
                   {refusal.release && <p className="text-muted-foreground">{refusal.release}</p>}
-                  {clockNote && <p className="text-muted-foreground">{clockNote}</p>}
                   <p className="text-muted-foreground">Your walk so far is kept. Finish to save it.</p>
                   {action === 'stop' && (
                     <button type="button" onClick={() => setSheet('stop')} className="press-feedback mt-1 min-h-12 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">

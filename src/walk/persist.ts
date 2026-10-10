@@ -129,6 +129,11 @@ export function parseWalk(raw: unknown): Walk | null {
     if (raw.pain.leg !== undefined && !isPain(raw.pain.leg)) return null;
   }
   if (raw.clockChangedAt !== undefined && !isTime(raw.clockChangedAt)) return null;
+  // The readings a clock change left untimed (B-19): a short list of ids, kept only with the change itself.
+  if (raw.untimedReadings !== undefined) {
+    if (raw.clockChangedAt === undefined || !Array.isArray(raw.untimedReadings) || raw.untimedReadings.length > 10_000) return null;
+    if (!raw.untimedReadings.every(id => typeof id === 'string' && id.length > 0 && id.length <= 200)) return null;
+  }
 
   return { ...(raw as unknown as Walk), segments: segments.map(s => upgraded(s, raw.seenAt as number)) };
 }

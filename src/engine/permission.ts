@@ -20,12 +20,12 @@
  *   that needs protecting while seated work goes ahead.
  */
 
-import type { CheckInRecord, DailyCheckIn, Disposition, Mode, Modifier, Readiness } from '@/types/checkin';
+import type { CheckInRecord, DailyCheckIn, Disposition, GlucoseEntry, Mode, Modifier, Readiness } from '@/types/checkin';
 import { DISPOSITION_ORDER } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { toDateString } from '@/lib/utils';
 import { deriveHealth, profileGaps } from './health';
-import { durableView, EMERGENCY_CALL, evaluateCheckIn, profileOnlyReadiness, withLogged } from './readiness';
+import { durableView, EMERGENCY_CALL, evaluateCheckIn, glucoseReadingId, profileOnlyReadiness, withLogged } from './readiness';
 
 export type { Disposition, Mode } from '@/types/checkin';
 
@@ -35,6 +35,14 @@ export interface PermissionInput {
   now: Date;
   /** Earlier check-ins, any order. Optional: only the two-days-running and spread rules read them. */
   recent?: DailyCheckIn[];
+  /**
+   * B-19: a walk saw the phone's clock change, and these glucose readings, by
+   * `glucoseReadingId`, are the ones the device knew then. They were timed by
+   * the clock as it was, so their ages can't be known. Someone who can go low
+   * then moves only on a reading taken since, in every question, carrying on
+   * included. Absent: no change was seen. Nothing else reads it.
+   */
+  untimed?: ReadonlySet<string>;
 }
 
 export interface Permission {
@@ -75,6 +83,7 @@ export const PERMISSION_TEXT = {
   staleNoTime: 'Add the time you took your glucose reading: with insulin or a sulfonylurea it must be from the last 30 minutes.',
   future: 'Your glucose reading’s time is later than now. Check the time and enter it again.',
   footWalk: 'No walking today: your foot needs protecting. Seated and floor work can still go ahead.',
+  clockChanged: 'Your phone’s clock changed during this walk, so a reading from before the change can’t be timed. Check your glucose again to carry on.',
 } as const;
 
 const RELEASES = {
@@ -201,6 +210,31 @@ function freshness(c: DailyCheckIn, now: Date): Block | undefined {
   return undefined;
 }
 
+/** The reading taken last, a number or the meter's HI or LO: the one the rules read as now. */
+function currentGlucose(c: DailyCheckIn): GlucoseEntry | undefined {
+  const t = (e: GlucoseEntry) => { const ms = e.measuredAt ? Date.parse(e.measuredAt) : Number.NaN; return Number.isNaN(ms) ? -Infinity : ms; };
+  return [c.glucose, c.glucoseDisplay].filter((e): e is GlucoseEntry => !!e).sort((a, b) => t(b) - t(a))[0];
+}
+
+/**
+ * B-19: after a change to the phone's clock, the current reading must be one
+ * taken since, by identity: a time from before the change, compared with
+ * times after it, would mix two clocks. In the record the device stored as
+ * well as the effective one, so a newer reading it has not kept releases
+ * nothing (N-01).
+ */
+function clockBlock(input: PermissionInput, checkIn: CheckInRecord | undefined): Block | undefined {
+  const untimed = input.untimed;
+  if (!untimed || !deriveHealth(input.profile.health).hypoRisk) return undefined;
+  const stored = checkIn ? durableView(checkIn) : undefined;
+  const views = checkIn ? [checkIn, ...(stored ? [stored] : [])].map(withLogged) : [];
+  const since = views.length > 0 && views.every(v => {
+    const g = currentGlucose(v);
+    return g !== undefined && !untimed.has(glucoseReadingId(g, v.date));
+  });
+  return since ? undefined : { disposition: 'hold', reasons: [PERMISSION_TEXT.clockChanged], release: RELEASES.fresh, needsCheckIn: true };
+}
+
 /** The profile on its own, with no check-in at all, refuses this mode. */
 function profileRefuses(profile: UserProfile, mode: Mode): boolean {
   const r = profileOnlyReadiness(profile);
@@ -274,6 +308,8 @@ function decide(input: PermissionInput, mode: Mode, opts: { fresh: boolean; need
       .find(s => s && (s.code === 'future' || (opts.fresh && deriveHealth(profile.health).hypoRisk)));
     if (stale) blocks.push(stale);
   }
+  const clock = clockBlock(input, checkIn);
+  if (clock) blocks.push(clock);
 
   if (blocks.length) {
     // Stable sort: equal dispositions keep the order above, check-in reasons first.

@@ -40,10 +40,10 @@ vi.mock('@/components/ui/sheet', async () => {
 const walk = vi.hoisted(() => ({ live: undefined as LiveWalk | undefined, kept: new Map<string, string>() }));
 vi.mock('@/walk/browser', async () => {
   const { createLiveWalk } = await import('@/walk/live');
-  const { storeGate, watchClinical } = await import('@/walk/gate');
+  const { storeGate, untimedOf, watchClinical } = await import('@/walk/gate');
   return {
     liveWalk: () => (walk.live ??= createLiveWalk({
-      mayRun: (intent, w) => storeGate(intent, w?.clockChangedAt),
+      mayRun: (intent, w) => storeGate(intent, untimedOf(w)),
       watchClinical,
       now: () => Date.now(),
       later(fn, ms) {

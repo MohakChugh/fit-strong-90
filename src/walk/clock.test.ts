@@ -4,6 +4,7 @@ import {
   accrueOpen,
   addGapTime,
   CLOCK_JUMP_MS,
+  daysAround,
   finishWalk,
   heartbeat,
   leaveWalk,
@@ -214,6 +215,22 @@ describe('time under a changed clock (B-19)', () => {
     expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(3600), mono: 1000 })).toEqual({ ms: 1000, jumped: true });
     // Exactly two minutes apart still agree.
     expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(121), mono: 1000 })).toEqual({ ms: 121_000, jumped: false });
+  });
+
+  it('keeps every reading the device knew at each change, by identity (H6-02)', () => {
+    let w = splitAtClockChange(accrueOpen(walkFor(), 60_000, s(60)), s(3600), 1000, ['g:a']);
+    expect(w.untimedReadings).toEqual(['g:a']);
+    // A reading taken between two changes was timed by a clock that moved again.
+    w = splitAtClockChange(accrueOpen(w, 60_000, s(3660)), s(7200), 1000, ['g:a', 'g:b']);
+    expect(w.untimedReadings).toEqual(['g:a', 'g:b']);
+    w = splitAtClockChange(accrueOpen(w, 60_000, s(7260)), s(9000), 1000);
+    expect(w.untimedReadings).toEqual(['g:a', 'g:b']);
+  });
+
+  it('looks for those readings on the days either side of both clocks', () => {
+    const noon = new Date(2026, 9, 8, 12).getTime();
+    expect(daysAround(noon)).toEqual(['2026-10-07', '2026-10-08', '2026-10-09']);
+    expect(daysAround(noon, noon - 3 * 86_400_000)).toEqual(['2026-10-04', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09']);
   });
 
   it('keeps the latest change, so only a reading taken since it is timed', () => {

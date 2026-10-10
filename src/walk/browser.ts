@@ -7,7 +7,8 @@
 
 import type { Fix } from './gps';
 import { createLiveWalk, type GeoError, type GeoPort, type LivePorts, type LiveWalk, type MotionPort, type VisibilityPort, type WakeLockPort } from './live';
-import { storeGate, watchClinical } from './gate';
+import { deviceClinical, readingIds, storeGate, untimedOf, watchClinical } from './gate';
+import { getState } from '@/store/useStore';
 import { createWakeLockPort } from './wakeLock';
 import { sessionWalkStorage } from './persist';
 import { journalPort } from './journalPort';
@@ -149,8 +150,9 @@ function visibilityPort(): VisibilityPort {
 
 export function browserPorts(): LivePorts {
   return {
-    mayRun: (intent, walk) => storeGate(intent, walk?.clockChangedAt),
+    mayRun: (intent, walk) => storeGate(intent, untimedOf(walk)),
     watchClinical,
+    readingsNow: days => readingIds(deviceClinical(getState()).checkIns, days),
     now: () => Date.now(),
     monotonic: () => performance.now(),
     later(fn, ms) {

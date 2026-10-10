@@ -18,6 +18,7 @@ import {
   accrueOpen,
   addGapTime,
   creditSteps,
+  daysAround,
   finishWalk,
   heartbeat,
   leaveWalk,
@@ -115,6 +116,12 @@ export interface LivePorts {
   now(): number;
   /** The monotonic clock, ms (B-19). Absent: the device clock, so no change is ever seen. */
   monotonic?(): number;
+  /**
+   * B-19: the glucose readings this device knows on `days`, by identity, at
+   * the moment a change to the clock is seen. They were timed by the clock as
+   * it was, so the gate asks for one taken since. Absent: none known.
+   */
+  readingsNow?(days: readonly string[]): readonly string[];
   /** Run `fn` after `ms`. Returns a function that cancels it. */
   later(fn: () => void, ms: number): () => void;
   storage: WalkStorage | undefined;
@@ -534,7 +541,8 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
       walk = accrueOpen(walk, step.ms, now);
       return;
     }
-    walk = splitAtClockChange(walk, now, step.ms);
+    // Which readings were timed by the clock as it was: every one the device knows now, by identity (H6-02).
+    walk = splitAtClockChange(walk, now, step.ms, ports.readingsNow?.(daysAround(open.accruedAt, now)) ?? []);
     if (track) {
       track = newTrack(now);
       trackBase = [];

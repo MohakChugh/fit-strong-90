@@ -131,6 +131,12 @@ export interface Walk {
   pain?: { back?: PainAnswer; leg?: PainAnswer };
   /** B-19: when this walk saw the phone's clock change. A restart then asks for a fresh reading. */
   clockChangedAt?: number;
+  /**
+   * B-19: the glucose readings the device knew at each change, by identity
+   * (`glucoseReadingId`): timed by the clock as it was, so none of them can
+   * say how old it is now. Only a reading taken since counts.
+   */
+  untimedReadings?: string[];
 }
 
 /**
@@ -399,14 +405,22 @@ export function accrueOpen(walk: Walk, ms: number, wall: number): Walk {
  * the clock it was recorded by, with `ms` (the monotonic step) counted; the
  * next opens at the new time. No gap: the walk was watched throughout.
  *
- * The walk keeps the latest change: a reading stamped between two changes was
+ * The walk keeps the latest change, and every reading the device knew at any
+ * change (`readings`, by identity): a reading stamped between two changes was
  * timed by a clock that moved again, so only one taken since the last can be
  * trusted for its age.
  */
-export function splitAtClockChange(walk: Walk, wall: number, ms: number): Walk {
+export function splitAtClockChange(walk: Walk, wall: number, ms: number, readings: readonly string[] = []): Walk {
   const open = walk.status === 'running' ? openSegment(walk) : undefined;
   if (!open) return walk;
   const end = open.accruedAt + ms;
   const before: Segment = { ...open, end: Math.max(open.start, end), endedBy: 'clockChange', accruedMs: open.accruedMs + ms, accruedAt: end };
-  return { ...walk, clockChangedAt: wall, segments: [...walk.segments.slice(0, -1), before, emptySegment(wall)] };
+  const untimedReadings = [...new Set([...(walk.untimedReadings ?? []), ...readings])];
+  return { ...walk, clockChangedAt: wall, untimedReadings, segments: [...walk.segments.slice(0, -1), before, emptySegment(wall)] };
+}
+
+/** The local days on either side of these instants: where the readings a clock change leaves untimed are kept (B-19). */
+export function daysAround(...instants: number[]): string[] {
+  const DAY = 86_400_000;
+  return [...new Set(instants.flatMap(t => [t - DAY, t, t + DAY].map(x => toDateString(new Date(x)))))].sort();
 }

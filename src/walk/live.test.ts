@@ -6,10 +6,10 @@ import { toDateString } from '@/lib/utils';
 import type { UserProfile } from '@/types/profile';
 import { reportSymptoms, resetPendingCheckInsForTests, saveCheckInRecord, type StoreUpdate, type SymptomReport } from '@/components/checkin/pending';
 import { STALE_AFTER_MS, type WalkPlan } from './clock';
-import { deviceClinical, deviceGate, walkInput, walkRefusal, watchClinical } from './gate';
+import { deviceClinical, deviceGate, readingIds, untimedOf, walkInput, walkRefusal, watchClinical } from './gate';
 import { feelLow, lowReading } from './low';
 import { legReport, needToStop, stopAnswer, stopReport, type LegAnswers } from './stop';
-import { STOP_UNANSWERED } from '@/engine/readiness';
+import { evaluateCheckIn, STOP_UNANSWERED } from '@/engine/readiness';
 import { createStepDetector } from './steps';
 import type { Fix } from './gps';
 import { createLiveWalk, MOTION_WAIT_MS, NOTICE_MIN_GAP_MS, type GeoError, type JournalPort, type LivePorts, type WalkIntent } from './live';
@@ -34,8 +34,10 @@ function world(options: {
   wakeLock?: boolean | 'refuse';
   storage?: WalkStorage;
   /** A real gate in place of the switchable one, given this world's clock. */
-  gate?: (now: () => Date) => (intent: WalkIntent, clockChangedAt?: number) => boolean;
+  gate?: (now: () => Date) => (intent: WalkIntent, untimed?: ReadonlySet<string>) => boolean;
   watchClinical?: (onChange: () => void) => () => void;
+  /** The readings the device knows, for a clock change to leave untimed (B-19). */
+  readingsNow?: (days: readonly string[]) => string[];
 } = {}) {
   /** What the safety engine would answer, question by question. Tests flip it between arrivals. */
   const yes: Record<WalkIntent, boolean> = { start: true, restart: true, live: true };
@@ -76,9 +78,10 @@ function world(options: {
     mayRun(intent, walk) {
       asked.push(intent);
       askedWith.push(walk?.clockChangedAt);
-      return realGate ? realGate(intent, walk?.clockChangedAt) : allow[intent];
+      return realGate ? realGate(intent, untimedOf(walk)) : allow[intent];
     },
     ...(options.watchClinical ? { watchClinical: options.watchClinical } : {}),
+    ...(options.readingsNow ? { readingsNow: options.readingsNow } : {}),
     now: () => now,
     monotonic: () => now - skew,
     later(fn, ms) {
@@ -1332,6 +1335,90 @@ describe('round 3: what the walk acts on is every day’s effective record', () 
     d.w.advance(60_000);
     expect(live.getSnapshot()!.observedMs).toBe(6 * 60_000);
     expect(live.getSnapshot()!.walk.segments).toHaveLength(2);
+  });
+});
+
+describe('B-19: a change to the phone’s clock, asked of the real gate (H6-02)', () => {
+  afterEach(() => resetPendingCheckInsForTests());
+  const onInsulin = createDefaultProfile({
+    health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
+  });
+  const plain = createDefaultProfile({ health: { diabetes: 'none', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true } });
+  const settings = { currentWeight: 82 } as AppData['settings'];
+  const at = (h: number, m: number, s = 0) => new Date(2026, 9, 8, h, m, s);
+  const DAY = '2026-10-08';
+  const day = (over: Partial<DailyCheckIn> = {}): DailyCheckIn => ({ date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over });
+  const reading = (h: number, m: number, value = 140) => ({ glucose: { value, unit: 'mg/dL' as const, measuredAt: at(h, m).toISOString(), source: 'meter' as const } });
+
+  /** The device: stored check-ins, the production gate over them, the readings it knows, and a check-in save. */
+  function device(who: UserProfile, first: DailyCheckIn) {
+    const store = { checkIns: [{ ...first, readiness: evaluateCheckIn(who, first) }] as CheckInRecord[] };
+    const listeners = new Set<() => void>();
+    const read = () => ({ profile: who, checkIns: store.checkIns, settings });
+    const w = world({
+      gate: now => deviceGate(read, now),
+      readingsNow: days => readingIds(deviceClinical(read()).checkIns, days),
+      watchClinical: onChange => {
+        listeners.add(onChange);
+        const stop = watchClinical(onChange);
+        return () => { listeners.delete(onChange); stop(); };
+      },
+    });
+    const update: StoreUpdate = async apply => {
+      store.checkIns = apply({ checkIns: store.checkIns } as AppData).checkIns ?? [];
+      for (const l of [...listeners]) l();
+      return { ok: true };
+    };
+    return { w, save: (a: DailyCheckIn) => saveCheckInRecord(a, { profile: who, update }) };
+  }
+
+  it('holds a walk that is recording when the clock jumps, until a reading taken since the change', async () => {
+    const d = device(onInsulin, day(reading(19, 0)));
+    d.w.now = at(19, 1).getTime();
+    const live = createLiveWalk(d.w.ports);
+    live.attach(START);
+    d.w.advance(5 * 60_000);
+    expect(live.getSnapshot()!.walk.status).toBe('running');
+    // Set an hour forward: the reading's 6 minutes now look like 66, and nothing can say which is true.
+    d.w.jumpClock(3_600_000);
+    d.w.advance(1000);
+    expect(live.getSnapshot()!.walk.status).toBe('paused');
+    expect(live.getSnapshot()!.blocked).toBe('live');
+    expect(live.getSnapshot()!.observedMs).toBe(5 * 60_000 + 1000);
+    // A reading taken since the change, by the clock as it is now, answers it.
+    await d.save(day(reading(20, 6, 130)));
+    expect(live.getSnapshot()!.blocked).toBeNull();
+    live.resume();
+    expect(live.getSnapshot()!.walk.status).toBe('running');
+  });
+
+  it('never trusts a reading from before the clock was set back, though its time now reads later than the change', () => {
+    const d = device(onInsulin, day(reading(19, 0)));
+    d.w.now = at(19, 1).getTime();
+    const live = createLiveWalk(d.w.ports);
+    live.attach(START);
+    d.w.advance(20 * 60_000);
+    // At 19:21, set back 22 minutes: it reads 18:59, and the 19:00 reading looks a minute in the future.
+    d.w.jumpClock(-22 * 60_000);
+    d.w.advance(1000);
+    expect(live.getSnapshot()!.walk.status).toBe('paused');
+    live.resume();
+    expect(live.getSnapshot()!.walk.status).toBe('paused');
+    expect(live.getSnapshot()!.blocked).toBe('restart');
+  });
+
+  it('changes nothing for someone who doesn’t need a reading to move', () => {
+    const d = device(plain, day());
+    d.w.now = at(19, 1).getTime();
+    const live = createLiveWalk(d.w.ports);
+    live.attach(START);
+    d.w.advance(60_000);
+    d.w.jumpClock(3_600_000);
+    d.w.advance(1000);
+    expect(live.getSnapshot()!.walk.status).toBe('running');
+    live.pause();
+    live.resume();
+    expect(live.getSnapshot()!.walk.status).toBe('running');
   });
 });
 
