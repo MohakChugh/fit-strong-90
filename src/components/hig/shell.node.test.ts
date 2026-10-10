@@ -514,6 +514,16 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     expect(home).toMatch(/readingLine\(id, \{ \.\.\.\(glucose \? \{ glucose \} : \{\}\), \.\.\.\(pressure \? \{ pressure \} : \{\}\), last \}\)/);
   });
 
+  it('This week’s ring is drawn against the goal its own week had, and keyed by it, as each of Trends’ rings is (kiro KV-25, B-16, B-32)', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    // The week's own goal, never the goal last chosen (`weeklyMovementGoalMinutes`), which may wait for Monday.
+    expect(home).toContain('const goal = weeklyGoalOn(settings, today);');
+    expect(home).toMatch(/<WeekCard[^/]*?\{\.\.\.\(goal !== undefined \? \{ goal \} : \{\}\)\}/);
+    expect(home.match(/<WeekCard[\s\S]*?\/>/)?.[0]).not.toContain('weeklyMovementGoalMinutes');
+    expect(read('src/screens/home/WeekCard.tsx')).toContain('useRingValue(ringId(today, goal ?? 0), minutes, still || reduced)');
+    expect(read('src/screens/trends/yourWeek.ts')).toContain('const goal = weeklyGoalOn(settings, week);');
+  });
+
   it('Home’s movement tiles know whether the person is in the programme, so a flare names no programme on the Workout tile (D35, J16 step 1)', () => {
     expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/movementLine\(\{\s+mode, permission, status, enrolled,/);
   });
