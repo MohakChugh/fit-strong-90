@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { createContext, useContext, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { BellIcon, ChevronRightIcon, CompassIcon, HardDriveIcon, HeartPulseIcon, MicIcon, SaladIcon, SunMoonIcon, TargetIcon } from 'lucide-react';
@@ -28,6 +28,35 @@ import { REVIEW_LABEL, conditionsLine, foodLine, habitsLine, privacyLine, review
 const focusTitle = () => requestAnimationFrame(() => document.querySelector<HTMLElement>('main h1')?.focus({ preventScroll: true }));
 
 /**
+ * A row's answer on its way, or refused. Held by Me, above its lists, so it
+ * outlives the row: the store shows an answer before it is stored, which takes
+ * the row out of its list, and a refused one puts it back as a new row (codex
+ * H4-04, journey §4.5). `at` is where the row stood, to keep its place.
+ */
+interface RowAnswer {
+  saving: boolean;
+  problem?: string;
+  at: number;
+  chapter?: OpenChapter;
+  offer?: CategoryId;
+}
+
+/** How a row answers through Me, and what Me holds for it. */
+interface Answers {
+  of: (key: string) => RowAnswer | undefined;
+  notNow: (chapter: OpenChapter) => void;
+  offer: (id: CategoryId, add: boolean) => void;
+}
+const AnswersContext = createContext<Answers>({ of: () => undefined, notNow: () => {}, offer: () => {} });
+
+/** A list with the rows Me still holds an answer for put back where they stood, until the answer is stored. */
+function withHeld<T>(list: readonly T[], held: readonly { row: T; at: number }[], same: (a: T, b: T) => boolean): T[] {
+  const out = [...list];
+  for (const h of [...held].sort((a, b) => a.at - b.at)) if (!out.some(r => same(r, h.row))) out.splice(Math.min(h.at, out.length), 0, h.row);
+  return out;
+}
+
+/**
  * Me (journey §16): what is left to answer, a category the answers now make
  * useful, then the person's own settings by section, then About. Everything
  * here is about them and stays on this device. Me is a tab, so it has no
@@ -44,9 +73,64 @@ export function MeHome() {
   }));
   const day = todayOf(now);
   const { stored, fallback, relevant } = useHomeLayout();
-  const finish = setupProgress({ profile, settings });
+  // Each row's answer, held here until the device has stored it, or with why it didn't (codex H4-04).
+  const [answers, setAnswers] = useState<ReadonlyMap<string, RowAnswer>>(() => new Map());
+  const writing = useRef(new Set<string>());
+  const hold = (key: string, answer: RowAnswer | undefined) => setAnswers(held => {
+    const next = new Map(held);
+    if (answer) next.set(key, answer);
+    else next.delete(key);
+    return next;
+  });
+  const held = [...answers.values()];
+  const finish = withHeld(setupProgress({ profile, settings }), held.flatMap(a => (a.chapter ? [{ row: a.chapter, at: a.at }] : [])), (a, b) => a.chapter === b.chapter);
   // Only once Home has laid its tiles out: until then its defaults include every relevant one.
-  const offers = stored ? newlyRelevant({ relevant, layout: stored, offered: settings.homeOffered ?? [] }) : [];
+  const offers = stored
+    ? withHeld(newlyRelevant({ relevant, layout: stored, offered: settings.homeOffered ?? [] }), held.flatMap(a => (a.offer ? [{ row: a.offer, at: a.at }] : [])), (a, b) => a === b)
+    : [];
+  const rows: Answers = {
+    of: key => answers.get(key),
+    notNow: chapter => {
+      const key = `chapter:${chapter.chapter}`;
+      if (writing.current.has(key)) return;
+      const at = Math.max(0, finish.findIndex(c => c.chapter === chapter.chapter));
+      writing.current.add(key);
+      hold(key, { saving: true, at, chapter });
+      void notNow(chapter.chapter).then(saved => {
+        writing.current.delete(key);
+        // Gone only once stored; refused, or kept in memory only, it stays with why and Not now to try again (§4.5).
+        if (saved.ok) {
+          hold(key, undefined);
+          focusTitle();
+        } else hold(key, { saving: false, at, chapter, problem: `That did not save. ${saved.failure.message} Tap Not now to try again.` });
+      });
+    },
+    offer: (id, add) => {
+      const key = `offer:${id}`;
+      if (writing.current.has(key)) return;
+      const at = Math.max(0, offers.indexOf(id));
+      const title = categoryById(id).title;
+      const full = `${title} couldn’t go on Home: its group is full. Hide a tile in Edit Home, or choose Not now.`;
+      const saved = answerOffer(fallback, id, add);
+      if (!saved) {
+        hold(key, { saving: false, at, offer: id, problem: full });
+        return;
+      }
+      writing.current.add(key);
+      hold(key, { saving: true, at, offer: id });
+      void saved.then(result => {
+        writing.current.delete(key);
+        if (!result.ok) hold(key, { saving: false, at, offer: id, problem: `That did not save. ${result.failure.message} Try again.` });
+        // Another copy of the app filled the group first: nothing was written, and the offer stays (codex H4-03).
+        else if (!result.value) hold(key, { saving: false, at, offer: id, problem: full });
+        else {
+          hold(key, undefined);
+          if (add) toast(`${title} added to Home`);
+          focusTitle();
+        }
+      });
+    },
+  };
   const review = reviewNeeded(profile);
   const nudge = backupNudge(now, backupMark(settings.habits), recordSpan(state), state.revision);
   const backup = backupState(settings.habits);
@@ -55,6 +139,7 @@ export function MeHome() {
 
   return (
     <Screen title="Me">
+      <AnswersContext value={rows}>
       {finish.length > 0 && (
         <Group header={finishTitle(finish.length)} footer="Not now keeps a chapter for later, in Profile & health.">
           {finish.map(c => <FinishRow key={c.chapter} chapter={c} />)}
@@ -62,9 +147,10 @@ export function MeHome() {
       )}
       {stored && offers.length > 0 && (
         <Group header="New for Home" footer="Your answers make these useful now. Each is offered once.">
-          {offers.map(id => <OfferRow key={id} id={id} layout={stored} fallback={fallback} />)}
+          {offers.map(id => <OfferRow key={id} id={id} layout={stored} />)}
         </Group>
       )}
+      </AnswersContext>
 
       <Group>
         <Row
@@ -122,7 +208,8 @@ export function MeHome() {
  * container, as for `Row`), "Not now" goes under the words.
  */
 function FinishRow({ chapter }: { chapter: OpenChapter }) {
-  const [problem, setProblem] = useState<string>();
+  const answers = useContext(AnswersContext);
+  const answer = answers.of(`chapter:${chapter.chapter}`);
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-2 pr-3 @max-[16rem]:flex-wrap @max-[16rem]:gap-y-1 @max-[16rem]:px-2 @max-[16rem]:pb-2">
@@ -137,13 +224,11 @@ function FinishRow({ chapter }: { chapter: OpenChapter }) {
           control="later"
           label="Not now"
           name={chapter.label}
-          onClick={() => void notNow(chapter.chapter).then(saved => {
-            if (!saved.ok) setProblem(`That did not save. ${saved.failure.message}`);
-            else focusTitle();
-          })}
+          disabled={answer?.saving === true}
+          onClick={() => answers.notNow(chapter)}
         />
       </div>
-      {problem && <p role="alert" className="px-4 pb-2 text-[length:var(--text-subhead)] leading-snug text-stop">{problem}</p>}
+      {answer?.problem && <p role="alert" className="px-4 pb-2 text-[length:var(--text-subhead)] leading-snug text-stop">{answer.problem}</p>}
     </div>
   );
 }
@@ -153,30 +238,12 @@ function FinishRow({ chapter }: { chapter: OpenChapter }) {
  * and Not now still answers it. Narrower than 16 rem, the question goes
  * under the icon, as a `Row` stacks.
  */
-function OfferRow({ id, layout, fallback }: { id: CategoryId; layout: HomeLayout; fallback: HomeLayout }) {
+function OfferRow({ id, layout }: { id: CategoryId; layout: HomeLayout }) {
   const category = categoryById(id);
   const button = addButton(layout, id);
-  const [problem, setProblem] = useState<string>();
-  const full = `${category.title} couldn’t go on Home: its group is full. Hide a tile in Edit Home, or choose Not now.`;
-  const answer = async (add: boolean) => {
-    const saved = answerOffer(fallback, id, add);
-    if (!saved) {
-      setProblem(full);
-      return;
-    }
-    const result = await saved;
-    if (!result.ok) {
-      setProblem(`That did not save. ${result.failure.message}`);
-      return;
-    }
-    // Another copy of the app filled the group first: nothing was written, and the offer stays (codex H4-03).
-    if (!result.value) {
-      setProblem(full);
-      return;
-    }
-    if (add) toast(`${category.title} added to Home`);
-    focusTitle();
-  };
+  const answers = useContext(AnswersContext);
+  const answer = answers.of(`offer:${id}`);
+  const saving = answer?.saving === true;
   return (
     <div className="flex flex-col gap-2 px-4 py-3 @max-[16rem]:px-2">
       <div className="flex items-center gap-3 @max-[16rem]:flex-wrap @max-[16rem]:gap-y-1">
@@ -184,10 +251,10 @@ function OfferRow({ id, layout, fallback }: { id: CategoryId; layout: HomeLayout
         <p className="min-w-0 flex-1 text-[length:var(--text-body)] leading-snug [overflow-wrap:break-word] @max-[16rem]:basis-full">Add {category.title} to Home?</p>
       </div>
       <div className="flex flex-wrap gap-3">
-        <EditButton control="pick" disabled={button.disabled} label={button.disabled ? button.label : 'Add'} name={category.title} onClick={() => void answer(true)} />
-        <EditButton control="later" label="Not now" name={category.title} onClick={() => void answer(false)} />
+        <EditButton control="pick" disabled={button.disabled || saving} label={button.disabled ? button.label : 'Add'} name={category.title} onClick={() => answers.offer(id, true)} />
+        <EditButton control="later" disabled={saving} label="Not now" name={category.title} onClick={() => answers.offer(id, false)} />
       </div>
-      {problem && <p role="alert" className="text-[length:var(--text-subhead)] leading-snug text-stop">{problem}</p>}
+      {answer?.problem && <p role="alert" className="text-[length:var(--text-subhead)] leading-snug text-stop">{answer.problem}</p>}
     </div>
   );
 }

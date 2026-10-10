@@ -1,7 +1,11 @@
 /**
  * M01: Me's own journeys (journey §16; Plan 4): Finish setting up, Goals,
  * Display, and Data's two confirmations. Browse, Home's tiles, calendar
- * copies and backups have their V-J journeys.
+ * copies and backups have their V-J journeys. Codex's Plan 4 review adds:
+ * - H4-04: a row's answer the device refuses leaves the row, with what
+ *   happened and a way to try again (§4.5). In memory only the answer is
+ *   refused the same way (meRows.test.ts); an existing person can't reach
+ *   memory mode here, since the app offers only Try again then.
  */
 import { docs } from '../lib/harness.mjs';
 import { persona } from '../fixtures/personas.mjs';
@@ -186,4 +190,34 @@ const deleteTwice = {
   },
 };
 
-export const cases = [finishSettingUp, goals, display, systemMotion, deleteTwice];
+const refusedAnswers = {
+  name: 'H4-04: an answer the device refuses keeps its row, with why and Try again',
+  async run(t) {
+    const page = await t.open({ seed: persona('P02', { patch: { profile: { needsHealthReview: true } } }), route: '/me' });
+    const main = page.getByRole('main');
+    const group = () => ui.section(main, 'Finish setting up · 1 short chapter');
+    t.allowConsole('acceptance-injected');
+    await t.step(1, 'Not now, with the settings write refused: the row stays, and says it did not save', async () => {
+      await t.must(await group().count() === 1, `Me has no “Finish setting up”: ${flat(await main.innerText()).slice(0, 300)}`);
+      await t.setPageFaults([{ op: 'put', store: 'settings', match: { key: 'settings' }, action: 'quotaDom' }]);
+      await ui.tap(ui.button(main, 'Not now, Your health'));
+      await page.waitForTimeout(800);
+      await t.checkpoint('h4-04-refused');
+      await t.check(await group().count() === 1 && await ui.row(group(), 'Your health', 'link').count() === 1, 'the row went though the device refused the answer');
+      const alert = group().getByRole('alert');
+      await t.check(await alert.count() === 1 && /That did not save\./.test(flat(await alert.innerText())), 'the row does not say the answer did not save');
+      await t.check(await ui.button(group(), 'Not now, Your health').count() === 1, 'no Not now to try again');
+    });
+    await t.step(2, 'Try again once the device stores: the row goes, and stays gone', async () => {
+      await t.setPageFaults(null);
+      await ui.tap(ui.button(main, 'Not now, Your health'));
+      await page.waitForTimeout(800);
+      await t.check(await group().count() === 0, 'the row stays after its answer was stored');
+      await t.reload();
+      await t.check(await main.getByRole('heading', { name: /^Finish setting up/ }).count() === 0, 'the row came back after a reload');
+      await t.check(JSON.stringify(docs(await t.db()).settings?.setup?.declined) === '["health"]', 'Not now was not stored');
+    });
+  },
+};
+
+export const cases = [finishSettingUp, goals, display, systemMotion, deleteTwice, refusedAnswers];
