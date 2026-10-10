@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { afterMealSuggestion, choiceChanged, directWalkHref, isWalkId, liveHref, mealFromSearch, mealMinutesAgo, mealStartedLabel, MEAL_STARTED_AGO, newWalkId, setupPlan, walkFromSearch } from './plan';
+import { afterMealSuggestion, choiceChanged, directWalkHref, isWalkId, liveHref, mealFromSearch, mealMinutesAgo, mealStartedLabel, MEAL_STARTED_AGO, newWalkId, setupPlan, walkFirst, walkFromSearch } from './plan';
 import type { WalkPlan } from './clock';
 
 const NOW = Date.UTC(2026, 9, 8, 13, 0, 0);
@@ -130,5 +130,35 @@ describe('afterMealSuggestion: what B-09’s button says, and the meal time it r
   it('whole minutes since the meal, never negative', () => {
     expect(mealMinutesAgo(at(13, 10), at(13, 40))).toBe(30);
     expect(mealMinutesAgo(at(13, 41), at(13, 40))).toBe(0);
+  });
+});
+
+describe('walkFirst: a walk asked for from Home while another is still on this device (codex W-04)', () => {
+  const at = (h: number, m: number, d = 8) => new Date(2026, 9, d, h, m).getTime();
+  const NOW3 = at(13, 40);
+
+  it('with none, the new walk starts as asked', () => {
+    expect(walkFirst(null, { meal: 'lunch' }, NOW3, true)).toBeUndefined();
+  });
+
+  it('a finished walk not saved yet is reviewed and saved first, at its own summary, and only then the walk after the meal', () => {
+    expect(walkFirst({ state: 'unsaved', startedAt: at(12, 40), href: '/walk/summary' }, { meal: 'lunch' }, NOW3, true)).toEqual({
+      title: 'Your last walk isn’t saved',
+      detail: 'The walk you started at 12:40 pm has finished, and isn’t saved yet. Save it, or discard it, then start your walk after lunch.',
+      action: { label: 'Review and save your last walk', to: '/walk/summary' },
+    });
+  });
+
+  it('an unfinished walk is carried on first, on its own live screen', () => {
+    expect(walkFirst({ state: 'inProgress', startedAt: at(12, 40), href: '/walk/live' }, { meal: 'dinner' }, NOW3, true)).toEqual({
+      title: 'A walk is still going',
+      detail: 'The walk you started at 12:40 pm hasn’t been finished. Carry on with it, and finish it, before you start your walk after dinner.',
+      action: { label: 'Carry on your walk', to: '/walk/live' },
+    });
+  });
+
+  it('"Just a walk" is a new walk; a walk from another day is named by its day, on the device’s clock', () => {
+    const first = walkFirst({ state: 'unsaved', startedAt: at(18, 5, 6), href: '/walk/summary' }, {}, NOW3, false);
+    expect(first?.detail).toBe('The walk you started on Tuesday at 18:05 has finished, and isn’t saved yet. Save it, or discard it, then start a new walk.');
   });
 });

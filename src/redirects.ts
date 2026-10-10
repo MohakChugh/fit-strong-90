@@ -71,11 +71,9 @@ export function redirectFor(pathname: string, search: string, { onboarded = true
     return `${view === 'trends' ? '/trends' : `/day/${day ?? 'today'}`}${rest ? `?${rest}` : ''}`;
   }
   const metric = /^\/track\/metric\/([^/]+)$/.exec(p);
-  // Every kind v1 had is in METRIC (redirects.test.ts); any other is unknown.
-  if (metric) {
-    const to = own(METRIC, metric[1]);
-    return to ? keep(to, search) : MOVED;
-  }
+  // Every kind v1 had is in METRIC (redirects.test.ts); any other is unknown,
+  // and goes Home with its query, as every redirect keeps it (codex W-06).
+  if (metric) return keep(own(METRIC, metric[1]) ?? MOVED, search);
   if (p === '/track/back') return keep('/hub/back', search);
   // v1's Workout Log was its logging screen: logging a workout is the Workout hub's, its trend Trends' (B-14).
   if (p === '/track/workout') return keep('/hub/workout/log', search);
@@ -90,5 +88,5 @@ export function redirectFor(pathname: string, search: string, { onboarded = true
   const section = you ? own(YOU, you[1]) : undefined;
   if (section) return keep(`/me/${section}`, search);
   if (under(p, '/welcome')) return keep(onboarded ? '/home' : '/setup', search);
-  return MOVED;
+  return keep(MOVED, search);
 }

@@ -134,12 +134,92 @@ describe('Edit Home says a change only once it is stored (codex V1-11)', () => {
   });
 });
 
+describe('quick changes after a refused one build on each other (codex W-03)', () => {
+  it('Hide Stretch is refused; storage comes back; Hide Walk and Hide Workout at once: all three stay hidden, and Walk is not brought back', async () => {
+    await open();
+    refuse = true;
+    editor().hide('stretch', 'edit');
+    await settle();
+    expect(editor().failed).toMatch(/./);
+    refuse = false;
+    // Both before either write has settled.
+    editor().hide('walk', 'edit');
+    editor().hide('workout', 'edit');
+    await settle();
+    expect(homeNow()?.order.move).toEqual([]);
+    expect(homeNow()?.hidden).toEqual(expect.arrayContaining(['stretch', 'walk', 'workout']));
+    expect(editor().draft).toBeUndefined();
+    expect(editor().failed).toBeUndefined();
+    // Each toast says what is stored.
+    expect([...toasts.shown.values()].map(t => t.title)).toEqual(['Walk hidden from Home', 'Workout hidden from Home']);
+    editor().done();
+    await settle();
+    expect(editor().editing).toBe(false);
+  });
+
+  it('a change made while a refused one waits, refused too, keeps both; Try again stores both', async () => {
+    await open();
+    refuse = true;
+    editor().hide('stretch', 'edit');
+    await settle();
+    editor().move('walk', -1, 'up');
+    await settle();
+    expect(editor().draft?.order.move).toEqual(['walk', 'workout']);
+    refuse = false;
+    editor().retry();
+    await settle();
+    expect(homeNow()?.order.move).toEqual(['walk', 'workout']);
+    expect(homeNow()?.hidden).toContain('stretch');
+    expect(editor().draft).toBeUndefined();
+  });
+
+  it('Try again while a later change is still on its way writes the newest layout, which carries both (review of W-03)', async () => {
+    await open();
+    refuse = true;
+    editor().hide('stretch', 'edit');
+    await settle();
+    refuse = false;
+    // Try again from the screen as drawn, before the Hide after it has settled.
+    const drawnThen = editor();
+    drawnThen.hide('walk', 'edit');
+    drawnThen.retry();
+    await settle();
+    expect(homeNow()?.order.move).toEqual(['workout']);
+    expect(homeNow()?.hidden).toEqual(expect.arrayContaining(['stretch', 'walk']));
+    expect(editor().draft).toBeUndefined();
+  });
+
+  it('an Undo tapped again while its restore is on its way restores once, and says so once', async () => {
+    await open();
+    editor().hide('stretch', 'edit');
+    await settle();
+    const [key] = [...toasts.shown.keys()];
+    const before = editor().said.n;
+    toasts.shown.get(key)!.undo({ preventDefault() {} });
+    toasts.shown.get(key)!.undo({ preventDefault() {} });
+    await settle();
+    expect(homeNow()?.order.move).toEqual(['workout', 'stretch', 'walk']);
+    expect(editor().said.n - before).toBe(1);
+    expect(toasts.shown.has(key)).toBe(false);
+  });
+
+  it('changes queued behind a write still on its way compose from it, and the last one stored is all of them', async () => {
+    await open();
+    editor().hide('stretch', 'edit');
+    editor().move('walk', -1, 'up');
+    editor().hide('workout', 'edit');
+    await settle();
+    expect(homeNow()?.order.move).toEqual(['walk']);
+    expect(homeNow()?.hidden).toEqual(expect.arrayContaining(['stretch', 'workout']));
+  });
+});
+
 describe('Home’s first layout is kept, and stored once (codex V1-12, journey §5.1)', () => {
   const other: HomeLayout = { ...L, order: { ...L.order, check: ['glucose', 'weight', 'sleep'] } };
-  const seen = { layout: undefined as HomeLayout | undefined };
+  const seen = { layout: undefined as HomeLayout | undefined, first: undefined as ReturnType<typeof useFirstLayout> | undefined };
   function First({ fallback, visit }: { fallback: HomeLayout; visit: number }) {
-    const layout = useFirstLayout({ stored: homeNow(), fallback, ready: true, visit });
-    useEffect(() => { seen.layout = layout; });
+    const first = useFirstLayout({ stored: homeNow(), fallback, ready: true, visit });
+    useEffect(() => { seen.layout = first.layout; seen.first = first; });
     return null;
   }
 
@@ -166,6 +246,38 @@ describe('Home’s first layout is kept, and stored once (codex V1-12, journey �
     refuse = false;
     await store.setSettings({ home: other });
     host.update(createElement(First, { fallback: L, visit: 1 }));
+    await settle();
+    expect(homeNow()).toEqual(other);
+  });
+
+  it('a refused first write says so while the person stays, and Try again stores it then (codex V1-12)', async () => {
+    refuse = true;
+    host = render(createElement(First, { fallback: L, visit: 0 }));
+    await settle();
+    expect(homeNow()).toBeUndefined();
+    expect(seen.first?.failed).toMatch(/./);
+    // Tried again while still refused: still said, still the first layout.
+    seen.first!.retry();
+    await settle();
+    expect(seen.first?.failed).toMatch(/./);
+    expect(seen.layout).toEqual(L);
+    refuse = false;
+    seen.first!.retry();
+    await settle();
+    expect(homeNow()).toEqual(L);
+    expect(seen.first?.failed).toBeUndefined();
+  });
+
+  it('Try again never writes over a layout stored meanwhile, and has nothing more to say once one is', async () => {
+    refuse = true;
+    host = render(createElement(First, { fallback: L, visit: 0 }));
+    await settle();
+    refuse = false;
+    await store.setSettings({ home: other });
+    host.update(createElement(First, { fallback: L, visit: 0 }));
+    await settle();
+    expect(seen.first?.failed).toBeUndefined();
+    seen.first!.retry();
     await settle();
     expect(homeNow()).toEqual(other);
   });

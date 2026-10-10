@@ -1,4 +1,5 @@
 import type { Permission } from '@/engine/permission';
+import { OwnsUrgent } from '@/screens/home/UrgentBanner';
 import type { Readiness } from '@/types/checkin';
 import { OutcomeBanner } from './OutcomeBanner';
 
@@ -14,6 +15,8 @@ export function SessionGate({ permission, readiness, now, onBack }: {
 }) {
   return (
     <div className="flex min-h-dvh flex-col bg-grouped-bg pt-safe pb-safe">
+      {/* The answer drawn here, whole: the task's shared surface steps aside only while it is the decision standing now (codex V1-03, W-01). */}
+      <OwnsUrgent shows={permission} />
       <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-4 px-4 py-8">
         <h1 className="sr-only">Guided session</h1>
         <OutcomeBanner permission={permission} readiness={readiness} now={now} />

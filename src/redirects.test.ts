@@ -58,7 +58,14 @@ describe('v1 → v2 redirects (journey §19.3)', () => {
     expect(redirectFor('/nowhere/at/all', '')).toBe('/home?moved=1');
     // A metric kind v1 never had is unknown too, not some other metric's hub (kiro KV-21).
     expect(redirectFor('/track/metric/nonsense', '')).toBe('/home?moved=1');
-    expect(redirectFor('/track/metric/constructor', '?period=week')).toBe('/home?moved=1');
+  });
+
+  it('keeps the query on the way to Home, as every redirect does, beside the notice (codex W-06, K-17)', () => {
+    expect(redirectFor('/track/metric/nonsense', '?choose=1')).toBe('/home?moved=1&choose=1');
+    expect(redirectFor('/track/metric/constructor', '?period=week')).toBe('/home?moved=1&period=week');
+    expect(redirectFor('/nowhere/at/all', '?checkin=walk')).toBe('/home?moved=1&checkin=walk');
+    // The notice is Home's own: an address can't take it away.
+    expect(redirectFor('/track/metric/nonsense', '?moved=0')).toBe('/home?moved=1');
   });
 
   it('sends v1’s setup addresses to setup while nothing is set up yet', () => {

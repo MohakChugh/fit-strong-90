@@ -37,7 +37,9 @@ import { parseStretchSpec, specFromPlanId, stretchPlanFor } from '@/engine/stret
 import type { StretchSpec } from '@/types/plan';
 import { cameFrom } from '@/components/hig/navigation';
 import { SessionGate } from '@/components/checkin/SessionGate';
+import { nextBoundary } from '@/health/recommend';
 import { OwnsUrgent } from '@/screens/home/UrgentBanner';
+import { useClock, useWakeAt } from '@/screens/today/clock';
 import { displayToKg, generateId, kgToDisplay, toDateString } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -185,13 +187,7 @@ export default function SessionPage() {
   // inspection either way; it is never permission to move (re-audit F02).
   const [arrival] = useState(() => ({ now: input.now, permission: arrivalGate(input, mode, !!resumeState) }));
   if (!arrival.permission.allowed || arrival.permission.needsCheckIn) {
-    return (
-      <>
-        {/* The gate says today's decision itself (codex V1-03). */}
-        <OwnsUrgent />
-        <SessionGate permission={arrival.permission} readiness={checkIn?.readiness} now={arrival.now} onBack={exit} />
-      </>
-    );
+    return <ArrivalGate arrival={arrival} input={input} mode={mode} resuming={!!resumeState} readiness={checkIn?.readiness} onBack={exit} />;
   }
   // Afterwards the question is only whether exercise may carry on: a newly
   // reported emergency, stop or low halts it at once; an ageing reading does
@@ -211,11 +207,10 @@ export default function SessionPage() {
     );
   }
 
+  // A decision that halts the session is the player's own screen, which says
+  // so where it draws it: its stop, its low, its reading (codex V1-03, W-01).
   return (
-    <>
-      {/* A decision that halts the session is the player's own screen: its stop, its low, its reading (codex V1-03). */}
-      {halt && <OwnsUrgent />}
-      <Player
+    <Player
       plan={reconciled.plan}
       refused={refused}
       resumeState={startState}
@@ -234,10 +229,42 @@ export default function SessionPage() {
       onExit={exit}
       onSave={saveSession}
       {...(stale && staleBank ? { startNote: staleNote(stale, staleBank) } : {})}
-      />
-    </>
+    />
   );
 }
+
+/**
+ * The arrival's refusal as it stands now (codex W-01, journey §4.1): worked
+ * out again as the answers change, and at each time boundary, so a decision
+ * made since, such as an emergency answered on another screen, is the one
+ * shown here, and the task's shared surface steps aside only for it. Once the
+ * refusal has lifted, the arrival's own stays: only a new arrival opens the
+ * player, never a change on another screen (re-audit F02).
+ */
+function ArrivalGate({ arrival, input, mode, resuming, readiness, onBack }: {
+  arrival: { now: Date; permission: Permission };
+  input: PermissionInput;
+  mode: Mode;
+  resuming: boolean;
+  readiness?: Readiness;
+  onBack: () => void;
+}) {
+  const { now } = useClock();
+  useWakeAt(nextBoundary(now, input.checkIn ? { checkIn: input.checkIn } : {}));
+  const current = arrivalGate({ ...input, now }, mode, resuming);
+  const shown = current.allowed && !current.needsCheckIn ? arrival : { now, permission: current };
+  return <SessionGate permission={shown.permission} {...(readiness ? { readiness } : {})} now={shown.now} onBack={onBack} />;
+}
+
+/**
+ * What the player's reading screen draws of the gate's answer, with its own
+ * timed re-check: its first two reasons. The claim it makes, so the shared
+ * surface steps aside only while those say the decision standing now (codex
+ * W-01). Screens that show only reasons, without the decision's words and
+ * time (the check-in asked here, the done summary), claim nothing: the
+ * surface says the decision whole above them.
+ */
+const drawnHere = (p: Permission) => ({ allowed: p.allowed, disposition: p.disposition, reasons: p.reasons.slice(0, 2) });
 
 /** The refused steps, with the back check of every exercise that is left out altogether (scan J2-02). */
 function withBackChecks(plan: SessionPlan, refused: ReadonlySet<string>): ReadonlySet<string> {
@@ -1031,6 +1058,7 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-4 px-5 py-6">
         <h1 ref={heading} tabIndex={-1} className="text-[length:var(--text-title-2)] font-bold leading-tight outline-none">{title}</h1>
         <p className="text-[length:var(--text-body)]">{lead}</p>
+        {permission && <OwnsUrgent shows={drawnHere(permission)} />}
         {permission?.reasons.slice(0, 2).map(r => <p key={r} className="text-[length:var(--text-subhead)] text-muted-foreground">{r}</p>)}
         {kind === 'low' && (
           <>

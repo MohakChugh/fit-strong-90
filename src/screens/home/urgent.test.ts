@@ -6,7 +6,7 @@ import { recommend } from '@/health/recommend';
 import type { CheckInRecord, DailyCheckIn, Readiness } from '@/types/checkin';
 import type { SessionPlan } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
-import { urgentOf, withEffectiveToday } from './urgent';
+import { says, urgentOf, withEffectiveToday } from './urgent';
 
 const TODAY = '2026-10-08';
 const at = (time: string, day = TODAY) => new Date(`${day}T${time}:00`);
@@ -40,6 +40,8 @@ function surface(profile: UserProfile, today: CheckInRecord | undefined, now: Da
 
 const held = (mode: Mode): Permission => ({ mode, allowed: false, disposition: 'hold', reasons: ['Held.'], restrictions: [], needsCheckIn: true });
 const allHeld = { guided: held('guided'), stretch: held('stretch'), walk: held('walk') };
+/** The engine's own sentences a decision stands on: checked in their own tests below. */
+const SENTENCES = expect.arrayContaining([expect.any(String)]);
 
 describe('which decisions are urgent (journey §4.7, B-02)', () => {
   it('an emergency, a stop for today and a re-check, whatever the card suggests', () => {
@@ -55,7 +57,7 @@ describe('which decisions are urgent (journey §4.7, B-02)', () => {
     const dizzy = record(diabetic, answered({ news: ['dizzy'] }));
     const { r, urgent } = surface(diabetic, dizzy, at('09:00'));
     expect(r.kind).toBe('hold');
-    expect(urgent).toEqual({ kind: 'hold', tone: 'caution', headline: 'No exercise for now', when: 'From today’s check-in' });
+    expect(urgent).toEqual({ kind: 'hold', tone: 'caution', headline: 'No exercise for now', when: 'From today’s check-in', reasons: SENTENCES });
     for (const news of [['unwell'], ['unusualFatigue']] as const) {
       expect(surface(diabetic, record(diabetic, answered({ news: [...news] })), at('09:00')).urgent?.kind, news[0]).toBe('hold');
     }
@@ -63,7 +65,7 @@ describe('which decisions are urgent (journey §4.7, B-02)', () => {
 
   it('repeated lows stop exercise for the day after the glucose has recovered (codex V1-01)', () => {
     const c = record(diabetic, answered({ news: ['lowTwoPlus'], glucose: { value: 110, unit: 'mg/dL', measuredAt: iso('09:00') } }));
-    expect(surface(diabetic, c, at('09:05')).urgent).toEqual({ kind: 'hold', tone: 'caution', headline: 'No exercise for now', when: 'From today’s check-in' });
+    expect(surface(diabetic, c, at('09:05')).urgent).toEqual({ kind: 'hold', tone: 'caution', headline: 'No exercise for now', when: 'From today’s check-in', reasons: SENTENCES });
   });
 
   it('a reading that holds every movement is named with its time, and one that needs checking again says so', () => {
@@ -84,7 +86,7 @@ describe('which decisions are urgent (journey §4.7, B-02)', () => {
     const c = record(diabetic, answered({ news: ['lowSymptoms'] }));
     const { r, urgent } = surface(diabetic, c, at('09:00'));
     expect(r.kind).toBe('hold');
-    expect(urgent).toEqual({ kind: 'low', tone: 'caution', headline: 'Check your glucose now', when: 'Feeling low today' });
+    expect(urgent).toEqual({ kind: 'low', tone: 'caution', headline: 'Check your glucose now', when: 'Feeling low today', reasons: SENTENCES });
   });
 
   it('ordinary holds are not urgent: no check-in yet, a profile gap, a foot that needs protecting', () => {
@@ -109,7 +111,7 @@ describe('what the surface says: the engine’s headline, when, and the safe act
   it('a 62 mg/dL at 1:30 pm: "Low glucose at 1:30 pm · Re-check at 1:45 pm", then "Re-check now"', () => {
     const c = record(diabetic, answered({ glucose: { value: 62, unit: 'mg/dL', measuredAt: iso('13:30') } }));
     expect(surface(diabetic, c, at('13:32')).urgent).toEqual({
-      kind: 'recheck', tone: 'caution', headline: 'Re-check your glucose', when: 'Low glucose at 1:30 pm', next: 'Re-check at 1:45 pm',
+      kind: 'recheck', tone: 'caution', headline: 'Re-check your glucose', when: 'Low glucose at 1:30 pm', next: 'Re-check at 1:45 pm', reasons: SENTENCES,
     });
     expect(surface(diabetic, c, at('13:45')).urgent).toMatchObject({ when: 'Low glucose at 1:30 pm', next: 'Re-check now' });
   });
@@ -124,15 +126,15 @@ describe('what the surface says: the engine’s headline, when, and the safe act
 
   it('an emergency answer: "Emergency answer today", in the check-in’s own headline', () => {
     const c = record(diabetic, answered({ urgentSymptoms: true, emergency: ['chest'] }));
-    expect(surface(diabetic, c, at('09:00')).urgent).toEqual({ kind: 'emergency', tone: 'stop', headline: 'Call emergency services now', when: 'Emergency answer today' });
+    expect(surface(diabetic, c, at('09:00')).urgent).toEqual({ kind: 'emergency', tone: 'stop', headline: 'Call emergency services now', when: 'Emergency answer today', reasons: SENTENCES });
   });
 
   it('a reading behind a stop is named with the time it was taken', () => {
     const extreme = record(diabetic, answered({ glucose: { value: 650, unit: 'mg/dL', measuredAt: iso('09:05') } }));
-    expect(surface(diabetic, extreme, at('09:10')).urgent).toEqual({ kind: 'emergency', tone: 'stop', headline: 'Call emergency services now', when: 'Glucose reading at 9:05 am' });
+    expect(surface(diabetic, extreme, at('09:10')).urgent).toEqual({ kind: 'emergency', tone: 'stop', headline: 'Call emergency services now', when: 'Glucose reading at 9:05 am', reasons: SENTENCES });
     const severe = record(diabetic, answered({ glucose: { value: 48, unit: 'mg/dL', measuredAt: iso('09:05') } }));
     expect(surface(diabetic, severe, at('09:10')).urgent).toEqual({
-      kind: 'seekHelp', tone: 'stop', headline: 'No exercise today. Get medical advice today.', when: 'Low glucose at 9:05 am',
+      kind: 'seekHelp', tone: 'stop', headline: 'No exercise today. Get medical advice today.', when: 'Low glucose at 9:05 am', reasons: SENTENCES,
     });
   });
 
@@ -155,6 +157,77 @@ describe('what the surface says: the engine’s headline, when, and the safe act
     const gate = (m: Mode) => permission({ profile: diabetic, checkIn: c, now: at('13:32'), recent: [c] }, m);
     const permissions = { guided: gate('guided'), stretch: gate('stretch'), walk: gate('walk') };
     expect(urgentOf({ profile: diabetic, checkIn: c, checkIns: [c], permissions }, at('13:32'), false)).toMatchObject({ when: 'Low glucose at 13:30', next: 'Re-check at 13:45' });
+  });
+});
+
+describe('a task’s own screen says the decision only while it draws that decision (codex W-01)', () => {
+  /** The gate's answer a full-screen task draws, from the same engine. */
+  const drawn = (profile: UserProfile, c: CheckInRecord | undefined, now: Date, mode: Mode = 'guided') =>
+    permission({ profile, ...(c ? { checkIn: c } : {}), now, recent: c ? [c] : [] }, mode);
+
+  it('stands on the engine’s own sentences, as every screen shows them', () => {
+    const chest = record(diabetic, answered({ urgentSymptoms: true, emergency: ['chest'] }));
+    const { urgent } = surface(diabetic, chest, at('09:05'));
+    expect(urgent?.reasons).toEqual(drawn(diabetic, chest, at('09:05')).reasons);
+    const dizzy = record(diabetic, answered({ news: ['dizzy'] }));
+    expect(surface(diabetic, dizzy, at('09:00')).urgent?.reasons).toEqual(dizzy.readiness.reasons.filter(r => r.disposition === 'hold').map(r => r.message));
+  });
+
+  it('a session opened before any check-in, its refusal still showing, does not say an emergency answered since on another screen', () => {
+    const arrival = drawn(diabetic, undefined, at('09:00'));
+    expect(arrival).toMatchObject({ allowed: false, disposition: 'hold', needsCheckIn: true });
+    const chest = record(diabetic, answered({ urgentSymptoms: true, emergency: ['chest'] }));
+    const emergency = surface(diabetic, chest, at('09:05')).urgent!;
+    expect(emergency.kind).toBe('emergency');
+    expect(says(arrival, emergency)).toBe(false);
+    // Drawn again as it stands now, it does: whichever mode's screen draws it.
+    expect(says(drawn(diabetic, chest, at('09:05')), emergency)).toBe(true);
+    expect(says(drawn(diabetic, chest, at('09:05'), 'walk'), emergency)).toBe(true);
+  });
+
+  it('a hold drawn for one reason does not say a hold for another', () => {
+    const dizzy = record(diabetic, answered({ news: ['dizzy'] }));
+    const hold = surface(diabetic, dizzy, at('09:00')).urgent!;
+    expect(hold.kind).toBe('hold');
+    expect(says(drawn(diabetic, undefined, at('09:00')), hold)).toBe(false);
+    expect(says(drawn(diabetic, dizzy, at('09:00')), hold)).toBe(true);
+  });
+
+  it('an emergency drawn earlier does not say a different one standing now', () => {
+    const chest = record(diabetic, answered({ urgentSymptoms: true, emergency: ['chest'] }));
+    const extreme = record(diabetic, answered({ glucose: { value: 650, unit: 'mg/dL', measuredAt: iso('09:05') } }));
+    const now = surface(diabetic, extreme, at('09:10')).urgent!;
+    expect(now.kind).toBe('emergency');
+    expect(says(drawn(diabetic, chest, at('09:00')), now)).toBe(false);
+    expect(says(drawn(diabetic, extreme, at('09:10')), now)).toBe(true);
+  });
+
+  it('a re-check is said by the gate drawn with its low, not by one drawn before the low, nor by a stop of another weight', () => {
+    const low = record(diabetic, answered({ glucose: { value: 62, unit: 'mg/dL', measuredAt: iso('13:30') } }));
+    const recheck = surface(diabetic, low, at('13:32')).urgent!;
+    expect(recheck.kind).toBe('recheck');
+    const before = record(diabetic, answered({ glucose: { value: 110, unit: 'mg/dL', measuredAt: iso('13:00') } }));
+    expect(says(drawn(diabetic, before, at('13:05')), recheck)).toBe(false);
+    expect(says(drawn(diabetic, low, at('13:32')), recheck)).toBe(true);
+    const chest = record(diabetic, answered({ urgentSymptoms: true, emergency: ['chest'] }));
+    expect(says(drawn(diabetic, chest, at('13:32')), recheck)).toBe(false);
+  });
+
+  it('a decision with no sentences of its own is said by nothing, so the surface always stays (review of W-01)', () => {
+    // A re-check timed by the stored record while today's reasons hold nothing: no screen can be shown to draw it.
+    const today: CheckInRecord = { ...record(diabetic, answered()), readiness: { ...record(diabetic, answered()).readiness, recheckAt: iso('00:10') } };
+    const recheck = urgentOf({ profile: diabetic, checkIn: today, checkIns: [today], permissions: allHeld }, at('00:02'), true)!;
+    expect(recheck).toMatchObject({ kind: 'recheck', reasons: [] });
+    expect(says(drawn(diabetic, undefined, at('00:02')), recheck)).toBe(false);
+    expect(says(held('guided'), recheck)).toBe(false);
+  });
+
+  it('an answer that allows movement says nothing', () => {
+    const fine = record(diabetic, answered({ glucose: { value: 110, unit: 'mg/dL', measuredAt: iso('09:00') } }));
+    const chest = record(diabetic, answered({ urgentSymptoms: true, emergency: ['chest'] }));
+    const emergency = surface(diabetic, chest, at('09:05')).urgent!;
+    expect(drawn(diabetic, fine, at('09:05')).allowed).toBe(true);
+    expect(says(drawn(diabetic, fine, at('09:05')), emergency)).toBe(false);
   });
 });
 

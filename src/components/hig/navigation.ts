@@ -467,10 +467,34 @@ export function useInTaskFrame(): boolean {
  */
 export const ScreenTopContext = createContext<ReactNode>(null);
 
+/** How the surface's way on leaves the sheet it is drawn in (codex W-05). */
+export interface SheetExit {
+  /**
+   * Close the sheet through its own close, then `go`, once it has closed. A
+   * sheet that must stay open, one saving, keeps the person and its save:
+   * `go` waits for the sheet to close, and is forgotten if the sheet can
+   * close again and doesn't (its save failed, and says so).
+   */
+  leave: (go: () => void) => void;
+  /** A leave is waiting for the sheet to finish. */
+  waiting: boolean;
+}
+
+/** The same surface at the top of an open sheet: the decision it is, and how to draw it there. */
+export interface SheetTop {
+  /**
+   * Which decision it is: its kind, headline and when. One arriving, or
+   * escalating, has a new key and is brought into view; its time coming due
+   * ("Re-check now") is the same decision, and moves nobody (codex W-02).
+   */
+  key: string;
+  /** The surface, with the sheet's way out (`SheetExit`). */
+  draw: (exit: SheetExit) => ReactNode;
+}
+
 /**
  * The same surface at the top of an open sheet, which takes the whole page's
- * attention (codex V1-02): `close` closes that sheet, so the surface's way on
- * leaves it first. Nothing while no urgent decision stands.
+ * attention (codex V1-02). Nothing while no urgent decision stands.
  */
-export const SheetTopContext = createContext<((close: () => void) => ReactNode) | null>(null);
+export const SheetTopContext = createContext<SheetTop | null>(null);
 

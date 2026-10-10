@@ -5,7 +5,7 @@
  * for Hide, the long-press that opens a tile's menu, and the reorder
  * animation. The operations themselves are `./layout`'s, and pure.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type TouchEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type TouchEvent } from 'react';
 import { toast } from 'sonner';
 import { MAX_PER_GROUP, categoryById, isHomeLayout, type CategoryId } from '@/categories';
 import { MOTION, springLinear } from '@/design/motion';
@@ -191,7 +191,9 @@ export function useHomeEditor({ fallback, still, urgent }: {
   const [error, setError] = useState<string>();
   // A change the device refused, kept as a draft and drawn in its place, with Try again (codex V1-11).
   const [refused, setRefused] = useState<{ layout: HomeLayout; message: string; then?: () => void }>();
-  const draft = useRef<HomeLayout | undefined>(undefined);
+  // The newest layout asked for, from the moment it is asked for until a write
+  // carrying it is stored: still on its way, or refused (codex W-03).
+  const requested = useRef<HomeLayout | undefined>(undefined);
   // Writes still on their way, and whether Done is waiting for them (journey §4.5).
   const inFlight = useRef(0);
   const closing = useRef(false);
@@ -210,7 +212,7 @@ export function useHomeEditor({ fallback, still, urgent }: {
 
   /** The layout as it stands now, a refused draft or a change still being written included, so quick taps build on each other. */
   const latest = (): HomeLayout => {
-    if (draft.current) return draft.current;
+    if (requested.current) return requested.current;
     const home = getState().settings.home;
     return home !== undefined && isHomeLayout(home) ? home : fallback;
   };
@@ -234,20 +236,25 @@ export function useHomeEditor({ fallback, still, urgent }: {
    * (journey §4.5, codex V1-11). A refused write keeps the layout it tried
    * as a draft, drawn in its place, until Try again stores it or a later
    * change, which carries it, does.
+   *
+   * The layout asked for becomes the one the next change starts from at
+   * once, before its write settles, refused draft or not, so two quick taps
+   * never both start from the same older layout and the second undo the
+   * first (codex W-03). It stays that until the newest write is stored.
    */
   const write = (next: HomeLayout, then?: () => void, refusedThen?: (message: string) => void) => {
     flip.snapshot();
     const n = ++written.current;
+    requested.current = next;
     inFlight.current += 1;
     void setSettings({ home: next }).then(result => {
       inFlight.current -= 1;
       // Only the newest write says how things stand: it carries every change before it.
       if (n === written.current) {
         if (result.ok) {
-          draft.current = undefined;
+          requested.current = undefined;
           setRefused(undefined);
         } else {
-          draft.current = next;
           closing.current = false;
           setRefused({ layout: next, message: result.failure.message, ...(then ? { then } : {}) });
         }
@@ -258,12 +265,17 @@ export function useHomeEditor({ fallback, still, urgent }: {
       }
       setError(undefined);
       then?.();
-      if (closing.current && inFlight.current === 0 && !draft.current) finish();
+      if (closing.current && inFlight.current === 0 && !requested.current) finish();
     });
   };
-  /** Try again: the refused draft, written again, saying then what it would have said. */
+  /**
+   * Try again: the refused draft, written again, saying then what it would
+   * have said. A change made since, still on its way, carries it already, so
+   * the newest layout asked for is the one written: never the older draft
+   * after it (codex W-03).
+   */
   const retry = () => {
-    if (refused) write(refused.layout, refused.then);
+    if (refused) write(requested.current ?? refused.layout, refused.then);
   };
 
   const forget = (key: string) => {
@@ -286,8 +298,10 @@ export function useHomeEditor({ fallback, still, urgent }: {
       focusLater(() => tileControl(u.id, 'hide'), { preventScroll: true });
     };
     if (now.order[group].includes(u.id)) {
-      // Back in its place already: in a refused draft, which this Undo writes again; or stored.
-      if (draft.current) write(draft.current, restored(draft.current));
+      // Back in its place already: on its way, whose write finishes this Undo
+      // once stored; in a refused draft, which this Undo writes again; or stored.
+      if (inFlight.current > 0) return;
+      if (requested.current) write(requested.current, restored(requested.current));
       else {
         forget(key);
         toast.dismiss(key);
@@ -406,11 +420,12 @@ export function useHomeEditor({ fallback, still, urgent }: {
    * refused one keeps Edit Home open with its Try again (codex V1-11).
    */
   const done = () => {
-    if (draft.current) return;
     if (inFlight.current > 0) {
       closing.current = true;
       return;
     }
+    // Every write has settled: one still asked for is a refused draft, with its Try again.
+    if (requested.current) return;
     finish();
   };
 
@@ -444,9 +459,10 @@ export type HomeEditor = ReturnType<typeof useHomeEditor>;
 /**
  * Home's first layout (journey §5.1, codex V1-12): the defaults, worked out
  * once from the answers and drawn as they were, even if later data would
- * give others, until the device has stored them. A refused write is tried
- * again on the next visit to the app (`visit`), and never over a layout
- * stored meanwhile: the person's own edits always win.
+ * give others, until the device has stored them. A refused write is said on
+ * Home with Try again (`failed`, `retry`), and tried again by itself on the
+ * next visit to the app (`visit`). Neither ever writes over a layout stored
+ * meanwhile: the person's own edits always win.
  */
 export function useFirstLayout({ stored, fallback, ready, visit }: {
   /** The layout stored on the device, if any. */
@@ -457,20 +473,28 @@ export function useFirstLayout({ stored, fallback, ready, visit }: {
   ready: boolean;
   /** Counts returns to the app (`useClock().visit`). */
   visit: number;
-}): HomeLayout {
+}): { layout: HomeLayout; failed?: string; retry: () => void } {
   const [first, setFirst] = useState<HomeLayout>();
   if (!stored && ready && !first) setFirst(fallback);
   const writing = useRef(false);
-  const [refusedOn, setRefusedOn] = useState<number>();
-  useEffect(() => {
-    if (stored || !first || writing.current || refusedOn === visit) return;
+  // The last refusal and the visit it came on, so the next visit tries again by itself.
+  const [refused, setRefused] = useState<{ visit: number; message: string }>();
+  const store = useCallback((layout: HomeLayout, on: number) => {
     writing.current = true;
     void update(prev => (prev.settings.home !== undefined && isHomeLayout(prev.settings.home)
       ? prev
-      : { ...prev, settings: { ...prev.settings, home: first } })).then(result => {
+      : { ...prev, settings: { ...prev.settings, home: layout } })).then(result => {
       writing.current = false;
-      if (!result.ok) setRefusedOn(visit);
+      setRefused(result.ok ? undefined : { visit: on, message: result.failure.message });
     });
-  }, [stored, first, visit, refusedOn]);
-  return stored ?? first ?? fallback;
+  }, []);
+  useEffect(() => {
+    if (stored || !first || writing.current || refused?.visit === visit) return;
+    store(first, visit);
+  }, [stored, first, visit, refused, store]);
+  /** Try again, while the person stays: the same write, so never over a layout stored meanwhile. */
+  const retry = () => {
+    if (!stored && first && !writing.current) store(first, visit);
+  };
+  return { layout: stored ?? first ?? fallback, ...(refused && !stored ? { failed: refused.message } : {}), retry };
 }

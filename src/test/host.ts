@@ -21,6 +21,8 @@ export interface HostNode {
   type: string;
   props: Props;
   children: HostChild[];
+  /** What a ref on it points at, the same object for as long as it stays mounted, as a DOM element is. */
+  element?: FakeElement;
 }
 export type HostChild = HostNode | string;
 
@@ -58,11 +60,15 @@ const internals = (React as unknown as { __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_U
 const changed = (a: readonly unknown[] | undefined, b: readonly unknown[] | undefined) =>
   !a || !b || a.length !== b.length || a.some((x, i) => !Object.is(x, b[i]));
 
-/** What a ref on a host element points at: enough for the effects the app runs. */
-const fakeElement = () => ({ scrollIntoView() {}, focus() {}, blur() {}, getBoundingClientRect: () => ({ top: 0, left: 0, width: 0, height: 0 }) });
+/** What a ref on a host element points at: enough for the effects the app runs, and what they set on it (a scroll position). */
+const fakeElement = () => ({ scrollIntoView() {}, focus() {}, blur() {}, getBoundingClientRect: () => ({ top: 0, left: 0, width: 0, height: 0 }) }) as FakeElement;
+export type FakeElement = { scrollIntoView(): void; focus(): void; blur(): void; getBoundingClientRect(): unknown; scrollTop?: number };
 
 export class Host {
   private instances = new Map<string, Instance>();
+  /** Each mounted host element's one fake element, by its place in the tree; one mounted again is a new one. */
+  private elements = new Map<string, FakeElement>();
+  private drawn = new Set<string>();
   private effects: (() => void)[] = [];
   private contexts = new Map<unknown, unknown[]>();
   private rendering = false;
@@ -105,11 +111,13 @@ export class Host {
       this.dirty = false;
       this.rendering = true;
       for (const inst of this.instances.values()) inst.seen = false;
+      this.drawn.clear();
       try {
         this.tree = this.node(this.element, 'root');
       } finally {
         this.rendering = false;
       }
+      for (const at of this.elements.keys()) if (!this.drawn.has(at)) this.elements.delete(at);
       for (const [key, inst] of this.instances) {
         if (inst.seen) continue;
         for (const s of inst.slots) { if (typeof s.cleanup === 'function') s.cleanup(); s.unsubscribe?.(); }
@@ -133,10 +141,15 @@ export class Host {
     const props = el.props ?? {};
     const here = `${path}${el.key != null ? `:${el.key}` : ''}`;
     if (typeof type === 'string') {
+      const at = `${here}/${type}`;
       const ref = props.ref as { current?: unknown } | ((v: unknown) => void) | undefined;
-      if (typeof ref === 'function') ref(fakeElement());
-      else if (ref && typeof ref === 'object') ref.current = fakeElement();
-      return [{ type, props, children: this.node(props.children, `${here}/${type}`) }];
+      if (!ref) return [{ type, props, children: this.node(props.children, at) }];
+      const element = this.elements.get(at) ?? fakeElement();
+      this.elements.set(at, element);
+      this.drawn.add(at);
+      if (typeof ref === 'function') ref(element);
+      else if (typeof ref === 'object') ref.current = element;
+      return [{ type, props, children: this.node(props.children, at), element }];
     }
     if (type === FRAGMENT || type === SUSPENSE || type === STRICT) return this.node(props.children, here);
     if (typeof type === 'function') {

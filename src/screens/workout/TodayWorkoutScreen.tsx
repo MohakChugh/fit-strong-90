@@ -43,7 +43,14 @@ export default function TodayWorkoutScreen() {
   const now = useNow(true, 30_000);
   const today = toDateString(new Date(now));
   const past = pastDate(params.get('date'), today);
-  const active = past ? unfinishedOn(sessions, past) : resumable(sessions, today, openedAt);
+  // A workout being finished stays on screen as it was, with the plan it was
+  // logged against, until its save settles, and while a refused save is
+  // shown with Try again. The store shows it finished at once, before the
+  // device has stored it: on a day whose plan has no lifting, an emergency
+  // standing say, that would take the logging view, and the sheet saying
+  // "Saving…", away mid-save, and a failure would come back unsaid.
+  const [held, setHeld] = useState<{ plan: SessionPlan; active?: WorkoutSession }>();
+  const active = (past ? unfinishedOn(sessions, past) : resumable(sessions, today, openedAt)) ?? held?.active;
   const date = past ?? active?.date ?? today;
   const guided = useGuided(date);
   const { data, profile, plan, saveCheckIn, checkIns } = guided;
@@ -58,14 +65,16 @@ export default function TodayWorkoutScreen() {
     (avoid: string[]) => planFor({ ...data, checkIns }, { ...profile, dislikes: [...profile.dislikes, ...avoid] }, date),
     [data, checkIns, profile, date],
   );
-  const lifting = plan.exercises.length > 0 || active !== undefined;
+  const shown = held?.plan ?? plan;
+  const lifting = shown.exercises.length > 0 || active !== undefined || held !== undefined;
 
   return (
     <Screen title="Workout" back={{ to: '/hub/workout', label: 'Workout' }} inline>
       {lifting ? (
-        <Workout key={planKey(plan)} plan={plan} active={active} data={data} profile={profile} build={build}
+        <Workout key={planKey(shown)} plan={shown} active={active} data={data} profile={profile} build={build}
           clinical={{ profile, checkIns }} now={now} checkedIn={todayCheckIn !== undefined} today={today} afterTheFact={past !== undefined}
-          onCheckIn={() => setCheckingIn(true)} onChange={() => setChanging(true)} />
+          onCheckIn={() => setCheckingIn(true)} onChange={() => setChanging(true)}
+          onHold={hold => setHeld(hold ? { plan: shown, ...(active ? { active } : {}) } : undefined)} />
       ) : (
         <NoLifting plan={plan} gate={logGate(gateInput, past !== undefined ? 'record' : 'start')} today={today} date={date}
           afterTheFact={past !== undefined} onCheckIn={() => setCheckingIn(true)} onChange={() => setChanging(true)} />
@@ -162,7 +171,7 @@ function NoLifting({ plan, gate, today, date, afterTheFact, onCheckIn, onChange 
   );
 }
 
-function Workout({ plan, active, data, profile, build, clinical, now, checkedIn, today, afterTheFact, onCheckIn, onChange }: {
+function Workout({ plan, active, data, profile, build, clinical, now, checkedIn, today, afterTheFact, onCheckIn, onChange, onHold }: {
   plan: SessionPlan;
   active?: WorkoutSession;
   data: AppData;
@@ -178,6 +187,8 @@ function Workout({ plan, active, data, profile, build, clinical, now, checkedIn,
   afterTheFact: boolean;
   onCheckIn: () => void;
   onChange: () => void;
+  /** Keep this workout on screen as it is, from the moment its finish is saved until that settles and its sheet closes. */
+  onHold: (hold: boolean) => void;
 }) {
   const useMetric = data.settings.useMetric;
   const { state, dispatch, failure, finish } = useWorkout({
@@ -206,7 +217,11 @@ function Workout({ plan, active, data, profile, build, clinical, now, checkedIn,
     focusCard.current?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' });
   };
 
+  // Held from the tap, so the save's "Saving…", and a refusal with its Try
+  // again, are said here whatever the day's plan has become; let go once the
+  // sheet closes. A stored finish opens the saved workout, as ever.
   const save = async (notes: string, activeMinutes: number | null) => {
+    onHold(true);
     setSaving({ busy: true, failure: null });
     const result = await finish(notes, activeMinutes);
     if (!result.ok) return setSaving({ busy: false, failure: result.failure.message });
@@ -312,7 +327,13 @@ function Workout({ plan, active, data, profile, build, clinical, now, checkedIn,
         </>
       )}
       <FinishSheet open={sheet === 'finish'} startedAt={state.startedAt}
-        onOpenChange={o => { if (saving.busy) return; setSheet(o ? 'finish' : null); if (!o) setSaving({ busy: false, failure: null }); }}
+        onOpenChange={o => {
+          if (saving.busy) return;
+          setSheet(o ? 'finish' : null);
+          if (o) return;
+          setSaving({ busy: false, failure: null });
+          onHold(false);
+        }}
         done={counts.done} total={counts.total}
         status={finishedStatus(state.items.flatMap(i => i.sets))}
         onSave={save} failure={saving.failure} saving={saving.busy} />

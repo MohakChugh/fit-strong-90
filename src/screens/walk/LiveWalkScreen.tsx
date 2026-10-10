@@ -211,8 +211,8 @@ export default function LiveWalkScreen() {
 
   return (
     <>
-      {/* A held walk shows the decision itself (codex V1-03). */}
-      {refusal && <OwnsUrgent />}
+      {/* A held walk draws the gate's answer itself, whole (codex V1-03, W-01). */}
+      {refusal && <OwnsUrgent shows={refusal} />}
       <Screen title={liveTitle(snapshot.walk)} inline>
         {/* One column with its own, tighter rhythm: on a small phone the
             figures should still be in view above the controls. */}
