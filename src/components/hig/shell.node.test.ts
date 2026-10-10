@@ -477,6 +477,12 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     expect(read('src/reminders/ReminderHost.tsx')).toMatch(/offeredNow\(pending\.filter\(p => stillDue\(p\.occurrence, now, current\)\), urgent\)/);
   });
 
+  it('Home’s reading tiles show each last reading with its day, worked out with the day’s figures (kiro KV-17)', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    expect(home).toContain('last: lastReadings(observations, today, prefs),');
+    expect(home).toMatch(/readingLine\(id, \{ \.\.\.\(glucose \? \{ glucose \} : \{\}\), \.\.\.\(pressure \? \{ pressure \} : \{\}\), last \}\)/);
+  });
+
   it('Home’s movement tiles know whether the person is in the programme, so a flare names no programme on the Workout tile (D35, J16 step 1)', () => {
     expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/movementLine\(\{\s+mode, permission, status, enrolled,/);
   });

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { Recommendation } from '@/health/recommend';
 import { CATEGORIES } from '@/categories';
 import type { DueItem } from '@/health/cadence';
-import { dueWords, greeting, normalLine, readingLine, tileColumns, tileHref } from './model';
+import { newObservation, type ObservationInput } from '@/health/observation';
+import { DEFAULT_PREFS } from '@/screens/track/format';
+import { dueWords, greeting, lastReadings, normalLine, readingLine, tileColumns, tileHref } from './model';
 
 const at = (time: string) => new Date(`2026-10-08T${time}:00`);
 const suggests = (over: Partial<Recommendation> & { mode?: Recommendation['action']['mode'] }): Recommendation => ({
@@ -101,10 +103,67 @@ describe('readingLine (journey §7.2)', () => {
     expect(readingLine('glucose', {}).text).toBe('Not entered today');
     expect(readingLine('bp', { glucose }).text).toBe('Not entered today');
   });
-  it('has fixed lines for Food and Learn, and invites a reading elsewhere until Plan 2', () => {
+  it('has fixed lines for Food and Learn, and invites a reading where there has been none', () => {
     expect(readingLine('food', {}).text).toBe('Meal ideas for you');
     expect(readingLine('learn', {}).text).toBe('For you');
     for (const id of ['steps', 'back', 'weight', 'water', 'sleep', 'waist', 'labs'] as const) expect(readingLine(id, { glucose }).text).toBe('Add a reading');
+  });
+  it('shows the last reading with its day when there is none today (journey §7.2, kiro KV-17)', () => {
+    const last = { glucose: { text: 'Last: 112 mg/dL · Mon', tone: 'normal' as const }, weight: { text: 'Last: 65 kg · Mon', tone: 'normal' as const } };
+    expect(readingLine('glucose', { last }).text).toBe('Last: 112 mg/dL · Mon');
+    // Today's reading, with its time and source, comes first.
+    expect(readingLine('glucose', { glucose, last }).text).toBe('142 mg/dL');
+    expect(readingLine('weight', { last }).text).toBe('Last: 65 kg · Mon');
+  });
+});
+
+describe('lastReadings: each reading tile’s last value and when it was taken (journey §7.2, A-12, kiro KV-17)', () => {
+  const TODAY = '2026-10-08';
+  const o = (kind: ObservationInput['kind'], value: number, at: string, over: Partial<ObservationInput> = {}) =>
+    newObservation({ kind, value, scope: 'pointInTime', source: 'manual', at: `${at}+05:30`, ...over });
+  const lines = (obs: ReturnType<typeof o>[]) => lastReadings(obs, TODAY, DEFAULT_PREFS);
+
+  it('names the day: today, a weekday within the week, or the date', () => {
+    expect(lines([o('weight', 65, '2026-10-05T07:00:00')]).weight?.text).toBe('Last: 65.0 kg · Mon');
+    expect(lines([o('weight', 65, '2026-10-08T07:00:00')]).weight?.text).toBe('Last: 65.0 kg · today');
+    expect(lines([o('weight', 65, '2026-09-20T07:00:00')]).weight?.text).toBe('Last: 65.0 kg · 20 Sep');
+    // The newest wins.
+    expect(lines([o('waist', 90, '2026-10-01T07:00:00'), o('waist', 89, '2026-10-06T07:00:00')]).waist?.text).toBe('Last: 89.0 cm · Tue');
+  });
+
+  it('glucose and blood pressure from an earlier day; today’s are Home’s own line', () => {
+    const l = lines([
+      o('glucose', 112, '2026-10-05T07:00:00', { unit: 'mg/dL' }),
+      o('bloodPressureSystolic', 132, '2026-10-06T08:00:00', { unit: 'mmHg', context: 'bp:r1' }),
+      o('bloodPressureDiastolic', 84, '2026-10-06T08:00:00', { unit: 'mmHg', context: 'bp:r1' }),
+    ]);
+    expect(l.glucose?.text).toBe('Last: 112 mg/dL · Mon');
+    expect(l.bp?.text).toBe('Last: 132/84 mmHg · Tue');
+    expect(lines([o('glucose', 112, '2026-10-08T07:00:00', { unit: 'mg/dL' })]).glucose).toBeUndefined();
+  });
+
+  it('a day’s total, steps, water and sleep, by its day', () => {
+    const l = lines([
+      o('steps', 4210, '2026-10-07T20:00:00', { scope: 'dayTotal' }),
+      o('water', 1500, '2026-10-06T20:00:00', { scope: 'dayTotal', unit: 'ml' }),
+    ]);
+    expect(l.steps?.text).toBe('Last: 4,210 steps · Wed');
+    expect(l.water?.text).toBe('Last: 1,500 ml · Tue');
+  });
+
+  it('back and leg pain as one record, and a lab by its name and month', () => {
+    const l = lines([
+      o('backPain', 3, '2026-10-05T07:00:00', { context: 'checkIn:2026-10-05' }),
+      o('legPain', 2, '2026-10-05T07:00:00', { context: 'checkIn:2026-10-05' }),
+      o('hba1c', 6.8, '2026-03-14T09:00:00', { unit: '%' }),
+    ]);
+    expect(l.back?.text).toBe('Last: Back 3 · Leg 2 · Mon');
+    expect(l.labs?.text).toBe('Last HbA1c 6.8% · Mar');
+    expect(lines([o('hba1c', 6.8, '2025-11-02T09:00:00', { unit: '%' })]).labs?.text).toBe('Last HbA1c 6.8% · Nov 2025');
+  });
+
+  it('says nothing for a category with no reading', () => {
+    expect(lines([])).toEqual({});
   });
 });
 

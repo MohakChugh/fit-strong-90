@@ -64,7 +64,7 @@ import {
 } from '@/screens/today/model';
 import { EditTiles } from './EditHome';
 import { useFirstLayout, useHomeEditor } from './editor';
-import { FROM_HOME, dueWords, greeting, normalLine, readingLine } from './model';
+import { FROM_HOME, dueWords, greeting, lastReadings, normalLine, readingLine } from './model';
 import { RemindersCapsule } from './RemindersCapsule';
 import { StatusButton } from './StatusButton';
 import { TileGrid, type TileState } from './TileGrid';
@@ -243,7 +243,7 @@ export function HomeScreen() {
   // ---- Everything below the suggestion is live -----------------------------
   // The day's figures read the whole record, which is a lifetime of it, so
   // they are worked out when the record or the day changes, not on each tick.
-  const { glucose, pressure, week, stretched, moved: movedOn, steps } = useMemo(() => {
+  const { glucose, pressure, last, week, stretched, moved: movedOn, steps } = useMemo(() => {
     const prefs = todayPrefs(profile, HOUR12);
     return {
       glucose: latestGlucose(observations, today, prefs),
@@ -252,6 +252,7 @@ export function HomeScreen() {
       stretched: stretchDays(today, sessions),
       moved: movedDays(today, observations, sessions),
       steps: stepsLine(today, observations, HOUR12),
+      last: lastReadings(observations, today, prefs),
     };
   }, [profile, observations, sessions, today]);
   const hasSteps = useMemo(() => observations.some(o => o.kind === 'steps'), [observations]);
@@ -302,7 +303,7 @@ export function HomeScreen() {
   const tile = (id: CategoryId): TileState => {
     const { mode } = categoryById(id);
     const dot = dueWords(id, { due, status, stopped });
-    if (!mode) return { line: readingLine(id, { ...(glucose ? { glucose } : {}), ...(pressure ? { pressure } : {}) }), held: false, ...(dot ? { due: dot } : {}) };
+    if (!mode) return { line: readingLine(id, { ...(glucose ? { glucose } : {}), ...(pressure ? { pressure } : {}), last }), held: false, ...(dot ? { due: dot } : {}) };
     return { line: lineOf(mode), held: opensOnHold(permissions[mode]), ...(dot ? { due: dot } : {}) };
   };
   const opensOnHoldNow = (id: CategoryId) => {
