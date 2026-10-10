@@ -353,10 +353,12 @@ export function readingsView(input: TrendInput): TrendView {
   const value = def.id === 'bp'
     ? (main.some(s => s.mean !== undefined) ? main.map(s => (s.mean === undefined ? 'Not entered' : fmt(s.mean))).join('/') : undefined)
     : main[0].mean === undefined ? undefined : fmt(main[0].mean);
+  // Back pain is the headline, leg pain its own stat: each counts its own readings (H3-07).
+  const back = def.id === 'back';
   const headline: Headline = {
-    statistic: def.id === 'back' ? 'Back pain on average' : 'Average',
-    coverage: readingCount(numeric, all.hi, all.lo),
-    ...(value === undefined ? { value: texts.length === 0 ? 'No readings' : 'No numeric readings' } : { value, unit }),
+    statistic: back ? 'Back pain on average' : 'Average',
+    coverage: back ? readingCount(main[0].n, 0, 0) : readingCount(numeric, all.hi, all.lo),
+    ...(value === undefined ? { value: texts.length === 0 ? 'No readings' : back ? 'No back readings' : 'No numeric readings' } : { value, unit }),
   };
 
   const ranges = compareRanges(w, ctx.today);
@@ -373,7 +375,7 @@ export function readingsView(input: TrendInput): TrendView {
     const s = main[i];
     if (s.min !== undefined && s.max !== undefined) stats.push({ label: g.words ? `Range, ${g.words}` : 'Range', value: `${fmt(s.min)}–${fmt(s.max)} ${unit}` });
   });
-  if (def.id === 'back' && main[1].mean !== undefined) stats.push({ label: 'Leg pain on average', value: `${fmt(main[1].mean)} ${unit}` });
+  if (back && main[1].mean !== undefined) stats.push({ label: 'Leg pain on average', value: `${fmt(main[1].mean)} ${unit}, ${countText(main[1].n, READING)}` });
   if (def.id === 'glucose') {
     const line = GLUCOSE_LINES[prefs.glucose];
     stats.push({ label: `Below ${line.low}`, value: formatNumber(all.lows) }, { label: `Above ${line.high}`, value: formatNumber(all.highs) });

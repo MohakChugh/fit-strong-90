@@ -596,11 +596,19 @@ describe('more of the readings view (A-43, A-44, K-11)', () => {
       def: TRENDS.back, window: week, prefs, ctx: ctx(),
       data: data([pain('backPain', 6, '2026-10-05'), pain('legPain', 3, '2026-10-05'), pain('backPain', 4, '2026-10-06'), pain('legPain', 2, '2026-10-06')]),
     });
-    expect(back.headline).toEqual({ statistic: 'Back pain on average', coverage: '4 readings, all with a number', value: '5.0', unit: 'of 10' });
+    // Each pain its own coverage: the headline counts back pain's readings, the leg's stat its own (H3-07).
+    expect(back.headline).toEqual({ statistic: 'Back pain on average', coverage: '2 readings, all with a number', value: '5.0', unit: 'of 10' });
     expect(back.stats).toEqual([
-      { label: 'Range, back', value: '4.0–6.0 of 10' }, { label: 'Range, leg', value: '2.0–3.0 of 10' }, { label: 'Leg pain on average', value: '2.5 of 10' },
+      { label: 'Range, back', value: '4.0–6.0 of 10' }, { label: 'Range, leg', value: '2.0–3.0 of 10' }, { label: 'Leg pain on average', value: '2.5 of 10, 2 readings' },
     ]);
     expect(back.chart.average).toBeUndefined();
+  });
+
+  it('leg pain with back pain left blank, as the form allows: no back readings, and the leg’s figure (H3-07)', () => {
+    const leg = readingsView({ def: TRENDS.back, window: week, prefs, ctx: ctx(), data: data([pain('legPain', 2, '2026-10-05')]) });
+    expect(leg.headline).toEqual({ statistic: 'Back pain on average', coverage: '0 readings', value: 'No back readings' });
+    expect(leg.stats).toEqual([{ label: 'Range, leg', value: '2.0–2.0 of 10' }, { label: 'Leg pain on average', value: '2.0 of 10, 1 reading' }]);
+    expect(readingsView({ def: TRENDS.back, window: week, prefs, ctx: ctx(), data: data([]) }).headline.value).toBe('No readings');
   });
 
   it('6 Months: each week’s range and mean, in words and as a list by week', () => {
