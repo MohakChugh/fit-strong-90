@@ -1665,6 +1665,21 @@ describe('the route and the journal (journey §9.2, §9.4, §18.2)', () => {
     expect(plain.entries.every(e => e.route === undefined)).toBe(true);
   });
 
+  it('journals the route only while this phone’s consent is yes, whatever the walk was given (H6-04)', async () => {
+    const kept = journal();
+    let consent = true;
+    const w = world();
+    const live = createLiveWalk({ ...w.ports, journal: kept.port, keepsRoutes: () => consent });
+    live.attach(KEEP);
+    walkFor(w, 16, 0);
+    expect(kept.entries.at(-1)!.route?.length).toBeGreaterThan(0);
+    consent = false;
+    walkFor(w, 16, 30);
+    expect(kept.entries.at(-1)!.route).toBeUndefined();
+    // The drawing on screen is this walk's, whatever is kept.
+    expect(live.getSnapshot()!.route.length).toBeGreaterThan(0);
+  });
+
   it('says when the phone is out of space for the journal', async () => {
     const full = journal();
     full.fail(new StoreFailure('quotaExceeded', 'full'));

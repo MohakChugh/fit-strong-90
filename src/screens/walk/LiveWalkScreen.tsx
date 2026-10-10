@@ -16,7 +16,10 @@ import { cn, toDateString } from '@/lib/utils';
 import { clock, spokenClock, timeOfDay } from '@/walk/format';
 import { feelLow, lowReading } from '@/walk/low';
 import { needToStop } from '@/walk/stop';
-import { walkFromSearch } from '@/walk/plan';
+import { walkFromSearch, walkSetupHref } from '@/walk/plan';
+import { takeStarted } from '@/walk/started';
+import { walkSettings, withConsent } from '@/walk/consent';
+import { getState } from '@/store/useStore';
 import {
   STEPS_DENIED,
   cueLine,
@@ -133,16 +136,22 @@ export default function LiveWalkScreen() {
   // The last report from this screen that the device would not keep (N01).
   const [unsaved, setUnsaved] = useState(false);
 
-  // Opening the screen returns to the walk in progress, or starts the one in
-  // the address. A new walk is asked the same permission the Start button
-  // asked, so an old address in the history cannot step around the check-in.
-  // The controller asks again itself, and asks a restored walk the restart
-  // question (F06, B03).
+  // Opening the screen returns to the walk in progress, or starts the one the
+  // shared start flow has just started. The address's fields are choices,
+  // never authorisation (H6-04): an arrival the flow didn't make — a link, a
+  // typed address, history — goes to the Walk hub, whose Start runs the
+  // first-walk questions and B-01's sequence; its meal goes with it. The plan
+  // is the flow's own, the route kept only on this phone's yes as it is now
+  // (KH-12). A new walk is asked the same permission the Start button asked,
+  // and the controller asks again itself, and asks a restored walk the
+  // restart question (F06, B03).
   const open = useEffectEvent(() => {
     const now = new Date();
-    const request = walkFromSearch(params, now.getTime());
+    const asked = walkFromSearch(params, now.getTime());
+    const plan = asked ? takeStarted(asked.id) : undefined;
+    const request = asked && plan ? { id: asked.id, plan: withConsent(plan, walkSettings(getState().settings)) } : undefined;
     const allowed = !!request && !walkRefusal(walkInput(clinical, now), 'start');
-    if (live.attach(allowed ? request : undefined) === 'none') navigate('/walk', { replace: true });
+    if (live.attach(allowed ? request : undefined) === 'none') navigate(walkSetupHref(asked?.plan.meal?.which), { replace: true });
   });
 
   useEffect(() => {

@@ -12,6 +12,7 @@ import { getState } from '@/store/useStore';
 import { createWakeLockPort } from './wakeLock';
 import { sessionWalkStorage } from './persist';
 import { journalPort } from './journalPort';
+import { walkSettings } from './consent';
 
 type MotionPermission = 'granted' | 'denied';
 
@@ -153,6 +154,7 @@ export function browserPorts(): LivePorts {
     mayRun: (intent, walk) => storeGate(intent, untimedOf(walk)),
     watchClinical,
     readingsNow: days => readingIds(deviceClinical(getState()).checkIns, days),
+    keepsRoutes: () => walkSettings(getState().settings).saveRoutes === true,
     now: () => Date.now(),
     monotonic: () => performance.now(),
     later(fn, ms) {

@@ -131,6 +131,12 @@ export interface LivePorts {
   wakeLock?: WakeLockPort;
   /** Where the walk is kept against a closed or crashed app (journey §9.4). */
   journal?: JournalPort;
+  /**
+   * This phone's own consent to keep routes, as it is now (H6-04): asked at
+   * every journal write, so a walk keeps its route only while the answer is
+   * yes. Absent: the walk's plan alone decides.
+   */
+  keepsRoutes?(): boolean;
 }
 
 /** A gap shorter than this is recorded but not announced: a glance at a notification. */
@@ -289,7 +295,8 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     const now = ports.now();
     if (!ports.journal || (checkpoint === 'due' && !checkpointDue(lastCheckpoint, now))) return;
     lastCheckpoint = now;
-    const entry = journalEntry(walk, now, walk.plan.keepRoute ? allLines() : undefined);
+    const keep = walk.plan.keepRoute === true && (ports.keepsRoutes?.() ?? true);
+    const entry = journalEntry(walk, now, keep ? allLines() : undefined);
     void ports.journal.checkpoint(entry).then(result => {
       const full = !result.ok && result.failure.code === 'quotaExceeded';
       if (full === journalFull) return;

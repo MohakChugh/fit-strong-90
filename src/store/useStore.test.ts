@@ -1057,9 +1057,12 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
   const ROUTE = { walkId: WALK, version: 1 as const, startedAt: '2026-10-08T09:00:00.000+05:30', segments: [LINE], bbox: [12.97, 77.59, 12.971, 77.5905] as [number, number, number, number] };
   const walked = () => finishWalk(startWalk(WALK, { kind: 'walk', gps: true, steps: false, keepRoute: true }, T), T + 600_000, 'finish');
   const ofWalk = () => store.getState().observations.filter(o => o.context === `walk:${WALK}`);
+  /** This phone said yes to keeping routes: the only way one is kept (H6-04). */
+  const keepsRoutes = () => store.setSettings({ walk: { saveRoutes: true, map: 'off' } });
 
   it('writes the records and the route, and retires the journal, together and once', async () => {
     await booted();
+    await keepsRoutes();
     expect((await store.putWalkJournal(journalEntry(walked(), T + 600_000))).ok).toBe(true);
     const input = { walkId: WALK, observations: walkObservations(walked()), route: ROUTE };
     expect((await store.saveWalk(input)).ok).toBe(true);
@@ -1075,6 +1078,7 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
 
   it('leaves everything as it was when the save fails: no records, no route, the journal kept (V-J34)', async () => {
     await booted({ quotaAfter: 0, quotaStore: 'routes' });
+    await keepsRoutes();
     await store.putWalkJournal(journalEntry(walked(), T));
     const result = await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
     expect(!result.ok && result.failure.code).toBe('quotaExceeded');
@@ -1083,6 +1087,19 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
     const left = await store.readWalkJournals();
     expect(left.ok && left.value.map(e => e.id)).toEqual([WALK]);
   });
+
+  for (const consent of [undefined, 'unasked', false] as const) {
+    it(`keeps no route on a phone whose consent is ${String(consent ?? 'missing')}, whatever the walk was given (H6-04)`, async () => {
+      await booted();
+      if (consent !== undefined) await store.setSettings({ walk: { saveRoutes: consent, map: 'off' } });
+      await store.putWalkJournal(journalEntry(walked(), T + 600_000, [LINE]));
+      expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE })).ok).toBe(true);
+      expect(ofWalk().length).toBeGreaterThan(0);
+      expect(store.getState().records.routes).toEqual([]);
+      const left = await store.readWalkJournals();
+      expect(left.ok && left.value).toEqual([]);
+    });
+  }
 
   it('reads back only the checkpoints it can trust', async () => {
     await booted();
@@ -1094,7 +1111,9 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
 
   it('removes a walk, its route and its journal together', async () => {
     await booted();
+    await keepsRoutes();
     await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    expect(store.getState().records.routes.map(r => r.walkId)).toEqual([WALK]);
     await store.putWalkJournal(journalEntry(walked(), T));
     expect((await store.removeWalk(WALK, ofWalk().map(o => o.id))).ok).toBe(true);
     expect(ofWalk()).toEqual([]);

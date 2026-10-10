@@ -38,8 +38,9 @@ let host: Host | undefined;
 /** Write transactions the database has been asked for. */
 let writes = 0;
 
-/** Eighteen minutes recorded with its route kept, then the app went away. */
+/** Eighteen minutes recorded with its route kept, on a phone that said yes to keeping routes (H6-04), then the app went away. */
 async function lost() {
+  await store.setSettings({ walk: { saveRoutes: true, map: 'off' } });
   const walk = accrueOpen(startWalk(ID, { kind: 'walk', gps: true, steps: false, keepRoute: true }, START), 18 * MIN, START + 18 * MIN);
   await store.putWalkJournal(journalEntry(walk, START + 18 * MIN, [LINE]));
 }

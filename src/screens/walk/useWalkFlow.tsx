@@ -6,7 +6,8 @@ import { requestMotion } from '@/walk/browser';
 import type { WalkPlan } from '@/walk/clock';
 import { answered, preflightPages, walkSettings, withConsent, type PreflightAnswer, type WalkSettings } from '@/walk/consent';
 import { storeStartPermission } from '@/walk/gate';
-import { freshLiveHref, originOf } from '@/walk/plan';
+import { originOf } from '@/walk/plan';
+import { startedHref } from '@/walk/started';
 import { createStarter } from '@/walk/start';
 import { walkVoice } from '@/walk/voice';
 import { PreflightSheet, type PreflightStage } from './PreflightSheet';
@@ -28,7 +29,8 @@ export function useWalkFlow(onCheckIn: (plan: WalkPlan) => void): { begin(plan: 
     requestMotion,
     unlockAudio: () => walkVoice().unlock(pack),
     gate: () => storeStartPermission(),
-    go: plan => navigate(freshLiveHref(plan), { viewTransition: true }),
+    // The one way a new walk reaches the live screen (H6-04).
+    go: plan => navigate(startedHref(plan), { viewTransition: true }),
   }), [navigate, pack]);
 
   /**

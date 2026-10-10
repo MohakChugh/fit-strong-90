@@ -47,6 +47,7 @@ const store = await import('@/store/useStore');
 const { useStartMovement } = await import('@/components/checkin/useStartMovement');
 const { evaluateCheckIn } = await import('@/engine/readiness');
 const { liveHref } = await import('@/walk/plan');
+const { takeStarted } = await import('@/walk/started');
 const { resetPendingCheckInsForTests } = await import('@/components/checkin/pending');
 
 const known = { medicinesReviewed: true, currentlyActive: true, clearance: 'vigorous' as const, glucoseMonitor: 'meter' as const, glucoseUnit: 'mg/dL' as const };
@@ -104,6 +105,9 @@ describe('starting a walk (B-01)', () => {
     await h.settle();
     expect(router.navigate).toHaveBeenCalledTimes(1);
     expect(router.navigate.mock.calls[0][0]).toMatch(/^\/walk\/live\?.*from=walk/);
+    // The live screen will start it: the flow made this address, and only it can (H6-04).
+    const id = new URLSearchParams(String(router.navigate.mock.calls[0][0]).split('?')[1]).get('id')!;
+    expect(takeStarted(id)).toMatchObject({ kind: 'walk', gps: true, from: '/hub/walk' });
   });
 
   it('asks the first-walk questions first, and makes the last answer the tap that starts', async () => {

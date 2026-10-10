@@ -1202,7 +1202,8 @@ export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
       const held = new Set(base.observations.filter(o => wanted.has(o.id)).map(o => o.id));
       const records = fixed.filter(o => !held.has(o.id)).map(o => newObservation(o));
       let route: StoredRecord | undefined;
-      if (input.route) {
+      // Kept only on this phone's yes, as it is when the walk is saved, whatever the walk was given (H6-04).
+      if (input.route && base.settings?.walk?.saveRoutes === true) {
         const problem = recordProblem('routes', input.route);
         if (problem) throw new StoreFailure('invalid', `The route could not be saved: ${problem}.`);
         if (!base.records.routes.some(r => r.walkId === input.walkId)) route = input.route as unknown as StoredRecord;

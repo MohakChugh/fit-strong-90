@@ -92,3 +92,29 @@ describe('the summary’s energy line (KH-13)', () => {
     expect(h.all().some(n => n.type === 'a' && /birth year/.test(JSON.stringify(n.children)))).toBe(false);
   });
 });
+
+describe('the summary’s route, on this phone’s consent as it is now (H6-04)', () => {
+  const LINE = { start: START, end: START + 20_000, coords: [[12.97, 77.59], [12.9705, 77.5902], [12.971, 77.5905]] as [number, number][], ms: [0, 10_000, 20_000] };
+  async function kept(saveRoutes: boolean) {
+    const { journalEntry } = await import('@/walk/journal');
+    await store.setProfile(createDefaultProfile({ weightKg: 70, birthYear: 1975, health: { diabetes: 'none', medicinesReviewed: true } }));
+    await store.setSettings({ walk: { saveRoutes, map: 'off' } });
+    const walk = finishWalk(accrueOpen(startWalk(ID, { kind: 'walk', gps: true, steps: false, keepRoute: true }, START), 20 * MIN, START + 20 * MIN), START + 20 * MIN, 'finish');
+    await store.putWalkJournal(journalEntry(walk, START + 20 * MIN, [LINE]));
+    storeWalk(sessionWalkStorage(), walk);
+    const h = (host = render(createElement(WalkSummary)));
+    await h.settle();
+    return h;
+  }
+  const drawn = (h: Host) => h.all().some(n => n.type === 'svg' && n.props['aria-label'] === 'Your route');
+
+  it('draws the kept route while the answer is yes', async () => {
+    expect(drawn(await kept(true))).toBe(true);
+  });
+
+  it('shows no route, and says why, once the answer is no', async () => {
+    const h = await kept(false);
+    expect(drawn(h)).toBe(false);
+    expect(h.text()).toContain('No route: routes aren’t kept on this phone.');
+  });
+});

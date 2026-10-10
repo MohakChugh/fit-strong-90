@@ -53,8 +53,10 @@ export function WalkSummary() {
 
   // Re-read while open after a low, so "waiting" turns into "due" on time.
   const now = useNow(walk?.endedBy === 'low', 15_000);
-  // The kept route: saved, or journalled as it was walked (journey §9.5).
-  const lines = useWalkRoute(walk?.id ?? '', walk?.plan.keepRoute === true);
+  // The kept route: saved, or journalled as it was walked (journey §9.5). Kept
+  // only while this phone says yes to keeping routes, as the save asks (H6-04).
+  const keepsRoute = walk?.plan.keepRoute === true && walkSettings(settings).saveRoutes === true;
+  const lines = useWalkRoute(walk?.id ?? '', keepsRoute);
   const reduce = useReducedMotion();
 
   if (!walk) return <Navigate to="/hub/walk" replace />;
@@ -153,7 +155,7 @@ export function WalkSummary() {
       {lines && box ? (
         <RouteFrame walkId={walk.id} lines={lines} bbox={box} mapOn={mapOn} />
       ) : (
-        <p className="px-1 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{noRouteLine(walk.plan)}</p>
+        <p className="px-1 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{noRouteLine({ ...walk.plan, keepRoute: keepsRoute })}</p>
       )}
 
       {rows.length > 0 && (

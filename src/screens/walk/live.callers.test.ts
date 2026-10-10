@@ -76,6 +76,9 @@ const { evaluateCheckIn } = await import('@/engine/readiness');
 const { permission } = await import('@/engine/permission');
 const { deviceGate } = await import('@/walk/gate');
 const { newWalkId } = await import('@/walk/plan');
+const { startedHref } = await import('@/walk/started');
+/** A walk the shared start flow has just started, as the live screen's address: how every new walk arrives (H6-04). */
+const startedParams = () => new URLSearchParams(startedHref({ kind: 'walk', gps: false, steps: false }).split('?')[1]);
 
 const known = { medicinesReviewed: true, currentlyActive: true, clearance: 'vigorous' as const, glucoseMonitor: 'meter' as const, glucoseUnit: 'mg/dL' as const };
 const INSULIN = { health: { ...known, diabetes: 'type2', insulin: 'injections_or_pump', insulinRegimen: 'basalOnly' } } satisfies ProfileInput;
@@ -112,7 +115,7 @@ async function feelingLow(p: UserProfile) {
   const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } };
   const rec: CheckInRecord = { ...morning, readiness: evaluateCheckIn(p, morning) };
   await store.update(prev => ({ ...prev, profile: p, checkIns: [rec] }));
-  router.params = new URLSearchParams({ id: newWalkId(Date.now()) });
+  router.params = startedParams();
   host = render(createElement(LiveWalkScreen));
   await host.settle();
   expect(status()).toBe('running');
@@ -169,7 +172,7 @@ describe('"I need to stop", closed without an answer (journey §4.4, H6-01)', ()
   async function walking() {
     const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4 };
     await store.update(prev => ({ ...prev, profile: p, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
-    router.params = new URLSearchParams({ id: newWalkId(Date.now()) });
+    router.params = startedParams();
     host = render(createElement(LiveWalkScreen));
     await host.settle();
     expect(status()).toBe('running');
@@ -228,5 +231,49 @@ describe('"I need to stop", closed without an answer (journey §4.4, H6-01)', ()
     expect(status()).toBe('paused');
     expect(answer(p).reasons.join(' ')).toMatch(/Dizzy or faint/);
     expect(answer(p).reasons.join(' ')).not.toMatch(/haven’t said what happened/);
+  });
+});
+
+describe('a walk’s address is a choice, never authorisation (H6-04, KH-12)', () => {
+  const p = createDefaultProfile({ health: { ...known, diabetes: 'none' } });
+  async function checkedIn(walkSettings?: { saveRoutes: boolean | 'unasked'; map: 'on' | 'off' | 'unasked' }) {
+    const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4 };
+    await store.update(prev => ({
+      ...prev, profile: p, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }],
+      settings: { ...prev.settings, ...(walkSettings ? { walk: walkSettings } : {}) },
+    }));
+  }
+
+  it('sends an address the start flow didn’t make to the Walk hub, with its meal, and starts nothing', async () => {
+    await checkedIn();
+    router.params = new URLSearchParams({ id: newWalkId(Date.now()), gps: '1', route: '1', meal: 'lunch', mealAt: String(Date.now() - 10 * 60_000) });
+    host = render(createElement(LiveWalkScreen));
+    await host.settle();
+    expect(status()).toBeUndefined();
+    expect(walk.kept.size).toBe(0);
+    expect(router.navigate).toHaveBeenCalledWith('/hub/walk?meal=lunch', { replace: true });
+  });
+
+  for (const consent of [false, 'unasked'] as const) {
+    it(`keeps no route on this phone’s ${consent === false ? 'No' : 'unasked'}, whatever the address says`, async () => {
+      await checkedIn({ saveRoutes: consent, map: 'off' });
+      const href = startedHref({ kind: 'walk', gps: true, steps: false, keepRoute: true });
+      router.params = new URLSearchParams(href.split('?')[1]);
+      expect(router.params.get('route')).toBe('1');
+      host = render(createElement(LiveWalkScreen));
+      await host.settle();
+      expect(status()).toBe('running');
+      expect(walk.live!.getSnapshot()!.walk.plan.keepRoute).toBeUndefined();
+    });
+  }
+
+  it('starts the walk the start flow made, once, keeping its route on this phone’s yes', async () => {
+    await checkedIn({ saveRoutes: true, map: 'off' });
+    const href = startedHref({ kind: 'walk', gps: true, steps: false });
+    router.params = new URLSearchParams(href.split('?')[1]);
+    host = render(createElement(LiveWalkScreen));
+    await host.settle();
+    expect(status()).toBe('running');
+    expect(walk.live!.getSnapshot()!.walk.plan.keepRoute).toBe(true);
   });
 });

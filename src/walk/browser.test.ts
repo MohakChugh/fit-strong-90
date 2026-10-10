@@ -38,4 +38,15 @@ describe('the browser’s live walk ports (B-19)', () => {
     expect(ports.mayRun('live', walk({ clockChangedAt: NOW.getTime(), untimedReadings: [...known] }))).toBe(false);
     expect(ports.mayRun('restart', walk({ clockChangedAt: NOW.getTime(), untimedReadings: [] }))).toBe(true);
   });
+
+  it('ask this phone’s own route consent, as it is now, at each journal write (H6-04)', () => {
+    const ports = browserPorts();
+    const was = state.value as { settings: object };
+    expect(ports.keepsRoutes!()).toBe(false);
+    for (const [saveRoutes, keeps] of [['unasked', false], [false, false], [true, true]] as const) {
+      state.value = { ...was, settings: { ...was.settings, walk: { saveRoutes, map: 'off' } } };
+      expect(ports.keepsRoutes!()).toBe(keeps);
+    }
+    state.value = was;
+  });
 });
