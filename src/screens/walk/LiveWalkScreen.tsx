@@ -4,6 +4,7 @@ import { CandyIcon, FlagIcon, HandIcon, PauseIcon, PlayIcon, TriangleAlertIcon }
 import { Screen } from '@/components/hig/Screen';
 import { Sheet } from '@/components/hig/Sheet';
 import { Stat } from '@/components/hig/Stat';
+import { TARGET } from '@/components/hig/targets';
 import { CheckInSheet } from '@/components/checkin/CheckInSheet';
 import { useGuided } from '@/hooks/useGuided';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
@@ -86,22 +87,22 @@ function Notice({ snapshot, live }: { snapshot: LiveSnapshot; live: LiveWalk }) 
       <p className="text-[length:var(--text-body)] leading-snug">{text.message}</p>
       {notice.kind === 'away' ? (
         <>
-          <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
-            <button type="button" onClick={() => live.dismissNotice()} className="press-feedback min-h-11 rounded-lg bg-tint px-3 text-[length:var(--text-body)] font-semibold text-on-tint">
+          <div className={cn('grid grid-cols-1 min-[360px]:grid-cols-2', TARGET.gap)}>
+            <button type="button" onClick={() => live.dismissNotice()} className={cn('press-feedback rounded-lg bg-tint px-3 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.primary)}>
               Continue walking
             </button>
-            <button type="button" onClick={() => live.finish('finish')} className="press-feedback min-h-11 rounded-lg bg-grouped-bg px-3 text-[length:var(--text-body)] font-semibold text-tint">
+            <button type="button" onClick={() => live.finish('finish')} className={cn('press-feedback rounded-lg bg-grouped-bg px-3 text-[length:var(--text-body)] font-semibold text-tint', TARGET.primary)}>
               Finish
             </button>
           </div>
           {text.add && (
-            <button type="button" onClick={() => live.addAwayTime()} className="min-h-11 self-start text-left text-[length:var(--text-body)] text-tint">
+            <button type="button" onClick={() => live.addAwayTime()} className={cn('self-start text-left text-[length:var(--text-body)] text-tint', TARGET.tap)}>
               {text.add}
             </button>
           )}
         </>
       ) : (
-        <button type="button" onClick={() => live.dismissNotice()} className="min-h-11 min-w-11 self-start text-left text-[length:var(--text-body)] text-tint">
+        <button type="button" onClick={() => live.dismissNotice()} className={cn('self-start text-left text-[length:var(--text-body)] text-tint', TARGET.tap)}>
           Done
         </button>
       )}
@@ -264,7 +265,7 @@ export default function LiveWalkScreen() {
                 <p role="status" className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{cue.text}</p>
                 {cue.unlock && (
                   // In this tap: iOS unlocks audio only inside one (A-53).
-                  <button type="button" onClick={() => void player.unlock(profile.voice.pack ?? 'af_heart')} className="min-h-11 text-[length:var(--text-subhead)] font-semibold text-tint">
+                  <button type="button" onClick={() => void player.unlock(profile.voice.pack ?? 'af_heart')} className={cn('text-[length:var(--text-subhead)] font-semibold text-tint', TARGET.tap)}>
                     Turn the voice on
                   </button>
                 )}
@@ -284,17 +285,17 @@ export default function LiveWalkScreen() {
                   {refusal.release && <p className="text-muted-foreground">{refusal.release}</p>}
                   <p className="text-muted-foreground">Your walk so far is kept. Finish to save it.</p>
                   {action === 'stop' && (
-                    <button type="button" onClick={() => setSheet('stop')} className="press-feedback mt-1 min-h-12 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
+                    <button type="button" onClick={() => setSheet('stop')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
                       Say what happened
                     </button>
                   )}
                   {action === 'checkIn' && (
-                    <button type="button" onClick={() => setSheet('checkIn')} className="press-feedback mt-1 min-h-11 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
+                    <button type="button" onClick={() => setSheet('checkIn')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
                       Check in
                     </button>
                   )}
                   {action === 'profile' && (
-                    <button type="button" onClick={() => navigate('/you/profile')} className="press-feedback mt-1 min-h-11 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
+                    <button type="button" onClick={() => navigate('/you/profile')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
                       Health questions
                     </button>
                   )}
@@ -364,7 +365,7 @@ export default function LiveWalkScreen() {
                   figure={steps}
                   className="col-span-2 border-t border-separator"
                   action={snapshot.stepsState === 'needsPermission' && (
-                    <button type="button" onClick={() => void live.enableMotion()} className="min-h-11 self-start text-[length:var(--text-body)] text-tint">
+                    <button type="button" onClick={() => void live.enableMotion()} className={cn('self-start text-[length:var(--text-body)] text-tint', TARGET.tap)}>
                       Allow motion and count steps
                     </button>
                   )}
@@ -373,13 +374,13 @@ export default function LiveWalkScreen() {
             </div>
           )}
 
-          <div className={cn('grid grid-cols-1 gap-2', hypoRisk && !refusal && 'min-[360px]:grid-cols-2')}>
-            <button type="button" onClick={stopNow} className="press-feedback flex min-h-12 items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-stop">
+          <div className={cn('grid grid-cols-1', TARGET.gap, hypoRisk && !refusal && 'min-[360px]:grid-cols-2')}>
+            <button type="button" onClick={stopNow} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-stop', TARGET.primary)}>
               <HandIcon className="size-5 shrink-0" aria-hidden />
               I need to stop
             </button>
             {hypoRisk && !refusal && (
-              <button type="button" onClick={reportLow} className="press-feedback flex min-h-12 items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-caution">
+              <button type="button" onClick={reportLow} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-caution', TARGET.primary)}>
                 <CandyIcon className="size-5 shrink-0" aria-hidden />
                 I feel low
               </button>

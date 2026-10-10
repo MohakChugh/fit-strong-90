@@ -1,12 +1,15 @@
 import { useMemo, useState } from 'react';
+import { TARGET } from '@/components/hig/targets';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { cn } from '@/lib/utils';
 import { fitView, zoomed, VIEW_SIZE, type View } from '@/walk/route';
 import type { Bbox, RouteLine } from '@/walk/routeRecord';
 import { ATTRIBUTION, mapUnavailable } from '@/walk/tiles';
 import { RouteView } from './RouteView';
 import { StaticMap } from './StaticMap';
 
-const CONTROL = 'press-feedback min-h-11 rounded-lg bg-grouped-card px-2 text-[length:var(--text-subhead)] font-semibold text-tint';
+// Each at least 48 × 48 px, 12 px apart (journey §20.4 rule 1, H6-11).
+const CONTROL = cn('press-feedback rounded-lg bg-grouped-card px-2 text-[length:var(--text-subhead)] font-semibold text-tint', TARGET.tap);
 
 /**
  * A finished walk's route (journey §9.5, M14): our drawing with its start and
@@ -26,24 +29,25 @@ export function RouteFrame({ walkId, lines, bbox, mapOn }: { walkId: string; lin
 
   if (hidden) {
     return (
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-grouped-card p-4">
+      <div className={cn('flex flex-wrap items-center justify-between rounded-xl bg-grouped-card p-4', TARGET.gap)}>
         <p className="text-[length:var(--text-body)] text-muted-foreground">Map hidden</p>
         <button type="button" className={CONTROL} onClick={() => setHidden(false)}>Show map</button>
       </div>
     );
   }
   return (
-    <div className="flex flex-col gap-2">
+    <div className={cn('@container flex flex-col', TARGET.gap)}>
       <RouteView view={view} lines={lines} ends grid={!pictures} label="Your route" {...(reduce ? {} : { transitionName: `route-${walkId}` })}>
         {pictures && <StaticMap view={view} onFail={() => setFailed(true)} />}
       </RouteView>
       {pictures && (
-        <a href={ATTRIBUTION.href} target="_blank" rel="noopener" className="inline-flex min-h-11 items-center self-end px-1 text-[length:var(--text-footnote)] text-tint underline">
+        <a href={ATTRIBUTION.href} target="_blank" rel="noopener" className={cn('inline-flex items-center justify-end self-end px-1 text-[length:var(--text-footnote)] text-tint underline', TARGET.tap)}>
           {ATTRIBUTION.text}
         </a>
       )}
       {mapOn && !pictures && <p role="status" className="text-[length:var(--text-footnote)] text-muted-foreground">{mapUnavailable(!online)}</p>}
-      <div className="grid grid-cols-2 gap-2 min-[400px]:grid-cols-4">
+      {/* Four in a row only where four fit at this text size: larger text keeps two, never squeezed under 48 px. */}
+      <div className={cn('grid grid-cols-2 @min-[23rem]:grid-cols-4', TARGET.gap)}>
         <button type="button" className={CONTROL} onClick={() => setView(zoomed(view, 1))}>Zoom in</button>
         <button type="button" className={CONTROL} onClick={() => setView(zoomed(view, -1))}>Zoom out</button>
         <button type="button" className={CONTROL} onClick={() => setView(fit)}>Recentre</button>

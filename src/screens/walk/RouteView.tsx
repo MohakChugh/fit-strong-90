@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { TARGET } from '@/components/hig/targets';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { cn } from '@/lib/utils';
 import { fitView, gridLines, linePaths, liveView, toView, withPoint, zoomed, type View } from '@/walk/route';
 import { bboxOf, type LatLon, type RouteLine } from '@/walk/routeRecord';
 
-const CONTROL = 'press-feedback min-h-11 rounded-lg bg-grouped-card px-2 text-[length:var(--text-subhead)] font-semibold text-tint';
+// Each at least 48 × 48 px, 12 px apart (journey §20.4 rule 1, H6-11).
+const CONTROL = cn('press-feedback rounded-lg bg-grouped-card px-2 text-[length:var(--text-subhead)] font-semibold text-tint', TARGET.tap);
 
 /**
  * Our own drawing of a route (journey §9.2, §9.5; M13, M14): one path per
@@ -104,12 +106,13 @@ export function LiveRoute({ lines, here, waiting }: { lines: readonly RouteLine[
     if (box) setView(fitView(box, next.w, next.h));
   };
   return (
-    <div className="flex flex-col gap-2">
+    <div className={cn('@container flex flex-col', TARGET.gap)}>
       <RouteView view={next} lines={shown.lines} {...(shown.here ? { here: shown.here } : {})} label="Your route so far" />
-      <div className="grid grid-cols-3 gap-2">
+      {/* Three in a row only where three fit at this text size; else the zooms side by side, the whole route below. */}
+      <div className={cn('grid grid-cols-2 @min-[18rem]:grid-cols-3', TARGET.gap)}>
         <button type="button" className={CONTROL} onClick={() => zoom(1)}>Zoom in</button>
         <button type="button" className={CONTROL} onClick={() => zoom(-1)}>Zoom out</button>
-        <button type="button" className={CONTROL} onClick={whole}>Show whole route</button>
+        <button type="button" className={cn(CONTROL, 'col-span-2 @min-[18rem]:col-span-1')} onClick={whole}>Show whole route</button>
       </div>
     </div>
   );

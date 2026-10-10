@@ -272,6 +272,31 @@ describe('a sheet that will not close yet (review C2-07)', () => {
     expect(read('src/components/hig/targets.ts')).toMatch(/primary: 'min-h-\[60px\]'/);
   });
 
+  it('sizes every live walk control as a target, 48 px at least and 12 px apart, and the walk’s main buttons 60 px (§20.4 rule 1, H6-11, KH-10)', () => {
+    const live = read('src/screens/walk/LiveWalkScreen.tsx');
+    // Nothing tappable on the live walk under 48 px: Tailwind's 44 px and smaller are gone.
+    expect(live).not.toMatch(/min-h-(?:8|9|10|11)\b/);
+    const lines = live.split('\n');
+    /** The class line of the control whose label is `label`: the nearest line above it that opens one. */
+    const control = (label: string) => {
+      const at = lines.findIndex(l => l.trim() === label);
+      expect(at, label).toBeGreaterThan(0);
+      return lines.slice(0, at).reverse().find(l => /<button|<a /.test(l)) ?? '';
+    };
+    for (const label of ['Check in', 'Turn the voice on', 'Health questions', 'Allow motion and count steps', 'Say what happened', 'Done']) {
+      expect(control(label), label).toMatch(/TARGET\.(tap|primary)/);
+    }
+    // The stop row and the gap notice's choices are main targets, side by side or stacked 12 px apart.
+    for (const label of ['I need to stop', 'I feel low', 'Continue walking', 'Finish']) expect(control(label), label).toMatch(/TARGET\.primary/);
+    const grids = lines.filter(l => l.includes("'grid grid-cols-1"));
+    expect(grids).toHaveLength(2);
+    for (const grid of grids) expect(grid).toContain('TARGET.gap');
+    // The walk's own primary and secondary buttons: main targets, from the one size.
+    const parts = read('src/screens/walk/parts.tsx');
+    expect(parts.match(/TARGET\.primary/g)).toHaveLength(2);
+    expect(parts).not.toMatch(/min-h-14/);
+  });
+
   it('Me → Data changes both walk answers, erases every route in one call, and has no placeholder left (Task 14, H6-07, KH-07)', () => {
     const data = read('src/screens/you/DataScreen.tsx');
     expect(data).toMatch(/<Toggle label="Keep walk routes" checked=\{walk\.saveRoutes === true\} onChange=\{on => void setSettings\(\{ walk: \{ \.\.\.walk, saveRoutes: on \} \}\)\} \/>/);
