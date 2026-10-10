@@ -56,6 +56,18 @@ describe('trend charts (B-15, journey §20.3)', () => {
   }
 });
 
+describe('the trend chart’s selection and the period before (B-15, D71)', () => {
+  it('outlines the chosen slot in body ink, stripes the period before in its token, and fades nothing', () => {
+    const chart = readFileSync(path.resolve(__dirname, '../screens/trends/TrendChart.tsx'), 'utf8');
+    expect(chart).toContain("stroke: 'var(--foreground)'");
+    // The outline is the chosen slot's own rectangle, 2 px of body ink (19.8:1 light, 17.2:1 dark on the card).
+    expect(chart).toMatch(/\{index !== undefined && \(\s*<rect[\s\S]*?fill="none" style=\{\{ stroke: 'var\(--foreground\)' \}\} strokeWidth=\{2\}/);
+    expect(chart).toContain('<pattern id={`${uid}-previous`}');
+    expect(chart).toContain("fill: 'var(--trend-previous)'");
+    expect(chart).not.toMatch(/[oO]pacity[^\n]*0?\.6\b/);
+  });
+});
+
 /** WCAG relative luminance of an sRGB colour with 0–255 channels. */
 const srgbLuminance = (rgb: number[]) =>
   rgb.map(v => v / 255).map(v => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((y, v, i) => y + [0.2126, 0.7152, 0.0722][i] * v, 0);
