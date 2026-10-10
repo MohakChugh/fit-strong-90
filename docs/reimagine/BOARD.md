@@ -650,3 +650,40 @@ Final gates on `3435726`:
 - `tsc -b` and lint are clean.
 - Unit tests: 4,898/4,898 in 150 files.
 - Full acceptance: 892/892 in four layouts.
+
+### 2026-10-10 — [claude] v2 Plan 1: the two known issues and both reviews' findings fixed
+
+On `feat/v2-journey`, after PR #3's fixes were merged in (`28b168c`). Each logic fix began with a failing test and was mutation-checked; each UI fix was also checked in headless Chromium. Every clinical and safety assertion in the acceptance suite is unchanged.
+
+**Plan 1's known issues**
+- `bf8de57`, "Back to Good morning": `Screen` takes a `navTitle`, the name the next screen's Back uses. Home shows its greeting but is called Home on the stack (§8.1), so every Back to it reads "Back to Home", whatever opened the screen. J08 step 1 checks the chooser's Stretch setup.
+- `8fa9b1e`, a flare outside the programme: the Workout tile reads "Stretch is suggested today" (in the programme, "Gentle only today"). J16 step 1 scans all of Home again, with no statement set aside. This settles the J16 judgement call above.
+
+**Codex's review (V1-01 to V1-13)**
+- V1-01 `ce9af41`: `urgentOf` reads the gate and the day's answer (`readinessFor`, which `permission` now uses), not the Right now card's kind. Dizziness, repeated lows and holding readings reach every tab. Ordinary holds stay non-urgent.
+- V1-02, V1-03 `679fb8b` (V1-03 is Kiro's KV-01 and KV-02): the decision is owned above the routes, their loading and their failures. Sheets and full-screen tasks show it at their top; a task's own screen that already says it claims it (`OwnsUrgent`). The announcement is a live region portalled outside `#app`.
+- V1-04 `c9948de`: `useStartMovement` wakes at the gate's next boundary and on return to the app.
+- V1-05 `1379222`: `opensOnHold(permission)` decides the skip for Browse's rows, the Workout hub's rows and Home's tiles.
+- V1-06 `ec7cecc`: `placeExists` checks `/trends/workout/:id`.
+- V1-07 `b870bdd` (KV-14): Right now's Stretch starts the player and its Walk the live walk. The after-meal card says the usual time ("I had lunch at 1:10 pm: walk now"), with "Different time" and "Just a walk" (B-09).
+- V1-08, V1-09 `a0e548c`: the walk summary has a Back that keeps the walk; Stretch and Walk with nothing below them go Back to Home.
+- V1-10 `99dfae0`: the route table's redirects keep the query and state; an onboarded `/welcome…` goes Home in one hop.
+- V1-11, V1-12 `fa11b07` (V1-11 is KV-13): Edit Home announces and offers Undo only once a change is stored, keeps a refused change as a draft with Try again, and Done waits. `useFirstLayout` keeps the first defaults until they are stored.
+- V1-13 `c27a64f` (KV-12): `claimModal()` makes `#app` and the toasts inert, and hides the toasts, while any sheet or menu is open.
+
+**Kiro's review (KV-03 to KV-23)**
+- KV-03, KV-04, KV-05 `8fa9b1e`, `c3928ed`: a flare's words come first, then "· check in first"; a tile outside the programme never says it.
+- KV-06, KV-20, KV-23 `d57f26b`: `trend?` and `Shortcut` model B-14; Home's tiles are `select-none`; a tile the cap refuses goes to Hidden.
+- KV-08, KV-10, KV-11, KV-15, KV-18, KV-22 `75c3319`: 48 px targets; the reminders capsule in the header; This week's link only where the ring is; day marks that grow and wrap; `.glass` on the nav bar; "Something else" and the chooser's "All categories" footer.
+- KV-09 `679fb8b`: reminders that invite movement wait while a decision stands.
+- KV-17 `170856b`: reading tiles show their last value and its day. Only dated records count, so v1's undated current weight is not shown (B-16).
+- KV-19 `1796cf1`: one tab selection that slides, and jumps under Reduce motion.
+- KV-21 `99dfae0`: an unknown metric goes Home with "That page has moved".
+- **Not done, KV-07:** the profile has no neuro-history answer yet (`PainProfile` has areas, side and what makes it worse). Setup chapter 5 (Plan 5) adds `pain.neuroHistory`, and `defaultHome`'s Back & leg rule should take it then, with "Not sure".
+- **Deferred, as agreed:** KV-16 (the upgrade row, Plan 5), KV-24 (the hub header, Plan 2) and KV-25 (the goal version, Plan 3).
+
+**Result**
+- The full run on `1796cf1` (`npm run e2e:acceptance -- --port=49831`, preview on 49832, concurrency 4) passed 892 of 892 cases, with 0 failed and 0 pending, in 58.0 min.
+- Its sweep has v1's 76 target findings (the 20 px native checkboxes) and J20's 8 expected console lines. It also has 4 three.js shader-validation lines from one case under load (J17 large-dark, "stretch session save fails", which passed). A J17 re-run, 40/40 in 2.2 min, had no findings.
+- An earlier full run, on `b870bdd`, was stopped at 252 cases with none failed, so that the final tree, with KV-17 and KV-19, was the one run in full.
+- Gates on `1796cf1`: `tsc -b` and lint are clean, and the unit suite is 5,173/5,173 in 162 files.
