@@ -15,7 +15,6 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { CheckCircle2Icon, PlusIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { Screen } from '@/components/hig/Screen';
-import { YouButton } from '@/components/hig/AppShell';
 import { markInPlace } from '@/components/hig/navigation';
 import { Group, Row } from '@/components/hig/List';
 import { Ring } from '@/components/hig/Ring';
@@ -151,17 +150,14 @@ export function MyDay({ day: pathDay, view: onlyView }: {
       // Today's log is opened from Home (journey §13); Trends is a tab's root.
       {...(pathDay !== undefined ? { back: { to: '/home', label: 'Home' } } : {})}
       trailing={(
-        <div className="flex items-center">
-          <button
-            type="button"
-            onClick={() => setChooserOpen(true)}
-            aria-label="Add a record"
-            className="press-feedback flex size-[44px] items-center justify-center rounded-full text-tint"
-          >
-            <PlusIcon className="size-[28px]" strokeWidth={2} aria-hidden />
-          </button>
-          <YouButton />
-        </div>
+        <button
+          type="button"
+          onClick={() => setChooserOpen(true)}
+          aria-label="Add a record"
+          className="press-feedback flex size-[44px] items-center justify-center rounded-full text-tint"
+        >
+          <PlusIcon className="size-[28px]" strokeWidth={2} aria-hidden />
+        </button>
       )}
     >
       {!onlyView && (

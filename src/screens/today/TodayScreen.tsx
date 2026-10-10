@@ -13,7 +13,6 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { GlassWaterIcon, InfoIcon } from 'lucide-react';
 import { Screen } from '@/components/hig/Screen';
-import { YouButton } from '@/components/hig/AppShell';
 import { Group, Row } from '@/components/hig/List';
 import { Ring } from '@/components/hig/Ring';
 import { CheckInSheet } from '@/components/checkin/CheckInSheet';
@@ -252,7 +251,7 @@ export function TodayScreen() {
   const offer = quiet ? undefined : planOffer(settings.statusPeriods, settings.startDate, today);
 
   return (
-    <Screen title="Today" subtitle={format(now, 'EEEE, d MMMM')} trailing={<YouButton />}>
+    <Screen title="Today" subtitle={format(now, 'EEEE, d MMMM')}>
       {moved && (
         <Group>
           <Row role="status" icon={<InfoIcon />} label="That page has moved" />

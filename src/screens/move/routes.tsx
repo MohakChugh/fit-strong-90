@@ -2,7 +2,6 @@ import { Link, Navigate, Route, Routes } from 'react-router-dom';
 import { CalendarDaysIcon, DumbbellIcon, FootprintsIcon, PersonStandingIcon, SearchIcon } from 'lucide-react';
 import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
-import { YouButton } from '@/components/hig/AppShell';
 import { useStartMovement } from '@/components/checkin/useStartMovement';
 import { useGuided } from '@/hooks/useGuided';
 import { isEnrolled } from '@/health/recommend';
@@ -31,7 +30,7 @@ function MoveHome() {
 
   return (
     // The Workout hub until Plan 2: opened from Home or Browse, so it goes back there (journey §8.1).
-    <Screen title="Move" back={{ to: '/home', label: 'Home' }} trailing={<YouButton />}>
+    <Screen title="Move" back={{ to: '/home', label: 'Home' }}>
       <Group>
         <Row as={Link} to="/move/stretch" viewTransition icon={<PersonStandingIcon />} label={<Wrap>Stretch</Wrap>}
           detail={stretchSummary(lastStretch(data.sessions))} chevron />

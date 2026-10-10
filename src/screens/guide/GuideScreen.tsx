@@ -3,7 +3,6 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { LibraryIcon, SearchIcon, UtensilsIcon, XIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
-import { YouButton } from '@/components/hig/AppShell';
 import { DISCLAIMER, search, topicsFor, type ResultKind, type SearchResult } from '@/content';
 import { onlyPartial, partialDetail } from './format';
 import { TOPIC_ICON } from './icons';
@@ -33,7 +32,7 @@ export default function GuideScreen() {
 
   return (
     // The Learn hub until Plan 2: opened from Home or Browse, so it goes back there (journey §8.1).
-    <Screen title="Guide" back={{ to: '/home', label: 'Home' }} trailing={<YouButton />}>
+    <Screen title="Guide" back={{ to: '/home', label: 'Home' }}>
       <form
         role="search"
         onSubmit={e => {

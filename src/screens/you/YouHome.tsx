@@ -37,7 +37,7 @@ export function YouHome({ onDone }: { onDone: () => void }) {
 
   return (
     <Screen
-      title="You"
+      title="Me"
       trailing={
         <button type="button" onClick={onDone} className="press-feedback min-h-11 px-2 text-[length:var(--text-body)] font-semibold text-tint">
           Done

@@ -26,7 +26,7 @@ export function Screen({ title, subtitle, back, trailing, inline, children, clas
   subtitle?: ReactNode;
   /** The screen this one belongs under. */
   back?: { to: string; label: string };
-  /** Usually the `You` button on a root screen, or an Add button. */
+  /** An action for the bar, such as Add. */
   trailing?: ReactNode;
   /** A compact title from the start, for task screens that need the room. */
   inline?: boolean;

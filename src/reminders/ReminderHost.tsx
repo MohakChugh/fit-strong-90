@@ -146,7 +146,7 @@ export function ReminderHost() {
         // Never over navigation: just above the tab bar, or the sidebar's
         // content area on a wide screen, or above the bottom safe area.
         place === 'aboveTabBar'
-          ? 'bottom-[calc(3.0625rem+env(safe-area-inset-bottom)+0.5rem)] lg:bottom-[calc(env(safe-area-inset-bottom)+1rem)] lg:left-60'
+          ? 'bottom-[calc(4.5rem+max(0.5rem,env(safe-area-inset-bottom)))] lg:bottom-[calc(env(safe-area-inset-bottom)+1rem)] lg:left-60'
           : 'bottom-[calc(env(safe-area-inset-bottom)+0.75rem)]',
       )}
     >

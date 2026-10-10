@@ -211,9 +211,9 @@ button, [role="button"], a {
 :root { color-scheme: light; }
 :root.dark { color-scheme: dark; }
 
-/* Toasts sit clear of the tab bar and the home indicator; beside the
-   sidebar (lg) there is no bar below them to clear. */
-:root { --toast-offset-bottom: calc(3.0625rem + env(safe-area-inset-bottom, 0px) + 0.5rem); }
+/* Toasts sit clear of the floating tab bar (4rem, above the home indicator,
+   TabBar.tsx); beside the sidebar (lg) there is no bar below them to clear. */
+:root { --toast-offset-bottom: calc(4.5rem + max(0.5rem, env(safe-area-inset-bottom, 0px))); }
 @media (min-width: 64rem) {
   :root { --toast-offset-bottom: 1.5rem; }
 }

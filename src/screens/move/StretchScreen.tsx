@@ -104,7 +104,7 @@ export function StretchScreen() {
       {/* Start stays in reach above the tab bar while the routine scrolls past. */}
       {/* Full width by undoing the screen's own gutter, which stops growing at 20px:
           a plain -mx-4 doubles at 200% text and pushed the bar past the edge. */}
-      <div className="sticky bottom-[calc(3.0625rem+env(safe-area-inset-bottom))] z-20 -mx-[min(1rem,20px)] flex flex-col gap-2 bg-grouped-bg/85 px-[min(1rem,20px)] pb-3 pt-2 backdrop-blur-xl supports-backdrop-filter:bg-grouped-bg/70 lg:bottom-0">
+      <div className="sticky bottom-[calc(4.5rem+max(0.5rem,env(safe-area-inset-bottom)))] z-20 -mx-[min(1rem,20px)] flex flex-col gap-2 bg-grouped-bg/85 px-[min(1rem,20px)] pb-3 pt-2 backdrop-blur-xl supports-backdrop-filter:bg-grouped-bg/70 lg:bottom-0">
         {stopped ? (
           <button
             type="button"

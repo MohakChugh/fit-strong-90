@@ -494,9 +494,15 @@ describe('toasts', () => {
     expect(main).toContain("offset={{ bottom: 'var(--toast-offset-bottom)' }}");
     expect(main).toContain("mobileOffset={{ bottom: 'var(--toast-offset-bottom)' }}");
     const css = read('src/index.css');
-    // The tab bar is 3.0625rem tall (TabBar.tsx), over the home indicator.
-    expect(css).toContain(':root { --toast-offset-bottom: calc(3.0625rem + env(safe-area-inset-bottom, 0px) + 0.5rem); }');
-    expect(read('src/components/hig/TabBar.tsx')).toContain('h-[3.0625rem]');
+    // The floating tab bar is at most 4rem tall (tabs of up to 3.5rem in 0.25rem of padding), at least 0.5rem over the home indicator.
+    expect(css).toContain(':root { --toast-offset-bottom: calc(4.5rem + max(0.5rem, env(safe-area-inset-bottom, 0px))); }');
+    const bar = read('src/components/hig/TabBar.tsx');
+    expect(bar).toContain('bottom-[max(0.5rem,env(safe-area-inset-bottom))]');
+    expect(bar).toContain('min-h-[min(3.5rem,72px)]');
+    expect(bar).toMatch(/<ul className="flex items-stretch p-1 /);
+    // The shell and the waiting reminder clear it the same way.
+    expect(read('src/components/hig/AppShell.tsx')).toContain('pb-[calc(4.5rem+max(0.5rem,env(safe-area-inset-bottom)))]');
+    expect(read('src/reminders/ReminderHost.tsx')).toContain('bottom-[calc(4.5rem+max(0.5rem,env(safe-area-inset-bottom)))]');
     expect(css).toMatch(/@media \(min-width: 64rem\) \{\s*:root \{ --toast-offset-bottom: 1\.5rem; \}/);
   });
 });
