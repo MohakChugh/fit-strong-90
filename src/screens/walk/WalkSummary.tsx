@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { CircleCheckIcon, TriangleAlertIcon } from 'lucide-react';
 import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
@@ -11,7 +11,7 @@ import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { getState, removeWalk, saveWalk as saveWalkToStore, useStorageNotice, useStore } from '@/store/useStore';
 import type { Walk } from '@/walk/clock';
 import { walkSettings } from '@/walk/consent';
-import { energyText, walkEnergy } from '@/walk/energy';
+import { energyFix, energyText, walkEnergy } from '@/walk/energy';
 import { clock, spokenClock, timeOfDay } from '@/walk/format';
 import { clearWalk, draftStored, loadWalk, sessionWalkStorage, storeWalk } from '@/walk/persist';
 import { hasRecord, saveOutcome, summarise, walkObservationIds, type SaveOutcome } from '@/walk/record';
@@ -68,6 +68,8 @@ export function WalkSummary() {
     ...(profile.weightKg > 0 ? { profileKg: profile.weightKg } : {}),
   });
   const rows = summaryRows(walk, summary, { energy: energyText(energy.estimate, energy.weight) });
+  // The way to an estimate it couldn't make, where there is one (KH-13).
+  const fix = energyFix(energy.estimate);
   const box = lines ? bboxOf(lines) : undefined;
   const splits = lines ? splitRows(splitsOf(lines)) : [];
   const mapOn = walkSettings(settings).map === 'on';
@@ -157,6 +159,7 @@ export function WalkSummary() {
       {rows.length > 0 && (
         <Group>
           {rows.map(r => <Row key={r.label} label={r.label} value={r.value} detail={r.detail} numeric />)}
+          {fix && <Row as={Link} to={fix.to} viewTransition label={fix.label} detail="In Me → Profile & health, for an energy estimate" chevron />}
         </Group>
       )}
 
