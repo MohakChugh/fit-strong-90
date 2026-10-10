@@ -106,7 +106,11 @@ export const cases = [{
       const saved = walk.walkObservations(atAck);
       await t.check(saved.length === 2, `when “Saved on this device” shows, ${saved.length} walk observations are stored, not 2`);
       await t.checkpoint('walk-saved');
+      // Done returns to where the walk was started, the Walk hub (motion M12, Plan 6).
       await ui.tap(ui.button(main, 'Done'));
+      await ui.heading(page, 'Walk');
+      await t.check(await t.route() === '/hub/walk', `Done went to ${await t.route()}, not the Walk hub it was started from`);
+      await ui.tab(page, 'Home');
       await page.getByRole('heading', { level: 1, name: ui.HOME_TITLE }).waitFor();
       const today = (await main.innerText()).replace(/\s+/g, ' ');
       t.note(`Home after the walk: ${today.slice(0, 200)}`);
@@ -124,6 +128,8 @@ export const cases = [{
       const rows = main.getByRole('link', { name: /walk/i });
       await t.must(await rows.count() === 1, `after reload Today’s log lists ${await rows.count()} walks`);
       await ui.tap(rows);
+      // Read the record once its own screen is in: under load, half a second after the tap still showed My Day.
+      await ui.heading(page, 'Walk');
       await page.waitForTimeout(500);
       const detail = (await main.innerText()).replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ');
       await t.checkpoint('walk-record');
