@@ -72,11 +72,10 @@ async function storedKetones(t, want, glucoseTyped) {
   return { snap, checkIn: c };
 }
 
-/** You → Profile & health → Edit health, set the answers and save. */
+/** Me → Profile & health → Edit health, set the answers and save (v1's You button is v2's Me tab). */
 async function editHealth(t, answers) {
   const page = t.page;
-  await ui.tab(page, 'Today');
-  await ui.tap(page.getByRole('link', { name: /^You:/ }));
+  await ui.tab(page, 'Me');
   await ui.tap(ui.row(page.getByRole('main'), 'Profile & health', 'link'));
   await page.getByRole('heading', { level: 1, name: 'Profile & health', exact: true }).waitFor();
   await ui.tap(ui.button(page.getByRole('main'), 'Edit health'));
@@ -95,7 +94,7 @@ function bloodRow({ name, step, glucose, ketones, expect, mode = 'stretch', news
   return {
     name,
     async run(t) {
-      await t.open({ seed: p04k(), route: '/today' });
+      await t.open({ seed: p04k(), route: '/home' });
       await t.step(step, `${glucose === null ? 'Glucose absent' : `Glucose ${glucose}`}, blood ketones ${ketones}${news ? `, ${news.join(', ')}` : ''}`, async () => {
         const sheet = await sb.openSheet(t, mode);
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P04', {
@@ -149,7 +148,7 @@ export const cases = [
   ...['Moderate', 'Large'].map(category => ({
     name: `step 3: urine strip ${category}`,
     async run(t) {
-      await t.open({ seed: p04k(), route: '/today' });
+      await t.open({ seed: p04k(), route: '/home' });
       await t.step(3, `Switch the profile to urine strips; choose ${category}`, async () => {
         await editHealth(t, [['Ketone testing', 'Urine strips']]);
         const snap = await t.db();
@@ -170,7 +169,7 @@ export const cases = [
   {
     name: 'step 4: DKA symptoms with glucose 110 and ketones unknown',
     async run(t) {
-      await t.open({ seed: p04k(), route: '/today' });
+      await t.open({ seed: p04k(), route: '/home' });
       await t.step(4, 'Report vomiting with tummy pain or deep breathing as the current DKA answer', async () => {
         const sheet = await sb.openSheet(t, 'walk');
         // Glucose typed first; the emergency answer is saved the moment it is ticked.
@@ -198,7 +197,7 @@ export const cases = [
   {
     name: 'step 5: ketones 0.6 and unwell, then DKA or confusion added',
     async run(t) {
-      await t.open({ seed: p04k(), route: '/today' });
+      await t.open({ seed: p04k(), route: '/home' });
       await t.step(5, 'Unwell with positive ketones, then DKA/altered consciousness escalates at once', async () => {
         const sheet = await sb.openSheet(t, 'stretch');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P04', { ketones: { blood: '0.6' }, news: [ui.NEWS.unwell] }));
@@ -221,7 +220,7 @@ export const cases = [
   {
     name: 'stored: a newer ketone reading keeps the earlier significant result',
     async run(t) {
-      await t.open({ seed: p04k(), route: '/today' });
+      await t.open({ seed: p04k(), route: '/home' });
       await t.step(2, 'Ketones 1.5, then a later 0.3', async () => {
         const sheet = await sb.openSheet(t, 'walk');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P04', { ketones: { blood: '1.5' } }));

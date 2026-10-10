@@ -67,12 +67,11 @@ async function refusedEverywhere(t, why, modes = MODES, { resubmit = true, title
   return answers;
 }
 
-/** You → Profile & health, as a person gets there. */
+/** Me → Profile & health, as a person gets there (v1's You button is v2's Me tab). */
 async function openProfile(t) {
   const page = t.page;
-  await ui.tab(page, 'Today');
-  await ui.tap(page.getByRole('link', { name: /^You:/ }));
-  await page.getByRole('heading', { level: 1, name: 'You', exact: true }).waitFor();
+  await ui.tab(page, 'Me');
+  await page.getByRole('heading', { level: 1, name: 'Me', exact: true }).waitFor();
   await ui.tap(ui.row(page.getByRole('main'), 'Profile & health', 'link'));
   await page.getByRole('heading', { level: 1, name: 'Profile & health', exact: true }).waitFor();
 }
@@ -133,7 +132,7 @@ export const cases = [
   {
     name: 'steps 1, 2 and 4: no reading, a reading from 08:29, then one from now',
     async run(t) {
-      await t.open({ seed: persona('P04'), route: '/today' });
+      await t.open({ seed: persona('P04'), route: '/home' });
       const page = t.page;
 
       await t.step(1, 'Each movement mode with known basal insulin and no glucose', async () => {
@@ -204,10 +203,10 @@ export const cases = [
   {
     name: 'step 3: exactly thirty minutes (retained reading 08:30:00.000)',
     async run(t) {
-      await t.open({ seed: withReading('2026-10-08T08:30:00.000+05:30'), route: '/today' });
+      await t.open({ seed: withReading('2026-10-08T08:30:00.000+05:30'), route: '/home' });
       await t.step(3, 'A reading exactly 30 minutes old satisfies freshness; other restrictions still apply', async () => {
         t.note('retained reading fixture: today’s check-in seeded with glucose 110 mg/dL measuredAt 08:30:00.000 (the time picker has minutes only); clock frozen at 09:00:00.000');
-        await t.goto('/today?checkin=walk');
+        await t.goto('/home?checkin=walk');
         const sheet = t.page.getByRole('dialog', { name: ui.CHECKIN });
         await sheet.waitFor();
         const s = await sb.readSheet(sheet);
@@ -228,7 +227,7 @@ export const cases = [
   {
     name: 'step 3: thirty minutes and 1 ms (retained reading 08:29:59.999)',
     async run(t) {
-      await t.open({ seed: withReading('2026-10-08T08:29:59.999+05:30'), route: '/today' });
+      await t.open({ seed: withReading('2026-10-08T08:29:59.999+05:30'), route: '/home' });
       await t.step(3, '30 minutes plus 1 ms does not satisfy freshness', async () => {
         t.note('retained reading fixture: glucose 110 mg/dL measuredAt 08:29:59.999; clock frozen at 09:00:00.000');
         await t.goto(sb.LINK.stretch);
@@ -240,7 +239,7 @@ export const cases = [
         await t.check(title === sb.TITLE.recheck, `the stretch player link opens on a reading 30 min 1 ms old: “${title ?? '(no gate)'}”`);
         await t.check(STALE.test(text), `no “check your glucose within 30 minutes of starting” on the gate: ${text.slice(0, 300)}`);
         await t.check(await main.getByRole('button', { name: /^(Start|Resume)$/ }).count() === 0, 'the player offers Start on a stale reading');
-        await t.goto('/today');
+        await t.goto('/home');
         await refusedEverywhere(t, '30 min 1 ms', MODES, { resubmit: false });
       }, { input: 'retained check-in: 110 mg/dL measured 08:29:59.999; NOW 09:00:00.000' });
     },
@@ -249,7 +248,7 @@ export const cases = [
   {
     name: 'steps 5-8: unreviewed medicines, Not sure, metformin-only, then the insulin regimen',
     async run(t) {
-      await t.open({ seed: unreviewed(), route: '/today' });
+      await t.open({ seed: unreviewed(), route: '/home' });
       const page = t.page;
 
       await t.step(5, 'Unreviewed profile: data hold in every mode even with glucose 110', async () => {
@@ -264,7 +263,7 @@ export const cases = [
         await sb.tabTo(page, 'Guide');
         await page.getByRole('main').getByRole('link', { name: /^Food & diabetes/ }).waitFor();
         await t.check((await page.getByRole('main').innerText()).length > 200, 'Guide is not readable during the data hold');
-        await ui.tab(page, 'Track');
+        await ui.legacyTab(page, 'Track');
         await ui.tap(ui.header(page).getByRole('button', { name: 'Add a record', exact: true }));
         const add = page.getByRole('dialog', { name: 'Add' });
         await ui.tap(ui.row(add, 'Weight'));
@@ -300,7 +299,7 @@ export const cases = [
 
       await t.step(7, 'Confirm metformin only and leave glucose absent', async () => {
         await editHealth(t, [['Insulin', 'No insulin'], [SU, 'No'], [SGLT2, 'No'], [METFORMIN, 'Yes'], [DKA, 'No']]);
-        await t.goto('/today?checkin=walk');
+        await t.goto('/home?checkin=walk');
         const sheet = page.getByRole('dialog', { name: ui.CHECKIN });
         await sheet.waitFor();
         let s = await sb.readSheet(sheet);
@@ -319,9 +318,9 @@ export const cases = [
         const c = sb.checkInOn(snap);
         await t.check(!c?.glucose, `the check-in still carries a current glucose: ${JSON.stringify(c?.glucose)}`);
         await sb.closeSheet(t);
-        await ui.tab(page, 'Today');
+        await ui.tab(page, 'Home');
         const today = (await page.getByRole('main').innerText()).replace(/\s+/g, ' ');
-        await t.check(!/check (your )?glucose (every day|daily|each morning)|daily glucose|fasting check every/i.test(today), `Today sets a daily glucose task for metformin-only: ${today.slice(0, 300)}`);
+        await t.check(!/check (your )?glucose (every day|daily|each morning)|daily glucose|fasting check every/i.test(today), `Home sets a daily glucose task for metformin-only: ${today.slice(0, 300)}`);
         await t.checkpoint('today-metformin-only');
       }, { input: 'Insulin No; SU No; SGLT2 No; metformin Yes; DKA No; glucose cleared' });
 
@@ -357,7 +356,7 @@ export const cases = [
   {
     name: 'H-DATA: the meter shows HI',
     async run(t) {
-      await t.open({ seed: persona('P04'), route: '/today' });
+      await t.open({ seed: persona('P04'), route: '/home' });
       await t.step(1, 'HI is kept as a display result with no invented number', async () => {
         const sheet = await sb.openSheet(t, 'stretch');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P04', { glucose: { display: 'HI' } }));
@@ -376,7 +375,7 @@ export const cases = [
   {
     name: 'H-DATA: the meter shows LO',
     async run(t) {
-      await t.open({ seed: persona('P04'), route: '/today' });
+      await t.open({ seed: persona('P04'), route: '/home' });
       await t.step(1, 'LO is kept as a display result with no invented number', async () => {
         const sheet = await sb.openSheet(t, 'walk');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P04', { glucose: { display: 'LO' } }));
@@ -395,7 +394,7 @@ export const cases = [
   {
     name: 'H-DATA: a reading in the wrong or an unusable unit must be corrected',
     async run(t) {
-      await t.open({ seed: persona('P04'), route: '/today' });
+      await t.open({ seed: persona('P04'), route: '/home' });
       await t.step(1, 'A wrong unit or an unusable number cannot be submitted until corrected', async () => {
         const sheet = await sb.openSheet(t, 'stretch');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P04', { glucose: { value: '110', unit: 'mmol/L' }, submit: false }));
@@ -422,7 +421,7 @@ export const cases = [
   {
     name: 'H-DATA: a normal sensor reading with shaky or sweaty symptoms',
     async run(t) {
-      await t.open({ seed: persona('P04', { patch: { profile: { health: { glucoseMonitor: 'cgm' } } } }), route: '/today' });
+      await t.open({ seed: persona('P04', { patch: { profile: { health: { glucoseMonitor: 'cgm' } } } }), route: '/home' });
       await t.step(1, 'Sensor 110 plus low symptoms needs meter confirmation', async () => {
         const sheet = await sb.openSheet(t, 'walk');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P04', { news: [ui.NEWS.lowSymptoms] }));
@@ -439,7 +438,7 @@ export const cases = [
   {
     name: 'H-DATA: a reading timed an hour ahead',
     async run(t) {
-      await t.open({ seed: persona('P04'), route: '/today' });
+      await t.open({ seed: persona('P04'), route: '/home' });
       await t.step(1, 'A future timestamp is not a valid fresh check', async () => {
         const sheet = await sb.openSheet(t, 'stretch');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P04', { glucose: { value: '110', unit: 'mg/dL', time: '10:00' }, submit: false }));

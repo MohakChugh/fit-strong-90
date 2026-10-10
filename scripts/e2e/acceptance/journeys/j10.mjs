@@ -92,21 +92,22 @@ export const cases = [{
       await t.check(saved.length === 2, `when “Saved on this device” shows, ${saved.length} walk observations are stored, not 2`);
       await t.checkpoint('walk-saved');
       await ui.tap(ui.button(main, 'Done'));
-      await page.getByRole('heading', { level: 1, name: 'Today', exact: true }).waitFor();
+      await page.getByRole('heading', { level: 1, name: ui.HOME_TITLE }).waitFor();
       const today = (await main.innerText()).replace(/\s+/g, ' ');
-      t.note(`Today after the walk: ${today.slice(0, 200)}`);
-      await t.goto('/track');
+      t.note(`Home after the walk: ${today.slice(0, 200)}`);
+      // v1's Track is Today's log, /day/today (journey §13).
+      await t.goto('/day/today');
       const rows = main.getByRole('link', { name: /walk/i });
-      await t.check(await rows.count() === 1, `today’s Track lists ${await rows.count()} walks`);
+      await t.check(await rows.count() === 1, `Today’s log lists ${await rows.count()} walks`);
       const row = (await rows.innerText()).replace(/\s+/g, ' ');
       await t.check(/after (a meal|breakfast)/i.test(row) && /2 min/.test(row), `the walk row is not a two-minute after-meal walk: ${row}`);
       await t.checkpoint('track-walk-row');
     });
 
-    await t.step(5, 'Reload Track and open the walk', async () => {
+    await t.step(5, 'Reload Today’s log (v1’s Track) and open the walk', async () => {
       await t.reload();
       const rows = main.getByRole('link', { name: /walk/i });
-      await t.must(await rows.count() === 1, `after reload Track lists ${await rows.count()} walks`);
+      await t.must(await rows.count() === 1, `after reload Today’s log lists ${await rows.count()} walks`);
       await ui.tap(rows);
       await page.waitForTimeout(500);
       const detail = (await main.innerText()).replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ');

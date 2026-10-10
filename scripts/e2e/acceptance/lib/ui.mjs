@@ -263,8 +263,15 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 /** "8 October" for 2026-10-08, the way My Day names a day. */
 export const dayName = ymd => { const [, m, d] = ymd.split('-').map(Number); return `${d} ${MONTHS[m - 1]}`; };
 
-const TAB_PATH = { Today: '/today', Move: '/move', Track: '/track', Guide: '/guide' };
-const TAB_TITLE = { Today: 'Today', Move: 'Move', Track: 'My Day', Guide: 'Guide' };
+/**
+ * Home's large title (journey §7.1): the greeting for the part of the day,
+ * with the person's name when they gave one ("Good evening, Asha").
+ */
+export const HOME_TITLE = /^Good (morning|afternoon|evening)\b/;
+
+const TAB_PATH = { Home: '/home', Trends: '/trends', Browse: '/browse', Me: '/me' };
+/** Home's title is the greeting, so Home's root is known by `HOME_TITLE` rather than a fixed title. */
+const TAB_TITLE = { Home: undefined, Trends: 'Trends', Browse: 'Browse', Me: 'Me' };
 
 /**
  * A tab's root screen, the way a person gets there; returns once that screen
@@ -274,6 +281,7 @@ const TAB_TITLE = { Today: 'Today', Move: 'Move', Track: 'My Day', Guide: 'Guide
  * tab is followed by a second.
  */
 export async function tab(page, name) {
+  if (!Object.hasOwn(TAB_PATH, name)) throw new Error(`“${name}” is not one of v2’s tabs (Home, Trends, Browse, Me); v1’s Move, Track and Guide are reached with legacyTab`);
   const target = link(page.getByRole('navigation', { name: 'Main' }), name);
   await tap(target);
   if (await tabSettled(page, name) === 'elsewhere') {
@@ -289,16 +297,18 @@ export async function tab(page, name) {
  * second), or `timeout`.
  */
 async function tabSettled(page, name, ms = 15000) {
-  const want = { p: TAB_PATH[name] ?? '/', title: TAB_TITLE[name] ?? name, label: name };
+  const want = { p: TAB_PATH[name], title: TAB_TITLE[name] ?? null, greeting: HOME_TITLE.source, label: name };
   const until = Date.now() + ms;
   let last;
   let still = 0;
   while (Date.now() < until) {
-    const s = await page.evaluate(({ p, title, label }) => {
+    const s = await page.evaluate(({ p, title, greeting, label }) => {
       const hash = location.hash.replace(/^#/, '');
       const h1 = [...document.querySelectorAll('main h1')].map(h => h.textContent.trim());
       const inTab = hash === p || hash.startsWith(`${p}/`) || hash.startsWith(`${p}?`);
-      if (inTab && (h1.includes(title) || h1.includes('This screen didn’t load'))) return { root: true };
+      // Home's root says its greeting; every other root its own title.
+      const titled = title === null ? h1.some(h => new RegExp(greeting).test(h)) : h1.includes(title);
+      if (inTab && (titled || h1.includes('This screen didn’t load'))) return { root: true };
       const selected = [...document.querySelectorAll('nav[aria-label="Main"] a[aria-current="page"]')].some(a => a.textContent.trim() === label);
       return { root: false, selected, key: h1.length ? `${hash}|${h1.join('|')}` : '' };
     }, want).catch(() => ({ root: false, selected: false, key: '' }));
@@ -316,6 +326,48 @@ async function tabSettled(page, name, ms = 15000) {
   return 'timeout';
 }
 
+/**
+ * Where v1's tabs went in v2 (journey §5, §19.2), each reached the way a
+ * person reaches it, and each still the v1 screen it was until Plans 2–4
+ * rebuild it:
+ * - Today is Home (`tab(page, 'Home')`);
+ * - Move is the Workout hub, `/hub/workout`, from Home's Workout tile (a tile
+ *   every default Home has, journey §5.1);
+ * - Track is Today's log, `/day/today`, from Home's "See today’s log";
+ * - Guide is the Learn hub, `/hub/learn`, from Browse, which lists every
+ *   category (Home has a Learn tile only when there is room for one).
+ */
+export const LEGACY = {
+  Move: { from: 'Home', path: '/hub/workout', title: 'Move', link: main => main.getByRole('region', { name: 'What would you like to do?', exact: true }).getByRole('link', { name: /^Workout\b/ }) },
+  Track: { from: 'Home', path: '/day/today', title: 'My Day', link: main => row(main, 'See today’s log', 'link') },
+  Guide: { from: 'Browse', path: '/hub/learn', title: 'Guide', link: main => row(main, 'Learn', 'link') },
+};
+
+/** v1's Move, Track or Guide at its v2 place (`LEGACY`); returns once that screen (or its failure screen) is up. */
+export async function legacyTab(page, name) {
+  if (name === 'Today') return tab(page, 'Home');
+  const to = LEGACY[name];
+  if (!to) throw new Error(`“${name}” was not one of v1’s tabs`);
+  await tab(page, to.from);
+  await tap(to.link(page.getByRole('main')));
+  const ok = await page.waitForFunction(({ path, title }) => {
+    const hash = location.hash.replace(/^#/, '').split('?')[0];
+    const h1 = [...document.querySelectorAll('main h1')].map(h => h.textContent.trim());
+    return hash === path && (h1.includes(title) || h1.includes('This screen didn’t load'));
+  }, { path: to.path, title: to.title }, { timeout: 15000 }).then(() => true, () => false);
+  if (!ok) throw new Error(`${to.from} → ${name} did not reach ${to.title} at ${to.path} (at ${new URL(page.url()).hash || '/'})`);
+  await page.waitForTimeout(150);
+}
+
+/**
+ * Home's Right now card (journey §7.4): the one suggestion, a region named by
+ * its title (an h3), always with its "Why this?". Home's tile groups are
+ * regions with h3 headings too, so an h3 alone no longer singles it out.
+ */
+export function rightNow(page) {
+  return page.getByRole('main').getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) }).filter({ hasText: 'Why this?' });
+}
+
 /** Wait until the screen's level-1 heading matches (a string or RegExp); returns the heading text. */
 export async function heading(page, want, timeout = 15000) {
   const re = want instanceof RegExp ? want : exact(want);
@@ -331,7 +383,9 @@ export async function trackDay(page, ymd) {
   const main = page.getByRole('main');
   const want = dayName(ymd);
   const [, wm, wd] = ymd.split('-').map(Number);
-  const read = async () => (await main.getByRole('heading', { level: 2 }).first().innerText()).replace(/\s+/g, ' ');
+  // The day's own heading: while an urgent decision stands, the shell's
+  // surface is the first h2 on every screen (journey §4.7).
+  const read = async () => (await dayHeading(main).innerText()).replace(/\s+/g, ' ');
   // A view transition can leave the old screen up after the address has changed.
   await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor({ timeout: 15000 });
   for (let i = 0; i < 60; i++) {
@@ -348,3 +402,6 @@ export async function trackDay(page, ymd) {
   }
   throw new Error(`My Day never reached ${want}`);
 }
+
+/** My Day's day heading: the h2 just after its "Previous day" button. */
+export const dayHeading = main => main.getByRole('button', { name: /^Previous day/ }).locator('xpath=following-sibling::h2[1]');

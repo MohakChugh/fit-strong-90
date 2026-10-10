@@ -2,17 +2,17 @@
  * The ways into a movement mode (Guided, Stretch, Walk) and what stands at
  * the door: the shared check-in sheet, a gate screen, or the mode itself.
  *
- * Entry points, as a person reaches them:
- *   move     — Move tab → the mode's row → its Start button
- *   chooser  — Today → Choose something else → the mode's row
- *   today    — Today's primary action (whatever the recommendation offers)
- *   direct   — a deep link loaded cold: /session, /move/stretch, /walk/live
+ * Entry points, as a person reaches them (v1's names, at their v2 places):
+ *   move     — v1's Move tab, now the Workout hub from Home (`ui.legacyTab`) → the mode's row → its Start button
+ *   chooser  — Home → Choose something else → the mode's row
+ *   today    — Home's Right now card, v1 Today's primary action (whatever the recommendation offers)
+ *   direct   — a deep link loaded cold: /session, /hub/stretch, /walk/live
  */
 import * as ui from './ui.mjs';
 
 export const MODES = ['guided', 'stretch', 'walk'];
 const CHOOSER_ROW = { guided: 'Guided session', stretch: 'Stretch', walk: 'Walk' };
-const DIRECT = { guided: '/session', stretch: '/move/stretch', walk: '/walk/live' };
+const DIRECT = { guided: '/session', stretch: '/hub/stretch', walk: '/walk/live' };
 
 /** The check-in sheet, if it is open. */
 export const checkInSheet = page => page.getByRole('dialog', { name: ui.CHECKIN });
@@ -26,7 +26,7 @@ export async function enter(t, mode, via = 'move') {
   const page = t.page;
   const main = page.getByRole('main');
   if (via === 'move') {
-    await ui.tab(page, 'Move');
+    await ui.legacyTab(page, 'Move');
     if (mode === 'guided') {
       // A button that starts the session, or — for someone not in the programme — a link to join it.
       const asButton = ui.row(main, 'Guided session');
@@ -41,13 +41,12 @@ export async function enter(t, mode, via = 'move') {
       if (await start.count()) await ui.tap(start);
     }
   } else if (via === 'chooser') {
-    await ui.tab(page, 'Today');
+    await ui.tab(page, 'Home');
     await ui.tap(ui.button(main, 'Choose something else'));
     await ui.tap(ui.row(page.getByRole('dialog'), CHOOSER_ROW[mode]));
   } else if (via === 'today') {
-    await ui.tab(page, 'Today');
-    const card = main.getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) });
-    await ui.tap(card.getByRole('button'));
+    await ui.tab(page, 'Home');
+    await ui.tap(ui.rightNow(page).getByRole('button'));
   } else if (via === 'direct') {
     await t.goto(DIRECT[mode]);
     const start = ui.button(main, 'Start stretch');

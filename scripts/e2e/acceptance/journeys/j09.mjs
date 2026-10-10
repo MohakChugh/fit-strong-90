@@ -37,12 +37,13 @@ async function refusedEverywhere(t, modes, why) {
   }
 }
 
+/** v1's Track for today is My Day, Today's log (journey §13). */
 async function trackShows(t, values, why) {
   await sb.tabTo(t.page, 'Track', 'My Day');
   await ui.trackDay(t.page, sb.TODAY);
   const text = (await t.page.getByRole('main').innerText()).replace(/\s+/g, ' ');
-  for (const v of values) await t.check(v.test(text), `${why}: Track for today does not show ${v} (${text.slice(0, 300)})`);
-  t.note(`Track today: ${(text.match(/Glucose [^·]+/g) ?? []).join(' · ')}`);
+  for (const v of values) await t.check(v.test(text), `${why}: My Day for today does not show ${v} (${text.slice(0, 300)})`);
+  t.note(`My Day today: ${(text.match(/Glucose [^·]+/g) ?? []).join(' · ')}`);
   await t.checkpoint('track-today');
 }
 
@@ -59,7 +60,7 @@ export const cases = [
   {
     name: 'step 1: P03 70 mg/dL before a walk',
     async run(t) {
-      await t.open({ seed: persona('P03'), route: '/today' });
+      await t.open({ seed: persona('P03'), route: '/home' });
       await t.step(1, 'P03, pre-walk glucose exactly 70 mg/dL, fresh, no symptoms', async () => {
         const sheet = await sb.openSheet(t, 'walk');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P03', { glucose: { value: '70', unit: 'mg/dL' } }));
@@ -85,7 +86,7 @@ export const cases = [
   {
     name: 'step 2: P01 metformin-only 70 mg/dL control',
     async run(t) {
-      await t.open({ seed: persona('P01'), route: '/today' });
+      await t.open({ seed: persona('P01'), route: '/home' });
       await t.step(2, 'Fresh P01 metformin-only control, 70 mg/dL, no symptoms', async () => {
         const sheet = await sb.openSheet(t, 'walk');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P01', { glucose: { value: '70', unit: 'mg/dL' } }));
@@ -113,7 +114,7 @@ export const cases = [
   {
     name: 'steps 3-5 and 8: P03 69.9 as mmol/L, premature recheck, 65 at fifteen minutes',
     async run(t) {
-      await t.open({ seed: persona('P03'), route: '/today' });
+      await t.open({ seed: persona('P03'), route: '/home' });
       let sheet;
       await t.step(3, `P03 switches to mmol/L and enters ${MMOL_69_9}`, async () => {
         sheet = await sb.openSheet(t, 'walk');
@@ -188,7 +189,7 @@ export const cases = [
         await t.check(after.filter(o => o.value === 65).length === 1, `resubmitting 65 duplicated it: ${after.map(sb.brief).join('; ')}`);
       }, { input: '65 mg/dL measured 09:15' });
 
-      await t.step(8, 'Change mode, reload and revisit Track', async () => {
+      await t.step(8, 'Change mode, reload and revisit My Day', async () => {
         await sb.closeSheet(t);
         await refusedEverywhere(t, OTHER_MODES, 'after a low still under 70 at the re-check');
         for (const route of ['/session', '/walk/live']) {
@@ -197,7 +198,7 @@ export const cases = [
           await t.check(offered === 0, `the direct link ${route} offers movement after the attempt ended`);
           await t.checkpoint(`direct-${route.replace(/\W+/g, '-')}`);
         }
-        await t.goto('/today');
+        await t.goto('/home');
         await t.reload();
         await refusedEverywhere(t, ['walk'], 'after reload');
         // Display rounding may differ from the clinical value (spec J13); the low must still read as a low.
@@ -211,7 +212,7 @@ export const cases = [
   {
     name: 'step 3: an emergency answer during the re-check wait',
     async run(t) {
-      await t.open({ seed: persona('P03'), route: '/today' });
+      await t.open({ seed: persona('P03'), route: '/home' });
       await t.step(3, 'The fifteen-minute timer must not delay emergency symptoms', async () => {
         const sheet = await sb.openSheet(t, 'walk');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P03', { glucose: { value: MMOL_69_9, unit: 'mmol/L' } }));
@@ -244,7 +245,7 @@ export const cases = [
   {
     name: 'steps 6 and 8: P03 53.9 then 110 at fifteen minutes',
     async run(t) {
-      await t.open({ seed: persona('P03'), route: '/today' });
+      await t.open({ seed: persona('P03'), route: '/home' });
       let sheet;
       await t.step(6, 'Initial 53.9 mg/dL, alert, then the fifteen-minute reading 110 and symptoms resolved', async () => {
         sheet = await sb.openSheet(t, 'walk');
@@ -269,7 +270,7 @@ export const cases = [
         await t.check((checkIn?.glucoseEarlier ?? []).some(g => g.value === 53.9) && checkIn?.glucose?.value === 110, `check-in: ${JSON.stringify({ glucose: checkIn?.glucose, earlier: checkIn?.glucoseEarlier })}`);
       }, { input: '53.9 mg/dL at 09:00 (alert); 110 mg/dL at 09:15 with symptoms gone' });
 
-      await t.step(8, 'Change mode, reload and revisit Track', async () => {
+      await t.step(8, 'Change mode, reload and revisit My Day', async () => {
         await sb.closeSheet(t);
         await refusedEverywhere(t, OTHER_MODES, 'after a level 2 low');
         await t.reload();
@@ -282,7 +283,7 @@ export const cases = [
   {
     name: 'step 7: P03 69.9 then 95 at fifteen minutes, recovery answer false then true',
     async run(t) {
-      await t.open({ seed: persona('P03'), route: '/today' });
+      await t.open({ seed: persona('P03'), route: '/home' });
       await t.step(7, 'Release only after a timed new reading, symptoms gone and the plan allowing exercise', async () => {
         const sheet = await sb.openSheet(t, 'walk');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P03', { glucose: { value: '69.9', unit: 'mg/dL' } }));
@@ -311,7 +312,7 @@ export const cases = [
   {
     name: 'stored: a past needed-help low is a today review, not present inability to swallow',
     async run(t) {
-      await t.open({ seed: persona('P03'), route: '/today' });
+      await t.open({ seed: persona('P03'), route: '/home' });
       await t.step(1, 'Historical news lowSevere with a normal fresh reading', async () => {
         const sheet = await sb.openSheet(t, 'walk');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P03', { lows: 'Needed help' }));

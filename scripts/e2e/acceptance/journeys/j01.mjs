@@ -15,7 +15,7 @@ const CHOOSER = ['Stretch', 'Walk', 'Guided session', 'Log something', 'Learn'];
 /** Answer P07's first-movement questions in the shared profile wizard, whichever steps it shows. */
 export async function answerWizardP07(t) {
   const page = t.page;
-  // First run shows the wizard as a screen; from You it opens as a cover (a dialog) over Profile & health.
+  // First run shows the wizard as a screen; from Me it opens as a cover (a dialog) over Profile & health.
   const cover = page.getByRole('dialog', { name: 'Edit your answers' });
   const main = (await cover.count()) ? cover : page.getByRole('main');
   for (let guard = 0; guard < 6; guard++) {
@@ -53,7 +53,7 @@ export const cases = [{
     const main = page.getByRole('main');
 
     await t.step(1, 'Fresh context at the app root', async () => {
-      await t.must(await t.route() === '/welcome', `the app root opened ${await t.route()}, not the welcome screen`);
+      await t.must(await t.route() === '/setup', `the app root opened ${await t.route()}, not the welcome screen`);
       await t.must(await main.getByRole('heading', { level: 1, name: 'Welcome', exact: true }).count() === 1, 'no Welcome heading');
       await t.check(await main.getByText('What would you like more of?', { exact: true }).count() === 1, 'no “What would you like more of?”');
       for (const label of ['Build strength', 'Stretch comfortably', 'Move more']) {
@@ -82,25 +82,25 @@ export const cases = [{
     }, { input: 'Explore first' });
 
     let explanationSeen = false;
-    await t.step(3, 'Continue to Today without enrolling or giving a medical history', async () => {
+    await t.step(3, 'Continue to Home without enrolling or giving a medical history', async () => {
       // The spec allows browsing Guide and entering a past fact before any medical wizard.
-      const onWizard = /^\/welcome\/health/.test(await t.route());
+      const onWizard = /^\/setup\/health/.test(await t.route());
       if (onWizard) {
         const skip = main.getByRole('button', { name: /skip|not now|later|explore|without|look around/i });
         const links = main.getByRole('link', { name: /skip|not now|later|explore|without|look around/i });
         const way = (await skip.count()) + (await links.count());
-        await t.check(way > 0, `Explore first leads straight into the medical wizard (${await t.route()}, heading “${(await main.getByRole('heading', { level: 1 }).innerText()).trim()}”) with no way to reach Today without answering it`);
+        await t.check(way > 0, `Explore first leads straight into the medical wizard (${await t.route()}, heading “${(await main.getByRole('heading', { level: 1 }).innerText()).trim()}”) with no way to reach Home without answering it`);
         if (way > 0) await ui.tap((await skip.count()) ? skip : links);
         else {
           // Recorded above; continue through the wizard with P07's own answers so the later steps can still be exercised.
           t.note('continued through the forced wizard with P07’s first-movement answers to exercise steps 4–7');
           await answerWizardP07(t);
         }
-        await page.waitForFunction(() => !location.hash.startsWith('#/welcome/health'), null, { timeout: 10000 });
+        await page.waitForFunction(() => !location.hash.startsWith('#/setup/health'), null, { timeout: 10000 });
         await t.ready();
       }
       // The keep/installation step, wherever it comes.
-      for (let i = 0; i < 3 && /^\/welcome/.test(await t.route()); i++) {
+      for (let i = 0; i < 3 && /^\/setup/.test(await t.route()); i++) {
         const body = await main.innerText();
         if (/Home Screen|this browser|Back it up|backup/i.test(body)) explanationSeen = true;
         await t.checkpoint(`welcome-${(await t.route()).replace(/\W+/g, '-')}`);
@@ -111,11 +111,12 @@ export const cases = [{
         await page.waitForFunction(r => location.hash.replace(/^#/, '') !== r, from, { timeout: 10000 });
         await t.ready();
       }
-      await t.check(explanationSeen, 'no Home Screen installation, storage or backup explanation was shown before Today');
-      await page.getByRole('heading', { level: 1, name: 'Today', exact: true }).waitFor();
+      await t.check(explanationSeen, 'no Home Screen installation, storage or backup explanation was shown before Home');
+      await page.getByRole('heading', { level: 1, name: ui.HOME_TITLE }).waitFor();
       const tabs = page.getByRole('navigation', { name: 'Main' }).getByRole('link');
-      await t.check((await tabs.allInnerTexts()).map(s => s.trim()).join('|') === 'Today|Move|Track|Guide', `tabs are ${(await tabs.allInnerTexts()).join('|')}`);
-      await t.check(await page.getByRole('link', { name: /^You/ }).count() === 1, 'no root You button on Today');
+      await t.check((await tabs.allInnerTexts()).map(s => s.trim()).join('|') === 'Home|Trends|Browse|Me', `tabs are ${(await tabs.allInnerTexts()).join('|')}`);
+      // v1's You button on Today's bar is v2's Me tab (journey §5, §7.1: no avatar on Home).
+      await t.check(await ui.link(page.getByRole('navigation', { name: 'Main' }), 'Me').count() === 1, 'no Me tab beside Home');
       const snap = await t.checkpoint('today-first');
       await t.check(!docs(snap).settings?.startDate, `startDate was set to ${docs(snap).settings?.startDate}`);
     });
@@ -148,12 +149,13 @@ export const cases = [{
       await page.getByRole('heading', { level: 1, name: 'Guide', exact: true }).waitFor();
       await t.check((await main.innerText()).length > 200, 'Guide has no readable content');
       await t.checkpoint('guide');
-      await ui.tap(ui.link(page.getByRole('navigation', { name: 'Main' }), 'Today'));
-      await page.getByRole('heading', { level: 1, name: 'Today', exact: true }).waitFor();
+      await ui.tap(ui.link(page.getByRole('navigation', { name: 'Main' }), 'Home'));
+      await page.getByRole('heading', { level: 1, name: ui.HOME_TITLE }).waitFor();
       await ui.tap(ui.button(main, 'Choose something else'));
       await ui.tap(ui.row(page.getByRole('dialog'), 'Log something'));
       await page.waitForTimeout(600);
-      await t.check((await t.route()).startsWith('/track'), `Log something opened ${await t.route()}, not Track`);
+      // v1's Track is v2's Today's log, /day/today (journey §13).
+      await t.check((await t.route()).startsWith('/day/'), `Log something opened ${await t.route()}, not Today’s log`);
       const add = page.getByRole('dialog', { name: 'Add' });
       await add.waitFor();
       await ui.tap(ui.row(add, 'Steps'));
@@ -187,7 +189,7 @@ export const cases = [{
 
     await t.step(6, 'Move → Stretch → Start: safety questions before movement', async () => {
       const startStretch = async () => {
-        await ui.tab(page, 'Move');
+        await ui.legacyTab(page, 'Move');
         await ui.tap(ui.row(main, 'Stretch', 'link'));
         await ui.heading(page, 'Stretch');
         // While the health questions are unanswered the setup refuses before any tap (scan S-15):
@@ -209,7 +211,7 @@ export const cases = [{
       await t.check(!/^\/session/.test(route) || await page.getByRole('button', { name: 'Start', exact: true }).count() > 0,
         `Start stretch went straight into movement at ${route}`);
       const sheet = page.getByRole('dialog', { name: ui.CHECKIN });
-      if (/^\/you\/profile|^\/welcome/.test(route)) {
+      if (/^\/me\/profile|^\/setup/.test(route)) {
         await answerWizardP07(t);
       } else if (await sheet.count()) {
         await t.checkpoint('stretch-check-in');
@@ -221,10 +223,9 @@ export const cases = [{
           const toQuestions = sheet.getByRole('button', { name: /question|profile|health/i }).or(sheet.getByRole('link', { name: /question|profile|health/i }));
           await t.check(await toQuestions.count() > 0, `the relevant health questions do not appear before movement: the check-in only says “${body.slice(0, 160)}”, with no way to the questions from it (only “Change answers” and Close)`);
           await ui.tap(ui.button(sheet, 'Close'));
-          t.note('continued through You → Profile & health → Answer the questions with P07’s first-movement answers');
-          await ui.tab(page, 'Today');
-          await ui.tap(page.getByRole('link', { name: /^You:/ }));
-          await ui.heading(page, 'You');
+          t.note('continued through Me → Profile & health → Answer the questions with P07’s first-movement answers');
+          await ui.tab(page, 'Me');
+          await ui.heading(page, 'Me');
           await ui.tap(ui.row(main, 'Profile & health', 'link'));
           await ui.heading(page, 'Profile & health');
           await t.checkpoint('profile-not-set-up');
@@ -252,15 +253,14 @@ export const cases = [{
       }
     }, { input: 'P07 first-movement answers; normal current answers' });
 
-    await t.step(7, 'Cancel before active movement, reload, open You', async () => {
+    await t.step(7, 'Cancel before active movement, reload, open Me', async () => {
       const sheet = page.getByRole('dialog', { name: ui.CHECKIN });
       if (await sheet.count()) await ui.tap(ui.button(sheet, 'Close'));
       // Leaving the stretch's ready screen before its Start is cancelling before movement.
       if (/^\/session/.test(await t.route())) await ui.tap(page.getByRole('button', { name: 'Back', exact: true }));
       await t.reload();
-      await ui.tab(page, 'Today');
-      await ui.tap(page.getByRole('link', { name: /^You:/ }));
-      await page.getByRole('heading', { level: 1, name: 'You', exact: true }).waitFor();
+      await ui.tab(page, 'Me');
+      await page.getByRole('heading', { level: 1, name: 'Me', exact: true }).waitFor();
       const snap = await t.checkpoint('you-after-reload');
       const d = docs(snap);
       await t.check(d.settings?.focus === 'explore', `focus is ${d.settings?.focus}`);

@@ -24,11 +24,11 @@ const iso = ms => {
   return `${d.toISOString().slice(0, 23)}+05:30`;
 };
 
-/** Open the glucose reading `value` from Track → Trends → Glucose and correct it to `to`. */
+/** Open the glucose reading `value` from My Day (v1's Track) → Trends → Glucose and correct it to `to`. */
 async function correctGlucose(t, value, to) {
   const page = t.page;
   const main = page.getByRole('main');
-  await ui.tab(page, 'Track');
+  await ui.legacyTab(page, 'Track');
   await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Trends'));
   await ui.tap(main.getByRole('link', { name: /^Glucose/ }));
   await page.getByRole('heading', { level: 1, name: 'Glucose', exact: true }).waitFor();
@@ -65,7 +65,7 @@ const NEWER = /newer version of this app\. Update the app/;
 const sequence = {
   name: 'merge, conflicts, malformed and unsupported files',
   async run(t) {
-    const page = await t.open({ seed: persona('P01'), route: '/today' });
+    const page = await t.open({ seed: persona('P01'), route: '/home' });
     let B; let fileB; let mine; let corrected;
 
     await t.step(1, 'Export B; correct an existing reading (newer editedAt); add another; merge B twice', async () => {
@@ -194,7 +194,7 @@ const noCompression = {
   name: 'export without CompressionStream, restore in a fresh context',
   async run(t) {
     const capabilities = { compression: 'absent', share: 'capture' };
-    await t.open({ seed: persona('P01'), route: '/today', capabilities });
+    await t.open({ seed: persona('P01'), route: '/home', capabilities });
     let made; let doc;
     await t.step(5, 'Without CompressionStream the backup is plain .json, labelled as JSON', async () => {
       await t.must(await t.page.evaluate(() => typeof CompressionStream === 'undefined'), 'CompressionStream is still present');
@@ -225,7 +225,7 @@ const noCompression = {
 const shareCase = (name, share, expect) => ({
   name,
   async run(t) {
-    await t.open({ seed: persona('P01'), route: '/today', capabilities: { share } });
+    await t.open({ seed: persona('P01'), route: '/home', capabilities: { share } });
     await t.step(6, `${name}`, async () => {
       const before = await t.db();
       const made = await data.backup(t);

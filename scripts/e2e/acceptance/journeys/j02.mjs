@@ -6,6 +6,7 @@ import { MINUTE } from '../lib/env.mjs';
 import { docs } from '../lib/harness.mjs';
 import { C0, persona } from '../fixtures/personas.mjs';
 import * as ui from '../lib/ui.mjs';
+import * as data from '../lib/data.mjs';
 import * as move from '../lib/move.mjs';
 import * as player from '../lib/player.mjs';
 
@@ -95,11 +96,11 @@ export function comparable(snap) {
   };
 }
 
-/** Track → 25 September → the session → its Workout Log: the sets and both notes. */
+/** My Day (v1's Track, now Today's log) → 25 September → the session → its Workout Log: the sets and both notes. */
 async function legacyInTrack(t) {
   const page = t.page;
   const main = page.getByRole('main');
-  await ui.tab(page, 'Track');
+  await ui.legacyTab(page, 'Track');
   await ui.trackDay(page, '2026-09-25');
   const session = main.getByRole('link', { name: /^Upper A · Push & Row/ });
   await t.must(await session.count() === 1, `25 September does not list the legacy session once (${await session.count()})`);
@@ -126,7 +127,7 @@ async function assertLegacyLog(t, log) {
 /** Answer the review the way step 3 says: no insulin, SU, SGLT2; metformin since 2019; no prior DKA. */
 async function reviewMedicines(t) {
   const page = t.page;
-  await t.goto('/you/profile');
+  await t.goto('/me/profile');
   const review = page.getByRole('button', { name: /^Your health answers need a review/ });
   await t.must(await review.count() === 1, 'Profile & health offers no health review');
   await ui.tap(review);
@@ -172,15 +173,20 @@ export const cases = [
       let baseline;
 
       await t.step(1, 'Load P01 with its legacy history', async () => {
-        await t.must(await t.route() === '/today', `the app opened ${await t.route()}, not Today (first-run setup repeated?)`);
-        const text = await main.innerText();
-        await t.check(/Week 3 of 12/.test(text), 'Today does not say “Week 3 of 12”');
-        const card = main.getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) });
+        await t.must(await t.route() === '/home', `the app opened ${await t.route()}, not Home (first-run setup repeated?)`);
+        const card = ui.rightNow(page);
         const why = (await card.innerText()).match(/Why this\?\s*([^\n]+)/);
         await t.check(!!why && /session|training day|plan/i.test(why[1]), `no visible “Why this?” explaining the scheduled session (${why?.[1] ?? 'none'})`);
+        // Home writes its first tile layout once, on the first v2 launch (journey §5.1): the
+        // record's baseline is taken after that write, so the reloads below compare like with like.
+        const layout = await data.waitDb(t, s => docs(s).settings?.home !== undefined, 'Home never stored its first layout (settings.home)').then(() => true, () => false);
+        await t.check(layout, 'Home did not store its first tile layout (settings.home) on the first v2 launch');
         const snap = await t.checkpoint('today-after-migration');
         for (const p of migratedProblems(seed, snap)) await t.check(false, p);
         baseline = comparable(snap);
+        // v1 showed the plan's week on Today; v2 shows it on the Workout hub (v1's Move), not on Home (journey §7.1).
+        await ui.legacyTab(page, 'Move');
+        await t.check(/Week 3 of 12/.test(await main.innerText()), 'the Workout hub does not say “Week 3 of 12”');
         await assertLegacyLog(t, await legacyInTrack(t));
       });
 
@@ -197,10 +203,10 @@ export const cases = [
       });
 
       let progressAtExit;
-      await t.step(4, 'Today’s primary action, normal answers with glucose blank, Start session', async () => {
-        await ui.tab(page, 'Today');
+      await t.step(4, 'Home’s primary action, normal answers with glucose blank, Start session', async () => {
+        await ui.tab(page, 'Home');
         const entry = await move.enter(t, 'guided', 'today');
-        await t.must(!!entry.sheet, `Today’s primary action did not open the check-in (${entry.route})`);
+        await t.must(!!entry.sheet, `Home’s primary action did not open the check-in (${entry.route})`);
         await ui.answerCheckIn(t, entry.sheet, ui.normalAnswers('P01'));
         await page.waitForTimeout(400);
         await t.checkpoint('check-in-outcome');
@@ -209,6 +215,9 @@ export const cases = [
         await ui.tap(start);
         await page.waitForTimeout(600);
         await t.must((await t.route()).startsWith('/session'), `Start session opened ${await t.route()}`);
+        // The sheet that started the session closes as the player loads; on a loaded machine its exit can
+        // outlast the navigation by seconds. Only a check-in still open over the player is a second one.
+        await move.checkInSheet(page).waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
         await t.check(await move.checkInSheet(page).count() === 0, 'a second check-in opened for the same session');
         await t.check(!/Check again before you start|No session for now|Back to Today/.test(await main.innerText()), 'the player shows a second approval or a gate');
         await t.checkpoint('player-ready');
@@ -252,10 +261,10 @@ export const cases = [
         await leave.waitFor();
         await t.checkpoint('leave-dialog');
         await ui.tap(ui.button(leave, 'Save and exit'));
-        await page.getByRole('heading', { level: 1, name: 'Today', exact: true }).waitFor();
-        const card = main.getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) });
+        await page.getByRole('heading', { level: 1, name: ui.HOME_TITLE }).waitFor();
+        const card = ui.rightNow(page);
         const cardText = await card.innerText();
-        await t.check(/Continue your session/.test(cardText) && await card.getByRole('button', { name: /^Continue$|continue$/ }).count() === 1, `Today does not offer Continue ahead of a new recommendation: ${cardText.replace(/\n/g, ' ⏎ ')}`);
+        await t.check(/Continue your session/.test(cardText) && await card.getByRole('button', { name: /^Continue$|continue$/ }).count() === 1, `Home does not offer Continue ahead of a new recommendation: ${cardText.replace(/\n/g, ' ⏎ ')}`);
         await t.checkpoint('today-continue');
         progressAtExit = await player.progress(page);
         await t.reload();
@@ -271,7 +280,7 @@ export const cases = [
 
       let sessionId;
       await t.step(6, 'Continue, finish with the rest skipped, save the summary', async () => {
-        const card = main.getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) });
+        const card = ui.rightNow(page);
         await ui.tap(card.getByRole('button'));
         await page.waitForTimeout(600);
         const sheet = move.checkInSheet(page);
@@ -311,19 +320,19 @@ export const cases = [
         await t.check(!cache || cache.state.status === 'done', 'the progress cache still holds an unfinished run after the save');
       }, { input: 'Continue; End session → Finish now; Save and finish' });
 
-      await t.step(7, 'Reload Track, open that session, return to Today', async () => {
-        await t.goto('/track');
+      await t.step(7, 'Reload Today’s log (v1’s Track), open that session, return to Home', async () => {
+        await t.goto('/day/today');
         const row = main.getByRole('link', { name: /Full Body|Guided session/ }).filter({ hasNotText: /Upper A/ });
-        await t.must(await row.count() === 1, `today’s Track lists ${await row.count()} new guided sessions, not 1`);
+        await t.must(await row.count() === 1, `Today’s log lists ${await row.count()} new guided sessions, not 1`);
         const rowText = await row.innerText();
-        await t.check(/Partial|Partly done/i.test(rowText) && !/Completed/i.test(rowText), `the attempt is not labelled partial in Track: ${rowText.replace(/\n/g, ' ')}`);
+        await t.check(/Partial|Partly done/i.test(rowText) && !/Completed/i.test(rowText), `the attempt is not labelled partial in Today’s log: ${rowText.replace(/\n/g, ' ')}`);
         await ui.tap(row);
         await page.waitForTimeout(500);
         const detail = await main.innerText();
         await t.checkpoint('new-session-record');
         await t.check(/Partial|Partly done/i.test(detail), 'the session record does not say it is partial');
         await t.check(!/(\d+) of \1 sets? done/.test(detail.replace(/1 of 1 set done/g, '')) || /1 of \d+ sets? done/.test(detail), `the record reads as all planned sets completed: ${detail.slice(0, 300)}`);
-        await ui.tab(page, 'Today');
+        await ui.tab(page, 'Home');
         const snap = await t.db();
         const sessions = snap.sessions ?? [];
         await t.check(sessions.length === 2 && sessions.some(s => s.id === sessionId), `${sessions.length} sessions stored (want the legacy one and ${sessionId})`);
@@ -352,9 +361,9 @@ export const cases = [
       const main = page.getByRole('main');
 
       await t.step(3, 'Attempt Guided session: a review hold; then review and the metformin-only branch', async () => {
-        await t.must(await t.route() === '/today', `opened ${await t.route()}`);
+        await t.must(await t.route() === '/home', `opened ${await t.route()}`);
         const todayText = await main.innerText();
-        t.note(`Today with an unreviewed profile: ${todayText.split('\n').slice(2, 6).join(' | ')}`);
+        t.note(`Home with an unreviewed profile: ${todayText.split('\n').slice(2, 6).join(' | ')}`);
         const entry = await move.enter(t, 'guided', 'move');
         if (entry.sheet) {
           await ui.answerCheckIn(t, entry.sheet, ui.normalAnswers('P01'));

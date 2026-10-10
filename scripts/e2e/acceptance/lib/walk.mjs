@@ -10,10 +10,10 @@ import { sheetStart } from './player.mjs';
 
 export const WALK_KEY = 'fit-strong-walk';
 
-/** Move → Walk, to the setup screen. */
+/** Move (v1's tab, now the Workout hub from Home) → Walk, to the setup screen. */
 export async function openSetup(t) {
   const page = t.page;
-  await ui.tab(page, 'Move');
+  await ui.legacyTab(page, 'Move');
   await ui.tap(ui.row(page.getByRole('main'), 'Walk', 'link'));
   await page.getByRole('heading', { level: 1, name: 'Walk', exact: true }).waitFor();
 }
@@ -106,10 +106,10 @@ export function positionsIn(value, path = '') {
   return found;
 }
 
-/** You → Data & offline → Back up your record → Download; the decoded backup. */
+/** Me → Data & offline → Back up your record → Download; the decoded backup. */
 export async function exportBackup(t) {
   const page = t.page;
-  await t.goto('/you/data');
+  await t.goto('/me/data');
   await ui.tap(ui.row(page.getByRole('main'), 'Back up your record'));
   const sheet = page.getByRole('dialog');
   await sheet.getByRole('button', { name: /^(Download|Save or share)$/ }).waitFor({ timeout: 15000 });

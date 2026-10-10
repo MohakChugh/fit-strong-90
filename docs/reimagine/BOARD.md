@@ -374,3 +374,250 @@ These come from the owner's brief, reconciled with the Codex and Kiro audits and
 | D46 | v2 is built on `feat/v2-journey` (a git worktree, `../fit-strong-90-v2`). PR #3 stays on v1 until v2 is complete | — |
 
 Kept explicitly: D31 (the weekly ring), D19 (no milestones), D18 (no WebGL while tracking), D35 (enrolment), D14 and D10 (steps), D16, D17, D22, D25, D26 and D27.
+
+### 2026-10-09 — [claude] v2 Plan 1: acceptance journeys walked through v2's tabs
+
+This is Plan 1 Task 11. The release acceptance suite (`scripts/e2e/acceptance`) assumed v1's Today · Move · Track · Guide tabs, the "Today" title, the You button and v1's addresses. It now walks v2: Home · Trends · Browse · Me, Home's greeting, the Me tab and v2's addresses.
+
+Every clinical and safety assertion is unchanged (A-76). Only these changed:
+- navigation steps;
+- titles and addresses;
+- the locators that find v2's equivalents.
+
+Where v1 Today had a row that v2 replaced, the journey asserts v2's equivalent with the same meaning. Two judgement calls are flagged at the end for Task 12's review.
+
+**Shared helpers (`lib/`)**
+- `ui.mjs:270–317` — `TAB_PATH`/`TAB_TITLE` change from Today/Move/Track/Guide to Home/Trends/Browse/Me.
+  - Home's root is recognised by its greeting (`HOME_TITLE`, `/^Good (morning|afternoon|evening)\b/`), not by a fixed title or by any h1. A transition still showing the old screen can't pass for Home.
+  - `tab()` refuses v1 names.
+- `ui.mjs:340–360` — new `LEGACY` and `legacyTab(page, name)`: where v1's tabs went. Each is reached by taps, not a typed hash, because a typed hash starts a new navigation stack.
+  - Move → Home's Workout tile → `/hub/workout` ("Move").
+  - Track → Home's "See today's log" → `/day/today` ("My Day").
+  - Guide → Browse → Learn → `/hub/learn` ("Guide"). Browse is used because Home has a Learn tile only when there is room for one (§5.1).
+- `ui.mjs:367` — new `rightNow(page)`, the Right now card. v1 found it as "the region with an h3". Home's tile groups (Move, Eat, Check, Learn) are regions with h3 headings too, so it is now the h3 region that says "Why this?".
+- `ui.mjs:388, 407` and `data.mjs:425` — `trackDay` reads the day heading beside "Previous day" (`dayHeading`), not the first h2. While an urgent decision stands, the shell's surface is the first h2 on every screen.
+- `guide.mjs`:
+  - `:13` `openAdd` checks for My Day at `/day/…` (was `/track…`).
+  - `:123–138` `setStatus` taps Home's "How are you today? …" button (`statusButton`) on `/home`. It was Today's "Status" row on `/today`.
+  - `:143` `openHabits` uses the Me tab (was Today → You button).
+  - `:242` `tabTo` knows v2's tabs and sends v1's places to `legacyTab`.
+- `move.mjs`:
+  - The `move` entry uses `legacyTab('Move')`.
+  - `chooser` and `today` use `tab('Home')`, and `today` taps `rightNow`.
+  - The direct stretch address is `/hub/stretch` (was `/move/stretch`).
+- `safety-a.mjs`:
+  - Cases open at `/home`.
+  - `openCheckIn` and `attempt` use `legacyTab('Move')`, `tab('Home')` and `rightNow`.
+  - Direct entries are `/hub/stretch` and `/hub/walk` (were `/move/stretch` and `/walk`). The walk-link bounce lands on `/hub/walk`, and `surface()` reads the Walk setup there.
+  - `backToTabs` falls back to `/home`.
+  - `learnAndLogReachable` reaches Guide and My Day through `legacyTab`.
+- `safety-b.mjs`:
+  - `tabTo` is v2-aware, and `enterFromMove` uses `legacyTab('Move')`.
+  - `modeAnswer`'s bounce lands on `/hub/walk`.
+  - `:244` `leaveWalk` waits for the summary's Done or Discard.
+  - `:260` `backToTabs` also leaves `/walk/summary`. In v2 the summary is a full-screen task outside the shell, with no tab bar; v1 kept it in the shell.
+- `safety-c.mjs` `openGuided` and `walk.mjs` `openSetup` use `legacyTab('Move')`. `walk.mjs` `exportBackup` goes to `/me/data` (was `/you/data`).
+- `data.mjs`:
+  - `openData` uses the Me tab (was Today → You button, title "You").
+  - `openAdd` checks for `/day/…` and uses `legacyTab('Track')`.
+  - `restoredFromWelcome` waits for Home's greeting (was "Today").
+- `sweep.mjs:88–89` — the tab-bar check expects Home|Trends|Browse|Me (was Today|Move|Track|Guide). Every screen with the bar must mark a current tab: the `#/you` exemption went, since Me is a tab.
+- `run.mjs:102` — the warm-up loads v2's addresses: `/home`, the hubs, `/day/today`, `/trends`, `/browse` and `/me/…`.
+
+**Journeys**
+
+Line numbers are in the new files. Failure messages and step titles now say Home, My Day and Me where they said Today, Track and You.
+
+- **J01:**
+  - `:56` `/welcome` → `/setup`.
+  - `:87, 99, 103` `/welcome/health` and `/welcome` → `/setup/health` and `/setup`.
+  - `:115, 153` the "Today" heading → the greeting.
+  - `:117` tabs `Today|Move|Track|Guide` → `Home|Trends|Browse|Me`.
+  - `:119` "a root You button on Today" → the Me tab. v2 has no avatar on Home (§7.1).
+  - `:152` the Today tab → the Home tab.
+  - `:158` Log something lands on `/day/…` (was `/track`).
+  - `:192` Move → `legacyTab`.
+  - `:214` `/you/profile|/welcome` → `/me/profile|/setup`.
+  - `:227–228, 262–263` Today → You button → "You" becomes the Me tab → "Me".
+- **J02:**
+  - `:103` Track → `legacyTab('Track')`.
+  - `:130` `/you/profile` → `/me/profile`.
+  - `:176, 364` `/today` → `/home`.
+  - `:177, 265, 283` the card → `rightNow`.
+  - `:180–184` the step 1 baseline waits until Home has stored its first tile layout. Home writes `settings.home` once, on the first v2 launch (§5.1). A baseline taken before that write would fail "the record changed across two reloads" on the layout alone. The comparison is unchanged, so a second write would still fail it.
+  - `:187–189` "Week 3 of 12" is read on the Workout hub (v1's Move), since v2's Home has no plan row (§7.1).
+  - `:207, 335` Today → Home.
+  - `:264` the "Today" heading → the greeting.
+  - `:218–221` the "second check-in" check waits up to 10 s for the closing sheet to leave first. On a loaded machine (small-light) its exit outlasted the navigation by seconds, and only a check-in still open over the player is a second one.
+  - `:324` `/track` → `/day/today`.
+- **J03:**
+  - `:81–84` Today → Home, and the card → `rightNow`.
+  - `:296–302` the check-in control search starts on Home.
+  - `:310–314` Move → `legacyTab`, `/move/stretch` → `/hub/stretch`, `/walk` → `/hub/walk`.
+  - `:349, 373` Today → Home.
+  - `:360` `/today?checkin=guided` → `/home?checkin=guided`.
+  - `:414` Today → You button → the Me tab.
+- **J04:** `:283` Track → `legacyTab('Track')`.
+- **J05:**
+  - `:61` opens at `/day/today` (was `/track`).
+  - `:191` a measure's v1 link lands on `/hub/…` or `/trends/…` (was `/track/metric|back`).
+  - `:215–216` Back returns to `/day/today?view=trends` (was `/track?view=trends`).
+  - `:238–239, 319–320` Back returns to `/day/today` or `/day/…` (was `/track`).
+  - `:284` the Workout Log reloads at `/trends/workout` (was `/track/workout`). Saved workouts keep `/track/workout/:id`.
+  - `:302, 374` Track → `legacyTab`.
+  - `:420–421` "Set a weekly goal" is the This week card's button (was a row on Today).
+  - `:436–438` "Home claims 15 minutes" reads the This week card, which is v1 Today's ring. Home's Stretch tile reads "10 or 15 min", which is a routine's length, not the week's minutes.
+  - `:524` the BP chart is `/hub/bp`.
+  - The fixture cases open at `/home`.
+- **J06:**
+  - `:27, 29` Guide is `/hub/learn`.
+  - `:90` opens at `/home`.
+  - `:123, 199, 418` Today → Home.
+  - `:147` `/track/metric/bloodPressure` → `/hub/bp`.
+  - `:200` `region.first()` → `rightNow`.
+  - `:246, 253` `/track/metric/weight|waist` → `/hub/weight|waist`.
+  - `:302` `/guide/meals` → `/hub/food/ideas`.
+  - `:375` `/guide` → `/hub/learn`.
+  - `:412, 453, 482` `/track` → `/day/today`.
+  - `:427` `/track/metric/hba1c` → `/hub/labs?metric=hba1c`.
+- **J07:**
+  - `:30, 133, 161` v1 Today's ring "Recorded movement this week: 5 of 20 minutes" → Home's This week ring "Moved this week: 5 of 20 minutes" (§7.3). The figure is the same.
+  - `:43` "Set a weekly goal" is the card's button.
+  - `:64–67` My Day's Steps row still links `/track/metric/steps`, which lands on `/hub/steps`.
+  - `:155, 242` `region.first()` → `rightNow`.
+  - `:159` "more than one recommendation" counts `rightNow`, since the tile groups are h3 regions too.
+  - `:278–283` "Week 2/3 of 12" is read on the Workout hub, and "missed" is checked on both Home and the hub.
+  - `:541` `/you/profile` → `/me/profile`.
+  - Today → Home throughout, and the cases open at `/home`.
+- **J08:**
+  - `:109, 204` `/today` → `/home`.
+  - `:126` Move → `legacyTab`.
+  - `:132–133, 224` `/move/stretch` → `/hub/stretch`.
+  - `:193` waits for `/home|/hub` (was `/today|/move`).
+  - `:194` `/track` → `/day/today`.
+  - `:205` the card → `rightNow`.
+- **J09:**
+  - The cases open at `/home`.
+  - `:42` My Day through `legacyTab`.
+  - `:201` `/today` → `/home`.
+- **J10:**
+  - `:95` "Today" → the greeting after the walk's Done.
+  - `:99` `/track` → `/day/today`.
+- **J11:**
+  - `:143` "Today" → the greeting.
+  - `:146, 294` v1 Today's "N min of movement recorded this week" → Home's This week "N min moved this week" (§7.3).
+  - `:282` `/track` → `/day/today`.
+  - `:292` Today → Home.
+- **J12:**
+  - `:73` Today → You button → the Me tab.
+  - The cases open at `/home`.
+  - `:209, 302` `/today?checkin=walk` → `/home?checkin=walk`.
+  - `:242` `/today` → `/home`.
+  - `:266` Track → `legacyTab`.
+  - `:321` Today → Home.
+- **J13:** no change. It navigates only through `safety-a.mjs`.
+- **J14:**
+  - `:78` Today → You button → the Me tab.
+  - The cases open at `/home`.
+- **J15:**
+  - `:59` Move → `legacyTab`.
+  - `:103` the Walk setup is `/hub/walk` (was `/walk`).
+  - `:131, 181` `/move` → `/hub/workout`.
+  - The cases open at `/home`.
+- **J16:**
+  - `:49` Move → `legacyTab`.
+  - `:65, 150` `/today?checkin=` → `/home?checkin=`.
+  - `:88, 256` `/today` → `/home`.
+  - `:149` it leaves Home via `/hub/workout` (was leaving Today via `/move`).
+  - `:166` `/track/back` → `/hub/back`.
+  - `:348` the Walk setup is `/hub/walk`.
+  - `:461` `/guide/topic/back` → `/hub/learn/topic/back`.
+  - The cases open at `/home`.
+  - `:226–231` is the first judgement call below.
+- **J17:**
+  - `:37` My Day is `/day/…` (was `/track`).
+  - `:63, 470, 568` open at `/day/today`, and the other cases at `/home`.
+  - `:130` Move → `legacyTab`.
+  - `:308, 375, 456` `/today` → `/home`.
+  - `:326, 359` `/you/profile` → `/me/profile`.
+  - `:411–412, 432` `/move` → `/hub/workout`, and `/today?checkin=guided` → `/home?checkin=guided`.
+  - `:473, 488, 518` `#/track` → `#/day/today`.
+  - `:493–494` `/you/appearance` and `/you/food` → `/me/display` and `/me/food`.
+  - `:528, 570` `#/you` → `#/me`.
+- **J18:**
+  - `:77` opens at `/home`.
+  - `:157, 223` the "no flash through Welcome" checks cover both `#/setup` and `#/welcome`.
+  - `:252` `/welcome` → `/setup`.
+  - `:270` the fresh navigation history is `/setup`.
+  - `:294` `/today` and "Today" → `/home` and the greeting.
+- **J19:**
+  - `:31` Track → `legacyTab`.
+  - The cases open at `/home`.
+- **J20:**
+  - `:18–22` `TABS` are v2's four tabs, and `PLACES` lists v1's Move, Track and Guide at their v2 places.
+  - `:51, 128, 266, 329` open at `/home`.
+  - `:64` the online warm-up visits v2's addresses.
+  - `:68–72` offline, Home is checked by its greeting.
+  - `:74–78` offline, every v2 tab and every v1 place is visited.
+  - `:82, 91` Guide through `legacyTab`, and Me through its tab. The offline session start uses `rightNow`.
+  - `:133–157` each root has the Me tab (was "a root You button"), and each v1 place opens with its title. Me's editors go Back to "Me" (was "You"), and Done returns to My Day on 25 September.
+  - `:186` the weight row lands on `/hub/weight`.
+  - `:196` Move → `legacyTab`.
+  - `:222` a cold detail's Back lands on `/day/…`.
+  - `:232` leaving a cold session lands on `/home`.
+  - `:239` a cold `/walk/live` falls back to `/hub/walk`.
+  - `:246–255` the legacy addresses arrive at their v2 places with their query:
+    - `/dashboard` → `/home`;
+    - `/workout` → `/trends/workout`;
+    - `/plan` → `/hub/workout/plan`;
+    - `/library` → `/hub/workout/exercises…`;
+    - `/progress` and `/history` → `/day/today`;
+    - `/settings` → `/me`;
+    - `/profile` → `/me/profile`.
+  - `:259–261` unknown children are tried under v2's subtrees (`/home`, `/hub`, `/hub/workout`, `/day`, `/trends`, `/browse`, `/me`) as well as v1's, which are legacy addresses now.
+  - `:278` the tab bar reads Home|Trends|Browse|Me.
+  - `:301–305` the failed lazy Guide chunk is opened from Browse → Learn (was the Guide tab).
+  - `:321, 362` Home's greeting after the recovery and after the storage retry.
+  - `:342, 354` "first-run setup" covers both `/setup` and `/welcome`.
+- **S01:** the route inventory is v2's:
+  - `:78–85` Home and its sheets. The status sheet opens from "How are you today?" and the check-in from `rightNow`.
+  - `:89–92` the Workout hub, `/hub/stretch`, `/hub/workout/plan` and `/hub/workout/exercises`.
+  - `:106` `/hub/walk`.
+  - `:114–149` `/day/today`, `/day/2026-09-25`, the Trends tab `/trends` (new), `/hub/back` and `/trends/workout`.
+  - `:153–176` `/hub/learn`, `/hub/food/ideas`, `/hub/food/week`, `/hub/learn/sources` and Browse, `/browse` (new).
+  - `:181–184` Me's screens, under Me's names.
+  - `:200–217` first run through `/setup`, then empty `/home`, `/day/today`, `/trends`, `/hub/workout` and `/hub/workout/plan`.
+  - `:226–238` the states on `/home`.
+  - `:267–268, 302, 313` keyboard focus through v1's places and v2's tabs.
+  - Links are still followed as the UI gives them, so a v1 href that a v1 screen still carries goes on through its redirect.
+
+**App fixes** (each in its own commit, with unit tests)
+- `1bcca26`, an exercise didn't recognise the library at its v2 address:
+  - `libraryReturn` (`src/screens/move/library.ts`) accepted only v1's `/move/exercises`. Back from a filtered list fell back to the bare library and was named after the list's title, "Find an exercise", instead of "Exercises" (J20 step 2).
+  - It now takes the list at either address, since v1's redirects with its query, and falls back to `/hub/workout/exercises`.
+  - `library.test.ts` has one new and three changed tests.
+- `cefe112`, a screen reached through a v1 address had no tab selected:
+  - A v1 address loaded cold (a bookmark, or a v1 link a screen still carries) belongs to no v2 tab. The v2 screen its redirect replaced it with kept that, so the tab bar marked no tab.
+  - The sweep found this on 56 screens: Learn topics and cards, meal ideas, exercises, and the Walk hub a cold live walk falls back to. v1's sweep had none.
+  - `record()` (`src/components/hig/navigation.ts`): a replacement still keeps the tab its entry was pushed in. Now an entry with no tab and nothing below it, which can only have been loaded at an address of no tab, lets the screen take its own address's tab.
+  - A screen pushed from a full-screen task still goes Back to the task (S-12).
+  - `navigation.test.ts` has four new tests. The sweep's tab findings went from 56 to 0.
+
+**Judgement calls, for Task 12's review**
+- **J16 step 1** (safety, flare-up): "Home shows programme pressure during a flare" scans Home's text for `Week N of 12|programme|don't break|make up`.
+  - Home now carries the Workout tile. For someone outside the programme its line is "12-week programme · not joined · check in first" (§7.5, D35); a hold that needs a check-in outranks a flare's suggestion (`tileLine.ts`). v1 said this on Move, not Today.
+  - That one statement is set aside before the scan. Everything else on Home, the other tile lines included, is still checked with the same pattern.
+  - If the owner reads "not joined" as pressure during a flare, the tile line is what should change, not the test.
+- **J02 step 1**: the baseline waits for `settings.home` rather than excluding it from the comparison, so the "unchanged across two reloads" check still covers the layout. It also checks, softly, that the layout was stored.
+
+**Seen while walking v2, not changed here**
+- A screen opened from Home without Home's opener state names its Back after Home's title, so it reads "Back to Good morning" rather than "Back to Home". This happens from the chooser's rows, the Right now card's actions and a start through the check-in. Tiles and "See today's log" pass `FROM_HOME` and read "Home".
+- v1 screens still link to v1 addresses (`/move/…`, `/guide/…`, `/track/metric/…`, `/you/…`), which redirect. The journeys follow those links as the UI gives them.
+- The main checkout's own acceptance runs shared the machine during these runs, with a load average of about 25 on 12 cores. Under that load, the guided player's software-rendered 3D demo made a tap wait out its 25 s. It did so in both checkouts: the v1 run (r8) failed J02 large-dark that way too.
+
+**Result**
+- The final full run (`npm run e2e:acceptance -- --port=49831`, preview on 49832, concurrency 4) passed 892 of 892 cases, with 0 failed and 0 pending, in 64.4 min.
+- Its sweep matches v1's last two runs: 76 target findings (the 20 px native checkboxes) and 8 console lines, which are J20's expected offline and failed-download errors.
+- An earlier full run was 891/892. Its one failure was J02 small-light, under a second suite's load: the closing check-in sheet outlasted the navigation, and the player's Start waited out 25 s. J02's check now waits for the closing sheet, as above.
+- A targeted re-run of J02, J09, J15, J16, J20 and S01 after the navigation fix was 155/156. Its one failure was J02 large-dark, where Next waited out 25 s in the 3D player, as in r8.
+- Gates: `tsc -b` and lint are clean, and the unit suite is 5,003/5,003 in 157 files.

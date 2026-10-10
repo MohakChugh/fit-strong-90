@@ -1,7 +1,7 @@
 /**
  * Data journeys' helpers (J05, J18, J19): canonical backup files built from
  * the app's own format (src/store/transfer.ts), the Backup and Restore UI in
- * You → Data & offline, Quick Log in Track, and logical comparison of
+ * Me → Data & offline, Quick Log in My Day, and logical comparison of
  * database snapshots.
  *
  * Fixture files are written under the case's artifact directory, which is
@@ -69,13 +69,12 @@ export function decodeBackup(bytes) {
 
 // ---------------------------------------------------------------- navigation
 
-/** You → Data & offline, the way a person gets there. */
+/** Me → Data & offline, the way a person gets there (v1's You button is v2's Me tab). */
 export async function openData(t) {
   const page = t.page;
-  if (!/^\/you\/data/.test(await t.route())) {
-    await ui.tab(page, 'Today');
-    await ui.tap(page.getByRole('link', { name: /^You:/ }));
-    await page.getByRole('heading', { level: 1, name: 'You', exact: true }).waitFor();
+  if (!/^\/me\/data/.test(await t.route())) {
+    await ui.tab(page, 'Me');
+    await page.getByRole('heading', { level: 1, name: 'Me', exact: true }).waitFor();
     await ui.tap(ui.row(page.getByRole('main'), 'Data & offline', 'link'));
   }
   await page.getByRole('heading', { level: 1, name: 'Data & offline', exact: true }).waitFor();
@@ -164,12 +163,12 @@ export async function waitOutcome(t, sheet) {
   await t.page.waitForTimeout(250);
 }
 
-// ---------------------------------------------------------------- Track
+// ---------------------------------------------------------------- My Day
 
-/** Open Quick Log's chooser from Track's own Add button (the one in the bar). */
+/** Open Quick Log's chooser from My Day's own Add button (the one in the bar); My Day is v2's Today's log. */
 export async function openAdd(t) {
   const page = t.page;
-  if (!/^\/track(\?|$)/.test(await t.route())) await ui.tab(page, 'Track');
+  if (!/^\/day\//.test(await t.route())) await ui.legacyTab(page, 'Track');
   await ui.tap(ui.header(page).getByRole('button', { name: 'Add a record', exact: true }));
   const add = page.getByRole('dialog', { name: 'Add' });
   await add.waitFor();
@@ -384,12 +383,12 @@ export async function waitDb(t, pred, message, timeout = 10000) {
 
 /**
  * After Restore on Welcome: the record lands, onboarding is complete, and
- * the app moves on to Today — possibly before the confirmation can be read,
+ * the app moves on to Home — possibly before the confirmation can be read,
  * which is noted rather than failed. Returns what was seen.
  */
 export async function restoredFromWelcome(t, sheet) {
   const page = t.page;
-  const today = page.getByRole('heading', { level: 1, name: 'Today', exact: true });
+  const today = page.getByRole('heading', { level: 1, name: ui.HOME_TITLE });
   const done = sheet.getByRole('button', { name: 'Done', exact: true });
   const problem = sheet.getByText(/Nothing was changed/);
   const seen = await Promise.race([
@@ -404,7 +403,7 @@ export async function restoredFromWelcome(t, sheet) {
     confirmed = /Restored\./.test(await sheet.innerText());
     await ui.tap(done);
   } else {
-    t.note('Restore on Welcome moved straight to Today: the “Restored” confirmation was not left on screen');
+    t.note('Restore on Welcome moved straight to Home: the “Restored” confirmation was not left on screen');
   }
   await today.waitFor({ timeout: 15000 });
   await t.ready();
@@ -422,7 +421,8 @@ export async function trackDay(page, ymd) {
   const main = page.getByRole('main');
   const [, wm, wd] = ymd.split('-').map(Number);
   const want = `${wd} ${MONTHS[wm - 1]}`;
-  const read = async () => (await main.getByRole('heading', { level: 2 }).first().innerText()).replace(/\s+/g, ' ');
+  // The day's own heading: while an urgent decision stands, the shell's surface is the first h2 (journey §4.7).
+  const read = async () => (await ui.dayHeading(main).innerText()).replace(/\s+/g, ' ');
   // A view transition can leave the old screen up after the address has changed.
   await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor({ timeout: 15000 });
   for (let i = 0; i < 60; i++) {

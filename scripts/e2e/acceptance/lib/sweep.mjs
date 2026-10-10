@@ -84,9 +84,9 @@ export function sweepInPage() {
   const nav = document.querySelector('nav[aria-label="Main"]');
   if (nav && visible(nav) && !hiddenFromAT(nav)) {
     const tabs = [...nav.querySelectorAll('a')].map(a => a.textContent.trim());
-    if (tabs.join('|') !== 'Today|Move|Track|Guide') add('tabs', `tab bar shows ${JSON.stringify(tabs)}`);
-    // You is not a tab, so nothing is current under it; everywhere else one tab must be.
-    if (!location.hash.startsWith('#/you') && ![...nav.querySelectorAll('a')].some(a => a.getAttribute('aria-current') === 'page')) add('tabs', 'no tab marked as the current destination');
+    // v2's four tabs (journey §5). Me is one of them, as v1's You was not, so every screen with the bar has a current tab.
+    if (tabs.join('|') !== 'Home|Trends|Browse|Me') add('tabs', `tab bar shows ${JSON.stringify(tabs)}`);
+    if (![...nav.querySelectorAll('a')].some(a => a.getAttribute('aria-current') === 'page')) add('tabs', 'no tab marked as the current destination');
   }
 
   // ---- Leaked placeholders and non-finite numbers --------------------------

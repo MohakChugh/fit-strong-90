@@ -47,15 +47,16 @@ async function walkRefusedOnSheet(t, sheet, label) {
   await t.check(!WORKAROUND.test(text), `${label}: an “easy walk” style workaround is offered (${text.slice(0, 200)})`);
 }
 
-/** Walk from Move (answering the check-in when asked), then from Today's chooser. */
+/** Walk from Move (answering the check-in when asked), then from Home's chooser. */
 /**
- * Move → Walk. The setup screen either offers Start walk (which opens the
- * check-in) or, once today's answers already refuse it, says so itself.
+ * Move (v1's tab, now the Workout hub from Home) → Walk. The setup screen
+ * either offers Start walk (which opens the check-in) or, once today's
+ * answers already refuse it, says so itself.
  */
 async function walkFromMove(t, answers, tag) {
   const page = t.page;
   const main = page.getByRole('main');
-  await ui.tab(page, 'Move');
+  await ui.legacyTab(page, 'Move');
   await ui.tap(ui.row(main, 'Walk', 'link'));
   await page.getByRole('heading', { level: 1, name: 'Walk', exact: true }).waitFor();
   await page.waitForTimeout(300);
@@ -93,17 +94,17 @@ async function walkBothWays(t, answers, tag) {
   const fromToday = await mv.enter(t, 'walk', 'chooser');
   if (fromToday.sheet) {
     await t.checkpoint(`${tag}-walk-refused-today`);
-    await walkRefusedOnSheet(t, fromToday.sheet, 'Today → Choose something else → Walk');
+    await walkRefusedOnSheet(t, fromToday.sheet, 'Home → Choose something else → Walk');
     await ui.tap(ui.button(fromToday.sheet, 'Close'));
     await fromToday.sheet.waitFor({ state: 'hidden' });
   } else {
-    // Straight into Walk setup: its Start must still refuse.
-    await t.check(!/^\/walk\/live/.test(fromToday.route), `Today → Walk went straight to ${fromToday.route}`);
-    if (/^\/walk/.test(fromToday.route)) {
+    // Straight into Walk setup (the Walk hub, v1's /walk): its Start must still refuse.
+    await t.check(!/^\/walk\/live/.test(fromToday.route), `Home → Walk went straight to ${fromToday.route}`);
+    if (/^\/hub\/walk/.test(fromToday.route)) {
       await ui.tap(ui.button(page.getByRole('main'), 'Start walk'));
       const sheet = mv.checkInSheet(page);
-      await t.check(await sheet.count() === 1, 'Today → Walk → Start walk opened no refusal');
-      if (await sheet.count()) { await walkRefusedOnSheet(t, sheet, 'Today → Walk → Start walk'); await ui.tap(ui.button(sheet, 'Close')); }
+      await t.check(await sheet.count() === 1, 'Home → Walk → Start walk opened no refusal');
+      if (await sheet.count()) { await walkRefusedOnSheet(t, sheet, 'Home → Walk → Start walk'); await ui.tap(ui.button(sheet, 'Close')); }
     }
   }
   const snap = await t.db();
@@ -126,7 +127,8 @@ async function startScreenBlocks(page) {
 /** Stretch: the preview must hold only work the restriction allows; it must not be refused outright. */
 async function inspectStretch(t, { forbidden, label }) {
   const page = t.page;
-  await t.goto('/move');
+  // v1's Move is the Workout hub (journey §19.2).
+  await t.goto('/hub/workout');
   await ui.tap(ui.row(page.getByRole('main'), 'Stretch', 'link'));
   await page.getByRole('heading', { level: 1, name: 'Stretch', exact: true }).waitFor();
   const names = await stretchPreview(page);
@@ -176,7 +178,7 @@ async function runStretch(t, label, forbidden) {
 /** Guided: the start screen and every step that settles on screen. */
 async function inspectGuided(t, label, forbidden, { homeCardio = false } = {}) {
   const page = t.page;
-  await t.goto('/move');
+  await t.goto('/hub/workout');
   const r = await openGuided(t);
   // The seeded enrolment did not take: Move offers only the way to join (D35).
   await t.must(!r.viaProgramme, `${label}: Move → Guided session opens the programme page, not a session, for the enrolled seed`);
@@ -229,8 +231,8 @@ export const cases = [
   {
     name: 'active ulcer',
     async run(t) {
-      const page = await openApp(t, { seed: persona('P05'), route: '/today', sensors: { geo: 'grant' } });
-      await t.step(1, 'Normal current answers, then Walk from Move and from Today', async () => {
+      const page = await openApp(t, { seed: persona('P05'), route: '/home', sensors: { geo: 'grant' } });
+      await t.step(1, 'Normal current answers, then Walk from Move and from Home', async () => {
         await t.checkpoint('today');
         await walkBothWays(t, ui.normalAnswers('P05'), 'ulcer');
       }, { input: 'P05 (neuropathy, current wound); normal current answers, glucose blank' });
@@ -308,7 +310,7 @@ export const cases = [
     name: 'active ulcer: guided session',
     async run(t) {
       t.note('defined setup: P05 seeded in the programme (settings.startDate 2026-09-24, training Mon/Thu/Sat), so Thursday has a guided session');
-      const page = await openApp(t, { seed: persona('P05', { patch: ENROLLED }), route: '/today' });
+      const page = await openApp(t, { seed: persona('P05', { patch: ENROLLED }), route: '/home' });
       await t.step(3, 'Guided session: only seated and floor work may run', async () => {
         const guided = await inspectGuided(t, 'ulcer', WEIGHT_BEARING, { homeCardio: true });
         if (guided.ran) {
@@ -328,7 +330,7 @@ export const cases = [
   {
     name: 'hot red swollen foot',
     async run(t) {
-      await openApp(t, { seed: persona('P05', { patch: { profile: { health: { footStatus: 'healthy' } } } }), route: '/today' });
+      await openApp(t, { seed: persona('P05', { patch: { profile: { health: { footStatus: 'healthy' } } } }), route: '/home' });
       await t.step(4, 'Healthy stored foot, neuropathy yes, a foot newly hot, red or swollen', async () => {
         const { text } = await walkBothWays(t, ui.normalAnswers('P05', { news: [ui.NEWS.hotSwollenFoot] }), 'hot-foot');
         await t.check(/clinician|doctor/i.test(text) && /promptly|today/i.test(text), `the refused walk does not advise prompt clinical assessment: ${text.slice(0, 240)}`);
@@ -359,11 +361,11 @@ export const cases = [
         date: '2026-10-08', urgentSymptoms: false, news: [], sleep: 'gt7', energy: 4,
         readiness: { outcome: 'green', modifiers: [], back: 'none', nerveFlag: false, reasons: [], actions: [], vigorousLocked: false, capHeavy: false, rpeOnly: false, notices: [] },
       };
-      const page = await openApp(t, { seed: persona('P05', { patch: { checkIns: [green] } }), route: '/today' });
+      const page = await openApp(t, { seed: persona('P05', { patch: { checkIns: [green] } }), route: '/home' });
       await t.step(5, 'Only the stored readiness colour is green; the foot facts are kept', async () => {
         await t.checkpoint('today-green-seed');
         const today = await page.getByRole('main').innerText();
-        await t.check(!/Good to go/i.test(today), 'Today calls a protected foot “Good to go”');
+        await t.check(!/Good to go/i.test(today), 'Home calls a protected foot “Good to go”');
         await walkBothWays(t, ui.normalAnswers('P05'), 'green');
         await t.goto('/walk/live?id=acc0900-greenseed&gps=1');
         await page.waitForTimeout(800);
@@ -381,7 +383,7 @@ export const cases = [
     async run(t) {
       // In the programme (defined setup) so there is a guided session to preview (D35).
       t.note('defined setup: P05 seeded in the programme (settings.startDate 2026-09-24, training Mon/Thu/Sat), so Thursday has a guided session');
-      await openApp(t, { seed: persona('P05', { patch: { ...ENROLLED, profile: { health: { footStatus: 'healthy', retinopathy: 'severe_or_proliferative' } } } }), route: '/today' });
+      await openApp(t, { seed: persona('P05', { patch: { ...ENROLLED, profile: { health: { footStatus: 'healthy', retinopathy: 'severe_or_proliferative' } } } }), route: '/home' });
       await t.step(6, 'Severe or proliferative retinopathy, no current foot restriction: preview Stretch and Guided', async () => {
         const forbidden = new Set([...HEAD_DOWN, ...STRAIN]);
         const names = await inspectStretch(t, { forbidden, label: 'eye' });

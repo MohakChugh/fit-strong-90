@@ -74,7 +74,7 @@ async function toConfirm(t, file) {
 export const cases = [{
   name: 'backup, replace and clear',
   async run(t) {
-    const page = await t.open({ seed: persona('P01'), route: '/today' });
+    const page = await t.open({ seed: persona('P01'), route: '/home' });
     const main = page.getByRole('main');
     t.allowConsole('acceptance-injected');
     let B; let fileB; let A;
@@ -153,7 +153,8 @@ export const cases = [{
         await t.check(/Nothing was changed/.test(said), `the failed Replace does not say nothing changed: ${said.slice(0, 300)}`);
         await t.check(!/Restored\./.test(said), 'a failed Replace says Restored');
         const routes = await routesSeen(page);
-        await t.check(routes.every(r => !r.startsWith('#/welcome')), `the failed Replace routed through ${routes.join(' → ')}`);
+        // Welcome is first-run setup, at /setup in v2 (journey §19.2); its v1 address is checked too.
+        await t.check(routes.every(r => !/^#\/(setup|welcome)/.test(r)), `the failed Replace routed through ${routes.join(' → ')}`);
         const now = await t.db();
         const changed = data.sameSnapshot(A, now);
         await t.check(changed.length === 0, `the failed Replace changed the record: ${changed.slice(0, 4).join(' | ')}`);
@@ -219,7 +220,7 @@ export const cases = [{
       await t.check(after.local['fit-strong-90-data'] === storage.local['fit-strong-90-data'] && JSON.stringify(data.appKeys(after)) === JSON.stringify(data.appKeys(storage)),
         `the failed delete changed web storage: ${JSON.stringify(data.appKeys(storage))} → ${JSON.stringify(data.appKeys(after))}`);
       const routes = await routesSeen(page);
-      await t.check(routes.every(r => !r.startsWith('#/welcome') && !r.startsWith('#/onboarding')), `after the failed delete the app routed ${routes.join(' → ')} (the Welcome gate, then away from Data & offline)`);
+      await t.check(routes.every(r => !/^#\/(setup|welcome|onboarding)/.test(r)), `after the failed delete the app routed ${routes.join(' → ')} (the Welcome gate, then away from Data & offline)`);
       const where = await t.route();
       const visible = await t.visible();
       const said = (await sheet.count()) ? await say(sheet) : '';
@@ -248,7 +249,7 @@ export const cases = [{
       await t.reload();
       await t.reload();
       const now = await t.checkpoint('after-clear-reloads');
-      await t.check(await t.route() === '/welcome', `after Delete everything and two reloads the app is at ${await t.route()}`);
+      await t.check(await t.route() === '/setup', `after Delete everything and two reloads the app is at ${await t.route()}`);
       await t.check((now.observations ?? []).length === 0 && (now.sessions ?? []).length === 0 && (now['content-state'] ?? []).length === 0,
         `stores not empty: ${JSON.stringify({ obs: now.observations?.length, sessions: now.sessions?.length, content: now['content-state']?.length })}`);
       const d = docs(now);
@@ -266,7 +267,7 @@ export const cases = [{
         try {
           const nav = JSON.parse(v);
           const entries = [...(nav.entries ?? []), ...Object.values(nav.places ?? {}), ...Object.values(nav.roots ?? {})].filter(Boolean);
-          return entries.every(e => typeof e.pathname === 'string' && e.pathname.startsWith('/welcome'));
+          return entries.every(e => typeof e.pathname === 'string' && e.pathname.startsWith('/setup'));
         } catch { return false; }
       };
       const session = Object.entries(s.session).filter(([k]) => /^fit|draft|progress|session/i.test(k) && !/^(remix-router|react-router)/.test(k))
@@ -290,7 +291,7 @@ export const cases = [{
       await t.check(diffs.length === 0, `restored from Welcome, the record is not B: ${diffs.slice(0, 6).join(' | ')}`);
       const settings = docs(now).settings ?? {};
       await t.check(settings.onboardingComplete === true && settings.focus === 'strength' && settings.startDate === '2026-09-24', `restored settings are not P01's onboarded settings: ${JSON.stringify(settings).slice(0, 200)}`);
-      await t.check(await t.route() === '/today' && await page.getByRole('heading', { level: 1, name: 'Today', exact: true }).count() === 1, `after restoring from Welcome the app is at ${await t.route()}`);
+      await t.check(await t.route() === '/home' && await page.getByRole('heading', { level: 1, name: ui.HOME_TITLE }).count() === 1, `after restoring from Welcome the app is at ${await t.route()}`);
     });
   },
 }];

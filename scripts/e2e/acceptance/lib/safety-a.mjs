@@ -52,7 +52,7 @@ export function patience(t) {
 
 /** Open the app for a case, with the timeouts this machine needs. */
 export async function open(t, seed, opts = {}) {
-  await t.open({ seed, route: '/today', ...opts });
+  await t.open({ seed, route: '/home', ...opts });
   patience(t);
 }
 
@@ -68,9 +68,10 @@ export const checkInSheet = page => page.getByRole('dialog', { name: ui.CHECKIN 
 
 /**
  * Open today's check-in for `mode`, the way a person does from `via`:
- * `move` (Move → the mode → its Start), `today` (Today's primary action) or
- * `chooser` (Today → Choose something else → the mode). Throws when no
- * check-in opens: a missing way in is a failure.
+ * `move` (v1's Move, now the Workout hub from Home → the mode → its Start),
+ * `today` (Home's Right now card, v1 Today's primary action) or `chooser`
+ * (Home → Choose something else → the mode). Throws when no check-in opens:
+ * a missing way in is a failure.
  */
 export async function openCheckIn(t, mode, via = 'move') {
   const page = t.page;
@@ -78,7 +79,7 @@ export async function openCheckIn(t, mode, via = 'move') {
   await closeSheet(page);
   await backToTabs(t);
   if (via === 'move') {
-    await ui.tab(page, 'Move');
+    await ui.legacyTab(page, 'Move');
     if (mode === 'guided') {
       await ui.tap(ui.row(main, 'Guided session'));
     } else {
@@ -91,11 +92,10 @@ export async function openCheckIn(t, mode, via = 'move') {
       else throw new Error(`the ${mode} screen offers neither Start nor a way to today’s check-in`);
     }
   } else if (via === 'today') {
-    await ui.tab(page, 'Today');
-    const card = main.getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) });
-    await ui.tap(card.getByRole('button'));
+    await ui.tab(page, 'Home');
+    await ui.tap(ui.rightNow(page).getByRole('button'));
   } else if (via === 'chooser') {
-    await ui.tab(page, 'Today');
+    await ui.tab(page, 'Home');
     await ui.tap(ui.button(main, 'Choose something else'));
     await ui.tap(ui.row(page.getByRole('dialog'), { guided: 'Guided session', stretch: 'Stretch', walk: 'Walk' }[mode]));
   } else {
@@ -242,7 +242,8 @@ export async function surface(t) {
     const live = await main.getByRole('button', { name: /^(Pause|Finish|Finish walk|Resume)$/ }).count();
     return { where: 'live walk', route, title: undefined, text, start: live > 0 };
   }
-  if (route.startsWith('/walk')) {
+  // Walk's setup, v1's /walk, is the Walk hub (journey §19.2).
+  if (route.startsWith('/hub/walk')) {
     const status = main.getByRole('status').filter({ hasText: /Call emergency services now|No walk today/ });
     const title = (await status.count()) ? (await status.locator('p').first().innerText()).trim() : undefined;
     // The setup's own Start opens the check-in: it is not permission to move (spec).
@@ -274,7 +275,7 @@ export async function attempt(t, mode, via) {
   if (via === 'move' || via === 'chooser' || via === 'today') {
     await backToTabs(t);
     if (via === 'move') {
-      await ui.tab(page, 'Move');
+      await ui.legacyTab(page, 'Move');
       if (mode === 'guided') {
         // Outside the programme the row is the way in to join it, not a session (D8).
         const join = ui.row(main, 'Guided session', 'link');
@@ -291,23 +292,23 @@ export async function attempt(t, mode, via) {
         setup = await throughSetup(t, mode);
       }
     } else if (via === 'chooser') {
-      await ui.tab(page, 'Today');
+      await ui.tab(page, 'Home');
       await ui.tap(ui.button(main, 'Choose something else'));
       await ui.tap(ui.row(page.getByRole('dialog'), { guided: 'Guided session', stretch: 'Stretch', walk: 'Walk' }[mode]));
     } else {
-      await ui.tab(page, 'Today');
-      const card = main.getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) });
-      await ui.tap(card.getByRole('button'));
+      await ui.tab(page, 'Home');
+      await ui.tap(ui.rightNow(page).getByRole('button'));
     }
   } else if (via === 'direct') {
-    await t.goto({ guided: '/session', stretch: '/move/stretch', walk: '/walk' }[mode]);
+    // Each mode's own address in v2: the player, and the Stretch and Walk hubs (journey §19.2).
+    await t.goto({ guided: '/session', stretch: '/hub/stretch', walk: '/hub/walk' }[mode]);
     if (mode !== 'guided') setup = await throughSetup(t, mode);
   } else if (via === 'stretchLink') {
     await t.goto(STRETCH_LINK);
   } else if (via === 'walkLink') {
     await t.goto(WALK_LINK);
     // Sent back to the setup: its Start is the next thing a person would try.
-    if ((await t.route()).split('?')[0] === '/walk') setup = await throughSetup(t, 'walk');
+    if ((await t.route()).split('?')[0] === '/hub/walk') setup = await throughSetup(t, 'walk');
   } else if (via === 'resume') {
     await t.goto('/session?resume=1');
   } else {
@@ -430,7 +431,7 @@ export async function backToTabs(t) {
     await ui.tap(back);
     await page.waitForTimeout(400);
   }
-  if (!(await page.getByRole('navigation', { name: 'Main' }).count())) await t.goto('/today');
+  if (!(await page.getByRole('navigation', { name: 'Main' }).count())) await t.goto('/home');
 }
 
 /** Learn and past-record entry are still there (J03 step 3). */
@@ -439,10 +440,10 @@ export async function learnAndLogReachable(t) {
   const problems = [];
   await closeSheet(page);
   await backToTabs(t);
-  await ui.tab(page, 'Guide');
+  await ui.legacyTab(page, 'Guide');
   if (!(await page.getByRole('heading', { level: 1, name: 'Guide', exact: true }).count())) problems.push('Guide did not open');
   if ((await page.getByRole('main').innerText()).length < 200) problems.push('Guide has no readable content');
-  await ui.tab(page, 'Track');
+  await ui.legacyTab(page, 'Track');
   await ui.tap(ui.header(page).getByRole('button', { name: 'Add a record', exact: true }));
   const add = page.getByRole('dialog', { name: 'Add' });
   await add.waitFor();

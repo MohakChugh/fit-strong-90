@@ -1,16 +1,16 @@
 /**
- * Helpers for J06 and J07: entries through Track → Add, record details, a
- * short timed walk, Today's Status sheet, the habit sheets, and a reader for
+ * Helpers for J06 and J07: entries through My Day → Add, record details, a
+ * short timed walk, Home's status sheet, the habit sheets, and a reader for
  * the calendar file. Every mutation goes through the interface.
  */
 import fs from 'node:fs';
 import * as ui from './ui.mjs';
 import * as move from './move.mjs';
 
-/** Track → Add a record → one form. Returns the form's sheet. */
+/** My Day (Today's log) → Add a record → one form. Returns the form's sheet. */
 export async function openAdd(t, kindLabel) {
   const page = t.page;
-  if (!(await t.route()).startsWith('/track')) await tabTo(t, 'Track');
+  if (!(await t.route()).startsWith('/day/')) await tabTo(t, 'Track');
   await ui.tap(ui.header(page).getByRole('button', { name: 'Add a record', exact: true }));
   const add = page.getByRole('dialog', { name: 'Add' });
   await add.waitFor();
@@ -119,11 +119,11 @@ export async function timedWalk(t, persona, minutes) {
   await page.waitForTimeout(500);
 }
 
-/** Today → Status row → a status → its apply button. Returns the sheet (still open when an offer follows). */
+/** Home → "How are you today?" → a status → its apply button. Returns the sheet (still open when an offer follows). */
 export async function setStatus(t, label) {
   const page = t.page;
-  if (await t.route() !== '/today') await tabTo(t, 'Today');
-  await ui.tap(ui.row(page.getByRole('main'), 'Status'));
+  if (await t.route() !== '/home') await tabTo(t, 'Home');
+  await ui.tap(statusButton(page));
   const sheet = page.getByRole('dialog', { name: 'Status' });
   await sheet.waitFor();
   // Each status is a radio row whose name carries its meaning too: find it by its exact label.
@@ -134,11 +134,13 @@ export async function setStatus(t, label) {
   return sheet;
 }
 
-/** You → Habits & reminders, from anywhere. */
+/** Home's status row, v1 Today's "Status" row: "How are you today? Normal ›" (journey §7.1). */
+export const statusButton = page => page.getByRole('main').getByRole('button', { name: /^How are you today\? / });
+
+/** Me → Habits & reminders, from anywhere. */
 export async function openHabits(t) {
   const page = t.page;
-  await tabTo(t, 'Today');
-  await ui.tap(page.getByRole('link', { name: /^You:/ }));
+  await tabTo(t, 'Me');
   await ui.tap(ui.row(page.getByRole('main'), 'Habits & reminders', 'link'));
   await page.getByRole('heading', { level: 1, name: 'Habits & reminders', exact: true }).waitFor();
 }
@@ -228,18 +230,21 @@ export async function download(t, act) {
   return { name: file.suggestedFilename(), text: fs.readFileSync(path, 'utf8') };
 }
 
-const TAB_PATH = { Today: '/today', Move: '/move', Track: '/track', Guide: '/guide' };
-const TAB_TITLE = { Today: 'Today', Move: 'Move', Track: 'My Day', Guide: 'Guide' };
+const TAB_PATH = { Home: '/home', Trends: '/trends', Browse: '/browse', Me: '/me' };
+const TAB_TITLE = { Home: ui.HOME_TITLE, Trends: 'Trends', Browse: 'Browse', Me: 'Me' };
 
 /**
  * A tab's root screen, waiting until it is up: the address is the tab's and
- * the screen's title is the tab's. `ui.tab` taps again when the tab returns
- * to where it was left.
+ * the screen's title is the tab's (Home's is its greeting). `ui.tab` taps
+ * again when the tab returns to where it was left. v1's Move, Track and Guide
+ * are their v2 places (`ui.legacyTab`), which waits for its own screen.
  */
 export async function tabTo(t, name) {
   const page = t.page;
+  if (Object.hasOwn(ui.LEGACY, name)) return ui.legacyTab(page, name);
   await ui.tab(page, name);
   await page.waitForFunction(p => location.hash.replace(/^#/, '').split('?')[0] === p, TAB_PATH[name], { timeout: 10000 });
-  await page.getByRole('main').getByRole('heading', { level: 1, name: TAB_TITLE[name], exact: true }).waitFor();
+  const title = TAB_TITLE[name];
+  await page.getByRole('main').getByRole('heading', { level: 1, name: title, ...(typeof title === 'string' ? { exact: true } : {}) }).waitFor();
   await page.waitForTimeout(150);
 }

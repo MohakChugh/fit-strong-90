@@ -140,9 +140,10 @@ export const cases = [
           `walkDistance: ${JSON.stringify(dist.map(o => o.value))}`);
         await t.check(obs.length === 6, `${obs.length} walk observations, not 6`);
         await ui.tap(ui.button(main, 'Done'));
-        await page.getByRole('heading', { level: 1, name: 'Today', exact: true }).waitFor();
+        await page.getByRole('heading', { level: 1, name: ui.HOME_TITLE }).waitFor();
         const today = (await main.innerText()).replace(/\s+/g, ' ');
-        const week = today.match(/(\d+) min of movement recorded this week/);
+        // v1 Today's "N min of movement recorded this week" is Home's This week card, "N min moved this week" (journey §7.3).
+        const week = today.match(/(\d+) min moved this week/);
         await t.check(week?.[1] === '3', `this week’s movement reads ${week?.[0] ?? today.slice(0, 160)}, not 3 min`);
       });
 
@@ -277,19 +278,20 @@ export const cases = [
         await t.check(!manual.some(o => o.kind === 'walkDistance') && !obs.some(o => o.kind === 'walkDistance' && o.source !== 'measured'), 'distance was invented for the added time');
         await t.check(measured.filter(o => o.kind === 'walkDuration').map(o => o.coverageMs).sort((a, b) => b - a).join() === '120000,60000', 'the measured segments are not 120000 and 60000 ms');
         await ui.tap(ui.button(main, 'Done'));
-        await t.goto('/track');
+        // v1's Track is Today's log, /day/today (journey §13).
+        await t.goto('/day/today');
         const row = main.getByRole('link', { name: /walk/i });
-        await t.must(await row.count() === 1, `Track lists ${await row.count()} walks`);
+        await t.must(await row.count() === 1, `Today’s log lists ${await row.count()} walks`);
         const rowText = (await row.innerText()).replace(/\s+/g, ' ');
         await ui.tap(row);
         await page.waitForTimeout(400);
         const detail = (await main.innerText()).replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ');
         await t.checkpoint('walk-record-added');
         await t.check(/3 min/.test(detail) && /added|entered by you|you added/i.test(detail), `the record does not show 3 measured + 3 added minutes: ${rowText} | ${detail.slice(0, 300)}`);
-        await t.check(!/\b6 min\b/.test(rowText) || /added/i.test(rowText), `Track shows 6 minutes without saying 3 were added: ${rowText}`);
-        await ui.tab(page, 'Today');
+        await t.check(!/\b6 min\b/.test(rowText) || /added/i.test(rowText), `My Day shows 6 minutes without saying 3 were added: ${rowText}`);
+        await ui.tab(page, 'Home');
         const today = (await main.innerText()).replace(/\s+/g, ' ');
-        const week = today.match(/(\d+) min of movement recorded this week/);
+        const week = today.match(/(\d+) min moved this week/);
         await t.check(week && week[1] !== '9' && (week[1] === '3' || /added|manual/i.test(today)), `this week’s movement reads ${week?.[0] ?? 'nothing'}`);
         const web = await t.storage();
         const leaks = [...walk.positionsIn(await t.db(), 'db'), ...walk.positionsIn(web, 'web')];

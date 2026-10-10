@@ -106,7 +106,7 @@ export const cases = [
       let ranMs = 0;
 
       await t.step(1, 'Choose something else → Stretch; again via Move → Stretch', async () => {
-        await t.must(await t.route() === '/today', `opened ${await t.route()}`);
+        await t.must(await t.route() === '/home', `opened ${await t.route()}`);
         const entry = await move.enter(t, 'stretch', 'chooser');
         if (entry.sheet) {
           // The shared gate: no diabetes or blood-pressure readings for P02.
@@ -122,14 +122,15 @@ export const cases = [
           await ui.tap(go);
         }
         await assertSetup(t, 'chooser');
-        // Move → Stretch, to the setup (not its Start).
-        await ui.tab(page, 'Move');
+        // Move (v1's tab, now the Workout hub) → Stretch, to the setup (not its Start).
+        await ui.legacyTab(page, 'Move');
         await ui.tap(ui.row(main, 'Stretch', 'link'));
         await assertSetup(t, 'move');
       });
 
       await t.step(2, 'Ten-minute routine, normal answers, Start stretch', async () => {
-        if (!(await t.route()).startsWith('/move/stretch')) await t.goto('/move/stretch');
+        // Stretch's setup is the Stretch hub, /hub/stretch (journey §19.2).
+        if (!(await t.route()).startsWith('/hub/stretch')) await t.goto('/hub/stretch');
         await startTen(t);
         await t.checkpoint('stretch-ready');
         await player.begin(page);
@@ -188,11 +189,11 @@ export const cases = [
         await t.check(!docs(snap).settings?.startDate, `startDate became ${docs(snap).settings?.startDate}`);
       });
 
-      await t.step(5, 'Track and the saved record; reload Today', async () => {
-        await page.waitForURL(/#\/(today|move)/, { timeout: 8000 }).catch(() => {});
-        await t.goto('/track');
+      await t.step(5, 'Today’s log (v1’s Track) and the saved record; reload Home', async () => {
+        await page.waitForURL(/#\/(home|hub)/, { timeout: 8000 }).catch(() => {});
+        await t.goto('/day/today');
         const rowLink = main.getByRole('link', { name: /stretch/i });
-        await t.must(await rowLink.count() === 1, `today’s Track lists ${await rowLink.count()} stretch records`);
+        await t.must(await rowLink.count() === 1, `Today’s log lists ${await rowLink.count()} stretch records`);
         const rowText = await rowLink.innerText();
         await t.check(!/Partly done|Partial/i.test(rowText), `the finished stretch reads as partial: ${rowText}`);
         await ui.tap(rowLink);
@@ -200,12 +201,12 @@ export const cases = [
         const detail = await main.innerText();
         await t.checkpoint('stretch-record');
         await t.check(!/Week \d+ of 12|Sets done/i.test(detail), `the stretch record reads as a programme workout: ${detail.slice(0, 200)}`);
-        await t.goto('/today');
-        const card = main.getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) });
+        await t.goto('/home');
+        const card = ui.rightNow(page);
         const cardText = (await card.innerText()).replace(/\n/g, ' ⏎ ');
         await t.checkpoint('today-after-stretch');
-        await t.check(!/Week \d+ of 12|Full Body|strength programme|Build my plan/i.test(cardText), `Today pushes the strength programme after a stretch: ${cardText}`);
-        t.note(`Today after the stretch: ${cardText}`);
+        await t.check(!/Week \d+ of 12|Full Body|strength programme|Build my plan/i.test(cardText), `Home pushes the strength programme after a stretch: ${cardText}`);
+        t.note(`Home after the stretch: ${cardText}`);
         const snap = await t.db();
         await t.check(!docs(snap).settings?.startDate, 'startDate is no longer empty');
         await t.check((snap.sessions ?? []).length === 1, `${(snap.sessions ?? []).length} sessions after reload`);
@@ -220,7 +221,7 @@ export const cases = [
     name: v.name,
     async run(t) {
       const page = await t.open({
-        seed: persona('P02'), route: '/move/stretch',
+        seed: persona('P02'), route: '/hub/stretch',
         ...(v.caps ? { capabilities: v.caps } : {}),
         ...(v.reducedMotion ? { reducedMotion: v.reducedMotion } : {}),
       });

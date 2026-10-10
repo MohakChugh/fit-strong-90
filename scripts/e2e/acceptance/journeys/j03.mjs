@@ -78,10 +78,10 @@ async function step6(t, flag, sessionsBefore, mode = 'guided') {
   await t.step(6, 'Reload after the save has committed', async () => {
     await t.reload();
     await s.backToTabs(t);
-    await ui.tab(t.page, 'Today');
-    const card = t.page.getByRole('main').getByRole('region').filter({ has: t.page.getByRole('heading', { level: 3 }) });
+    await ui.tab(t.page, 'Home');
+    const card = ui.rightNow(t.page);
     const cardTitle = (await card.getByRole('heading', { level: 3 }).innerText()).trim();
-    await t.check(cardTitle === s.TITLE.emergency, `after reload Today leads with “${cardTitle}”, not the emergency`);
+    await t.check(cardTitle === s.TITLE.emergency, `after reload Home leads with “${cardTitle}”, not the emergency`);
     const snap = await t.checkpoint('today-after-reload');
     await expectStoredEmergency(t, snap, flag);
     await expectNoActivity(t, snap, sessionsBefore);
@@ -293,13 +293,13 @@ async function findCheckInControl(t) {
     t.note(`check-in control search, ${where}: ${n ? (await c.allInnerTexts()).join(', ') : 'none'}`);
     return n === 1 ? { control: c, where } : undefined;
   };
-  await ui.tab(page, 'Today');
-  // Today's quiet "Today’s check-in" row, whose Update reopens the sheet in place, found by its own label:
+  await ui.tab(page, 'Home');
+  // Home's quiet "Today’s check-in" row (v1 Today's), whose Update reopens the sheet in place, found by its own label:
   // other rows can name the check-in too (Blood pressure says "From your check-in").
   const row = ui.row(main, 'Today’s check-in');
-  t.note(`check-in control search, Today: ${await row.count()} “Today’s check-in” row(s)`);
-  if (await row.count() === 1) return { control: row, where: 'Today' };
-  let hit = await look('Today');
+  t.note(`check-in control search, Home: ${await row.count()} “Today’s check-in” row(s)`);
+  if (await row.count() === 1) return { control: row, where: 'Home' };
+  let hit = await look('Home');
   if (hit) return hit;
   await ui.tap(ui.button(main, 'Choose something else'));
   const chooser = page.getByRole('dialog');
@@ -307,11 +307,11 @@ async function findCheckInControl(t) {
   t.note(`check-in control search, chooser: ${(await inChooser.count()) ? (await inChooser.allInnerTexts()).join(', ') : 'none'}`);
   if (await inChooser.count() === 1) return { control: inChooser, where: 'chooser' };
   await ui.tap(ui.button(chooser, 'Close'));
-  await ui.tab(page, 'Move');
+  await ui.legacyTab(page, 'Move');
   if ((hit = await look('Move'))) return hit;
-  await t.goto('/move/stretch');
+  await t.goto('/hub/stretch');
   if ((hit = await look('Stretch setup'))) return hit;
-  await t.goto('/walk');
+  await t.goto('/hub/walk');
   if ((hit = await look('Walk setup'))) return hit;
   await t.goto('/session?resume=1');
   if ((hit = await look('player'))) return hit;
@@ -346,18 +346,18 @@ const step4 = {
       await page.waitForTimeout(600);
       const saved = (await t.storage()).local['fit-strong-90-guided'];
       await t.must(!!saved, 'no saved guided progress after Save and exit');
-      await ui.tab(page, 'Today');
+      await ui.tab(page, 'Home');
       const resumeOffered = await main.getByRole('button', { name: /^Continue/ }).count();
       await t.checkpoint('today-with-saved-session');
-      await t.check(resumeOffered > 0, 'Today does not offer Continue for the saved session');
+      await t.check(resumeOffered > 0, 'Home does not offer Continue for the saved session');
 
       // Recording a new current emergency: the way to today's check-in once it allows movement.
       const found = await findCheckInControl(t);
       if (found) {
         await ui.tap(found.control);
       } else {
-        await t.check(false, 'once today’s check-in allows movement, no visible control reopens it to record a new emergency: Today, Move, the chooser, Stretch and Walk setup and the paused player were searched; continued through the app’s own /today?checkin=guided link');
-        await t.goto('/today?checkin=guided');
+        await t.check(false, 'once today’s check-in allows movement, no visible control reopens it to record a new emergency: Home, Move, the chooser, Stretch and Walk setup and the paused player were searched; continued through the app’s own /home?checkin=guided link');
+        await t.goto('/home?checkin=guided');
       }
       const again = s.checkInSheet(page);
       await again.waitFor();
@@ -370,12 +370,12 @@ const step4 = {
       await expectStoredEmergency(t, snap, 'chest');
 
       // Continue is replaced; the resume link is refused.
-      await ui.tab(page, 'Today');
+      await ui.tab(page, 'Home');
       const cont = main.getByRole('button', { name: /^Continue/ });
       if (await cont.count()) {
         await ui.tap(cont);
         const after = await s.surface(t);
-        await t.check(!after.start && after.title === s.TITLE.emergency, `Today still offers Continue beside the emergency, and it led to ${after.where} “${after.title}” (start ${after.start})`);
+        await t.check(!after.start && after.title === s.TITLE.emergency, `Home still offers Continue beside the emergency, and it led to ${after.where} “${after.title}” (start ${after.start})`);
         await s.closeSheet(page);
       }
       const resume = await s.attempt(t, 'guided', 'resume');
@@ -410,9 +410,8 @@ const step5 = {
       await s.closeSheet(page);
       await t.checkpoint('bladder-saved');
 
-      // Profile: no back or sciatica any more.
-      await ui.tab(page, 'Today');
-      await ui.tap(page.getByRole('link', { name: /^You:/ }));
+      // Profile: no back or sciatica any more (v1's You button is v2's Me tab).
+      await ui.tab(page, 'Me');
       await ui.tap(ui.row(main, 'Profile & health', 'link'));
       await ui.tap(main.getByRole('button', { name: 'Edit back and legs', exact: true }));
       const group = page.getByRole('group', { name: 'Pain or past injury' }).getByRole('group', { name: 'Pain or past injury' });

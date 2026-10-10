@@ -142,7 +142,8 @@ export async function openApp(t, opts) {
 }
 
 /**
- * Into the guided session from Move. Enrolled, the row starts it (through the
+ * Into the guided session from Move (v1's tab, now the Workout hub from Home,
+ * `ui.legacyTab`). Enrolled, the row starts it (through the
  * check-in). Not enrolled, the row is the 12-week programme's page instead,
  * and since D35 nothing outside the programme starts the session, so this
  * returns `viaProgramme` with that page's text and no sheet. A case about
@@ -151,7 +152,7 @@ export async function openApp(t, opts) {
 export async function openGuided(t) {
   const page = t.page;
   const main = page.getByRole('main');
-  await ui.tab(page, 'Move');
+  await ui.legacyTab(page, 'Move');
   const start = ui.row(main, 'Guided session');
   const programme = ui.row(main, 'Guided session', 'link');
   const sheet = page.getByRole('dialog', { name: ui.CHECKIN });
