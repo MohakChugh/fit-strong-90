@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  addButton, addTile, groupFull, hiddenTiles, hideTile, movedMessage, moveTile, moveTileTo, notOnHome, placedMessage, restoreTile, showTile,
+  addButton, addTile, groupFull, hiddenTiles, hideTile, movedMessage, moveTile, moveTileTo, notOnHome, placedMessage, restoreTile, showTile, storedLayout,
 } from './layout';
 import type { HomeLayout } from '@/types';
 
@@ -132,5 +132,14 @@ describe('what VoiceOver hears after a change (M17)', () => {
   it('says where an added or restored tile went', () => {
     expect(placedMessage(addTile(L, 'labs'), 'labs', 'added')).toBe('Labs added to Home, position 4 of 4');
     expect(placedMessage(L, 'stretch', 'back')).toBe('Stretch back on Home, position 2 of 3');
+  });
+});
+
+describe('storedLayout: what a change starts from (Review Focus 1)', () => {
+  it('is the stored layout when this build can draw it, and nothing otherwise, so a change starts from the defaults rather than from an empty Home', () => {
+    expect(storedLayout(L)).toBe(L);
+    expect(storedLayout(undefined)).toBeUndefined();
+    expect(storedLayout({ order: {}, hidden: [] })).toBeUndefined();
+    expect(storedLayout('grid')).toBeUndefined();
   });
 });

@@ -10,8 +10,9 @@ import { toast } from 'sonner';
 import { MAX_PER_GROUP, categoryById, isHomeLayout, type CategoryId } from '@/categories';
 import { MOTION, springLinear } from '@/design/motion';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
-import { getState, setSettings, update } from '@/store/useStore';
+import { setSettings, update } from '@/store/useStore';
 import type { HomeLayout } from '@/types';
+import { layoutNow } from './homeLayout';
 import { addTile, groupFull, hiddenTiles, hideTile, movedMessage, moveTile, moveTileTo, placedMessage, restoreTile, showTile } from './layout';
 
 /** A control on a tile in edit mode, found again by name once the tile has moved. */
@@ -209,11 +210,7 @@ export function useHomeEditor({ fallback, still, urgent }: {
   useEffect(() => () => endUndos(undos), []);
 
   /** The layout as it stands now, a refused draft or a change still being written included, so quick taps build on each other. */
-  const latest = (): HomeLayout => {
-    if (draft.current) return draft.current;
-    const home = getState().settings.home;
-    return home !== undefined && isHomeLayout(home) ? home : fallback;
-  };
+  const latest = (): HomeLayout => draft.current ?? layoutNow(fallback);
   const say = (text: string) => setSaid(s => ({ text, n: s.n + 1 }));
   // After the change has rendered: the element a control was on may have been moved or replaced.
   const focusLater = (find: () => HTMLElement | null | undefined, options?: FocusOptions) => requestAnimationFrame(() => find()?.focus(options));

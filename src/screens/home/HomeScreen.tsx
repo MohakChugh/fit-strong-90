@@ -20,7 +20,7 @@ import { Group, Row } from '@/components/hig/List';
 import { CheckInSheet } from '@/components/checkin/CheckInSheet';
 import { opensOnHold } from '@/components/checkin/start';
 import { useStartMovement } from '@/components/checkin/useStartMovement';
-import { categoryById, defaultHome, isHomeLayout, walkingHeldForFeet, type CategoryId } from '@/categories';
+import { categoryById, walkingHeldForFeet, type CategoryId } from '@/categories';
 import { useGuided } from '@/hooks/useGuided';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { checkedIn, type Mode } from '@/engine/permission';
@@ -65,6 +65,7 @@ import {
 } from '@/screens/today/model';
 import { EditTiles } from './EditHome';
 import { useFirstLayout, useHomeEditor } from './editor';
+import { useHomeLayout } from './homeLayout';
 import { FROM_HOME, dueWords, greeting, lastReadings, normalLine, readingLine } from './model';
 import { RemindersCapsule } from './RemindersCapsule';
 import { StatusButton } from './StatusButton';
@@ -256,7 +257,6 @@ export function HomeScreen() {
       last: lastReadings(observations, today, prefs),
     };
   }, [profile, observations, sessions, today]);
-  const hasSteps = useMemo(() => observations.some(o => o.kind === 'steps'), [observations]);
   const enrolled = isEnrolled(settings, profile);
   const trained = trainedOn(sessions, today);
   const period = periodOn(settings.statusPeriods, today);
@@ -280,8 +280,7 @@ export function HomeScreen() {
   // ---- Tiles (journey §7.1, §7.2, §7.5) and Edit Home (§7.6) ----------------
   // The person's own layout once there is one, and one this build can draw;
   // until then the defaults from their answers (journey §5.1).
-  const stored = settings.home !== undefined && isHomeLayout(settings.home) ? settings.home : undefined;
-  const fallback = useMemo(() => defaultHome({ profile: guided.profile, settings, hasSteps }), [settings, guided.profile, hasSteps]);
+  const { fallback, stored } = useHomeLayout();
   // The defaults are worked out once, at the end of setup or on the first v2
   // launch, and kept: after that a change to the answers never reshuffles the
   // tiles by itself; a newly relevant category is offered in Me (§5.1, Plan 4).

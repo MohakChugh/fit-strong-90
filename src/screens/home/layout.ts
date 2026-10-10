@@ -4,8 +4,16 @@
  * group, groups keep their order, and no group ever holds more than 5 tiles
  * (journey §20.4 rule 13, B-08): adding to a full group fails.
  */
-import { CATEGORIES, GROUPS, MAX_PER_GROUP, categoryById } from '@/categories';
+import { CATEGORIES, GROUPS, MAX_PER_GROUP, categoryById, isHomeLayout } from '@/categories';
 import type { CategoryId, GroupId, HomeLayout } from '@/types';
+
+/**
+ * A stored or imported `settings.home` this build can draw (`isHomeLayout`),
+ * or nothing. The caller then falls back to the defaults, never to an empty Home.
+ */
+export function storedLayout(home: unknown): HomeLayout | undefined {
+  return home !== undefined && isHomeLayout(home) ? home : undefined;
+}
 
 const clone = (l: HomeLayout): HomeLayout => ({ order: { move: [...l.order.move], eat: [...l.order.eat], check: [...l.order.check], learn: [...l.order.learn] }, hidden: [...l.hidden] });
 

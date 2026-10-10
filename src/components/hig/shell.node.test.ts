@@ -493,7 +493,9 @@ describe('wiring that names the opener (S-10, S-11)', () => {
   });
 
   it('a row into a movement screen that opens on its refusal skips the transition, asked at the tap (codex V1-05)', () => {
-    expect(read('src/screens/browse/BrowseScreen.tsx')).toMatch(/onClick=\{c\.mode \? \(\) => \{ if \(opensOnHold\(gateFor\(guided, c\.mode!\)\)\) skipNextTransition\(\); \} : undefined\}/);
+    // Browse asks the gate in `held`, which each category row calls at the tap.
+    expect(read('src/screens/browse/BrowseScreen.tsx')).toMatch(/const held = \(id: CategoryId\) => \{\s*const \{ mode \} = categoryById\(id\);\s*return mode !== undefined && opensOnHold\(gateFor\(guided, mode\)\);/);
+    expect(read('src/screens/browse/BrowseList.tsx')).toContain('onClick={() => { if (held(id)) skipNextTransition(); }}');
     // The Workout hub has no rows into Stretch or Walk: its "Stretch instead" is offered only while the stretch gate is open
     // (`movementCard`), so the Stretch hub never opens on its refusal from there.
     // Home's tiles ask the permission, not their line's tone.
@@ -602,9 +604,9 @@ describe('the safety surface wherever the person is (codex V1-02, V1-03, journey
     expect(read('src/components/checkin/CheckInSheet.tsx')).toMatch(/<Sheet open=\{props\.open\} onOpenChange=\{props\.onOpenChange\} title="Check-in" detent="large" ownsUrgent>/);
   });
 
-  it('sheets and the tile menu own the page while open: the toasts wait in #toasts, hidden (codex V1-13)', () => {
+  it('sheets and menus own the page while open: the toasts wait in #toasts, hidden (codex V1-13)', () => {
     expect(read('src/components/hig/Sheet.tsx')).toContain('claimModal()');
-    expect(read('src/screens/home/TileMenu.tsx')).toContain('claimModal()');
+    expect(read('src/components/hig/ActionMenu.tsx')).toContain('claimModal()');
     expect(read('src/main.tsx')).toMatch(/<div id="toasts">\s*<Toaster/);
     expect(read('src/index.css')).toMatch(/#toasts\[data-held\] \{ visibility: hidden; \}/);
   });
