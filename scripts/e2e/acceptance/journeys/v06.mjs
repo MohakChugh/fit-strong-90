@@ -54,6 +54,8 @@ export const cases = [{
       await page.getByText('Saved', { exact: true }).waitFor({ timeout: 8000 });
       await page.waitForFunction(() => location.hash.replace(/^#/, '').split('?')[0] === '/hub/workout', null, { timeout: 15000 }).catch(() => {});
       await t.check(await t.route() === '/hub/workout', `after the summary the app went to ${await t.route()}, not back to the Workout hub (B-30)`);
+      // The hub once its own screen is in: under load the address had changed while the summary was still drawn.
+      await ui.heading(page, 'Workout');
       const history = ui.section(page.getByRole('main'), 'History');
       await t.check(await history.getByRole('link').count() >= 1, 'the Workout hub’s History does not list the session');
     });
