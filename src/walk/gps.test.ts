@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createTrack, GPS, metresBetween, type Fix, type Track } from './gps';
+import { lineProblem, type RouteLine } from './routeRecord';
 
 /** A seeded generator, so a noisy test fails the same way every time. */
 function random(seed: number) {
@@ -320,5 +321,80 @@ describe('metresBetween', () => {
   it('agrees with a known distance', () => {
     // One degree of latitude is about 111.2 km.
     expect(metresBetween({ lat: 12, lon: 77 }, { lat: 13, lon: 77 })).toBeCloseTo(111_195, -2);
+  });
+});
+
+describe('the route, when asked for (B-17)', () => {
+  const length = (l: RouteLine) => l.coords.slice(1)
+    .reduce((t, p, i) => t + metresBetween({ lat: l.coords[i][0], lon: l.coords[i][1] }, { lat: p[0], lon: p[1] }), 0);
+
+  it('keeps no points unless asked, but always knows where the walker is', () => {
+    const track = createTrack(T0);
+    play(track, path({ seconds: 60, speed: 1.3, noise: 0 }));
+    expect(track.lines).toEqual([]);
+    expect(track.here).toBeDefined();
+  });
+
+  it('draws each run of signal as its own line, never joined, exactly as long as the distance counted', () => {
+    const track = createTrack(T0, { route: true });
+    play(track, path({ seconds: 60, speed: 1.3, noise: 0 }));
+    play(track, path({ from: 120, seconds: 60, speed: 1.3, noise: 0, origin: offset(START, 300, 0) }));
+    expect(track.lines).toHaveLength(2);
+    expect(length(track.lines[0]) + length(track.lines[1])).toBeCloseTo(track.distanceM, 3);
+    for (const l of track.lines) expect(lineProblem(l)).toBeUndefined();
+  });
+
+  it('breaks the line at a jump no walker could make, and never draws the jump', () => {
+    const track = createTrack(T0, { route: true });
+    play(track, path({ seconds: 60, speed: 1.3, noise: 0 }));
+    const far = offset(START, 2000, 0);
+    // Three fixes that agree with each other, 2 km away: the track starts again there, counting nothing between.
+    play(track, [0, 1, 2].map(i => ({ ...far, accuracy: 5, timestamp: T0 + 61_000 + i * 1000 })));
+    play(track, path({ from: 64, seconds: 30, speed: 1.3, noise: 0, origin: far }));
+    expect(track.lines).toHaveLength(2);
+    expect(track.lines[1].coords[0][0]).toBeCloseTo(far.lat, 5);
+    expect(length(track.lines[0]) + length(track.lines[1])).toBeCloseTo(track.distanceM, 3);
+  });
+
+  it('keeps every point to 6 decimal places', () => {
+    const track = createTrack(T0, { route: true });
+    play(track, path({ seconds: 30, speed: 1.3, noise: 2, seed: 7 }));
+    for (const [lat, lon] of track.lines.flatMap(l => l.coords)) {
+      expect(Math.round(lat * 1e6) / 1e6).toBe(lat);
+      expect(Math.round(lon * 1e6) / 1e6).toBe(lon);
+    }
+  });
+
+  it('stops keeping points at its limit, and forgets them on request, keeping the distance (B-05)', () => {
+    const track = createTrack(T0, { route: true, maxPoints: 5 });
+    play(track, path({ seconds: 120, speed: 1.3, noise: 0 }));
+    expect(track.lines.reduce((n, l) => n + l.coords.length, 0)).toBe(5);
+    const walked = track.distanceM;
+    track.forgetPoints();
+    expect(track.lines).toEqual([]);
+    expect(track.distanceM).toBe(walked);
+  });
+
+  it('draws again from nothing after forgetting, up to its limit', () => {
+    const track = createTrack(T0, { route: true, maxPoints: 5 });
+    play(track, path({ seconds: 120, speed: 1.3, noise: 0 }));
+    track.forgetPoints();
+    play(track, path({ from: 121, seconds: 120, speed: 1.3, noise: 0, origin: offset(START, 110, 110) }));
+    const kept = track.lines.reduce((n, l) => n + l.coords.length, 0);
+    expect(kept).toBe(5);
+  });
+
+  it('breaks the line at a move it did not count, so the drawing never shows a ride (B-17)', () => {
+    const track = createTrack(T0, { route: true });
+    play(track, path({ seconds: 30, speed: 1.3, noise: 0 }));
+    // A bus: each fix close enough to the last to be believed, but far faster than walking.
+    const ride = path({ from: 31, seconds: 12, speed: 25, accuracy: 20, noise: 0, origin: offset(START, 28, 28) });
+    play(track, ride);
+    const off = ride[ride.length - 1];
+    play(track, path({ from: 44, seconds: 60, speed: 1.3, noise: 0, origin: off }));
+    expect(track.lines.length).toBeGreaterThanOrEqual(2);
+    expect(length(track.lines[0]) + track.lines.slice(1).reduce((t, l) => t + length(l), 0)).toBeCloseTo(track.distanceM, 3);
+    // The ride is about 300 m; only the walking either side of it counts.
+    expect(track.distanceM).toBeLessThan(150);
   });
 });

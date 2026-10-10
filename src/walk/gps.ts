@@ -24,6 +24,7 @@
  * constant-velocity Kalman filter in a local tangent plane if on-device traces
  * show corner-cutting or lag that matters for a walk.
  */
+import { ROUTE_LIMITS, roundCoord, type LatLon, type RouteLine } from './routeRecord';
 
 export interface Fix {
   lat: number;
@@ -112,6 +113,13 @@ export interface GpsRun {
   distanceM: number;
 }
 
+export interface TrackOptions {
+  /** Keep the route as lines of counted positions, for the live drawing and, with consent, the saved route (B-17). */
+  route?: boolean;
+  /** The most points one track keeps. */
+  maxPoints?: number;
+}
+
 export interface Track {
   /** Offer a fix, with the time it arrived. */
   push(fix: Fix, now: number): FixVerdict;
@@ -124,6 +132,12 @@ export interface Track {
   readonly accepted: number;
   /** Each unbroken stretch of signal, oldest first. Copies. */
   readonly runs: GpsRun[];
+  /** The route so far, one line per stretch of counted movement, when asked for. Copies. */
+  readonly lines: RouteLine[];
+  /** The last counted position: the live view's "you are here" dot. */
+  readonly here: LatLon | undefined;
+  /** Drop every point kept so far (B-05). The distance stays. */
+  forgetPoints(): void;
 }
 
 const EARTH_RADIUS_M = 6_371_008.8;
@@ -204,7 +218,7 @@ function walkedBy(marks: Mark[], t: number): number {
 }
 
 /** A track for a segment that started at `segmentStart` (epoch ms). */
-export function createTrack(segmentStart: number): Track {
+export function createTrack(segmentStart: number, options: TrackOptions = {}): Track {
   let distance = 0;
   let covered = 0;
   let accepted = 0;
@@ -224,6 +238,32 @@ export function createTrack(segmentStart: number): Track {
   let moves = 0;
   let refused: Fix[] = [];
   const runs: GpsRun[] = [];
+  const keepRoute = options.route === true;
+  const maxPoints = options.maxPoints ?? ROUTE_LIMITS.points;
+  let lines: RouteLine[] = [];
+  let points = 0;
+  let here: LatLon | undefined;
+
+  /** A new line from this position: after a first fix, a gap, or a jump that was not walked. */
+  function beginLine(lat: number, lon: number, t: number) {
+    here = [roundCoord(lat), roundCoord(lon)];
+    if (!keepRoute || points >= maxPoints) return;
+    lines.push({ start: t, end: t, coords: [here], ms: [0] });
+    points += 1;
+  }
+
+  /** The line goes on from `from` to this counted position, so the line is as long as the distance counted. */
+  function extendLine(from: Point, lat: number, lon: number, t: number) {
+    // After the points were forgotten (B-05), the drawing starts again from the last counted position.
+    if (keepRoute && lines.length === 0) beginLine(from.lat, from.lon, from.t);
+    here = [roundCoord(lat), roundCoord(lon)];
+    const line = lines[lines.length - 1];
+    if (!keepRoute || !line || points >= maxPoints) return;
+    line.coords.push(here);
+    line.end = Math.max(line.end, t);
+    line.ms.push(line.end - line.start);
+    points += 1;
+  }
 
   /**
    * Begin a new run from this fix: after a first fix, a signal gap, or a jump
@@ -235,7 +275,9 @@ export function createTrack(segmentStart: number): Track {
     lastArrived = now;
     accepted += 1;
     buffer = [fix];
-    anchor = { lat: fix.lat, lon: fix.lon, t: fix.timestamp };
+    // The counted position is kept at the route's own precision, so the line
+    // drawn through it is exactly as long as the distance counted (B-17).
+    anchor = { lat: roundCoord(fix.lat), lon: roundCoord(fix.lon), t: fix.timestamp };
     threshold = Math.max(GPS.minMoveM, fix.accuracy);
     marks = [{ t: fix.timestamp, c: distance }];
     origin = fix.timestamp;
@@ -245,6 +287,7 @@ export function createTrack(segmentStart: number): Track {
     // at the segment, so a run never reaches back into a gap or a day before.
     const start = Math.max(fix.timestamp, segmentStart);
     runs.push({ start, end: start, distanceM: 0 });
+    beginLine(fix.lat, fix.lon, start);
   }
 
   function refuseJump(fix: Fix, now: number): FixVerdict {
@@ -274,8 +317,9 @@ export function createTrack(segmentStart: number): Track {
     refused = [];
 
     buffer = [...buffer.filter(f => f.timestamp > fix.timestamp - GPS.smoothWindowMs), fix];
-    const p = smoothed(buffer);
-    threshold = Math.max(GPS.minMoveM, p.accuracy);
+    const smooth = smoothed(buffer);
+    threshold = Math.max(GPS.minMoveM, smooth.accuracy);
+    const p = { lat: roundCoord(smooth.lat), lon: roundCoord(smooth.lon) };
 
     const moved = metresBetween(anchor, p);
     if (moved < threshold) return 'accepted';
@@ -286,6 +330,10 @@ export function createTrack(segmentStart: number): Track {
       distance += moved;
       run.distanceM += moved;
       moves += 1;
+      extendLine(anchor, p.lat, p.lon, fix.timestamp);
+    } else {
+      // Not walked: the line breaks here, so the drawing never shows the jump (B-17).
+      beginLine(p.lat, p.lon, fix.timestamp);
     }
     anchor = { lat: p.lat, lon: p.lon, t: fix.timestamp };
     marks.push({ t: fix.timestamp, c: distance });
@@ -363,6 +411,16 @@ export function createTrack(segmentStart: number): Track {
     },
     get runs() {
       return runs.map(r => ({ ...r }));
+    },
+    get lines() {
+      return lines.map(l => ({ ...l, coords: [...l.coords], ms: [...l.ms] }));
+    },
+    get here() {
+      return here;
+    },
+    forgetPoints() {
+      lines = [];
+      points = 0;
     },
   };
 }
