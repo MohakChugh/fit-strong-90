@@ -66,6 +66,14 @@ describe('settings in an import file are read field by field (D-08)', () => {
     }
   });
 
+  it('reads the weekly goal’s history, v1’s undated goal included, and leaves out one that cannot be read (B-16)', () => {
+    const history = [{ from: '', goal: 120 }, { from: '2026-10-12', goal: 150 }, { from: '2026-10-19' }];
+    expect(preview(file({ settings: { ...settings, weeklyMovementGoalHistory: history } })).unreadableFields).toEqual([]);
+    for (const bad of [[{ from: 'soon', goal: 90 }], [{ goal: 90 }], [{ from: '2026-10-12', goal: 0 }], 'weekly']) {
+      expect(preview(file({ settings: { ...settings, weeklyMovementGoalHistory: bad } })).unreadableFields).toEqual(['settings.weeklyMovementGoalHistory']);
+    }
+  });
+
   it('needs the same explicit choice as unreadable records before anything is written', () => {
     expect(() => planImport(file({ settings: { ...settings, statusPeriods: 'flare' } }), 'replace', emptySnapshot())).toThrow(/could not be read/);
   });

@@ -5,14 +5,16 @@
  */
 
 import { useId, useState } from 'react';
+import { format, parseISO } from 'date-fns';
 import { Sheet } from '@/components/hig/Sheet';
-import { setSettings, update } from '@/store/useStore';
+import { update, useStore } from '@/store/useStore';
 import { WHO_WEEKLY_MINUTES, checkWeeklyGoal } from './movement';
-import { today } from './periods';
+import { addDays, mondayOf, today } from './periods';
 import { checkValue } from './plausible';
 import { withStepsGoal } from './stepsGoal';
 import { NOT_ADVICE } from './targets';
 import { ErrorText, Hint, NumberField, PrimaryButton, SecondaryButton } from './ui';
+import { weeklyGoalOn, withWeeklyGoal } from './weeklyGoal';
 
 export function GoalSheet({ open, onOpenChange, goal }: {
   open: boolean;
@@ -28,14 +30,19 @@ export function GoalSheet({ open, onOpenChange, goal }: {
 }
 
 function GoalForm({ goal, onDone }: { goal: number | undefined; onDone: () => void }) {
+  const { settings } = useStore();
+  const day = today();
+  const thisWeek = weeklyGoalOn(settings, day);
+  const monday = format(parseISO(addDays(mondayOf(day), 7)), 'EEEE d MMMM');
   const errorId = useId();
   const [raw, setRaw] = useState(goal !== undefined ? String(goal) : '');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
 
+  // Built inside the store's queue from the latest settings, so a change made elsewhere is not lost.
   const write = async (minutes: number | undefined) => {
     setBusy(true);
-    const result = await setSettings({ weeklyMovementGoalMinutes: minutes });
+    const result = await update(prev => ({ ...prev, settings: { ...prev.settings, ...withWeeklyGoal(prev.settings, minutes, today()) } }));
     setBusy(false);
     if (!result.ok) return setError(result.failure.message);
     onDone();
@@ -53,6 +60,10 @@ function GoalForm({ goal, onDone }: { goal: number | undefined; onDone: () => vo
       <p className="px-1 text-[length:var(--text-body)] leading-snug">
         Choose how many minutes of recorded movement you would like each week. Walks, sessions and workouts you record count towards it, and a rest day is part of the plan.
       </p>
+      {/* B-16: the week under way keeps its goal, so its ring never moves under someone mid-week. */}
+      {thisWeek !== undefined && (
+        <Hint>{`A change starts on ${monday}. This week keeps its goal of ${thisWeek} minutes.`}</Hint>
+      )}
       <NumberField
         label="Minutes each week"
         mode="numeric"

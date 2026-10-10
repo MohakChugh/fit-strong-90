@@ -31,6 +31,7 @@ import { assembleDay, recordPath, type DayView } from './timeline';
 import { trendRows } from './trends';
 import { DateStepper, PrimaryButton, Segmented } from './ui';
 import { useToday } from './useToday';
+import { weeklyGoalOn } from './weeklyGoal';
 
 const VIEWS = [
   { id: 'timeline', label: 'Timeline' },
@@ -222,7 +223,7 @@ function TimelineView({ day, current, fresh, origin, prefs, onAdd, onGoal }: {
   const weekFrom = weekOf(day).from;
   const weekly = useMemo(() => recordedMovement(weekOf(weekFrom), observations, sessions), [weekFrom, observations, sessions]);
   const daily = useMemo(() => recordedMovement({ from: day, to: day }, observations, sessions), [day, observations, sessions]);
-  const goal = settings.weeklyMovementGoalMinutes;
+  const goal = weeklyGoalOn(settings, day);
   const isFresh = (ids: readonly string[]) => ids.some(id => fresh.includes(id));
 
   const movement = goal !== undefined
@@ -359,7 +360,7 @@ function TrendsView({ day, current, origin, prefs, onAdd, onGoal }: {
 }) {
   const { observations, profile, settings } = useStore();
   const rows = useMemo(() => trendRows(day, { observations, ...(profile ? { profile } : {}) }, prefs, current), [day, observations, profile, prefs, current]);
-  const goal = settings.weeklyMovementGoalMinutes;
+  const goal = weeklyGoalOn(settings, current);
   // The weekly goal is the person's to see and change from here as well.
   const goalRow = goal === undefined ? <SetGoalRow onGoal={onGoal} /> : (
     <Group>

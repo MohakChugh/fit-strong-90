@@ -170,6 +170,13 @@ export interface UserSettings {
    */
   weeklyMovementGoalMinutes?: number;
   /**
+   * v2 (B-16): each change to the weekly goal and the Monday it took effect,
+   * oldest first. `from: ''` is a goal v1 set before goals were dated: it
+   * holds for every week before the first dated change. An entry with no
+   * `goal` removed it.
+   */
+  weeklyMovementGoalHistory?: { from: string; goal?: number }[];
+  /**
    * v5: the daily steps goal the user chose, if any. No default and no floor:
    * the goal is theirs (board D27, as revised). Changing it never re-scores a
    * past day, which is read against `dailyStepsGoalHistory`.

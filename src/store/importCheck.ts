@@ -71,6 +71,7 @@ const SETTINGS_SPEC: Spec = {
   supersetRestSeconds: num(0, 3600),
   focus: oneOf('strength', 'stretch', 'move', 'explore'),
   weeklyMovementGoalMinutes: num(0, 10080),
+  weeklyMovementGoalHistory: listOf(shape({ from: x => x === '' || day(x), goal: num(1, 10080) }, ['from'])),
   dailyStepsGoal: num(0, 200000),
   dailyStepsGoalHistory: listOf(shape({ from: day, goal: num(0, 200000) }, ['from'])),
   habits: HABIT_SPEC,

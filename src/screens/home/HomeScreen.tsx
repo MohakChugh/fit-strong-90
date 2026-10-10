@@ -37,6 +37,7 @@ import { waterBlock } from '@/reminders/water';
 import { bankProgress, progressSettled } from '@/session/logging';
 import { clearProgress, loadExpiredProgress, loadSetAside, minutesLeft, releaseSetAside, slotOf, type SavedProgress } from '@/session/persistence';
 import { prefersHour12 } from '@/screens/track/format';
+import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
 import { addToDayTotal, getState, isSessionSaved, useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { canLocate, canSenseMotion, requestMotion } from '@/walk/browser';
@@ -260,7 +261,8 @@ export function HomeScreen() {
   const trained = trainedOn(sessions, today);
   const period = periodOn(settings.statusPeriods, today);
   const status = period?.kind ?? 'normal';
-  const goal = settings.weeklyMovementGoalMinutes;
+  // This week's goal: a change waits for Monday (B-16).
+  const goal = weeklyGoalOn(settings, today);
   const stopped = recommendation.kind === 'emergency' || recommendation.kind === 'seekHelp';
   const prompt = pickPrompt({
     now, day: today, status, profile, settings, observations, waiting,
@@ -487,7 +489,7 @@ export function HomeScreen() {
       />
       {goalLoaded && (
         <Suspense fallback={null}>
-          <GoalSheet open={sheet?.kind === 'goal'} onOpenChange={closeSheet} goal={goal} />
+          <GoalSheet open={sheet?.kind === 'goal'} onOpenChange={closeSheet} goal={settings.weeklyMovementGoalMinutes} />
         </Suspense>
       )}
       {startSheet}
