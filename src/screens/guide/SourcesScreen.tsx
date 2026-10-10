@@ -10,8 +10,9 @@ export default function SourcesScreen() {
   return (
     <Screen title="Sources" back={{ to: '/hub/learn', label: 'Learn' }}>
       <Lead>Every fact in Learn comes from one of these. Each answer lists the exact sections it relies on.</Lead>
-      <SourceList header="Guidelines, fact sheets and labels" cited={asCited(k => k !== 'study')} audience />
+      <SourceList header="Guidelines, fact sheets and labels" cited={asCited(k => k !== 'study' && k !== 'dataset')} audience />
       <SourceList header="Studies" cited={asCited(k => k === 'study')} audience />
+      <SourceList header="Food data" cited={asCited(k => k === 'dataset')} audience />
       <FurtherReadingGroup ids={FURTHER_READING.map(f => f.id)} />
     </Screen>
   );

@@ -27,6 +27,9 @@ export const SLOT_NOTES: Partial<Record<Slot, string[]>> = {
   snack: ['fd-two-three-meals', 'fd-healthy-snacks'],
 };
 
+/** Shown wherever estimates are explained (the Food hub's "How estimates work"). */
+export const FOOD_DATA_NOTES = ['fd-estimates-basis'];
+
 export const SLOTS: { id: Slot; title: string }[] = [
   { id: 'breakfast', title: 'Breakfast' },
   { id: 'lunch', title: 'Lunch' },

@@ -8,7 +8,7 @@ export { CLAIMS, REVIEWED } from './claims';
 export { CARDS } from './cards';
 export { TOPICS } from './topics';
 export { SOURCES, FURTHER_READING } from './sources';
-export { MEALS, MEASURES, MEAL_INTRO, SLOT_NOTES, SLOTS, FOOD_GROUP_LABEL, PATTERN_DETAIL, PATTERN_LABEL } from './meals';
+export { FOOD_DATA_NOTES, MEALS, MEASURES, MEAL_INTRO, SLOT_NOTES, SLOTS, FOOD_GROUP_LABEL, PATTERN_DETAIL, PATTERN_LABEL } from './meals';
 export { leaveOut, withPicked } from './allergens';
 export { HABITS } from './habits';
 export {
