@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
 import { statusOn } from '@/health/status';
 import { cn } from '@/lib/utils';
 import { showBadge } from './badge';
-import { prunePending, usePending, showReminders } from './pending';
+import { UrgentContext } from '@/screens/home/urgent';
+import { offeredNow, prunePending, usePending, showReminders } from './pending';
 import { ReminderBanner } from './ReminderBanner';
 import { startReminders, type Runner } from './runner';
 import { dailyTimes, stillDue, type ReminderContext } from './schedule';
@@ -27,6 +28,8 @@ export function ReminderHost() {
   const habits = settings.habits;
   const periods = settings.statusPeriods;
   const pending = usePending();
+  // While a safety decision stands, a walk or a stand-up is held back, not answered (kiro KV-09).
+  const urgent = useContext(UrgentContext) !== undefined;
   const { pathname } = useLocation();
   // During a session or a live walk a prompt to stand or walk is noise: one
   // that comes due there is skipped, not saved for later. Today shows the
@@ -81,7 +84,7 @@ export function ReminderHost() {
   // showing now — a fluid limit or not knowing, a habit turned off, a day that
   // is no longer Normal, quiet hours, a goal met, a new day. Only what is
   // waiting goes; the water the person recorded stays.
-  const waiting = useMemo(() => pending.filter(p => stillDue(p.occurrence, now, current)), [pending, now, current]);
+  const waiting = useMemo(() => offeredNow(pending.filter(p => stillDue(p.occurrence, now, current)), urgent), [pending, now, current, urgent]);
   useEffect(() => {
     prunePending(p => stillDue(p.occurrence, now, current));
   }, [pending, now, current]);

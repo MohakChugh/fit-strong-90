@@ -7,6 +7,8 @@ import { forgetPlaces, scrollKeyOf } from '@/components/hig/navigation';
 import { applyThemeColor } from '@/lib/themeColor';
 import { AppRoutes } from '@/routes';
 import { ReminderHost } from '@/reminders/ReminderHost';
+import { ScreenLoading } from '@/components/hig/AppShell';
+import { UrgentProvider } from '@/screens/home/UrgentBanner';
 
 /**
  * Set once a saved person has been read, so that if the database later cannot
@@ -108,16 +110,19 @@ function App() {
   if (status === 'loading') return <div className="min-h-dvh bg-grouped-bg" aria-busy="true" />;
   if (status === 'unavailable' && !continueUnsaved) return <StorageUnavailable onContinue={() => setContinueUnsaved(true)} />;
 
+  // The safety decision is owned above the routes, so a screen still loading
+  // or one that failed shows it too, as do full-screen tasks and sheets
+  // (journey §4.7, codex V1-02, V1-03).
   return (
-    <>
+    <UrgentProvider>
       {/* Keyed by place, so a tab returns to where it was scrolled. */}
       <ScrollRestoration getKey={scrollKeyOf} />
       {/* Opted-in reminders while the app is open (board D15). */}
       {settings.onboardingComplete && <ReminderHost />}
-      <Suspense fallback={<div className="min-h-dvh bg-grouped-bg" aria-busy="true" />}>
+      <Suspense fallback={<ScreenLoading full />}>
         <AppRoutes onboarded={settings.onboardingComplete} />
       </Suspense>
-    </>
+    </UrgentProvider>
   );
 }
 

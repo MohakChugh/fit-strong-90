@@ -38,6 +38,7 @@ import type { LiveSnapshot, LiveWalk } from '@/walk/live';
 import { LowFollowUp } from './guidance';
 import { StopSheet } from './StopSheet';
 import { PrimaryButton, SecondaryButton } from './parts';
+import { OwnsUrgent } from '@/screens/home/UrgentBanner';
 import { useLiveWalk } from './useLiveWalk';
 
 /** A figure's block: a number with its unit, or a word in its place, and how it was observed. */
@@ -210,6 +211,8 @@ export default function LiveWalkScreen() {
 
   return (
     <>
+      {/* A held walk shows the decision itself (codex V1-03). */}
+      {refusal && <OwnsUrgent />}
       <Screen title={liveTitle(snapshot.walk)} inline>
         {/* One column with its own, tighter rhythm: on a small phone the
             figures should still be in view above the controls. */}

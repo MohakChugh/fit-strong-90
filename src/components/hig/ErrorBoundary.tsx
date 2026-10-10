@@ -54,7 +54,12 @@ interface BoundaryState {
  * downloaded that would only show the same failure — the browser keeps it for
  * the life of the page — so there it reloads, which fetches it afresh.
  */
-export class ErrorBoundary extends Component<{ resetKey?: string; children: ReactNode }, BoundaryState> {
+export class ErrorBoundary extends Component<{
+  resetKey?: string;
+  /** Shown above the failure, as the screen would have shown it first: the shared safety surface (codex V1-03). */
+  before?: ReactNode;
+  children: ReactNode;
+}, BoundaryState> {
   state: BoundaryState = { failed: false, download: false, key: this.props.resetKey };
 
   static getDerivedStateFromError(error: unknown): Pick<BoundaryState, 'failed' | 'download'> {
@@ -71,9 +76,14 @@ export class ErrorBoundary extends Component<{ resetKey?: string; children: Reac
 
   render() {
     if (!this.state.failed) return this.props.children;
-    return this.state.download
-      ? <Fallback onRetry={() => window.location.reload()} retryReloads />
-      : <Fallback onRetry={() => this.setState({ failed: false })} />;
+    return (
+      <>
+        {this.props.before && <div className="px-[max(min(1rem,20px),env(safe-area-inset-left))] pt-[max(0.75rem,env(safe-area-inset-top))]">{this.props.before}</div>}
+        {this.state.download
+          ? <Fallback onRetry={() => window.location.reload()} retryReloads />
+          : <Fallback onRetry={() => this.setState({ failed: false })} />}
+      </>
+    );
   }
 }
 

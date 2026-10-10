@@ -37,6 +37,7 @@ import { parseStretchSpec, specFromPlanId, stretchPlanFor } from '@/engine/stret
 import type { StretchSpec } from '@/types/plan';
 import { cameFrom } from '@/components/hig/navigation';
 import { SessionGate } from '@/components/checkin/SessionGate';
+import { OwnsUrgent } from '@/screens/home/UrgentBanner';
 import { displayToKg, generateId, kgToDisplay, toDateString } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -184,7 +185,13 @@ export default function SessionPage() {
   // inspection either way; it is never permission to move (re-audit F02).
   const [arrival] = useState(() => ({ now: input.now, permission: arrivalGate(input, mode, !!resumeState) }));
   if (!arrival.permission.allowed || arrival.permission.needsCheckIn) {
-    return <SessionGate permission={arrival.permission} readiness={checkIn?.readiness} now={arrival.now} onBack={exit} />;
+    return (
+      <>
+        {/* The gate says today's decision itself (codex V1-03). */}
+        <OwnsUrgent />
+        <SessionGate permission={arrival.permission} readiness={checkIn?.readiness} now={arrival.now} onBack={exit} />
+      </>
+    );
   }
   // Afterwards the question is only whether exercise may carry on: a newly
   // reported emergency, stop or low halts it at once; an ageing reading does
@@ -205,7 +212,10 @@ export default function SessionPage() {
   }
 
   return (
-    <Player
+    <>
+      {/* A decision that halts the session is the player's own screen: its stop, its low, its reading (codex V1-03). */}
+      {halt && <OwnsUrgent />}
+      <Player
       plan={reconciled.plan}
       refused={refused}
       resumeState={startState}
@@ -224,7 +234,8 @@ export default function SessionPage() {
       onExit={exit}
       onSave={saveSession}
       {...(stale && staleBank ? { startNote: staleNote(stale, staleBank) } : {})}
-    />
+      />
+    </>
   );
 }
 

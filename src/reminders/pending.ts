@@ -41,6 +41,16 @@ export function withoutReminder(list: readonly Pending[], id: string): Pending[]
   return list.filter(p => p.occurrence.id !== id);
 }
 
+/**
+ * What may be offered now. While a safety decision stands (journey §4.7) a
+ * reminder that invites movement, a walk or a stand-up, is not offered: the
+ * shared surface says what to do instead (§7.4). It is held back, not
+ * answered, so it is offered again once the decision has gone.
+ */
+export function offeredNow(list: readonly Pending[], urgent: boolean): readonly Pending[] {
+  return urgent ? list.filter(p => p.occurrence.habit === 'water') : list;
+}
+
 let pending: Pending[] = [];
 const listeners = new Set<() => void>();
 

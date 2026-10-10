@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRightIcon, TriangleAlertIcon } from 'lucide-react';
+import { TaskUrgent } from '@/screens/home/UrgentBanner';
 import { useStorageNotice } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { Group, Row } from './List';
@@ -74,9 +75,9 @@ export function StorageBanner({ inHeader = false }: { inHeader?: boolean }) {
 
 /**
  * The frame for full-screen tasks outside the tab shell — first run, the
- * session player, a live walk: a main landmark and the storage notice, with
- * no tab bar to hit by accident. The notice scrolls away with the task here,
- * so it can say everything in place.
+ * session player, a live walk: a main landmark, the storage notice and the
+ * shared safety surface (B-02), with no tab bar to hit by accident. The
+ * notice scrolls away with the task here, so it can say everything in place.
  */
 export function TaskFrame({ children }: { children: ReactNode }) {
   // A task on screen ends the launch, as a screen does: a navigation from here
@@ -86,7 +87,7 @@ export function TaskFrame({ children }: { children: ReactNode }) {
     <TaskFrameContext.Provider value>
       <div className="min-h-dvh bg-grouped-bg">
         <StorageBanner />
-        <main>{children}</main>
+        <main><TaskUrgent>{children}</TaskUrgent></main>
       </div>
     </TaskFrameContext.Provider>
   );

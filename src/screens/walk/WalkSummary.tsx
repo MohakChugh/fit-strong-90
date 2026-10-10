@@ -13,6 +13,7 @@ import { clock, spokenClock, timeOfDay } from '@/walk/format';
 import { clearWalk, draftStored, loadWalk, sessionWalkStorage, storeWalk } from '@/walk/persist';
 import { hasRecord, saveObservations, saveOutcome, summarise, walkObservationIds, walkObservations, type SaveOutcome } from '@/walk/record';
 import { draftWarning, endingLine, lowAdvice, lowStage, summaryRows, walkSpan, walkTitle } from '@/walk/readout';
+import { OwnsUrgent } from '@/screens/home/UrgentBanner';
 import { useNow } from '@/screens/workout/useNow';
 import { EmergencyGuidance, LowGuidance } from './guidance';
 import { PainPicker, PrimaryButton, SecondaryButton } from './parts';
@@ -106,6 +107,9 @@ export function WalkSummary() {
 
   return (
     <Screen title="Your walk" back={{ to: '/home', label: 'Home' }}>
+      {/* The guidance a walk ended by is the task's own; any other decision standing now shows at the top (codex V1-03). */}
+      {walk.endedBy === 'emergency' && <OwnsUrgent kinds={['emergency', 'seekHelp']} />}
+      {walk.endedBy === 'low' && <OwnsUrgent kinds={['low', 'recheck']} />}
       {walk.endedBy === 'emergency' && <EmergencyGuidance />}
       {walk.endedBy === 'low' && <LowGuidance unit={profile.health.glucoseUnit ?? 'mg/dL'} advice={(s => (s ? lowAdvice(s, t => timeOfDay(t)) : undefined))(lowStage(checkIn, walk, now))} />}
 

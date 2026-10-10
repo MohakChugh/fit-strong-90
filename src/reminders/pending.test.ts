@@ -3,6 +3,7 @@ import {
   answerReminder,
   clearReminders,
   getPending,
+  offeredNow,
   prunePending,
   showReminders,
   subscribePending,
@@ -78,5 +79,17 @@ describe('prunePending', () => {
     expect(heard).toBe(1);
     stop();
     clearReminders();
+  });
+});
+
+describe('offeredNow: what may be offered while a safety decision stands (kiro KV-09, journey §7.4)', () => {
+  const waiting = withShown([], [at('water', '11:00'), at('sittingBreak', '11:00'), at('mealWalk', '13:30', 'lunch')], 1);
+  it('offers everything while nothing stands', () => {
+    expect(offeredNow(waiting, false)).toEqual(waiting);
+  });
+  it('holds back what invites movement — a walk, a stand-up — while a stop or a hold stands, and keeps the rest', () => {
+    expect(offeredNow(waiting, true).map(p => p.occurrence.habit)).toEqual(['water']);
+    // Held back, not answered: they wait for the decision to go.
+    expect(waiting).toHaveLength(3);
   });
 });

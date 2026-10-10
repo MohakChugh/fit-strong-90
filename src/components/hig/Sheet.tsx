@@ -6,6 +6,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { SheetTopContext } from './navigation';
 import { createSwipe } from './sheetGesture';
 
 /** How much of the screen the sheet takes. iOS calls these detents. */
@@ -109,11 +110,17 @@ function useSwipeToDismiss({ open, dismissible, onOpenChange }: { open: boolean;
  * is immediately scrollable from the keyboard — and on close it returns to
  * whatever opened the sheet.
  */
-export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissible = true, children, className }: {
+export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissible = true, ownsUrgent = false, children, className }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Short, sentence case. It is the sheet's accessible name. */
   title: string;
+  /**
+   * The sheet says today's safety decision itself, as the check-in does with
+   * its outcome. Every other sheet shows the shared surface at its top while
+   * one stands, since the page behind it is out of reach (codex V1-02).
+   */
+  ownsUrgent?: boolean;
   /**
    * False while the sheet must stay, such as while it saves: a swipe then
    * gives a little and settles back. Pass it alongside an `onOpenChange` that
@@ -127,6 +134,7 @@ export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissibl
 }) {
   const body = useRef<HTMLDivElement>(null);
   const swipe = useSwipeToDismiss({ open, dismissible, onOpenChange });
+  const urgent = useContext(SheetTopContext);
   useInertBackground(open);
 
   if (useContext(InSheet)) {
@@ -184,7 +192,10 @@ export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissibl
             tabIndex={-1}
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain pl-safe pr-safe outline-none"
           >
-            <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-[min(1rem,20px)] pt-4">{children}</div>
+            <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-[min(1rem,20px)] pt-4">
+              {!ownsUrgent && urgent?.(() => onOpenChange(false))}
+              {children}
+            </div>
             {/* Bottom room, and clears the home indicator, so the last row is
                 never half under it. */}
             <div aria-hidden className="h-8 pb-safe" />

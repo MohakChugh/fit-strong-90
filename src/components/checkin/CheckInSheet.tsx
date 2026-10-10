@@ -56,7 +56,7 @@ interface Props {
 
 export function CheckInSheet(props: Props) {
   return (
-    <Sheet open={props.open} onOpenChange={props.onOpenChange} title="Check-in" detent="large">
+    <Sheet open={props.open} onOpenChange={props.onOpenChange} title="Check-in" detent="large" ownsUrgent>
       {/* Mounted per opening, so the form always starts from the latest saved answers. */}
       {props.open && <CheckInBody {...props} />}
     </Sheet>

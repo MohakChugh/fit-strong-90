@@ -56,6 +56,9 @@ const { SourceList, ClaimText } = await import('@/screens/guide/parts');
 const { ChooserSheet } = await import('@/screens/today/ChooserSheet');
 const { contextOf } = await import('@/content');
 const { BAR_COLOR, themeColorFor } = await import('@/lib/themeColor');
+const { ScreenLoading } = await import('./AppShell');
+const { OwnsUrgent } = await import('@/screens/home/UrgentBanner');
+const { UrgentContext } = await import('@/screens/home/urgent');
 
 const ROOT = path.resolve(__dirname, '../../..');
 const read = (file: string) => fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -459,6 +462,11 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     expect(read('src/screens/home/Tile.tsx')).toMatch(/className="block h-full select-none rounded-2xl \[-webkit-touch-callout:none\]"/);
   });
 
+  it('a reminder that invites movement is held back while a safety decision stands, on Home and in the floating banner (kiro KV-09)', () => {
+    expect(read('src/screens/home/HomeScreen.tsx')).toContain('const waiting = offeredNow(usePending(), urgent !== undefined);');
+    expect(read('src/reminders/ReminderHost.tsx')).toMatch(/offeredNow\(pending\.filter\(p => stillDue\(p\.occurrence, now, current\)\), urgent\)/);
+  });
+
   it('Home’s movement tiles know whether the person is in the programme, so a flare names no programme on the Workout tile (D35, J16 step 1)', () => {
     expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/movementLine\(\{\s+mode, permission, status, enrolled,/);
   });
@@ -481,6 +489,75 @@ describe('wiring that names the opener (S-10, S-11)', () => {
   it('a related card and a related exercise name the screen they were opened from', () => {
     expect(read('src/screens/guide/CardScreen.tsx')).toContain('state={{ path: `/guide/card/${from.id}`, label: from.title }}');
     expect(read('src/screens/move/ExerciseScreen.tsx')).toContain('state={{ from: origin, path: location.pathname, label: ex.name }}');
+  });
+});
+
+describe('the safety surface wherever the person is (codex V1-02, V1-03, journey §4.7, B-02)', () => {
+  const banner = h('section', { 'data-urgent-kind': 'emergency' }, 'Call emergency services now');
+  const emergency = { kind: 'emergency', tone: 'stop', headline: 'Call emergency services now', when: 'Emergency answer today' } as const;
+  const surfaces = (nodes: HostNode[]) => nodes.filter(n => n.props['data-urgent-kind'] !== undefined).length;
+  const task = (urgent: typeof emergency | { kind: 'low' }, child: ReactNode) =>
+    h(UrgentContext, { value: urgent as never }, h(nav.ScreenTopContext, { value: banner }, h(TaskFrame, null, child)));
+
+  it('shows while a screen’s code is still loading', () => {
+    const m = html(h(nav.ScreenTopContext, { value: banner }, h(ScreenLoading)));
+    expect(m).toContain('data-urgent-kind="emergency"');
+    expect(m).toContain('aria-busy="true"');
+  });
+
+  it('shows above "This screen didn’t load"', () => {
+    const state = ErrorBoundary.getDerivedStateFromError(new TypeError('Failed to fetch dynamically imported module: /assets/a.js'));
+    const boundary = new ErrorBoundary({ children: null, before: banner });
+    boundary.state = { ...state, key: undefined };
+    expect(html(boundary.render() as never)).toMatch(/data-urgent-kind="emergency"[\s\S]*This screen didn’t load/);
+  });
+
+  it('is owned once, above the routes, their loading and their failures; the shell only shows it', () => {
+    expect(read('src/App.tsx')).toMatch(/<UrgentProvider>[\s\S]*<Suspense fallback=\{<ScreenLoading full \/>\}>\s*<AppRoutes/);
+    const shell = read('src/components/hig/AppShell.tsx');
+    expect(shell).not.toContain('<UrgentProvider>');
+    expect(shell).toMatch(/<ErrorBoundary resetKey=\{pathname\} before=\{first\}>\s*<Suspense fallback=\{<ScreenLoading \/>\}>/);
+  });
+
+  it('is at the top of a full-screen task, once: a screen inside the task does not repeat it', () => {
+    const host = render(task(emergency, h(Screen, { title: 'Your walk', children: null })));
+    expect(surfaces(host.all())).toBe(1);
+  });
+
+  it('steps aside while the task’s own screen shows that state, and only that state', () => {
+    expect(surfaces(render(task(emergency, h(OwnsUrgent))).all())).toBe(0);
+    expect(surfaces(render(task(emergency, h(OwnsUrgent, { kinds: ['emergency', 'seekHelp'] }))).all())).toBe(0);
+    // A summary showing a low's guidance does not show a later emergency.
+    expect(surfaces(render(task(emergency, h(OwnsUrgent, { kinds: ['low', 'recheck'] }))).all())).toBe(1);
+  });
+
+  it('the session, the live walk and the walk summary say when their own screen shows it', () => {
+    expect(read('src/pages/SessionPage.tsx')).toMatch(/<OwnsUrgent \/>/);
+    expect(read('src/screens/walk/LiveWalkScreen.tsx')).toMatch(/\{refusal && <OwnsUrgent \/>\}/);
+    const summary = read('src/screens/walk/WalkSummary.tsx');
+    expect(summary).toContain("<OwnsUrgent kinds={['emergency', 'seekHelp']} />");
+    expect(summary).toContain("<OwnsUrgent kinds={['low', 'recheck']} />");
+  });
+
+  it('is at the top of every sheet, and its way on closes the sheet first', async () => {
+    // The page a sheet makes inert, as the app's index.html has it.
+    Object.assign(document, { getElementById: () => null });
+    const onOpenChange = vi.fn();
+    const top = (close: () => void) => h('button', { type: 'button', 'data-urgent-kind': 'emergency', onClick: close }, 'What to do');
+    const host = render(h(nav.SheetTopContext, { value: top }, h(Sheet, { open: true, onOpenChange, title: 'Add to Home', children: h('p', null, 'Choose a tile') })));
+    const surface = host.all().find(n => n.props['data-urgent-kind'] !== undefined)!;
+    expect(surface).toBeDefined();
+    await host.click(surface);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    // The check-in sheet shows today's outcome itself.
+    const own = render(h(nav.SheetTopContext, { value: top }, h(Sheet, { open: true, onOpenChange, title: 'Check-in', ownsUrgent: true, children: null })));
+    expect(surfaces(own.all())).toBe(0);
+    expect(read('src/components/checkin/CheckInSheet.tsx')).toMatch(/<Sheet open=\{props\.open\} onOpenChange=\{props\.onOpenChange\} title="Check-in" detent="large" ownsUrgent>/);
+  });
+
+  it('is announced outside the part of the page a sheet makes inert', () => {
+    // A live region always in the page, so a decision arriving is announced; not an alert while it says nothing.
+    expect(read('src/screens/home/UrgentBanner.tsx')).toMatch(/createPortal\(\s*<div aria-live="assertive" aria-atomic="true" className="sr-only">[\s\S]*?<\/div>,\s*document\.body,?\s*\)/);
   });
 });
 

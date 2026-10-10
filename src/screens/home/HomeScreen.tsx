@@ -30,7 +30,7 @@ import {
 } from '@/health/recommend';
 import { periodOn, planOffer } from '@/health/status';
 import { habitPrecautions } from '@/reminders/advice';
-import { usePending } from '@/reminders/pending';
+import { offeredNow, usePending } from '@/reminders/pending';
 import { ReminderBanner } from '@/reminders/ReminderBanner';
 import { waterBlock } from '@/reminders/water';
 import { bankProgress, progressSettled } from '@/session/logging';
@@ -108,9 +108,10 @@ export function HomeScreen() {
   const guided = useGuided();
   const { start, sheet: startSheet, permissionFor } = useStartMovement();
   const clock = useClock();
-  const waiting = usePending();
   // The shell's urgent decision: while one stands nothing here moves or is named for a transition (motion rule 2).
   const urgent = useContext(UrgentContext);
+  // A walk or a stand-up is not offered beside a safety decision; it waits (kiro KV-09).
+  const waiting = offeredNow(usePending(), urgent !== undefined);
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const { settings, profile, observations, sessions } = state;

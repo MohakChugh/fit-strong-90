@@ -467,3 +467,10 @@ export function useInTaskFrame(): boolean {
  */
 export const ScreenTopContext = createContext<ReactNode>(null);
 
+/**
+ * The same surface at the top of an open sheet, which takes the whole page's
+ * attention (codex V1-02): `close` closes that sheet, so the surface's way on
+ * leaves it first. Nothing while no urgent decision stands.
+ */
+export const SheetTopContext = createContext<((close: () => void) => ReactNode) | null>(null);
+
