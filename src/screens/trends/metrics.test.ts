@@ -128,6 +128,13 @@ describe('blood pressure: two numbers in one reading', () => {
     expect(r.texts.map(t => t.note)).toEqual([undefined, 'Very high', undefined]);
     expect(r.texts[0].text).toBe('132/84 mmHg at 7:30 am');
   });
+
+  it('keeps the context it was recorded with, as glucose keeps its own (H3-06, J§4.10)', () => {
+    const tagged = (kind: 'bloodPressureSystolic' | 'bloodPressureDiastolic', value: number) =>
+      newObservation({ kind, value, at: '2026-10-05T21:10:00+05:30', scope: 'pointInTime', source: 'manual', context: bpContext('e1'), tag: 'evening' });
+    const r = readingsFor('bp', RANGE, data([tagged('bloodPressureSystolic', 136), tagged('bloodPressureDiastolic', 86)]), prefs);
+    expect(r.texts.map(t => t.text)).toEqual(['136/86 mmHg at 9:10 pm, evening']);
+  });
 });
 
 describe('daily figures and labs', () => {

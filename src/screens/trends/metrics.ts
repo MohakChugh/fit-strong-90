@@ -176,7 +176,8 @@ export function readingsFor(id: TrendId, range: DayRange, data: TrendData, prefs
       if (r.diastolic !== null) points.push({ id: `${r.id}:dia`, day: r.day, at: r.at, value: r.diastolic, series: 'diastolic' });
       const flag = pressureFlag(r.systolic, r.diastolic);
       const timed = hasClockTime(r.halves[0]) ? ` at ${formatClock(r.at, prefs.hour12)}` : '';
-      texts.push({ day: r.day, at: r.at, text: `${formatPressure(r)}${timed}`, ...(flag ? { note: flag } : {}) });
+      // With the context it was recorded with, as a glucose reading keeps its own (J§4.10).
+      texts.push({ day: r.day, at: r.at, text: `${formatPressure(r)}${timed}${r.tag ? `, ${tagLabel(r.tag).toLowerCase()}` : ''}`, ...(flag ? { note: flag } : {}) });
     }
     return { points, meters: [], series: BP_SERIES.filter(s => points.some(p => p.series === s.id)), texts: texts.sort(byTime) };
   }
