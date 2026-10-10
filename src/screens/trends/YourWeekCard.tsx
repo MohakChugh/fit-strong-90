@@ -11,6 +11,7 @@ import { formatNumber } from '@/screens/track/units';
 const PAUSED = {
   status: 'Your week’s summary returns when your status is back to Normal.',
   safety: 'Your week’s summary returns once today’s safety advice has passed.',
+  hold: 'Your week’s summary returns once nothing is holding your movement today.',
 } as const;
 
 export function YourWeekCard({ title, name, minutes, goal, sentences, pause, pending, onLastWeek, onThisWeek }: {
@@ -21,7 +22,7 @@ export function YourWeekCard({ title, name, minutes, goal, sentences, pause, pen
   minutes: number;
   goal?: number;
   sentences: readonly string[];
-  pause?: 'status' | 'safety';
+  pause?: 'status' | 'safety' | 'hold';
   /** A goal change waiting for Monday (B-16). */
   pending?: string;
   onLastWeek?: () => void;

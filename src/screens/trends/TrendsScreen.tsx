@@ -16,7 +16,7 @@ import { markInPlace, type Origin } from '@/components/hig/navigation';
 import { isDay } from '@/health/observation';
 import { statusOn } from '@/health/status';
 import { TileIcon } from '@/screens/home/Tile';
-import { UrgentContext } from '@/screens/home/urgent';
+import { UrgentContext, useHeld } from '@/screens/home/urgent';
 import { displayPrefs } from '@/screens/track/logKinds';
 import { addDays, mondayOf } from '@/screens/track/periods';
 import { recordPath } from '@/screens/track/timeline';
@@ -73,7 +73,8 @@ export default function TrendsScreen() {
   // A walk's kept route, drawn small beside it (journey §9.5, B-23), as Today's log draws it: our own drawing, never a map picture.
   const routeOf = useMemo(() => new Map(state.records.routes.map(r => [r.walkId as string, r as unknown as RouteRecord])), [state.records.routes]);
 
-  const pause = briefPause({ status: statusOn(state.settings.statusPeriods, today), urgent: urgent !== undefined });
+  const held = useHeld();
+  const pause = briefPause({ status: statusOn(state.settings.statusPeriods, today), urgent: urgent !== undefined, held });
   const goal = rings.find(r => r.week === week)?.goal;
   const pending = week === thisWeek ? pendingGoalText(state.settings, today) : undefined;
   const choose = (next: string) => {

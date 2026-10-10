@@ -117,9 +117,16 @@ describe('Your week’s facts and sentences (journey §12.1, B-15)', () => {
 
 describe('when Your week is paused (§12.6)', () => {
   it('beside a safety decision, or on a day that isn’t Normal', () => {
-    expect(briefPause({ status: 'normal', urgent: false })).toBeUndefined();
-    expect(briefPause({ status: 'normal', urgent: true })).toBe('safety');
-    for (const status of ['flare', 'unwell', 'away'] as const) expect(briefPause({ status, urgent: false })).toBe('status');
+    expect(briefPause({ status: 'normal', urgent: false, held: false })).toBeUndefined();
+    expect(briefPause({ status: 'normal', urgent: true, held: false })).toBe('safety');
+    for (const status of ['flare', 'unwell', 'away'] as const) expect(briefPause({ status, urgent: false, held: false })).toBe('status');
+  });
+
+  it('on a day with a hold that raises no urgent surface, as Home’s brief goes quiet (H3-03, KT-04)', () => {
+    expect(briefPause({ status: 'normal', urgent: false, held: true })).toBe('hold');
+    // The safety surface's words, then the status's, come first.
+    expect(briefPause({ status: 'normal', urgent: true, held: true })).toBe('safety');
+    expect(briefPause({ status: 'unwell', urgent: false, held: true })).toBe('status');
   });
 });
 

@@ -79,7 +79,7 @@ import { StatusButton } from './StatusButton';
 import { TileGrid, type TileState } from './TileGrid';
 import { TileMenu } from './TileMenu';
 import { movementLine } from './tileLine';
-import { RIGHT_NOW_ID, SLOTS, UrgentContext, recommendSources, withEffectiveToday } from './urgent';
+import { RIGHT_NOW_ID, SAFETY_KINDS, SLOTS, UrgentContext, recommendSources, withEffectiveToday } from './urgent';
 import { WeekCard } from './WeekCard';
 import { WalkRecoveryRow } from './WalkRecoveryRow';
 import { movedDays, restDaysOf, stepsLine, stretchDays, weekDots } from './week';
@@ -91,7 +91,6 @@ const GoalSheet = lazy(() => import('@/screens/track/GoalSheet').then(m => ({ de
 /** The device's clock preference does not change while the app is open. */
 const HOUR12 = prefersHour12();
 
-const SAFETY = new Set<Recommendation['kind']>(['emergency', 'seekHelp', 'recheck', 'hold']);
 
 const MOVE_HREF: Record<Mode, string> = { guided: HREF.guided, stretch: HREF.stretch, walk: HREF.walk };
 
@@ -295,10 +294,10 @@ export function HomeScreen() {
     now, day: today, status, profile, settings, observations, waiting,
     ...(weekBrief ? { weekBrief } : {}),
     stopped,
-    held: SAFETY.has(recommendation.kind) && !stopped,
+    held: SAFETY_KINDS.has(recommendation.kind) && !stopped,
     waterBlocked: waterBlock(profile, settings.habits) !== undefined,
   });
-  const quiet = status !== 'normal' || SAFETY.has(recommendation.kind);
+  const quiet = status !== 'normal' || SAFETY_KINDS.has(recommendation.kind);
   // Not in the small hours either: "Rest well" is the one thing to say then.
   const earlierRun = quiet || smallHours(now) ? undefined : savedRun(saved, today, 'earlier');
   // Offered from the first visit after a status run ends until it is answered,
@@ -315,7 +314,7 @@ export function HomeScreen() {
   // Without a stored profile there is nothing to work them out from yet.
   const first = useFirstLayout({ stored, fallback, ready: profile !== undefined, visit: clock.visit });
   // While a safety decision stands, nothing beside it moves (motion rule 2, M1).
-  const still = SAFETY.has(recommendation.kind) || urgent !== undefined;
+  const still = SAFETY_KINDS.has(recommendation.kind) || urgent !== undefined;
   const editor = useHomeEditor({ fallback: first.layout, still, urgent: urgent !== undefined });
   // `#/browse?pick=1` arrives as `?edit=add` (journey §19.2, D56): Edit Home,
   // with pick mode over it, once per request. The effect above then takes it

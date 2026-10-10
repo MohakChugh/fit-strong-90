@@ -102,10 +102,15 @@ export function weekSentences(f: WeekFacts, prefs: DisplayPrefs): string[] {
   return out.slice(0, 4);
 }
 
-/** Why Your week is paused today, or nothing: a safety decision stands, or the status isn't Normal (§12.6). */
-export function briefPause({ status, urgent }: { status: Status; urgent: boolean }): 'status' | 'safety' | undefined {
+/**
+ * Why Your week is paused today, or nothing (§12.6): a safety decision
+ * stands, the status isn't Normal, or Home's card stands on a hold with no
+ * urgent surface (a profile gap, every movement held: `useHeld`, H3-03).
+ */
+export function briefPause({ status, urgent, held }: { status: Status; urgent: boolean; held: boolean }): 'status' | 'safety' | 'hold' | undefined {
   if (urgent) return 'safety';
-  return status === 'normal' ? undefined : 'status';
+  if (status !== 'normal') return 'status';
+  return held ? 'hold' : undefined;
 }
 
 export interface WeekRing {
