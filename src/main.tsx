@@ -7,7 +7,7 @@ import App from './App'
 import { RootError } from '@/components/hig/ErrorBoundary'
 import { backPending, followRouter, setPlaceCheck } from '@/components/hig/navigation'
 import { getState } from '@/store/useStore'
-import { shouldAnimate } from '@/design/motion'
+import { shouldAnimate, transitionSkipped } from '@/design/motion'
 import { placeExists } from '@/places'
 import { applyTextSize } from '@/lib/textSize'
 import './index.css'
@@ -88,9 +88,16 @@ window.addEventListener('popstate', event => {
 // While one runs, glass is drawn solid (`data-vt-running`, WebKit 302256).
 // `finished` settles whether it ran or was skipped; only the newest transition
 // clears the mark, since a skipped one can settle after its successor began.
+//
+// Safety pre-empts every effect (motion rule 2): while an urgent decision
+// stands (`data-urgent`, set by the shell) every screen shows it, so no
+// transition runs, and one already running when it arrives is skipped, its
+// old snapshot gone with it. A tap into a screen that opens on a hold asks
+// for its own transition to be skipped (`skipNextTransition`).
 if (document.startViewTransition) {
   const start = document.startViewTransition.bind(document)
   let latest: ViewTransition | undefined
+  const urgent = () => document.documentElement.dataset.urgent !== undefined
   document.startViewTransition = ((update?: Parameters<typeof start>[0]) => {
     document.documentElement.dataset.vtRunning = ''
     const transition = start(update)
@@ -100,12 +107,14 @@ if (document.startViewTransition) {
       .finally(() => { if (latest === transition) delete document.documentElement.dataset.vtRunning })
       .catch(() => {})
     // The router starts the transition a few frames after the popstate.
-    if (performance.now() - browserAnimatedAt < 1000) {
-      browserAnimatedAt = -Infinity
-      transition.skipTransition()
-    }
+    const browserAnimated = performance.now() - browserAnimatedAt < 1000
+    if (browserAnimated) browserAnimatedAt = -Infinity
+    if (transitionSkipped({ urgent: urgent() }) || browserAnimated) transition.skipTransition()
     return transition
   }) as typeof document.startViewTransition
+  new MutationObserver(() => {
+    if (urgent() && document.documentElement.dataset.vtRunning !== undefined) latest?.skipTransition()
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-urgent'] })
 }
 
 // Follow the iOS text size before anything renders, and again on return to

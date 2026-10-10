@@ -6,8 +6,14 @@
  */
 import { PERMISSION_TEXT, type Mode, type Permission } from '@/engine/permission';
 import type { Status } from '@/health/status';
+import { prefersHour12, timeOf } from '@/lib/time';
 
-export interface TileLine { text: string; tone: 'normal' | 'caution' | 'stop' | 'quiet' }
+export interface TileLine {
+  text: string;
+  tone: 'normal' | 'caution' | 'stop' | 'quiet';
+  /** A second line, such as when and where a reading was taken. */
+  detail?: string;
+}
 
 /**
  * Short headlines for the gate's known reasons, most specific first: a
@@ -30,7 +36,20 @@ const CHECK_IN_ONLY: string[] = [PERMISSION_TEXT.noCheckIn, PERMISSION_TEXT.stal
 /** v1 plans a recovery session and a gentler stretch during a flare; walking has no flare plan, so Walk keeps its line and suggests a stretch (L-08). */
 const FLARE: Partial<Record<Mode, string>> = { guided: 'Gentle only today', stretch: 'Gentle stretch' };
 
-export function movementLine({ mode, permission: p, status, normal }: { mode: Mode; permission: Permission; status: Status; normal: string }): TileLine {
+export function movementLine({ mode, permission: p, status, normal, recheckAt, now, hour12 = prefersHour12() }: {
+  mode: Mode;
+  permission: Permission;
+  status: Status;
+  normal: string;
+  /**
+   * When a treated low's re-check can be taken (`Readiness.recheckAt`, from
+   * today's check-in), with the moment the line is worked out: the line names
+   * the time until it comes, then the gate's own state says the rest (L-07).
+   */
+  recheckAt?: string;
+  now?: Date;
+  hour12?: boolean;
+}): TileLine {
   if (!p.allowed && (p.disposition === 'emergency' || p.disposition === 'today')) return { text: 'Not today', tone: 'stop' };
   if (status === 'away' || status === 'unwell') return { text: 'Paused', tone: 'quiet' };
   if (!p.allowed) {
@@ -41,7 +60,9 @@ export function movementLine({ mode, permission: p, status, normal }: { mode: Mo
     if (p.needsCheckIn && p.reasons.length > 0 && p.reasons.every(r => CHECK_IN_ONLY.some(t => r.startsWith(t)))) return { text: `${normal} · check in first`, tone: 'normal' };
     const known = HOLD_HEADLINE.find(([reason]) => said(reason))?.[1];
     // A treated low's re-check comes before the routine check-in, however the day began, as in v1's gate.
-    const recheck = p.release?.toLowerCase().includes('re-check') ? 'Waiting for your re-check' : undefined;
+    const due = recheckAt ? Date.parse(recheckAt) : Number.NaN;
+    const at = now && due > now.getTime() ? ` at ${timeOf(due, hour12)}` : '';
+    const recheck = p.release?.toLowerCase().includes('re-check') ? `Waiting for your re-check${at}` : undefined;
     const checkIn = said(PERMISSION_TEXT.noCheckIn) ? 'Check in first' : undefined;
     return { text: known ?? recheck ?? checkIn ?? 'Not now: open to see why', tone: 'caution' };
   }
@@ -50,7 +71,8 @@ export function movementLine({ mode, permission: p, status, normal }: { mode: Mo
   return { text: normal, tone: 'normal' };
 }
 
-/** The Workout tile's own line: the programme's session, or that it hasn't been joined (D35). */
+/** The Workout tile's own line: the programme's session, or that it hasn't been joined (D35). A day with no session (a rest day) is only its name. */
 export function workoutNormal({ enrolled, label, minutes }: { enrolled: boolean; label: string; minutes: number }): string {
-  return enrolled ? `${label} · ${minutes} min` : '12-week programme · not joined';
+  if (!enrolled) return '12-week programme · not joined';
+  return minutes > 0 ? `${label} · ${minutes} min` : label;
 }

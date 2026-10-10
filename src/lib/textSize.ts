@@ -21,6 +21,16 @@ export function rootSizeFor(bodyPx: number): number | null {
   return Math.min(ROOT_PX * 3.5, Math.max(ROOT_PX * 0.8, (ROOT_PX * bodyPx) / DEFAULT_BODY_PX));
 }
 
+/**
+ * The person's text size as a scale of the design's: the root font size,
+ * however it got there (the iOS setting through `applyTextSize`, or the
+ * browser's own text size), over the design's 16 px. 1 at the default, 2 at
+ * 200%. Anything that is not a size reads as the default.
+ */
+export function scaleFromRoot(rootPx: number): number {
+  return Number.isFinite(rootPx) && rootPx > 0 ? rootPx / ROOT_PX : 1;
+}
+
 /** Whether the system text size is the person's setting here: Apple's keyword, on a touch screen (iPadOS reports a Mac). */
 export function followsSystemTextSize(env: { supportsKeyword: boolean; maxTouchPoints: number }): boolean {
   return env.supportsKeyword && env.maxTouchPoints > 0;

@@ -430,13 +430,11 @@ describe('a tab never reopens a record that has gone (acceptance J18)', () => {
 });
 
 describe('wiring that names the opener (S-10, S-11)', () => {
-  it('Today’s Glucose, Blood pressure and plan rows name Today', () => {
-    const today = read('src/screens/today/TodayScreen.tsx');
-    expect(today).toContain("const FROM_TODAY = { path: '/home', label: 'Today' };");
-    // Opened on every reading, so the one on the row always shows (scan J2-08).
-    expect(today).toMatch(/to="\/track\/metric\/glucose\?group=all" state=\{FROM_TODAY\}/);
-    expect(today).toMatch(/to="\/track\/metric\/bloodPressure" state=\{FROM_TODAY\}/);
-    expect(today).toMatch(/to=\{HREF\.plan\}\s+state=\{FROM_TODAY\}/);
+  it('Home’s tiles and its Today’s log row name Home (v1 Today’s reading and plan rows became tiles)', () => {
+    expect(read('src/screens/home/model.ts')).toContain("export const FROM_HOME = { path: '/home', label: 'Home' };");
+    // Glucose opens on every reading, so the one on the tile always shows (scan J2-08): see tileHref.
+    expect(read('src/screens/home/Tile.tsx')).toMatch(/to=\{href\}\s+state=\{FROM_HOME\}/);
+    expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/to=\{HREF\.day\} state=\{FROM_HOME\}/);
   });
 
   it('a related card and a related exercise name the screen they were opened from', () => {

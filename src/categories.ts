@@ -58,6 +58,15 @@ export function categoryById(id: CategoryId): Category {
   return found;
 }
 
+/**
+ * Walking held by a standing foot restriction (an open wound or active
+ * Charcot foot): Walk would only ever say "No walking for now", so it isn't a
+ * default tile, and neither Steps nor a steps line is shown (L-09).
+ */
+export function walkingHeldForFeet(profile: UserProfile): boolean {
+  return profile.health.footStatus === 'current_wound_or_active_charcot';
+}
+
 const MAX_TILES = 9;
 const MAX_PER_GROUP = 5;
 /** Added, in this order, until Home has 9 tiles (journey §5.1). */
@@ -77,9 +86,7 @@ export function defaultHome({ profile, settings, hasSteps }: { profile: UserProf
   const h = profile.health;
   const derived = deriveHealth(h);
   const areas = profile.pain.areas;
-  // Walking held by a standing foot restriction: Walk would only ever say
-  // "No walking for now", and Steps goes with it (L-09).
-  const footHeld = h.footStatus === 'current_wound_or_active_charcot';
+  const footHeld = walkingHeldForFeet(profile);
   const wanted: CategoryId[] = [
     'workout', 'stretch',
     ...(footHeld ? [] : ['walk' as const]),

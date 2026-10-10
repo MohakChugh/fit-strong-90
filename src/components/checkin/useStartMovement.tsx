@@ -1,9 +1,9 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGuided } from '@/hooks/useGuided';
-import { permission, type Mode, type Permission } from '@/engine/permission';
+import type { Mode, Permission } from '@/engine/permission';
 import { CheckInSheet } from './CheckInSheet';
-import { startDecision } from './start';
+import { gateFor, startDecision } from './start';
 
 interface Target {
   mode: Mode;
@@ -33,7 +33,7 @@ export function useStartMovement(): {
   // Asked at the moment of use, so a reading's freshness is judged against
   // the time the person actually taps Start.
   const permissionFor = useCallback(
-    (mode: Mode) => permission({ profile, checkIn, now: new Date(), recent }, mode),
+    (mode: Mode) => gateFor({ profile, checkIn, checkIns: recent }, mode),
     [profile, checkIn, recent],
   );
 

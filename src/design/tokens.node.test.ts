@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CATEGORIES } from '@/categories';
-import { contrast, luminance } from './contrast';
+import { contrast, luminance, toSrgb } from './contrast';
 
 const css = readFileSync(path.resolve(__dirname, '../index.css'), 'utf8');
 const bare = css.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -64,6 +64,26 @@ describe('glass recipe (journey §20.1)', () => {
         // Browsers composite in sRGB, and blur and saturate(180%) leave these three backdrops unchanged.
         const glass = srgbLuminance([r, g, b].map((v, i) => alpha * v + (1 - alpha) * behind[i]));
         expect((Math.max(text, glass) + 0.05) / (Math.min(text, glass) + 0.05), `${theme} over ${name}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+});
+
+describe('tile icons (journey §7.2)', () => {
+  const tile = readFileSync(path.resolve(__dirname, '../screens/home/Tile.tsx'), 'utf8');
+  it('mix the category colour at 16% into the circle and draw the glyph in its ink', () => {
+    expect(tile).toContain('background: `color-mix(in oklab, var(${category.colour}) 16%, transparent)`');
+    expect(tile).toContain('color: `var(${category.colour}-ink)`');
+  });
+  it('keep each glyph at 4.5:1 on its circle over the card, in light and dark (lowest measured 5.2:1)', () => {
+    for (const [selector, theme] of THEMES) {
+      const card = toSrgb(token(selector, '--grouped-card'));
+      for (const c of IDS) {
+        // 16% of the colour over the card, composited in sRGB as browsers draw it.
+        const circle = toSrgb(token(selector, `--cat-${c}`)).map((v, i) => 255 * (0.16 * v + 0.84 * card[i]));
+        const ink = luminance(token(selector, `--cat-${c}-ink`));
+        const bg = srgbLuminance(circle);
+        expect((Math.max(ink, bg) + 0.05) / (Math.min(ink, bg) + 0.05), `${c} in ${theme}`).toBeGreaterThanOrEqual(4.5);
       }
     }
   });

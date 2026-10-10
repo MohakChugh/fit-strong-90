@@ -64,6 +64,22 @@ describe('movementLine (journey §7.5)', () => {
   it('the Workout tile’s normal line when not enrolled (D35, L-03)', () => {
     expect(workoutNormal({ enrolled: false, label: 'Full Body B', minutes: 45 })).toBe('12-week programme · not joined');
     expect(workoutNormal({ enrolled: true, label: 'Full Body B', minutes: 45 })).toBe('Full Body B · 45 min');
+    // A rest day's plan has no session to time.
+    expect(workoutNormal({ enrolled: true, label: 'Rest Day', minutes: 0 })).toBe('Rest Day');
+  });
+  it('a re-check names its time until it comes, then the gate’s own words stand (L-07)', () => {
+    const low = { ...hold('Glucose 62 mg/dL is a low.'), release: 'Treat it, then re-check in 15 minutes.', needsCheckIn: true };
+    const recheckAt = new Date('2026-10-08T13:45:00').toISOString();
+    const line = (time: string) => movementLine({ mode: 'stretch', permission: low, status: 'normal', normal: 'x', recheckAt, now: new Date(`2026-10-08T${time}:00`), hour12: true }).text;
+    expect(line('13:32')).toBe('Waiting for your re-check at 1:45 pm');
+    expect(line('13:45')).toBe('Waiting for your re-check');
+    expect(line('14:10')).toBe('Waiting for your re-check');
+    expect(movementLine({ mode: 'stretch', permission: low, status: 'normal', normal: 'x', recheckAt, now: new Date('2026-10-08T13:32:00'), hour12: false }).text).toBe('Waiting for your re-check at 13:45');
+    // Without the moment it is worked out at, no time is claimed.
+    expect(movementLine({ mode: 'stretch', permission: low, status: 'normal', normal: 'x', recheckAt }).text).toBe('Waiting for your re-check');
+    // A time never changes what outranks it: an emergency still reads "Not today", a foot hold still its own headline.
+    expect(movementLine({ mode: 'stretch', permission: { ...low, disposition: 'emergency' }, status: 'normal', normal: 'x', recheckAt, now: new Date('2026-10-08T13:32:00') }).text).toBe('Not today');
+    expect(movementLine({ mode: 'walk', permission: { ...low, reasons: [PERMISSION_TEXT.footWalk, ...low.reasons] }, status: 'normal', normal: 'x', recheckAt, now: new Date('2026-10-08T13:32:00') }).text).toBe('No walking for now');
   });
 });
 
@@ -90,6 +106,21 @@ describe('movementLine with the real gate', () => {
     const p = permission({ profile: onInsulin, checkIn: record(onInsulin, checkIn({ glucose: { value: 140, unit: 'mg/dL', measuredAt: minutesAgo(45) } })), now }, 'walk');
     expect(p.reasons).toEqual([expect.stringContaining('Your last reading was 45 minutes ago.')]);
     expect(movementLine({ mode: 'walk', permission: p, status: 'normal', normal: 'Just a walk' })).toEqual({ text: 'Just a walk · check in first', tone: 'normal' });
+  });
+
+  it('a 62 mg/dL at 1:30 pm: every movement tile waits for the re-check at 1:45 pm, then drops the time', () => {
+    const at = (time: string) => new Date(`2026-10-08T${time}:00`);
+    const p = createDefaultProfile({ health: { diabetes: 'type2', metformin: true, medicinesReviewed: true, glucoseMonitor: 'meter' } });
+    const record = (c: DailyCheckIn) => ({ ...c, readiness: evaluateCheckIn(p, c) });
+    const c = record(checkIn({ glucose: { value: 62, unit: 'mg/dL', measuredAt: at('13:30').toISOString() } }));
+    for (const mode of ['guided', 'stretch', 'walk'] as const) {
+      const line = (time: string) => movementLine({
+        mode, permission: permission({ profile: p, checkIn: c, now: at(time) }, mode), status: 'normal', normal: 'x',
+        ...(c.readiness.recheckAt ? { recheckAt: c.readiness.recheckAt } : {}), now: at(time), hour12: true,
+      });
+      expect(line('13:32'), mode).toEqual({ text: 'Waiting for your re-check at 1:45 pm', tone: 'caution' });
+      expect(line('13:46'), mode).toEqual({ text: 'Waiting for your re-check', tone: 'caution' });
+    }
   });
 
   it('a low waiting for its re-check says so, even before the day’s check-in, as v1’s gate puts the re-check first', () => {

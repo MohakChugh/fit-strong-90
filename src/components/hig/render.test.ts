@@ -66,21 +66,32 @@ describe('Ring', () => {
     }
   });
 
-  it('keeps the lap arcs mounted below the goal, hidden, so crossing the goal animates instead of snapping', () => {
-    const markup = html(createElement(Ring, { value: 12, goal: 20, label: 'Movement', unit: 'minutes' }));
-    expect(markup.match(/<circle/g)).toHaveLength(4);
-    expect(markup.match(/visibility:hidden/g)).toHaveLength(2);
+  it('never draws past 100%: a track and one arc, whatever the value, with no lap (journey §7.3, K-06)', () => {
+    for (const value of [12, 20, 30, 1e6]) {
+      const markup = html(createElement(Ring, { value, goal: 20, label: 'Movement', unit: 'minutes' }));
+      expect(markup.match(/<circle/g), `value ${value}`).toHaveLength(2);
+    }
   });
 
-  it('shows the lap once the goal is passed', () => {
-    const markup = html(createElement(Ring, { value: 24, goal: 20, label: 'Movement', unit: 'minutes' }));
-    expect(markup.match(/<circle/g)).toHaveLength(4);
+  it('fills the ring at the goal and past it, and says so in words', () => {
+    const markup = html(createElement(Ring, { value: 30, goal: 20, label: 'Movement', unit: 'minutes' }));
+    expect(markup).toContain('stroke-dashoffset:0');
     expect(markup).not.toContain('visibility:hidden');
+    expect(markup).toContain('Movement: 30 of 20 minutes, past the goal');
   });
 
   it('draws nothing filled at zero, so an empty ring is not shown as a dot of progress', () => {
     const markup = html(createElement(Ring, { value: 0, goal: 20, label: 'Movement', unit: 'minutes' }));
-    expect(markup.match(/visibility:hidden/g)).toHaveLength(3);
+    expect(markup.match(/visibility:hidden/g)).toHaveLength(1);
+  });
+
+  it('sweeps on the spring token, and is drawn set when told not to animate (B-32)', () => {
+    expect(html(createElement(Ring, { value: 12, goal: 20, label: 'Movement', unit: 'minutes' }))).toMatch(/transition:stroke-dashoffset \d+ms linear\(/);
+    expect(html(createElement(Ring, { value: 12, goal: 20, label: 'Movement', unit: 'minutes', animate: false }))).not.toContain('transition:');
+  });
+
+  it('takes a category’s colour for its arc', () => {
+    expect(html(createElement(Ring, { value: 12, goal: 20, label: 'Movement', unit: 'minutes', arcClassName: 'text-cat-move' }))).toContain('class="text-cat-move"');
   });
 });
 

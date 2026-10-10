@@ -1,41 +1,46 @@
 /**
- * Today: "What is useful now?" (codex-vision §2 and §4; board D5, D20, D25).
+ * Home (journey §7): the launch screen. The greeting and the status, then
+ * the urgent surface when one stands (the shell's, first in every screen),
+ * the one suggestion with its reason (D5, D20), at most one prompt, any
+ * unfinished run and the plan offer, This week, and the person's tiles.
+ * Nothing else: no statistics grid, no streak, no carousel, no modal on
+ * launch.
  *
- * One suggestion with its reason on screen, "Choose something else" in the
- * same place every time, a compact day, the plan row, at most one prompt, and
- * the status, with the plan offer after a status is over. Nothing else: no
- * statistics grid, no streak, no tip carousel, no tomorrow card. The decisions live in `@/health/recommend`, `./model`
- * and the shared start gate; this file lays them out.
+ * v1's Today, rearranged: every decision is still `@/health/recommend`'s, the
+ * shared gate's and `@/screens/today/model`'s, with the same freeze, sheets
+ * and saved-progress banking; this file lays them out.
  */
 
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useContext, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { GlassWaterIcon, InfoIcon } from 'lucide-react';
 import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
-import { Ring } from '@/components/hig/Ring';
 import { CheckInSheet } from '@/components/checkin/CheckInSheet';
 import { useStartMovement } from '@/components/checkin/useStartMovement';
+import { categoryById, defaultHome, walkingHeldForFeet, type CategoryId } from '@/categories';
 import { useGuided } from '@/hooks/useGuided';
 import { useAppData } from '@/hooks/useLocalStorage';
-import { profileGaps } from '@/engine/health';
 import { checkedIn, type Mode } from '@/engine/permission';
-import { HREF, freezeKey, isEnrolled, recommend, resumeHref, savedRun, smallHours, trainedOn, type RecommendInput, type Recommendation, type RecommendationAction } from '@/health/recommend';
-import { STATUS_LABEL, periodOn, planOffer } from '@/health/status';
+import {
+  HREF, freezeKey, isEnrolled, nextBoundary, recommend, resumeHref, savedRun, smallHours, trainedOn,
+  type RecommendInput, type Recommendation, type RecommendationAction,
+} from '@/health/recommend';
+import { periodOn, planOffer } from '@/health/status';
 import { habitPrecautions } from '@/reminders/advice';
 import { usePending } from '@/reminders/pending';
 import { ReminderBanner } from '@/reminders/ReminderBanner';
 import { waterBlock } from '@/reminders/water';
 import { bankProgress, progressSettled } from '@/session/logging';
-import { clearProgress, loadExpiredProgress, loadProgress, loadSetAside, minutesLeft, releaseSetAside, slotOf, type ProgressSlot, type SavedProgress } from '@/session/persistence';
+import { clearProgress, loadExpiredProgress, loadSetAside, minutesLeft, releaseSetAside, slotOf, type SavedProgress } from '@/session/persistence';
 import { prefersHour12 } from '@/screens/track/format';
 import { addToDayTotal, getState, isSessionSaved, useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
-import { useClock } from './clock';
-import { ChooserSheet } from './ChooserSheet';
-import { RecommendationCard } from './RecommendationCard';
-import { MovePlanBack, StatusSheet } from './StatusSheet';
+import { useClock, useWakeAt } from '@/screens/today/clock';
+import { ChooserSheet } from '@/screens/today/ChooserSheet';
+import { RecommendationCard } from '@/screens/today/RecommendationCard';
+import { MovePlanBack, StatusSheet } from '@/screens/today/StatusSheet';
 import {
   SHEET_KEYS,
   chooserRows,
@@ -43,10 +48,7 @@ import {
   latestGlucose,
   latestPressure,
   pickPrompt,
-  planRow,
   sheetFrom,
-  showsGlucose,
-  showsPressure,
   startLabelFor,
   statusDetail,
   todayPrefs,
@@ -54,12 +56,19 @@ import {
   enteredNote,
   type ChooserRow,
   type Prompt,
-  type Reading,
   type TodaySheet,
-} from './model';
+} from '@/screens/today/model';
+import { FROM_HOME, greeting, normalLine, readingLine } from './model';
+import { RemindersCapsule } from './RemindersCapsule';
+import { StatusButton } from './StatusButton';
+import { TileGrid, type TileState } from './TileGrid';
+import { movementLine } from './tileLine';
+import { RIGHT_NOW_ID, SLOTS, UrgentContext, recommendSources, withEffectiveToday } from './urgent';
+import { WeekCard } from './WeekCard';
+import { movedDays, restDaysOf, stepsLine, stretchDays, weekDots } from './week';
 
 // Track's own goal editor, so the rule for a valid goal lives in one place.
-// Loaded on first use: Today ships with the app and should stay small.
+// Loaded on first use: Home ships with the app and should stay small.
 const GoalSheet = lazy(() => import('@/screens/track/GoalSheet').then(m => ({ default: m.GoalSheet })));
 
 /** The device's clock preference does not change while the app is open. */
@@ -69,14 +78,8 @@ const SAFETY = new Set<Recommendation['kind']>(['emergency', 'seekHelp', 'rechec
 
 const MOVE_HREF: Record<Mode, string> = { guided: HREF.guided, stretch: HREF.stretch, walk: HREF.walk };
 
-/** Rows that open another area's screen name Today as their opener, so Back returns here (scan S-10). */
-const FROM_TODAY = { path: '/home', label: 'Today' };
-
 /** Home's own sheets, which an action addresses by query (`HREF.status`, `HREF.choose`…). */
 const SHEET_HREF = '/home?';
-
-/** The guided session and a stretch each keep their own saved run. */
-const SLOTS: ProgressSlot[] = ['guided', 'stretch'];
 
 /** A banked run keeps one id however often banking is attempted, so it is never recorded twice. */
 const bankId = (saved: SavedProgress) => saved.sessionId ?? `${slotOf(saved.plan)}-${saved.plan.date}-${saved.savedAt}`;
@@ -95,38 +98,39 @@ interface Frozen {
   changed: boolean;
 }
 
-export function TodayScreen() {
+export function HomeScreen() {
   const state = useStore();
   const [, update] = useAppData();
   const guided = useGuided();
   const { start, sheet: startSheet, permissionFor } = useStartMovement();
   const clock = useClock();
   const waiting = usePending();
+  // The shell's urgent decision: while one stands nothing here moves or is named for a transition (motion rule 2).
+  const urgent = useContext(UrgentContext);
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const { settings, profile, observations, sessions } = state;
   // Today's check-in as every screen must act on it: the stored one, or an
   // answer the device would not keep that is at least as restrictive.
-  const checkIns = useMemo(() => {
-    const effective = guided.checkIn;
-    if (!effective || state.checkIns.includes(effective)) return state.checkIns;
-    return [...state.checkIns.filter(c => c.date !== effective.date), effective];
-  }, [state.checkIns, guided.checkIn]);
+  const checkIns = useMemo(() => withEffectiveToday(state.checkIns, guided.checkIn), [state.checkIns, guided.checkIn]);
   const { now } = clock;
   const today = format(now, 'yyyy-MM-dd');
 
   // ---- The recommendation, frozen while the person reads it --------------
   // The choice is worked out on arrival, then again only on a new day, a
-  // return to the app, a changed check-in or status, or an action here that
-  // settles something (D20). The gate is asked on every render, which the
+  // return to the app, a changed check-in or status, an action here that
+  // settles something (D20), or a time boundary: a part of the day, a
+  // reading going stale, a re-check falling due (L-07, B-20), when the clock
+  // is read again on the dot. The gate is asked on every render, which the
   // clock brings round each minute, so a stop or a reading gone stale shows
   // on the card at once, over the frozen choice (D30).
   const [settled, setSettled] = useState(0);
-  const key = freezeKey({ now, checkIns, statusPeriods: settings.statusPeriods, startDate: settings.startDate, visit: clock.visit + settled });
+  const boundary = nextBoundary(now, { ...(guided.checkIn ? { checkIn: guided.checkIn } : {}), ...(settings.habits ? { habits: settings.habits } : {}) });
+  useWakeAt(boundary);
+  const key = freezeKey({ now, checkIns, statusPeriods: settings.statusPeriods, startDate: settings.startDate, visit: clock.visit + settled, boundary });
   const permissions: RecommendInput['permissions'] = { guided: permissionFor('guided'), stretch: permissionFor('stretch'), walk: permissionFor('walk') };
   const work = (): Frozen => {
-    const saved = SLOTS.map(slot => loadProgress(now.getTime(), slot)).filter((p): p is SavedProgress => p !== null);
-    const input = { now, settings, profile, plan: guided.plan, sessions, checkIns, observations, saved };
+    const input = recommendSources({ now, state, plan: guided.plan, checkIns });
     return { key, input, kind: recommend({ ...input, permissions }).kind, changed: false };
   };
   const [frozen, setFrozen] = useState(work);
@@ -141,9 +145,9 @@ export function TodayScreen() {
 
   // ---- Sheets ------------------------------------------------------------
   // A link can open one (`?checkin=1` from the session player), on arrival
-  // or while Today is already open (codex F31): each request is read once,
+  // or while Home is already open (codex F31): each request is read once,
   // as the address changes, and then taken out of it. After that a sheet is
-  // ordinary state, so closing one or leaving Today never leaves an address
+  // ordinary state, so closing one or leaving Home never leaves an address
   // behind that would reopen it on Back.
   const [sheet, setSheet] = useState<TodaySheet | undefined>(() => sheetFrom(params));
   // An address that has moved lands here (journey §19.3): said once, for as
@@ -200,6 +204,9 @@ export function TodayScreen() {
   }, [update]);
 
   const recovery = guided.plan.kind === 'recovery';
+  // The card's action runs directly (journey §7.4, K-32): a movement goes
+  // through the shared start, which asks the gate at the tap and opens the
+  // check-in first when one is due; there is no hub step in between.
   const act = (action: RecommendationAction) => {
     if (action.mode) {
       start(action.mode, action.to, startLabelFor(action.mode, action.to, recovery));
@@ -219,23 +226,23 @@ export function TodayScreen() {
   // ---- Everything below the suggestion is live -----------------------------
   // The day's figures read the whole record, which is a lifetime of it, so
   // they are worked out when the record or the day changes, not on each tick.
-  const { glucose, pressure, week } = useMemo(() => {
+  const { glucose, pressure, week, stretched, moved: movedOn, steps } = useMemo(() => {
     const prefs = todayPrefs(profile, HOUR12);
     return {
       glucose: latestGlucose(observations, today, prefs),
       pressure: latestPressure(observations, today, prefs),
       week: weekMovement(today, observations, sessions),
+      stretched: stretchDays(today, sessions),
+      moved: movedDays(today, observations, sessions),
+      steps: stepsLine(today, observations, HOUR12),
     };
   }, [profile, observations, sessions, today]);
-  const minutes = week.minutes;
-  const byHand = enteredNote(week);
+  const hasSteps = useMemo(() => observations.some(o => o.kind === 'steps'), [observations]);
   const enrolled = isEnrolled(settings, profile);
   const trained = trainedOn(sessions, today);
   const period = periodOn(settings.statusPeriods, today);
   const status = period?.kind ?? 'normal';
   const goal = settings.weeklyMovementGoalMinutes;
-  const gaps = profile ? profileGaps(profile) : undefined;
-  const gap = gaps && (gaps.healthUnreviewed || gaps.medicinesUnknown) && recommendation.action.to !== HREF.profile ? gaps : undefined;
   const stopped = recommendation.kind === 'emergency' || recommendation.kind === 'seekHelp';
   const prompt = pickPrompt({
     now, day: today, status, profile, settings, observations, waiting,
@@ -250,14 +257,43 @@ export function TodayScreen() {
   // but never beside a stop or a check that comes first.
   const offer = quiet ? undefined : planOffer(settings.statusPeriods, settings.startDate, today);
 
+  // ---- Tiles (journey §7.1, §7.2, §7.5) ------------------------------------
+  // The person's own layout once there is one; until then the defaults from
+  // their answers (journey §5.1).
+  const layout = useMemo(() => settings.home ?? defaultHome({ profile: guided.profile, settings, hasSteps }), [settings, guided.profile, hasSteps]);
+  const recheckAt = guided.checkIn?.readiness.recheckAt;
+  // The gate as this render asked it, the same answer the card shows; a tap asks it again.
+  const lineOf = (mode: Mode, permission = permissions[mode]) => movementLine({
+    mode, permission, status, normal: normalLine(mode, { recommendation, enrolled, plan: guided.plan }),
+    ...(recheckAt ? { recheckAt } : {}), now, hour12: HOUR12,
+  });
+  // A hold or a stop on the tile's mode: its hub opens on it, so the tap skips the morph (motion rule 2).
+  const holds = (tone: string) => tone === 'caution' || tone === 'stop';
+  const tile = (id: CategoryId): TileState => {
+    const { mode } = categoryById(id);
+    if (!mode) return { line: readingLine(id, { ...(glucose ? { glucose } : {}), ...(pressure ? { pressure } : {}) }), held: false };
+    const line = lineOf(mode);
+    return { line, held: holds(line.tone) };
+  };
+  const opensOnHold = (id: CategoryId) => {
+    const { mode } = categoryById(id);
+    return mode !== undefined && holds(lineOf(mode, permissionFor(mode)).tone);
+  };
+
   return (
-    <Screen title="Today" subtitle={format(now, 'EEEE, d MMMM')}>
+    <Screen
+      title={greeting(now, (profile as { name?: string } | undefined)?.name)}
+      subtitle={format(now, 'EEEE, d MMMM')}
+      trailing={<RemindersCapsule waiting={waiting} />}
+      below={<StatusButton status={status} {...(period ? { detail: statusDetail(period, today) } : {})} onOpen={() => open({ kind: 'status' })} />}
+    >
       {moved && (
         <Group>
           <Row role="status" icon={<InfoIcon />} label="That page has moved" />
         </Group>
       )}
-      <div className="flex flex-col gap-3">
+      {/* "What to do" on the urgent surface brings this into view, focus with it. */}
+      <div id={RIGHT_NOW_ID} tabIndex={-1} className="flex scroll-mt-16 flex-col gap-3 outline-none">
         <RecommendationCard
           recommendation={recommendation}
           eyebrow={eyebrowOf(recommendation)}
@@ -274,7 +310,28 @@ export function TodayScreen() {
         </button>
       </div>
 
-      {offer && <MovePlanBack offer={offer} periods={settings.statusPeriods} startDate={settings.startDate} />}
+      {/* Quiet, and only once today is checked in: a new symptom or reading
+          can always be added, whatever the suggestion above says (J03 step 4). */}
+      {checkedIn(guided.checkIn) && (
+        <Group>
+          <Row label="Today’s check-in" onClick={() => setUpdating(true)}
+            accessory={<span className="shrink-0 text-[length:var(--text-body)] text-tint">Update</span>} />
+        </Group>
+      )}
+
+      {prompt?.kind === 'reminder'
+        ? (
+          // The reminder itself, staying put here: its banner elsewhere steps
+          // out of view by itself, and either answer clears both.
+          <ReminderBanner
+            key={prompt.item.occurrence.id}
+            variant="inline"
+            item={prompt.item}
+            {...(settings.habits?.water?.glassMl ? { glassMl: settings.habits.water.glassMl } : {})}
+            precautions={habitPrecautions(prompt.item.occurrence.habit, profile, settings.habits)}
+          />
+        )
+        : prompt && <PromptRow prompt={prompt} />}
 
       {earlierRun && (
         <EarlierSession
@@ -295,87 +352,24 @@ export function TodayScreen() {
         />
       )}
 
-      {gap && (
-        <Group>
-          <Row
-            as={Link}
-            to={HREF.profile}
-            viewTransition
-            label={gap.healthUnreviewed ? 'Finish your health profile' : 'Your diabetes medicines'}
-            detail={gap.healthUnreviewed
-              ? 'So sessions fit your back, glucose and blood pressure.'
-              : 'Answer two questions about your medicines so sessions can start.'}
-            chevron
-          />
-        </Group>
-      )}
+      {offer && <MovePlanBack offer={offer} periods={settings.statusPeriods} startDate={settings.startDate} />}
 
-      <Group header="Your day">
-        {/* Quiet, and only once today is checked in: a new symptom or reading
-            can always be added, whatever the suggestion above says (J03 step 4). */}
-        {checkedIn(guided.checkIn) && (
-          <Row label="Today’s check-in" onClick={() => setUpdating(true)}
-            accessory={<span className="shrink-0 text-[length:var(--text-body)] text-tint">Update</span>} />
-        )}
-        {goal !== undefined
-          ? (
-            <div className="px-4 py-3">
-              <Ring value={minutes} goal={goal} label="Recorded movement this week" unit="minutes" size={64} />
-              {byHand && <p className="pt-2 text-[length:var(--text-footnote)] text-muted-foreground">Includes {byHand === 'all added by hand' ? 'only minutes added by hand' : byHand}.</p>}
-            </div>
-          )
-          : (
-            <Row
-              label="Set a weekly goal"
-              detail={minutes > 0 ? [`${minutes} min of movement recorded this week`, byHand].filter(Boolean).join(' · ') : 'No movement recorded yet this week'}
-              chevron
-              onClick={() => open({ kind: 'goal' })}
-            />
-          )}
-        {/* Each opens its history, where a reading can be added (as in Health):
-            glucose on every reading, so the one on the row is always shown (scan J2-08). */}
-        {showsGlucose(profile, glucose) && <Row as={Link} to="/track/metric/glucose?group=all" state={FROM_TODAY} viewTransition label="Glucose" detail={<ReadingLine reading={glucose} />} chevron />}
-        {showsPressure(profile, pressure) && <Row as={Link} to="/track/metric/bloodPressure" state={FROM_TODAY} viewTransition label="Blood pressure" detail={<ReadingLine reading={pressure} />} chevron />}
-        <Row as={Link} to={HREF.day} viewTransition label="View my day" chevron />
-      </Group>
+      <WeekCard
+        today={today}
+        minutes={week.minutes}
+        {...(enteredNote(week) ? { enteredNote: enteredNote(week) } : {})}
+        {...(goal !== undefined ? { goal } : {})}
+        stretched={stretched}
+        {...(walkingHeldForFeet(guided.profile) ? {} : { steps })}
+        dots={weekDots({ today, moved: movedOn, restDays: restDaysOf(enrolled, profile?.trainingDays), ...(settings.statusPeriods ? { statusPeriods: settings.statusPeriods } : {}) })}
+        still={SAFETY.has(recommendation.kind) || urgent !== undefined}
+        onSetGoal={() => open({ kind: 'goal' })}
+      />
 
-      {enrolled && profile && (
-        <Group>
-          <Row
-            as={Link}
-            to={HREF.plan}
-            state={FROM_TODAY}
-            viewTransition
-            {...planRow({
-              day: today, plan: guided.plan, sessions, profile, startDate: settings.startDate,
-              statusPeriods: settings.statusPeriods, sessionShown: recommendation.kind === 'scheduled',
-            })}
-            chevron
-          />
-        </Group>
-      )}
-
-      {prompt?.kind === 'reminder'
-        ? (
-          // The reminder itself, staying put here: its banner elsewhere steps
-          // out of view by itself, and either answer clears both.
-          <ReminderBanner
-            key={prompt.item.occurrence.id}
-            variant="inline"
-            item={prompt.item}
-            {...(settings.habits?.water?.glassMl ? { glassMl: settings.habits.water.glassMl } : {})}
-            precautions={habitPrecautions(prompt.item.occurrence.habit, profile, settings.habits)}
-          />
-        )
-        : prompt && <PromptRow prompt={prompt} />}
+      <TileGrid layout={layout} tile={tile} urgent={urgent !== undefined} opensOnHold={opensOnHold} />
 
       <Group>
-        <Row
-          label="Status"
-          detail={[STATUS_LABEL[status], statusDetail(period, today)].filter(Boolean).join(' · ')}
-          chevron
-          onClick={() => open({ kind: 'status' })}
-        />
+        <Row as={Link} to={HREF.day} state={FROM_HOME} viewTransition label="See today’s log" chevron />
       </Group>
 
       <ChooserSheet
@@ -449,7 +443,7 @@ function EarlierSession({ saved, onFinish, onSave }: {
     <Group header="Unfinished" footer={error ?? 'Saving keeps what you did in your history, on the day you did it.'}>
       <Row label={`From ${format(new Date(`${saved.plan.date}T12:00:00`), 'EEEE')}`} detail={`${minutesLeft(saved)} min left · ${saved.plan.label}`} />
       <div className="flex flex-wrap gap-2 px-4 py-3">
-        {/* Both secondary: the one primary action on Today is the suggestion's. */}
+        {/* Both secondary: the one primary action on Home is the suggestion's. */}
         <button type="button" onClick={onFinish} disabled={busy} className={cn(button, 'bg-tint/10 text-tint')}>Finish it</button>
         <button
           type="button"
@@ -465,22 +459,6 @@ function EarlierSession({ saved, onFinish, onSave }: {
         </button>
       </div>
     </Group>
-  );
-}
-
-/**
- * A reading on the line under its name rather than beside it, so the name
- * stays whole at large text sizes, where a value on the right squeezes the
- * label out of the row.
- */
-function ReadingLine({ reading }: { reading: Reading | undefined }) {
-  if (!reading) return <>Not entered</>;
-  return (
-    <>
-      <span className="numeric font-medium text-foreground">{reading.value}</span>
-      {' · '}
-      {reading.detail}
-    </>
   );
 }
 

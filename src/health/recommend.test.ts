@@ -21,6 +21,7 @@ import {
   isEnrolled,
   mealOfWalk,
   mealWalkNow,
+  nextBoundary,
   recommend,
   resumeHref,
   savedRun,
@@ -801,6 +802,71 @@ describe('freezing', () => {
   it('gives the same recommendation for the same inputs', () => {
     const i = input({ sessions: morningStretches(), plan: restDay() });
     expect(recommend(i)).toEqual(recommend(i));
+  });
+});
+
+describe('time boundaries (journey §4.1, L-07, B-20)', () => {
+  const next = (now: Date, c?: CheckInRecord, habits?: UserSettings['habits']) =>
+    new Date(nextBoundary(now, { ...(c ? { checkIn: c } : {}), ...(habits ? { habits } : {}) }));
+  const readAt = (time: string, over: Partial<Readiness> = {}): CheckInRecord =>
+    ({ ...checkIn(over), glucose: { value: 140, unit: 'mg/dL', measuredAt: at(TODAY, time).toISOString() } });
+  const lowAt1330 = () => readAt('13:30', { recheckAt: at(TODAY, '13:45').toISOString() });
+
+  it('is the next part of the day, or midnight', () => {
+    expect(next(at(TODAY, '02:30'))).toEqual(at(TODAY, '04:00'));
+    expect(next(at(TODAY, '04:00'))).toEqual(at(TODAY, '12:00'));
+    expect(next(NOW)).toEqual(at(TODAY, '12:00'));
+    expect(next(at(TODAY, '16:59'))).toEqual(at(TODAY, '17:00'));
+    expect(next(at(TODAY, '17:00'))).toEqual(at('2026-10-09', '00:00'));
+  });
+
+  it('is a reading going stale, a reading no longer ahead of the clock, or a re-check falling due, whichever is first', () => {
+    expect(next(at(TODAY, '09:10'), readAt('09:00'))).toEqual(at(TODAY, '09:30'));
+    // Stamped ahead of the clock: it is "later than now" until two minutes before its time.
+    expect(next(at(TODAY, '09:00'), readAt('09:20'))).toEqual(at(TODAY, '09:18'));
+    expect(next(at(TODAY, '13:32'), lowAt1330())).toEqual(at(TODAY, '13:45'));
+    expect(next(at(TODAY, '13:45'), lowAt1330())).toEqual(at(TODAY, '14:00'));
+    // Once all of them have passed, the day's own edges remain.
+    expect(next(at(TODAY, '14:00'), lowAt1330())).toEqual(at(TODAY, '17:00'));
+  });
+
+  it('times a reading logged in Track, as the gate does (X2-01)', () => {
+    const logged: CheckInRecord = { ...checkIn(), logged: { glucose: [{ value: 150, unit: 'mg/dL', measuredAt: at(TODAY, '10:00').toISOString() }] } };
+    expect(next(at(TODAY, '10:05'), logged)).toEqual(at(TODAY, '10:30'));
+  });
+
+  it('is the edge of an after-meal walk window, yesterday’s included', () => {
+    const habits = { mealWalk: { enabled: true, meals: ['lunch', 'dinner'] as Meal[], finish: { lunch: '13:30', dinner: '23:40' } } };
+    expect(next(at(TODAY, '13:00'), undefined, habits)).toEqual(at(TODAY, '13:30'));
+    expect(next(at(TODAY, '13:30'), undefined, habits)).toEqual(at(TODAY, '14:15'));
+    expect(next(at(TODAY, '00:05'), undefined, habits)).toEqual(at(TODAY, '00:25'));
+    expect(next(at(TODAY, '13:00'), undefined, { mealWalk: { ...habits.mealWalk, enabled: false } })).toEqual(at(TODAY, '17:00'));
+  });
+
+  it('moves the frozen key at each boundary and holds it between them, as Home works it out', () => {
+    const key = (now: Date, c?: CheckInRecord) => freezeKey({
+      now, checkIns: c ? [c] : [], statusPeriods: [], startDate: START, visit: 0, boundary: nextBoundary(now, c ? { checkIn: c } : {}),
+    });
+    expect(key(at(TODAY, '09:00'))).toBe(key(at(TODAY, '11:59')));
+    expect(key(at(TODAY, '11:59'))).not.toBe(key(at(TODAY, '12:00')));
+    expect(key(at(TODAY, '12:00'))).toBe(key(at(TODAY, '16:59')));
+    expect(key(at(TODAY, '16:59'))).not.toBe(key(at(TODAY, '17:00')));
+    expect(key(at(TODAY, '13:32'), lowAt1330())).toBe(key(at(TODAY, '13:44'), lowAt1330()));
+    expect(key(at(TODAY, '13:44'), lowAt1330())).not.toBe(key(at(TODAY, '13:45'), lowAt1330()));
+  });
+
+  it('with the real gate: a treated low says when to re-check until then, and the decision stays the same', () => {
+    const p = owner({ metformin: true, glucoseMonitor: 'meter' });
+    const c: DailyCheckIn = { date: TODAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: { value: 62, unit: 'mg/dL', measuredAt: at(TODAY, '13:30').toISOString() } };
+    const record: CheckInRecord = { ...c, readiness: evaluateCheckIn(p, c, []) };
+    expect(record.readiness.recheckAt).toBe(at(TODAY, '13:45').toISOString());
+    const shown = (time: string) => {
+      const now = at(TODAY, time);
+      return recommend(input({ now, profile: p, checkIns: [record], permissions: every(m => permission({ profile: p, checkIn: record, now, recent: [] }, m)) }));
+    };
+    expect(new Date(nextBoundary(at(TODAY, '13:32'), { checkIn: record }))).toEqual(at(TODAY, '13:45'));
+    expect(shown('13:32')).toMatchObject({ kind: 'recheck', detail: `Re-check at ${timeOf(at(TODAY, '13:45'))}, then enter the new reading.` });
+    expect(shown('13:45')).toMatchObject({ kind: 'recheck', detail: 'It is time to re-check. Enter the new reading.' });
   });
 });
 

@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ChevronLeftIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  backLabelFit, backTarget, markBack, markShown, setTitle, takeFocusRequest, useInTaskFrame, useNavStack,
+  backLabelFit, backTarget, markBack, markShown, ScreenTopContext, setTitle, takeFocusRequest, useInTaskFrame, useNavStack,
 } from './navigation';
 import { StorageBanner } from './StorageBanner';
 
@@ -20,10 +20,12 @@ import { StorageBanner } from './StorageBanner';
  * to) it replaces this entry with the opener the navigation state names, or
  * with `back` (see `backTarget`).
  */
-export function Screen({ title, subtitle, back, trailing, inline, children, className }: {
+export function Screen({ title, subtitle, below, back, trailing, inline, children, className }: {
   title: string;
   /** A quiet line under the large title, e.g. the date on Today. */
   subtitle?: ReactNode;
+  /** Part of the header, under the subtitle: Home's status button. The urgent surface comes after it. */
+  below?: ReactNode;
   /** The screen this one belongs under. */
   back?: { to: string; label: string };
   /** An action for the bar, such as Add. */
@@ -37,6 +39,8 @@ export function Screen({ title, subtitle, back, trailing, inline, children, clas
   const location = useLocation();
   const stack = useNavStack();
   const framed = useInTaskFrame();
+  // The shell's urgent surface, first in every screen's content (journey §4.7).
+  const first = useContext(ScreenTopContext);
   const header = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
@@ -145,6 +149,7 @@ export function Screen({ title, subtitle, back, trailing, inline, children, clas
                 the compact title shows as soon as the large one is under the bar. */}
             <div ref={sentinel} aria-hidden className="h-px" />
             {subtitle && <p className="text-[length:var(--text-subhead)] text-muted-foreground">{subtitle}</p>}
+            {below && <div className="pt-3">{below}</div>}
           </div>
         </>
       )}
@@ -156,6 +161,7 @@ export function Screen({ title, subtitle, back, trailing, inline, children, clas
         'pl-[max(min(1rem,20px),env(safe-area-inset-left))] pr-[max(min(1rem,20px),env(safe-area-inset-right))]',
         inline && 'pt-4',
       )}>
+        {first}
         {children}
       </div>
     </div>

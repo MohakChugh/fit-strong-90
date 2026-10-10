@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MOTION, shouldAnimate, springAt, springLinear } from './motion';
+import { MOTION, shouldAnimate, skipNextTransition, springAt, springLinear, transitionSkipped } from './motion';
 
 describe('springAt (Apple duration/bounce model; design research §4.1)', () => {
   it('starts at 0, ends at 1, never overshoots with bounce 0', () => {
@@ -49,5 +49,21 @@ describe('shouldAnimate (motion rule 4; Review Focus 5)', () => {
     expect(shouldAnimate({ systemReduced: false, appReduced: false })).toBe(true);
     expect(shouldAnimate({ systemReduced: true, appReduced: false })).toBe(false);
     expect(shouldAnimate({ systemReduced: false, appReduced: true })).toBe(false);
+  });
+});
+
+describe('safety pre-empts every effect (motion rule 2)', () => {
+  it('skips every view transition while an urgent decision stands', () => {
+    expect(transitionSkipped({ urgent: true }, 1_000)).toBe(true);
+    expect(transitionSkipped({ urgent: false }, 1_000)).toBe(false);
+  });
+  it('skips the next one once, when a tap opens a screen on a stop or a hold (M3)', () => {
+    skipNextTransition(1_000);
+    expect(transitionSkipped({ urgent: false }, 1_050)).toBe(true);
+    expect(transitionSkipped({ urgent: false }, 1_100)).toBe(false);
+  });
+  it('forgets a request no navigation took up', () => {
+    skipNextTransition(1_000);
+    expect(transitionSkipped({ urgent: false }, 2_500)).toBe(false);
   });
 });

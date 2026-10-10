@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
+import { UrgentProvider } from '@/screens/home/UrgentBanner';
 import { ErrorBoundary } from './ErrorBoundary';
 import { TabBar } from './TabBar';
 
@@ -12,6 +13,10 @@ import { TabBar } from './TabBar';
  * The bottom padding lets the last row scroll clear of the floating tab bar:
  * the bar's 4rem at most (tabs of up to 3.5rem in 0.25rem of padding), the
  * gap under it, and a little room above it.
+ *
+ * The shell works out the urgent decision once and every screen in it shows
+ * it first (journey §4.7, B-02): Trends, Browse, Me and the hubs as well as
+ * Home. Full-screen tasks are outside the shell and show their own stop.
  */
 export function AppShell() {
   const { pathname } = useLocation();
@@ -20,7 +25,9 @@ export function AppShell() {
       <main className="flex flex-1 flex-col pb-[calc(4.5rem+max(0.5rem,env(safe-area-inset-bottom)))] lg:pb-0 lg:pl-60">
         <ErrorBoundary resetKey={pathname}>
           <Suspense fallback={<div className="flex-1" aria-busy="true" />}>
-            <Outlet />
+            <UrgentProvider>
+              <Outlet />
+            </UrgentProvider>
           </Suspense>
         </ErrorBoundary>
       </main>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { followsSystemTextSize, rootSizeFor } from './textSize';
+import { followsSystemTextSize, rootSizeFor, scaleFromRoot } from './textSize';
 
 describe('iOS text size', () => {
   it('keeps the design unchanged at the default size and scales with larger ones', () => {
@@ -19,5 +19,13 @@ describe('iOS text size', () => {
     expect(followsSystemTextSize({ supportsKeyword: true, maxTouchPoints: 0 })).toBe(false);
     expect(followsSystemTextSize({ supportsKeyword: true, maxTouchPoints: 5 })).toBe(true);
     expect(followsSystemTextSize({ supportsKeyword: false, maxTouchPoints: 5 })).toBe(false);
+  });
+
+  it('reads the text size as a scale of the design’s 16 px, and a broken size as the default', () => {
+    expect(scaleFromRoot(16)).toBe(1);
+    expect(scaleFromRoot(20.8)).toBeCloseTo(1.3, 10);
+    expect(scaleFromRoot(32)).toBe(2);
+    expect(scaleFromRoot(Number.NaN)).toBe(1);
+    expect(scaleFromRoot(0)).toBe(1);
   });
 });

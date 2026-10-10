@@ -60,7 +60,7 @@ export interface Permission {
 /** D29(6): a pre-session reading for insulin or a sulfonylurea must be this recent. */
 export const FRESH_MINUTES = 30;
 /** Clock drift allowed for a reading stamped a little after "now". */
-const FUTURE_SLACK_MINUTES = 2;
+export const FUTURE_SLACK_MINUTES = 2;
 
 export const PERMISSION_TEXT = {
   /** The headline for an emergency, on every screen. */

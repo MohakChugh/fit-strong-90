@@ -31,7 +31,8 @@ import { DISPOSITION_ORDER } from '@/types/checkin';
 import type { Meal } from '@/types/habits';
 import type { SessionPlan } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
-import { checkedIn, PERMISSION_TEXT, type Mode, type Permission } from '@/engine/permission';
+import { checkedIn, FRESH_MINUTES, FUTURE_SLACK_MINUTES, PERMISSION_TEXT, type Mode, type Permission } from '@/engine/permission';
+import { withLogged } from '@/engine/readiness';
 import { profileGaps } from '@/engine/health';
 import { headline } from '@/components/checkin/copy';
 import { minutesLeft, resumeOffer, slotOf, type SavedProgress } from '@/session/persistence';
@@ -859,6 +860,50 @@ function fallback(ctx: Context): Recommendation {
 // Freezing
 // ============================================================================
 
+/** Where the day's parts change (`dayPartOf`), and midnight: 04:00, 12:00, 17:00 and 24:00, in hours. */
+const DAY_EDGES = [4, 12, 17, 24];
+
+/**
+ * The next moment Home's words can go stale with nothing else changing
+ * (journey §4.1, L-07, B-20): the next of 04:00, 12:00, 17:00 and midnight;
+ * today's glucose reading no longer being stamped in the future, or no longer
+ * being fresh (`FRESH_MINUTES`); a treated low's re-check falling due; and
+ * the edges of each after-meal walk window. Epoch milliseconds, always after
+ * `now`, since midnight always comes.
+ *
+ * It decides nothing: the gate and `recommend` decide exactly as before, only
+ * worked out again at this moment, so "Re-check at 1:45 pm" is never left on
+ * screen after 1:45 pm. A boundary that changes nothing costs one recompute.
+ */
+export function nextBoundary(now: Date, input: { checkIn?: CheckInRecord; habits?: UserSettings['habits'] }): number {
+  const t = now.getTime();
+  /** `minute` minutes after the local midnight that starts `day`; past 24:00 it rolls into the next day. */
+  const at = (day: Date, minute: number) => {
+    const d = new Date(day);
+    d.setHours(0, minute, 0, 0);
+    return d.getTime();
+  };
+  const times = DAY_EDGES.map(hour => at(now, hour * 60));
+  // The reading the freshness rule times: the newest, from any screen (X2-01).
+  const reading = input.checkIn ? withLogged(input.checkIn).glucose?.measuredAt : undefined;
+  const taken = reading ? Date.parse(reading) : Number.NaN;
+  if (!Number.isNaN(taken)) times.push(taken - FUTURE_SLACK_MINUTES * 60_000, taken + FRESH_MINUTES * 60_000);
+  const due = input.checkIn?.readiness.recheckAt ? Date.parse(input.checkIn.readiness.recheckAt) : Number.NaN;
+  if (!Number.isNaN(due)) times.push(due);
+  const walk = input.habits?.mealWalk;
+  if (walk?.enabled) {
+    // Yesterday's too: a window opened at 23:40 closes after midnight.
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    for (const meal of walk.meals) {
+      const finish = clockMinute(walk.finish?.[meal]);
+      if (finish === undefined) continue;
+      for (const day of [yesterday, now]) times.push(at(day, finish), at(day, finish + MEAL_WALK_WINDOW_MINUTES));
+    }
+  }
+  return Math.min(...times.filter(x => x > t));
+}
+
 /**
  * What makes Today work out its recommendation again: a new day, the end of
  * the small hours (whose "Rest well" must not outlast them), a return to the
@@ -866,6 +911,11 @@ function fallback(ctx: Context): Recommendation {
  * back. Anything else in the store can change while the person reads, and
  * the suggestion stays where it is; that includes the answer to the plan
  * offer, which is kept on the status periods but changes no suggestion.
+ *
+ * Home also passes the next time boundary (`nextBoundary`), so the choice is
+ * worked out again when a part of the day, a reading's freshness, a re-check
+ * or a meal window turns over (L-07, B-20): the boundary stays the same until
+ * that moment, and becomes the next one after it.
  */
 export function freezeKey(input: {
   now: Date;
@@ -875,8 +925,10 @@ export function freezeKey(input: {
   startDate: string;
   /** Bumped each time the person comes back to the screen. */
   visit: number;
+  /** `nextBoundary(now, …)`, which Home always passes. */
+  boundary?: number;
 }): string {
   const today = format(input.now, 'yyyy-MM-dd');
-  const parts = [today, smallHours(input.now), input.visit, input.startDate, input.checkIns.find(c => c.date === today) ?? null, input.statusPeriods ?? []];
+  const parts = [today, smallHours(input.now), input.visit, input.startDate, input.boundary ?? null, input.checkIns.find(c => c.date === today) ?? null, input.statusPeriods ?? []];
   return JSON.stringify(parts, (field, value: unknown) => (field === 'planShift' ? undefined : value));
 }

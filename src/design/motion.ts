@@ -45,3 +45,31 @@ export const MOTION = {
 export function shouldAnimate({ systemReduced, appReduced }: { systemReduced: boolean; appReduced: boolean }): boolean {
   return !systemReduced && !appReduced;
 }
+
+// ============================================================================
+// Safety pre-empts every effect (motion rule 2)
+// ============================================================================
+
+/** A navigation starts its view transition within a few frames of the tap; an older request is stale. */
+const SKIP_WINDOW_MS = 1000;
+let skipUntil = 0;
+
+/**
+ * The next navigation opens on a stop or a hold, such as a tile whose mode the
+ * gate refuses at the tap: its view transition is skipped and the screen
+ * renders at once (motion rule 2, M3).
+ */
+export function skipNextTransition(now = Date.now()): void {
+  skipUntil = now + SKIP_WINDOW_MS;
+}
+
+/**
+ * Whether a view transition starting now is skipped: always while an urgent
+ * decision stands, since every screen then shows it (journey §4.7), and once
+ * when the navigation was asked to skip. Taking the request uses it up.
+ */
+export function transitionSkipped({ urgent }: { urgent: boolean }, now = Date.now()): boolean {
+  const asked = now < skipUntil;
+  skipUntil = 0;
+  return urgent || asked;
+}

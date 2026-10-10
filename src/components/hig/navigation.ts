@@ -1,4 +1,4 @@
-import { createContext, useContext, useSyncExternalStore } from 'react';
+import { createContext, useContext, useSyncExternalStore, type ReactNode } from 'react';
 
 /**
  * The navigation state iOS keeps for free, kept once for the whole app.
@@ -454,3 +454,11 @@ export const TaskFrameContext = createContext(false);
 export function useInTaskFrame(): boolean {
   return useContext(TaskFrameContext);
 }
+
+/**
+ * What every screen in the shell shows first in its content: the shared
+ * urgent surface (journey §4.7, B-02), which the shell provides. Nothing
+ * outside the shell, since a full-screen task shows its own stop.
+ */
+export const ScreenTopContext = createContext<ReactNode>(null);
+
