@@ -69,15 +69,15 @@ export function decodeBackup(bytes) {
 
 // ---------------------------------------------------------------- navigation
 
-/** Me → Data & offline, the way a person gets there (v1's You button is v2's Me tab). */
+/** Me → Data, the way a person gets there. */
 export async function openData(t) {
   const page = t.page;
   if (!/^\/me\/data/.test(await t.route())) {
     await ui.tab(page, 'Me');
     await page.getByRole('heading', { level: 1, name: 'Me', exact: true }).waitFor();
-    await ui.tap(ui.row(page.getByRole('main'), 'Data & offline', 'link'));
+    await ui.tap(ui.row(page.getByRole('main'), 'Data', 'link'));
   }
-  await page.getByRole('heading', { level: 1, name: 'Data & offline', exact: true }).waitFor();
+  await page.getByRole('heading', { level: 1, name: 'Data', exact: true }).waitFor();
   return page.getByRole('main');
 }
 
@@ -137,6 +137,18 @@ export async function chooseRestore(t, file, { from = 'you' } = {}) {
   const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 10000 }), ui.tap(trigger)]);
   await chooser.setFiles(file);
   const sheet = page.getByRole('dialog', { name: 'Restore from a backup' });
+  await sheet.waitFor({ timeout: 15000 });
+  await page.waitForTimeout(300);
+  return sheet;
+}
+
+/** Me → Data → Check a backup with `file`; returns its sheet (B-25). */
+export async function chooseCheck(t, file) {
+  const page = t.page;
+  const main = await openData(t);
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 10000 }), ui.tap(ui.row(main, 'Check a backup'))]);
+  await chooser.setFiles(file);
+  const sheet = page.getByRole('dialog', { name: 'Check a backup' });
   await sheet.waitFor({ timeout: 15000 });
   await page.waitForTimeout(300);
   return sheet;
@@ -277,6 +289,8 @@ export function logical(snap, { ignoreExportDate = false } = {}) {
     // backup comparison leaves out (src/screens/you/backupFile.ts settingsKey).
     delete settings.habits.lastExportAt;
     delete settings.habits.lastExportSeq;
+    delete settings.habits.lastExportVia;
+    delete settings.habits.lastCheckedExportAt;
     if (Object.keys(settings.habits).length === 0) delete settings.habits;
   }
   const content = {};
@@ -303,6 +317,8 @@ export function logicalFromDoc(doc, { ignoreExportDate = false } = {}) {
     // backup comparison leaves out (src/screens/you/backupFile.ts settingsKey).
     delete settings.habits.lastExportAt;
     delete settings.habits.lastExportSeq;
+    delete settings.habits.lastExportVia;
+    delete settings.habits.lastCheckedExportAt;
     if (Object.keys(settings.habits).length === 0) delete settings.habits;
   }
   return {

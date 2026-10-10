@@ -66,7 +66,7 @@ export function StorageBanner({ inHeader = false }: { inHeader?: boolean }) {
       <Sheet open={details} onOpenChange={setDetails} title={notice.title}>
         <p className="px-1 text-[length:var(--text-body)] leading-snug">{notice.detail}</p>
         <Group>
-          <Row as={Link} to="/you/data" viewTransition label="Data & offline" detail="Export a copy of your records, or remove older ones" chevron />
+          <Row as={Link} to="/me/data" viewTransition label="Data" detail="Export a copy of your records, or remove older ones" chevron />
         </Group>
       </Sheet>
     </div>

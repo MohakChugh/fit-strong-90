@@ -7,25 +7,26 @@
  * (journey §20.4 rule 3), so the handle is a picture of an affordance, hidden
  * from assistive technology like a sheet's grabber.
  */
-import { useId, useRef, useState, type PointerEvent } from 'react';
+import { useId, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { GripVerticalIcon, PlusIcon } from 'lucide-react';
 import { GROUPS, MAX_PER_GROUP, categoryById, type CategoryId, type GroupId } from '@/categories';
 import { MOTION, springLinear } from '@/design/motion';
-import { Group } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
+import { contextOf } from '@/content';
 import { cn } from '@/lib/utils';
 import type { HomeLayout } from '@/types';
-import type { Control, HomeEditor } from './editor';
-import { addButton, groupFull, hiddenTiles, notOnHome } from './layout';
+import { PickRows, SearchField } from '@/screens/browse/BrowseList';
+import { browse } from '@/screens/browse/browse';
+import type { HomeEditor } from './editor';
+import { addButton, groupFull, hiddenTiles } from './layout';
+import { EditButton } from './EditButton';
 import { TileIcon } from './Tile';
 
-const groupTitle = (id: GroupId) => GROUPS.find(g => g.id === id)?.title ?? id;
 /** The others make room for a dragged tile with `spring-quick` (M17); the dragged one follows the finger 1:1. */
 const MAKE_ROOM = `transform ${MOTION.springQuick.cssMs}ms ${springLinear(0)}`;
 
 export function EditTiles({ layout, editor }: { layout: HomeLayout; editor: HomeEditor }) {
   const titleId = useId();
-  const [adding, setAdding] = useState(false);
   const groups = GROUPS.filter(g => layout.order[g.id].length > 0);
   const hidden = hiddenTiles(layout);
   return (
@@ -53,7 +54,7 @@ export function EditTiles({ layout, editor }: { layout: HomeLayout; editor: Home
         type="button"
         data-flip="add"
         data-control="add"
-        onClick={() => setAdding(true)}
+        onClick={() => editor.setPicking(true)}
         className="press-feedback flex min-h-[60px] items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-tint/60 px-4 text-[length:var(--text-body)] font-semibold text-tint animate-[fs-fade-in_200ms_ease-out_both]"
       >
         <PlusIcon aria-hidden className="size-5 shrink-0" />
@@ -70,7 +71,7 @@ export function EditTiles({ layout, editor }: { layout: HomeLayout; editor: Home
       >
         Done
       </button>
-      <AddSheet open={adding} onOpenChange={setAdding} layout={layout} onAdd={editor.add} />
+      <PickSheet open={editor.picking} onOpenChange={editor.setPicking} layout={layout} onAdd={editor.add} />
     </section>
   );
 }
@@ -208,33 +209,6 @@ function EditTile({ id, first, last, lifted, editor, handle }: {
   );
 }
 
-/**
- * A labelled, 48 px secondary button. A button that can't act stays in place,
- * focusable and says why in its own words ("Check is full (5)"), rather than
- * dropping out of the tab order under the person's focus.
- */
-function EditButton({ control, disabled = false, label, name, onClick }: {
-  control: Control | 'show' | 'pick';
-  disabled?: boolean;
-  label: string;
-  /** The tile it acts on, after the visible words for a screen reader: "Move up, Water". */
-  name: string;
-  onClick: (button: HTMLButtonElement) => void;
-}) {
-  return (
-    <button
-      type="button"
-      data-control={control}
-      aria-label={`${label}, ${name}`}
-      aria-disabled={disabled || undefined}
-      onClick={e => { if (!disabled) onClick(e.currentTarget); }}
-      className="press-feedback flex min-h-12 min-w-12 shrink-0 items-center justify-center rounded-full bg-tint/10 px-3 text-[length:var(--text-subhead)] font-semibold leading-tight text-tint aria-disabled:bg-muted aria-disabled:text-muted-foreground"
-    >
-      {label}
-    </button>
-  );
-}
-
 /** "Hidden": the tiles the person hid, or that didn't fit by default, each with Show (journey §7.6). */
 function HiddenTiles({ layout, ids, onShow }: { layout: HomeLayout; ids: readonly CategoryId[]; onShow: (id: CategoryId) => void }) {
   const headingId = useId();
@@ -268,62 +242,56 @@ function FullNote({ groups }: { groups: readonly string[] }) {
   );
 }
 
+/** Pick mode lists categories only, so it needs none of the person's Guide answers. */
+const NO_GUIDE = contextOf();
+
 /**
- * "+ Add" (journey §7.6): every category not on Home, the hidden ones too,
- * each with Add. Plan 4 replaces it with Browse's pick mode. The list is the
- * one the sheet opened with, so a row never vanishes from under a finger: an
- * added one says "Added", and a full group says so on its buttons.
+ * "+ Add" (journey §7.6, §14, D56): Browse in pick mode, over Edit Home.
+ * Every category, grouped, each with Add or Added; search at the top; Done.
+ * A tile added here fades in at its place in its group (M17).
  */
-export function AddSheet({ open, onOpenChange, layout, onAdd }: {
+export function PickSheet({ open, onOpenChange, layout, onAdd }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   layout: HomeLayout;
-  /** Resolves to what to announce once stored, or that it didn't save; nothing when it could not be added. */
+  /** `editor.add`: resolves to what to announce once stored, or that it didn't save; to nothing when it couldn't add. */
   onAdd: (id: CategoryId) => Promise<string | undefined>;
 }) {
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title="Add to Home" detent="large">
-      {/* Remounts with each opening, so the list is the one this opening offered. */}
-      {open && <AddList layout={layout} onAdd={onAdd} />}
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Add to Home"
+      detent="large"
+      // Opened from its address (`#/browse?pick=1`), nothing opened it: focus goes to "+ Add", pick mode's own way in (B-03).
+      returnFocus={() => document.querySelector<HTMLElement>('[data-control="add"]')}
+    >
+      {open && <PickBody layout={layout} onAdd={onAdd} onDone={() => onOpenChange(false)} />}
     </Sheet>
   );
 }
 
-function AddList({ layout, onAdd }: { layout: HomeLayout; onAdd: (id: CategoryId) => Promise<string | undefined> }) {
-  const [offered] = useState(() => notOnHome(layout));
+function PickBody({ layout, onAdd, onDone }: { layout: HomeLayout; onAdd: (id: CategoryId) => Promise<string | undefined>; onDone: () => void }) {
+  const [query, setQuery] = useState('');
+  const results = useMemo(() => browse(query, NO_GUIDE, 'pick'), [query]);
   // The page behind is inert while the sheet is open, so the sheet says what happened itself.
   const [said, setSaid] = useState('');
   return (
     <>
       <p className="px-1 text-[length:var(--text-body)] leading-snug">Choose a tile for Home. Each group holds up to {MAX_PER_GROUP}.</p>
+      <SearchField value={query} onChange={setQuery} />
       <p role="status" className="sr-only">{said}</p>
-      {offered.length === 0 && <p className="px-1 text-[length:var(--text-body)] leading-snug text-muted-foreground">Everything is on Home.</p>}
-      {offered.map(g => (
-        <Group key={g.group} header={groupTitle(g.group)} {...(groupFull(layout, g.group) ? { footer: `${groupTitle(g.group)} has ${MAX_PER_GROUP} tiles. Hide one in Edit Home to make room.` } : {})}>
-          {g.ids.map(id => {
-            const category = categoryById(id);
-            const button = addButton(layout, id);
-            return (
-              <div key={id} data-add-tile={id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                <TileIcon category={category} />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[length:var(--text-body)] leading-snug [overflow-wrap:break-word]">{category.title}</span>
-                  {layout.hidden.includes(id) && button.label !== 'Added' && (
-                    <span className="block text-[length:var(--text-subhead)] leading-snug text-muted-foreground">Hidden from Home</span>
-                  )}
-                </span>
-                <EditButton
-                  control="pick"
-                  disabled={button.disabled}
-                  label={button.label}
-                  name={category.title}
-                  onClick={() => void onAdd(id).then(words => { if (words) setSaid(words); })}
-                />
-              </div>
-            );
-          })}
-        </Group>
-      ))}
+      <PickRows results={results} layout={layout} onPick={id => void onAdd(id).then(words => { if (words) setSaid(words); })} />
+      {results.groups.length === 0 && (
+        <p className="px-1 text-[length:var(--text-body)] leading-snug text-muted-foreground">Nothing matches “{query.trim()}”. Try another word.</p>
+      )}
+      <button
+        type="button"
+        onClick={onDone}
+        className="press-feedback min-h-[60px] rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint"
+      >
+        Done
+      </button>
       {/* Room to scroll the last row clear of an Undo toast still standing from Edit Home (M19). */}
       <div aria-hidden className="h-24" />
     </>

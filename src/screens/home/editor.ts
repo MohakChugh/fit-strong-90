@@ -10,8 +10,9 @@ import { toast } from 'sonner';
 import { MAX_PER_GROUP, categoryById, isHomeLayout, type CategoryId } from '@/categories';
 import { MOTION, springLinear } from '@/design/motion';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
-import { getState, setSettings, update } from '@/store/useStore';
+import { setSettings, update } from '@/store/useStore';
 import type { HomeLayout } from '@/types';
+import { layoutNow } from './homeLayout';
 import { addTile, groupFull, hiddenTiles, hideTile, movedMessage, moveTile, moveTileTo, placedMessage, restoreTile, showTile } from './layout';
 
 /** A control on a tile in edit mode, found again by name once the tile has moved. */
@@ -184,6 +185,8 @@ export function useHomeEditor({ fallback, still, urgent }: {
   // The tile whose menu opened edit mode, so Done hands focus back to it.
   const [startedFrom, setStartedFrom] = useState<CategoryId>();
   const [menu, setMenu] = useState<MenuTarget | null>(null);
+  // Browse's pick mode over Edit Home (journey §7.6, D56).
+  const [picking, setPicking] = useState(false);
   // Closed, not just hidden, so it can't open again by itself once the urgent state has gone.
   if (urgent && menu !== null) setMenu(null);
   // Polite, and said again even when the words repeat.
@@ -211,11 +214,7 @@ export function useHomeEditor({ fallback, still, urgent }: {
   useEffect(() => () => endUndos(undos), []);
 
   /** The layout as it stands now, a refused draft or a change still being written included, so quick taps build on each other. */
-  const latest = (): HomeLayout => {
-    if (requested.current) return requested.current;
-    const home = getState().settings.home;
-    return home !== undefined && isHomeLayout(home) ? home : fallback;
-  };
+  const latest = (): HomeLayout => requested.current ?? layoutNow(fallback);
   const say = (text: string) => setSaid(s => ({ text, n: s.n + 1 }));
   // After the change has rendered: the element a control was on may have been moved or replaced.
   const focusLater = (find: () => HTMLElement | null | undefined, options?: FocusOptions) => requestAnimationFrame(() => find()?.focus(options));
@@ -226,6 +225,7 @@ export function useHomeEditor({ fallback, still, urgent }: {
 
   const finish = () => {
     closing.current = false;
+    setPicking(false);
     setEditing(false);
     focusLater(() => (startedFrom ? tileControl(startedFrom) : null) ?? document.querySelector<HTMLElement>('[data-edit-home-row]'));
   };
@@ -414,6 +414,13 @@ export function useHomeEditor({ fallback, still, urgent }: {
     }, { preventScroll: true });
   };
 
+  /** Edit Home with pick mode over it, as `#/browse?pick=1` asks (journey §19.2). State only, so it is safe during render; the sheet takes focus itself. */
+  const openPick = () => {
+    setEditing(true);
+    setMenu(null);
+    setPicking(true);
+  };
+
   /**
    * Done: once every change is stored, focus goes back to where editing began
    * (journey §20.4 rule 10). A change still being written is waited for; a
@@ -447,7 +454,7 @@ export function useHomeEditor({ fallback, still, urgent }: {
   };
 
   return {
-    editing, start, done, menu, openMenu, closeMenu, menuClosed,
+    editing, start, done, menu, openMenu, closeMenu, menuClosed, picking, setPicking, openPick,
     hide, move, drop, show, add, said, error, undoCount, flipRef: flip.ref,
     /** The refused draft, drawn in place of the stored layout; its message; and Try again. */
     draft: refused?.layout, failed: refused?.message, retry,

@@ -16,8 +16,9 @@ import { MEAL_LABEL } from '@/reminders/copy';
 import { dailyTimes, inWindowOrder, type HabitId } from '@/reminders/schedule';
 import { waterBlock } from '@/reminders/water';
 import { movementBlock } from '@/reminders/advice';
+import type { StaleCopy } from '@/reminders/calendarNotice';
 import type { ImportPreview } from '@/store/transfer';
-import { shortDay } from './dates';
+import { shortDate, shortDay } from './dates';
 
 /** Formats minutes after midnight for display, in the phone's own style. */
 export type ClockFormat = (minute: number) => string;
@@ -102,6 +103,24 @@ export function reviewNeeded(profile: UserProfile | undefined): 'health' | 'medi
   // default No is not an answer (B08).
   if (!diabetic(profile) && !answeredOnOpen(profile.health).has('sglt2i')) return 'sglt2';
   return undefined;
+}
+
+/** B-24's privacy sentence, for this device. Plan 6 adds the one about map pictures when they arrive. */
+export function privacyLine(device: string): string {
+  return `Your records are stored on this ${device}. Backups and calendar files leave only when you share them.`;
+}
+
+const perDay = (n: number) => (n === 1 ? 'Once a day' : `${n} a day`);
+const perDayInline = (n: number) => (n === 1 ? 'once a day' : `${n} a day`);
+
+/** A calendar copy as Reminders lists it (A-78): its events' names, how many a day, when the file was added, and until when. */
+export function copyLine(copy: { names: readonly string[]; events: number; at: string; until: string }): { title: string; detail: string } {
+  return { title: copy.names.join(' and '), detail: `${perDay(copy.events)} · added ${shortDate(copy.at)} · until ${shortDay(copy.until)}` };
+}
+
+/** What changed, for each copy that may be out of date, in one paragraph. */
+export function staleLine(stale: readonly StaleCopy[]): string {
+  return stale.map(s => `${s.names.join(' and ')}: ${perDayInline(s.inCalendar)} in Calendar, ${s.now === 0 ? 'none now' : `${perDayInline(s.now)} now`}.`).join(' ');
 }
 
 /** What the review prompt says, by what needs reviewing. */

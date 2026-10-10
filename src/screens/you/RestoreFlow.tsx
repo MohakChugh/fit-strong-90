@@ -6,11 +6,12 @@ import { getState, importRecord, previewRecord, useStore } from '@/store/useStor
 import { decode, type CollectionCounts, type ConflictPolicy, type ImportMode, type ImportPreview } from '@/store/transfer';
 import { deviceNoun, readInstallEnv } from '@/screens/welcome/install';
 import { ChoiceRows, Notice, PlainButton, PrimaryButton } from './controls';
+import { checkOutcome, checkedLine, type CheckOutcome } from './dataStatus';
 import { shortDate, shortDay } from './dates';
 import { latestOnly } from './latest';
 import { restoreLocked } from './restore';
 import { countsSentence, plural, previewLines, recordCounts } from './summaries';
-import { recordExport } from './write';
+import { recordBackupCheck, recordExport } from './write';
 
 type Stage =
   | { kind: 'idle' }
@@ -19,7 +20,8 @@ type Stage =
   | { kind: 'preview'; raw: unknown; preview: ImportPreview }
   | { kind: 'confirmReplace'; raw: unknown; preview: ImportPreview }
   | { kind: 'importing'; mode: ImportMode }
-  | { kind: 'done'; message: string };
+  | { kind: 'done'; message: string }
+  | { kind: 'checked'; preview: ImportPreview; outcome: CheckOutcome; latest?: string };
 
 const total = (counts: CollectionCounts | undefined) => Object.values(counts ?? {}).reduce((sum, n) => sum + n, 0);
 
@@ -35,11 +37,17 @@ const total = (counts: CollectionCounts | undefined) => Object.values(counts ?? 
  * `place: 'welcome'` is a device being set up, where only a replace makes
  * sense — merge keeps this device's settings, which would leave it unfinished.
  */
-export function RestoreFlow({ place, note, trigger }: {
+export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
   place: 'welcome' | 'you';
   /** Shown above the choice, e.g. that Safari keeps its own copy. */
   note?: string;
   trigger: (pick: () => void) => ReactNode;
+  /**
+   * `check` (Me → Data → Check a backup; B-25, D61): read the file back and
+   * say whether it is the latest backup, whole. That mark is the only thing
+   * written.
+   */
+  purpose?: 'restore' | 'check';
 }) {
   const state = useStore();
   // Held in state rather than a ref, so handing `pick` out during render reads nothing mutable.
@@ -61,6 +69,16 @@ export function RestoreFlow({ place, note, trigger }: {
     input?.click();
   };
 
+  /** B-25: a backup is checked once its own file reads back here, whole. Any other file is reported, and nothing is written. */
+  const check = async (preview: ImportPreview): Promise<Stage> => {
+    const latest = getState().settings.habits?.lastExportAt;
+    const outcome = checkOutcome(preview, latest);
+    const checked: Stage = { kind: 'checked', preview, outcome, ...(latest ? { latest } : {}) };
+    if (outcome !== 'latest' || !preview.exportedAt) return checked;
+    const saved = await recordBackupCheck(preview.exportedAt);
+    return saved.ok ? checked : { kind: 'problem', message: `The file reads back, but the check did not save. ${saved.failure.message}` };
+  };
+
   const read = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     // Cleared so choosing the same file again still fires a change.
@@ -72,7 +90,16 @@ export function RestoreFlow({ place, note, trigger }: {
       const raw = await decode(await file.arrayBuffer());
       if (!selection.isCurrent(token)) return;
       const preview = previewRecord(raw);
-      setStage(preview.ok ? { kind: 'preview', raw, preview } : { kind: 'problem', message: preview.reason });
+      if (!preview.ok) {
+        setStage({ kind: 'problem', message: preview.reason });
+        return;
+      }
+      if (purpose === 'check') {
+        const next = await check(preview);
+        if (selection.isCurrent(token)) setStage(next);
+        return;
+      }
+      setStage({ kind: 'preview', raw, preview });
     } catch (error) {
       if (!selection.isCurrent(token)) return;
       setStage({ kind: 'problem', message: error instanceof Error ? error.message : 'That file could not be read.' });
@@ -126,11 +153,21 @@ export function RestoreFlow({ place, note, trigger }: {
       <input ref={setInput} type="file" className="sr-only" tabIndex={-1} aria-hidden onChange={event => void read(event)} />
       {stage.kind === 'reading' && <Notice>Reading the file…</Notice>}
 
-      <Sheet open={open} dismissible={!locked} onOpenChange={next => { if (!next) close(); }} title="Restore from a backup" detent="large">
+      <Sheet open={open} dismissible={!locked} onOpenChange={next => { if (!next) close(); }} title={purpose === 'check' ? 'Check a backup' : 'Restore from a backup'} detent="large">
         {stage.kind === 'problem' && (
           <>
             <Notice tone="error">{stage.message}</Notice>
             <PrimaryButton onClick={pick}>Choose another file</PrimaryButton>
+          </>
+        )}
+
+        {stage.kind === 'checked' && (
+          <>
+            <Notice>{checkedLine(stage.outcome, stage.preview.exportedAt, stage.latest, device)}</Notice>
+            <Group header="In this file">
+              {previewLines(stage.preview).map(line => <Row key={line.label} label={line.label} value={line.count.toLocaleString()} numeric />)}
+            </Group>
+            <PrimaryButton onClick={close}>Done</PrimaryButton>
           </>
         )}
 

@@ -244,7 +244,7 @@ const shareCase = (name, share, expect) => ({
         await t.check(data.sameSnapshot(before, after).length === 0, 'a cancelled share changed the record');
         const main = await data.openData(t);
         const row = await say(ui.row(main, 'Back up your record'));
-        await t.check(/No backup yet|not made one yet/i.test(row), `after a cancelled share the backup row says “${row}”`);
+        await t.check(/Last backup: never/.test(row), `after a cancelled share the backup row says “${row}”`);
         await t.reload();
         await t.check(docs(await t.db()).settings?.habits?.lastExportAt === undefined, 'after reload the cancelled share counts as a backup');
       }

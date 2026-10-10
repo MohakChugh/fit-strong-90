@@ -132,7 +132,7 @@ if (document.startViewTransition) {
 // Follow the iOS text size before anything renders, and again on return to
 // the app, since the setting is changed outside it.
 applyTextSize()
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') applyTextSize() })
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') applyTextSize(document, getState().settings.display?.textScale) })
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

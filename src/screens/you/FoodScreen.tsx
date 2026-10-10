@@ -53,8 +53,8 @@ export function FoodScreen() {
   };
 
   return (
-    <Screen title="Food preferences" back={{ to: '/you', label: 'You' }}>
-      <Group header="What you eat" footer="Meal ideas in Guide use this. The app only knows what you tell it.">
+    <Screen title="Food" back={{ to: '/me', label: 'Me' }}>
+      <Group header="What you eat" footer="Meal ideas use this. The app only knows what you tell it.">
         <ChoiceRows
           label="What you eat"
           options={PATTERNS}
@@ -118,6 +118,11 @@ export function FoodScreen() {
           />
         </Group>
       )}
+
+      {/* Plan 7 fills this: the logging level and a care-team target (journey §16 Food). */}
+      <Group header="Logging what you eat">
+        <Row label="Logging meals" detail="Not in this version yet. Meal ideas work with the choices above." />
+      </Group>
 
       {problem && <Notice tone="error">{problem}</Notice>}
       {food && <PlainButton tone="stop" onClick={() => void edit(() => undefined)}>Clear food preferences</PlainButton>}

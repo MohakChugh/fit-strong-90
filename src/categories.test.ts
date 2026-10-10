@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CATEGORIES, GROUPS, arrange, categoryById, defaultHome, isHomeLayout, type Category, type Shortcut } from './categories';
+import { BROWSE_GROUPS, CATEGORIES, GROUPS, SHORTCUTS, arrange, categoryById, defaultHome, isHomeLayout, newlyRelevant, relevantCategories, type Category, type Shortcut } from './categories';
+import { redirectFor } from './redirects';
 import type { HomeLayout } from '@/types';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import type { UserProfile } from '@/types/profile';
@@ -154,5 +155,60 @@ describe('isHomeLayout: a stored or imported layout this build can draw', () => 
   });
   it('refuses anything that is not a layout', () => {
     for (const x of [null, 'home', [], { order: {} }, { order: L.order }, { ...L, hidden: 'none' }]) expect(isHomeLayout(x)).toBe(false);
+  });
+});
+
+describe('Browse’s groups and shortcuts (journey §14, B-14)', () => {
+  it('are Home’s four groups, then Your data', () => {
+    expect(BROWSE_GROUPS.map(g => g.title)).toEqual(['Move', 'Eat', 'Check', 'Learn', 'Your data']);
+  });
+  it('each shortcut has its own id, none a category’s, and a v2 address', () => {
+    const all = Object.values(SHORTCUTS).flat();
+    const ids = all.map(s => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const s of all) {
+      expect(CATEGORIES.some(c => c.id === s.id), s.id).toBe(false);
+      expect(Object.keys(s).sort()).toEqual(['id', 'title', 'to']);
+      const [path, query] = s.to.split('?');
+      expect(redirectFor(path, query ? `?${query}` : ''), s.to).toBeUndefined();
+    }
+  });
+  it('lists §14’s shortcuts in their groups, and Water as Check’s category only', () => {
+    expect(SHORTCUTS.move.map(s => s.title)).toEqual(['Programme', 'Exercise library']);
+    expect(SHORTCUTS.eat.map(s => s.title)).toEqual(['Meal ideas']);
+    expect(SHORTCUTS.check.map(s => s.title)).toEqual(['BMI']);
+    expect(SHORTCUTS.learn).toEqual([]);
+    expect(SHORTCUTS.data.map(s => s.title)).toEqual(['Today’s log', 'Backup']);
+    expect(Object.values(SHORTCUTS).flat().some(s => /water/i.test(s.title))).toBe(false);
+  });
+});
+
+describe('relevantCategories: journey §5.1’s “when” rules', () => {
+  it('is what defaultHome lays out before any fill-in', () => {
+    const p = withHealth({ diabetes: 'type2', hypertension: 'treated' }, { pain: { areas: ['lowerBack'] } });
+    expect(relevantCategories({ profile: p, settings, hasSteps: false })).toEqual(['workout', 'stretch', 'walk', 'food', 'glucose', 'bp', 'back', 'labs']);
+    expect(relevantCategories({ profile: withHealth({}), settings, hasSteps: false })).toEqual(['workout', 'stretch', 'walk', 'food']);
+  });
+});
+
+describe('newlyRelevant: offered in Me once, never added silently (journey §5.1)', () => {
+  const laid = defaultHome({ profile: withHealth({}), settings, hasSteps: false });
+  const diabetic = relevantCategories({ profile: withHealth({ diabetes: 'type2' }), settings, hasSteps: false });
+  it('offers what the answers made relevant since Home was laid out', () => {
+    expect(newlyRelevant({ relevant: diabetic, layout: laid, offered: [] })).toEqual(['glucose', 'labs']);
+  });
+  it('never offers what Home shows or hides, or what Me offered before', () => {
+    expect(newlyRelevant({ relevant: diabetic, layout: { ...laid, hidden: ['glucose'] }, offered: ['labs'] })).toEqual([]);
+  });
+  it('offers Walk once a foot wound heals, and Water once its habit is on', () => {
+    const held = defaultHome({ profile: withHealth({ footStatus: 'current_wound_or_active_charcot' }), settings, hasSteps: false });
+    const healed = relevantCategories({ profile: withHealth({}), settings, hasSteps: false });
+    expect(newlyRelevant({ relevant: healed, layout: held, offered: [] })).toEqual(['walk']);
+    const water = relevantCategories({ profile: withHealth({}), settings: { habits: waterOn } as UserSettings, hasSteps: false });
+    expect(newlyRelevant({ relevant: water, layout: laid, offered: [] })).toEqual(['water']);
+  });
+  it('never offers a fill-in tile', () => {
+    const bare: HomeLayout = { order: { move: ['workout', 'stretch', 'walk'], eat: ['food'], check: [], learn: [] }, hidden: [] };
+    expect(newlyRelevant({ relevant: relevantCategories({ profile: withHealth({}), settings, hasSteps: false }), layout: bare, offered: [] })).toEqual([]);
   });
 });

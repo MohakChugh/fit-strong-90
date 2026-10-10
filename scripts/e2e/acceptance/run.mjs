@@ -41,7 +41,7 @@ const caseFilter = args.case ? new RegExp(args.case, 'i') : undefined;
 
 // ---------------------------------------------------------------- journeys
 
-const files = fs.readdirSync(path.join(HERE, 'journeys')).filter(f => /^[jsv]\d\d\.mjs$/.test(f)).sort();
+const files = fs.readdirSync(path.join(HERE, 'journeys')).filter(f => /^[jmsv]\d\d\.mjs$/.test(f)).sort();
 const journeys = [];
 for (const f of files) {
   const mod = await import(pathToFileURL(path.join(HERE, 'journeys', f)).href);
@@ -100,7 +100,7 @@ async function warm(url) {
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   // v2's places (journey §19.2): every area, at the address it lives at now.
-  for (const r of ['/home', '/hub/workout', '/hub/stretch', '/hub/workout/plan', '/hub/workout/exercises', '/hub/walk', '/day/today', '/trends', '/trends/workout', '/hub/back', '/hub/glucose', '/hub/steps', '/hub/bp', '/hub/labs?metric=hba1c', '/hub/workout/log', '/hub/learn', '/hub/food/ideas', '/hub/learn/sources', '/browse', '/me', '/me/profile', '/me/reminders', '/me/data', '/session']) {
+  for (const r of ['/home', '/hub/workout', '/hub/stretch', '/hub/workout/plan', '/hub/workout/exercises', '/hub/walk', '/day/today', '/trends', '/trends/workout', '/hub/back', '/hub/glucose', '/hub/steps', '/hub/bp', '/hub/labs?metric=hba1c', '/hub/workout/log', '/hub/learn', '/hub/food/ideas', '/hub/learn/sources', '/browse', '/me', '/me/profile', '/me/goals', '/me/reminders', '/me/display', '/me/data', '/session']) {
     await page.goto(`${url}#${r}`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!document.querySelector('h1'), null, { timeout: 60000 }).catch(() => errors.push(`${r}: no screen within 60 s`));
     if (await page.getByText('This screen didn’t load', { exact: true }).count()) errors.push(`${r}: the screen failed to load`);

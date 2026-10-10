@@ -495,7 +495,7 @@ export const cases = [
         // Page-only rules: set after the navigation, which reloads the page.
         await t.setPageFaults([{ op: 'put', store: 'settings', match: { key: 'settings' }, action: 'quotaDom' }], p1);
         await Promise.all([
-          ui.tap(ui.radio(p1.getByRole('radiogroup', { name: 'Appearance' }), 'Dark')),
+          ui.tap(ui.radio(p1.getByRole('radiogroup', { name: 'Theme' }), 'Dark')),
           ui.tap(ui.radio(p2.getByRole('radiogroup', { name: 'What you eat' }), 'Vegan')),
         ]);
         await p1.waitForTimeout(1500);
@@ -506,8 +506,8 @@ export const cases = [
         await t.checkpoint('theme-failed', { page: p1 });
         await t.check(/did not save|not enough space/i.test(failText), `the first tab does not show its failed theme write: ${failText.slice(0, 200)}`);
         await t.setPageFaults(null, p1);
-        await ui.tap(ui.radio(p1.getByRole('radiogroup', { name: 'Appearance' }), 'Light'));
-        await ui.tap(ui.radio(p1.getByRole('radiogroup', { name: 'Appearance' }), 'Dark'));
+        await ui.tap(ui.radio(p1.getByRole('radiogroup', { name: 'Theme' }), 'Light'));
+        await ui.tap(ui.radio(p1.getByRole('radiogroup', { name: 'Theme' }), 'Dark'));
         await p1.waitForTimeout(1200);
         after = await t.db(p1);
         await t.check(docs(after).settings?.theme === 'dark' && docs(after).profile?.food?.pattern === 'vegan', `both acknowledged changes did not persist: theme ${docs(after).settings?.theme}, food ${docs(after).profile?.food?.pattern}`);

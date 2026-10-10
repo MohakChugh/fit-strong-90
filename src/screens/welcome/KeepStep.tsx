@@ -53,7 +53,7 @@ export function KeepStep() {
     <Row
       icon={<ArchiveIcon />}
       label="Back it up now and then"
-      detail={`If this ${device} is lost or replaced, a backup file brings your record back. It is in You, under Data & offline.`}
+      detail={`If this ${device} is lost or replaced, a backup file brings your record back. It is in Me, under Data.`}
     />
   );
 

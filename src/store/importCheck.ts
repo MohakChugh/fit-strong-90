@@ -15,8 +15,10 @@
  * profile, the app asks the questions again before anyone moves.
  */
 
-import { isHomeLayout } from '@/categories';
+import { CATEGORIES, isHomeLayout } from '@/categories';
 import { isDay } from '@/health/observation';
+import { isTextScale } from '@/lib/textSize';
+import { CHAPTER_IDS } from '@/types/setup';
 import { RECORD_STORES } from './records';
 
 type Check = (x: unknown) => boolean;
@@ -53,7 +55,9 @@ const HABIT_SPEC: Spec = {
   inApp: bool,
   lastExportAt: text,
   lastExportSeq: num(0, Number.MAX_SAFE_INTEGER),
-  calendarExport: recordOf(oneOf(...HABITS), shape({ at: text, until: day, events: num(0, 1000), titles: listOf(text) }, ['at', 'until', 'events', 'titles'])),
+  lastExportVia: oneOf('share', 'download'),
+  lastCheckedExportAt: text,
+  calendarExport: recordOf(oneOf(...HABITS), shape({ at: text, until: day, events: num(0, 1000), titles: listOf(text), minutes: listOf(num(0, 1439)) }, ['at', 'until', 'events', 'titles'])),
 };
 
 const SETTINGS_SPEC: Spec = {
@@ -80,6 +84,10 @@ const SETTINGS_SPEC: Spec = {
   walkDefaults: shape({ gps: bool, steps: bool }, ['gps', 'steps']),
   // Whole or not at all: a tile this build has no hub for would leave Home unable to draw.
   home: isHomeLayout,
+  homeOffered: listOf(oneOf(...CATEGORIES.map(c => c.id))),
+  // Field by field, so Plan 5's own fields in `setup` are kept as they are.
+  setup: { declined: listOf(oneOf(...CHAPTER_IDS)) },
+  display: shape({ reduceMotion: bool, reduceTransparency: bool, textScale: x => isTextScale(x) }),
   // Read, but never taken as this phone's answers: an import keeps this device's own (B-26, `withDeviceConsent`).
   walk: shape({ saveRoutes: oneOf(true, false, 'unasked'), map: oneOf('on', 'off', 'unasked'), stepCardSeen: bool }, ['saveRoutes', 'map']),
   // List by list: one that cannot be read must not take the others with it,

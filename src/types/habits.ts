@@ -16,6 +16,8 @@ export interface CalendarFileEntry {
   events: number;
   /** What they are called in Calendar. */
   titles: string[];
+  /** The events' times, minutes after local midnight, in order, so a changed schedule can be noticed (A-78). Absent for a file made before this was kept. */
+  minutes?: number[];
 }
 
 export interface HabitSettings {
@@ -55,6 +57,10 @@ export interface HabitSettings {
    * made before this was kept.
    */
   lastExportSeq?: number;
+  /** How the last backup left the app (B-25): through the share sheet, or as a download. Absent for one made before this was kept. */
+  lastExportVia?: 'share' | 'download';
+  /** The `lastExportAt` of the backup whose own file was read back in Me → Data → Check a backup (B-25, D61). */
+  lastCheckedExportAt?: string;
   /**
    * Each habit's events in the calendar files made (D-01). Calendar keeps
    * reminding from such a file whatever the app later learns, so the app must

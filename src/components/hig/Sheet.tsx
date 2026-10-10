@@ -41,11 +41,14 @@ const InSheet = createContext(false);
  * #app, so it stays live.
  */
 function useInertBackground(open: boolean) {
+  // What had focus as the sheet opened, for the hand-back.
+  const opened = useRef<HTMLElement | null>(null);
   // A layout effect, so the page wakes in the same commit that closes the
   // sheet, before the dialog hands focus back to whatever opened it.
   useLayoutEffect(() => {
     if (!open || !document.getElementById('app')) return;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    opened.current = opener;
     const release = claimModal();
     return () => {
       release();
@@ -55,6 +58,7 @@ function useInertBackground(open: boolean) {
       });
     };
   }, [open]);
+  return opened;
 }
 
 /**
@@ -164,7 +168,7 @@ function useSurfaceAtTop({ open, dismissible, ownsUrgent, onOpenChange }: {
  * is immediately scrollable from the keyboard — and on close it returns to
  * whatever opened the sheet.
  */
-export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissible = true, ownsUrgent = false, children, className }: {
+export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissible = true, ownsUrgent = false, returnFocus, children, className }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Short, sentence case. It is the sheet's accessible name. */
@@ -183,11 +187,17 @@ export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissibl
   dismissible?: boolean;
   /** `medium` (about half the screen) unless the content is something to read. */
   detent?: Detent;
+  /**
+   * Where focus goes on closing when nothing opened the sheet, as when its
+   * address opened it: focus would otherwise fall to the page (B-03).
+   */
+  returnFocus?: () => HTMLElement | null;
   children: ReactNode;
   className?: string;
 }) {
   const swipe = useSwipeToDismiss({ open, dismissible, onOpenChange });
-  useInertBackground(open);
+  // What had focus as it opened, for `returnFocus` (B-03).
+  const opened = useInertBackground(open);
   const { surface, body } = useSurfaceAtTop({ open, dismissible, ownsUrgent, onOpenChange });
 
   if (useContext(InSheet)) {
@@ -201,6 +211,8 @@ export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissibl
           side="bottom"
           showCloseButton={false}
           initialFocus={body}
+          // The opener when there was one; otherwise `returnFocus`'s element (B-03).
+          {...(returnFocus ? { finalFocus: () => (opened.current && opened.current !== document.body && opened.current.isConnected ? true : returnFocus() ?? true) } : {})}
           className={cn(
             'gap-0 rounded-t-2xl bg-grouped-bg text-[length:var(--text-body)] text-foreground',
             // Never taller than the screen, whatever the detent asks for.

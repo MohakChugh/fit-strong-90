@@ -839,6 +839,11 @@ describe('time boundaries (journey §4.1, L-07, B-20)', () => {
     expect(next(at(TODAY, '14:00'), lowAt1330())).toEqual(at(TODAY, '17:00'));
   });
 
+  it('quiet hours never hold a re-check (journey §4.9, §15)', () => {
+    // A re-check due at 13:45, inside quiet hours from 13:00 to 15:00.
+    expect(next(at(TODAY, '13:32'), lowAt1330(), { quietHours: { from: '13:00', to: '15:00' } })).toEqual(at(TODAY, '13:45'));
+  });
+
   it('times a reading logged in Track, as the gate does (X2-01)', () => {
     const logged: CheckInRecord = { ...checkIn(), logged: { glucose: [{ value: 150, unit: 'mg/dL', measuredAt: at(TODAY, '10:00').toISOString() }] } };
     expect(next(at(TODAY, '10:05'), logged)).toEqual(at(TODAY, '10:30'));

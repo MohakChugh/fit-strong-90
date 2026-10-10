@@ -15,7 +15,7 @@ globalThis.localStorage = {
 } as Storage;
 
 const store = await import('@/store/useStore');
-const { changeHabits, changeProfile, forgetCalendarEvents, joinProgramme, leaveProgramme, recordCalendarExport, recordExport, saveProfileAnswers, setFluidRestriction } = await import('./write');
+const { changeDisplay, changeHabits, changeProfile, forgetCalendarEvents, joinProgramme, leaveProgramme, recordBackupCheck, recordCalendarExport, recordExport, saveProfileAnswers, setFluidRestriction } = await import('./write');
 const { fluidRestriction } = await import('@/reminders/water');
 const { backupMark, backupNudge } = await import('@/reminders/backup');
 const { isEnrolled } = await import('@/health/recommend');
@@ -225,5 +225,46 @@ describe('recordCalendarExport / forgetCalendarEvents (D-01)', () => {
     expect((await reloadFromDevice()).settings.habits?.calendarExport).toEqual({ mealWalk: walk });
     expect((await forgetCalendarEvents(['mealWalk'])).ok).toBe(true);
     expect((await reloadFromDevice()).settings.habits).not.toHaveProperty('calendarExport');
+  });
+});
+
+describe('changeDisplay', () => {
+  it('changes one display setting and keeps the others', async () => {
+    await changeDisplay(d => ({ ...d, reduceMotion: true }));
+    await changeDisplay(d => ({ ...d, textScale: 1.3 }));
+    expect((await reloadFromDevice()).settings.display).toEqual({ reduceMotion: true, textScale: 1.3 });
+  });
+});
+
+describe('the backup ledger (B-25)', () => {
+  it('records how the backup left; a new backup is not checked until its own file is', async () => {
+    await recordExport({ at: '2026-10-01T10:00:00.000+05:30', revision: 3, via: 'download' });
+    await recordBackupCheck('2026-10-01T10:00:00.000+05:30');
+    expect((await reloadFromDevice()).settings.habits?.lastCheckedExportAt).toBe('2026-10-01T10:00:00.000+05:30');
+    await recordExport({ at: '2026-10-08T10:00:00.000+05:30', revision: 9, via: 'share' });
+    const habits = (await reloadFromDevice()).settings.habits;
+    expect(habits?.lastExportVia).toBe('share');
+    expect(habits?.lastCheckedExportAt).toBeUndefined();
+  });
+  it('checks only the latest backup: another file’s time changes nothing (Review Focus 5)', async () => {
+    await recordExport({ at: '2026-10-08T10:00:00.000+05:30', revision: 9, via: 'share' });
+    await recordBackupCheck('2026-10-01T10:00:00.000+05:30');
+    expect((await reloadFromDevice()).settings.habits?.lastCheckedExportAt).toBeUndefined();
+  });
+  it('a check never counts as new data for the backup nudge (Review Focus 5)', async () => {
+    const made = await store.exportRecord();
+    if (!made.ok) throw new Error('export failed');
+    await recordExport({ at: made.value.exportedAt, revision: made.value.revision, via: 'share' });
+    await recordBackupCheck(made.value.exportedAt);
+    const month = new Date(Date.parse(made.value.exportedAt) + 31 * 86_400_000);
+    const span = { first: Date.parse('2026-01-01T00:00:00Z'), last: Date.parse('2026-01-02T00:00:00Z') };
+    const due = () => {
+      const s = store.getState();
+      return backupNudge(month, backupMark(s.settings.habits), span, s.revision).due;
+    };
+    expect(store.getState().settings.habits?.lastCheckedExportAt).toBe(made.value.exportedAt);
+    expect(due()).toBe(false);
+    await changeProfile(p => ({ ...p, weightKg: 81 }));
+    expect(due()).toBe(true);
   });
 });

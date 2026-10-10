@@ -14,5 +14,7 @@ export function settingsKey(settings: UserSettings): string {
   const habits = { ...settings.habits };
   delete habits.lastExportAt;
   delete habits.lastExportSeq;
+  delete habits.lastExportVia;
+  delete habits.lastCheckedExportAt;
   return JSON.stringify({ ...settings, habits });
 }

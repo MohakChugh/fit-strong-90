@@ -4,8 +4,16 @@
  * group, groups keep their order, and no group ever holds more than 5 tiles
  * (journey §20.4 rule 13, B-08): adding to a full group fails.
  */
-import { CATEGORIES, GROUPS, MAX_PER_GROUP, categoryById } from '@/categories';
+import { CATEGORIES, GROUPS, MAX_PER_GROUP, categoryById, isHomeLayout } from '@/categories';
 import type { CategoryId, GroupId, HomeLayout } from '@/types';
+
+/**
+ * A stored or imported `settings.home` this build can draw (`isHomeLayout`),
+ * or nothing. The caller then falls back to the defaults, never to an empty Home.
+ */
+export function storedLayout(home: unknown): HomeLayout | undefined {
+  return home !== undefined && isHomeLayout(home) ? home : undefined;
+}
 
 const clone = (l: HomeLayout): HomeLayout => ({ order: { move: [...l.order.move], eat: [...l.order.eat], check: [...l.order.check], learn: [...l.order.learn] }, hidden: [...l.hidden] });
 
@@ -88,17 +96,6 @@ export function addButton(layout: HomeLayout, id: CategoryId, verb: 'Add' | 'Sho
   if (layout.order[group].includes(id)) return { label: 'Added', disabled: true };
   if (groupFull(layout, group)) return { label: `${groupTitle(group)} is full (${MAX_PER_GROUP})`, disabled: true };
   return { label: verb, disabled: false };
-}
-
-/**
- * Every category not on Home, the hidden ones too, by group in the registry's
- * order: what "+ Add" offers until Browse's pick mode replaces it (Plan 4).
- * A group with nothing to add is left out.
- */
-export function notOnHome(layout: HomeLayout): { group: GroupId; ids: CategoryId[] }[] {
-  return GROUPS
-    .map(g => ({ group: g.id, ids: CATEGORIES.filter(c => c.group === g.id && !layout.order[g.id].includes(c.id)).map(c => c.id) }))
-    .filter(g => g.ids.length > 0);
 }
 
 /** The hidden tiles as Edit Home lists them, under Hidden with Show: in the registry's order. */

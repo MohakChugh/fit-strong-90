@@ -1,53 +1,37 @@
-import { useEffect, useRef } from 'react';
-import { Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { AppearanceScreen } from './AppearanceScreen';
+import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom';
 import { DataScreen } from './DataScreen';
+import { DisplayScreen } from './DisplayScreen';
 import { FocusScreen } from './FocusScreen';
 import { FoodScreen } from './FoodScreen';
+import { GoalsScreen } from './GoalsScreen';
 import { HabitsScreen } from './HabitsScreen';
-import { earliest, historyIndex, leaveDelta } from './leave';
+import { MeHome } from './MeHome';
 import { ProfileScreen } from './ProfileScreen';
 import { VoiceScreen } from './VoiceScreen';
-import { YouHome } from './YouHome';
 
 /**
- * `/me/profile`. Its movement chapter (`?chapter=movement`, journey §19.2) is
- * v1's "What you'd like more of" until Plan 4 gives Me its chapters.
+ * `/me/profile`, Profile & health: the seam Plan 5 replaces with the setup
+ * chapters' own pages (journey §16). Until then v1's screens hold the
+ * answers. The movement chapter (`?chapter=movement`, §19.2) is v1's "What
+ * you'd like more of"; every other chapter is v1's Profile & health
+ * (`HREF` in `src/setup/progress.ts`).
  */
 function Profile() {
   const [params] = useSearchParams();
   return params.get('chapter') === 'movement' ? <FocusScreen /> : <ProfileScreen />;
 }
 
-/**
- * Me, the fourth tab: v1 You's screens, under Me's own names (`reminders`,
- * `display`), until Plan 4 rebuilds them. This component stays mounted while
- * the person moves between Me's screens, which is what lets "Done" find the
- * screen Me was opened from.
- */
+/** Me, the fourth tab (journey §16): its root and its sections. */
 export default function YouRoutes() {
-  const navigate = useNavigate();
-  const { key } = useLocation();
-  const entry = useRef<number | undefined>(undefined);
-
-  useEffect(() => {
-    entry.current = earliest(entry.current, historyIndex());
-  }, [key]);
-
-  const done = () => {
-    const delta = leaveDelta(entry.current, historyIndex());
-    if (delta === undefined) navigate('/home', { replace: true, viewTransition: true });
-    else navigate(delta);
-  };
-
   return (
     <Routes>
-      <Route index element={<YouHome onDone={done} />} />
+      <Route index element={<MeHome />} />
       <Route path="profile" element={<Profile />} />
+      <Route path="goals" element={<GoalsScreen />} />
       <Route path="food" element={<FoodScreen />} />
       <Route path="reminders" element={<HabitsScreen />} />
       <Route path="voice" element={<VoiceScreen />} />
-      <Route path="display" element={<AppearanceScreen />} />
+      <Route path="display" element={<DisplayScreen />} />
       <Route path="data" element={<DataScreen />} />
       <Route path="*" element={<Navigate to="/me" replace />} />
     </Routes>

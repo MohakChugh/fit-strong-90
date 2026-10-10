@@ -137,12 +137,12 @@ export async function setStatus(t, label) {
 /** Home's status row, v1 Today's "Status" row: "How are you today? Normal ›" (journey §7.1). */
 export const statusButton = page => page.getByRole('main').getByRole('button', { name: /^How are you today\? / });
 
-/** Me → Habits & reminders, from anywhere. */
+/** Me → Reminders, from anywhere. */
 export async function openHabits(t) {
   const page = t.page;
   await tabTo(t, 'Me');
-  await ui.tap(ui.row(page.getByRole('main'), 'Habits & reminders', 'link'));
-  await page.getByRole('heading', { level: 1, name: 'Habits & reminders', exact: true }).waitFor();
+  await ui.tap(ui.row(page.getByRole('main'), 'Reminders', 'link'));
+  await page.getByRole('heading', { level: 1, name: 'Reminders', exact: true }).waitFor();
 }
 
 /** A row-button on the Habits screen by its exact label (the switch beside it is separate). */

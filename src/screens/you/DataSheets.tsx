@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Sheet } from '@/components/hig/Sheet';
-import { clearAllAndRestart, exportRecord, useStore } from '@/store/useStore';
+import { clearAllAndRestart, exportRecord, getState, useStore } from '@/store/useStore';
 import { deliver, deliveryMethod } from '@/store/transfer';
 import { showBadge } from '@/reminders/badge';
 import { clearReminders } from '@/reminders/pending';
 import { Notice, PlainButton, PrimaryButton } from './controls';
 import { settingsKey } from './backupFile';
+import { backupLine, backupState, fileSize } from './dataStatus';
 import { countsSentence, recordCounts } from './summaries';
 import { recordExport } from './write';
 
@@ -14,10 +15,6 @@ interface SheetProps {
   onOpenChange: (open: boolean) => void;
   /** "iPhone", "iPad" or "device". */
   device: string;
-}
-
-function size(bytes: number): string {
-  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024)).toLocaleString()} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 // ============================================================================
@@ -62,6 +59,8 @@ function BackupBody({ device }: { device: string }) {
     [state.observations, state.sessions, state.checkIns, state.personalRecords, state.bodyMetrics, state.focusOverrides, state.contentState, state.records, state.profile, settings],
   );
   const [prepared, setPrepared] = useState<Prepared>();
+  // Whether the prepared file has left the app: a new one has not, yet.
+  const [handed, setHanded] = useState(false);
   const [outcome, setOutcome] = useState<{ tone: 'status' | 'error'; text: string }>();
 
   useEffect(() => {
@@ -74,6 +73,7 @@ function BackupBody({ device }: { device: string }) {
       }
       const { bytes, name, type, exportedAt, revision } = made.value;
       setPrepared({ file: new File([bytes as BlobPart], name, { type }), exportedAt, revision, version });
+      setHanded(false);
       setOutcome(previous => (previous?.tone === 'error' ? undefined : previous));
     });
     return () => { current = false; };
@@ -89,13 +89,18 @@ function BackupBody({ device }: { device: string }) {
       setOutcome({ tone: 'error', text: delivered.failure.message });
       return;
     }
-    if (delivered.value === 'cancelled') return;
+    if (delivered.value === 'cancelled') {
+      // A known cancellation never advances the backup's status (B-25).
+      setOutcome({ tone: 'status', text: `Not shared, so nothing has changed. ${backupLine(backupState(getState().settings.habits))}.` });
+      return;
+    }
+    setHanded(true);
     // What the file covers, not the moment it was handed over.
-    const saved = await recordExport({ at: exportedAt, revision });
+    const saved = await recordExport({ at: exportedAt, revision, via: delivered.value });
     setOutcome(saved.ok
       ? { tone: 'status', text: delivered.value === 'share'
-        ? 'Done. Keep the file somewhere private, such as Files or iCloud Drive.'
-        : 'Downloaded. You will find the file with your downloads.' }
+        ? 'Shared. Keep the file somewhere private, such as Files or iCloud Drive. To check it reads back, use Check a backup.'
+        : 'Downloaded. You will find the file with your downloads. To check it reads back, use Check a backup.' }
       : { tone: 'error', text: `The file was made, but the date of this backup did not save. ${saved.failure.message}` });
   };
 
@@ -112,7 +117,7 @@ function BackupBody({ device }: { device: string }) {
           {!file ? 'Preparing the file…' : deliveryMethod(file) === 'share' ? 'Save or share' : 'Download'}
         </PrimaryButton>
         <p aria-live="polite" className="numeric px-4 text-[length:var(--text-footnote)] text-muted-foreground">
-          {file ? `${file.name}, ${size(file.size)}` : ''}
+          {file ? (handed ? `${file.name}, ${fileSize(file.size)}` : `Prepared: ${file.name}, ${fileSize(file.size)}. It hasn’t left this ${device} yet.`) : ''}
         </p>
         {outcome && <Notice tone={outcome.tone}>{outcome.text}</Notice>}
       </div>
@@ -134,10 +139,14 @@ export function DeleteSheet({ open, onOpenChange, device }: SheetProps) {
 
 function DeleteBody({ device, close }: { device: string; close: () => void }) {
   const state = useStore();
+  const [step, setStep] = useState<'ask' | 'confirm'>('ask');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const heading = useRef<HTMLParagraphElement>(null);
   const counts = recordCounts(state);
   const any = counts.readings + counts.sessions + counts.checkIns + counts.bodyMetrics + counts.personalRecords > 0;
+  // The button pressed has gone: the second question takes focus (B-03).
+  useEffect(() => { if (step === 'confirm') heading.current?.focus(); }, [step]);
 
   const erase = async () => {
     setBusy(true);
@@ -154,13 +163,33 @@ function DeleteBody({ device, close }: { device: string; close: () => void }) {
     }
   };
 
+  if (step === 'ask') {
+    return (
+      <>
+        <p className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug">Delete everything on this {device}?</p>
+        <p className="px-1 text-[length:var(--text-body)] leading-snug">
+          This deletes everything the app keeps here: your profile and health answers{any ? `, ${countsSentence(counts)}` : ''}, your food preferences, your reminders and your settings. The app then starts again as new.
+        </p>
+        <p className="px-1 text-[length:var(--text-body)] font-medium leading-snug">It cannot be undone. If you might want any of it later, back up first.</p>
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setStep('confirm')}
+            className="press-feedback min-h-[3.25rem] w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white"
+          >
+            Delete everything
+          </button>
+          <PlainButton onClick={close}>Keep my record</PlainButton>
+        </div>
+      </>
+    );
+  }
   return (
     <>
-      <p className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug">Delete everything on this {device}?</p>
+      <p ref={heading} tabIndex={-1} className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug outline-none">Erase all of it?</p>
       <p className="px-1 text-[length:var(--text-body)] leading-snug">
-        This deletes everything the app keeps here: your profile and health answers{any ? `, ${countsSentence(counts)}` : ''}, your food preferences, your reminders and your settings. The app then starts again as new.
+        This is the last step. Everything the app holds on this {device} goes, and only a backup can bring it back.
       </p>
-      <p className="px-1 text-[length:var(--text-body)] font-medium leading-snug">It cannot be undone. If you might want any of it later, back up first.</p>
       <div className="flex flex-col gap-2">
         {problem && <Notice tone="error">{problem}</Notice>}
         <button
@@ -169,7 +198,7 @@ function DeleteBody({ device, close }: { device: string; close: () => void }) {
           onClick={() => void erase()}
           className="press-feedback min-h-[3.25rem] w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white disabled:opacity-60"
         >
-          {busy ? 'Deleting…' : 'Delete everything'}
+          {busy ? 'Erasing…' : 'Erase all'}
         </button>
         <PlainButton disabled={busy} onClick={close}>Keep my record</PlainButton>
       </div>
