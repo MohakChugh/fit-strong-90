@@ -305,6 +305,11 @@ export interface WalkRecord {
   paceSecPerKm?: number;
   /** When the meal it followed started, ISO with offset, for a walk after a meal. */
   mealStartedAt?: string;
+  /** Tagged after a meal, whether or not its start was recorded (B-09). */
+  afterMeal: boolean;
+  /** The walk's active-energy estimate, unrounded, and what it was worked out from (J§12.4, B-16). */
+  energyKcal?: number;
+  energyNote?: string;
   /** The walk's own note, e.g. "After dinner, which started at 7:40 pm." */
   note?: string;
   observations: Observation[];
@@ -369,6 +374,8 @@ export function walkRecords(observations: readonly Observation[]): WalkRecord[] 
     const note = timed.find(o => o.source === 'measured' && o.note)?.note;
     const mealStartedAt = group.find(o => o.tag === 'afterMeal' && o.mealStartedAt)?.mealStartedAt;
     const pace = paceOf(group);
+    // Kept as its own record, so later weight changes never rewrite it (B-16); never in the walk's minutes.
+    const energy = group.find(o => o.kind === 'activeEnergy');
     records.push({
       id,
       day: first.day,
@@ -381,6 +388,9 @@ export function walkRecords(observations: readonly Observation[]): WalkRecord[] 
       ...(legPain !== undefined ? { legPain } : {}),
       ...(pace !== undefined ? { paceSecPerKm: pace } : {}),
       ...(mealStartedAt !== undefined ? { mealStartedAt } : {}),
+      afterMeal: group.some(o => o.tag === 'afterMeal'),
+      ...(energy ? { energyKcal: energy.value } : {}),
+      ...(energy?.note ? { energyNote: energy.note } : {}),
       ...(note !== undefined ? { note } : {}),
       observations: group,
     });

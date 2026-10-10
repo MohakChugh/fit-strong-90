@@ -18,4 +18,9 @@ describe('what saving a walk writes (journey §18.3)', () => {
     expect(walkSave(walked(false), { route: [LINE] }).route).toBeUndefined();
     expect(walkSave(walked(true)).route).toBeUndefined();
   });
+
+  it('adds the energy estimate as one more record of the walk', () => {
+    const energy = { id: 'mgh3k2x1-1a2b3c4d:activeEnergy', kind: 'activeEnergy' as const, value: 42, scope: 'sessionObserved' as const, source: 'measured' as const, coverageMs: 600_000 };
+    expect(walkSave(walked(false), { energy }).observations.at(-1)).toBe(energy);
+  });
 });

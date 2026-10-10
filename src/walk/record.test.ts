@@ -496,3 +496,22 @@ describe('records at the offset each segment was recorded in (B-19)', () => {
     }
   });
 });
+
+describe('a saved walk’s estimate (J§12.4)', () => {
+  it('reads the estimate back with the walk, never into its minutes', () => {
+    const w = afterDinner();
+    const energy = newObservation({ id: `${w.id}:activeEnergy`, kind: 'activeEnergy', value: 41.6, scope: 'sessionObserved', source: 'measured', at: walkObservations(w)[0].at!, coverageMs: 1_080_000, context: `walk:${w.id}`, note: 'From 18 min with distance. Using 78 kg, from your profile.' });
+    const saved = walkObservations(w).map(i => newObservation(i));
+    const [record] = walkRecords([...saved, energy]);
+    expect(record).toMatchObject({ energyKcal: 41.6, energyNote: 'From 18 min with distance. Using 78 kg, from your profile.', afterMeal: true });
+    expect(record.minutes).toBe(walkRecords(saved)[0].minutes);
+  });
+
+  it('says a walk without a meal was not after one, and one without an estimate has none', () => {
+    const plain = finishWalk(startWalk('mgh3k2x1-1a2b3c4d', { kind: 'walk', gps: false, steps: false }, s(0)), s(600), 'finish');
+    const [record] = walkRecords(walkObservations(plain).map(i => newObservation(i)));
+    expect(record.afterMeal).toBe(false);
+    expect(record.energyKcal).toBeUndefined();
+    expect(record.energyNote).toBeUndefined();
+  });
+});

@@ -15,6 +15,8 @@ const METRIC: Record<string, string> = {
   hba1c: '/hub/labs?metric=hba1c', b12: '/hub/labs?metric=b12', vitaminD: '/hub/labs?metric=vitaminD', vitd: '/hub/labs?metric=vitaminD',
   movementMinutes: '/trends', movement: '/trends',
   walking: '/trends/walk', walkDuration: '/trends/walk', walkDistance: '/trends/walk',
+  // A walk's energy estimate (Plan 6) is read with its walks.
+  activeEnergy: '/trends/walk',
   // ponytail: v4's mood has no category; its trend stays until Plan 3 decides on it.
   mood: '/trends/mood',
 };

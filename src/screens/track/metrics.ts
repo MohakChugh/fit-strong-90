@@ -72,7 +72,7 @@ export const METRIC_ORDER: readonly MetricId[] = [
   'glucose', 'bloodPressure', 'backLeg', 'weight', 'waist', 'steps', 'walking', 'water', 'sleep', 'hba1c', 'b12', 'vitaminD', 'mood',
 ];
 
-/** Which metric a stored kind belongs to. `movementMinutes` has none: it is counted by the week on My Day. */
+/** Which metric a stored kind belongs to. `movementMinutes` has none: it is counted by the week on My Day; nor has `activeEnergy`, which is its walk's. */
 export function metricOfKind(kind: ObservationKind): MetricId | undefined {
   switch (kind) {
     case 'bloodPressureSystolic':
@@ -84,7 +84,9 @@ export function metricOfKind(kind: ObservationKind): MetricId | undefined {
     case 'walkDuration':
     case 'walkDistance':
       return 'walking';
+    // A walk's energy estimate belongs to its walk (journey §12.4): no metric of its own.
     case 'movementMinutes':
+    case 'activeEnergy':
       return undefined;
     default:
       return kind;
