@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
 import { permission, type Mode, type Permission } from '@/engine/permission';
 import { evaluateCheckIn } from '@/engine/readiness';
-import { recommend, type Recommendation } from '@/health/recommend';
+import { recommend } from '@/health/recommend';
 import type { CheckInRecord, DailyCheckIn, Readiness } from '@/types/checkin';
 import type { SessionPlan } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
@@ -34,20 +34,50 @@ function surface(profile: UserProfile, today: CheckInRecord | undefined, now: Da
     now, settings: { startDate: '' }, profile, plan: plan(), sessions: [], checkIns: recent, observations: [], saved: [],
     permissions: { guided: gate('guided'), stretch: gate('stretch'), walk: gate('walk') },
   });
-  return { r, urgent: urgentOf(r, now, today, true) };
+  const permissions = { guided: gate('guided'), stretch: gate('stretch'), walk: gate('walk') };
+  return { r, urgent: urgentOf({ profile, ...(today ? { checkIn: today } : {}), checkIns: recent, permissions }, now, true) };
 }
 
-const kind = (k: Recommendation['kind'], over: Partial<Recommendation> = {}): Recommendation =>
-  ({ kind: k, title: 'Title', detail: '', reason: '', action: { label: 'Review your check-in', to: '/home?checkin=guided' }, ...over });
+const held = (mode: Mode): Permission => ({ mode, allowed: false, disposition: 'hold', reasons: ['Held.'], restrictions: [], needsCheckIn: true });
+const allHeld = { guided: held('guided'), stretch: held('stretch'), walk: held('walk') };
 
 describe('which decisions are urgent (journey §4.7, B-02)', () => {
-  it('an emergency, a stop for today and a re-check, and nothing else the card can say', () => {
-    expect(urgentOf(kind('emergency'), at('09:00'))?.kind).toBe('emergency');
-    expect(urgentOf(kind('seekHelp'), at('09:00'))?.kind).toBe('seekHelp');
-    expect(urgentOf(kind('recheck'), at('09:00'))?.kind).toBe('recheck');
-    for (const k of ['hold', 'resume', 'status', 'preference', 'habit', 'scheduled', 'gentle', 'mealWalk', 'plan', 'choose'] as const) {
-      expect(urgentOf(kind(k), at('09:00')), k).toBeUndefined();
+  it('an emergency, a stop for today and a re-check, whatever the card suggests', () => {
+    const chest = record(diabetic, answered({ urgentSymptoms: true, emergency: ['chest'] }));
+    expect(surface(diabetic, chest, at('09:00')).urgent?.kind).toBe('emergency');
+    const severe = record(diabetic, answered({ glucose: { value: 48, unit: 'mg/dL', measuredAt: iso('09:05') } }));
+    expect(surface(diabetic, severe, at('09:10')).urgent?.kind).toBe('seekHelp');
+    const low = record(diabetic, answered({ glucose: { value: 62, unit: 'mg/dL', measuredAt: iso('13:30') } }));
+    expect(surface(diabetic, low, at('13:32')).urgent?.kind).toBe('recheck');
+  });
+
+  it('a symptom that holds every movement is urgent, though the card shows it as an ordinary hold (codex V1-01)', () => {
+    const dizzy = record(diabetic, answered({ news: ['dizzy'] }));
+    const { r, urgent } = surface(diabetic, dizzy, at('09:00'));
+    expect(r.kind).toBe('hold');
+    expect(urgent).toEqual({ kind: 'hold', tone: 'caution', headline: 'No exercise for now', when: 'From today’s check-in' });
+    for (const news of [['unwell'], ['unusualFatigue']] as const) {
+      expect(surface(diabetic, record(diabetic, answered({ news: [...news] })), at('09:00')).urgent?.kind, news[0]).toBe('hold');
     }
+  });
+
+  it('repeated lows stop exercise for the day after the glucose has recovered (codex V1-01)', () => {
+    const c = record(diabetic, answered({ news: ['lowTwoPlus'], glucose: { value: 110, unit: 'mg/dL', measuredAt: iso('09:00') } }));
+    expect(surface(diabetic, c, at('09:05')).urgent).toEqual({ kind: 'hold', tone: 'caution', headline: 'No exercise for now', when: 'From today’s check-in' });
+  });
+
+  it('a reading that holds every movement is named with its time, and one that needs checking again says so', () => {
+    const bp = record(diabetic, answered({ bpReadings: [{ sys: 165, dia: 96, at: iso('08:50') }, { sys: 166, dia: 98, at: iso('08:52') }] }));
+    expect(surface(diabetic, bp, at('09:00')).urgent).toMatchObject({ kind: 'hold', headline: 'No exercise for now', when: 'Blood pressure reading at 8:52 am' });
+    const high = record(diabetic, answered({ glucose: { value: 320, unit: 'mg/dL', measuredAt: iso('08:55') } }));
+    expect(surface(diabetic, high, at('09:00')).urgent).toMatchObject({ kind: 'hold', when: 'Glucose reading at 8:55 am' });
+  });
+
+  it('decides from the engine, not from the card: the same state is urgent whatever the recommendation was', () => {
+    const dizzy = record(diabetic, answered({ news: ['dizzy'] }));
+    const gate = (m: Mode) => permission({ profile: diabetic, checkIn: dizzy, now: at('09:00'), recent: [dizzy] }, m);
+    const permissions = { guided: gate('guided'), stretch: gate('stretch'), walk: gate('walk') };
+    expect(urgentOf({ profile: diabetic, checkIn: dizzy, checkIns: [dizzy], permissions }, at('09:00'), true)?.kind).toBe('hold');
   });
 
   it('a low being treated, before its reading: urgent though the card holds it as a hold', () => {
@@ -63,6 +93,15 @@ describe('which decisions are urgent (journey §4.7, B-02)', () => {
     expect(surface(unreviewed, undefined, at('09:00')).urgent).toBeUndefined();
     const c = record(footWound, answered());
     expect(surface(footWound, c, at('09:00')).urgent).toBeUndefined();
+  });
+
+  it('nor a reading still to be given or typed again, nor a standing limit from the profile (codex V1-01)', () => {
+    // With insulin, the check-in needs a glucose reading before a start.
+    const onInsulin = createDefaultProfile({ health: { ...known, diabetes: 'type2', insulin: 'injections_or_pump' } });
+    const noReading = record(onInsulin, answered());
+    expect(surface(onInsulin, noReading, at('09:00')).urgent).toBeUndefined();
+    const eyes = createDefaultProfile({ health: { ...known, retinopathy: 'recent_eye_treatment' } });
+    expect(surface(eyes, record(eyes, answered()), at('09:00')).urgent).toBeUndefined();
   });
 });
 
@@ -106,15 +145,16 @@ describe('what the surface says: the engine’s headline, when, and the safe act
 
   it('a re-check after midnight that counts from a low before it says the low was yesterday (X2-08, A-12)', () => {
     const today: CheckInRecord = { ...record(diabetic, answered()), readiness: { ...record(diabetic, answered()).readiness, recheckAt: iso('00:10') } };
-    expect(urgentOf(kind('recheck', { title: 'Re-check your glucose' }), at('00:02'), today, true)).toMatchObject({
-      when: 'Glucose reading at 11:55 pm yesterday', next: 'Re-check at 12:10 am',
+    expect(urgentOf({ profile: diabetic, checkIn: today, checkIns: [today], permissions: allHeld }, at('00:02'), true)).toMatchObject({
+      kind: 'recheck', when: 'Glucose reading at 11:55 pm yesterday', next: 'Re-check at 12:10 am',
     });
   });
 
   it('writes times on the device’s clock', () => {
     const c = record(diabetic, answered({ glucose: { value: 62, unit: 'mg/dL', measuredAt: iso('13:30') } }));
-    const { r } = surface(diabetic, c, at('13:32'));
-    expect(urgentOf(r, at('13:32'), c, false)).toMatchObject({ when: 'Low glucose at 13:30', next: 'Re-check at 13:45' });
+    const gate = (m: Mode) => permission({ profile: diabetic, checkIn: c, now: at('13:32'), recent: [c] }, m);
+    const permissions = { guided: gate('guided'), stretch: gate('stretch'), walk: gate('walk') };
+    expect(urgentOf({ profile: diabetic, checkIn: c, checkIns: [c], permissions }, at('13:32'), false)).toMatchObject({ when: 'Low glucose at 13:30', next: 'Re-check at 13:45' });
   });
 });
 

@@ -6,26 +6,31 @@
  * foot that needs protecting) are not urgent: tiles and hubs say them in
  * their own mode's words.
  *
- * The decision is `recommend`'s, from the same inputs Home uses
- * (`recommendSources`): the surface only reads it, so it can never disagree
- * with the Right now card.
+ * The decision is the engine's, read from the same gate and the same day's
+ * answer every start reads (`permission`, `readinessFor`), whatever the Right
+ * now card happens to suggest: a stop, an emergency or a re-check heads the
+ * card too, in the same words.
  */
 import { createContext, useMemo, useState } from 'react';
+import { headline } from '@/components/checkin/copy';
 import { gateFor } from '@/components/checkin/start';
-import type { Mode, Permission } from '@/engine/permission';
-import { RECHECK_MINUTES, toMgdl, withLogged } from '@/engine/readiness';
-import { nextBoundary, recommend, type RecommendInput, type Recommendation } from '@/health/recommend';
+import { profileGaps } from '@/engine/health';
+import { readinessFor, type Mode, type Permission } from '@/engine/permission';
+import { RECHECK_MINUTES, profileOnlyReadiness, toMgdl, withLogged } from '@/engine/readiness';
+import { gateOf, nextBoundary, type RecommendInput } from '@/health/recommend';
 import { useGuided } from '@/hooks/useGuided';
 import { prefersHour12, timeOf } from '@/lib/time';
 import { toDateString } from '@/lib/utils';
 import { useClock, useWakeAt } from '@/screens/today/clock';
 import { loadProgress, type ProgressSlot, type SavedProgress } from '@/session/persistence';
 import { useStore, type StoreState } from '@/store/useStore';
-import type { CheckInRecord, GlucoseEntry } from '@/types/checkin';
+import type { CheckInRecord, GlucoseEntry, Reason } from '@/types/checkin';
+import type { UserProfile } from '@/types/profile';
 
 export interface Urgent {
-  kind: 'emergency' | 'seekHelp' | 'recheck' | 'low';
-  /** Stop ink for an emergency or a stop for today; caution ink for a low and its re-check. */
+  /** `hold`: a symptom or a reading that holds every movement for now, such as dizziness or repeated lows. */
+  kind: 'emergency' | 'seekHelp' | 'recheck' | 'low' | 'hold';
+  /** Stop ink for an emergency or a stop for today; caution ink for a low, its re-check and a hold. */
   tone: 'stop' | 'caution';
   /** The engine's own headline, as the Right now card shows it. */
   headline: string;
@@ -39,12 +44,21 @@ export interface Urgent {
 // The decision
 // ============================================================================
 
-/** Readings behind a stop, by what was read: the surface names the reading and when it was taken. */
+/** Readings behind a stop or a hold, by what was read: the surface names the reading and when it was taken. */
 const READ: Record<string, 'glucose' | 'ketones' | 'bp'> = {
   extremeGlucose: 'glucose', severeLow: 'glucose', persistentHi: 'glucose', suspectUnit: 'glucose',
-  ketonesUrgent: 'ketones', ketonesHigh: 'ketones', illnessKetones: 'ketones',
-  bpEmergency: 'bp', bpSevere: 'bp',
+  high: 'glucose', meterHi: 'glucose', noKetones: 'glucose', falling: 'glucose',
+  ketonesUrgent: 'ketones', ketonesHigh: 'ketones', illnessKetones: 'ketones', ketonesTrace: 'ketones',
+  bpEmergency: 'bp', bpSevere: 'bp', bpHold: 'bp', bpClinicianLimit: 'bp', bpSevereUnconfirmed: 'bp', lowBpDizzy: 'bp',
 };
+/** Low glucose, and the reading after it: named as a low (`recheckWhen` names the one a re-check counts from). */
+const LOW_CODES = new Set(['severeLow', 'low', 'lowNotRecovered', 'lowRepeat', 'tooSoon']);
+/**
+ * Holds that only ask for a reading to be given or typed again: the check-in
+ * says so, and the tiles say "check in first". Not a safety state of the
+ * person, so not urgent (journey §4.7: ordinary holds keep their own words).
+ */
+const ASKS_FOR_A_READING = new Set(['noReading', 'readingInvalid', 'bpInvalid', 'ketonesInvalid']);
 /** A reading from earlier today, still deciding today (the engine's message says which). */
 const EARLIER = new Set([
   'extremeGlucoseEarlier', 'extremeGlucoseAssessed', 'severeLowEarlier', 'severeLowAssessed',
@@ -75,17 +89,16 @@ function glucoseToday(c: CheckInRecord | undefined): GlucoseEntry[] {
 }
 
 /**
- * When an emergency or a stop for today was measured or answered: the
- * reading behind it and its time, an earlier day's answer, or today's.
+ * When a stop or a hold was measured or answered: the reading behind it and
+ * its time, an earlier day's answer, or today's.
  */
-function stopWhen(kind: 'emergency' | 'seekHelp', c: CheckInRecord | undefined, hour12: boolean): string {
-  const top = c?.readiness.reasons.find(r => r.disposition === (kind === 'emergency' ? 'emergency' : 'today'));
+function stopWhen(kind: 'emergency' | 'seekHelp' | 'hold', top: Reason | undefined, c: CheckInRecord | undefined, hour12: boolean): string {
   if (!c || !top || top.code.startsWith('carried')) return 'From your last check-in';
   const read = READ[top.code];
   if (read === 'glucose') {
     const latest = glucoseToday(c).filter(e => !Number.isNaN(timeIn(e.measuredAt))).sort((a, b) => timeIn(a.measuredAt) - timeIn(b.measuredAt)).at(-1)
       ?? glucoseToday(c).at(-1);
-    return `${top.code === 'severeLow' ? 'Low glucose' : READING_NAME.glucose}${atOrToday(latest?.measuredAt, hour12)}`;
+    return `${LOW_CODES.has(top.code) ? 'Low glucose' : READING_NAME.glucose}${atOrToday(latest?.measuredAt, hour12)}`;
   }
   if (read === 'ketones') return `${READING_NAME.ketones}${atOrToday(withLogged(c).ketones?.measuredAt, hour12)}`;
   if (read === 'bp') return `${READING_NAME.bp}${atOrToday(withLogged(c).bpReadings?.at(-1)?.at, hour12)}`;
@@ -115,22 +128,58 @@ function recheckNext(c: CheckInRecord | undefined, now: Date, hour12: boolean): 
   return !Number.isNaN(due) && due > now.getTime() ? `Re-check at ${timeOf(due, hour12)}` : 'Re-check now';
 }
 
+export interface UrgentInput {
+  profile: UserProfile;
+  /** Today's effective record (`useGuided().checkIn`). */
+  checkIn?: CheckInRecord;
+  /** Every day's records, today's as every screen must act on it. */
+  checkIns: readonly CheckInRecord[];
+  /** The shared gate's answer for each mode, now. */
+  permissions: Record<Mode, Permission>;
+}
+
+const MODES: Mode[] = ['guided', 'stretch', 'walk'];
+
 /**
- * Whether the recommendation is urgent, and what the surface says (journey
- * §4.7): an emergency, a stop for today ("get advice today"), a re-check, or
- * a low reported with no reading yet. Anything else, including an ordinary
- * hold, is not urgent. `checkIn` is today's effective record (`useGuided`).
+ * Whether a safety state stands, and what the surface says (journey §4.7,
+ * B-02), decided from the engine whatever the Right now card suggests (codex
+ * V1-01): an emergency, a stop for today ("get advice today"), a re-check, a
+ * low reported with no reading yet, or a symptom or reading that holds every
+ * movement (dizziness, repeated lows, a very high reading). Ordinary holds are
+ * not urgent: no check-in yet, a profile gap, a foot that needs protecting, a
+ * reading still to be given, and limits the profile sets for good.
  */
-export function urgentOf(r: Recommendation, now: Date, checkIn?: CheckInRecord, hour12: boolean = prefersHour12()): Urgent | undefined {
-  if (r.kind === 'emergency' || r.kind === 'seekHelp') {
-    return { kind: r.kind, tone: 'stop', headline: r.title, when: stopWhen(r.kind, checkIn, hour12) };
+export function urgentOf({ profile, checkIn, checkIns, permissions }: UrgentInput, now: Date, hour12: boolean = prefersHour12()): Urgent | undefined {
+  const all = MODES.map(m => permissions[m]);
+  const day = readinessFor({ profile, ...(checkIn ? { checkIn } : {}), now, recent: [...checkIns] });
+  const emergency = all.find(p => p.disposition === 'emergency');
+  if (emergency) {
+    const top = day.reasons.find(r => r.disposition === 'emergency');
+    return { kind: 'emergency', tone: 'stop', headline: headline(emergency).title, when: stopWhen('emergency', top, checkIn, hour12) };
   }
-  if (r.kind === 'recheck') {
-    return { kind: 'recheck', tone: 'caution', headline: r.title, when: recheckWhen(checkIn, hour12), next: recheckNext(checkIn, now, hour12) };
+  const advice = all.find(p => p.disposition === 'today');
+  if (advice) {
+    const top = day.reasons.find(r => r.disposition === 'today');
+    return { kind: 'seekHelp', tone: 'stop', headline: headline(advice).title, when: stopWhen('seekHelp', top, checkIn, hour12) };
   }
-  if (r.kind === 'hold' && checkIn?.readiness.reasons.some(x => FEELING_LOW.has(x.code))) {
+  const gaps = profileGaps(profile);
+  if (all.some(p => gateOf(p, checkIn, gaps.healthUnreviewed || gaps.medicinesUnknown) === 'recheck')) {
+    return { kind: 'recheck', tone: 'caution', headline: 'Re-check your glucose', when: recheckWhen(checkIn, hour12), next: recheckNext(checkIn, now, hour12) };
+  }
+  if (checkIn && day.reasons.some(x => FEELING_LOW.has(x.code))) {
     // The engine's words for it: check now, and treat it as a low if that can't be done.
     return { kind: 'low', tone: 'caution', headline: 'Check your glucose now', when: `Feeling low${atOrToday(checkIn.lowSymptomsAt, hour12)}` };
+  }
+  // The day's own holds, every movement's: not the profile's standing limits, nor a reading still to be given.
+  const standing = new Set(profileOnlyReadiness(profile).reasons.map(x => x.code));
+  const hold = day.reasons.find(x => x.disposition === 'hold' && !standing.has(x.code) && !ASKS_FOR_A_READING.has(x.code));
+  if (hold) {
+    return {
+      kind: 'hold', tone: 'caution',
+      // The check-in's own headline, for every movement at once.
+      headline: day.awaitingReading ? 'Check again before you start' : 'No exercise for now',
+      when: stopWhen('hold', hold, checkIn, hour12),
+    };
   }
   return undefined;
 }
@@ -193,8 +242,7 @@ export function useUrgent(): Urgent | undefined {
   const { now } = useClock();
   const checkIns = useMemo(() => withEffectiveToday(state.checkIns, guided.checkIn), [state.checkIns, guided.checkIn]);
   useWakeAt(nextBoundary(now, { ...(guided.checkIn ? { checkIn: guided.checkIn } : {}), ...(state.settings.habits ? { habits: state.settings.habits } : {}) }));
-  const r = recommend({ ...recommendSources({ now, state, plan: guided.plan, checkIns }), permissions: gatesNow(guided) });
-  const urgent = urgentOf(r, now, guided.checkIn);
+  const urgent = urgentOf({ profile: guided.profile, ...(guided.checkIn ? { checkIn: guided.checkIn } : {}), checkIns, permissions: gatesNow(guided) }, now);
   // The same object while the words are the same, so the screens under it draw again only when it changes.
   const key = urgent ? JSON.stringify(urgent) : '';
   const [kept, setKept] = useState({ key, urgent });

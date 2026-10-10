@@ -207,7 +207,13 @@ function profileRefuses(profile: UserProfile, mode: Mode): boolean {
   return r.reasons.some(x => x.refuses?.includes(mode)) || (mode === 'walk' && r.modifiers.includes('FOOT'));
 }
 
-function decide(input: PermissionInput, mode: Mode, opts: { fresh: boolean; needToday: boolean; onScreen?: boolean }): Permission {
+/**
+ * The day's clinical answer, as every gate reads it: today's check-in with
+ * the days before it, or with no check-in yet the profile alone, plus what
+ * earlier check-ins still ask of today. The shell's safety surface reads the
+ * same answer (journey §4.7).
+ */
+export function readinessFor(input: PermissionInput): Readiness {
   const { profile, now } = input;
   const today = toDateString(now);
   const checkIn = input.checkIn && input.checkIn.date === today ? input.checkIn : undefined;
@@ -217,7 +223,14 @@ function decide(input: PermissionInput, mode: Mode, opts: { fresh: boolean; need
   // collected here rather than read off an allowed answer (re-audit F02/R03).
   // With no check-in yet today, what earlier check-ins still ask of today
   // stands: a chest pain at 23:59 is still one at 00:01 (round 3 B01).
-  const r: Readiness = checkIn ? evaluateCheckIn(profile, checkIn, recent, now) : profileOnlyReadiness(profile, { date: today, recent, now });
+  return checkIn ? evaluateCheckIn(profile, checkIn, recent, now) : profileOnlyReadiness(profile, { date: today, recent, now });
+}
+
+function decide(input: PermissionInput, mode: Mode, opts: { fresh: boolean; needToday: boolean; onScreen?: boolean }): Permission {
+  const { profile, now } = input;
+  const today = toDateString(now);
+  const checkIn = input.checkIn && input.checkIn.date === today ? input.checkIn : undefined;
+  const r = readinessFor(input);
   const blocks: Block[] = [];
 
   if (rank(r.disposition ?? 'reassure') >= rank('hold')) {
