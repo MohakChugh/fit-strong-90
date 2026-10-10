@@ -687,3 +687,22 @@ On `feat/v2-journey`, after PR #3's fixes were merged in (`28b168c`). Each logic
 - Its sweep has v1's 76 target findings (the 20 px native checkboxes) and J20's 8 expected console lines. It also has 4 three.js shader-validation lines from one case under load (J17 large-dark, "stretch session save fails", which passed). A J17 re-run, 40/40 in 2.2 min, had no findings.
 - An earlier full run, on `b870bdd`, was stopped at 252 cases with none failed, so that the final tree, with KV-17 and KV-19, was the one run in full.
 - Gates on `1796cf1`: `tsc -b` and lint are clean, and the unit suite is 5,173/5,173 in 162 files.
+
+### 2026-10-10 — [claude] v2 Plan 2 (hubs): decisions recorded before building
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| D47 | A hub reads its mode's gate with `gateOf`, as Home's Right now card does, and words it with the tile's `movementLine`. A pure `movementCard` maps that to the card; a pure `actionTarget` sends every action that could start movement through `useStartMovement().start` | J§4.2, K-04, A-08: a hub can never offer what its tile or Home would refuse |
+| D48 | A weekly goal change, or its removal, applies from the next Monday; the week under way keeps its goal. A first goal, in a week that had none, applies at once. v1's undated goal keeps no date (`from: ''`) and holds for every week before the first dated change | B-16, J§12.5; J07 sets a first goal and reads it the same week |
+| D49 | In a hub, a hold that only today's check-in answers reads "Check in & start" (J§7.5). A hold, a re-check or a stop is titled with the gate's own headline (`headline(p)`: "No walk for now", "Check again before you start"), as Home's card and the check-in say it; the tile keeps its shorter line, and the card adds a re-check's time from it. A profile gap uses Home's titles ("Your diabetes medicines"). Every refusal offers today's check-in beside the gate's words, so a mistaken answer can be put right (S-15): v1's "Review today’s check-in", or "Enter a new reading" while a treated low waits for its re-check | J§7.5 hub column; J§8.4, the gate's card the same as Home's; v1's setup contract |
+| D50 | B-09's button names the meal's usual finish time today (or last night's, for a dinner after midnight), or now when that is still to come or more than two hours ago. Once tapped, that time is the walk's meal time in v1's existing field (`mealStartedAt`, which v1's summary calls "started"). Plan 6, which owns the walk summary and records, decides whether to keep a finish time apart | B-09; no new walk record shape in Plan 2 |
+| D51 | Logging a manual workout lives at `/hub/workout/log`; v1's `/track/workout` (its logging screen) redirects there with its query. `/trends/workout` belongs to Trends, and goes to `/trends` until Plan 3 builds it | B-14 |
+| D52 | Steps: a day with an entered total reads "at least" only when that total has a real entry time and a FitStrong walk started after it. A past day's total, stamped at noon, never adds walks. A corrected total counts walks only from its correction (`editedAt`, as `compareStatements` orders statements) | J§9.6, D10, D14 |
+| D53 | Back & leg: "Add reading" records pain scores, through v1's form. How far the symptoms reach, and the red flags, are asked by today's check-in, where the engine reads them ("Update today’s check-in" on the hub). Plan 2 adds no clinical question to any form | V-J09; the check-in is unchanged in what it asks (J§10) |
+| D54 | "How to copy your steps" (the Shortcut help) is not shipped until it has been checked on an iPhone | J§9.6 |
+| D55 | The Learn hub is v1's Guide under its v2 name, with v2 addresses in its links and in the Guide content's actions. Due items and Guide cards that add a reading open that metric's hub with its form (`/hub/bp?add=bloodPressure`). A reading saved in a hub says v1's "Saved on this device: Glucose 112 mg/dL.", as Today's log does, and its History row shows v1's brief highlight (M16) | J§8.2, J§19.2; one confirmation wording across the app (M16, B-24) |
+
+Left for later, on purpose:
+- M3's Back is a plain fade only when the tile is still on screen; checking that needs layout after scroll restoration, so it moves to Plan 8's device pass.
+- The Shortcut help (D54) waits for a device.
+- Food's interim screens (Meal ideas, a meal, Sample week) keep v1's Back to "Guide" until Plan 7 rebuilds them; the address still lands on Learn.
