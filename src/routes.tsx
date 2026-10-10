@@ -11,7 +11,7 @@ import { HubSkeleton } from '@/screens/hub/HubSkeleton';
 // Home is the landing screen, so it ships with the app. Every other area
 // loads the first time it is opened.
 const MoveRoutes = lazy(() => import('@/screens/move/routes'));
-const StretchScreen = lazy(() => import('@/screens/move/StretchScreen').then(m => ({ default: m.StretchScreen })));
+const StretchHub = lazy(() => import('@/screens/hub/StretchHub'));
 const WalkRoutes = lazy(() => import('@/screens/walk/routes'));
 const WalkSummary = lazy(() => import('@/screens/walk/WalkSummary').then(m => ({ default: m.WalkSummary })));
 const LiveWalkScreen = lazy(() => import('@/screens/walk/LiveWalkScreen'));
@@ -95,7 +95,7 @@ export function AppRoutes({ onboarded }: { onboarded: boolean }) {
         <Route path="/hub/workout/log" element={hub(<TodayWorkoutScreen />)} />
         <Route path="/hub/workout/log/*" element={<Keeping to="/hub/workout/log" />} />
         <Route path="/hub/workout/*" element={hub(<MoveRoutes />)} />
-        <Route path="/hub/stretch" element={hub(<StretchScreen />)} />
+        <Route path="/hub/stretch" element={hub(<StretchHub />)} />
         <Route path="/hub/walk/*" element={hub(<WalkRoutes />)} />
         <Route path="/hub/learn/*" element={hub(<GuideRoutes />)} />
         <Route path="/hub/food" element={hub(<MealIdeasScreen />)} />

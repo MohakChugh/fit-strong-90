@@ -1,0 +1,154 @@
+import { useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { categoryById } from '@/categories';
+import { Group, Row } from '@/components/hig/List';
+import {
+  lastStretch, offeredSpec, readStretchSpec, specFromPlanId, STRETCH_FOCI, STRETCH_FOCUS_LABEL, STRETCH_MINUTES, stretchHref, stretchOffered,
+  stretchPlanFor,
+} from '@/engine/stretch';
+import { resumeHref, savedRun } from '@/health/recommend';
+import { shiftDay } from '@/health/status';
+import { loadProgress, minutesLeft, type SavedProgress } from '@/session/persistence';
+import { ChoiceRows, Segmented, Wrap } from '@/screens/move/controls';
+import { clock, kitLine, previewRows, talkSeconds, todayLine } from '@/screens/move/preview';
+import { weekMovement } from '@/screens/today/model';
+import { StatusSheet } from '@/screens/today/StatusSheet';
+import { displayPrefs } from '@/screens/track/logKinds';
+import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
+import type { StretchFocus, StretchMinutes, StretchSpec } from '@/types/plan';
+import { HistoryList } from './HistoryList';
+import { HubFrame, HubSection, SeeTrends } from './HubFrame';
+import { useHubGate, useHubOrigin } from './hooks';
+import { MovementCard } from './MovementCard';
+import { actionTarget, movementCard, resumeAllowed, runAction, stretchReason, type HubActionKind } from './movement';
+import { goalLine, modeWeek, movementHistory } from './week';
+import { WeekStrip } from './WeekStrip';
+
+const REFUSED = new Set(['held', 'stopped', 'gap']);
+const routineTitle = (s: StretchSpec) => `${STRETCH_FOCUS_LABEL[s.focus]} · ${s.minutes} min`;
+
+/**
+ * The Stretch hub (journey §8.3, D36).
+ * - Right now is the recommended routine, with its area, its length and a
+ *   reason from real inputs only, or the gate's words while it refuses.
+ * - "In this routine" is what the player will run, built by the same
+ *   builder from the same records.
+ * - Options are v1's approved routines, through its builder: Back & hips,
+ *   Neck & shoulders, Hips & legs or Whole body, at 10 or 15 minutes. The
+ *   choice lives in the address (`?focus=&minutes=`), so a reload keeps it.
+ * - A run saved today is offered first, as the routine it was. During a
+ *   flare it is re-dosed by the player to the gentler routine (A-34, B-30).
+ */
+export default function StretchHub() {
+  const category = categoryById('stretch');
+  const g = useHubGate('stretch');
+  const { guided, state, now, today, status } = g;
+  const navigate = useNavigate();
+  const origin = useHubOrigin(category.title);
+  const [params, setParams] = useSearchParams();
+  const [statusOpen, setStatusOpen] = useState(false);
+  const chosen = params.has('focus') || params.has('minutes');
+  // Read at the hub's clock, which the shared gate's boundaries keep current (render stays pure).
+  const runs = [loadProgress(now.getTime(), 'stretch')].filter((p): p is SavedProgress => p !== null);
+  const savedToday = savedRun(runs, today, 'today');
+  const saved = savedToday && resumeAllowed(status, 'stretch') ? savedToday : undefined;
+  // A saved run, read once, before the routine is built from it: its routine, what is left and where it picks up.
+  const resume = saved
+    ? { spec: saved.plan.stretch ?? specFromPlanId(saved.plan.id), minutesLeft: minutesLeft(saved), label: saved.plan.label, href: resumeHref(saved) }
+    : undefined;
+  const { focus, minutes } = resume?.spec ?? readStretchSpec(params, lastStretch(state.sessions));
+  const spec: StretchSpec = { focus, minutes };
+  // The effective check-ins, as the player builds from, so "In this routine" never lists what won't run.
+  // ponytail: built on each render (about 1 ms); the routine's spec is read and reused in the same render, which
+  // a manual useMemo can't keep (react-hooks/preserve-manual-memoization). Upgrade: memo on a primitive routine key.
+  const plan = stretchPlanFor({ ...guided.data, checkIns: guided.checkIns }, guided.profile, guided.date, { focus, minutes });
+  const back = guided.profile.pain.areas.includes('lowerBack') || guided.profile.pain.areas.includes('sciatica');
+  const yesterday = guided.checkIns.find(c => c.date === shiftDay(today, -1))?.back;
+  const fromLast = state.sessions.some(s => s.planKind === 'stretch' && specFromPlanId(s.planId) !== null);
+  const reason = stretchReason({
+    chosen, flare: status === 'flare' && back, focus, fromLast,
+    ...(yesterday ? { yesterday } : {}), ...(state.settings.focus ? { focusSetting: state.settings.focus } : {}),
+  });
+  const line = todayLine(plan, g.permission);
+  const card = movementCard({
+    mode: 'stretch', permission: g.permission, gate: g.gate, status, line: g.line, title: routineTitle(spec),
+    ...(line && plan.kind !== 'none' ? { detail: line } : {}),
+    ...(reason ? { reason } : {}),
+    // The gate allows it, but the builder can't make this routine today: say so, and offer the other routines.
+    ...(plan.kind === 'none' && g.permission.allowed ? { blocked: line ?? 'This routine cannot be put together safely today. Try another area or length.' } : {}),
+    gaps: g.gaps, stretchOpen: g.stretchOpen,
+    ...(resume ? { saved: { minutesLeft: resume.minutesLeft, label: resume.label } } : {}),
+  });
+  const ctx = { mode: 'stretch' as const, href: stretchHref(spec), startLabel: 'Start stretch', ...(resume ? { resumeHref: resume.href } : {}) };
+  const act = (kind: HubActionKind) => runAction(actionTarget(kind, ctx), {
+    start: g.start,
+    go: to => navigate(to, { viewTransition: true, state: origin }),
+    status: () => setStatusOpen(true),
+    local: () => {},
+  });
+  // Replace, not push: changing a choice is not a place to go Back to. The page stays where it is.
+  const choose = (next: StretchSpec) => setParams({ focus: next.focus, minutes: String(next.minutes) }, { replace: true, preventScrollReset: true });
+  const offering = !REFUSED.has(card.state) && card.state !== 'join';
+  const rows = previewRows(plan);
+  const kit = kitLine(plan);
+  const talk = Math.round(talkSeconds(plan) / 60);
+  const prefs = displayPrefs(state.settings, state.profile, state.observations);
+
+  return (
+    <HubFrame category={category} held={REFUSED.has(card.state)}>
+      <MovementCard card={card} onAction={act} />
+
+      {offering && rows.length > 0 && (
+        <Group
+          header="In this routine"
+          footer={[kit, talk > 0 ? `Plus about ${talk} ${talk === 1 ? 'minute' : 'minutes'} of welcome and wrap-up.` : null].filter(Boolean).join(' ')}
+        >
+          {/* Names wrap: a movement's name is the one thing in the row that must not be cut short. */}
+          {rows.map(r => <Row key={r.id} label={<Wrap>{r.name}</Wrap>} detail={r.dose} value={clock(r.seconds)} numeric />)}
+        </Group>
+      )}
+
+      {offering && !resume && (
+        <HubSection title="Options">
+          <div className="flex flex-col gap-4">
+            <Group header="Area">
+              <ChoiceRows<StretchFocus>
+                label="Area"
+                options={STRETCH_FOCI.map(f => ({ value: f, label: STRETCH_FOCUS_LABEL[f] }))}
+                value={focus}
+                onChange={f => choose(offeredSpec({ focus: f, minutes }))}
+              />
+            </Group>
+            <section aria-labelledby="stretch-length" className="flex flex-col">
+              <h3 id="stretch-length" className="px-4 pb-2 text-[length:var(--text-footnote)] font-medium uppercase tracking-wide text-muted-foreground">Length</h3>
+              <Segmented<StretchMinutes>
+                label="Length"
+                options={STRETCH_MINUTES.map(m => ({ value: m, label: `${m} min`, disabled: !stretchOffered({ focus, minutes: m }) }))}
+                value={minutes}
+                onChange={m => choose({ focus, minutes: m })}
+              />
+              {!stretchOffered({ focus, minutes: 10 }) && (
+                <p className="px-4 pt-2 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
+                  Ten minutes is Back &amp; hips only: every routine starts with the same spine and core basics, and they fill most of it.
+                </p>
+              )}
+            </section>
+          </div>
+        </HubSection>
+      )}
+
+      <WeekStrip
+        days={modeWeek({ mode: 'stretch', today, sessions: state.sessions, observations: state.observations, ...(state.settings.statusPeriods ? { statusPeriods: state.settings.statusPeriods } : {}) })}
+        goal={goalLine(weekMovement(today, state.observations, state.sessions).minutes, weeklyGoalOn(state.settings, today))}
+      />
+      <HistoryList rows={movementHistory('stretch', state.sessions, state.observations, prefs, today)} origin={origin} empty="No stretches yet. Each one shows here." />
+      <SeeTrends category={category} origin={origin} />
+      <p className="px-4 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
+        Stop if pain spreads down your leg, or you feel dizzy, short of breath or unwell. General information, not medical advice.
+      </p>
+
+      {g.sheet}
+      <StatusSheet open={statusOpen} onOpenChange={setStatusOpen} today={today} periods={state.settings.statusPeriods} startDate={state.settings.startDate} />
+    </HubFrame>
+  );
+}

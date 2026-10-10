@@ -516,14 +516,16 @@ describe('wiring that names the opener (S-10, S-11)', () => {
   });
 
   it('a hub with nothing to pop to goes Back to Home, and a Workout page to its hub at its own address (codex V1-09)', () => {
-    expect(read('src/screens/move/StretchScreen.tsx')).toContain("back={{ to: '/home', label: 'Home' }}");
+    // A hub is framed by HubFrame, whose Back is HUB_BACK, Home (frame.test.ts).
+    expect(read('src/screens/hub/HubFrame.tsx')).toContain('back={HUB_BACK}');
+    for (const file of ['src/screens/hub/WorkoutHub.tsx', 'src/screens/hub/StretchHub.tsx']) expect(read(file), file).toMatch(/<HubFrame category=\{category\}/);
     expect(read('src/screens/walk/WalkSetup.tsx')).toContain("const back = { to: '/home', label: 'Home' };");
     for (const file of ['src/screens/move/PlanScreen.tsx', 'src/screens/move/ExercisesScreen.tsx']) {
       expect(read(file), file).toContain("back={{ to: '/hub/workout', label: 'Workout' }}");
     }
     // The Workout Log, at its own address in the hub (B-14, D51).
     expect(read('src/screens/workout/TodayWorkoutScreen.tsx')).toContain("back={{ to: '/hub/workout', label: 'Workout' }}");
-    for (const file of ['src/screens/move/StretchScreen.tsx', 'src/screens/walk/WalkSetup.tsx', 'src/screens/move/PlanScreen.tsx', 'src/screens/move/ExercisesScreen.tsx']) {
+    for (const file of ['src/screens/hub/StretchHub.tsx', 'src/screens/walk/WalkSetup.tsx', 'src/screens/move/PlanScreen.tsx', 'src/screens/move/ExercisesScreen.tsx']) {
       expect(read(file), file).not.toContain("to: '/move'");
     }
   });

@@ -706,3 +706,13 @@ Left for later, on purpose:
 - M3's Back is a plain fade only when the tile is still on screen; checking that needs layout after scroll restoration, so it moves to Plan 8's device pass.
 - The Shortcut help (D54) waits for a device.
 - Food's interim screens (Meal ideas, a meal, Sample week) keep v1's Back to "Guide" until Plan 7 rebuilds them; the address still lands on Learn.
+
+### 2026-10-10 — [claude] v2 Plan 2 (hubs): notes while building
+
+Where the build differs from the plan's text, and why:
+- **The wash is 8%, not 14%** (Task 3, the plan's own fallback). The light tint keeps 4.5:1 on it only up to 8%: Sleep measures 4.56:1 there, and 4.44:1 at 10%.
+- **A hub's skeleton leaves the focus to the hub** (`Screen`'s `placeholder`). Otherwise the skeleton took the navigation's one focus request, and focus fell to the page when the hub replaced it. The skeleton also carries the hub's wash, without the morph's name, so a first open lands on a coloured frame.
+- **A profile gap comes before Join** on the Workout hub, as on its tile ("Finish setting up · your medicines"), so the two always agree (§4.2).
+- **The route table's new redirects keep the query** (`/trends/workout` and `/hub/workout/log/*`, through `Keeping`, K-17).
+- **B-30's fixture covers every routine the hub offers.** At 10 minutes no routine for the back-history profile holds a movement a flare leaves out; at 15, Hips & legs holds one (the supine hamstring stretch), which the resumed run refuses.
+- **The Stretch hub builds its routine on each render** (about 1 ms). The routine's spec is reused in the same render, which a manual `useMemo` can't keep under the React Compiler's lint.
