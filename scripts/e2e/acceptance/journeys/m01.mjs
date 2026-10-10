@@ -165,4 +165,25 @@ const systemMotion = {
   },
 };
 
-export const cases = [finishSettingUp, goals, display, systemMotion];
+const deleteTwice = {
+  name: 'Delete everything asks twice',
+  async run(t) {
+    const page = await t.open({ seed: persona('P01'), route: '/me/data' });
+    const main = page.getByRole('main');
+    await t.step(1, 'Delete everything → the first answer erases nothing → Keep my record', async () => {
+      const before = await t.db();
+      await ui.tap(ui.row(main, 'Delete everything on this device'));
+      const sheet = ui.sheet(page, 'Delete everything');
+      await ui.tap(ui.button(sheet, 'Delete everything'));
+      await ui.button(sheet, 'Erase all').waitFor();
+      await t.checkpoint('delete-second-ask');
+      await t.check(data.sameSnapshot(before, await t.db()).length === 0, 'the first confirmation changed the record');
+      await ui.tap(ui.button(sheet, 'Keep my record'));
+      await sheet.waitFor({ state: 'hidden' });
+      await t.check(data.sameSnapshot(before, await t.db()).length === 0, 'Keep my record changed the record');
+      await t.check(await t.route() === '/me/data', `Keep my record left Data for ${await t.route()}`);
+    });
+  },
+};
+
+export const cases = [finishSettingUp, goals, display, systemMotion, deleteTwice];

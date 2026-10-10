@@ -209,6 +209,7 @@ export const cases = [{
       await watchRoutes(page);
       await t.setPageFaults([{ op: 'clear', action: 'abortAfterQueue' }]);
       await ui.tap(ui.button(sheet, 'Delete everything'));
+      await ui.tap(ui.button(sheet, 'Erase all'));
       await page.waitForTimeout(1500);
       await t.checkpoint('delete-failed');
       await t.setPageFaults(null);
@@ -244,6 +245,7 @@ export const cases = [{
       const sheet = page.getByRole('dialog', { name: 'Delete everything' });
       await sheet.waitFor();
       await ui.tap(ui.button(sheet, 'Delete everything'));
+      await ui.tap(ui.button(sheet, 'Erase all'));
       await page.getByRole('heading', { level: 1, name: 'Welcome', exact: true }).waitFor({ timeout: 15000 });
       await t.ready();
       await t.reload();

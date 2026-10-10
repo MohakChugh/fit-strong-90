@@ -19,7 +19,7 @@ import { useStore } from '@/store/useStore';
 import type { HomeLayout } from '@/types';
 import { packName } from '@/voice/packs';
 import { buildId } from './about';
-import { shortDate } from './dates';
+import { backupLine, backupState } from './dataStatus';
 import { displayLine } from './display';
 import { goalsLine } from './goals';
 import { REVIEW_LABEL, conditionsLine, foodLine, habitsLine, privacyLine, reviewNeeded } from './summaries';
@@ -49,7 +49,7 @@ export function MeHome() {
   const offers = stored ? newlyRelevant({ relevant, layout: stored, offered: settings.homeOffered ?? [] }) : [];
   const review = reviewNeeded(profile);
   const nudge = backupNudge(now, backupMark(settings.habits), recordSpan(state), state.revision);
-  const lastBackup = settings.habits?.lastExportAt;
+  const backup = backupState(settings.habits);
   const focus = FOCUS_CHOICES.find(f => f.value === settings.focus);
   const voice = profile?.voice;
 
@@ -103,9 +103,7 @@ export function MeHome() {
           viewTransition
           icon={<HardDriveIcon />}
           label="Data"
-          detail={nudge.due
-            ? <span className="text-caution">{lastBackup ? `Time to back up. The last was ${shortDate(lastBackup)}.` : 'Time to make your first backup.'}</span>
-            : lastBackup ? `Backed up ${shortDate(lastBackup)}` : `On this ${device} only`}
+          detail={nudge.due ? <span className="text-caution">{`${backupLine(backup)}. Time for a new one.`}</span> : backupLine(backup)}
           chevron
         />
       </Group>

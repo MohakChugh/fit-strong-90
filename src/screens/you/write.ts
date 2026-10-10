@@ -8,7 +8,7 @@
  * hands the edit the latest state at the moment of writing, so both survive.
  */
 
-import { update } from '@/store/useStore';
+import { getState, update } from '@/store/useStore';
 import type { StoreResult } from '@/store/db';
 import type { UserSettings } from '@/types';
 import type { HabitSettings } from '@/types/habits';
@@ -47,18 +47,40 @@ export function changeProfile(edit: (profile: UserProfile) => UserProfile): Prom
 
 /**
  * Remember what the last backup covered, for the monthly nudge: when its
- * snapshot was taken and that snapshot's stored revision — not when the file
- * happened to be handed over. A backup without a revision clears an older
- * one, so a new time never borrows an old backup's coverage. This write is
- * itself one stored change, which the nudge allows for.
+ * snapshot was taken and that snapshot's stored revision, not when the file
+ * happened to be handed over. Also how it left (B-25). A backup without a
+ * revision clears an older one, so a new time never borrows an old backup's
+ * coverage, and a new backup is not checked until its own file is read back.
+ * This write is itself one stored change, which the nudge allows for.
  */
-export function recordExport(mark: Required<Pick<BackupMark, 'at'>> & BackupMark): Promise<StoreResult> {
+export function recordExport(mark: Required<Pick<BackupMark, 'at'>> & BackupMark & { via?: 'share' | 'download' }): Promise<StoreResult> {
   return changeHabits(habits => {
     const next: HabitSettings = { ...habits, lastExportAt: mark.at };
     if (mark.revision === undefined) delete next.lastExportSeq;
     else next.lastExportSeq = mark.revision;
+    if (mark.via === undefined) delete next.lastExportVia;
+    else next.lastExportVia = mark.via;
+    if (next.lastCheckedExportAt !== mark.at) delete next.lastCheckedExportAt;
     return next;
   });
+}
+
+/**
+ * A backup file read back in Restore's preview (B-25, D61): the last
+ * backup's own snapshot, so that backup is checked. Recording this is one
+ * more stored change. When the backup's own mark is the only change since
+ * its snapshot, the mark moves past this one too, so a check never reads as
+ * new data to the nudge (`reminders/backup.ts`).
+ */
+export function recordBackupCheck(at: string): Promise<StoreResult> {
+  const { revision, settings } = getState();
+  const seq = settings.habits?.lastExportSeq;
+  const onlyTheMark = seq !== undefined && revision === seq + 1;
+  return changeHabits(habits => (habits.lastExportAt !== at ? habits : {
+    ...habits,
+    lastCheckedExportAt: at,
+    ...(onlyTheMark && habits.lastExportSeq === seq ? { lastExportSeq: seq + 1 } : {}),
+  }));
 }
 
 /** The units chosen in the wizard, unless it left them as it found them. */

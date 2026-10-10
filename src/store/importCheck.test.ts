@@ -100,6 +100,11 @@ describe('settings in an import file are read field by field (D-08)', () => {
     expect(preview(file({ settings: { ...settings, habits: { calendarExport: { water: { ...entry, minutes: ['9am'] } } } } })).unreadableFields).toEqual(['settings.habits.calendarExport']);
   });
 
+  it('reads how the last backup left and whether it was checked', () => {
+    expect(preview(file({ settings: { ...settings, habits: { lastExportAt: 'x', lastExportVia: 'share', lastCheckedExportAt: 'x' } } })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings: { ...settings, habits: { lastExportVia: 'email' } } })).unreadableFields).toEqual(['settings.habits.lastExportVia']);
+  });
+
   it('reads the weekly goal’s history, v1’s undated goal included, and leaves out one that cannot be read (B-16)', () => {
     const history = [{ from: '', goal: 120 }, { from: '2026-10-12', goal: 150 }, { from: '2026-10-19' }];
     expect(preview(file({ settings: { ...settings, weeklyMovementGoalHistory: history } })).unreadableFields).toEqual([]);

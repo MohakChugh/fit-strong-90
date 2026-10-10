@@ -142,6 +142,18 @@ export async function chooseRestore(t, file, { from = 'you' } = {}) {
   return sheet;
 }
 
+/** Me → Data → Check a backup with `file`; returns its sheet (B-25). */
+export async function chooseCheck(t, file) {
+  const page = t.page;
+  const main = await openData(t);
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 10000 }), ui.tap(ui.row(main, 'Check a backup'))]);
+  await chooser.setFiles(file);
+  const sheet = page.getByRole('dialog', { name: 'Check a backup' });
+  await sheet.waitFor({ timeout: 15000 });
+  await page.waitForTimeout(300);
+  return sheet;
+}
+
 /** Choose another file inside an open restore sheet that is showing a problem. */
 export async function chooseAnother(t, sheet, file) {
   const [chooser] = await Promise.all([t.page.waitForEvent('filechooser', { timeout: 10000 }), ui.tap(ui.button(sheet, 'Choose another file'))]);
@@ -277,6 +289,8 @@ export function logical(snap, { ignoreExportDate = false } = {}) {
     // backup comparison leaves out (src/screens/you/backupFile.ts settingsKey).
     delete settings.habits.lastExportAt;
     delete settings.habits.lastExportSeq;
+    delete settings.habits.lastExportVia;
+    delete settings.habits.lastCheckedExportAt;
     if (Object.keys(settings.habits).length === 0) delete settings.habits;
   }
   const content = {};
@@ -303,6 +317,8 @@ export function logicalFromDoc(doc, { ignoreExportDate = false } = {}) {
     // backup comparison leaves out (src/screens/you/backupFile.ts settingsKey).
     delete settings.habits.lastExportAt;
     delete settings.habits.lastExportSeq;
+    delete settings.habits.lastExportVia;
+    delete settings.habits.lastCheckedExportAt;
     if (Object.keys(settings.habits).length === 0) delete settings.habits;
   }
   return {
