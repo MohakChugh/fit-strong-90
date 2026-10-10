@@ -57,6 +57,13 @@ export function draftWarning(kept: boolean, where: 'live' | 'summary'): string |
 }
 
 /** Shown only while recording, when the screen may go dark and stop it. */
+/** On a held walk after a change to the phone's clock (B-19). */
+export function clockLine(walk: Pick<Walk, 'clockChangedAt'>): string | undefined {
+  return walk.clockChangedAt === undefined
+    ? undefined
+    : 'Your phone’s clock changed during this walk, so a reading from before the change can’t be timed. Check your glucose again to carry on.';
+}
+
 export function wakeHint(snapshot: Pick<LiveSnapshot, 'wake' | 'walk' | 'blocked'>): string | undefined {
   return snapshot.wake === 'unavailable' && snapshot.walk.status === 'running' && !snapshot.blocked
     ? 'Keep the screen on to keep recording.'

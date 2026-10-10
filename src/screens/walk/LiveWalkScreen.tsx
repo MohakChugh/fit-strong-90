@@ -16,6 +16,7 @@ import { clock, spokenClock, timeOfDay } from '@/walk/format';
 import { feelLow, lowReading } from '@/walk/low';
 import { walkFromSearch } from '@/walk/plan';
 import {
+  clockLine,
   distanceFigure,
   draftWarning,
   heldAction,
@@ -157,7 +158,9 @@ export default function LiveWalkScreen() {
    * before anyone taps Resume (N06). Resume still asks for itself.
    */
   const question = snapshot.blocked ?? (running ? null : 'restart');
-  const refusal = question ? walkRefusal(walkInput(clinical, new Date(snapshot.now)), question) : undefined;
+  const refusal = question ? walkRefusal(walkInput(clinical, new Date(snapshot.now), snapshot.walk.clockChangedAt), question) : undefined;
+  // Only when the hold is the one the clock change causes: a reading that can't be timed (B-19).
+  const clockNote = refusal?.reasons.includes(PERMISSION_TEXT.staleNoTime) ? clockLine(snapshot.walk) : undefined;
   const emergency = refusal?.disposition === 'emergency';
   const low = lowOpen(checkIn, snapshot.walk);
   const action = refusal ? heldAction(refusal, low) : 'none';
@@ -236,6 +239,7 @@ export default function LiveWalkScreen() {
                   </p>
                   {refusal.reasons.map(r => <p key={r}>{r}</p>)}
                   {refusal.release && <p className="text-muted-foreground">{refusal.release}</p>}
+                  {clockNote && <p className="text-muted-foreground">{clockNote}</p>}
                   <p className="text-muted-foreground">Your walk so far is kept. Finish to save it.</p>
                   {action === 'checkIn' && (
                     <button type="button" onClick={() => setSheet('checkIn')} className="press-feedback mt-1 min-h-11 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">

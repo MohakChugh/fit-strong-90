@@ -15,6 +15,7 @@
  */
 
 import {
+  accrueOpen,
   addGapTime,
   creditSteps,
   finishWalk,
@@ -28,8 +29,10 @@ import {
   resumeWalk,
   returnToWalk,
   segmentDistance,
+  splitAtClockChange,
   splitAtMidnight,
   startWalk,
+  stepOf,
   updateOpenSegment,
   type EndedBy,
   type Gap,
@@ -92,7 +95,7 @@ export interface LivePorts {
    * (re-audit F06). `browser.ts` answers from the readiness engine, with what
    * the live screen knows (B04).
    */
-  mayRun(intent: WalkIntent): boolean;
+  mayRun(intent: WalkIntent, walk?: Walk): boolean;
   /**
    * Tells the controller when anything that could change that answer
    * changes — the store, or an answer waiting to be stored — so a walk
@@ -100,6 +103,8 @@ export interface LivePorts {
    */
   watchClinical?(onChange: () => void): () => void;
   now(): number;
+  /** The monotonic clock, ms (B-19). Absent: the device clock, so no change is ever seen. */
+  monotonic?(): number;
   /** Run `fn` after `ms`. Returns a function that cancels it. */
   later(fn: () => void, ms: number): () => void;
   storage: WalkStorage | undefined;
@@ -229,6 +234,10 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
 
   let draftKept = true;
 
+  const mono = () => ports.monotonic?.() ?? ports.now();
+  /** The monotonic reading at the moment the open segment's accrual last reached `accruedAt`. */
+  let monoAt: number | undefined;
+
   /** Keep the walk in progress, and remember whether that worked, to say so. */
   function persist() {
     if (walk) draftKept = storeWalk(ports.storage, walk);
@@ -280,7 +289,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     const now = ports.now();
     // The day may have ended since the last tick: split first, so the fix
     // lands in the day it was taken in (re-audit N03).
-    catchUpMidnight(now);
+    advance(now);
     if (!track || track.push(fix, now) !== 'accepted') return;
     const t = track;
     walk = updateOpenSegment(walk, s => ({ ...s, gps: [...trackBase, ...t.runs] }));
@@ -302,7 +311,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     const now = ports.now();
     // As for a fix: a day that has ended is split before anything is added.
     // The detector keeps its rhythm, so no walking run is lost at midnight.
-    catchUpMidnight(now);
+    advance(now);
     lastSample = now;
     if (detector.push(t, x, y, z) > 0) {
       // Each step to the segment it happened in, by its own time (N03).
@@ -325,6 +334,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
   function startSensors(now: number) {
     const segment = walk && openSegment(walk);
     if (!walk || !segment) return;
+    monoAt = mono();
     if (walk.plan.gps && ports.geolocation && !gpsDenied) {
       track = createTrack(segment.start);
       trackBase = segment.gps;
@@ -377,7 +387,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
    * so the screen can show why and offer to save what was recorded.
    */
   function mayRun(intent: WalkIntent): boolean {
-    const allowed = ports.mayRun(intent);
+    const allowed = ports.mayRun(intent, walk ?? undefined);
     blocked = allowed ? null : intent;
     return allowed;
   }
@@ -389,7 +399,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
    */
   function holdBack(now: number) {
     if (!walk || walk.status !== 'running') return;
-    catchUpMidnight(now);
+    advance(now);
     stopSensors();
     walk = pauseWalk(walk, now);
     notice = null;
@@ -408,7 +418,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     }
     // Held: the same question again. A yes lifts the hold so Resume is
     // offered; it never moves the walk by itself.
-    if (blocked && ports.mayRun(blocked)) {
+    if (blocked && ports.mayRun(blocked, walk)) {
       blocked = null;
       emit();
     }
@@ -454,11 +464,42 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     }
   }
 
+  /**
+   * Bring the open segment's time up to now (B-19). A step on which the device
+   * clock and the monotonic clock disagree is a change to the clock: the
+   * monotonic step counts, the segment closes at the change, and GPS starts a
+   * fresh track from the new time, since fixes now carry it.
+   */
+  function accrueNow(now: number) {
+    const open = walk && walk.status === 'running' ? openSegment(walk) : undefined;
+    if (!walk || !open) return;
+    const m = mono();
+    const step = stepOf({ wall: open.accruedAt, mono: monoAt ?? m }, { wall: now, mono: m });
+    monoAt = m;
+    if (!step.jumped) {
+      walk = accrueOpen(walk, step.ms, now);
+      return;
+    }
+    walk = splitAtClockChange(walk, now, step.ms);
+    if (track) {
+      track = createTrack(now);
+      trackBase = [];
+    }
+  }
+
+  /** What every sensor callback and transition does first: accrue, then split at local midnight. Says whether a segment closed (either split opens a new one). */
+  function advance(now: number): boolean {
+    const before = walk?.segments.length ?? 0;
+    accrueNow(now);
+    catchUpMidnight(now);
+    return (walk?.segments.length ?? 0) !== before;
+  }
+
   function tick() {
     cancelTick = undefined;
     if (!walk) return;
     const now = ports.now();
-    catchUpMidnight(now);
+    advance(now);
     walk = heartbeat(walk, now);
     // Asked every second, so nothing new about the person's health has to
     // wait for the screen to notice before the walk stops.
@@ -473,7 +514,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     const now = ports.now();
     if (!visible) {
       if (walk.status === 'running') {
-        catchUpMidnight(now);
+        advance(now);
         stopSensors();
         walk = leaveWalk(walk, now, 'hidden');
       }
@@ -544,7 +585,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     detach() {
       if (!walk) return;
       const now = ports.now();
-      catchUpMidnight(now);
+      advance(now);
       stopSensors();
       cancelTick?.();
       cancelTick = undefined;
@@ -567,7 +608,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     pause() {
       if (!walk || walk.status !== 'running') return;
       const now = ports.now();
-      catchUpMidnight(now);
+      advance(now);
       stopSensors();
       walk = pauseWalk(walk, now);
       notice = null;
@@ -599,7 +640,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     finish(endedBy) {
       if (!walk || walk.status === 'finished') return;
       const now = ports.now();
-      catchUpMidnight(now);
+      advance(now);
       stopSensors();
       walk = finishWalk(walk, now, endedBy);
       notice = null;

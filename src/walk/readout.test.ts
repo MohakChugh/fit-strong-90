@@ -9,6 +9,7 @@ import { summarise } from './record';
 import { PERMISSION_TEXT, type Permission } from '@/engine/permission';
 import type { CheckInRecord } from '@/types/checkin';
 import {
+  clockLine,
   distanceFigure,
   draftWarning,
   endingLine,
@@ -333,5 +334,14 @@ describe('after a walk ended for a low (X2-13)', () => {
     const due = lowAdvice({ stage: 'due', since: at(11), recheckAt: at(26) }, time);
     expect(due.lines[0]).toBe('Check your glucose now.');
     expect(due.lines.join(' ')).toContain(TREAT);
+  });
+});
+
+describe('a held walk after a change to the phone’s clock (B-19)', () => {
+  it('says why a reading from before the change no longer counts, and nothing otherwise', () => {
+    expect(clockLine({})).toBeUndefined();
+    expect(clockLine({ clockChangedAt: 1_760_000_000_000 })).toBe(
+      'Your phone’s clock changed during this walk, so a reading from before the change can’t be timed. Check your glucose again to carry on.',
+    );
   });
 });

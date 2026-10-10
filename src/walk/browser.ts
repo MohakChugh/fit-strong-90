@@ -148,9 +148,10 @@ function visibilityPort(): VisibilityPort {
 
 export function browserPorts(): LivePorts {
   return {
-    mayRun: storeGate,
+    mayRun: (intent, walk) => storeGate(intent, walk?.clockChangedAt),
     watchClinical,
     now: () => Date.now(),
+    monotonic: () => performance.now(),
     later(fn, ms) {
       const id = window.setTimeout(fn, ms);
       return () => window.clearTimeout(id);

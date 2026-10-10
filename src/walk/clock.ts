@@ -14,8 +14,10 @@
  * returns the next walk. The live controller (`live.ts`) owns the real clock.
  */
 
+import { toDateString } from '@/lib/utils';
 import type { Meal } from '@/types/habits';
 import type { GpsRun } from './gps';
+import { offsetAt } from './time';
 
 export type WalkKind = 'walk' | 'afterMeal';
 
@@ -37,7 +39,7 @@ export interface WalkPlan {
  * one local day and its time, distance and steps are credited to that day
  * (re-audit F17).
  */
-export type SegmentEnd = 'paused' | 'hidden' | 'left' | 'interrupted' | 'midnight' | 'finished';
+export type SegmentEnd = 'paused' | 'hidden' | 'left' | 'interrupted' | 'midnight' | 'clockChange' | 'finished';
 
 export interface Segment {
   /** Epoch ms. */
@@ -54,6 +56,13 @@ export interface Segment {
   steps: number;
   /** Motion samples arrived, so `steps` is a count rather than a blank. */
   motion: boolean;
+  /** Time observed in this segment (B-19), accrued tick by tick: a change to the clock never stretches or shrinks it. */
+  accruedMs: number;
+  /** The device-clock moment the accrual has reached. */
+  accruedAt: number;
+  /** The local day the segment began on and its UTC offset in minutes (B-19, F17): what its records carry, wherever they are saved. */
+  day: string;
+  offsetMin: number;
 }
 
 /** Why recording stopped without the person pausing it. */
@@ -105,6 +114,8 @@ export interface Walk {
   endedBy?: EndedBy;
   /** "How is your back and leg now?", both optional. */
   pain?: { back?: PainAnswer; leg?: PainAnswer };
+  /** B-19: when this walk saw the phone's clock change. A restart then asks for a fresh reading. */
+  clockChangedAt?: number;
 }
 
 /**
@@ -122,8 +133,25 @@ export const STALE_AFTER_MS = 3 * 60 * 60 * 1000;
  */
 export const REMOUNT_GRACE_MS = 250;
 
+/** B-19: the device clock and the monotonic one disagreeing by more than this in one step is a change to the clock. */
+export const CLOCK_JUMP_MS = 120_000;
+
+/** The two clocks at one moment. */
+export interface Clocks { wall: number; mono: number }
+
+/**
+ * One accrual step (B-19): the device clock's step while the two clocks agree,
+ * or the monotonic step when they don't — and then the clock was changed.
+ */
+export function stepOf(from: Clocks, to: Clocks): { ms: number; jumped: boolean } {
+  const wall = to.wall - from.wall;
+  const mono = to.mono - from.mono;
+  if (Math.abs(wall - mono) > CLOCK_JUMP_MS) return { ms: Math.max(0, mono), jumped: true };
+  return { ms: Math.max(0, wall), jumped: false };
+}
+
 function emptySegment(start: number): Segment {
-  return { start, gps: [], steps: 0, motion: false };
+  return { start, gps: [], steps: 0, motion: false, accruedMs: 0, accruedAt: start, day: toDateString(new Date(start)), offsetMin: offsetAt(start) };
 }
 
 /** The first local midnight after `t`. `setHours(24)` keeps it right across a clock change. */
@@ -167,17 +195,18 @@ export function openSegment(walk: Walk): Segment | undefined {
   return last && last.end === undefined ? last : undefined;
 }
 
+/** A segment closed at `at`: its accrual reaches `at` from where the last tick left it. */
+function closed(s: Segment, at: number, endedBy: SegmentEnd): Segment {
+  // A clock that stepped backwards must not produce a negative segment.
+  return { ...s, end: Math.max(s.start, at), endedBy, accruedMs: s.accruedMs + Math.max(0, at - s.accruedAt), accruedAt: Math.max(s.accruedAt, at) };
+}
+
 function closeOpen(walk: Walk, at: number, endedBy: SegmentEnd): Segment[] {
-  return walk.segments.map((s, i) =>
-    i === walk.segments.length - 1 && s.end === undefined
-      // A clock that stepped backwards must not produce a negative segment.
-      ? { ...s, end: Math.max(s.start, at), endedBy }
-      : s,
-  );
+  return walk.segments.map((s, i) => (i === walk.segments.length - 1 && s.end === undefined ? closed(s, at, endedBy) : s));
 }
 
 function segmentMs(s: Segment, now: number): number {
-  return Math.max(0, (s.end ?? now) - s.start);
+  return s.end !== undefined ? s.accruedMs : s.accruedMs + Math.max(0, now - s.accruedAt);
 }
 
 /** Time actually observed. Gaps and pauses are not in it. */
@@ -330,7 +359,12 @@ export function splitAtMidnight(walk: Walk, now: number): Walk {
     if (!open) return next;
     const boundary = nextMidnight(open.start);
     if (boundary > now) return next;
-    next = { ...next, segments: [...closeOpen(next, boundary, 'midnight'), emptySegment(boundary)] };
+    // Time accrued past midnight belongs to the new day's segment.
+    const reached = open.accruedMs + Math.max(0, boundary - open.accruedAt);
+    const excess = Math.min(reached, Math.max(0, open.accruedAt - boundary));
+    const before: Segment = { ...open, end: boundary, endedBy: 'midnight', accruedMs: reached - excess, accruedAt: boundary };
+    const after: Segment = { ...emptySegment(boundary), accruedMs: excess, accruedAt: Math.max(boundary, open.accruedAt) };
+    next = { ...next, segments: [...next.segments.slice(0, -1), before, after] };
   }
 }
 
@@ -338,4 +372,26 @@ export function splitAtMidnight(walk: Walk, now: number): Walk {
 export function updateOpenSegment(walk: Walk, change: (s: Segment) => Segment): Walk {
   if (!openSegment(walk)) return walk;
   return { ...walk, segments: walk.segments.map((s, i) => (i === walk.segments.length - 1 ? change(s) : s)) };
+}
+
+/** Add `ms` to the segment being recorded, its accrual reaching `wall` (B-19). */
+export function accrueOpen(walk: Walk, ms: number, wall: number): Walk {
+  return updateOpenSegment(walk, s => ({ ...s, accruedMs: s.accruedMs + ms, accruedAt: wall }));
+}
+
+/**
+ * The phone's clock changed (B-19): the open segment closes at the change, in
+ * the clock it was recorded by, with `ms` (the monotonic step) counted; the
+ * next opens at the new time. No gap: the walk was watched throughout.
+ *
+ * The walk keeps the latest change: a reading stamped between two changes was
+ * timed by a clock that moved again, so only one taken since the last can be
+ * trusted for its age.
+ */
+export function splitAtClockChange(walk: Walk, wall: number, ms: number): Walk {
+  const open = walk.status === 'running' ? openSegment(walk) : undefined;
+  if (!open) return walk;
+  const end = open.accruedAt + ms;
+  const before: Segment = { ...open, end: Math.max(open.start, end), endedBy: 'clockChange', accruedMs: open.accruedMs + ms, accruedAt: end };
+  return { ...walk, clockChangedAt: wall, segments: [...walk.segments.slice(0, -1), before, emptySegment(wall)] };
 }

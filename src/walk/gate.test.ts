@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppData } from '@/types';
 import type { CheckInRecord, DailyCheckIn, Readiness } from '@/types/checkin';
 import { createDefaultProfile } from '@/profile/defaults';
-import type { Permission, PermissionInput } from '@/engine/permission';
+import { PERMISSION_TEXT, type Permission, type PermissionInput } from '@/engine/permission';
 import { toDateString } from '@/lib/utils';
 import { resetPendingCheckInsForTests, saveCheckInRecord } from '@/components/checkin/pending';
-import { allowsMovement, clinicalGate, deviceClinical, walkInput, walkRefusal, watchClinical } from './gate';
+import { allowsMovement, clinicalGate, deviceClinical, deviceGate, walkInput, walkRefusal, watchClinical } from './gate';
 import type { WalkIntent } from './live';
 
 /** The store's own change notifications, so a test can fire them. */
@@ -190,5 +190,37 @@ describe('every day’s effective record (round 3, B01 and B04)', () => {
     await refusedSave(chest(toDateString(new Date())), []);
     expect(heard.mock.calls.length).toBe(after);
     expect(storeListeners.size).toBe(0);
+  });
+});
+
+describe('a change to the phone’s clock mid-walk (B-19, the conservative path)', () => {
+  const clinical = {
+    profile: onInsulin,
+    checkIns: [checkIn({ glucose: { value: 140, unit: 'mg/dL', measuredAt: minutesBefore(NOW, 10), source: 'meter' } })],
+  };
+
+  it('lets a restart go on a reading taken 10 minutes ago', () => {
+    expect(walkRefusal(walkInput(clinical, NOW), 'restart')).toBeUndefined();
+  });
+
+  it('treats a reading taken before the change as untimed, so a restart asks for a fresh one', () => {
+    expect(walkRefusal(walkInput(clinical, NOW, NOW.getTime() - 60_000), 'restart')?.reasons).toContain(PERMISSION_TEXT.staleNoTime);
+  });
+
+  it('leaves walking under way alone: the starting checks are not the live question', () => {
+    expect(walkRefusal(walkInput(clinical, NOW, NOW.getTime() - 60_000), 'live')).toBeUndefined();
+  });
+
+  it('keeps a reading taken after the change', () => {
+    expect(walkRefusal(walkInput(clinical, NOW, NOW.getTime() - 20 * 60_000), 'restart')).toBeUndefined();
+  });
+
+  it('is asked of the device’s own gates with the change, as the live walk asks them', () => {
+    const state = { profile: onInsulin, checkIns: clinical.checkIns, settings: { currentWeight: 70 } as AppData['settings'] };
+    for (const gate of [deviceGate(() => state, () => NOW), clinicalGate(() => clinical, () => NOW)]) {
+      expect(gate('restart')).toBe(true);
+      expect(gate('restart', NOW.getTime() - 60_000)).toBe(false);
+      expect(gate('restart', NOW.getTime() - 20 * 60_000)).toBe(true);
+    }
   });
 });

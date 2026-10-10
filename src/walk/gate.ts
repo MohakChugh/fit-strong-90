@@ -50,10 +50,28 @@ export interface Clinical {
   checkIns: readonly CheckInRecord[];
 }
 
-/** The engine's input at `now`: today's effective record as the check-in, and every day's as the earlier ones. */
-export function walkInput(clinical: Clinical, now: Date): PermissionInput {
+/**
+ * B-19: once a walk has seen the phone's clock change, a glucose reading timed
+ * before the change has no age the app can trust. The engine is asked as if
+ * its time were unknown, which with insulin or a sulfonylurea asks for a fresh
+ * reading; for anyone else nothing changes.
+ */
+export function untimedBefore(c: CheckInRecord, at: number): CheckInRecord {
+  const g = c.glucose;
+  if (!g?.measuredAt || !(Date.parse(g.measuredAt) < at)) return c;
+  const { measuredAt: _untimed, ...rest } = g;
+  void _untimed;
+  return { ...c, glucose: rest };
+}
+
+/**
+ * The engine's input at `now`: today's effective record as the check-in, and every day's as the earlier ones.
+ * After a change to the clock (B-19), today's reading from before it is asked as untimed.
+ */
+export function walkInput(clinical: Clinical, now: Date, clockChangedAt?: number): PermissionInput {
   const today = toDateString(now);
-  const checkIn = clinical.checkIns.find(c => c.date === today);
+  const found = clinical.checkIns.find(c => c.date === today);
+  const checkIn = found && clockChangedAt !== undefined ? untimedBefore(found, clockChangedAt) : found;
   return { profile: clinical.profile, now, ...(checkIn ? { checkIn } : {}), recent: [...clinical.checkIns] };
 }
 
@@ -70,8 +88,8 @@ export function deviceClinical(state: Pick<StoreState, 'profile' | 'checkIns' | 
 }
 
 /** A gate over `read`, asked at the moment it is asked: never cached between two taps. */
-export function clinicalGate(read: () => Clinical, now: () => Date = () => new Date()): (intent: WalkIntent) => boolean {
-  return intent => walkRefusal(walkInput(read(), now()), intent) === undefined;
+export function clinicalGate(read: () => Clinical, now: () => Date = () => new Date()): (intent: WalkIntent, clockChangedAt?: number) => boolean {
+  return (intent, clockChangedAt) => walkRefusal(walkInput(read(), now(), clockChangedAt), intent) === undefined;
 }
 
 const dayAfter = (date: string, n: number) => {
@@ -139,12 +157,12 @@ export function reachableHistory(checkIns: readonly CheckInRecord[], today: stri
 export function deviceGate(
   read: () => Pick<StoreState, 'profile' | 'checkIns' | 'settings'> & { observations?: StoreState['observations'] },
   now: () => Date = () => new Date(),
-): (intent: WalkIntent) => boolean {
+): (intent: WalkIntent, clockChangedAt?: number) => boolean {
   // Keyed on the state itself, not the parts read today: the store hands out a
   // new state only when something changed, so whatever the gate comes to read
   // from it is covered, and a quiet walk asks the cache.
   let memo: { state: unknown; pending: number; day: string; clinical: Clinical } | undefined;
-  return intent => {
+  return (intent, clockChangedAt) => {
     const at = now();
     const state = read();
     const day = toDateString(at);
@@ -153,7 +171,7 @@ export function deviceGate(
       const all = deviceClinical(state);
       memo = { state, pending, day, clinical: { profile: all.profile, checkIns: reachableHistory(all.checkIns, day, all.profile) } };
     }
-    return walkRefusal(walkInput(memo.clinical, at), intent) === undefined;
+    return walkRefusal(walkInput(memo.clinical, at, clockChangedAt), intent) === undefined;
   };
 }
 

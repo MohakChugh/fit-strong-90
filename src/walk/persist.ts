@@ -11,8 +11,11 @@
  * measured would be worse than no walk.
  */
 
+import { isDay } from '@/health/observation';
+import { toDateString } from '@/lib/utils';
 import type { EndedBy, Gap, PainAnswer, Segment, Walk, WalkPlan, WalkStatus } from './clock';
 import { isMeal, isWalkId } from './plan';
+import { offsetAt } from './time';
 
 export const WALK_KEY = 'fit-strong-walk';
 /** The last walk id the live screen started, so going back in history cannot start it twice. */
@@ -22,7 +25,7 @@ export type WalkStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 const STATUSES: readonly WalkStatus[] = ['running', 'paused', 'away', 'finished'];
 const ENDINGS: readonly EndedBy[] = ['finish', 'stop', 'low', 'emergency', 'stale'];
-const SEGMENT_ENDS: readonly string[] = ['paused', 'hidden', 'left', 'interrupted', 'midnight', 'finished'];
+const SEGMENT_ENDS: readonly string[] = ['paused', 'hidden', 'left', 'interrupted', 'midnight', 'clockChange', 'finished'];
 const CAUSES: readonly Gap['cause'][] = ['hidden', 'interrupted', 'left'];
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -53,10 +56,28 @@ function isSegment(v: unknown): v is Segment {
   if (v.end !== undefined && !(isTime(v.end) && v.end >= v.start)) return false;
   if ((v.end === undefined) !== (v.endedBy === undefined)) return false;
   if (v.endedBy !== undefined && !SEGMENT_ENDS.includes(v.endedBy as string)) return false;
+  // B-19's fields, when present. A draft from an older build has none; `upgraded` fills them in.
+  if (v.accruedMs !== undefined && !isAmount(v.accruedMs)) return false;
+  if (v.accruedAt !== undefined && !isTime(v.accruedAt)) return false;
+  if (v.day !== undefined && !isDay(v.day)) return false;
+  if (v.offsetMin !== undefined && !(Number.isInteger(v.offsetMin) && Math.abs(v.offsetMin as number) <= 14 * 60)) return false;
   return (
     Array.isArray(v.gps) && v.gps.every(isRun) &&
     Number.isInteger(v.steps) && (v.steps as number) >= 0 && typeof v.motion === 'boolean'
   );
+}
+
+/** A segment kept before B-19: its accrual is its span, its day and offset this device's. */
+function upgraded(s: Segment, seenAt: number): Segment {
+  const old = s as Partial<Segment> & Pick<Segment, 'start'>;
+  const reached = s.end ?? Math.max(s.start, seenAt);
+  return {
+    ...s,
+    accruedMs: old.accruedMs ?? reached - s.start,
+    accruedAt: old.accruedAt ?? reached,
+    day: old.day ?? toDateString(new Date(s.start)),
+    offsetMin: old.offsetMin ?? offsetAt(s.start),
+  };
 }
 
 function isGap(v: unknown): v is Gap {
@@ -103,8 +124,9 @@ export function parseWalk(raw: unknown): Walk | null {
     if (raw.pain.back !== undefined && !isPain(raw.pain.back)) return null;
     if (raw.pain.leg !== undefined && !isPain(raw.pain.leg)) return null;
   }
+  if (raw.clockChangedAt !== undefined && !isTime(raw.clockChangedAt)) return null;
 
-  return raw as unknown as Walk;
+  return { ...(raw as unknown as Walk), segments: segments.map(s => upgraded(s, raw.seenAt as number)) };
 }
 
 /**

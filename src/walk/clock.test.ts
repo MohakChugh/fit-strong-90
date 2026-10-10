@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { toDateString } from '@/lib/utils';
 import {
+  accrueOpen,
   addGapTime,
+  CLOCK_JUMP_MS,
   finishWalk,
   heartbeat,
   leaveWalk,
+  nextMidnight,
   observedMs,
   openSegment,
   pauseWalk,
@@ -11,8 +15,11 @@ import {
   restoreWalk,
   resumeWalk,
   returnToWalk,
+  splitAtClockChange,
+  splitAtMidnight,
   STALE_AFTER_MS,
   startWalk,
+  stepOf,
   updateOpenSegment,
   type Walk,
   type WalkPlan,
@@ -191,5 +198,59 @@ describe('the open segment', () => {
     expect(w.segments[0].steps).toBe(12);
     const paused = pauseWalk(w, s(10));
     expect(updateOpenSegment(paused, x => ({ ...x, steps: 99 }))).toBe(paused);
+  });
+});
+
+describe('time under a changed clock (B-19)', () => {
+  it('takes the device clock’s step while the two clocks agree, even with the device clock frozen between steps', () => {
+    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(1), mono: 1000 })).toEqual({ ms: 1000, jumped: false });
+    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(60), mono: 1000 })).toEqual({ ms: 60_000, jumped: false });
+    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(0), mono: 900 })).toEqual({ ms: 0, jumped: false });
+  });
+
+  it('takes the monotonic step, and says the clock changed, when they disagree by more than two minutes', () => {
+    expect(CLOCK_JUMP_MS).toBe(120_000);
+    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(-3600), mono: 1000 })).toEqual({ ms: 1000, jumped: true });
+    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(3600), mono: 1000 })).toEqual({ ms: 1000, jumped: true });
+    // Exactly two minutes apart still agree.
+    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(121), mono: 1000 })).toEqual({ ms: 121_000, jumped: false });
+  });
+
+  it('keeps the latest change, so only a reading taken since it is timed', () => {
+    let w = splitAtClockChange(accrueOpen(walkFor(), 60_000, s(60)), s(3600), 1000);
+    w = splitAtClockChange(accrueOpen(w, 60_000, s(3660)), s(7200), 1000);
+    expect(w.clockChangedAt).toBe(s(7200));
+    expect(w.segments.map(x => x.endedBy)).toEqual(['clockChange', 'clockChange', undefined]);
+  });
+
+  it('closes the segment at a change of clock and opens the next at the new time, with no gap and nothing lost', () => {
+    let w = accrueOpen(walkFor(), 600_000, s(600));
+    w = splitAtClockChange(w, s(600) - 3_600_000, 1000);
+    expect(w.segments.map(x => [x.endedBy, x.accruedMs])).toEqual([['clockChange', 601_000], [undefined, 0]]);
+    expect(w.segments[1].start).toBe(s(600) - 3_600_000);
+    expect(w.gaps).toEqual([]);
+    expect(w.clockChangedAt).toBe(s(600) - 3_600_000);
+    expect(observedMs(w, s(600) - 3_600_000 + 5000)).toBe(606_000);
+  });
+
+  it('accrues tick by tick, so a close adds only what came after the last tick', () => {
+    let w = accrueOpen(walkFor(), 10_000, s(10));
+    w = pauseWalk(w, s(12));
+    expect(w.segments[0].accruedMs).toBe(12_000);
+  });
+
+  it('stamps each segment with the local day and offset it began in', () => {
+    const w = walkFor();
+    expect(w.segments[0].day).toBe(toDateString(new Date(s(0))));
+    expect(w.segments[0].offsetMin).toBe(-new Date(s(0)).getTimezoneOffset());
+  });
+
+  it('moves time accrued past midnight into the new day’s segment', () => {
+    const mid = nextMidnight(T);
+    let w = startWalk('abc-123', PLAN, mid - 60_000);
+    w = accrueOpen(w, 90_000, mid + 30_000);
+    w = splitAtMidnight(w, mid + 30_000);
+    expect(w.segments.map(x => x.accruedMs)).toEqual([60_000, 30_000]);
+    expect(w.segments[1].day).not.toBe(w.segments[0].day);
   });
 });
