@@ -4,8 +4,11 @@ import { pairBloodPressure } from '@/health/aggregate';
 import { bpReadingId, isBpKind, type Observation } from '@/health/observation';
 import { walkRecords } from '@/walk/record';
 
-/** One record's address under Track (screens/track/routes.tsx, screens/workout/routes.tsx). */
-const RECORD = /^\/track\/(reading|pressure|walk|session|workout|check-in)\/([^/]+)$/;
+/**
+ * One record's address under Track (screens/track/routes.tsx), and a past
+ * workout under Trends too: routes.tsx mounts screens/workout/routes.tsx at both.
+ */
+const RECORD = /^\/(?:track|trends(?=\/workout\/))\/(reading|pressure|walk|session|workout|check-in)\/([^/]+)$/;
 
 /**
  * Whether a tab may go back to a place it remembers: a screen that shows one
