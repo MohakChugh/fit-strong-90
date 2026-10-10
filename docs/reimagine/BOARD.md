@@ -855,3 +855,18 @@ Three merge commits, in order, on Plan 2 and the storage foundation (`a89065a`):
 Follow-ups:
 - Me's "Sources" row (Plan 2's note above): Plan 4's Me links `/hub/learn/sources` directly; `YouHome.tsx` is gone. A wiring test holds it.
 - Checking a backup: an older file from the same date as the latest says both times, "made 8 Oct 2026, 9:05 am, and your latest is from 8 Oct 2026, 6:30 pm", on the device's clock. Dates alone otherwise.
+
+**What changed in existing journeys** (navigation and record shape only, A-76; no safety check loosened):
+- VJ12's "every category opens its real hub" and `lib/hub.mjs`'s Browse route: a category's row is the link named exactly its title, since Plan 4's Browse lists Learn's topics too ("Water" beside Learn's Water topic).
+- J07, step 2: the walk's minutes are checked as before, and Plan 6's energy estimate (B-18) as one more record of the walk.
+- J10, step 4: Done returns to the Walk hub where the walk was started (M12); step 5 reads the record once its screen is in.
+- VJ06, step 3: History is read once the Workout hub's screen is in.
+
+**Result** (ports 49831/49832, load average 17–40 from five agents at once):
+- First full run: 988 cases (Plan 2's 932 and Plan 4's 56), 959 passed, 29 failed, 82.7 min. Fixed: J07, J10, VJ12 as above. J16's one large-dark miss was a timeout and passed 12/12 alone.
+- Final full run: 988 cases, 959 passed, 29 failed, 96.2 min. J07, J10 and VJ12 pass in all four projects. The other 13 failures, J02 (4), J08 (7), VJ06 (1) and VJ14 (1), were timeouts or, in VJ06, a read while the hub was still loading; alone each passed: J02 8/8, J08 16/16, VJ06 4/4 (8/8 with J10 after its wait), VJ14 8/8.
+- **Pending for Plan 6 Task 15:** J11's 16 cases stop at the first walk's "Keep a record of your route on this phone?", which the harness doesn't answer yet. Once it does, J11's step 6 and 7 Done goes to the Walk hub (M12), as J10's now does.
+- Unit suite: 194 files, 5656 tests; `tsc -b` and lint clean.
+
+Left for Plan 6, on its branch before this merge too:
+- **Done pushes the walk's origin** (`navigate(origin)`), so the Walk hub's Back then reads "Your walk": a summary already saved, which sends the person back to the hub. The session player closes back instead (`navigate(-1)` when it came from a screen in the app). M12 says the task "closes back to its actual origin".
