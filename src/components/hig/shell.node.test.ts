@@ -843,6 +843,13 @@ describe('Home’s targets and layout (kiro KV-08, KV-10, KV-11, KV-15, KV-18, K
     expect(me).not.toMatch(/const \[problem, setProblem\] = useState/);
   });
 
+  it('Goals and Me read today from the shared clock, a new day at midnight (codex H4-06)', () => {
+    expect(read('src/screens/you/GoalsScreen.tsx')).toContain('const { day } = useLocalDay();');
+    const me = read('src/screens/you/MeHome.tsx');
+    expect(me).toContain('const { now, day } = useLocalDay();');
+    expect(me).not.toMatch(/now: new Date\(\)/);
+  });
+
   it('"2 reminders" sits in the header’s wrapping area beside the status, not in the fixed bar', () => {
     const home = read('src/screens/home/HomeScreen.tsx');
     expect(home).not.toMatch(/trailing=\{<RemindersCapsule/);

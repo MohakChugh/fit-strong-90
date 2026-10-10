@@ -6,6 +6,8 @@
  *   happened and a way to try again (§4.5). In memory only the answer is
  *   refused the same way (meRows.test.ts); an existing person can't reach
  *   memory mode here, since the app offers only Try again then.
+ * - H4-06: Goals and Me left open from Sunday into Monday: the week's goal
+ *   changes at midnight, and a change that has begun is no longer pending.
  */
 import { docs } from '../lib/harness.mjs';
 import { persona } from '../fixtures/personas.mjs';
@@ -220,4 +222,45 @@ const refusedAnswers = {
   },
 };
 
-export const cases = [finishSettingUp, goals, display, systemMotion, deleteTwice, refusedAnswers];
+const goalsAtMidnight = {
+  name: 'H4-06: Goals and Me left open from Sunday into Monday',
+  async run(t) {
+    const page = await t.open({ seed: persona('P01'), route: '/me/goals' });
+    const main = page.getByRole('main');
+    const setGoal = async value => {
+      await ui.tap(ui.row(main, 'Weekly movement goal'));
+      const sheet = ui.sheet(page, 'Weekly movement goal');
+      await ui.type(sheet.getByRole('textbox', { name: 'Minutes each week', exact: true }), String(value));
+      await ui.tap(ui.button(sheet, 'Save goal'));
+      await sheet.waitFor({ state: 'hidden' });
+    };
+    await t.step(1, 'Thursday: a first goal of 150, then 120, which waits for Monday', async () => {
+      await ui.heading(page, 'Goals');
+      await setGoal(150);
+      await setGoal(120);
+      await t.check(/From Monday 12 October: 120 min a week\. This week keeps 150 min\./.test(flat(await main.innerText())), 'the change does not wait for Monday');
+    }, { input: '150, then 120, on Thursday 8 October' });
+    await t.step(2, 'Sunday 23:59, Goals open; the clock passes midnight: Monday’s goal is 120, and nothing is pending', async () => {
+      await t.setTime(Date.parse('2026-10-11T23:59:30+05:30'));
+      await t.goto('/me/goals');
+      await t.check(/Weekly movement goal 150 min a week/.test(flat(await main.innerText())), 'Sunday does not keep 150');
+      await t.advance(60_000);
+      const text = flat(await main.innerText());
+      await t.checkpoint('h4-06-goals-monday');
+      await t.check(/Weekly movement goal 120 min a week/.test(text), `Goals still reads last week’s goal after midnight: ${text.slice(0, 300)}`);
+      await t.check(!/From Monday 12 October/.test(text), 'Goals still calls Monday’s goal pending after midnight');
+    });
+    await t.step(3, 'Me open across the next midnight: its Goals row follows the clock too', async () => {
+      await t.setTime(Date.parse('2026-10-18T23:59:30+05:30'));
+      await setGoal(90);
+      await ui.tap(ui.back(page, 'Me'));
+      await ui.heading(page, 'Me');
+      const row = () => ui.row(main, 'Goals', 'link');
+      await t.check(/120 min a week/.test(flat(await row().innerText())), `Sunday’s Me reads: ${flat(await row().innerText())}`);
+      await t.advance(60_000);
+      await t.check(/90 min a week/.test(flat(await row().innerText())), `Me’s Goals row still reads last week’s goal after midnight: ${flat(await row().innerText())}`);
+    }, { input: '90 on Sunday 18 October, 23:59' });
+  },
+};
+
+export const cases = [finishSettingUp, goals, display, systemMotion, deleteTwice, refusedAnswers, goalsAtMidnight];

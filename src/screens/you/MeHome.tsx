@@ -11,7 +11,7 @@ import { EditButton } from '@/screens/home/EditButton';
 import { answerOffer, useHomeLayout } from '@/screens/home/homeLayout';
 import { addButton } from '@/screens/home/layout';
 import { TileIcon } from '@/screens/home/Tile';
-import { today as todayOf } from '@/screens/track/periods';
+import { useLocalDay } from '@/screens/today/clock';
 import { deviceNoun, readInstallEnv } from '@/screens/welcome/install';
 import { FOCUS_CHOICES } from '@/screens/welcome/focus';
 import { finishTitle, notNow, setupProgress, type OpenChapter } from '@/setup/progress';
@@ -65,13 +65,13 @@ function withHeld<T>(list: readonly T[], held: readonly { row: T; at: number }[]
 export function MeHome() {
   const state = useStore();
   const { settings, profile } = state;
-  // Read once per visit: none of these change while the list is open.
-  const [{ now, device, build }] = useState(() => ({
-    now: new Date(),
+  // Read once per visit: neither changes while the list is open.
+  const [{ device, build }] = useState(() => ({
     device: deviceNoun(readInstallEnv()),
     build: buildId([...document.scripts].map(s => s.src)),
   }));
-  const day = todayOf(now);
+  // Today from the shared clock: a list left open overnight, or opened after midnight, reads the new day's goals (codex H4-06).
+  const { now, day } = useLocalDay();
   const { stored, fallback, relevant } = useHomeLayout();
   // Each row's answer, held here until the device has stored it, or with why it didn't (codex H4-04).
   const [answers, setAnswers] = useState<ReadonlyMap<string, RowAnswer>>(() => new Map());

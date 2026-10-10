@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
+import { toDateString } from '@/lib/utils';
 
 /**
  * The time Today reads, held as an external store so no render reads the
@@ -97,3 +98,15 @@ export function useWakeAt(at: number | undefined): void {
   }, [at]);
 }
 
+
+/**
+ * Today's local date from the shared clock, kept current: read again just
+ * past midnight, and when the app comes back into view (the clock's own
+ * visibility read), so a screen left open overnight, or reopened after the
+ * boundary, never keeps yesterday (journey §4.1, B-20; codex H4-06).
+ */
+export function useLocalDay(): { now: Date; day: string } {
+  const { now } = useClock();
+  useWakeAt(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime());
+  return { now, day: toDateString(now) };
+}
