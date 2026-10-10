@@ -38,8 +38,8 @@ import { headline } from '@/components/checkin/copy';
 import { minutesLeft, resumeOffer, slotOf, type SavedProgress } from '@/session/persistence';
 import { lastStretch, specFromPlanId, stretchHref } from '@/engine/stretch';
 import { format, parseISO } from 'date-fns';
-import { timeOf } from '@/lib/time';
-import { walkSetupHref } from '@/walk/plan';
+import { prefersHour12, timeOf } from '@/lib/time';
+import { afterMealSuggestion, walkSetupHref } from '@/walk/plan';
 import type { Observation } from './observation';
 import { daysBetween, periodOn, shiftDay, type Status } from './status';
 
@@ -766,32 +766,22 @@ function mealWalk(ctx: Context): Recommendation | undefined {
   if (ctx.activities.some(a => a.mode === 'walk' && a.day === ctx.today && mealOfWalk(habits, a) === meal)) return undefined;
   // The usual time, stated so the person can say it is right: a usual time is
   // only a suggestion until confirmed, and "Different time" lets them say
-  // another (B-09). The walk then starts at once, tagged after that meal.
-  const had = lastMealTime(habits, meal, ctx.input.now);
+  // another (B-09). The walk then starts at once, tagged after that meal. The
+  // Walk hub's button says it the same way (`afterMealSuggestion`).
+  const finish = habits?.mealWalk?.finish?.[meal];
+  const said = afterMealSuggestion({ meal, ...(finish ? { finish } : {}), now: ctx.input.now.getTime(), hour12: prefersHour12() });
+  const had = said.at;
   return {
     kind: 'mealWalk',
     title: `A walk after ${MEAL_WORD[meal]}`,
     detail: `About 10 minutes, starting soon after you finish eating.${beforeStart(ctx, 'walk')}`,
     reason: `You asked for a walk after ${MEAL_WORD[meal]}. In a study of people with type 2 diabetes, a short walk after meals lowered the rise in glucose (Reynolds 2016).`,
-    action: { label: `I had ${MEAL_WORD[meal]} at ${timeOf(had)}: walk now`, to: HREF.liveWalk, mode: 'walk', walk: { meal, mealStartedAt: had } },
+    action: { label: said.label, to: HREF.liveWalk, mode: 'walk', walk: { meal, mealStartedAt: had } },
     more: [
       { label: 'Different time', to: walkSetupHref(meal) },
       { label: 'Just a walk', ...JUST_A_WALK },
     ],
   };
-}
-
-/**
- * When the meal usually ends, as it last did by `now`: today's, or
- * yesterday's for a window that runs past midnight, and never later than now.
- */
-function lastMealTime(habits: RecommendInput['settings']['habits'], meal: Meal, now: Date): number {
-  const minute = clockMinute(habits?.mealWalk?.finish?.[meal]);
-  if (minute === undefined) return now.getTime();
-  const d = new Date(now);
-  d.setHours(0, minute, 0, 0);
-  if (d.getTime() > now.getTime()) d.setDate(d.getDate() - 1);
-  return Math.min(d.getTime(), now.getTime());
 }
 
 /**

@@ -5,6 +5,7 @@
  * navigates; nothing is created until the live screen opens.
  */
 
+import { timeOf } from '@/lib/time';
 import type { Meal } from '@/types/habits';
 import type { WalkPlan } from './clock';
 
@@ -54,6 +55,36 @@ export function mealStartedLabel(minutesAgo: number): string {
   if (minutesAgo === 60) return '1 hour ago';
   if (minutesAgo === 90) return '1½ hours ago';
   return `${minutesAgo / 60} hours ago`;
+}
+
+/** How far back a meal's usual end can be and still be the meal just had: Walk's own longest "Started" choice. */
+const MEAL_SUGGEST_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * B-09: what the after-meal button says, and the meal time it records once
+ * tapped. It is the meal's usual finish time today (or last night's, for a
+ * dinner after midnight), or now when that is still to come or more than two
+ * hours ago. A usual time is only a suggestion, and the tap is what confirms
+ * it (A-10, L-05). It is never a time in the future.
+ */
+export function afterMealSuggestion({ meal, finish, now, hour12 }: { meal: Meal; finish?: string; now: number; hour12: boolean }): { at: number; title: string; label: string } {
+  const at = usualFinish(finish, now) ?? now;
+  return { at, title: `A walk after ${meal}`, label: `I had ${meal} at ${timeOf(at, hour12)}: walk now` };
+}
+
+/** The latest past moment at a local `HH:MM`, if it is within two hours of `now`. */
+function usualFinish(finish: string | undefined, now: number): number | undefined {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(finish ?? '');
+  if (!m) return undefined;
+  const d = new Date(now);
+  const on = (offset: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + offset, Number(m[1]), Number(m[2])).getTime();
+  const last = on(0) > now ? on(-1) : on(0);
+  return now - last <= MEAL_SUGGEST_MS ? last : undefined;
+}
+
+/** Whole minutes from the meal to now, never negative: what the walk's "Started" choice holds. */
+export function mealMinutesAgo(at: number, now: number): number {
+  return Math.max(0, Math.round((now - at) / 60_000));
 }
 
 /** Targets on offer, in minutes. */

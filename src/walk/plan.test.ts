@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { choiceChanged, directWalkHref, isWalkId, liveHref, mealFromSearch, mealStartedLabel, MEAL_STARTED_AGO, newWalkId, setupPlan, walkFromSearch } from './plan';
+import { afterMealSuggestion, choiceChanged, directWalkHref, isWalkId, liveHref, mealFromSearch, mealMinutesAgo, mealStartedLabel, MEAL_STARTED_AGO, newWalkId, setupPlan, walkFromSearch } from './plan';
 import type { WalkPlan } from './clock';
 
 const NOW = Date.UTC(2026, 9, 8, 13, 0, 0);
@@ -97,5 +97,38 @@ describe('directWalkHref: a walk started from Home’s card (journey §7.4, K-32
   it('"Just a walk", with nothing measured unless chosen', () => {
     const href = directWalkHref({}, NOW2, { gps: false, steps: false });
     expect(walkFromSearch(new URL(href, 'https://app.test').searchParams, NOW2)?.plan).toEqual({ kind: 'walk', gps: false, steps: false });
+  });
+});
+
+describe('afterMealSuggestion: what B-09’s button says, and the meal time it records', () => {
+  const at = (h: number, m: number, d = 8) => new Date(2026, 9, d, h, m).getTime();
+
+  it('the usual finish time, once it has passed and within two hours', () => {
+    expect(afterMealSuggestion({ meal: 'lunch', finish: '13:10', now: at(13, 40), hour12: true }))
+      .toEqual({ at: at(13, 10), title: 'A walk after lunch', label: 'I had lunch at 1:10 pm: walk now' });
+  });
+
+  it('now, while the usual time is still to come (Review Focus 5)', () => {
+    expect(afterMealSuggestion({ meal: 'lunch', finish: '13:10', now: at(12, 50), hour12: true }).at).toBe(at(12, 50));
+  });
+
+  it('now, when the usual time was more than two hours ago', () => {
+    expect(afterMealSuggestion({ meal: 'lunch', finish: '13:10', now: at(19, 0), hour12: true }).label).toBe('I had lunch at 7:00 pm: walk now');
+  });
+
+  it('last night’s dinner just after midnight, never a time still to come (Review Focus 5)', () => {
+    const s = afterMealSuggestion({ meal: 'dinner', finish: '22:30', now: at(0, 20, 9), hour12: true });
+    expect(s.at).toBe(at(22, 30, 8));
+    expect(s.label).toBe('I had dinner at 10:30 pm: walk now');
+  });
+
+  it('now, with no usual time or one that isn’t a time, on a 24-hour clock too', () => {
+    expect(afterMealSuggestion({ meal: 'breakfast', now: at(8, 40), hour12: false }).label).toBe('I had breakfast at 08:40: walk now');
+    expect(afterMealSuggestion({ meal: 'breakfast', finish: '8.30', now: at(8, 40), hour12: false }).at).toBe(at(8, 40));
+  });
+
+  it('whole minutes since the meal, never negative', () => {
+    expect(mealMinutesAgo(at(13, 10), at(13, 40))).toBe(30);
+    expect(mealMinutesAgo(at(13, 41), at(13, 40))).toBe(0);
   });
 });

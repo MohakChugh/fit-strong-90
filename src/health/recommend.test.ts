@@ -8,9 +8,9 @@ import type { HealthProfile, UserProfile } from '@/types/profile';
 import { PERMISSION_TEXT, permission, type Mode, type Permission } from '@/engine/permission';
 import { evaluateCheckIn } from '@/engine/readiness';
 import type { SavedProgress } from '@/session/persistence';
-import { timeOf } from '@/lib/time';
+import { prefersHour12, timeOf } from '@/lib/time';
 import { DEFAULT_STRETCH, stretchHref } from '@/engine/stretch';
-import { mealFromSearch } from '@/walk/plan';
+import { afterMealSuggestion, mealFromSearch } from '@/walk/plan';
 import { newObservation, type Observation, type ObservationInput } from './observation';
 import {
   HREF,
@@ -1051,6 +1051,13 @@ describe('a walk after a meal (D26; scan J2-07)', () => {
     // Before the meal's usual end, and once its 45 minutes are over, the focus is back.
     expect(meal({}, '13:29').title).toBe('An afternoon walk');
     expect(meal({}, '14:15').title).toBe('An afternoon walk');
+  });
+
+  it('states the same time as the Walk hub: the card uses afterMealSuggestion (B-09)', () => {
+    const r = meal({}, '13:40');
+    const said = afterMealSuggestion({ meal: 'lunch', finish: '13:30', now: at(TODAY, '13:40').getTime(), hour12: prefersHour12() });
+    expect(r.action.label).toBe(said.label);
+    expect(r.action.walk).toEqual({ meal: 'lunch', mealStartedAt: said.at });
   });
 
   it('comes before the day’s session as well, which waits for it', () => {
