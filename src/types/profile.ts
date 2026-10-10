@@ -109,6 +109,12 @@ export interface PainProfile {
   worseWith: 'flexion' | 'extension' | 'unknown';
   /** Confirmed directional preference: which direction eases symptoms. */
   preference: 'extension' | 'flexion' | 'none' | 'untested';
+  /**
+   * v2: a doctor once said a nerve in the back or leg was damaged (foot drop,
+   * say). Read by Home's default tiles and the summary only: the engine reads
+   * today's symptoms instead (D29(2), board D77). `'unsure'` is kept as it was said.
+   */
+  neuroHistory?: MedicineAnswer;
 }
 
 export interface LadderState {
@@ -160,7 +166,22 @@ export interface UserProfile {
   needsHealthReview?: boolean;
   /** Asked the first time meal ideas are opened, not during exercise setup. */
   food?: FoodPreferences;
+  /** v2: what to call the person, on screen only. The voice coach never says it (journey §6.2). */
+  name?: string;
+  /** v2: the latest waist in cm. Each change is also a dated `waist` reading (journey §18.1). */
+  waistCm?: number;
 }
+
+/**
+ * The canonical allergens (journey §11.5, B-13; board D82): a chip stores one
+ * of these ids, and anything else is the person's own words. Plan 7 gives
+ * each its aliases (`src/food/allergens.ts`).
+ */
+export const ALLERGEN_IDS = ['peanut', 'treeNut', 'milk', 'egg', 'wheat', 'soy', 'sesame', 'fish', 'shellfish', 'mustard'] as const;
+export type AllergenId = (typeof ALLERGEN_IDS)[number];
+
+/** How a person eats (journey §6.2 chapter 7). Jain is vegetarian, with no honey and no root vegetables or bulbs. */
+export type FoodPattern = 'vegetarian' | 'eggetarian' | 'nonVegetarian' | 'vegan' | 'jain';
 
 /** What meal ideas may include. Never inferred; only what the user said. */
 export interface FoodPreferences {

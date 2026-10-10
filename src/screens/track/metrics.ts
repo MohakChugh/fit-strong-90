@@ -84,6 +84,9 @@ export function metricOfKind(kind: ObservationKind): MetricId | undefined {
     case 'walkDuration':
     case 'walkDistance':
       return 'walking';
+    // Height is read with weight, for BMI on the Weight hub (journey §5.1).
+    case 'height':
+      return 'weight';
     // A walk's energy estimate belongs to its walk (journey §12.4): no metric of its own.
     case 'movementMinutes':
     case 'activeEnergy':

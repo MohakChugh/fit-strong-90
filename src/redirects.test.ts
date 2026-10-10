@@ -97,7 +97,7 @@ describe('v1 → v2 redirects (journey §19.3)', () => {
       glucose: '/hub/glucose',
       bloodPressure: '/hub/bp', bloodPressureSystolic: '/hub/bp', bloodPressureDiastolic: '/hub/bp',
       backLeg: '/hub/back', backPain: '/hub/back', legPain: '/hub/back',
-      weight: '/hub/weight', waist: '/hub/waist', water: '/hub/water', steps: '/hub/steps', sleep: '/hub/sleep',
+      weight: '/hub/weight', waist: '/hub/waist', water: '/hub/water', steps: '/hub/steps', sleep: '/hub/sleep', height: '/hub/weight',
       hba1c: '/hub/labs?metric=hba1c', b12: '/hub/labs?metric=b12', vitaminD: '/hub/labs?metric=vitaminD',
       walking: '/trends/walk', walkDuration: '/trends/walk', walkDistance: '/trends/walk', activeEnergy: '/trends/walk',
       movementMinutes: '/trends', mood: '/trends/mood',

@@ -18,7 +18,8 @@
 import { CATEGORIES, isHomeLayout } from '@/categories';
 import { isDay } from '@/health/observation';
 import { isTextScale } from '@/lib/textSize';
-import { CHAPTER_IDS } from '@/types/setup';
+import { ALLERGEN_IDS } from '@/types/profile';
+import { CHAPTER_IDS, CONDITION_IDS, MEDICINE_CLASSES, PAGE_IDS } from '@/types/setup';
 import { RECORD_STORES } from './records';
 
 type Check = (x: unknown) => boolean;
@@ -60,6 +61,61 @@ const HABIT_SPEC: Spec = {
   calendarExport: recordOf(oneOf(...HABITS), shape({ at: text, until: day, events: num(0, 1000), titles: listOf(text), minutes: listOf(num(0, 1439)) }, ['at', 'until', 'events', 'titles'])),
 };
 
+const PAIN_AREAS = ['lowerBack', 'sciatica', 'neck', 'shoulder', 'hip', 'knee', 'hamstring', 'calf'] as const;
+const PATTERNS = ['vegetarian', 'eggetarian', 'nonVegetarian', 'vegan', 'jain'] as const;
+const tri = oneOf('yes', 'no', 'unsure');
+const habitWindow = shape({ on: bool, everyMinutes: num(1, 1440), from: clock, to: clock }, ['on', 'everyMinutes', 'from', 'to']);
+/** The voice coach's settings: the profile's, and setup's answer (a part of them). */
+const VOICE: Check = shape({
+  pack: text, voiceURI: text, voiceName: text, rate: num(0.1, 4),
+  verbosity: oneOf('auto', 'detailed', 'standard', 'minimal'), mode: oneOf('coach', 'overMusic'), muted: bool, checked: bool,
+});
+/** Allergies a chip names: the canonical ids (B-13, board D82). */
+const ALLERGIES: Check = listOf(oneOf(...ALLERGEN_IDS));
+/** Allergies in the person's own words (Plan 7, B-13). */
+const CUSTOM_ALLERGIES: Check = x => Array.isArray(x) && x.length <= 30 && x.every(a => typeof a === 'string' && a.trim() !== '' && a.length <= 60);
+
+/** Each setup answer a file may hold, by its type (journey §18.1). One that fails is left out by name; unknown ones are kept. */
+const ANSWER_SPEC: Spec = {
+  name: x => typeof x === 'string' && x.length <= 60, birthYear: num(1900, 2100), adult: bool,
+  figure: oneOf('male', 'female', 'either'), metric: bool, heightCm: num(50, 260), weightKg: num(10, 400), waistCm: num(30, 250),
+  conditions: recordOf(oneOf(...CONDITION_IDS), tri), diabetesType: oneOf('type1', 'type2', 'prediabetes', 'other', 'unsure'),
+  bpMedicine: tri, kidneyTreatment: oneOf('yes', 'no'), fluidLimit: tri, eyeTreatment: oneOf('yes', 'no'),
+  eyeDisease: oneOf('mild', 'moderate', 'severe', 'unsure'), feetNumb: tri, footWound: oneOf('now', 'past', 'no'),
+  clearance: oneOf('none', 'moderate', 'vigorous', 'unsure'), targets: tri, bpStopSystolic: num(90, 250),
+  bpPermission: shape({ sys: num(90, 250), dia: num(50, 150) }, ['sys', 'dia']), hba1cPercent: num(4, 15),
+  regular: tri, classes: recordOf(oneOf(...MEDICINE_CLASSES), tri), metforminSince: x => typeof x === 'string' && /^\d{4}$/.test(x),
+  insulinHow: oneOf('basalOnly', 'multipleDaily', 'pump', 'closedLoop', 'unsure'), lowsRisk: tri, glucoseStartMin: num(3, 300),
+  glucoseStartUnit: oneOf('mg/dL', 'mmol/L'), priorDka: tri, ketoneTest: oneOf('none', 'urine', 'blood'), dizzy: tri,
+  glucoseMonitor: oneOf('none', 'meter', 'cgm'), glucoseUnit: oneOf('mg/dL', 'mmol/L'), bpCuff: bool,
+  painAreas: listOf(oneOf(...PAIN_AREAS)), sciaticaSide: oneOf('left', 'right', 'both'), worseWith: oneOf('flexion', 'extension', 'unknown'),
+  helps: listOf(oneOf('moving', 'lying', 'heat', 'bendingForward', 'archingBack')), neuroHistory: tri, footRestriction: oneOf('yes', 'no'),
+  focus: oneOf('stretch', 'move', 'strength', 'explore'), active: oneOf('yes', 'no'), weeklyGoal: x => x === 'none' || num(0, 10080)(x),
+  programme: oneOf('join', 'notNow', 'joined'),
+  join: shape({
+    experience: oneOf('beginner', 'intermediate', 'advanced'), equipment: oneOf('fullGym', 'homeDumbbells', 'homeNone'),
+    days: listOf(oneOf(...DAYS)), minutes: oneOf(45, 60, 75), startDate: day,
+  }, ['experience', 'equipment', 'days', 'minutes', 'startDate']),
+  pattern: oneOf(...PATTERNS), allergies: ALLERGIES, customAllergies: CUSTOM_ALLERGIES, foodLevel: oneOf('ideas', 'meals', 'estimates'),
+  hardBefore: oneOf('yes', 'no', 'preferNot'),
+  water: shape({ on: bool, glassMl: num(1, 5000), everyMinutes: num(1, 1440), from: clock, to: clock }, ['on', 'glassMl', 'everyMinutes', 'from', 'to']),
+  sitting: habitWindow, mealWalk: shape({ on: bool, meals: listOf(oneOf(...MEALS)) }, ['on', 'meals']),
+  mealFinish: recordOf(oneOf(...MEALS), clock), quiet: x => x === 'none' || shape({ from: clock, to: clock }, ['from', 'to'])(x),
+  delivery: oneOf('app', 'calendar'), voice: VOICE, skippedPages: listOf(oneOf(...PAGE_IDS)),
+};
+
+/** Setup's state, field by field (Review Focus 5): a draft at a page this build lacks loses only its page, never its answers. */
+const SETUP_SPEC: Spec = {
+  stage: oneOf('open', 'lookAround', 'done'),
+  draft: { at: oneOf(...PAGE_IDS), answers: ANSWER_SPEC },
+  answers: ANSWER_SPEC,
+  completedAt: text,
+  skipped: listOf(oneOf(...CHAPTER_IDS)),
+  declined: listOf(oneOf(...CHAPTER_IDS)),
+  upgraded: bool,
+  newHomeSeen: bool,
+};
+
 const SETTINGS_SPEC: Spec = {
   startDate: x => x === '' || day(x),
   currentWeight: num(0, 1000),
@@ -85,8 +141,8 @@ const SETTINGS_SPEC: Spec = {
   // Whole or not at all: a tile this build has no hub for would leave Home unable to draw.
   home: isHomeLayout,
   homeOffered: listOf(oneOf(...CATEGORIES.map(c => c.id))),
-  // Field by field, so Plan 5's own fields in `setup` are kept as they are.
-  setup: { declined: listOf(oneOf(...CHAPTER_IDS)) },
+  // Field by field, answer by answer: what can be read is kept, and setup resumes from it.
+  setup: SETUP_SPEC,
   display: shape({ reduceMotion: bool, reduceTransparency: bool, textScale: x => isTextScale(x) }),
   // Read, but never taken as this phone's answers: an import keeps this device's own (B-26, `withDeviceConsent`).
   walk: shape({ saveRoutes: oneOf(true, false, 'unasked'), map: oneOf('on', 'off', 'unasked'), stepCardSeen: bool }, ['saveRoutes', 'map']),
@@ -132,6 +188,7 @@ const PAIN: Check = shape({
   sciaticaSide: oneOf('left', 'right', 'both'),
   worseWith: oneOf('flexion', 'extension', 'unknown'),
   preference: oneOf('extension', 'flexion', 'none', 'untested'),
+  neuroHistory: medicine,
 });
 
 const PROFILE_SPEC: Spec = {
@@ -148,12 +205,11 @@ const PROFILE_SPEC: Spec = {
   flexibilityTargets: listOf(text),
   dislikes: listOf(text),
   restDayMobility: bool,
-  voice: shape({
-    pack: text, voiceURI: text, voiceName: text, rate: num(0.1, 4),
-    verbosity: oneOf('auto', 'detailed', 'standard', 'minimal'), mode: oneOf('coach', 'overMusic'), muted: bool, checked: bool,
-  }),
+  voice: VOICE,
   figure: oneOf('male', 'female'),
   needsHealthReview: bool,
+  name: x => typeof x === 'string' && x.length <= 60,
+  waistCm: num(0, 300),
   food: shape({ pattern: oneOf('vegetarian', 'eggetarian', 'nonVegetarian', 'vegan'), avoid: listOf(text), region: oneOf('north', 'south', 'east', 'west', 'mixed') },
     ['pattern', 'avoid']),
 };

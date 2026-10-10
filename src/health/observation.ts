@@ -30,6 +30,7 @@ export type ObservationKind =
   | 'bloodPressureDiastolic'
   | 'weight'
   | 'waist'
+  | 'height'
   | 'steps'
   | 'walkDistance'
   | 'walkDuration'
@@ -144,6 +145,7 @@ export const KINDS: Record<ObservationKind, KindSpec> = {
   bloodPressureDiastolic: { units: ['mmHg'], scopes: ['pointInTime'], tags: BP_TAGS, label: 'Diastolic' },
   weight: { units: ['kg'], scopes: ['pointInTime'], label: 'Weight' },
   waist: { units: ['cm'], scopes: ['pointInTime'], label: 'Waist' },
+  height: { units: ['cm'], scopes: ['pointInTime'], label: 'Height' },
   steps: { units: ['steps'], scopes: ['dayTotal', 'sessionObserved'], tags: ['afterMeal'], label: 'Steps' },
   walkDistance: { units: ['km'], scopes: ['sessionObserved', 'dayTotal'], tags: ['afterMeal'], label: 'Walking distance' },
   walkDuration: { units: ['min'], scopes: ['sessionObserved', 'dayTotal'], tags: ['afterMeal'], label: 'Walking time' },

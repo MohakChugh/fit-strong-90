@@ -155,6 +155,7 @@ const TITLES: Record<ObservationKind, string> = {
   bloodPressureDiastolic: 'Diastolic',
   weight: 'Weight',
   waist: 'Waist',
+  height: 'Height',
   steps: 'Steps',
   walkDistance: 'Walking distance',
   walkDuration: 'Walking time',

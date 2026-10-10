@@ -147,3 +147,52 @@ describe('the profile in an import file (D-08)', () => {
     expect(change.profile?.trainingDays).toEqual(createDefaultProfile().trainingDays);
   });
 });
+
+describe('setup in a backup file, read field by field (journey §18.1; D-08; Review Focus 5)', () => {
+  const setup = {
+    stage: 'open', skipped: [], declined: ['food'],
+    draft: { at: 'health.conditions', answers: { figure: 'female', conditions: { diabetes: 'unsure', bp: 'no' }, weightKg: 72 } },
+  };
+
+  it('keeps a setup this build can read, Plan 4’s Not now included', () => {
+    expect(preview(file({ settings: { ...settings, setup } })).unreadableFields).toEqual([]);
+    expect(planImport(file({ settings: { ...settings, setup } }), 'replace', emptySnapshot()).change.settings?.replace?.setup).toEqual(setup);
+  });
+
+  it('leaves out, by name, a page this build lacks or an answer of the wrong kind, and keeps the rest', () => {
+    const odd = { ...setup, draft: { at: 'health.somewhere', answers: { ...setup.draft.answers, conditions: { diabetes: 'maybe' } } } };
+    expect(preview(file({ settings: { ...settings, setup: odd } })).unreadableFields)
+      .toEqual(['settings.setup.draft.at', 'settings.setup.draft.answers.conditions']);
+    const { change } = planImport(file({ settings: { ...settings, setup: odd } }), 'replace', emptySnapshot(), { allowRejected: true });
+    expect(change.settings?.replace?.setup).toEqual({ ...setup, draft: { answers: { figure: 'female', weightKg: 72 } } });
+    expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: ['nowhere'] } } })).unreadableFields).toEqual(['settings.setup.skipped']);
+  });
+
+  it('keeps answers a newer build added, as it keeps unknown fields', () => {
+    expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: [], answers: { someNewQuestion: 'x' } } } })).unreadableFields).toEqual([]);
+  });
+
+  it('reads chapter 7’s answers: canonical allergens, the person’s own words and the screening answer (board D82)', () => {
+    const answers = { pattern: 'jain', allergies: ['peanut', 'shellfish'], customAllergies: ['brinjal'], foodLevel: 'estimates', hardBefore: 'preferNot' };
+    expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: [], answers } } })).unreadableFields).toEqual([]);
+    for (const [field, bad] of [['allergies', ['brinjal']], ['customAllergies', ['']], ['hardBefore', 'maybe'], ['pattern', 'paleo']] as const) {
+      expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: [], answers: { ...answers, [field]: bad } } } })).unreadableFields, field)
+        .toEqual([`settings.setup.answers.${field}`]);
+    }
+  });
+});
+
+describe('the profile’s v2 fields (journey §18.1)', () => {
+  const profile = {
+    ...createDefaultProfile({ weightKg: 70 }), name: 'Asha', waistCm: 92,
+    pain: { areas: ['lowerBack'], worseWith: 'flexion', preference: 'untested', neuroHistory: 'unsure' },
+  };
+  it('reads the name, the waist and the nerve history', () => {
+    expect(preview(file({ settings, profile })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings, profile: { ...profile, name: 42 } })).unreadableFields).toEqual(['profile.name']);
+    expect(preview(file({ settings, profile: { ...profile, name: 'x'.repeat(61) } })).unreadableFields).toEqual(['profile.name']);
+    expect(preview(file({ settings, profile: { ...profile, waistCm: 'wide' } })).unreadableFields).toEqual(['profile.waistCm']);
+    // A pain answer that can't be read leaves the pain answers out whole, as any other would.
+    expect(preview(file({ settings, profile: { ...profile, pain: { ...profile.pain, neuroHistory: 'maybe' } } })).unreadableFields).toEqual(['profile.pain']);
+  });
+});
