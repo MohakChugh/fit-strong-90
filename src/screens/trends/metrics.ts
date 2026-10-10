@@ -208,8 +208,8 @@ export function readingsFor(id: TrendId, range: DayRange, data: TrendData, prefs
 /** A counted or stated trend's day figures over `range`. */
 export function figuresFor(id: TrendId, range: DayRange, data: TrendData, prefs: DisplayPrefs): DayFigure[] {
   switch (id) {
-    case 'workout': return sessionMinutes(sessionsOf('programme', data.sessions), range);
-    case 'stretch': return sessionMinutes(sessionsOf('stretch', data.sessions), range);
+    case 'workout': return sessionMinutes(sessionsOf('programme', data.sessions), data.observations, range);
+    case 'stretch': return sessionMinutes(sessionsOf('stretch', data.sessions), data.observations, range);
     case 'walk': return walkFigures('walkDuration', range, data.observations);
     case 'steps': return stepsDays(range, data.observations, prefs.hour12);
     case 'water': return dayTotals('water', range, data.observations);

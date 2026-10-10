@@ -3,6 +3,7 @@ import type { WorkoutSession } from '@/types';
 import type { CheckInRecord } from '@/types/checkin';
 import { newObservation } from '@/health/observation';
 import { DEFAULT_PREFS } from '@/screens/track/format';
+import { recordedMovement } from '@/screens/track/movement';
 import { stepsDayFigure } from '@/screens/track/stepsDay';
 import {
   activities, dayTotals, firstRecordDay, meterReadings, sessionMinutes, sessionsOf, stepsDays, stretchedDays, walkFigures,
@@ -60,10 +61,41 @@ describe('sessions by kind, and their minutes (J§12.3)', () => {
 
   it('adds each day’s active minutes as the sessions recorded them; a safety-stopped run keeps its partial minutes', () => {
     const a = session('2026-10-05', { durationSeconds: 1800 });
-    const b = session('2026-10-05', { status: 'partial', durationSeconds: 900 });
+    const b = session('2026-10-05', { status: 'partial', durationSeconds: 900, startedAt: '2026-10-05T18:00:00+05:30' });
     const later = session('2026-10-12', { durationSeconds: 600 });
     const untimed = session('2026-10-06', { durationSeconds: undefined });
-    expect(sessionMinutes([a, b, later, untimed], RANGE)).toEqual([{ day: '2026-10-05', value: 45 }]);
+    expect(sessionMinutes([a, b, later, untimed], [], RANGE)).toEqual([{ day: '2026-10-05', value: 45 }]);
+  });
+
+  it('two sessions that overlap count once, as Home’s ring counts them (H3-09, J§12.3, F19)', () => {
+    // Restored from a backup: one from 7:30 for 30 minutes, one from 7:40 for 15.
+    const first = session('2026-10-05', { durationSeconds: 1800 });
+    const overlapping = session('2026-10-05', { durationSeconds: 900, startedAt: '2026-10-05T07:40:00+05:30' });
+    expect(sessionMinutes([first, overlapping], [], RANGE)).toEqual([{ day: '2026-10-05', value: 30 }]);
+    expect(recordedMovement(RANGE, [], [first, overlapping]).minutes).toBe(30);
+  });
+
+  it('a session past midnight is split at it, each part on its own day (F17); a logged workout’s minutes on its day', () => {
+    const late = session('2026-10-06', { durationSeconds: 1200, startedAt: '2026-10-06T23:50:00+05:30' });
+    const logged = session('2026-10-08', { guided: undefined, planKind: undefined, startedAt: '2026-10-08T07:00:00+05:30', durationSeconds: 1500 });
+    const all = [late, logged];
+    expect(sessionMinutes(all, [], RANGE)).toEqual([{ day: '2026-10-06', value: 10 }, { day: '2026-10-07', value: 10 }, { day: '2026-10-08', value: 25 }]);
+    // The week's days add up to the ring's week.
+    expect(sessionMinutes(all, [], RANGE).reduce((t, f) => t + f.value, 0)).toBeCloseTo(recordedMovement(RANGE, [], all).minutes, 9);
+  });
+
+  it('a session whose start is days from its recorded day counts where the ring counts it', () => {
+    // No real offset puts 9 October's start on the 5th, so the ring places it at its start (F19's fallback).
+    const moved = session('2026-10-05', { startedAt: '2026-10-09T07:30:00+05:30', durationSeconds: 600 });
+    expect(recordedMovement({ from: '2026-10-09', to: '2026-10-09' }, [], [moved]).minutes).toBe(10);
+    expect(sessionMinutes([moved], [], RANGE)).toEqual([{ day: '2026-10-09', value: 10 }]);
+  });
+
+  it('a session’s own movement record stands for it; another activity’s record is no session’s', () => {
+    const s = session('2026-10-05', { durationSeconds: 1800 });
+    const own = newObservation({ kind: 'movementMinutes', value: 20, at: '2026-10-05T07:30:00+05:30', scope: 'sessionObserved', source: 'measured', coverageMs: 1_200_000, context: `session:${s.id}` });
+    const walking = newObservation({ kind: 'movementMinutes', value: 40, at: '2026-10-05T18:00:00+05:30', scope: 'sessionObserved', source: 'measured', coverageMs: 2_400_000, context: 'walk:w' });
+    expect(sessionMinutes([s], [own, walking], RANGE)).toEqual([{ day: '2026-10-05', value: 20 }]);
   });
 
   it('a day stretched is a stretch routine, or any session whose mobility block was done (§12.3)', () => {

@@ -10,6 +10,7 @@ import { nowAt, type Observation } from '@/health/observation';
 import { activitiesFrom } from '@/health/recommend';
 import { movementHistory, type HistoryRow } from '@/screens/hub/week';
 import type { DisplayPrefs } from '@/screens/track/format';
+import { recordedMovement, sessionInterval } from '@/screens/track/movement';
 import { addDays } from '@/screens/track/periods';
 import { stepsDayFigure } from '@/screens/track/stepsDay';
 import type { WorkoutSession } from '@/types';
@@ -49,21 +50,35 @@ export function sessionsOf(mode: 'programme' | 'stretch', sessions: readonly Wor
 }
 
 /**
- * Each day's active minutes, as the sessions recorded them (`durationSeconds`,
- * pauses excluded, the figure `sessionInterval` places): a category's own
- * time. A stopped session keeps its partial minutes (§12.3). The week's
- * recorded movement across categories, overlaps resolved (F19), is
- * `recordedMovement`'s, as Home's ring and Your week say it.
+ * Each day's active minutes of these sessions, a category's own time, as
+ * Home's week and Today's log ask it of a day (`recordedMovement`, H3-09): a
+ * guided session from its start for its active time, pauses excluded, on the
+ * day it was recorded (F19), its part past midnight on the next (F17), and
+ * overlapping time once; a logged workout's entered minutes on its recorded
+ * day. A stopped session keeps its partial minutes (§12.3). A movement record
+ * of a session's own stands for it.
  */
-export function sessionMinutes(sessions: readonly WorkoutSession[], range: DayRange): DayFigure[] {
-  const byDay = new Map<string, number>();
-  for (const s of sessions) {
-    if (s.date < range.from || s.date > range.to) continue;
-    const seconds = s.durationSeconds;
-    if (typeof seconds !== 'number' || !(seconds > 0)) continue;
-    byDay.set(s.date, (byDay.get(s.date) ?? 0) + seconds / 60);
+export function sessionMinutes(sessions: readonly WorkoutSession[], observations: readonly Observation[], range: DayRange): DayFigure[] {
+  const ids = new Set(sessions.map(s => `session:${s.id}`));
+  // Each record under the days it can count on: its own, and the next for a part past midnight.
+  const near = new Map<string, { sessions: Set<WorkoutSession>; observations: Set<Observation> }>();
+  const file = (day: string, put: (held: { sessions: Set<WorkoutSession>; observations: Set<Observation> }) => void) => {
+    for (const d of [day, addDays(day, 1)]) {
+      if (d < range.from || d > range.to) continue;
+      let held = near.get(d);
+      if (!held) near.set(d, (held = { sessions: new Set(), observations: new Set() }));
+      put(held);
+    }
+  };
+  for (const s of sessions) for (const day of new Set([s.date, sessionInterval(s)?.day ?? s.date])) file(day, h => h.sessions.add(s));
+  for (const o of observations) {
+    if (o.kind === 'movementMinutes' && o.context !== undefined && ids.has(o.context)) file(o.day, h => h.observations.add(o));
   }
-  return [...byDay].sort(([a], [b]) => (a < b ? -1 : 1)).map(([day, value]) => ({ day, value }));
+  return [...near.keys()].sort().flatMap((day): DayFigure[] => {
+    const held = near.get(day)!;
+    const minutes = recordedMovement({ from: day, to: day }, [...held.observations], [...held.sessions]).minutes;
+    return minutes > 0 ? [{ day, value: minutes }] : [];
+  });
 }
 
 /** §12.3: the days with a stretch routine, or with any session whose mobility block was done. */
