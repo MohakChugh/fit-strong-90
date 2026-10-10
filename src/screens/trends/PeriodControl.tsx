@@ -3,8 +3,13 @@
  * slides to the choice (`spring-quick`, M21), then the window's title,
  * announced when it changes, and a pager that says where it goes in words:
  * "Previous week", "Next week" (B-08).
+ *
+ * Narrower than 16 rem (a 320 px phone from about 125% text, any phone at
+ * 200%), the four choices sit in two rows of two, so no label breaks inside
+ * a word, and the indicator moves by row and column. The pager's buttons
+ * take a line each when two won't fit (journey §20.4 rule 7).
  */
-import type { KeyboardEvent } from 'react';
+import type { CSSProperties, KeyboardEvent } from 'react';
 import { MOTION, springLinear } from '@/design/motion';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { cn } from '@/lib/utils';
@@ -34,15 +39,19 @@ export function PeriodControl({ period, onPeriod, title, labels, canPrevious, ca
     onPeriod(TREND_PERIODS[next].id);
     e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[next]?.focus();
   };
-  const pager = 'press-feedback min-h-12 flex-1 rounded-full bg-tint/10 px-3 text-[length:var(--text-subhead)] font-semibold leading-tight text-tint disabled:bg-transparent disabled:text-muted-foreground';
+  const pager = 'press-feedback min-h-12 flex-[1_1_8rem] rounded-full bg-tint/10 px-3 text-[length:var(--text-subhead)] font-semibold leading-tight text-tint disabled:bg-transparent disabled:text-muted-foreground';
+  // The indicator's place in four columns, or in two rows of two.
+  const place = {
+    '--x4': `${i * 100}%`, '--x2': `${(i % 2) * 100}%`, '--y2': `${Math.floor(i / 2) * 100}%`,
+    transition: reduced ? undefined : `translate ${MOTION.springQuick.cssMs}ms ${springLinear(0)}`,
+  } as CSSProperties;
   return (
-    <div className="flex flex-col gap-3">
-      {/* ponytail: four columns at every size; at 200% text on a 320 px screen "6 Months" wraps inside its segment. Upgrade: two rows below 22 rem, the thumb placed by row and column. */}
-      <div role="radiogroup" aria-label="Period" className="relative grid grid-cols-4 rounded-[0.6rem] bg-segment-track p-0.5">
+    <div className="@container flex flex-col gap-3">
+      <div role="radiogroup" aria-label="Period" className="relative grid auto-rows-fr grid-cols-4 rounded-[0.6rem] bg-segment-track p-0.5 @max-[16rem]:grid-cols-2">
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-y-0.5 left-0.5 w-[calc((100%-0.25rem)/4)] rounded-lg bg-segment-thumb shadow-[0_3px_8px_rgb(0_0_0/0.12),0_3px_1px_rgb(0_0_0/0.04)]"
-          style={{ transform: `translateX(${i * 100}%)`, transition: reduced ? undefined : `transform ${MOTION.springQuick.cssMs}ms ${springLinear(0)}` }}
+          className="pointer-events-none absolute left-0.5 top-0.5 h-[calc(100%-0.25rem)] w-[calc((100%-0.25rem)/4)] translate-x-[var(--x4)] rounded-lg bg-segment-thumb shadow-[0_3px_8px_rgb(0_0_0/0.12),0_3px_1px_rgb(0_0_0/0.04)] @max-[16rem]:h-[calc((100%-0.25rem)/2)] @max-[16rem]:w-[calc((100%-0.25rem)/2)] @max-[16rem]:translate-x-[var(--x2)] @max-[16rem]:translate-y-[var(--y2)]"
+          style={place}
         />
         {TREND_PERIODS.map(p => {
           const selected = p.id === period;
@@ -63,7 +72,7 @@ export function PeriodControl({ period, onPeriod, title, labels, canPrevious, ca
         })}
       </div>
       <h2 aria-live="polite" className="text-center text-[length:var(--text-title-2)] font-semibold leading-tight [overflow-wrap:break-word]">{title}</h2>
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <button type="button" onClick={onPrevious} disabled={!canPrevious} className={pager}>{labels.previous}</button>
         <button type="button" onClick={onNext} disabled={!canNext} className={pager}>{labels.next}</button>
       </div>

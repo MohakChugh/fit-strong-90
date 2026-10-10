@@ -8,8 +8,9 @@
  * The whole plot is one slider: a tap or a drag anywhere chooses the slot
  * under it, and the arrow keys, Home, End and Escape do the same. The chosen
  * slot is outlined in body ink and nothing else fades (D71); its words
- * appear above the plot, with "See the day" for a day. "Show as list" opens
- * the same figures as a table, and VoiceOver hears the summary.
+ * appear above the plot, and for a day "See the day" below it, beside "Show
+ * as list", which opens the same figures as a table. VoiceOver hears the
+ * summary.
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { Link } from 'react-router-dom';
@@ -92,13 +93,12 @@ export function TrendChart({ model, label, summary, table, view, origin }: {
   return (
     <div ref={root} className="flex flex-col gap-3">
       <Patterns uid={uid} />
-      {/* The chosen slot in words, above the plot (M21); a hint until one is chosen. */}
+      {/* The chosen slot in words, above the plot (M21); a hint until one is chosen. Nothing here can be pressed:
+          at large text the words can outgrow the lines kept for them and push the plot down, and the tap's own
+          click would then land on whatever moved under the finger. "See the day" is below the plot. */}
       <div className="min-h-[3lh] text-[length:var(--text-subhead)] leading-snug">
         {slot ? (
-          <div key={slot.key} className={reduced ? 'flex flex-wrap items-center gap-x-3' : 'flex flex-wrap items-center gap-x-3 animate-in fade-in slide-in-from-bottom-1'} style={appear}>
-            <p className="font-medium [overflow-wrap:break-word]">{slot.text}</p>
-            {slot.day && <Link to={`/day/${slot.day}`} state={origin} className="press-feedback inline-flex min-h-12 items-center font-semibold text-tint">See the day</Link>}
-          </div>
+          <p key={slot.key} className={reduced ? 'font-medium [overflow-wrap:break-word]' : 'font-medium [overflow-wrap:break-word] animate-in fade-in slide-in-from-bottom-1'} style={appear}>{slot.text}</p>
         ) : (
           <p className="text-muted-foreground">Tap or drag across the chart, or use the arrow keys, to read it.</p>
         )}
@@ -140,17 +140,24 @@ export function TrendChart({ model, label, summary, table, view, origin }: {
         )}
       </div>
       <Legend items={legendOf(model)} {...(model.average ? { average: model.average.label } : {})} uid={uid} />
-      {plot && (
-        <button
-          type="button"
-          aria-expanded={listOpen}
-          aria-controls={`${uid}-list`}
-          onClick={() => setListOpen(open => !open)}
-          className="press-feedback min-h-12 self-start rounded-full bg-tint/10 px-4 text-[length:var(--text-subhead)] font-semibold text-tint"
-        >
-          {listOpen ? 'Hide list' : 'Show as list'}
-        </button>
-      )}
+      <div className="flex flex-wrap items-center gap-3 empty:hidden">
+        {plot && (
+          <button
+            type="button"
+            aria-expanded={listOpen}
+            aria-controls={`${uid}-list`}
+            onClick={() => setListOpen(open => !open)}
+            className="press-feedback min-h-12 rounded-full bg-tint/10 px-4 text-[length:var(--text-subhead)] font-semibold text-tint"
+          >
+            {listOpen ? 'Hide list' : 'Show as list'}
+          </button>
+        )}
+        {slot?.day && (
+          <Link to={`/day/${slot.day}`} state={origin} className="press-feedback inline-flex min-h-12 items-center px-1 text-[length:var(--text-subhead)] font-semibold text-tint">
+            See the day
+          </Link>
+        )}
+      </div>
       {/* With no room for a plot, the list is the chart. */}
       {(listOpen || !plot) && <Table id={`${uid}-list`} caption={label} table={table} />}
       <p className="sr-only">{summary}</p>

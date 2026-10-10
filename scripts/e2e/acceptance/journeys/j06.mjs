@@ -432,9 +432,10 @@ function cadenceCase(row) {
         await t.check(!/must|required|overdue!/i.test(today.match(/HbA1c due[^]*?Add a result/)?.[0] ?? ''), 'the HbA1c suggestion is phrased as a mandate');
       });
       await t.step(3, 'The HbA1c chart states both conditions and identifies recommendation 6.2', async () => {
-        // HbA1c's chart is its trend's (Plan 3; v1's chart until then).
-        await t.goto('/trends/labs?metric=hba1c');
-        await ui.tap(ui.radio(page.getByRole('main').getByRole('radiogroup', { name: 'Period' }), 'Year'));
+        // v1's HbA1c chart said this under the result. In v2 the result's interpretation and cadence are the Labs
+        // hub's, under its latest result; the Labs trend is the dated results alone (Plan 3, journey §12.2, A-45).
+        await t.goto('/hub/labs?metric=hba1c');
+        await ui.loaded(page);
         const text = (await page.getByRole('main').innerText()).replace(/\s+/g, ' ');
         await t.checkpoint('hba1c-metric');
         await t.check(/twice a year|6 months/.test(text) && /3 months/.test(text) && /treatment change/.test(text),

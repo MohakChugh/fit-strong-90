@@ -66,6 +66,15 @@ describe('the trend chart’s selection and the period before (B-15, D71)', () =
     expect(chart).toContain("fill: 'var(--trend-previous)'");
     expect(chart).not.toMatch(/[oO]pacity[^\n]*0?\.6\b/);
   });
+
+  it('keeps nothing pressable in the words above the plot, which can push the plot down under a finger mid-tap', () => {
+    const chart = readFileSync(path.resolve(__dirname, '../screens/trends/TrendChart.tsx'), 'utf8');
+    const above = chart.slice(chart.indexOf('{/* The chosen slot in words, above the plot'), chart.indexOf('<div ref={frame}'));
+    expect(above.length).toBeGreaterThan(0);
+    expect(above).not.toMatch(/<(Link|button|a)\b/);
+    // "See the day" sits below the plot, after the legend.
+    expect(chart.lastIndexOf('See the day')).toBeGreaterThan(chart.indexOf('<Legend items='));
+  });
 });
 
 /** WCAG relative luminance of an sRGB colour with 0–255 channels. */
