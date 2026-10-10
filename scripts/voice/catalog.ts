@@ -7,11 +7,16 @@
 import fs from 'node:fs';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import { buildSessionPlan } from '@/engine/session';
-import { catchUpText, scriptFor } from '@/session/script';
+import { buildStretchPlan, STRETCH_FOCI, STRETCH_MINUTES, stretchOffered } from '@/engine/stretch';
+import { catchUpText, LOAD_LINES, scriptFor } from '@/session/script';
 import { segmentsFor } from '@/engine/timing';
 import { getCoaching } from '@/data/coaching';
+import { CATALOG } from '@/data/catalog';
 import { splitSentences } from '@/voice/sentences';
+import type { WorkoutSession } from '@/types';
 import type { DailyCheckIn } from '@/types/checkin';
+import type { SessionPlan } from '@/types/plan';
+import type { UserProfile } from '@/types/profile';
 
 const PROFILES: ProfileInput[] = [
   {},
@@ -23,10 +28,16 @@ const PROFILES: ProfileInput[] = [
   { ladder: { hinge: 4, squat: 4 } },
   { health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', clearance: 'vigorous' } },
   { health: { diabetes: 'type1', insulin: 'injections_or_pump', highHypoRisk: true, glucoseMonitor: 'cgm', clearance: 'vigorous' } },
+  // The glucose check before cardio names its level in the person's unit (script.ts).
+  { health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', clearance: 'vigorous', glucoseUnit: 'mmol/L' } },
+  { health: { diabetes: 'type1', insulin: 'injections_or_pump', highHypoRisk: true, glucoseMonitor: 'cgm', clearance: 'vigorous', glucoseUnit: 'mmol/L' } },
   { health: { diabetes: 'type2', sglt2i: true, currentlyActive: false } },
   { health: { hypertension: 'treated', betaBlocker: true, diuretic: true } },
   { health: { diabetes: 'type2', peripheralNeuropathy: 'yes', retinopathy: 'moderate', clearance: 'moderate' } },
   { health: { retinopathy: 'severe_or_proliferative', kidneyDisease: 'ckd', dizzyOnStandingOrAutonomicNeuropathy: true } },
+  // Water is said three ways (script.ts): a recorded fluid limit, none, and
+  // the question not answered yet, which most profiles here leave it.
+  { health: { fluidRestriction: true } }, { health: { fluidRestriction: false } },
   { equipment: 'homeDumbbells' }, { equipment: 'homeNone', pain: { areas: ['lowerBack'] } },
   { sessionMinutes: 45 }, { sessionMinutes: 75 },
   { trainingDays: ['monday', 'wednesday', 'friday'] }, { trainingDays: ['monday', 'tuesday', 'thursday', 'friday'] },
@@ -49,13 +60,34 @@ const CHECKINS: Partial<DailyCheckIn>[] = [
   { news: ['footProblem'], back: { pain: 6, newNeuro: false, caudaEquinaFlag: false } },
   { glucose: { value: 110, unit: 'mg/dL' } }, { glucose: { value: 80, unit: 'mg/dL' } },
 ];
-const WEEKS = [1, 2, 4, 5, 6, 8, 9, 10, 12];
+// Every programme week: a week left out can hold the only plan with some
+// block length, and its welcome would then fall back to the device's voice.
+const WEEKS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const START = '2026-01-05'; // a Monday
+/** Two earlier sessions with every drill in them: enough for every drill to count as familiar. */
+const FAMILIAR: WorkoutSession[] = ['2025-12-01', '2025-12-02'].map(date => ({
+  id: `familiar-${date}`, date, dayOfWeek: 'monday', muscleGroup: 'mobility', phase: 'foundation', week: 1, status: 'completed',
+  sets: [], startedAt: null, completedAt: null, notes: '', totalVolume: 0,
+  mobility: CATALOG.map(m => ({ exerciseId: m.id, seconds: 30 })),
+}));
 
 const lines = new Set<string>();
 const add = (t?: string) => { if (t) for (const s of splitSentences(t)) lines.add(s); };
 
 let plans = 0;
+function speak(profile: UserProfile, plan: SessionPlan) {
+  plans++;
+  for (const exposures of [0, 5]) {
+    for (const step of plan.steps) {
+      for (const seg of segmentsFor(step)) add(catchUpText(step, seg.side) ?? undefined);
+      for (const c of scriptFor(step, { profile, plan, coaching: getCoaching, exposures: () => exposures })) {
+        add(c.say ?? c.text);
+        if (!c.say) add(c.short);
+      }
+    }
+  }
+}
+
 for (const input of PROFILES) {
   for (const verbosity of ['auto', 'standard'] as const) {
     const profile = createDefaultProfile({ ...input, voice: { verbosity } });
@@ -65,15 +97,21 @@ for (const input of PROFILES) {
         const date = d.toISOString().slice(0, 10);
         for (const ci of CHECKINS) {
           const checkIn = { date, urgentSymptoms: false, news: [], sleep: 'gt7' as const, energy: 4 as const, ...ci };
-          const plan = buildSessionPlan({ profile, date, startDate: START, sessions: [], checkIn });
-          plans++;
-          for (const exposures of [0, 5]) {
-            for (const step of plan.steps) {
-              for (const seg of segmentsFor(step)) add(catchUpText(step, seg.side) ?? undefined);
-              for (const c of scriptFor(step, { profile, plan, coaching: getCoaching, exposures: () => exposures })) {
-                add(c.say ?? c.text);
-                if (!c.say) add(c.short);
-              }
+          speak(profile, buildSessionPlan({ profile, date, startDate: START, sessions: [], checkIn }));
+        }
+      }
+      // Every Stretch routine the Move tab offers. The day of the week does not
+      // change a stretch, so one day per programme week is enough. Familiar
+      // drills get shorter instructions and so shorter setup time, which can
+      // change what fits, so each routine is built for a newcomer and a regular.
+      const date = new Date(Date.UTC(2026, 0, 5 + (week - 1) * 7)).toISOString().slice(0, 10);
+      for (const ci of CHECKINS) {
+        const checkIn = { date, urgentSymptoms: false, news: [], sleep: 'gt7' as const, energy: 4 as const, ...ci };
+        for (const sessions of [[], FAMILIAR]) {
+          for (const focus of STRETCH_FOCI) {
+            for (const minutes of STRETCH_MINUTES) {
+              if (!stretchOffered({ focus, minutes })) continue;
+              speak(profile, buildStretchPlan({ profile, date, startDate: START, sessions, checkIn, focus, minutes }));
             }
           }
         }
@@ -81,6 +119,9 @@ for (const input of PROFILES) {
     }
   }
 }
+
+// A returning person's weight notes need a history, which these plans lack.
+for (const line of Object.values(LOAD_LINES)) add(line);
 
 const sorted = [...lines].sort();
 fs.writeFileSync('scripts/voice/lines.json', JSON.stringify(sorted, null, 0));

@@ -6,10 +6,11 @@
 import type { AppData, PersonalRecord, WorkoutSession, WorkoutSet } from '@/types';
 import type { CheckInRecord } from '@/types/checkin';
 import type { SessionPlan } from '@/types/plan';
-import { calculateVolume, detectPR, getDayOfWeekFromDate } from '@/lib/utils';
+import { calculateVolume, detectPR, getDayOfWeekFromDate, isLoadedRepSet } from '@/lib/utils';
 import { focusMuscleGroup } from '@/engine/templates';
 import { stepSeconds } from '@/engine/timing';
 import { updateLadder } from '@/engine/progression';
+import { withLogged } from '@/engine/readiness';
 import { position, type RunnerState } from './runner';
 
 export interface LogOptions {
@@ -32,6 +33,21 @@ export function activeSeconds(plan: SessionPlan, state: RunnerState): number | u
   return Math.round(Math.min(state.finishedAt - state.startedAt, covered) / 1000);
 }
 
+/**
+ * The check-in as the session keeps it (N-02). The screens hold the day as
+ * every gate reads it, with Track's readings attached (`logged`), for a day
+ * with no check-in a mark saying so (`readingsOnly`), and while answers wait
+ * to be stored, the record that is (`durable`). None is ever stored, and an
+ * import refuses them: the readings are folded in once by the engine's own
+ * projection, and the rest goes.
+ */
+function keptCheckIn(c: CheckInRecord): CheckInRecord {
+  const { readingsOnly: _onlyReadings, durable: _stored, ...kept } = withLogged(c) as CheckInRecord;
+  void _onlyReadings;
+  void _stored;
+  return kept;
+}
+
 export function toWorkoutSession(plan: SessionPlan, state: RunnerState, opts: LogOptions): WorkoutSession {
   const logById = new Map(state.logs.map(l => [l.stepId, l]));
 
@@ -49,6 +65,8 @@ export function toWorkoutSession(plan: SessionPlan, state: RunnerState, opts: Lo
       weight: done ? log?.weightKg ?? step.load.kg : null,
       status: done ? 'completed' : log?.skipped ? 'skipped' : 'pending',
       rpe: null,
+      // A hold's or a carry's count is seconds, not repetitions.
+      ...(step.holdSeconds !== undefined || step.carrySeconds !== undefined ? { unit: 'seconds' as const } : {}),
     });
   }
 
@@ -64,6 +82,12 @@ export function toWorkoutSession(plan: SessionPlan, state: RunnerState, opts: Lo
     if (s.kind !== 'checkpoint' || s.question !== 'backSymptoms' || !s.exerciseId) continue;
     const answer = logById.get(s.id)?.answer;
     if (answer === 'better' || answer === 'same' || answer === 'worse') symptomChecks[s.exerciseId] = answer;
+  }
+  // "Stop: something's wrong" for leg symptoms is the movement that brought
+  // them on answered "worse", whether or not it has a back check, and nothing
+  // logged after it overrules that (contract A-BACK, scan J2-02).
+  for (const l of state.logs) {
+    if (l.kind === 'checkpoint' && l.answer === 'worse' && l.exerciseId) symptomChecks[l.exerciseId] = 'worse';
   }
 
   // "Finish now", the low-glucose exit and an abandoned session all leave the
@@ -101,11 +125,12 @@ export function toWorkoutSession(plan: SessionPlan, state: RunnerState, opts: Lo
     guided: true,
     focus: plan.focus,
     planId: plan.id,
+    ...(plan.kind !== 'none' ? { planKind: plan.kind } : {}),
     mobility,
     ...(cardioStep && cardioDone && plan.cardio
       ? { cardio: { modality: plan.cardio.modality, minutes: Math.round(stepSeconds(cardioStep) / 60), format: plan.cardio.format } }
       : {}),
-    ...(opts.checkIn ? { checkIn: opts.checkIn } : {}),
+    ...(opts.checkIn ? { checkIn: keptCheckIn(opts.checkIn) } : {}),
     ...(opts.painAfter !== undefined ? { painAfter: opts.painAfter } : {}),
     ...(Object.keys(symptomChecks).length ? { symptomChecks } : {}),
     durationSeconds: seconds,
@@ -121,11 +146,20 @@ export function toWorkoutSession(plan: SessionPlan, state: RunnerState, opts: Lo
  * Saving is also when the spinal-loading ladder moves: a "Worse" answer to an
  * in-session symptom checkpoint steps that track down (spec §6.6, §4.5).
  */
+/**
+ * A stretch and a programme session are different things on the same day:
+ * neither may replace, or stand in for, the other.
+ */
+export function sameKind(a: Pick<WorkoutSession, 'planKind'>, b: Pick<WorkoutSession, 'planKind'>): boolean {
+  return (a.planKind === 'stretch') === (b.planKind === 'stretch');
+}
+
 export function withGuidedSession(data: AppData, session: WorkoutSession): AppData {
   // Each run keeps its own record (a resumed run carries its id), so another
   // run on the same day with real work in it, such as work banked before a
-  // swap, is never removed. An empty unfinished record that day is replaced.
-  const sessions = [session, ...data.sessions.filter(s => s.id !== session.id && !(s.date === session.date && s.guided && s.status === 'in_progress'))]
+  // swap, is never removed. An empty unfinished record of the same kind that
+  // day is replaced.
+  const sessions = [session, ...data.sessions.filter(s => s.id !== session.id && !(s.date === session.date && s.guided && s.status === 'in_progress' && sameKind(s, session)))]
     .sort((a, b) => b.date.localeCompare(a.date));
   return {
     ...data,
@@ -137,9 +171,11 @@ export function withGuidedSession(data: AppData, session: WorkoutSession): AppDa
 
 /**
  * Bank unfinished progress (another day's, or too old to resume) into History,
- * unless nothing was done or that day already has a finished guided session.
+ * unless nothing was done or that day already has a finished guided session
+ * of the same kind (a finished stretch does not make a partial hour redundant).
  */
-export function bankProgress(data: AppData, saved: { plan: SessionPlan; state: RunnerState; clockAt?: number }, sessionId: string): AppData {
+/** The session saved progress holds, closed where it was last saved; null when nothing in it was done. */
+function bankable(saved: { plan: SessionPlan; state: RunnerState; clockAt?: number }, sessionId: string): WorkoutSession | null {
   // Close the run where it was last saved, so its time spent is kept.
   const at = saved.clockAt ?? saved.state.pausedAt ?? saved.state.startedAt;
   const state: RunnerState = saved.state.finishedAt !== undefined || at === undefined ? saved.state : {
@@ -150,9 +186,35 @@ export function bankProgress(data: AppData, saved: { plan: SessionPlan; state: R
       : {}),
   };
   const session = toWorkoutSession(saved.plan, state, { sessionId });
-  if (session.status === 'in_progress') return data;
-  if (data.sessions.some(s => s.date === session.date && s.guided && s.status === 'completed')) return data;
+  return session.status === 'in_progress' ? null : session;
+}
+
+export function bankProgress(data: AppData, saved: { plan: SessionPlan; state: RunnerState; clockAt?: number }, sessionId: string): AppData {
+  const session = bankable(saved, sessionId);
+  if (!session) return data;
+  if (data.sessions.some(s => s.date === session.date && s.guided && s.status === 'completed' && sameKind(s, session))) return data;
   return withGuidedSession(data, session);
+}
+
+/**
+ * Whether saved progress may be let go (F09; acceptance J17 step 5): what
+ * it holds is durably in History — under its own id, or as that day's
+ * finished record of the same kind — or there was nothing in it to keep.
+ *
+ * Asked after the write, because a store that says "done" can mean it found
+ * nothing to change on screen while an earlier write of the same session is
+ * still failing. `isDurable` is the store's `isSessionSaved`.
+ */
+export function progressSettled(
+  saved: { plan: SessionPlan; state: RunnerState; clockAt?: number },
+  sessionId: string,
+  sessions: readonly WorkoutSession[],
+  isDurable: (id: string) => boolean,
+): boolean {
+  const session = bankable(saved, sessionId);
+  if (!session) return true;
+  if (isDurable(session.id)) return true;
+  return sessions.some(s => s.date === session.date && s.guided && s.status === 'completed' && sameKind(s, session) && isDurable(s.id));
 }
 
 function mergeRecords(existing: PersonalRecord[], fresh: PersonalRecord[]): PersonalRecord[] {
@@ -164,7 +226,7 @@ function mergeRecords(existing: PersonalRecord[], fresh: PersonalRecord[]): Pers
 export function newRecords(session: WorkoutSession, existing: PersonalRecord[]): PersonalRecord[] {
   const best = new Map<string, WorkoutSet>();
   for (const s of session.sets) {
-    if (s.status !== 'completed' || !s.weight || !s.actualReps) continue;
+    if (!isLoadedRepSet(s)) continue;
     const prev = best.get(s.exerciseId);
     if (!prev || s.weight * s.actualReps > (prev.weight ?? 0) * (prev.actualReps ?? 0)) best.set(s.exerciseId, s);
   }

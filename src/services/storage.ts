@@ -1,17 +1,13 @@
-import type {
-  AppData,
-  UserSettings,
-  WorkoutSession,
-  BodyMetric,
-  PersonalRecord,
-  DayOfWeek,
-} from '@/types';
+/**
+ * The v1–v4 `localStorage` schema, kept only for what it still does: lift old
+ * data to v4 (`migrateData`) so the store can move it into IndexedDB, and sweep
+ * the old keys (`resetData`). Nothing reads or writes the v4 blob any more —
+ * the store (`src/store`) is the record.
+ */
+import type { AppData, UserSettings, DayOfWeek } from '@/types';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import { calculateVolume, deriveRecords, displayToCm, displayToKg } from '@/lib/utils';
 
-/** Every localStorage key this app owns starts with this (see `resetData`). */
-const KEY_PREFIX = 'fit-strong-90';
-const STORAGE_KEY = `${KEY_PREFIX}-data`;
 export const CURRENT_VERSION = 4;
 
 // Default settings
@@ -48,203 +44,30 @@ const DEFAULT_DATA: AppData = {
   checkIns: [],
 };
 
-/** A fresh copy, so callers can never mutate the shared default. */
-function defaultData(): AppData {
-  return structuredClone(DEFAULT_DATA);
-}
-
 /**
- * Load data from localStorage
+ * The start of every key the app keeps in browser storage: the record, its
+ * drafts and progress, and its preferences. One list, so the sweep below
+ * reaches a key added later too (D-05).
  */
-export function loadData(): AppData {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) {
-      return defaultData();
-    }
-
-    // Migrate older versions; for current data this only fills missing profile fields.
-    return migrateData(JSON.parse(stored) as AppData);
-  } catch (error) {
-    console.error('Failed to load data from localStorage:', error);
-    return defaultData();
-  }
-}
-
-/**
- * Save data to localStorage
- */
-export function saveData(data: AppData): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (error) {
-    console.error('Failed to save data to localStorage:', error);
-  }
-}
-
-/**
- * Update user settings
- */
-export function updateSettings(settings: Partial<UserSettings>): UserSettings {
-  const data = loadData();
-  const updatedSettings = { ...data.settings, ...settings };
-  saveData({ ...data, settings: updatedSettings });
-  return updatedSettings;
-}
-
-/**
- * Save or update a workout session
- */
-export function saveSession(session: WorkoutSession): void {
-  const data = loadData();
-  const existingIndex = data.sessions.findIndex((s) => s.id === session.id);
-
-  if (existingIndex >= 0) {
-    data.sessions[existingIndex] = session;
-  } else {
-    data.sessions.push(session);
-  }
-
-  // Sort sessions by date (newest first)
-  data.sessions.sort((a, b) => b.date.localeCompare(a.date));
-
-  saveData(data);
-}
-
-/**
- * Get a workout session by date
- */
-export function getSession(date: string): WorkoutSession | undefined {
-  const data = loadData();
-  return data.sessions.find((s) => s.date === date);
-}
-
-/**
- * Get all workout sessions
- */
-export function getSessions(): WorkoutSession[] {
-  const data = loadData();
-  return data.sessions;
-}
-
-/**
- * Save or update a body metric
- */
-export function saveBodyMetric(metric: BodyMetric): void {
-  const data = loadData();
-  const existingIndex = data.bodyMetrics.findIndex((m) => m.date === metric.date);
-
-  if (existingIndex >= 0) {
-    data.bodyMetrics[existingIndex] = metric;
-  } else {
-    data.bodyMetrics.push(metric);
-  }
-
-  // Sort metrics by date (newest first)
-  data.bodyMetrics.sort((a, b) => b.date.localeCompare(a.date));
-
-  saveData(data);
-}
-
-/**
- * Get all body metrics
- */
-export function getBodyMetrics(): BodyMetric[] {
-  const data = loadData();
-  return data.bodyMetrics;
-}
-
-/**
- * Save a personal record (only if it's actually a new PR)
- */
-export function savePersonalRecord(pr: PersonalRecord): void {
-  const data = loadData();
-  const existingPR = data.personalRecords.find(
-    (record) => record.exerciseId === pr.exerciseId
-  );
-
-  // Only save if it's a new PR (higher volume)
-  if (!existingPR || pr.volume > existingPR.volume) {
-    if (existingPR) {
-      // Update existing PR
-      const index = data.personalRecords.indexOf(existingPR);
-      data.personalRecords[index] = pr;
-    } else {
-      // Add new PR
-      data.personalRecords.push(pr);
-    }
-    saveData(data);
-  }
-}
-
-/**
- * Get all personal records
- */
-export function getPersonalRecords(): PersonalRecord[] {
-  const data = loadData();
-  return data.personalRecords;
-}
-
-/**
- * Export data as JSON string
- */
-export function exportData(): string {
-  const data = loadData();
-  return JSON.stringify(data, null, 2);
-}
-
-/**
- * Import data from JSON string
- */
-export function importData(json: string): boolean {
-  try {
-    const data = JSON.parse(json) as AppData;
-
-    // Validate the data structure
-    if (
-      !data.version ||
-      !data.settings ||
-      !Array.isArray(data.sessions) ||
-      !Array.isArray(data.bodyMetrics) ||
-      !Array.isArray(data.personalRecords)
-    ) {
-      console.error('Invalid data structure');
-      return false;
-    }
-
-    // Always migrate, rather than only when the version looks older: an export
-    // with an odd version must not slip past. migrateData is idempotent.
-    saveData(migrateData(data));
-    return true;
-  } catch (error) {
-    console.error('Failed to import data:', error);
-    return false;
-  }
-}
+export const APP_KEY_PREFIX = 'fit-strong';
 
 /**
  * Reset all data to defaults.
  *
- * Sweeps every key under the app's prefix, not just the main blob: an
- * in-progress guided session is stored separately and holds the whole plan,
- * including the readiness reasons that quote the user's glucose and eye
- * disease. "Clear all data" must leave nothing behind (spec §10.2).
+ * Sweeps every key under the app's prefix, not just the main blob, in
+ * `localStorage` and in the tab's `sessionStorage`: an in-progress guided
+ * session holds the whole plan, including readiness reasons that quote the
+ * user's glucose and eye disease, and a walk in progress or an unsaved Quick
+ * Log reading lives in the tab, which a reload keeps. "Clear all data" must
+ * leave nothing behind (spec §10.2).
  */
 export function resetData(): void {
-  const owned = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
-    .filter((key): key is string => key !== null && key.startsWith(KEY_PREFIX));
-  for (const key of owned) localStorage.removeItem(key);
-}
-
-/**
- * "Reset All Data": clear everything, then reload onto onboarding. Every
- * mounted `useAppData`, App's route gate included, still holds the old data,
- * so only a full reload drops it, as import and finishing onboarding do.
- */
-export function resetAndRestart(loc: Pick<Location, 'replace' | 'reload'> = window.location): void {
-  resetData();
-  loc.replace('#/onboarding');
-  loc.reload();
+  for (const storage of [globalThis.localStorage, globalThis.sessionStorage]) {
+    if (!storage) continue;
+    const owned = Array.from({ length: storage.length }, (_, i) => storage.key(i))
+      .filter((key): key is string => key !== null && key.startsWith(APP_KEY_PREFIX));
+    for (const key of owned) storage.removeItem(key);
+  }
 }
 
 /**

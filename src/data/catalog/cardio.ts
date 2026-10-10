@@ -11,5 +11,5 @@ export const CARDIO: CardioMeta[] = [
   { id: 'elliptical', name: 'Elliptical', kind: 'cardio', equipment: ['elliptical'], flags: { weightBearing: true }, intervals: true },
   { id: 'brisk-walking', name: 'Brisk Walk', kind: 'cardio', equipment: [], flags: { weightBearing: true }, intervals: true },
   { id: 'stationary-bike', name: 'Upright Bike', kind: 'cardio', equipment: ['bike'], flags: { seatedFlexion: true }, intervals: true },
-  { id: 'rowing-machine', name: 'Rowing Machine', kind: 'cardio', equipment: ['rower'], flags: { spinalFlexion: 1 }, intervals: true, ladder: { track: 'hinge', level: 3 } },
+  { id: 'rowing-machine', name: 'Rowing Machine', kind: 'cardio', equipment: ['rower'], flags: { spinalFlexion: 1, weightBearing: true }, intervals: true, ladder: { track: 'hinge', level: 3 } },
 ];

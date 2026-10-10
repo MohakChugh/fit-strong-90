@@ -1,19 +1,22 @@
 import { useEffect, useState } from 'react';
-import { loadData, updateSettings } from '@/services/storage';
-
-type Theme = 'light' | 'dark' | 'system';
+import { displayTheme, readStoredTheme, setSettings, useStore, type Theme } from '@/store/useStore';
 
 /**
- * Hook for managing theme state
+ * The theme, applied to the document.
  *
- * Reads theme from settings and applies it to the document
- * Handles system preference detection for 'system' theme
+ * The theme is the one thing that cannot wait for IndexedDB: it decides the
+ * colour of the first frame, and reading it asynchronously would flash light
+ * and then flip to dark on every launch. So the store mirrors the *stored*
+ * theme into a small synchronous `localStorage` flag (D13), which is what the
+ * first paint uses. Once the store has loaded its settings decide, and a
+ * change made anywhere reaches every subscriber — including one made while
+ * nothing can be saved, which holds for this session.
  */
 export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    const data = loadData();
-    return data.settings.theme;
-  });
+  const current = useStore();
+  // Read once, synchronously, before anything has been painted.
+  const [atBoot] = useState<Theme>(() => readStoredTheme() ?? 'system');
+  const theme = displayTheme(current, atBoot);
 
   const [isDark, setIsDark] = useState(false);
 
@@ -48,9 +51,10 @@ export function useTheme() {
     };
   }, [theme]);
 
+  // The flag follows the store once the change is stored, never ahead of it:
+  // a theme whose save failed must not be the next launch's first frame.
   const setTheme = (newTheme: Theme) => {
-    setThemeState(newTheme);
-    updateSettings({ theme: newTheme });
+    void setSettings({ theme: newTheme });
   };
 
   return {

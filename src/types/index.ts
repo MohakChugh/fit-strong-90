@@ -1,6 +1,7 @@
 import type { UserProfile } from './profile';
 import type { CheckInRecord } from './checkin';
 import type { DayFocus } from './plan';
+import type { HabitSettings } from './habits';
 
 export type Phase = 'foundation' | 'hypertrophy' | 'strength';
 export type DayOfWeek = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
@@ -52,6 +53,8 @@ export interface WorkoutSet {
   weight: number | null;
   status: SetStatus;
   rpe: number | null;
+  /** v5: what `actualReps` counts — seconds for a hold or a carry. Absent on older records, which meant reps. */
+  unit?: 'reps' | 'seconds';
 }
 
 export interface WorkoutExercise {
@@ -97,6 +100,12 @@ export interface WorkoutSession {
   guided?: boolean;
   focus?: DayFocus;
   planId?: string;
+  /**
+   * v5: which kind of guided plan this was. A stretch is recorded like any
+   * guided session but never counts as the day's programme workout. Absent on
+   * older records, which were all programme sessions.
+   */
+  planKind?: 'full' | 'recovery' | 'restDay' | 'stretch';
   mobility?: { exerciseId: string; seconds: number }[];
   cardio?: { modality: string; minutes: number; format: string };
   checkIn?: CheckInRecord;
@@ -136,6 +145,54 @@ export interface UserSettings {
   defaultWarmupExercises?: string[];
   defaultCooldownExercises?: string[];
   supersetRestSeconds?: number;
+  /** v5: the first-run answer to "What would you like more of?". Not an identity; Today uses it as a default. */
+  focus?: 'strength' | 'stretch' | 'move' | 'explore';
+  /**
+   * v5: the weekly recorded-movement goal the user chose, in minutes. Weekly,
+   * not daily: a daily ring pushes people to overdo it on a day meant for rest
+   * (board D31). WHO's 150 minutes is offered as a suggestion, never set for them.
+   */
+  weeklyMovementGoalMinutes?: number;
+  /**
+   * v5: the daily steps goal the user chose, if any. No default and no floor:
+   * the goal is theirs (board D27, as revised). Changing it never re-scores a
+   * past day, which is read against `dailyStepsGoalHistory`.
+   */
+  dailyStepsGoal?: number;
+  /** Each change to the daily steps goal and the day it took effect, oldest first. An entry with no `goal` removed it. */
+  dailyStepsGoalHistory?: { from: string; goal?: number }[];
+  /** v5: reminders and habit prompts the user opted into. */
+  habits?: HabitSettings;
+  /**
+   * v5: dated periods that were not a normal day (board D25). An open period
+   * (no `to`) is the current status; none open means Normal. Kept, not
+   * overwritten, so those days stay out of consistency figures afterwards.
+   */
+  statusPeriods?: StatusPeriod[];
+  /** v5: the walk options last chosen, so GPS and step counting are not asked for every time. */
+  walkDefaults?: { gps: boolean; steps: boolean };
+  /**
+   * The ids of readings and sessions deleted on this record, kept so that
+   * merging a backup made before the deletion cannot bring them back (D-06).
+   * Written by the store whenever it deletes, cleared when an id is written
+   * again, and carried in a backup with the rest of the settings.
+   */
+  deleted?: {
+    observations?: string[];
+    sessions?: string[];
+    /** Check-in readings deleted, as what was measured (`readingKey`), so no record names one back into the series (R5-01). */
+    readings?: string[];
+  };
+}
+
+export interface StatusPeriod {
+  kind: 'flare' | 'unwell' | 'away';
+  /** YYYY-MM-DD, local. */
+  from: string;
+  /** YYYY-MM-DD, local, inclusive. Absent while the period is still going. */
+  to?: string;
+  /** Once answered: whether the plan was moved back for this period, so the offer is made only once. */
+  planShift?: 'moved' | 'kept';
 }
 
 export interface AppData {
@@ -153,4 +210,5 @@ export interface AppData {
 }
 
 export type { UserProfile } from './profile';
+export type { HabitSettings } from './habits';
 export type { CheckInRecord, DailyCheckIn, Readiness } from './checkin';

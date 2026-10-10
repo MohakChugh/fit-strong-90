@@ -6,6 +6,7 @@
 
 import type { WorkoutSession } from '@/types';
 import type { DailyCheckIn, Readiness } from '@/types/checkin';
+import { OUTCOME_ORDER } from '@/types/checkin';
 import type { Block, DayFocus, PlannedExercise, SessionPlan, Step } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import { getDayOfWeekFromDate, getWeekNumber, parseDateString, toDateString } from '@/lib/utils';
@@ -36,6 +37,12 @@ export interface PlanInput {
   checkIn?: DailyCheckIn;
   /** Override the scheduled focus (e.g. the user swaps days). */
   focusOverride?: DayFocus;
+  /**
+   * A Flare-up status covers the day (D25): "back or leg worse, gentle
+   * movement only". The session is the recovery one, as Stretch is the
+   * gentler routine, without waiting for a check-in to say so (scan X2-16).
+   */
+  flare?: boolean;
 }
 
 export const BUDGETS: Record<UserProfile['sessionMinutes'], { mobility: number; strength: number; cardio: number; wrapUp: number }> = {
@@ -93,9 +100,14 @@ function seatedFlow(steps: Step[]): Step[] {
 
 export function buildSessionPlan(input: PlanInput): SessionPlan {
   const { profile, date } = input;
-  const readiness = input.checkIn
+  const evaluated = input.checkIn
     ? evaluateCheckIn(profile, input.checkIn, input.recentCheckIns ?? [])
     : profileOnlyReadiness(profile);
+  // Only ever gentler: a day already a recovery day or stricter is left as it is.
+  const flare = input.flare === true && OUTCOME_ORDER.indexOf(evaluated.outcome) < OUTCOME_ORDER.indexOf('recovery');
+  const readiness: Readiness = flare
+    ? { ...evaluated, outcome: 'recovery', back: evaluated.back === 'red' ? 'red' : 'amber' }
+    : evaluated;
   const week = getWeekNumber(input.startDate, date);
   const phase = phaseFor(week);
   const mode = modeFor(week);
@@ -112,9 +124,12 @@ export function buildSessionPlan(input: PlanInput): SessionPlan {
     date, week, phase, mode, focus, label: focusLabel(focus), mobilityDayType: mobilityDayType(focus), readiness,
   };
 
+  if (flare) changes.push('A gentle session: you marked a flare-up, so mobility and an easy walk, no lifting.');
   for (const r of readiness.reasons) if (r.outcome !== 'green') changes.push(r.message);
 
-  if (readiness.outcome === 'urgent' || readiness.outcome === 'red') {
+  // A reason can refuse the guided session alone (new tingling or numbness)
+  // while gentler modes go ahead; the plan agrees with `permission` on that.
+  if (readiness.outcome === 'urgent' || readiness.outcome === 'red' || readiness.refusedModes?.includes('guided')) {
     return {
       ...base, id: planId(date, focus, 'none', readiness), kind: 'none', steps: [], exercises: [], cardio: null,
       blockStarts: {}, totalSeconds: 0, changes, warnings,

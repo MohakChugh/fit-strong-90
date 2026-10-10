@@ -75,3 +75,65 @@ describe('recorded voice packs', () => {
     }
   });
 });
+
+/**
+ * The coach's water lines change with the fluid limit (session/script.ts:
+ * contract H-DIZZY, Codex re-audit F13). Every variant is asked of the packs
+ * themselves, not of `lines.json`, so a catalogue run that loses one profile's
+ * wording, and a render that then drops its clip, cannot pass.
+ */
+describe('the coach’s water lines, for every answer about a fluid limit', () => {
+  it('are recorded in every pack', async () => {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const { buildSessionPlan } = await import('@/engine/session');
+    const { scriptFor } = await import('@/session/script');
+    const { getCoaching } = await import('@/data/coaching');
+    const { splitSentences } = await import('./sentences');
+    const water = new Set<string>();
+    for (const fluidRestriction of [true, 'unsure', false, undefined] as const) {
+      const profile = createDefaultProfile({ health: { medicinesReviewed: true, ...(fluidRestriction === undefined ? {} : { fluidRestriction }) } });
+      for (const focus of ['lowerA', 'upperA', 'fullA'] as const) {
+        const plan = buildSessionPlan({ profile, date: '2026-10-06', startDate: '2026-09-28', sessions: [], focusOverride: focus });
+        for (const step of plan.steps) {
+          for (const c of scriptFor(step, { profile, plan, coaching: getCoaching, exposures: () => 0 })) {
+            for (const s of splitSentences(c.say ?? c.text)) if (/\bsip\b|water|fluid/i.test(s)) water.add(s);
+          }
+        }
+      }
+    }
+    expect(water.size).toBe(6);
+    for (const id of deployed) {
+      const m = read(id);
+      expect([...water].filter(s => !(clipKey(s) in m.lines)), id).toEqual([]);
+    }
+  });
+});
+
+/**
+ * The glucose check before cardio names its level in the person's unit
+ * (session/script.ts, scan X2-19). Each wording is asked of the packs
+ * themselves, as the water lines are.
+ */
+describe('the glucose check before cardio, in either unit', () => {
+  it('is recorded in every pack', async () => {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const { buildSessionPlan } = await import('@/engine/session');
+    const { scriptFor } = await import('@/session/script');
+    const { getCoaching } = await import('@/data/coaching');
+    const { splitSentences } = await import('./sentences');
+    const said = new Set<string>();
+    for (const glucoseUnit of ['mg/dL', 'mmol/L'] as const) {
+      for (const highHypoRisk of [false, true]) {
+        const profile = createDefaultProfile({ health: { medicinesReviewed: true, diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', glucoseUnit, highHypoRisk } });
+        const plan = buildSessionPlan({ profile, date: '2026-10-06', startDate: '2026-09-28', sessions: [] });
+        const step = plan.steps.find(s => s.kind === 'checkpoint' && s.question === 'glucose')!;
+        for (const c of scriptFor(step, { profile, plan, coaching: getCoaching, exposures: () => 0 })) for (const s of splitSentences(c.say ?? c.text)) said.add(s);
+      }
+    }
+    expect([...said].filter(s => s.startsWith('If you are under'))).toHaveLength(4);
+    for (const id of deployed) {
+      const m = read(id);
+      expect([...said].filter(s => !(clipKey(s) in m.lines)), id).toEqual([]);
+    }
+  });
+});

@@ -1,4 +1,5 @@
 import { clsx, type ClassValue } from "clsx"
+import { dosedInSeconds } from '@/engine/dosage';
 import { twMerge } from "tailwind-merge"
 import { format } from "date-fns"
 import type { AppData, DayOfWeek, Phase, WorkoutSession, WorkoutSet, WorkoutStatus, PersonalRecord } from "@/types"
@@ -128,10 +129,18 @@ export function isToday(dateStr: string): boolean {
 /**
  * Calculate total volume (weight * reps) for completed sets
  */
+/**
+ * A completed set counted in repetitions with a load: the only kind that adds
+ * to weight lifted or can be a personal record. A hold's or a carry's count is
+ * seconds — marked on the set, or known from the planner for older records.
+ */
+export function isLoadedRepSet(set: WorkoutSet): set is WorkoutSet & { weight: number; actualReps: number } {
+  return set.status === 'completed' && !!set.weight && !!set.actualReps
+    && set.unit !== 'seconds' && !dosedInSeconds(set.exerciseId);
+}
+
 export function calculateVolume(sets: WorkoutSet[]): number {
-  return sets
-    .filter(set => set.status === 'completed' && set.weight !== null && set.actualReps !== null)
-    .reduce((sum, set) => sum + (set.weight! * set.actualReps!), 0);
+  return sets.filter(isLoadedRepSet).reduce((sum, set) => sum + set.weight * set.actualReps, 0);
 }
 
 /**
@@ -246,7 +255,7 @@ export function deriveRecords(sessions: WorkoutSession[], existing: PersonalReco
   for (const session of [...sessions].sort((a, b) => a.date.localeCompare(b.date))) {
     for (const set of session.sets) {
       logged.add(set.exerciseId);
-      if (set.status !== 'completed' || !set.weight || !set.actualReps) continue;
+      if (!isLoadedRepSet(set)) continue;
       const volume = set.weight * set.actualReps;
       if (volume <= (best.get(set.exerciseId)?.volume ?? 0)) continue;
       best.set(set.exerciseId, { exerciseId: set.exerciseId, weight: set.weight, reps: set.actualReps, date: session.date, volume });

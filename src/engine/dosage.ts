@@ -72,6 +72,16 @@ const SPECIAL: Record<string, Partial<Prescription> & { tempo?: Tempo }> = {
   'glute-bridge': { reps: [10, 12], targetReps: 10, tempo: T(2, 0, 1, 2) },
 };
 
+/**
+ * Exercises the planner doses in seconds — holds and carries. A logged set's
+ * count for these is seconds, so it is never repetitions to multiply by load:
+ * a 30-second carry with 20 kg is not 600 kg lifted (Codex review F21).
+ */
+export function dosedInSeconds(exerciseId: string): boolean {
+  const special = SPECIAL[exerciseId];
+  return !!special && (special.holdSeconds !== undefined || special.carrySeconds !== undefined);
+}
+
 const SPINAL = (m: ExerciseMeta) => m.flags.axialLoad === 2 || m.flags.lumbarMoment === 2 || !!m.ladder;
 const LOADABLE = (m: ExerciseMeta) =>
   m.equipment.some(e => ['barbell', 'trapBar', 'dumbbells', 'kettlebell', 'cable', 'machine', 'landmine'].includes(e));

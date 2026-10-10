@@ -121,7 +121,13 @@ export interface SafetyFlags {
   endRangeFlexion?: true;
   /** Direction-specific mobility: end-range spinal extension. */
   endRangeExtension?: true;
-  /** Standing / weight-bearing (blocked by the FOOT modifier). */
+  /**
+   * Load through the foot: standing, a half-kneeling front foot, toes on the
+   * floor (plank, push-up), climbing onto a machine, or foot-plate work while
+   * seated (leg press, calf raise, cable row, rowing machine). Blocked by the
+   * FOOT modifier. Lying, quadruped, kneeling and seated work with the feet
+   * merely resting are not.
+   */
   weightBearing?: true;
 }
 

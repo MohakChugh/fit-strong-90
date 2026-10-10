@@ -12,7 +12,25 @@ import type { SessionPlan, Segment, Step } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import { segmentsFor } from '@/engine/timing';
 import { deriveHealth } from '@/engine/health';
+import { fluidLimit, glucoseLevel } from '@/engine/readiness';
 import { getStrength, nameOf } from '@/data/catalog';
+
+/**
+ * Water, said only as this profile may be told it (contract H-DIZZY; Codex
+ * re-audit F13), in the words the rest's own line on screen uses: never with
+ * a fluid limit, and only conditionally when the question is unanswered.
+ * Each variant is a recorded sentence (scripts/voice/catalog.ts).
+ */
+const REST_RECOVERY: Record<ReturnType<typeof fluidLimit>, string> = {
+  limited: 'Shake out your arms and legs, breathe slowly, and keep to your fluid plan.',
+  free: 'Shake out your arms and legs, breathe slowly, and sip some water.',
+  unknown: 'Shake out your arms and legs, breathe slowly, and sip some water unless you have a fluid limit.',
+};
+const TO_FIRST_STATION: Record<ReturnType<typeof fluidLimit>, string> = {
+  limited: 'Keep to your fluid plan, and walk to your first station.',
+  free: 'Take a sip of water and walk to your first station.',
+  unknown: 'Take a sip of water unless you have a fluid limit, and walk to your first station.',
+};
 
 export type Priority = 0 | 1 | 2 | 3;
 
@@ -84,6 +102,18 @@ export interface SetupRx {
   load?: { kg: number | null; note: string };
 }
 
+/**
+ * What the coach says about today's weight, by the planner's note. Exported so
+ * the voice catalogue records every one: a returning person's notes only
+ * appear with a history, which the catalogue's plans do not have.
+ */
+export const LOAD_LINES = {
+  firstTime: 'Pick a weight you could lift a few more times than asked, then log it after the first set.',
+  increase: 'You earned a little more weight today. The new weight is on your screen.',
+  decrease: 'Go a little lighter today. The weight is on your screen.',
+  same: 'Same weight as last time.',
+} as const;
+
 /** Lines spoken during a strength setup step, in order (shared with the planner's timing). */
 export function setupLines(exerciseId: string, name: string, rx: SetupRx | undefined, c: Coaching | undefined, detail: Detail): { priority: Priority; text: string; short?: string }[] {
   const unilateral = getStrength(exerciseId)?.unilateral ?? false;
@@ -93,11 +123,9 @@ export function setupLines(exerciseId: string, name: string, rx: SetupRx | undef
       : rx.carrySeconds ? `${count('carry', 'carries')} of ${rx.carrySeconds} seconds${unilateral ? ' per hand' : ''}.`
         : `${count('set', 'sets')} of ${rx.targetReps}${unilateral ? ' on each side' : ''}.`;
   const load = rx?.load;
-  const loadLine = !load ? '' : load.note === 'firstTime'
-    ? 'Pick a weight you could lift a few more times than asked, then log it after the first set.'
-    : load.note === 'increase' ? 'You earned a little more weight today. The new weight is on your screen.'
-      : load.note === 'decrease' ? 'Go a little lighter today. The weight is on your screen.'
-        : load.note === 'same' && load.kg ? 'Same weight as last time.' : '';
+  const loadLine = !load ? ''
+    : load.note === 'firstTime' || load.note === 'increase' || load.note === 'decrease' ? LOAD_LINES[load.note]
+      : load.note === 'same' && load.kg ? LOAD_LINES.same : '';
   const lines: { priority: Priority; text: string; short?: string }[] = [{ priority: 1, text: `Next: ${name}.` }];
   if (detail !== 'minimal' && c) {
     lines.push({ priority: 2, text: join(detail === 'detailed' ? c.summary : '', ...(detail === 'detailed' ? c.setup : c.setup.slice(0, 2))), short: c.setup[0] });
@@ -193,9 +221,7 @@ export function scriptFor(step: Step, ctx: ScriptContext): Cue[] {
           ? `Next: set ${next.set} of ${next.of}.`
           : `Next: ${nameOf(next.exerciseId)}.`
         : next?.kind === 'setup' ? `Next: ${nameOf(next.exerciseId)}.` : '';
-      const recovery = step.seconds >= 60
-        ? 'Shake out your arms and legs, breathe slowly, and sip some water.'
-        : 'Breathe slowly.';
+      const recovery = step.seconds >= 60 ? REST_RECOVERY[fluidLimit(ctx.profile.health)] : 'Breathe slowly.';
       add({ seg: 0, offsetMs: 500, priority: 1, text: `Rest ${step.seconds} seconds. ${recovery}`, short: `Rest ${step.seconds} seconds.`, staleAfterMs: 4000 });
       if (step.seconds >= 25) add({ seg: 0, offsetMs: 10_000, align: 'end', priority: 1, text: join('Ten seconds.', nextText, 'Get back into position.'), short: 'Ten seconds.', staleAfterMs: 3000 });
       return cues;
@@ -206,7 +232,11 @@ export function scriptFor(step: Step, ctx: ScriptContext): Cue[] {
         add({ seg: 0, offsetMs: 0, priority: 0, text: 'Quick check. Compared with before that exercise, does your back or leg feel better, the same, or worse? Tap your answer.' });
       } else {
         const below = ctx.profile.health.highHypoRisk ? 162 : 126;
-        add({ seg: 0, offsetMs: 0, priority: 0, text: `Time to check your glucose before cardio. If you are under ${below}, have 15 to 20 grams of fast carbs first.` });
+        // In the person's unit, the check-in's own number (scan X2-19): 7.0 or
+        // 9.0 mmol/L, said whole, since a decimal point would split the
+        // recorded sentence in two. The mg/dL line is as it was.
+        const under = ctx.profile.health.glucoseUnit === 'mmol/L' ? glucoseLevel(below, 'mmol/L').replace('.0 ', ' ') : String(below);
+        add({ seg: 0, offsetMs: 0, priority: 0, text: `Time to check your glucose before cardio. If you are under ${under}, have 15 to 20 grams of fast carbs first.` });
       }
       return cues;
 
@@ -235,8 +265,11 @@ function talkCues(step: Extract<Step, { kind: 'talk' }>, ctx: ScriptContext, hyp
   const add = (priority: Priority, text: string, offsetMs = 0) => cues.push({ id: `${step.id}-${cues.length}`, text, priority, seg: 0, offsetMs });
   if (step.topic === 'welcome') {
     // No cardio to do (a foot problem, no machine): say what takes its place.
+    // No minutes: they are on the screen, and every spoken variant must be in
+    // the recorded packs, which a number per plan would multiply past
+    // covering (an unrecorded line falls back to the device's voice).
     const kind = p.kind === 'full'
-      ? `Today is ${p.label}: fifteen minutes of mobility, then strength, then ${p.cardio ? `${Math.round(p.cardio.seconds / 60)} minutes of cardio` : 'an easy seated and floor flow in place of cardio'}.`
+      ? `Today is ${p.label}: mobility, then strength, then ${p.cardio ? 'cardio' : 'an easy seated and floor flow in place of cardio'}.`
       : p.kind === 'recovery'
         ? (p.cardio ? 'Today is a gentle recovery session: mobility, nerve glides and an easy walk.' : 'Today is a gentle recovery session: mobility and nerve glides.')
         : (p.cardio ? 'Today is an easy mobility and walking session.' : 'Today is an easy mobility session.');
@@ -252,7 +285,7 @@ function talkCues(step: Extract<Step, { kind: 'talk' }>, ctx: ScriptContext, hyp
     add(1, 'No cardio today, so an easy seated and floor flow takes its place. Stay seated or on the floor the whole time.');
   } else if (step.topic === 'transition') {
     const last = p.steps[p.steps.indexOf(step) + 1]?.block === 'wrapUp';
-    if (step.block === 'mobility') add(1, last ? 'That is the flow done. Rise slowly if you were on the floor.' : 'Mobility complete. Nicely done. Take a sip of water and walk to your first station. Rise slowly if you were on the floor.');
+    if (step.block === 'mobility') add(1, last ? 'That is the flow done. Rise slowly if you were on the floor.' : `Mobility complete. Nicely done. ${TO_FIRST_STATION[fluidLimit(ctx.profile.health)]} Rise slowly if you were on the floor.`);
     else add(1, p.cardio ? `Strength complete. Great work. Head to the ${nameOf(p.cardio.modality).toLowerCase()} for your cardio.` : 'Strength complete. Great work. Next, an easy seated and floor flow in place of cardio.');
   } else if (step.topic === 'wrapUp') {
     const reminders = [

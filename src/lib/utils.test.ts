@@ -325,6 +325,20 @@ describe('week filtering by number rather than label', () => {
 // ---------------------------------------------------------------------------
 
 describe('calculateVolume', () => {
+  // Codex review F21: a hold's or a carry's count is seconds, never reps.
+  it('leaves loaded holds and carries out of weight lifted, marked or known from the planner', () => {
+    expect(calculateVolume([
+      makeSet({ id: 'a', weight: 40, actualReps: 10 }),
+      makeSet({ id: 'b', exerciseId: 'suitcase-carry', weight: 20, actualReps: 30 }),
+      makeSet({ id: 'c', exerciseId: 'goblet-squat', weight: 20, actualReps: 45, unit: 'seconds' }),
+    ])).toBe(400);
+  });
+
+  it('never makes a carry\'s seconds a personal record', () => {
+    const session = { id: 's', date: '2026-10-08', sets: [makeSet({ id: 'b', exerciseId: 'farmer-carry', weight: 24, actualReps: 40 })] } as never;
+    expect(deriveRecords([session], [])).toEqual([]);
+  });
+
   it('sums weight x reps over completed sets only', () => {
     expect(calculateVolume([
       makeSet({ id: 'a', weight: 50, actualReps: 10 }),

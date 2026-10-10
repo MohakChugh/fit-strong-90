@@ -54,6 +54,8 @@ export function initialState(plan: SessionPlan): RunnerState {
   return { planId: plan.id, date: plan.date, status: 'ready', index: 0, stepStartedAt: 0, visit: 0, extraMs: {}, logs: [] };
 }
 
+const NONE: ReadonlySet<string> = new Set();
+
 /** Entering a step: a saved state from an older version may not have a visit yet. */
 const nextVisit = (state: RunnerState): number => (state.visit ?? 0) + 1;
 
@@ -108,13 +110,24 @@ function awaitsAnswer(step: Step, state: RunnerState): boolean {
   return step.kind === 'checkpoint' && step.question === 'glucose' && !state.logs.some(l => l.stepId === step.id && l.answer);
 }
 
-export function createRunner(plan: SessionPlan) {
+/**
+ * Steps today's answers refuse are never entered (re-audit round 3 B05, B09):
+ * the runner passes over them in either direction and logs them as left out,
+ * so neither the clock, Next, Previous nor earphone controls can run one. The
+ * set comes from the player, which knows today's restrictions.
+ */
+export function createRunner(plan: SessionPlan, refused: ReadonlySet<string> = NONE) {
   const steps = plan.steps;
+  const blocked = (i: number) => i >= 0 && i < steps.length && refused.has(steps[i].id);
 
   const advance = (state: RunnerState, now: number, from: number, skipped = false): RunnerState => {
     const step = steps[state.index];
-    const logs = step ? completeStep(state, step, now, skipped) : state.logs;
-    const nextIndex = state.index + 1;
+    let logs = step ? completeStep(state, step, now, skipped || blocked(state.index)) : state.logs;
+    let nextIndex = state.index + 1;
+    while (nextIndex < steps.length && blocked(nextIndex)) {
+      logs = completeStep({ ...state, logs }, steps[nextIndex], now, true);
+      nextIndex++;
+    }
     if (nextIndex >= steps.length) {
       // `from` is when the plan's last step ended: a phone that wakes later still finished on time.
       return { ...state, logs, index: steps.length - 1, status: 'done', finishedAt: from, pausedAt: undefined };
@@ -122,8 +135,16 @@ export function createRunner(plan: SessionPlan) {
     return { ...state, logs, index: nextIndex, stepStartedAt: from, visit: nextVisit(state) };
   };
 
+  /** Standing on a step that is now refused: move on before anything runs. */
+  const passRefused = (state: RunnerState, now: number): RunnerState => {
+    if ((state.status !== 'running' && state.status !== 'paused') || !blocked(state.index)) return state;
+    const s = advance(state, now, now, true);
+    return s.status === 'paused' ? { ...s, pausedAt: now } : s;
+  };
+
   function reduce(state: RunnerState, action: RunnerAction): RunnerState {
-    return trackActive(state, apply(state, action), action);
+    const next = apply(state, action);
+    return trackActive(state, 'now' in action ? passRefused(next, action.now) : next, action);
   }
 
   function apply(state: RunnerState, action: RunnerAction): RunnerState {
@@ -168,10 +189,15 @@ export function createRunner(plan: SessionPlan) {
       }
 
       case 'previous': {
-        if (state.status === 'ready') return state;
+        // A finished session stays finished: Previous, from the screen or an
+        // earphone's "previous track", never brings it back to life (scan M-03).
+        if (state.status === 'ready' || state.status === 'done') return state;
         const elapsed = elapsedInStep(state, action.now);
         // Within the first 3 seconds go back a step; otherwise restart this one.
+        // Never back into refused work: the nearest earlier step that may run.
         let index = elapsed < 3000 && state.index > 0 ? state.index - 1 : state.index;
+        while (index > 0 && blocked(index)) index--;
+        if (blocked(index)) index = state.index;
         // After a low, never back before the cool-down: it restarts instead.
         const floor = state.coolDownFrom;
         const atFloor = !!floor && index <= floor.index;
@@ -182,11 +208,9 @@ export function createRunner(plan: SessionPlan) {
           index,
           // A step entered again from its start is done in full; the cool-down after a low stays partial.
           logs: atFloor ? state.logs : state.logs.map(l => (l.stepId === steps[index].id && l.partial ? { ...l, partial: undefined } : l)),
-          status: state.status === 'done' ? 'running' : state.status,
           stepStartedAt: action.now - offset,
           visit: nextVisit(state),
           pausedAt: state.status === 'paused' ? action.now : undefined,
-          finishedAt: undefined,
         };
       }
 
@@ -242,6 +266,67 @@ export function createRunner(plan: SessionPlan) {
 }
 
 /**
+ * The run's place once the plan is re-dosed under it (R5-04, N-08). Steps
+ * already done are not the runner's to change, and a step not under way has
+ * nothing to carry. A cardio step under way keeps the time already spent, and
+ * what is left is today's dose: past today's work, the person goes straight to
+ * the cool-down's own start, so a shorter dose never counts a cool-down that
+ * was not done; already in the cool-down, it goes on where it was. Time added
+ * to the old dose goes with it, and the coach starts the step again as it is
+ * now.
+ */
+export function redoseState(from: SessionPlan, to: SessionPlan, state: RunnerState, now: number): RunnerState {
+  if (state.status !== 'running' && state.status !== 'paused') return state;
+  const was = from.steps[state.index];
+  const is = to.steps[state.index];
+  if (!was || !is || was.id !== is.id || was.kind !== 'cardio' || is.kind !== 'cardio' || JSON.stringify(was.parts) === JSON.stringify(is.parts)) return state;
+  const elapsed = elapsedInStep(state, now);
+  const workMs = (segs: { segment: Segment; ms: number }[]) => segs.filter(x => x.segment.intensity !== 'cooldown').reduce((t, x) => t + x.ms, 0);
+  const oldSegs = segmentsWithExtra(was, state);
+  const { [is.id]: _old, ...extraMs } = state.extraMs;
+  void _old;
+  const newSegs = segmentsWithExtra(is, { extraMs });
+  const oldWork = workMs(oldSegs);
+  const newWork = workMs(newSegs);
+  const newCool = newSegs.reduce((t, x) => t + x.ms, 0) - newWork;
+  const at = elapsed < oldWork ? Math.min(elapsed, newWork) : newWork + Math.min(elapsed - oldWork, newCool);
+  const anchor = state.status === 'paused' && state.pausedAt !== undefined ? state.pausedAt : now;
+  const coolFrom = newSegs.findIndex(x => x.segment.intensity === 'cooldown');
+  return {
+    ...state,
+    stepStartedAt: anchor - at,
+    extraMs,
+    visit: nextVisit(state),
+    ...(state.coolDownFrom?.index === state.index && coolFrom >= 0 ? { coolDownFrom: { index: state.index, segment: coolFrom } } : {}),
+  };
+}
+
+/**
+ * A run: the plan it is running and its place in it, kept together (N-08).
+ * React reduces a queued action in whichever render takes it off the queue,
+ * so a reducer built from the plan on screen would count a tick timed by the
+ * old dose against the new one. Every action here is reduced against the
+ * run's own plan, and only `replan` changes that plan, moving the place with
+ * it in the same step.
+ */
+export interface Run { plan: SessionPlan; refused?: ReadonlySet<string>; state: RunnerState }
+
+/** The plan was re-dosed, or today's refusals changed, under the run (R5-04). */
+export type RunAction = RunnerAction | { type: 'replan'; plan: SessionPlan; refused?: ReadonlySet<string>; now: number };
+
+export function reduceRun(run: Run, action: RunAction): Run {
+  if (action.type !== 'replan') {
+    const state = createRunner(run.plan, run.refused).reduce(run.state, action);
+    return state === run.state ? run : { ...run, state };
+  }
+  // Told twice, as a render done twice can, the place moves once.
+  if (action.plan === run.plan && action.refused === run.refused) return run;
+  // The place moves to the new dose, and a step now refused is passed over at once (scan J2-02).
+  const moved = redoseState(run.plan, action.plan, run.state, action.now);
+  return { plan: action.plan, refused: action.refused, state: createRunner(action.plan, action.refused).reduce(moved, { type: 'tick', now: action.now }) };
+}
+
+/**
  * Running time is summed across pauses: each stretch from (re)starting to
  * pausing or finishing. A run saved before this was tracked has no
  * `runningSince`, so it keeps the older estimate in logging.ts.
@@ -262,14 +347,14 @@ function trackActive(prev: RunnerState, next: RunnerState, action: RunnerAction)
  * Where "cool-down only" goes after a low (spec §4.6): the cool-down part of
  * the cardio still ahead, else the wrap-up. Never the warm-up or the intervals.
  */
-export function coolDownTarget(plan: SessionPlan, from: number, segment = 0): { index: number; segment: number } | null {
+export function coolDownTarget(plan: SessionPlan, from: number, segment = 0, refused: ReadonlySet<string> = NONE): { index: number; segment: number } | null {
   for (let i = from; i < plan.steps.length; i++) {
     const step = plan.steps[i];
-    if (step.kind !== 'cardio') continue;
+    if (step.kind !== 'cardio' || refused.has(step.id)) continue;
     const cool = segmentsFor(step).findIndex(s => s.intensity === 'cooldown');
     if (cool >= 0 && (i > from || cool > segment)) return { index: i, segment: cool };
   }
-  const wrap = plan.steps.findIndex((s, i) => i > from && s.block === 'wrapUp');
+  const wrap = plan.steps.findIndex((s, i) => i > from && s.block === 'wrapUp' && !refused.has(s.id));
   return wrap >= 0 ? { index: wrap, segment: 0 } : null;
 }
 
@@ -299,14 +384,16 @@ export interface Position {
   sessionTotalMs: number;
 }
 
-export function position(plan: SessionPlan, state: RunnerState, now: number): Position {
+export function position(plan: SessionPlan, state: RunnerState, now: number, refused: ReadonlySet<string> = NONE): Position {
   const stepIndex = Math.min(state.index, plan.steps.length - 1);
   const step = plan.steps[stepIndex];
   const dur = stepDurationMs(step, state);
   const stepElapsedMs = state.status === 'done' ? dur : Math.min(dur, elapsedInStep(state, now));
   const loc = locate(step, state, stepElapsedMs);
-  const before = plan.steps.slice(0, stepIndex).reduce((s, x) => s + stepDurationMs(x, state), 0);
-  const total = plan.steps.reduce((s, x) => s + stepDurationMs(x, state), 0);
+  // Refused work takes no time: it is not going to be done.
+  const counted = (x: Step) => (refused.has(x.id) ? 0 : stepDurationMs(x, state));
+  const before = plan.steps.slice(0, stepIndex).reduce((s, x) => s + counted(x), 0);
+  const total = plan.steps.reduce((s, x) => s + counted(x), 0);
   return {
     step,
     stepIndex,
