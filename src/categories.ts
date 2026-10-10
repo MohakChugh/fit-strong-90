@@ -3,7 +3,7 @@
  * Trends, Browse and the routes all read from here, so a category can't be
  * on Home without a hub or a trend (audit A-28).
  */
-import { deriveHealth } from '@/engine/health';
+import { deriveHealth, takes } from '@/engine/health';
 import type { Mode } from '@/engine/permission';
 import type { CategoryId, GroupId, HomeLayout, UserSettings } from '@/types';
 import type { UserProfile } from '@/types/profile';
@@ -122,6 +122,8 @@ export interface HomeAnswers {
   profile: UserProfile;
   settings: UserSettings;
   hasSteps: boolean;
+  /** Setup's pain chip was answered "Not sure", which the profile doesn't keep (journey §5.1). */
+  backUnsure?: boolean;
 }
 
 /**
@@ -130,7 +132,7 @@ export interface HomeAnswers {
  * relevant after Home was laid out is offered in Me, once (`newlyRelevant`).
  * Fill-in tiles are never relevant by themselves.
  */
-export function relevantCategories({ profile, settings, hasSteps }: HomeAnswers): CategoryId[] {
+export function relevantCategories({ profile, settings, hasSteps, backUnsure }: HomeAnswers): CategoryId[] {
   const h = profile.health;
   const derived = deriveHealth(h);
   const areas = profile.pain.areas;
@@ -142,8 +144,10 @@ export function relevantCategories({ profile, settings, hasSteps }: HomeAnswers)
     'food',
     ...(derived.diabetic || h.diabetes === 'prediabetes' ? ['glucose' as const] : []),
     ...(h.hypertension !== 'none' || derived.onBpMeds || h.bpMonitor ? ['bp' as const] : []),
-    // Back pain or sciatica, not any pain: Back & leg only for relevant answers (A-38).
-    ...(areas.includes('lowerBack') || areas.includes('sciatica') ? ['back' as const] : []),
+    // Back pain or sciatica, not any pain: Back & leg only for relevant answers (A-38). Also a nerve
+    // problem in the history, "Not sure" about one included, or "Not sure" about pain (journey §5.1).
+    // Home's tiles are the only thing that reads the history: the engine reads today's symptoms (board D77).
+    ...(areas.includes('lowerBack') || areas.includes('sciatica') || takes(profile.pain.neuroHistory) || backUnsure === true ? ['back' as const] : []),
     ...(settings.habits?.water?.enabled ? ['water' as const] : []),
     // For HbA1c.
     ...(derived.diabetic ? ['labs' as const] : []),

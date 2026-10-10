@@ -212,3 +212,13 @@ describe('newlyRelevant: offered in Me once, never added silently (journey §5.1
     expect(newlyRelevant({ relevant: relevantCategories({ profile: withHealth({}), settings, hasSteps: false }), layout: bare, offered: [] })).toEqual([]);
   });
 });
+
+describe('Back & leg by default (journey §5.1; board D77; KV-07)', () => {
+  it('for a nerve problem in the history, "Not sure" about one included, or "Not sure" about pain', () => {
+    expect(defaultHome({ profile: createDefaultProfile({ pain: { neuroHistory: true } }), settings, hasSteps: false }).order.check).toContain('back');
+    expect(defaultHome({ profile: createDefaultProfile({ pain: { neuroHistory: 'unsure' } }), settings, hasSteps: false }).order.check).toContain('back');
+    expect(defaultHome({ profile: createDefaultProfile({ pain: { neuroHistory: false } }), settings, hasSteps: false }).order.check).not.toContain('back');
+    expect(defaultHome({ profile: createDefaultProfile(), settings, hasSteps: false, backUnsure: true }).order.check).toContain('back');
+    expect(defaultHome({ profile: createDefaultProfile(), settings, hasSteps: false }).order.check).not.toContain('back');
+  });
+});

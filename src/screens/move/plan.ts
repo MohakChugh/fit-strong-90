@@ -273,10 +273,7 @@ export async function swapToday(today: WeekDay, choice: DayFocus, fx: SwapEffect
  * explicit and optional, and membership itself is decided in one place for
  * the whole app (`isEnrolled`); these only write the record.
  */
-export function startDateProblem(date: string, today: string): string | null {
-  if (!isDay(date)) return 'Choose a start date.';
-  return date < today ? 'Choose today or a later day.' : null;
-}
+export { startDateProblem } from '@/programme/join';
 
 /** The record after joining: the programme's answers, and its start date. */
 export function withJoined(data: AppData, answers: { profile: UserProfile; useMetric: boolean }, startDate: string): AppData {
