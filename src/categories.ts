@@ -63,6 +63,32 @@ export const GROUPS: readonly { id: GroupId; title: string }[] = [
   { id: 'learn', title: 'Learn' },
 ];
 
+/** Browse's groups: Home's four, then "Your data" (journey §14). */
+export type BrowseGroupId = GroupId | 'data';
+
+export const BROWSE_GROUPS: readonly { id: BrowseGroupId; title: string }[] = [...GROUPS, { id: 'data', title: 'Your data' }];
+
+/**
+ * The shortcuts Browse lists, by the group each is listed in (journey §14,
+ * B-14). Each has only a target: none is ever a tile, a hub or a trend.
+ * Water is a category, Check's only. The Learn group's other rows are the
+ * Guide's own topics.
+ */
+export const SHORTCUTS: Readonly<Record<BrowseGroupId, readonly Shortcut[]>> = {
+  move: [
+    { id: 'programme', title: 'Programme', to: '/hub/workout/plan' },
+    { id: 'library', title: 'Exercise library', to: '/hub/workout/exercises' },
+  ],
+  eat: [{ id: 'meal-ideas', title: 'Meal ideas', to: '/hub/food/ideas' }],
+  // BMI is worked out from weight and height and has no form: it shows on the Weight hub (§5.1).
+  check: [{ id: 'bmi', title: 'BMI', to: '/hub/weight' }],
+  learn: [],
+  data: [
+    { id: 'today-log', title: 'Today’s log', to: '/day/today' },
+    { id: 'backup', title: 'Backup', to: '/me/data' },
+  ],
+};
+
 const BY_ID = new Map(CATEGORIES.map(x => [x.id, x]));
 export function categoryById(id: CategoryId): Category {
   const found = BY_ID.get(id);
@@ -91,16 +117,25 @@ const FILL_INS: CategoryId[] = ['weight', 'sleep', 'learn'];
  */
 const DROP_ORDER: CategoryId[] = ['labs', 'water', 'steps'];
 
+/** What the setup answers say, for Home's tiles (journey §5.1). */
+export interface HomeAnswers {
+  profile: UserProfile;
+  settings: UserSettings;
+  hasSteps: boolean;
+}
+
 /**
- * The first layout, from the setup answers (journey §5.1). Worked out once;
- * after that `settings.home` holds the person's own layout.
+ * The categories the answers make relevant: journey §5.1's "when" rules, in
+ * the registry's order. `defaultHome` lays these out first. One that becomes
+ * relevant after Home was laid out is offered in Me, once (`newlyRelevant`).
+ * Fill-in tiles are never relevant by themselves.
  */
-export function defaultHome({ profile, settings, hasSteps }: { profile: UserProfile; settings: UserSettings; hasSteps: boolean }): HomeLayout {
+export function relevantCategories({ profile, settings, hasSteps }: HomeAnswers): CategoryId[] {
   const h = profile.health;
   const derived = deriveHealth(h);
   const areas = profile.pain.areas;
   const footHeld = walkingHeldForFeet(profile);
-  const wanted: CategoryId[] = [
+  return [
     'workout', 'stretch',
     ...(footHeld ? [] : ['walk' as const]),
     ...(!footHeld && (settings.dailyStepsGoal !== undefined || hasSteps) ? ['steps' as const] : []),
@@ -113,9 +148,30 @@ export function defaultHome({ profile, settings, hasSteps }: { profile: UserProf
     // For HbA1c.
     ...(derived.diabetic ? ['labs' as const] : []),
   ];
+}
+
+/**
+ * The first layout, from the setup answers (journey §5.1). Worked out once;
+ * after that `settings.home` holds the person's own layout.
+ */
+export function defaultHome(answers: HomeAnswers): HomeLayout {
+  const wanted = relevantCategories(answers);
   // Too many: the dropped tiles go to `hidden`, so Edit Home offers them under Hidden.
   const hidden = DROP_ORDER.filter(id => wanted.includes(id)).slice(0, Math.max(0, wanted.length - MAX_TILES));
   return arrange(wanted.filter(id => !hidden.includes(id)), hidden);
+}
+
+/**
+ * The categories to offer in Me, once each (journey §5.1): relevant now, and
+ * neither on Home, nor hidden there, nor offered before. Never added silently.
+ */
+export function newlyRelevant({ relevant, layout, offered }: {
+  relevant: readonly CategoryId[];
+  layout: HomeLayout;
+  offered: readonly CategoryId[];
+}): CategoryId[] {
+  const placed = new Set<CategoryId>([...Object.values(layout.order).flat(), ...layout.hidden, ...offered]);
+  return relevant.filter(id => !placed.has(id));
 }
 
 /**

@@ -197,6 +197,8 @@ export interface UserSettings {
   walkDefaults?: { gps: boolean; steps: boolean };
   /** v2: Home's tile layout (journey §7.6). The person's edits always win over the defaults. */
   home?: HomeLayout;
+  /** v2 (journey §5.1): categories Me has offered for Home, added or "Not now", so none is offered twice. */
+  homeOffered?: CategoryId[];
   /** v2 (journey §16 Display): the app's own settings, since Safari doesn't report Reduce Transparency and the system's motion setting isn't everyone's choice. */
   display?: { reduceMotion?: boolean; reduceTransparency?: boolean };
   /**

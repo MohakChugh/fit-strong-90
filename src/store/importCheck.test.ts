@@ -79,6 +79,11 @@ describe('settings in an import file are read field by field (D-08)', () => {
     }
   });
 
+  it('reads the categories Me has offered for Home, and leaves out a list it cannot read (journey §5.1)', () => {
+    expect(preview(file({ settings: { ...settings, homeOffered: ['glucose', 'water'] } })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings: { ...settings, homeOffered: ['mood'] } })).unreadableFields).toEqual(['settings.homeOffered']);
+  });
+
   it('reads the weekly goal’s history, v1’s undated goal included, and leaves out one that cannot be read (B-16)', () => {
     const history = [{ from: '', goal: 120 }, { from: '2026-10-12', goal: 150 }, { from: '2026-10-19' }];
     expect(preview(file({ settings: { ...settings, weeklyMovementGoalHistory: history } })).unreadableFields).toEqual([]);
