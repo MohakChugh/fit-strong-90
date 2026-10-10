@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { WorkoutSession } from '@/types';
 import type { CheckInRecord } from '@/types/checkin';
-import { newObservation, type Observation } from '@/health/observation';
+import { bpContext, newObservation, type Observation } from '@/health/observation';
 import { weekdayOf } from '@/health/status';
 import { DEFAULT_PREFS } from '@/screens/track/format';
 import { TRENDS } from './metrics';
-import { dailyView, trendContext } from './model';
+import { dailyView, labsView, readingCount, readingsView, trendContext, trendRow } from './model';
 import { windowOf } from './periods';
 import type { DayContext } from './stats';
 
@@ -314,5 +314,296 @@ describe('the day context from the settings', () => {
     expect(c.restOn('2026-09-22')).toBe(false);   // before the start
     expect(c.statusOn('2026-10-02')).toBe('away');
     expect(trendContext({ today: TODAY, data: d, settings: { startDate: '' }, profile: { trainingDays: ['monday'] } }).restOn('2026-10-06')).toBe(false);
+  });
+});
+
+const g = (value: number, at: string, tag?: 'fasting' | 'afterMeal') =>
+  newObservation({ kind: 'glucose', value, unit: 'mg/dL', at, scope: 'pointInTime', source: 'manual', ...(tag ? { tag } : {}) });
+const GLUCOSE = [
+  g(120, '2026-09-28T07:30:00+05:30', 'fasting'), g(118, '2026-09-29T07:30:00+05:30', 'fasting'), g(122, '2026-09-30T07:30:00+05:30', 'fasting'),
+  g(118, '2026-10-05T07:30:00+05:30', 'fasting'), g(168, '2026-10-06T14:10:00+05:30', 'afterMeal'),
+  g(280, '2026-10-07T13:00:00+05:30', 'afterMeal'), g(62, '2026-10-07T21:30:00+05:30'),
+];
+const week = windowOf('week', TODAY);
+
+describe('the reading count says which readings are numeric (B-15)', () => {
+  it('in words', () => {
+    expect(readingCount(5, 0, 0)).toBe('5 readings, all with a number');
+    expect(readingCount(1, 0, 0)).toBe('1 reading with a number');
+    expect(readingCount(0, 0, 0)).toBe('0 readings');
+    expect(readingCount(5, 0, 1)).toBe('6 readings: 5 with a number, 1 meter LO');
+    expect(readingCount(0, 1, 2)).toBe('3 readings: none with a number, 2 meter LO and 1 meter HI');
+  });
+});
+
+describe('a readings trend: Glucose (A-44, K-11)', () => {
+  const view = readingsView({ def: TRENDS.glucose, window: week, data: data(GLUCOSE), prefs, ctx: ctx() });
+
+  it('states the average with n, the range, the lows and highs, and each context', () => {
+    expect(view.headline).toEqual({ statistic: 'Average', coverage: '4 readings, all with a number', value: '157', unit: 'mg/dL' });
+    expect(view.stats).toEqual([
+      { label: 'Range', value: '62–280 mg/dL' },
+      { label: 'Below 70 mg/dL', value: '1' },
+      { label: 'Above 250 mg/dL', value: '1' },
+      { label: 'Fasting or before a meal', value: '118 mg/dL on average, 1 reading' },
+      { label: 'After a meal', value: '224 mg/dL on average, 2 readings' },
+      { label: 'Other times', value: '62 mg/dL on average, 1 reading' },
+    ]);
+    expect(view.meter).toBeUndefined();
+  });
+
+  it('compares means over the same days, with 3 days in both weeks', () => {
+    expect(view.change).toEqual({ text: 'Higher than last week · +37 mg/dL', direction: 'higher', compared: 'Mon–Thu vs last Mon–Thu' });
+  });
+
+  it('lists each reading with its time, context and what it was', () => {
+    expect(view.table).toEqual({
+      columns: ['Day', 'Reading', 'Note'],
+      rows: [
+        ['Monday, 5 October', '118 mg/dL at 7:30 am, fasting', ''],
+        ['Tuesday, 6 October', '168 mg/dL at 2:10 pm, after a meal', ''],
+        ['Wednesday, 7 October', '280 mg/dL at 1:00 pm, after a meal', 'Above 250 mg/dL'],
+        ['Wednesday, 7 October', '62 mg/dL at 9:30 pm', 'Low'],
+      ],
+    });
+    expect(view.chart.slots[2].text).toBe('Wednesday, 7 October: 280 mg/dL at 1:00 pm, after a meal, above 250 mg/dL; 62 mg/dL at 9:30 pm, low.');
+  });
+
+  it('draws each context as its own series, flags the lows and highs, and labels the lines and the average', () => {
+    expect(view.chart.series.map(s => s.kind === 'points' && [s.id, s.shape, s.points.length])).toEqual([
+      ['beforeMeal', 'circle', 1], ['afterMeal', 'triangle', 2], ['other', 'square', 1],
+    ]);
+    const other = view.chart.series[2];
+    expect(other.kind === 'points' && other.points[0]).toEqual({ slot: 2, at: (21 * 60 + 30) / 1440, value: 62, flag: 'low' });
+    expect(view.chart.lines).toEqual([{ value: 70, label: '70 mg/dL' }, { value: 250, label: '250 mg/dL' }]);
+    expect(view.chart.average).toEqual({ value: 157, label: 'Average 157 mg/dL' });
+  });
+
+  it('in mmol/L, the same readings in that unit, and the lines where the mg/dL lines are', () => {
+    const mmol = readingsView({ def: TRENDS.glucose, window: week, data: data(GLUCOSE), prefs: { ...prefs, glucose: 'mmol/L' }, ctx: ctx() });
+    expect(mmol.headline).toMatchObject({ value: '8.7', unit: 'mmol/L' });
+    expect(mmol.chart.lines.map(l => l.label)).toEqual(['3.9 mmol/L', '13.9 mmol/L']);
+    expect(mmol.chart.lines[0].value).toBeCloseTo(70 / 18, 9);
+  });
+});
+
+describe('a week with only a meter’s LO (Review Focus 3)', () => {
+  const lo = { date: '2026-10-06', glucoseDisplay: { display: 'LO', measuredAt: '2026-10-06T13:00:00+05:30' } } as unknown as CheckInRecord;
+  const view = readingsView({ def: TRENDS.glucose, window: week, data: data(GLUCOSE.slice(0, 3), [], [lo]), prefs, ctx: ctx() });
+
+  it('says no reading had a number, shows the LO above the average, and hides the change', () => {
+    expect(view.headline).toEqual({ statistic: 'Average', coverage: '1 reading: none with a number, 1 meter LO', value: 'No numeric readings' });
+    expect(view.meter).toBe('Not in the average: 1 LO. The meter showed this instead of a number.');
+    expect(view.change).toEqual({ text: 'No change shown: a meter LO has no number, so an average would leave out the lowest reading.' });
+    expect(view.stats).toEqual([{ label: 'Below 70 mg/dL', value: '1' }, { label: 'Above 250 mg/dL', value: '0' }]);
+    expect(view.chart.slots[1].text).toBe('Tuesday, 6 October: Meter showed LO at 1:00 pm, below what the meter can show.');
+  });
+
+  it('never shows a 0 or NaN for a missing average', () => {
+    expect(view.chart.average).toBeUndefined();
+    expect(JSON.stringify(view)).not.toMatch(/NaN|Infinity/);
+  });
+});
+
+describe('blood pressure: two numbers, each averaged on its own', () => {
+  const half = (kind: 'bloodPressureSystolic' | 'bloodPressureDiastolic', value: number, day: string, id: string) =>
+    newObservation({ kind, value, at: `${day}T07:30:00+05:30`, scope: 'pointInTime', source: 'manual', context: bpContext(id) });
+  const view = readingsView({
+    def: TRENDS.bp, window: week, prefs, ctx: ctx(),
+    data: data([
+      half('bloodPressureSystolic', 132, '2026-10-05', 'r1'), half('bloodPressureDiastolic', 84, '2026-10-05', 'r1'),
+      half('bloodPressureSystolic', 184, '2026-10-06', 'r2'), half('bloodPressureDiastolic', 96, '2026-10-06', 'r2'),
+      half('bloodPressureSystolic', 128, '2026-10-07', 'r3'),
+    ]),
+  });
+
+  it('a headline of both averages, ranges for each, and the readings at 180/120 or higher counted', () => {
+    expect(view.headline).toEqual({ statistic: 'Average', coverage: '3 readings, all with a number', value: '148/90', unit: 'mmHg' });
+    expect(view.stats).toEqual([
+      { label: 'Range, top number', value: '128–184 mmHg' },
+      { label: 'Range, bottom number', value: '84–96 mmHg' },
+      { label: '180/120 mmHg or higher', value: '1' },
+    ]);
+    expect(view.table.rows).toEqual([
+      ['Monday, 5 October', '132/84 mmHg at 7:30 am', ''],
+      ['Tuesday, 6 October', '184/96 mmHg at 7:30 am', 'Very high'],
+      ['Wednesday, 7 October', '128/Not entered mmHg at 7:30 am', ''],
+    ]);
+  });
+});
+
+describe('labs: dated results with their intervals (A-45)', () => {
+  const lab = (value: number, day: string) => newObservation({ kind: 'hba1c', value, unit: '%', at: `${day}T12:00:00+05:30`, scope: 'pointInTime', source: 'manual' });
+
+  it('one result shows at once, with no daily data needed (V-J27)', () => {
+    const view = labsView('hba1c', data([lab(7.1, TODAY)]), prefs, TODAY);
+    expect(view.headline).toEqual({ statistic: 'Latest', coverage: '1 result', value: '7.1%' });
+    expect(view.table.rows).toEqual([['Thursday, 8 October', '7.1%', 'First result']]);
+    expect(view.chart.series[0].kind === 'points' && view.chart.series[0].points).toEqual([{ slot: 0, at: 7.5 / 31, value: 7.1 }]);
+  });
+
+  it('each later result says how long after the one before it came, spaced by the months between', () => {
+    const view = labsView('hba1c', data([lab(6.9, '2026-10-07'), lab(7.4, '2026-03-02'), lab(7.1, '2026-06-02')]), prefs, TODAY);
+    expect(view.rows.map(r => r.interval)).toEqual(['First result', '3 months after the one before', '4 months after the one before']);
+    expect(view.chart.slots.map(s => s.label)).toEqual(['Mar 2026', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct']);
+    expect(view.headline.value).toBe('6.9%');
+  });
+
+  it('with none yet, says so', () => {
+    expect(labsView('b12', data([]), prefs, TODAY).headline).toEqual({ statistic: 'Latest', coverage: '0 results', value: 'No Vitamin B12 results yet' });
+  });
+});
+
+describe('a category’s row on the Trends tab (J§12.1)', () => {
+  it('daily measures: the week’s figure with its statistic named, and the week’s days', () => {
+    const row = trendRow(TRENDS.steps, data(STEPS.map(([d, v]) => steps(d, v))), prefs, ctx());
+    expect(row).toEqual({
+      id: 'steps', title: 'Steps', colour: '--cat-steps',
+      value: 'A day on average this week: 6,167 steps', spark: [6000, 7000, 5500, null, null, null, null],
+    });
+    expect(trendRow(TRENDS.walk, data(STEPS.map(([d, v]) => steps(d, v))), prefs, ctx()).value).toBe('Total this week: 0 min');
+  });
+
+  it('readings: the latest, with when; labs: the latest result of any lab', () => {
+    expect(trendRow(TRENDS.glucose, data(GLUCOSE), prefs, ctx())).toMatchObject({
+      value: 'Latest: 62 mg/dL at 9:30 pm · Wed 7 Oct', spark: [120, 118, 122, 118, 168, 280, 62],
+    });
+    const hba1c = newObservation({ kind: 'hba1c', value: 7.1, unit: '%', at: `${TODAY}T12:00:00+05:30`, scope: 'pointInTime', source: 'manual' });
+    expect(trendRow(TRENDS.labs, data([hba1c]), prefs, ctx()).value).toBe('Latest HbA1c: 7.1% · Thu 8 Oct');
+    expect(trendRow(TRENDS.mood, data([]), prefs, ctx()).value).toBe('No readings yet');
+  });
+});
+
+describe('more of the readings view (A-43, A-44, K-11)', () => {
+  const view = readingsView({ def: TRENDS.glucose, window: week, data: data(GLUCOSE), prefs, ctx: ctx() });
+  const at = (day: string, time: string) => `${day}T${time}:00+05:30`;
+  const half = (kind: 'bloodPressureSystolic' | 'bloodPressureDiastolic', value: number, day: string, id: string) =>
+    newObservation({ kind, value, at: `${day}T07:30:00+05:30`, scope: 'pointInTime', source: 'manual', context: bpContext(id) });
+  const reading = (day: string, sys: number, dia?: number) => [
+    half('bloodPressureSystolic', sys, day, `bp-${day}`), ...(dia === undefined ? [] : [half('bloodPressureDiastolic', dia, day, `bp-${day}`)]),
+  ];
+  const pain = (kind: 'backPain' | 'legPain', value: number, day: string) => newObservation({ kind, value, at: at(day, '07:30'), scope: 'pointInTime', source: 'manual' });
+  const display = (date: string, kind: 'HI' | 'LO', time: string) => ({ date, glucoseDisplay: { display: kind, measuredAt: at(date, time) } }) as unknown as CheckInRecord;
+
+  it('a high is flagged as well as named; today with nothing says so; days to come can’t be chosen', () => {
+    const afterMeal = view.chart.series[1];
+    expect(afterMeal.kind === 'points' && afterMeal.points).toEqual([{ slot: 1, at: (14 * 60 + 10) / 1440, value: 168 }, { slot: 2, at: (13 * 60) / 1440, value: 280, flag: 'high' }]);
+    expect(view.chart.slots[3]).toMatchObject({ day: '2026-10-08', text: 'Thursday, 8 October: No readings.' });
+    expect(view.chart.slots[4]).toMatchObject({ future: true, text: 'Friday, 9 October: Still to come.' });
+    expect(view.chart.slots[4].day).toBeUndefined();
+  });
+
+  it('a week with nothing has no readings; one context alone isn’t split out', () => {
+    const none = readingsView({ def: TRENDS.glucose, window: week, data: data([]), prefs, ctx: ctx() });
+    expect(none.headline).toEqual({ statistic: 'Average', coverage: '0 readings', value: 'No readings' });
+    const fasting = readingsView({
+      def: TRENDS.glucose, window: week, prefs, ctx: ctx(),
+      data: data([g(110, at('2026-10-05', '07:30'), 'fasting'), g(112, at('2026-10-06', '07:30'), 'fasting'), g(108, at('2026-10-07', '07:30'), 'fasting')]),
+    });
+    expect(fasting.stats).toEqual([{ label: 'Range', value: '108–112 mg/dL' }, { label: 'Below 70 mg/dL', value: '0' }, { label: 'Above 250 mg/dL', value: '0' }]);
+  });
+
+  it('a LO and a HI are both said above the average; the series a week has no reading in isn’t drawn', () => {
+    const both = readingsView({ def: TRENDS.glucose, window: week, data: data(GLUCOSE.slice(0, 3), [], [display('2026-10-06', 'LO', '13:00'), display('2026-10-07', 'HI', '21:00')]), prefs, ctx: ctx() });
+    expect(both.meter).toBe('Not in the average: 1 LO and 1 HI. The meter showed these instead of a number.');
+    expect(both.headline.coverage).toBe('2 readings: none with a number, 1 meter LO and 1 meter HI');
+    expect(both.chart.series).toEqual([]);
+  });
+
+  it('a LO in the week before hides the change too, though it isn’t on the days compared', () => {
+    const lastSaturday = readingsView({
+      def: TRENDS.glucose, window: week, prefs, ctx: ctx(),
+      data: data([...GLUCOSE.slice(0, 3), g(118, at('2026-10-05', '07:30')), g(120, at('2026-10-06', '07:30')), g(116, at('2026-10-07', '07:30'))], [], [display('2026-10-03', 'LO', '22:00')]),
+    });
+    expect(lastSaturday.change).toEqual({ text: 'No change shown: a meter LO has no number, so an average would leave out the lowest reading.' });
+  });
+
+  it('readings on a status day are counted, and the day named', () => {
+    const unwell = readingsView({ def: TRENDS.glucose, window: week, data: data(GLUCOSE), prefs, ctx: ctx({ statusOn: d => (d === '2026-10-06' ? 'unwell' : 'normal') }) });
+    expect(unwell.headline.coverage).toBe('4 readings, all with a number');
+    expect(unwell.notes).toEqual(['Includes 1 Unwell day.']);
+  });
+
+  it('sums a meter’s LO up with the rest', () => {
+    const lo = readingsView({ def: TRENDS.glucose, window: week, data: data(GLUCOSE.slice(0, 3), [], [display('2026-10-06', 'LO', '13:00')]), prefs, ctx: ctx() });
+    expect(lo.summary).toBe('Glucose, This week. Average, 1 reading: none with a number, 1 meter LO: No numeric readings. No change shown: a meter LO has no number, so an average would leave out the lowest reading. Not in the average: 1 LO. The meter showed this instead of a number.');
+  });
+
+  it('blood pressure: compared on the top number, said so; no single average line and no reference lines; a missing half is not entered', () => {
+    const bp = readingsView({
+      def: TRENDS.bp, window: week, prefs, ctx: ctx(),
+      data: data([...reading('2026-09-28', 130, 70), ...reading('2026-09-29', 128, 70), ...reading('2026-09-30', 126, 70), ...reading('2026-10-05', 132, 84), ...reading('2026-10-06', 184, 96), ...reading('2026-10-07', 128)]),
+    });
+    expect(bp.change).toEqual({ text: 'Higher than last week · +20 mmHg, top number', direction: 'higher', compared: 'Mon–Thu vs last Mon–Thu' });
+    expect(bp.chart.average).toBeUndefined();
+    expect(bp.chart.lines).toEqual([]);
+    const onlyTop = readingsView({ def: TRENDS.bp, window: week, data: data(reading('2026-10-07', 128)), prefs, ctx: ctx() });
+    expect(onlyTop.headline).toEqual({ statistic: 'Average', coverage: '1 reading with a number', value: '128/Not entered', unit: 'mmHg' });
+  });
+
+  it('back and leg pain: back pain is the headline, leg pain its own average and range', () => {
+    const back = readingsView({
+      def: TRENDS.back, window: week, prefs, ctx: ctx(),
+      data: data([pain('backPain', 6, '2026-10-05'), pain('legPain', 3, '2026-10-05'), pain('backPain', 4, '2026-10-06'), pain('legPain', 2, '2026-10-06')]),
+    });
+    expect(back.headline).toEqual({ statistic: 'Back pain on average', coverage: '4 readings, all with a number', value: '5.0', unit: 'of 10' });
+    expect(back.stats).toEqual([
+      { label: 'Range, back', value: '4.0–6.0 of 10' }, { label: 'Range, leg', value: '2.0–3.0 of 10' }, { label: 'Leg pain on average', value: '2.5 of 10' },
+    ]);
+    expect(back.chart.average).toBeUndefined();
+  });
+
+  it('6 Months: each week’s range and mean, in words and as a list by week', () => {
+    const six = readingsView({ def: TRENDS.glucose, window: windowOf('sixMonths', TODAY), data: data(GLUCOSE), prefs, ctx: ctx() });
+    const slot = (key: string) => six.chart.slots.findIndex(s => s.key === key);
+    expect(six.headline).toEqual({ statistic: 'Average', coverage: '7 readings, all with a number', value: '141', unit: 'mg/dL' });
+    const [ranges] = six.chart.series;
+    expect(ranges.kind === 'ranges' && [ranges.label, ranges.values[slot('2026-09-28')], ranges.values[slot('2026-10-05')], ranges.values[slot('2026-09-21')]])
+      .toEqual(['Glucose', { min: 118, max: 122, mean: 120 }, { min: 62, max: 280, mean: 157 }, null]);
+    expect(six.chart.slots[slot('2026-09-28')].text).toBe('28 Sep – 4 Oct: 3 readings, 118 to 122 mg/dL, average 120 mg/dL.');
+    expect(six.chart.slots[slot('2026-09-21')].text).toBe('21–27 Sep: No readings.');
+    expect(six.chart.slots[slot('2026-10-12')].text).toBe('12–18 Oct: Still to come.');
+    expect(six.chart.slots.every(s => s.day === undefined)).toBe(true);
+    expect(six.table).toEqual({
+      columns: ['Week', 'Readings', 'Range', 'Average'],
+      rows: [['28 Sep – 4 Oct', '3', '118–122 mg/dL', '120 mg/dL'], ['5–11 Oct', '4', '62–280 mg/dL', '157 mg/dL']],
+    });
+  });
+
+  it('6 Months of blood pressure: a range for each number, named', () => {
+    const six = readingsView({ def: TRENDS.bp, window: windowOf('sixMonths', TODAY), data: data([...reading('2026-10-05', 132, 84), ...reading('2026-10-06', 184, 96), ...reading('2026-10-07', 128)]), prefs, ctx: ctx() });
+    const at5 = six.chart.slots.findIndex(s => s.key === '2026-10-05');
+    expect(six.chart.series.map(s => s.kind === 'ranges' && [s.id, s.label, s.values[at5]])).toEqual([
+      ['systolic', 'Top number (systolic)', { min: 128, max: 184, mean: 148 }], ['diastolic', 'Bottom number (diastolic)', { min: 84, max: 96, mean: 90 }],
+    ]);
+  });
+});
+
+describe('more of labs and the rows', () => {
+  const lab = (kind: 'hba1c' | 'b12', value: number, day: string) =>
+    newObservation({ kind, value, unit: kind === 'hba1c' ? '%' : 'pg/mL', at: `${day}T12:00:00+05:30`, scope: 'pointInTime', source: 'manual' });
+
+  it('a month says its results; the year is said again at each January; the summary names the first', () => {
+    const view = labsView('hba1c', data([lab('hba1c', 6.9, '2026-10-07'), lab('hba1c', 7.4, '2026-03-02'), lab('hba1c', 7.1, '2026-06-02')]), prefs, TODAY);
+    expect([view.chart.slots[0].text, view.chart.slots[1].text]).toEqual(['March 2026: 7.4% on 2 Mar.', 'April 2026: No results.']);
+    expect(view.summary).toBe('HbA1c. Latest, 3 results: 6.9%. The first was on Monday, 2 March.');
+    const turning = labsView('hba1c', data([lab('hba1c', 7.4, '2025-11-20'), lab('hba1c', 7.0, '2026-02-03')]), prefs, '2026-02-10');
+    expect(turning.chart.slots.map(s => s.label)).toEqual(['Nov 2025', 'Dec', 'Jan 2026', 'Feb']);
+  });
+
+  it('the Labs row names the latest result of any lab, or says there are none', () => {
+    expect(trendRow(TRENDS.labs, data([lab('hba1c', 7.1, '2026-03-02'), lab('b12', 410, '2026-06-02')]), prefs, ctx()).value).toBe('Latest Vitamin B12: 410 pg/mL · Tue 2 Jun');
+    expect(trendRow(TRENDS.labs, data([lab('hba1c', 7.1, '2026-06-02'), lab('b12', 410, '2026-03-02')]), prefs, ctx()).value).toBe('Latest HbA1c: 7.1% · Tue 2 Jun');
+    expect(trendRow(TRENDS.labs, data([]), prefs, ctx()).value).toBe('No results yet');
+  });
+
+  it('a readings row draws the top number’s last 10; a week with nothing entered says so', () => {
+    const half = (kind: 'bloodPressureSystolic' | 'bloodPressureDiastolic', value: number, day: string, id: string) =>
+      newObservation({ kind, value, at: `${day}T07:30:00+05:30`, scope: 'pointInTime', source: 'manual', context: bpContext(id) });
+    const bp = [half('bloodPressureSystolic', 132, '2026-10-05', 'r1'), half('bloodPressureDiastolic', 84, '2026-10-05', 'r1'), half('bloodPressureSystolic', 128, '2026-10-06', 'r2')];
+    expect(trendRow(TRENDS.bp, data(bp), prefs, ctx()).spark).toEqual([132, 128]);
+    const twelve = Array.from({ length: 12 }, (_, i) => g(100 + i, `2026-10-0${1 + (i % 7)}T0${i % 10}:00:00+05:30`));
+    expect(trendRow(TRENDS.glucose, data(twelve), prefs, ctx()).spark).toHaveLength(10);
+    expect(trendRow(TRENDS.steps, data([]), prefs, ctx()).value).toBe('Not entered this week');
   });
 });

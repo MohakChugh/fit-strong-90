@@ -9,17 +9,23 @@ import type { DayRange } from '@/health/aggregate';
 import { isDay } from '@/health/observation';
 import { isEnrolled } from '@/health/recommend';
 import { restDaysOf } from '@/screens/home/week';
-import { formatDayLong, type DisplayPrefs } from '@/screens/track/format';
-import { formatNumber } from '@/screens/track/units';
+import { HYPO_LEVEL_1_MGDL } from '@/screens/track/escalation';
+import { formatDayLong, formatValue, type DisplayPrefs } from '@/screens/track/format';
+import { LAB_OPTIONS, type LabKind } from '@/screens/track/logKinds';
+import { daysBetween } from '@/screens/track/periods';
+import { MGDL_PER_MMOL, decimalsFor, formatNumber } from '@/screens/track/units';
 import type { UserSettings } from '@/types';
 import type { UserProfile } from '@/types/profile';
-import { MARK_WORDS, type ChartModel, type ChartSeries, type Slot, type SlotMark } from './chart';
-import { figuresFor, type TrendDef } from './metrics';
-import { compareRanges, comparedText, previousName, previousWindow, rangeText, windowTitle, type TrendPeriod, type TrendWindow } from './periods';
+import { MARK_WORDS, type ChartModel, type ChartSeries, type PointSeries, type RangeSeries, type Slot, type SlotMark } from './chart';
+import { GLUCOSE_LINES, HIGH_GLUCOSE_MGDL, TRENDS, figuresFor, labPoints, readingsFor, type TrendDef, type TrendId } from './metrics';
+import {
+  compareRanges, comparedText, monthEnd, monthStart, previousName, previousWindow, rangeText, windowOf, windowTitle,
+  type TrendPeriod, type TrendWindow,
+} from './periods';
 import { firstRecordDay, stretchedDays, type TrendData } from './records';
 import {
-  compareDaily, dailyStats, dayContext, figureOf, statisticFor, statusList,
-  type Comparison, type DailyRule, type DayContext, type DayFigure, type Direction, type Statistic,
+  compareDaily, compareReadings, dailyStats, dayContext, figureOf, labHistory, readingStats, statisticFor, statusList,
+  type Comparison, type DailyRule, type DayContext, type DayFigure, type Direction, type LabRow, type Statistic,
 } from './stats';
 
 export interface StatItem {
@@ -298,4 +304,250 @@ export function trendContext({ today, data, settings, profile }: {
     restDays: restDaysOf(isEnrolled(settings, profile), profile?.trainingDays),
     startDate: isDay(settings.startDate) ? settings.startDate : '',
   });
+}
+
+const READING: readonly [string, string] = ['reading', 'readings'];
+const lowerFirst = (s: string) => `${s.charAt(0).toLowerCase()}${s.slice(1)}`;
+
+/** "5 readings, all with a number", "6 readings: 5 with a number, 1 meter LO" (B-15). */
+export function readingCount(n: number, hi: number, lo: number): string {
+  const total = n + hi + lo;
+  const meter = [lo > 0 ? `${formatNumber(lo)} meter LO` : '', hi > 0 ? `${formatNumber(hi)} meter HI` : ''].filter(Boolean).join(' and ');
+  if (meter) return `${countText(total, READING)}: ${n === 0 ? 'none' : formatNumber(n)} with a number, ${meter}`;
+  if (total === 0) return '0 readings';
+  return total === 1 ? '1 reading with a number' : `${countText(total, READING)}, all with a number`;
+}
+
+/** A pressure is two numbers and back pain isn't leg pain: each is averaged on its own, the first in the headline. */
+const GROUPS: Partial<Record<TrendId, readonly { id: string; words: string }[]>> = {
+  bp: [{ id: 'systolic', words: 'top number' }, { id: 'diastolic', words: 'bottom number' }],
+  back: [{ id: 'back', words: 'back' }, { id: 'leg', words: 'leg' }],
+};
+
+/** A readings trend over its window: the average with n, the spread, the meter's HI and LO, and each reading (A-44, K-11). */
+export function readingsView(input: TrendInput): TrendView {
+  const { def, window: w, data, prefs, ctx } = input;
+  const prev = previousWindow(w);
+  const r = readingsFor(def.id, { from: prev.from, to: w.to }, data, prefs);
+  const unit = def.unit(prefs);
+  const d = def.decimals(prefs);
+  const fmt = (v: number) => formatNumber(v, d);
+  const title = windowTitle(w, ctx.today);
+  const against = previousName(w, ctx.today);
+  const groups = GROUPS[def.id];
+  const primary = groups?.[0].id;
+  const of = (series?: string) => (series === undefined ? r.points : r.points.filter(p => p.series === series));
+  const stat = (range: DayRange, series?: string) => readingStats(range, of(series), r.meters, ctx);
+  const inside = (day: string) => day >= w.from && day <= w.to;
+  const all = stat(w);
+  const main = groups ? groups.map(g => stat(w, g.id)) : [all];
+  const texts = r.texts.filter(t => inside(t.day));
+  // A pressure's two numbers are one reading: count the readings as they're listed, a meter's display among them.
+  const numeric = texts.length - all.hi - all.lo;
+
+  const value = def.id === 'bp'
+    ? (main.some(s => s.mean !== undefined) ? main.map(s => (s.mean === undefined ? 'Not entered' : fmt(s.mean))).join('/') : undefined)
+    : main[0].mean === undefined ? undefined : fmt(main[0].mean);
+  const headline: Headline = {
+    statistic: def.id === 'back' ? 'Back pain on average' : 'Average',
+    coverage: readingCount(numeric, all.hi, all.lo),
+    ...(value === undefined ? { value: texts.length === 0 ? 'No readings' : 'No numeric readings' } : { value, unit }),
+  };
+
+  const ranges = compareRanges(w, ctx.today);
+  const lo = all.lo + stat(prev).lo;
+  const comparison: Comparison = !ranges ? { shown: false, reason: 'fewDays' }
+    // A LO anywhere in either period hides the change, not only on the days compared (B-15).
+    : lo > 0 ? { shown: false, reason: 'meterLo' }
+      : compareReadings(stat(ranges.current, primary), stat(ranges.previous, primary), d);
+  const change = changeOf(comparison, against, def.id === 'bp' ? `${unit}, top number` : unit, d, w.period, ranges && comparedText(w, ranges, ctx.today));
+
+  const stats: StatItem[] = [];
+  (groups ?? [{ id: '', words: '' }]).forEach((g, i) => {
+    const s = main[i];
+    if (s.min !== undefined && s.max !== undefined) stats.push({ label: g.words ? `Range, ${g.words}` : 'Range', value: `${fmt(s.min)}–${fmt(s.max)} ${unit}` });
+  });
+  if (def.id === 'back' && main[1].mean !== undefined) stats.push({ label: 'Leg pain on average', value: `${fmt(main[1].mean)} ${unit}` });
+  if (def.id === 'glucose') {
+    const line = GLUCOSE_LINES[prefs.glucose];
+    stats.push({ label: `Below ${line.low}`, value: formatNumber(all.lows) }, { label: `Above ${line.high}`, value: formatNumber(all.highs) });
+    const contexts = r.series.flatMap(sr => {
+      const s = stat(w, sr.id);
+      return s.mean === undefined ? [] : [{ label: sr.label, mean: s.mean, n: s.n }];
+    });
+    if (contexts.length > 1) for (const c of contexts) stats.push({ label: c.label, value: `${fmt(c.mean)} ${unit} on average, ${countText(c.n, READING)}` });
+  }
+  if (def.id === 'bp') stats.push({ label: '180/120 mmHg or higher', value: formatNumber(texts.filter(t => t.note === 'Very high').length) });
+
+  const shown = [all.lo > 0 ? `${formatNumber(all.lo)} LO` : '', all.hi > 0 ? `${formatNumber(all.hi)} HI` : ''].filter(Boolean).join(' and ');
+  const meter = shown ? `Not in the average: ${shown}. The meter showed ${all.lo + all.hi === 1 ? 'this' : 'these'} instead of a number.` : undefined;
+  const notes: string[] = [];
+  const list = statusList(all.status);
+  if (list) notes.push(`Includes ${list}.`);
+
+  const dayly = w.period === 'week' || w.period === 'month';
+  const colour = `var(${def.colour})`;
+  const slotOf = (day: string) => w.buckets.findIndex(b => day >= b.from && day <= b.to);
+  const series: ChartSeries[] = dayly
+    ? r.series.map((sr): PointSeries => ({
+      kind: 'points', id: sr.id, label: sr.label, colour, shape: sr.shape,
+      points: r.points.filter(p => p.series === sr.id && inside(p.day)).map(p => ({
+        slot: slotOf(p.day),
+        // Where through its day the reading was taken, on the wall clock it was recorded in.
+        at: (Number(p.at.slice(11, 13)) * 60 + Number(p.at.slice(14, 16))) / 1440,
+        value: p.value,
+        ...(p.low ? { flag: 'low' as const } : p.high ? { flag: 'high' as const } : {}),
+      })),
+    })).filter(s => s.points.length > 0)
+    : (groups ?? [{ id: '', words: '' }]).map((g): RangeSeries => ({
+      kind: 'ranges',
+      id: g.id || 'all',
+      label: r.series.find(sr => sr.id === g.id)?.label ?? def.title,
+      colour,
+      values: w.buckets.map(b => {
+        const s = stat(b, g.id || undefined);
+        return s.mean === undefined || s.min === undefined || s.max === undefined ? null : { min: s.min, max: s.max, mean: s.mean };
+      }),
+    }));
+  const mmol = prefs.glucose === 'mmol/L';
+  const lines = def.id !== 'glucose' ? [] : [
+    { value: mmol ? HYPO_LEVEL_1_MGDL / MGDL_PER_MMOL : HYPO_LEVEL_1_MGDL, label: GLUCOSE_LINES[prefs.glucose].low },
+    { value: mmol ? HIGH_GLUCOSE_MGDL / MGDL_PER_MMOL : HIGH_GLUCOSE_MGDL, label: GLUCOSE_LINES[prefs.glucose].high },
+  ];
+  const average = groups ? undefined : all.mean;
+
+  const said = (b: DayRange): string => {
+    if (b.from > ctx.today) return 'Still to come';
+    if (dayly) {
+      const day = texts.filter(t => t.day === b.from).map(t => `${t.text}${t.note ? `, ${lowerFirst(t.note)}` : ''}`);
+      return day.length ? day.join('; ') : 'No readings';
+    }
+    const s = stat(b, primary);
+    return s.mean === undefined || s.min === undefined || s.max === undefined ? 'No readings'
+      : `${countText(s.n, READING)}, ${fmt(s.min)} to ${fmt(s.max)} ${unit}, average ${fmt(s.mean)} ${unit}`;
+  };
+  const slots: Slot[] = w.buckets.map(b => {
+    const name = slotName(w.period, b, ctx.today);
+    const future = b.from > ctx.today;
+    return {
+      key: b.from, label: slotLabel(w.period, b), name, range: b,
+      ...(future ? { future: true as const } : {}),
+      ...(dayly && !future ? { day: b.from } : {}),
+      text: `${name}: ${said(b)}.`,
+    };
+  });
+
+  const table = dayly
+    ? { columns: ['Day', 'Reading', 'Note'], rows: texts.map(t => [formatDayLong(t.day, ctx.today), t.text, t.note ?? '']) }
+    : {
+      columns: [w.period === 'sixMonths' ? 'Week' : 'Month', 'Readings', 'Range', 'Average'],
+      rows: w.buckets.flatMap(b => {
+        const s = stat(b, primary);
+        return s.mean === undefined || s.min === undefined || s.max === undefined ? []
+          : [[slotName(w.period, b, ctx.today), formatNumber(s.n), `${fmt(s.min)}–${fmt(s.max)} ${unit}`, `${fmt(s.mean)} ${unit}`]];
+      }),
+    };
+
+  return {
+    title, headline, change, stats, notes, ...(meter ? { meter } : {}),
+    chart: { slots, series, lines, unit, decimals: d, ...(average !== undefined ? { average: { value: average, label: `Average ${fmt(average)} ${unit}` } } : {}) },
+    table,
+    summary: summaryOf(def.title, title, headline, change, [...(meter ? [meter] : []), ...notes]),
+  };
+}
+
+export const LAB_TITLE = Object.fromEntries(LAB_OPTIONS.map(o => [o.kind, o.title])) as Record<LabKind, string>;
+
+export interface LabView {
+  lab: LabKind;
+  title: string;
+  headline: Headline;
+  rows: LabRow[];
+  chart: ChartModel;
+  table: { columns: string[]; rows: string[][] };
+  summary: string;
+}
+
+/** One lab's results (A-45): dated points with their intervals, from the first, with no period and no 7-day rule. */
+export function labsView(lab: LabKind, data: TrendData, prefs: DisplayPrefs, today: string): LabView {
+  const title = LAB_TITLE[lab];
+  const rows = labHistory(labPoints(lab, data.observations, prefs));
+  const latest = rows.at(-1);
+  const shown = (r: LabRow) => formatValue(r.value, lab, r.unit);
+  const headline: Headline = {
+    statistic: 'Latest',
+    coverage: countText(rows.length, ['result', 'results']),
+    value: latest ? shown(latest) : `No ${title} results yet`,
+  };
+  // A slot a month, from the first result's month to this one, so results sit as far apart as they were taken.
+  const end = latest && latest.day > today ? latest.day : today;
+  const months: DayRange[] = [];
+  for (let m = monthStart(rows[0]?.day ?? today); m <= end; m = monthStart(m, 1)) months.push({ from: m, to: monthEnd(m) });
+  const slotOf = (day: string) => months.findIndex(b => day >= b.from && day <= b.to);
+  const slots: Slot[] = months.map((b, i) => {
+    const name = format(noon(b.from), 'MMMM yyyy');
+    const here = rows.filter(r => r.day >= b.from && r.day <= b.to);
+    return {
+      key: b.from, name, range: b,
+      label: format(noon(b.from), i === 0 || b.from.endsWith('-01-01') ? 'MMM yyyy' : 'MMM'),
+      text: `${name}: ${here.length ? here.map(r => `${shown(r)} on ${format(noon(r.day), 'd MMM')}`).join('; ') : 'No results'}.`,
+    };
+  });
+  const points = rows.map(r => {
+    const slot = slotOf(r.day);
+    return { slot, at: (Number(r.day.slice(8, 10)) - 0.5) / (daysBetween(months[slot].from, months[slot].to) + 1), value: r.value };
+  });
+  return {
+    lab, title, headline, rows,
+    chart: {
+      slots, lines: [], unit: latest?.unit ?? '', decimals: latest ? decimalsFor(lab, latest.unit) : 0,
+      series: rows.length ? [{ kind: 'points', id: lab, label: title, colour: `var(${TRENDS.labs.colour})`, shape: 'circle', points }] : [],
+    },
+    table: { columns: ['Date', 'Result', 'Interval'], rows: rows.map(r => [formatDayLong(r.day, today), shown(r), r.interval]) },
+    summary: `${title}. ${headline.statistic}, ${headline.coverage}: ${headline.value}.${rows.length > 1 ? ` The first was on ${formatDayLong(rows[0].day, today)}.` : ''}`,
+  };
+}
+
+export interface TrendRowView {
+  id: TrendId;
+  title: string;
+  colour: string;
+  /** The figure with its statistic named: "A day on average this week: 6,167 steps" (J§12.1). */
+  value: string;
+  /** The small chart's values, oldest first; empty draws none. */
+  spark: (number | null)[];
+}
+
+/** A category's row on the Trends tab: its week, or its latest reading or result. */
+export function trendRow(def: TrendDef, data: TrendData, prefs: DisplayPrefs, ctx: DayContext): TrendRowView {
+  const base = { id: def.id, title: def.title, colour: def.colour };
+  if (def.family === 'labs') {
+    const latest = LAB_OPTIONS
+      .flatMap(o => labHistory(labPoints(o.kind, data.observations, prefs)).map(r => ({ lab: o.kind, r })))
+      .sort((a, b) => a.r.day.localeCompare(b.r.day))
+      .at(-1);
+    return {
+      ...base,
+      value: latest ? `Latest ${LAB_TITLE[latest.lab]}: ${formatValue(latest.r.value, latest.lab, latest.r.unit)} · ${shortDay(latest.r.day)}` : 'No results yet',
+      spark: [],
+    };
+  }
+  if (def.family === 'readings') {
+    const r = readingsFor(def.id, { from: ctx.since ?? ctx.today, to: ctx.today }, data, prefs);
+    const last = r.texts.at(-1);
+    const primary = GROUPS[def.id]?.[0].id;
+    return {
+      ...base,
+      value: last ? `Latest: ${last.text} · ${shortDay(last.day)}` : 'No readings yet',
+      spark: r.points.filter(p => primary === undefined || p.series === primary).slice(-10).map(p => p.value),
+    };
+  }
+  const view = dailyView({ def, window: windowOf('week', ctx.today), data, prefs, ctx });
+  const h = view.headline;
+  const bars = view.chart.series.find(s => s.kind === 'bars' && !s.previous);
+  return {
+    ...base,
+    value: h.unit ? `${h.statistic} this week: ${h.value} ${h.unit}` : `${h.value} this week`,
+    spark: bars?.kind === 'bars' ? bars.values : [],
+  };
 }
