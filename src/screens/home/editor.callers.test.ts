@@ -173,6 +173,36 @@ describe('quick changes after a refused one build on each other (codex W-03)', (
     expect(editor().draft).toBeUndefined();
   });
 
+  it('Try again while a later change is still on its way writes the newest layout, which carries both (review of W-03)', async () => {
+    await open();
+    refuse = true;
+    editor().hide('stretch', 'edit');
+    await settle();
+    refuse = false;
+    // Try again from the screen as drawn, before the Hide after it has settled.
+    const drawnThen = editor();
+    drawnThen.hide('walk', 'edit');
+    drawnThen.retry();
+    await settle();
+    expect(homeNow()?.order.move).toEqual(['workout']);
+    expect(homeNow()?.hidden).toEqual(expect.arrayContaining(['stretch', 'walk']));
+    expect(editor().draft).toBeUndefined();
+  });
+
+  it('an Undo tapped again while its restore is on its way restores once, and says so once', async () => {
+    await open();
+    editor().hide('stretch', 'edit');
+    await settle();
+    const [key] = [...toasts.shown.keys()];
+    const before = editor().said.n;
+    toasts.shown.get(key)!.undo({ preventDefault() {} });
+    toasts.shown.get(key)!.undo({ preventDefault() {} });
+    await settle();
+    expect(homeNow()?.order.move).toEqual(['workout', 'stretch', 'walk']);
+    expect(editor().said.n - before).toBe(1);
+    expect(toasts.shown.has(key)).toBe(false);
+  });
+
   it('changes queued behind a write still on its way compose from it, and the last one stored is all of them', async () => {
     await open();
     editor().hide('stretch', 'edit');

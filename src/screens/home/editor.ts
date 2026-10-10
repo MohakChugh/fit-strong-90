@@ -268,9 +268,14 @@ export function useHomeEditor({ fallback, still, urgent }: {
       if (closing.current && inFlight.current === 0 && !requested.current) finish();
     });
   };
-  /** Try again: the refused draft, written again, saying then what it would have said. */
+  /**
+   * Try again: the refused draft, written again, saying then what it would
+   * have said. A change made since, still on its way, carries it already, so
+   * the newest layout asked for is the one written: never the older draft
+   * after it (codex W-03).
+   */
   const retry = () => {
-    if (refused) write(refused.layout, refused.then);
+    if (refused) write(requested.current ?? refused.layout, refused.then);
   };
 
   const forget = (key: string) => {
@@ -293,7 +298,9 @@ export function useHomeEditor({ fallback, still, urgent }: {
       focusLater(() => tileControl(u.id, 'hide'), { preventScroll: true });
     };
     if (now.order[group].includes(u.id)) {
-      // Back in its place already: in a layout not yet stored, which this Undo writes again; or stored.
+      // Back in its place already: on its way, whose write finishes this Undo
+      // once stored; in a refused draft, which this Undo writes again; or stored.
+      if (inFlight.current > 0) return;
       if (requested.current) write(requested.current, restored(requested.current));
       else {
         forget(key);
