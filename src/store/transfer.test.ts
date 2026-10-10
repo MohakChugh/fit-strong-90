@@ -378,9 +378,8 @@ describe('applyImport', () => {
       ['resolutions', [{ ...answer, resolution: 'gone' }]], ['resolutions', [{ ...answer, kind: 'mood' }]], ['resolutions', [{ ...answer, at: undefined }]],
       ['news', undefined], ['newsEarlier', 5], ['newsEarlier', 'fainted'],
       ['provoked', 'brisk-walking'], ['provoked', [5]],
-      ['logged', { glucose: 'high' }], ['logged', { bp: [null] }],
-      // Read as true or false, a word would say the opposite: recovered from a low, a day with no answers to carry.
-      ['lowRecovered', 'no'], ['readingsOnly', 'no'],
+      // Read as true or false, a word would say the opposite: recovered from a low.
+      ['lowRecovered', 'no'],
       // Each of these would leave a decision less strict than the field missing would (R5-01).
       // An emergency answer this build cannot name would count as "None of these".
       ['emergency', ['seizure']], ['emergency', [null]],
@@ -388,9 +387,6 @@ describe('applyImport', () => {
       ['back', { pain: 2, newNeuro: true, newWeakness: 'yes' }], ['back', { pain: 2, newNeuro: true, newSensory: null }],
       // A time that is not an instant is read as some other moment: an answer not today's (a reading's own time is below).
       ['resolutions', [{ ...answer, at: 'not a time' }]], ['lowSymptomsAt', '5'],
-      // Never stored: the gates attach these to a day for themselves, and stored they would act as readings or skip its red flags.
-      ['logged', { glucose: [{ value: 110, unit: 'mg/dL', measuredAt: at }] }], ['readingsOnly', true],
-      ['durable', { date: '2026-10-09', urgentSymptoms: false, news: [], sleep: '5to7', energy: 4 }],
       // What the day's details show of the suggestion made at the time.
       ['readiness', { ...readiness, reasons: undefined }], ['readiness', { ...readiness, reasons: [null] }],
     ];
@@ -445,6 +441,16 @@ describe('applyImport', () => {
       ['bpPartial', [{ sys: 200, at: '5' }], 'a blood pressure reading whose time cannot be read'],
       // A partial reading is one number with the other box empty, never neither (N-07).
       ['bpPartial', [{ at }], 'a blood pressure reading with no numbers in it'],
+      // The reading that completed a half is a whole reading, and read as one.
+      ['bpPartial', [{ sys: 200, at, completion: { sys: 200, dia: 'high', at } }], 'a blood pressure reading whose numbers cannot be read'],
+      ['bpPartial', [{ sys: 200, at, completion: { sys: 200, at } }], 'a blood pressure reading whose numbers cannot be read'],
+      ['bpPartial', [{ sys: 200, at, completion: { sys: 200, dia: 120, at: '5' } }], 'a blood pressure reading whose time cannot be read'],
+      ['bpPartial', [{ sys: 200, at, completion: 'done' }], 'a blood pressure reading this app cannot read'],
+      // What Track attached, as a save before P-01 kept it: read as the readings it is, before it is folded in.
+      ['logged', { glucose: 'high' }, 'a glucose reading this app cannot read'],
+      ['logged', { bp: [null] }, 'a blood pressure reading this app cannot read'],
+      ['logged', { glucose: [{ value: 110, unit: 'mmol', measuredAt: at }] }, 'a glucose reading in a unit this app does not know ("mmol")'],
+      ['logged', 'high', 'readings from Track this app cannot read'],
       ['bpPartial', [null], 'a blood pressure reading this app cannot read'],
       ['bpPartial', { sys: 200, at }, 'a blood pressure reading this app cannot read'],
     ];
@@ -475,7 +481,7 @@ describe('applyImport', () => {
       glucoseEarlier: [{ value: 650, unit: 'mg/dL', measuredAt: at }, { value: 5.4, unit: 'mmol/L', measuredAt: at }, { display: 'LO', measuredAt: at }],
       glucose: { value: 120, unit: 'mg/dL', measuredAt: at }, glucoseDisplay: { display: 'HI', measuredAt: at },
       ketones: { kind: 'blood', value: 0.4, measuredAt: at }, ketonesEarlier: [{ kind: 'urine', category: 'small', measuredAt: at }, { kind: 'urine', value: 15 }],
-      bpPartial: [{ sys: 200, at }, { dia: 125, at }], provoked: ['brisk-walking'], flagsEarlier: ['newWeakness'], newsEarlier: ['fainted'],
+      bpPartial: [{ sys: 200, at }, { dia: 125, at }, { sys: 190, at, completion: { sys: 190, dia: 100, at } }], provoked: ['brisk-walking'], flagsEarlier: ['newWeakness'], newsEarlier: ['fainted'],
       lowSymptomsAt: '2026-10-09T03:00:00.000Z', lowRecovered: true, bpReadings: [{ sys: 150, dia: 95, at: '2026-10-09T03:05:00.000Z' }],
       resolutions: [answer, { ...answer, resolution: 'reopened', at: '2026-10-09T09:00:00+05:30' }, { kind: 'redFlag', readings: ['flag:newWeakness@2026-10-09'], resolution: 'assessed', at },
         { kind: 'news', readings: ['news:fainted@2026-10-09'], resolution: 'mistake', at }],

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { BpReading, CheckInRecord, DailyCheckIn, EpisodeKind, GlucoseEntry, KetoneReading, NewsItem, Readiness, RedFlag } from '@/types/checkin';
+import type { BpReading, CheckInRecord, DailyCheckIn, EpisodeKind, GlucoseEntry, GlucoseReading, KetoneReading, NewsItem, Readiness, RedFlag } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { createDefaultProfile } from '@/profile/defaults';
-import { bpPartialId, bpReadingId, evaluateCheckIn, glucoseReadingId, ketoneReadingId, plainAnswersForTests, profileOnlyReadiness } from './readiness';
+import { bpPartialId, bpReadingId, evaluateCheckIn, evaluateDays, glucoseReadingId, ketoneReadingId, plainAnswersForTests, profileOnlyReadiness } from './readiness';
 import { onScreenPermission, permission, resumePermission, type Mode } from './permission';
 
 /**
@@ -214,4 +214,81 @@ describe('the engine reads a long history the way it reads a short one (C2-05)',
     expect(settled).toBeGreaterThan(5);
   }, 120_000);
 
+});
+
+describe('many days of one history at once (N-06)', () => {
+  /** A store's days: one record a day, none with a "Right now" answer, as records before v5 were. */
+  const older = (days: number): DailyCheckIn[] => Array.from({ length: days }, (_, i) => ({
+    date: new Date(Date.UTC(1900, 0, 1 + i)).toISOString().slice(0, 10), urgentSymptoms: false, news: [], sleep: '5to7', energy: 4,
+  }));
+  const best = (f: () => unknown) => Math.min(...[0, 1, 2].map(() => { const t = performance.now(); f(); return performance.now() - t; }));
+
+  // First, as the app ships, before any test has set the seam.
+  it('1,000 days of a 10,000-day history, and 10,000 days of 50,000 older records, each in under 2 s (one by one, the first took 7 s and the second ran out of stack)', () => {
+    const profile = PROFILES[0];
+    const all = history(10_000, 7, 0.004);
+    const some = all.filter((_, i) => i % 10 === 0);
+    expect(best(() => evaluateDays(profile, all, some))).toBeLessThan(2000);
+    const store = older(50_000);
+    const cleaned = store.filter((_, i) => i % 5 === 0);
+    expect(best(() => evaluateDays(createDefaultProfile({ weightKg: 80 }), store, cleaned))).toBeLessThan(2000);
+  }, 120_000);
+
+  it('a long run of older records is no deep recursion for one day either', () => {
+    const store = older(10_000);
+    const last = store.at(-1)!;
+    expect(() => evaluateCheckIn(PROFILES[0], last, store.slice(0, -1))).not.toThrow();
+    expect(evaluateDays(PROFILES[0], store, [last]).get(last)).toEqual(evaluateCheckIn(PROFILES[0], last, store));
+  }, 60_000);
+
+  it('gives each day exactly what evaluateCheckIn gives it the plain way, on any history, in any order', () => {
+    let compared = 0;
+    let carried = 0;
+    let chained = 0;
+    for (const [n, profile] of PROFILES.entries()) {
+      for (let seed = 1; seed <= 6; seed++) {
+        const all = history(150, seed * 53 + n, 0.04);
+        // A store's list need not be in order.
+        const shuffle = rng(seed);
+        const listed = all.map(c => [shuffle(), c] as const).sort((a, b) => a[0] - b[0]).map(([, c]) => c);
+        // Every other day, a second record of a day the history holds, and a day after it.
+        const days: DailyCheckIn[] = [...all.filter((_, i) => i % 2 === 0), { ...all[7], news: ['dizzy'] }, { ...all[3], date: dayAfter(all.at(-1)!.date, 3) }];
+        for (const now of [undefined, localAt(all.at(-1)!.date, 10), localAt(all[70].date, 23, 30)]) {
+          const batch = evaluateDays(profile, listed, days, now);
+          plainAnswersForTests(true);
+          const plain = days.map(d => evaluateCheckIn(profile, d, listed, now));
+          plainAnswersForTests(false);
+          days.forEach((d, i) => {
+            expect(batch.get(d), `${d.date} ${String(now)}`).toEqual(plain[i]);
+            compared++;
+            if (plain[i].reasons.some(x => x.code.startsWith('carried'))) carried++;
+            if (d.emergency === undefined) chained++;
+          });
+        }
+      }
+    }
+    expect(compared).toBe(PROFILES.length * 6 * 3 * 77);
+    // The histories really carry things, and reach older check-ins through ones with no "Right now" answer.
+    expect(carried).toBeGreaterThan(200);
+    expect(chained).toBeGreaterThan(20);
+  }, 120_000);
+
+  it('reads the day before as one by one does: a low just before midnight is part of the next day’s episode (X2-08)', () => {
+    const profile = PROFILES[0];
+    const g = (value: number, date: string, h: number, m: number): GlucoseReading => ({ value, unit: 'mg/dL', measuredAt: localAt(date, h, m).toISOString(), source: 'meter' });
+    const night: DailyCheckIn = { date: '2026-10-07', urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: g(62, '2026-10-07', 23, 40) };
+    const morning: DailyCheckIn = { date: '2026-10-08', urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: g(66, '2026-10-08', 0, 20) };
+    const alone = evaluateCheckIn(profile, morning, []);
+    const read = evaluateCheckIn(profile, morning, [night]);
+    // The day before changes what the morning's reading means, so it has to be found.
+    expect(read).not.toEqual(alone);
+    expect(evaluateDays(profile, [morning, night]).get(morning)).toEqual(read);
+  });
+
+  it('a history holding two records of one date is read day by day, as evaluateCheckIn reads it', () => {
+    const all = history(60, 3, 0.04);
+    const twice = [...all, { ...all[10], news: ['hot'] as NewsItem[] }];
+    const batch = evaluateDays(PROFILES[1], twice);
+    for (const d of twice) expect(batch.get(d), d.date).toEqual(evaluateCheckIn(PROFILES[1], d, twice));
+  });
 });

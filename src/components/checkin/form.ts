@@ -21,7 +21,7 @@ import type {
 import type { UserProfile } from '@/types/profile';
 import { deriveHealth } from '@/engine/health';
 import { checkedIn } from '@/engine/permission';
-import { bpPartialId, endsTheDay, evaluateCheckIn, flagsIn, glucoseSanity, profileOnlyReadiness, reopenedByReport, severePartial, standingAnswer, toMgdl, type GlucoseSanity } from '@/engine/readiness';
+import { bpPartialId, endsTheDay, evaluateCheckIn, flagsIn, glucoseSanity, profileOnlyReadiness, reopenedByReport, severePartial, standingAnswer, toMgdl, withCompletions, type GlucoseSanity } from '@/engine/readiness';
 
 /**
  * Which glucose readings reach the readiness engine: plausible ones, and an
@@ -648,10 +648,11 @@ export function buildCheckIn(
  * whoever built it. So a low, a positive ketone result or a severe blood
  * pressure reading stays on the day's record whatever is resubmitted.
  * Idempotent, and it keeps the one correction the form allows: "I meant
- * mmol/L" on an ambiguous low is the same reading, not a second one.
+ * mmol/L" on an ambiguous low is the same reading, not a second one. With or
+ * without a saved record, nothing only the gates attach is kept (P-01).
  */
 export function carryForward(saved: DailyCheckIn | undefined, next: DailyCheckIn): DailyCheckIn {
-  if (!saved || saved.date !== next.date) return next;
+  if (!saved || saved.date !== next.date) return withCompletions(withoutGateFields(next));
   const nextGlucose: GlucoseEntry[] = [...(next.glucoseEarlier ?? []), ...[next.glucose, next.glucoseDisplay].filter((x): x is GlucoseEntry => !!x)];
   const corrected = (e: GlucoseEntry) => !('display' in e) && !!next.glucose && e.unit === 'mg/dL' && next.glucose.unit === 'mmol/L'
     && e.value === next.glucose.value && e.measuredAt === next.glucose.measuredAt && glucoseSanity(e.value, e.unit) === 'ambiguousLow';
@@ -672,7 +673,11 @@ export function carryForward(saved: DailyCheckIn | undefined, next: DailyCheckIn
   // A partial severe number, a reported low and an exercise that made symptoms
   // worse are evidence too: answers built from an older copy of the day must
   // not drop them (round 3 B04).
-  const bpPartial = appendUnique(next.bpPartial ?? [], saved.bpPartial ?? [], samePartial);
+  // Each keeps the reading that completed it, whichever copy of the day knew it (P-02).
+  const bpPartial = appendUnique(next.bpPartial ?? [], saved.bpPartial ?? [], samePartial).map(h => {
+    const known = h.completion ? undefined : saved.bpPartial?.find(s => s.completion && samePartial(s, h))?.completion;
+    return known ? { ...h, completion: known } : h;
+  });
   const provoked = [...new Set([...(saved.provoked ?? []), ...(next.provoked ?? [])])];
   const lowSymptomsAt = next.lowSymptomsAt ?? saved.lowSymptomsAt;
   // A red flag or foot problem said earlier today is not released by a later
@@ -685,12 +690,10 @@ export function carryForward(saved: DailyCheckIn | undefined, next: DailyCheckIn
   // Either, ticked again after an answer released it, is a new report: that
   // answer no longer settles it, and it is asked about again by name.
   const reopened = reopenedByReport(saved, next);
-  // What the device had stored is read with the record, never saved inside it (N-01).
-  const { flagsEarlier: _flags, newsEarlier: _news, durable: _durable, ...rest } = next;
+  const { flagsEarlier: _flags, newsEarlier: _news, ...rest } = withoutGateFields(next);
   void _flags;
   void _news;
-  void _durable;
-  return {
+  return withCompletions({
     ...rest,
     ...(reopened.length ? { resolutions: [...(next.resolutions ?? []), ...reopened] } : {}),
     ...(flagsEarlier.length ? { flagsEarlier } : {}),
@@ -701,7 +704,23 @@ export function carryForward(saved: DailyCheckIn | undefined, next: DailyCheckIn
     ...(bpPartial.length ? { bpPartial } : {}),
     ...(provoked.length ? { provoked } : {}),
     ...(lowSymptomsAt ? { lowSymptomsAt } : {}),
-  };
+  });
+}
+
+/**
+ * A day without what only the gates attach to it for themselves: the record
+ * the device had stored (`durable`, N-01), Track's readings (`logged`, X2-01)
+ * and the mark of a day made only of them (`readingsOnly`). None is saved
+ * inside a check-in, whatever the answers were built from (P-01): stored, they
+ * would act as readings nobody took, skip the day's red flags, or hold a copy
+ * of the day nothing else checks, and an import refuses them.
+ */
+export function withoutGateFields<T extends DailyCheckIn>(c: T): T {
+  const { durable: _durable, logged: _logged, readingsOnly: _onlyReadings, ...own } = c;
+  void _durable;
+  void _logged;
+  void _onlyReadings;
+  return own as T;
 }
 
 /** Reasons that are answered by a new glucose reading, not by the old one again. */

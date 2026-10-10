@@ -28,7 +28,8 @@ globalThis.localStorage = {
 const store = await import('@/store/useStore');
 const { useGuided } = await import('@/hooks/useGuided');
 const { CheckInBody } = await import('./CheckInSheet');
-const { correctCheckInPressure, effectiveCheckIns, pendingCheckIn, reportSymptoms, resetPendingCheckInsForTests, restorePendingCheckInsForTests } = await import('./pending');
+const { correctCheckInPressure, effectiveCheckIns, pendingCheckIn, reportSymptoms, resetPendingCheckInsForTests, restorePendingCheckInsForTests, saveCheckInRecord } = await import('./pending');
+const { decode } = await import('@/store/transfer');
 const { permission, resumePermission, PERMISSION_TEXT } = await import('@/engine/permission');
 const { CANNOT_SWALLOW, evaluateCheckIn, TREAT } = await import('@/engine/readiness');
 const { useStartMovement } = await import('./useStartMovement');
@@ -1338,6 +1339,36 @@ describe('N-01: what the device had stored is read with a waiting save, and neve
     expect(stored()?.bpReadings).toEqual([{ sys: 145, dia: 92, at: taken }]);
     expect(stored()?.news).toContain('hot');
     expect(stored()).not.toHaveProperty('durable');
+  });
+});
+
+describe('P-01: a record a gate reads, saved as it is, is stored as a check-in and comes back from its backup', () => {
+  it('a cached effective record saved when its day is absent keeps nothing only the gates carry, and the backup imports whole', async () => {
+    const p = createDefaultProfile(PROFILES.bp);
+    const taken = at(2026, 10, 9, 8, 50).toISOString();
+    await seed(p, [{ date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, bpReadings: [{ sys: 150, dia: 95, at: taken }] }]);
+    // Track's reading of the day, and a refused save waiting: the gates' copy carries both.
+    expect((await store.addObservation({ kind: 'glucose', value: 140, unit: 'mg/dL', scope: 'pointInTime', source: 'manual' })).ok).toBe(true);
+    refuse = () => true;
+    expect((await reportSymptoms({ news: ['hot'] }, { profile: p, update: store.update, date: DAY })).stored).toBe(false);
+    refuse = () => false;
+    const cached = effectiveCheckIns(store.getState().checkIns, p, store.getState().observations).find(c => c.date === DAY)!;
+    expect(cached).toHaveProperty('durable');
+    expect(cached).toHaveProperty('logged');
+    // The day then goes from the device and nothing waits for it: the cached copy is saved as it is.
+    expect((await store.removeCheckIn(DAY)).ok).toBe(true);
+    resetPendingCheckInsForTests();
+    const saved = await saveCheckInRecord(cached, { profile: p, update: store.update });
+    expect(saved.stored).toBe(true);
+    for (const field of ['durable', 'logged', 'readingsOnly']) {
+      expect(saved.record, field).not.toHaveProperty(field);
+      expect(stored(), field).not.toHaveProperty(field);
+    }
+    expect(stored()?.news).toContain('hot');
+    // The backup that holds it is one this same app takes back.
+    const exported = await store.exportRecord();
+    if (!exported.ok) throw exported.failure;
+    expect(store.previewRecord(await decode(exported.value.bytes))).toMatchObject({ ok: true, checkIns: 1, rejected: { checkIns: 0 } });
   });
 });
 

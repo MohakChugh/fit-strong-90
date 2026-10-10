@@ -140,17 +140,19 @@ describe('a long check-in history, merged (R5-04)', () => {
     expect(ms).toBeLessThan(1500);
   });
 
-  // The engine's own work for a day grows with the history it is given, and
-  // is its own to bound; what is measured here is that the merge goes over
-  // the history once, not once more for every day it works out again (N-06).
-  it('works out 10,000 cleaned days of 50,000 again, giving each only the days before it, in one pass', async () => {
-    const calls: [string, number, string | undefined][] = [];
+  // What is measured here is the merge's own share: the history handed to the
+  // engine once, with every day to work out again, and nothing gone over once
+  // more for each of those days (N-06). The engine's share is measured with
+  // the engine itself below.
+  it('works out 10,000 cleaned days of 50,000 again, handing the engine the history once', async () => {
+    const calls: { history: number; days: { date: string; glucose?: unknown }[] }[] = [];
     vi.resetModules();
     vi.doMock('@/engine/readiness', async (original: () => Promise<typeof import('@/engine/readiness')>) => ({
       ...(await original()),
-      evaluateCheckIn: (_profile: unknown, c: { date: string }, recent: { date: string }[]) => {
-        calls.push([c.date, recent.length, recent.at(-1)?.date]);
-        return readiness;
+      evaluateDays: (_profile: unknown, history: unknown[], days: Iterable<{ date: string; glucose?: unknown }>) => {
+        const list = [...days];
+        calls.push({ history: history.length, days: list });
+        return new Map(list.map(d => [d, readiness]));
       },
     }));
     try {
@@ -173,15 +175,62 @@ describe('a long check-in history, merged (R5-04)', () => {
       const preview = previewImport(raw, here as never);
       const ms = performance.now() - start;
       expect(preview.ok).toBe(true);
-      expect(calls).toHaveLength(10_000);
-      expect(calls.every(([date, earlier, last]) => {
-        const i = Math.round((Date.parse(date) - Date.UTC(1900, 0, 1)) / 86_400_000);
-        return earlier === i && last === (i === 0 ? undefined : day(i - 1));
-      })).toBe(true);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].history).toBe(50_000);
+      expect(calls[0].days).toHaveLength(10_000);
+      // Each the day's record without its deleted reading.
+      expect(calls[0].days.every(d => d.glucose === undefined && deleted(Math.round((Date.parse(d.date) - Date.UTC(1900, 0, 1)) / 86_400_000)))).toBe(true);
       expect(ms).toBeLessThan(1500);
     } finally {
       vi.doUnmock('@/engine/readiness');
       vi.resetModules();
     }
   });
+
+  // With the engine itself, at sizes one person's record can reach and well
+  // beyond: the history is prepared once for every day worked out again
+  // (`evaluateDays`), so the cost grows with the history, not with it times
+  // the days. Worked out one day at a time, 1,000 days of 27 years took about
+  // 3 s and 10,000 of 137 about three minutes.
+  const realHistory = async (days: number, cleaned: number) => {
+    const { planImport } = await import('./transfer');
+    const { readingKey } = await import('./project');
+    const { emptySnapshot } = await import('./snapshot');
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const at = (i: number) => `${day(i)}T08:00:00.000Z`;
+    const every = Math.floor(days / cleaned);
+    const deleted = (i: number) => i % every === 0 && i / every < cleaned;
+    const checkIns = Array.from({ length: days }, (_, i) => ({
+      date: day(i), urgentSymptoms: false, emergency: [], news: [], sleep: '5to7', energy: 4, readiness,
+      glucose: { value: deleted(i) ? 300 : 120, unit: 'mg/dL', measuredAt: at(i) },
+    }));
+    // Deleted on this device; the file's record of each of those days still names it.
+    const readings = checkIns.flatMap((c, i) => (deleted(i) ? [readingKey({ kind: 'glucose', at: at(i), value: 300, unit: 'mg/dL', context: `checkIn:${c.date}` })!] : []));
+    const raw = { format: TRANSFER_FORMAT, version: 1, exportedAt: `${DAY}T19:00:00.000+05:30`, schemaVersion: 5,
+      observations: [], sessions: [], checkIns, personalRecords: [], bodyMetrics: [], focusOverrides: {}, contentState: [] };
+    const profile = createDefaultProfile({ weightKg: 80, health: { diabetes: 'type2', metformin: true, medicinesReviewed: true, glucoseMonitor: 'meter' } });
+    const base = { ...emptySnapshot(), profile, settings: { deleted: { readings } } };
+    const start = performance.now();
+    const { change } = planImport(raw, 'merge', base as never);
+    const ms = performance.now() - start;
+    const out = change.checkIns ?? [];
+    const again = out.filter((_, i) => deleted(i));
+    expect(out).toHaveLength(days);
+    expect(again).toHaveLength(cleaned);
+    // Each without the deleted reading, and worked out again by the engine.
+    expect(again.every(c => c.glucose === undefined && c.readiness !== readiness && c.readiness.disposition !== undefined)).toBe(true);
+    return ms;
+  };
+
+  it('with the engine itself, works out 100 cleaned days of ten years again in under 2 s', async () => {
+    expect(await realHistory(3_650, 100)).toBeLessThan(2_000);
+  }, 60_000);
+
+  it('and 1,000 of 27 years in under 2 s', async () => {
+    expect(await realHistory(10_000, 1_000)).toBeLessThan(2_000);
+  }, 60_000);
+
+  it('and 10,000 of 137 years in under 2 s', async () => {
+    expect(await realHistory(50_000, 10_000)).toBeLessThan(2_000);
+  }, 60_000);
 });

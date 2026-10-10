@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
 import { buildSessionPlan } from '@/engine/session';
-import { coolDownTarget, createRunner, initialState, position, redoseState, segmentsWithExtra, stepDurationMs, type RunnerState } from './runner';
+import { coolDownTarget, createRunner, initialState, position, redoseState, reduceRun, segmentsWithExtra, stepDurationMs, type Run, type RunAction, type RunnerState } from './runner';
 import type { CardioStep, SessionPlan } from '@/types/plan';
 import { createClock, devTimescale } from './clock';
 import { saveProgress, loadProgress, rehydrate, clearProgress } from './persistence';
@@ -370,13 +370,36 @@ describe('N-08: a cardio step re-dosed under the run keeps its whole cool-down',
     expect(s.visit).toBe(4);
   });
 
-  it('the runner does the same when told the plan changed under it, once, and a step left as it was is left alone', () => {
-    const run = createRunner(short);
-    const told = { type: 'redose' as const, now: T0, from: long, visit: 3 };
-    const once = run.reduce(into(1335 + 100), told);
-    expect(once).toEqual(redoseState(long, short, into(1335 + 100), T0));
+  it('a run told its plan changed under it does the same, once, and a step left as it was is left alone', () => {
+    const told: RunAction = { type: 'replan', plan: short, now: T0 };
+    const once = reduceRun({ plan: long, state: into(1335 + 100) }, told);
+    expect(once).toEqual({ plan: short, state: redoseState(long, short, into(1335 + 100), T0) });
     // Told twice, as a double render can: the place moved once stays where it was moved.
-    expect(run.reduce(once, told)).toEqual(once);
+    expect(reduceRun(once, told)).toBe(once);
     expect(redoseState(long, long, into(700), T0)).toEqual(into(700));
+  });
+
+  it('a tick queued before the plan changed is counted against the dose it was timed by (Codex round 7)', () => {
+    // React takes queued actions off in order, in the render that brings the
+    // new plan: the 4 Hz tick timed by the long dose, then the new plan.
+    const running: Run = { plan: long, state: { ...into(700), status: 'running', pausedAt: undefined } };
+    const queued: RunAction[] = [{ type: 'tick', now: T0 }, { type: 'replan', plan: short, now: T0 }];
+    const after = queued.reduce(reduceRun, running);
+    expect(after.plan).toBe(short);
+    expect(after.state.index).toBe(cardioAt);
+    const at = position(short, after.state, T0);
+    expect(at.segment.intensity).toBe('cooldown');
+    expect(at).toMatchObject({ segmentElapsedMs: 0, stepRemainingMs: 300_000 });
+    // From there the clock takes it through the whole cool-down.
+    expect(reduceRun(after, { type: 'tick', now: T0 + 299_000 }).state.index).toBe(cardioAt);
+    expect(reduceRun(after, { type: 'tick', now: T0 + 300_000 }).state.index).toBe(cardioAt + 1);
+  });
+
+  it('a step refused by the new plan is passed over in the same action, paused or not (scan J2-02)', () => {
+    const refused = new Set([cardioId]);
+    const after = reduceRun({ plan: short, state: into(100) }, { type: 'replan', plan: short, refused, now: T0 });
+    expect(after.state.index).toBeGreaterThan(cardioAt);
+    expect(after.state.status).toBe('paused');
+    expect(after.state.logs.find(l => l.stepId === cardioId)).toMatchObject({ completed: false, skipped: true });
   });
 });

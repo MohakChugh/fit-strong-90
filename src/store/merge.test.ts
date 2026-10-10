@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WorkoutSession } from '@/types';
-import type { CheckInRecord, Readiness } from '@/types/checkin';
+import type { CheckInRecord, DailyCheckIn, Readiness } from '@/types/checkin';
 import { pairBloodPressure } from '@/health/aggregate';
 import { checkInDayOf, type Observation } from '@/health/observation';
 import { fakeIndexedDB } from './fakeIdb';
@@ -456,13 +456,162 @@ describe('a guided session saved with the day’s check-in, backed up and restor
     expect(restored.glucose).toEqual(expect.objectContaining({ value: 140, measuredAt: track }));
   });
 
-  it('refuses, as before, a session whose attached readings cannot be read, and is not thrown by it', async () => {
+  // Read for damage before anything is made of it, as any check-in is: folding
+  // readings into a damaged copy would fail on it, or hide what is wrong (P-03).
+  it('refuses a backup whose session copy holds a reading it cannot read, naming the day, and is not thrown by it', async () => {
     const a = await device();
-    const { held } = await sessionSaved(a, true);
+    const { held, session } = await sessionSaved(a, true);
     const file = await a.backup() as { sessions: { checkIn?: unknown }[] };
-    const damaged = { ...file, sessions: file.sessions.map(s => ({ ...s, checkIn: { ...held, logged: { glucose: 'high' } } })) };
-    const preview = a.store.previewRecord(damaged);
-    expect(preview.ok && preview.rejected?.sessions).toBe(1);
+    // Beside readings from Track it can read, and among the readings Track attached.
+    const copies: [object, string][] = [
+      [{ ...held, glucoseEarlier: 'high' }, 'a glucose reading this app cannot read'],
+      [{ ...held, logged: { glucose: 'high' } }, 'a glucose reading this app cannot read'],
+      [{ ...held, logged: { glucose: [{ value: 'high', unit: 'mg/dL' }] } }, 'a glucose reading whose number cannot be read'],
+      [{ ...held, logged: 'high' }, 'readings from Track this app cannot read'],
+    ];
+    for (const [copy, said] of copies) {
+      const reason = `That file's check-in for ${DAY} holds ${said}. It may be damaged.`;
+      const damaged = { ...file, sessions: file.sessions.map(s => ({ ...s, checkIn: copy })) };
+      expect(a.store.previewRecord(damaged), said).toEqual({ ok: false, reason });
+      for (const mode of ['replace', 'merge'] as const) {
+        const before = a.store.getState();
+        const applied = await a.store.importRecord(damaged, mode, { allowRejected: true });
+        expect(applied.ok ? 'imported' : applied.failure.message).toBe(reason);
+        expect(a.store.getState().sessions).toEqual(before.sessions);
+      }
+    }
+    // A copy stored that way on this device is read as it is, not thrown by.
+    expect((await a.store.putSession({ ...session, checkIn: { ...held, glucoseEarlier: 'high' } as never })).ok).toBe(true);
+    expect((await a.store.reload()).ok).toBe(true);
+  });
+});
+
+describe('a check-in a save once stored with what only the screens carry (P-01)', () => {
+  const at = `${DAY}T09:00:00.000+05:30`;
+  const track = `${DAY}T11:58:00.000+05:30`;
+  const now = new Date(`${DAY}T12:00:00.000+05:30`);
+  const profile = async () => (await import('@/profile/defaults')).createDefaultProfile({
+    weightKg: 80, health: { diabetes: 'type2', metformin: true, sulfonylureaOrMeglitinide: true, medicinesReviewed: true, glucoseMonitor: 'meter' },
+  });
+
+  /** Stored as an earlier save could store it: the screens' copy, Track's reading attached and the mark for a day without a check-in. */
+  async function stored(d: Awaited<ReturnType<typeof device>>, record: CheckInRecord) {
+    expect((await d.store.update(prev => ({ ...prev, checkIns: [...(prev.checkIns ?? []).filter(c => c.date !== record.date), record] }))).ok).toBe(true);
+  }
+
+  /**
+   * What every gate says of the day, as the screens read it: the stored
+   * record with the series' Track readings attached (`effectiveCheckIns`),
+   * its readiness and each mode's permission.
+   */
+  async function gates(d: Awaited<ReturnType<typeof device>>, p: Awaited<ReturnType<typeof profile>>) {
+    const { effectiveCheckIns } = await import('@/components/checkin/pending');
+    const { evaluateCheckIn } = await import('@/engine/readiness');
+    const { permission } = await import('@/engine/permission');
+    const state = d.store.getState();
+    const days = effectiveCheckIns(state.checkIns, p, state.observations);
+    const day = days.find(c => c.date === DAY)!;
+    const recent = days.filter(c => c.date < DAY);
+    return { readiness: evaluateCheckIn(p, day, recent, now), modes: (['guided', 'stretch', 'walk'] as const).map(m => permission({ profile: p, checkIn: day, now, recent }, m)) };
+  }
+
+  /** A day with an hour-old reading of its own, and a fresh one in Track that the screens' copy carried along. */
+  async function withTrack(d: Awaited<ReturnType<typeof device>>, p: Awaited<ReturnType<typeof profile>>) {
+    await d.store.setProfile(p);
+    const logged = await d.store.addObservation({ kind: 'glucose', value: 110, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: track });
+    if (!logged.ok) throw logged.failure;
+    const screens = {
+      ...checkIn(120, at, 124, 78),
+      logged: { glucose: [{ value: 110, unit: 'mg/dL', measuredAt: track, unitConfirmed: true, source: 'meter' }] },
+      readingsOnly: true,
+    } as CheckInRecord;
+    await stored(d, screens);
+    // As the build that stored it wrote its backup.
+    const written = { ...(await d.backup() as object), checkIns: [screens] };
+    return { trackId: logged.value.id, written };
+  }
+
+  /** The day's own record as it is kept: its own readings, and nothing only the screens carry. */
+  const own = (d: Awaited<ReturnType<typeof device>>) => {
+    const day = d.store.getState().checkIns.find(c => c.date === DAY)!;
+    expect(day.logged).toBeUndefined();
+    expect(day.readingsOnly).toBeUndefined();
+    expect(day.glucose).toEqual({ value: 120, unit: 'mg/dL', measuredAt: at });
+    expect(day.glucoseEarlier).toBeUndefined();
+  };
+
+  it('restores it, replaced or merged, as the day’s own record, the gates reading Track’s reading from the series as before', async () => {
+    const p = await profile();
+    const a = await device();
+    const { written } = await withTrack(a, p);
+    const asItWas = await gates(a, p);
+    const exported = await a.backup();
+    for (const file of [written, exported]) {
+      for (const mode of ['replace', 'merge'] as const) {
+        const b = await device();
+        await b.store.setProfile(p);
+        expect((await b.store.importRecord(file, mode)).ok).toBe(true);
+        own(b);
+        expect(await gates(b, p)).toEqual(asItWas);
+      }
+    }
+    // And on the device that stored it, read as it is now kept.
+    expect((await a.store.reload()).ok).toBe(true);
+    own(a);
+    expect(await gates(a, p)).toEqual(asItWas);
+  });
+
+  it('a Track reading deleted here does not come back through that day’s record, merged or read again', async () => {
+    const p = await profile();
+    const a = await device();
+    const { trackId, written } = await withTrack(a, p);
+    const b = await device();
+    expect((await b.store.importRecord(written, 'replace')).ok).toBe(true);
+    expect((await b.store.removeObservation(trackId)).ok).toBe(true);
+    const without = await gates(b, p);
+    expect(without).not.toEqual(await gates(a, p));
+    for (const onConflict of ['keepDevice', 'takeFile'] as const) {
+      expect((await b.store.importRecord(written, 'merge', { onConflict })).ok).toBe(true);
+      expect(b.store.getState().observations.some(o => o.value === 110)).toBe(false);
+      own(b);
+      expect(await gates(b, p)).toEqual(without);
+    }
+    // Deleted on the device that stored it, with the screens' copy still in its store.
+    expect((await a.store.removeObservation(trackId)).ok).toBe(true);
+    expect((await a.store.reload()).ok).toBe(true);
+    own(a);
+    expect(await gates(a, p)).toEqual(without);
+  });
+
+  it('lets go of Track readings it cannot read in this device’s own record, rather than stop every gate on them', async () => {
+    const p = await profile();
+    const a = await device();
+    await a.store.setProfile(p);
+    await stored(a, { ...checkIn(120, at, 124, 78), logged: { glucose: 'high' } } as unknown as CheckInRecord);
+    expect((await a.store.reload()).ok).toBe(true);
+    expect(a.store.getState().checkIns.find(c => c.date === DAY)?.logged).toBeUndefined();
+    await expect(gates(a, p)).resolves.toBeDefined();
+  });
+
+  it('without the mark for a day with no check-in, its red flags carry, as any day’s do', async () => {
+    const p = (await import('@/profile/defaults')).createDefaultProfile({ weightKg: 80 });
+    const { evaluateCheckIn } = await import('@/engine/readiness');
+    const marked = { date: DAY, urgentSymptoms: false, news: [], sleep: '5to7', energy: 4, readiness, back: { pain: 3, newWeakness: true }, readingsOnly: true } as CheckInRecord;
+    const a = await device();
+    await stored(a, marked);
+    // As the build that stored it wrote its backup.
+    const written = { ...(await a.backup() as object), checkIns: [marked] };
+    const b = await device();
+    expect((await b.store.importRecord(written, 'replace')).ok).toBe(true);
+    const day = b.store.getState().checkIns.find(c => c.date === DAY)!;
+    expect(day.readingsOnly).toBeUndefined();
+    const next: DailyCheckIn = { date: '2026-10-08', urgentSymptoms: false, emergency: [], news: [], sleep: '5to7', energy: 4 };
+    const tomorrow = new Date('2026-10-08T09:00:00.000+05:30');
+    // With the mark the flag was passed over; without it, it holds the next day until a clinician has checked it.
+    const carried = (r: Readiness) => r.reasons.some(x => x.code === 'carried:newWeakness');
+    expect(carried(evaluateCheckIn(p, next, [marked], tomorrow))).toBe(false);
+    expect(carried(evaluateCheckIn(p, next, [day], tomorrow))).toBe(true);
+    expect(evaluateCheckIn(p, next, [day], tomorrow).disposition).toBe('today');
   });
 });
 
@@ -708,6 +857,21 @@ describe('a reading deleted from a check-in, and an older backup merged (R5-01)'
     for (const onConflict of ['keepDevice', 'takeFile'] as const) {
       expect((await b.store.importRecord(recordAlone, 'merge', { onConflict })).ok).toBe(true);
       expect(b.store.getState().checkIns.find(c => c.date === DAY)?.glucose).toBeUndefined();
+    }
+  });
+
+  it('and a reading an older record kept only as the day’s blood pressure, merged or replaced (N-05)', async () => {
+    const { TRANSFER_FORMAT } = await import('./transfer');
+    const { readingKey } = await import('./project');
+    // Before a day kept each reading, its one blood pressure was the day's own.
+    const older = { date: DAY, urgentSymptoms: false, news: [], sleep: '5to7', energy: 4, readiness, bp: { sys: 190, dia: 100, at } };
+    const key = readingKey({ kind: 'bloodPressureSystolic', at, value: 190, context: `bp:checkIn:${DAY}` })!;
+    const file = { format: TRANSFER_FORMAT, version: 1, exportedAt: `${DAY}T20:00:00.000+05:30`, schemaVersion: 5, observations: [], sessions: [],
+      checkIns: [older], personalRecords: [], bodyMetrics: [], focusOverrides: {}, contentState: [], settings: { deleted: { readings: [key] } } };
+    for (const [mode, onConflict] of [['merge', 'keepDevice'], ['merge', 'takeFile'], ['replace', 'keepDevice']] as const) {
+      const b = await device();
+      expect((await b.store.importRecord(file, mode, { onConflict })).ok).toBe(true);
+      expect(b.store.getState().checkIns.find(c => c.date === DAY)?.bp, `${mode} ${onConflict}`).toBeUndefined();
     }
   });
 

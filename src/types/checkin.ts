@@ -216,6 +216,13 @@ export interface BpPartialReading {
   sys?: number;
   dia?: number;
   at?: string;
+  /**
+   * The complete reading of the same measurement, once one was entered
+   * (N-04, P-02). The half then stands for nothing while that reading does.
+   * A correction of that reading in Track carries this along, and deleting
+   * the reading deletes the half with it.
+   */
+  completion?: BpReading;
 }
 
 export interface DailyCheckIn {

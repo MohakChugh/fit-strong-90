@@ -13,7 +13,7 @@ import { evaluateCheckIn, profileOnlyReadiness, withLogged } from './readiness';
 import { permission, resumePermission } from './permission';
 import { buildSessionPlan } from './session';
 import { answerEpisode, buildCheckIn, carryForward, emptyForm, episodeChoice, formFromRecord, visibleQuestions, type CheckInForm } from '@/components/checkin/form';
-import { effectiveRecord } from '@/components/checkin/pending';
+import { effectiveRecord, resetPendingCheckInsForTests, saveCheckInRecord, withPressureCorrected, withReadingRemoved } from '@/components/checkin/pending';
 import { reconcilePlan } from '@/session/gate';
 import { reachableHistory } from '@/walk/gate';
 import { recommend } from '@/health/recommend';
@@ -576,6 +576,26 @@ describe('N-01: a refused save never loosens what the device holds, even when it
   });
 });
 
+describe('P-01: what only the gates attach to a day is never kept in its record, however the save goes', () => {
+  const gateOnly = { durable: ci(D), logged: { glucose: [g(140, 8, 9, 0)] }, readingsOnly: true as const };
+
+  it('with no saved record for the day, only another day’s, or the day’s own: the record to save carries none of it', () => {
+    for (const saved of [undefined, ci(Y), ci(D)]) {
+      const next = carryForward(saved, { ...ci(D, { news: ['hot'] }), ...gateOnly });
+      for (const field of ['durable', 'logged', 'readingsOnly']) expect(next, `${field}, saved over ${saved?.date ?? 'nothing'}`).not.toHaveProperty(field);
+      expect(next.news).toEqual(['hot']);
+    }
+  });
+
+  it('a save the store never ran still hands back only the day’s own record', async () => {
+    const result = await saveCheckInRecord({ ...ci(D, { news: ['hot'] }), ...gateOnly }, { profile: BACK, update: async () => ({ ok: false, failure: { message: 'No storage' } }) });
+    resetPendingCheckInsForTests();
+    expect(result.stored).toBe(false);
+    for (const field of ['durable', 'logged', 'readingsOnly']) expect(result.record, field).not.toHaveProperty(field);
+    expect(result.record.news).toEqual(['hot']);
+  });
+});
+
 describe('N-04: a half-entered severe number is only ever replaced by its own completion', () => {
   const BACK_BP = createDefaultProfile({ pain: { areas: ['lowerBack', 'sciatica'], sciaticaSide: 'left' }, health: BP.health });
   const row = (n: 1 | 2, sys: string, dia: string, taken: string) => (f: CheckInForm): CheckInForm =>
@@ -633,6 +653,68 @@ describe('N-04: a half-entered severe number is only ever replaced by its own co
     const withdrawn = saved(BACK_BP, replaced, f => answerEpisode(f, 'severeBp', [`bp:${at(8, 9, 1)}:190/100`], 'mistake', new Date(2026, 9, 8, 9, 6), new Date(2026, 9, 8, 9, 6)), new Date(2026, 9, 8, 9, 6));
     expect(ask(BACK_BP, withdrawn, [], 'walk').allowed).toBe(false);
     expect(readingIds(evaluateCheckIn(BACK_BP, withdrawn, [], NOW))).toContain(halfId);
+  });
+
+  describe('P-02: the half goes with the measurement it was the start of', () => {
+    const halfId = `bpp:${at(8, 9, 0)}:190/`;
+    /** 190 with the other box empty at 09:00, then completed as 190/100 at 09:01. */
+    const completed = () => saved(BACK_BP, saved(BACK_BP, undefined, row(1, '190', '', at(8, 9, 0)), new Date(2026, 9, 8, 9, 0)), row(1, '190', '100', at(8, 9, 1)), new Date(2026, 9, 8, 9, 1));
+    const severe = (c: DailyCheckIn) => {
+      const r = evaluateCheckIn(BACK_BP, c, [], NOW);
+      return [...r.reasons.map(x => x.code).filter(code => code.startsWith('bpSevere')), ...readingIds(r)];
+    };
+
+    it('its completion corrected in Track to 120/80: nothing severe is left, then or on the next save', () => {
+      const fixed = withPressureCorrected(completed(), { at: at(8, 9, 1), was: { sys: 190, dia: 100 }, to: { sys: 120, dia: 80 } })!;
+      expect(fixed.bpReadings).toEqual([{ sys: 120, dia: 80, at: at(8, 9, 1) }]);
+      // Kept, as the start of the measurement the correction says it was.
+      expect(fixed.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 0), completion: { sys: 120, dia: 80, at: at(8, 9, 1) } }]);
+      expect(severe(fixed)).toEqual([]);
+      expect(ask(BACK_BP, fixed, [], 'walk').allowed).toBe(true);
+      expect(severe(saved(BACK_BP, fixed, f => f, new Date(2026, 9, 8, 9, 10)))).toEqual([]);
+      // Answers built from the copy of the day that held only the half keep it following the correction (B04).
+      const halfOnly = saved(BACK_BP, undefined, row(1, '190', '', at(8, 9, 0)), new Date(2026, 9, 8, 9, 0));
+      expect(severe(carryForward(fixed, halfOnly))).toEqual([]);
+    });
+
+    it('its completion deleted in Track: the half is deleted with it', () => {
+      const gone = withReadingRemoved(completed(), { kind: 'pressure', at: at(8, 9, 1), sys: 190, dia: 100 })!;
+      expect(gone.bpReadings ?? []).toEqual([]);
+      expect(gone.bpPartial ?? []).toEqual([]);
+      expect(severe(gone)).toEqual([]);
+      expect(severe(saved(BACK_BP, gone, f => f, new Date(2026, 9, 8, 9, 10)))).toEqual([]);
+    });
+
+    it('a half saved before it was linked follows its completion too, merged or corrected as it was stored', () => {
+      const c = completed();
+      expect(c.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 0), completion: { sys: 190, dia: 100, at: at(8, 9, 1) } }]);
+      // An answer built from an older copy of the day knows the half but not what completed it,
+      // and a record stored before halves were linked has never been saved since.
+      const unlinked = { ...c, bpPartial: [{ sys: 190, at: at(8, 9, 0) }] };
+      const fix = { at: at(8, 9, 1), was: { sys: 190, dia: 100 }, to: { sys: 120, dia: 80 } };
+      expect(severe(withPressureCorrected(carryForward(c, unlinked), fix)!)).toEqual([]);
+      expect(severe(withPressureCorrected(unlinked, fix)!)).toEqual([]);
+      expect(withReadingRemoved(unlinked, { kind: 'pressure', at: at(8, 9, 1), sys: 190, dia: 100 })!.bpPartial ?? []).toEqual([]);
+    });
+
+    it('a reading that is not its completion leaves it alone: corrected or deleted, the fresh half still counts', () => {
+      // 190/100 at 09:00 stands; a fresh 190 at 09:10 is another measurement.
+      const first = saved(BACK_BP, undefined, row(1, '190', '100', at(8, 9, 0)), new Date(2026, 9, 8, 9, 0));
+      const fresh = saved(BACK_BP, first, f => row(2, '190', '', at(8, 9, 10))(f), new Date(2026, 9, 8, 9, 10));
+      const freshId = `bpp:${at(8, 9, 10)}:190/`;
+      const fixed = withPressureCorrected(fresh, { at: at(8, 9, 0), was: { sys: 190, dia: 100 }, to: { sys: 120, dia: 80 } })!;
+      expect(readingIds(evaluateCheckIn(BACK_BP, fixed, [], NOW))).toContain(freshId);
+      const gone = withReadingRemoved(fresh, { kind: 'pressure', at: at(8, 9, 0), sys: 190, dia: 100 })!;
+      expect(gone.bpPartial).toEqual([{ sys: 190, at: at(8, 9, 10) }]);
+      expect(readingIds(evaluateCheckIn(BACK_BP, gone, [], NOW))).toContain(freshId);
+    });
+
+    it('still read as its completion until then, and counted again if that reading is answered as typed wrongly (N-04)', () => {
+      const c = completed();
+      expect(severe(c)).toEqual(['bpSevereUnconfirmed']);
+      const withdrawn = saved(BACK_BP, c, f => answerEpisode(f, 'severeBp', [`bp:${at(8, 9, 1)}:190/100`], 'mistake', new Date(2026, 9, 8, 9, 6), new Date(2026, 9, 8, 9, 6)), new Date(2026, 9, 8, 9, 6));
+      expect(readingIds(evaluateCheckIn(BACK_BP, withdrawn, [], NOW))).toContain(halfId);
+    });
   });
 });
 

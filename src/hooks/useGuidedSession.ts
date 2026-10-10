@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { SessionPlan, StepLog } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
-import { coolDownTarget, createRunner, initialState, position, redoseState, segmentsWithExtra, type RunnerState } from '@/session/runner';
+import { coolDownTarget, initialState, position, reduceRun, segmentsWithExtra, type Run, type RunAction, type RunnerState } from '@/session/runner';
 import { createClock, devTimescale } from '@/session/clock';
 import { saveProgress } from '@/session/persistence';
 import { catchUpText, scriptFor } from '@/session/script';
@@ -100,32 +100,29 @@ export function anchorCues(
 
 export function useGuidedSession({ plan, profile, sessions, resumeState, sessionId, refused, mayResume, coolDownOnly, held = false }: GuidedSessionOptions) {
   const clock = useMemo(() => createClock({ timescale: devTimescale(import.meta.env.DEV, window.location.href) }), []);
-  const runner = useMemo(() => createRunner(plan, refused), [plan, refused]);
   const mayResumeRef = useRef(mayResume);
   mayResumeRef.current = mayResume;
   const coolDownOnlyRef = useRef(coolDownOnly);
   coolDownOnlyRef.current = coolDownOnly;
   const heldRef = useRef(held);
   heldRef.current = held;
-  const [reduced, dispatch] = useReducer(runner.reduce, resumeState ?? initialState(plan));
-  // The plan can be re-dosed under the run (R5-04). The run's place moves with
-  // it in the render that brings it, before any tick, save or cue can read the
-  // old place against the new dose: a shorter cardio never counts a cool-down
-  // that was not done (N-08).
-  const [ranPlan, setRanPlan] = useState(plan);
-  let state = reduced;
-  if (ranPlan !== plan) {
-    const t = clock.now();
-    state = redoseState(ranPlan, plan, reduced, t);
-    setRanPlan(plan);
-    dispatch({ type: 'redose', now: t, from: ranPlan, visit: reduced.visit });
-  }
-  // Today's restrictions can change under the run: a stop leaves the movement
-  // out, and the back check about it goes with it. A step that is now refused
-  // is passed over at once, paused or not, so it is never shown or asked
-  // (scan J2-02). Every runner action passes over refused steps; this one
-  // changes nothing else.
-  useEffect(() => { dispatch({ type: 'tick', now: clock.now() }); }, [runner, clock]);
+  const [machine, dispatch] = useReducer(reduceRun, undefined, (): Run => ({ plan, refused, state: resumeState ?? initialState(plan) }));
+  // The plan can be re-dosed under the run (R5-04), and today's restrictions
+  // can change: a stop leaves the movement out, and the back check about it
+  // goes with it. The plan and the run's place in it are one state. Whatever
+  // React still has queued is reduced against the plan it was timed by, and
+  // the new plan comes in as one action that moves the place with it, in the
+  // render that brings it, before any tick, save or cue can read the old
+  // place against the new dose: a shorter cardio never counts a cool-down
+  // that was not done (N-08), and a step that is now refused is passed over
+  // at once, paused or not, so it is never shown or asked (scan J2-02).
+  const replan: RunAction | null = machine.plan === plan && machine.refused === refused ? null : { type: 'replan', plan, refused, now: clock.now() };
+  if (replan) dispatch(replan);
+  const run = replan ? reduceRun(machine, replan) : machine;
+  const state = run.state;
+  // A resumed run's first look at the clock. Every runner action passes over
+  // refused steps; this one changes nothing else.
+  useEffect(() => { dispatch({ type: 'tick', now: clock.now() }); }, [plan, refused, clock]);
   const [now, setNow] = useState(() => clock.now());
   const [caption, setCaption] = useState('');
   const [speaking, setSpeaking] = useState(false);
@@ -148,6 +145,7 @@ export function useGuidedSession({ plan, profile, sessions, resumeState, session
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const sessionAudio = () => (audioRef.current ??= new Audio());
   const stateRef = useRef(state);
+  const runRef = useRef(run);
   const catchUpRef = useRef<(now: number, awayMs: number) => string | null>(() => null);
   const schedulerRef = useRef<CueScheduler | null>(null);
   if (!schedulerRef.current) {
@@ -227,10 +225,11 @@ export function useGuidedSession({ plan, profile, sessions, resumeState, session
       dispatch({ type: 'tick', now: t });
       // The reducer runs after this callback, so tell the scheduler which step
       // the clock is in: its cues may still be the step we have just left.
-      scheduler.tick(t, plan.steps[runner.reduce(stateRef.current, { type: 'tick', now: t }).index]?.id);
+      const at = reduceRun(runRef.current, { type: 'tick', now: t });
+      scheduler.tick(t, at.plan.steps[at.state.index]?.id);
     }, 250);
     return () => window.clearInterval(id);
-  }, [state.status, clock, scheduler, plan, runner]);
+  }, [state.status, clock, scheduler]);
 
   // Back from a locked screen: re-anchor, drop stale cues, one catch-up line.
   useEffect(() => {
@@ -248,6 +247,7 @@ export function useGuidedSession({ plan, profile, sessions, resumeState, session
 
   // Persist progress every few seconds and when the page hides.
   stateRef.current = state;
+  runRef.current = run;
   useEffect(() => {
     if (state.status === 'ready') return;
     // A finished run is saved as finished, and kept until the session record
@@ -270,10 +270,10 @@ export function useGuidedSession({ plan, profile, sessions, resumeState, session
     if (awayMs < CATCH_UP_AFTER_MS * clock.scale) return null;
     if (document.visibilityState === 'hidden') return null; // nobody is listening yet
     // Ask the reducer where the clock has taken us (a resume shifts the anchor).
-    const live = stateRef.current.status === 'paused' ? runner.reduce(stateRef.current, { type: 'resume', now: at }) : stateRef.current;
-    const caught = runner.reduce(live, { type: 'tick', now: at });
-    if (caught.status !== 'running') return null;
-    const p = position(plan, caught, at);
+    const live = runRef.current.state.status === 'paused' ? reduceRun(runRef.current, { type: 'resume', now: at }) : runRef.current;
+    const caught = reduceRun(live, { type: 'tick', now: at });
+    if (caught.state.status !== 'running') return null;
+    const p = position(caught.plan, caught.state, at);
     return catchUpText(p.step, p.segment.side);
   };
 

@@ -48,13 +48,7 @@ export type RunnerAction =
   | { type: 'log'; entry: StepLog }
   | { type: 'finish'; now: number }
   /** Jump forward into a later step at one of its segments ("cool-down only" after a low). */
-  | { type: 'seek'; now: number; index: number; segment: number }
-  /**
-   * The plan was re-dosed under the run: `from` is the plan the state was
-   * running (N-08). Applied once, to the visit it was worked out for: a render
-   * done twice cannot move the run's place twice.
-   */
-  | { type: 'redose'; now: number; from: SessionPlan; visit: number };
+  | { type: 'seek'; now: number; index: number; segment: number };
 
 export function initialState(plan: SessionPlan): RunnerState {
   return { planId: plan.id, date: plan.date, status: 'ready', index: 0, stepStartedAt: 0, visit: 0, extraMs: {}, logs: [] };
@@ -248,9 +242,6 @@ export function createRunner(plan: SessionPlan, refused: ReadonlySet<string> = N
       case 'finish':
         return { ...state, status: 'done', finishedAt: action.now, pausedAt: undefined };
 
-      case 'redose':
-        return state.visit === action.visit ? redoseState(action.from, plan, state, action.now) : state;
-
       case 'seek': {
         if (state.status !== 'running' && state.status !== 'paused') return state;
         if (action.index < state.index || action.index >= steps.length) return state;
@@ -308,6 +299,31 @@ export function redoseState(from: SessionPlan, to: SessionPlan, state: RunnerSta
     visit: nextVisit(state),
     ...(state.coolDownFrom?.index === state.index && coolFrom >= 0 ? { coolDownFrom: { index: state.index, segment: coolFrom } } : {}),
   };
+}
+
+/**
+ * A run: the plan it is running and its place in it, kept together (N-08).
+ * React reduces a queued action in whichever render takes it off the queue,
+ * so a reducer built from the plan on screen would count a tick timed by the
+ * old dose against the new one. Every action here is reduced against the
+ * run's own plan, and only `replan` changes that plan, moving the place with
+ * it in the same step.
+ */
+export interface Run { plan: SessionPlan; refused?: ReadonlySet<string>; state: RunnerState }
+
+/** The plan was re-dosed, or today's refusals changed, under the run (R5-04). */
+export type RunAction = RunnerAction | { type: 'replan'; plan: SessionPlan; refused?: ReadonlySet<string>; now: number };
+
+export function reduceRun(run: Run, action: RunAction): Run {
+  if (action.type !== 'replan') {
+    const state = createRunner(run.plan, run.refused).reduce(run.state, action);
+    return state === run.state ? run : { ...run, state };
+  }
+  // Told twice, as a render done twice can, the place moves once.
+  if (action.plan === run.plan && action.refused === run.refused) return run;
+  // The place moves to the new dose, and a step now refused is passed over at once (scan J2-02).
+  const moved = redoseState(run.plan, action.plan, run.state, action.now);
+  return { plan: action.plan, refused: action.refused, state: createRunner(action.plan, action.refused).reduce(moved, { type: 'tick', now: action.now }) };
 }
 
 /**

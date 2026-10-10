@@ -41,7 +41,8 @@ Object.assign(globalThis, { document: { visibilityState: 'visible', addEventList
 
 const store = await import('@/store/useStore');
 const { ReadingDetail } = await import('./RecordDetails');
-const { effectiveCheckIns, reportSymptoms, resetPendingCheckInsForTests, restorePendingCheckInsForTests } = await import('@/components/checkin/pending');
+const { effectiveCheckIns, reportSymptoms, resetPendingCheckInsForTests, restorePendingCheckInsForTests, saveCheckInRecord } = await import('@/components/checkin/pending');
+const { buildCheckIn, emptyForm, formFromRecord } = await import('@/components/checkin/form');
 const { evaluateCheckIn } = await import('@/engine/readiness');
 const { permission } = await import('@/engine/permission');
 const { checkInDayOf, isBpKind } = await import('@/health/observation');
@@ -353,6 +354,57 @@ describe('T3-01 and C2-01: a refused blood-pressure correction tried again', () 
     expect(stored()!.bpReadings).toEqual([{ sys: 190, dia: 80, at: iso(8, 56) }]);
     expect(stored()!.bpEarlier ?? []).toEqual([]);
     expect(pairs().map(r => [r.systolic, r.diastolic])).toEqual([[190, 80]]);
+  });
+});
+
+describe('P-02: a half-entered severe number goes with the measurement Track corrects or deletes', () => {
+  /** Reading 1 typed into the day's check-in and saved, as the sheet saves it. */
+  async function enter(sys: string, dia: string, taken: string) {
+    const previous = stored();
+    const form = previous ? formFromRecord(previous, PROFILE) : emptyForm(PROFILE);
+    const answers = buildCheckIn({ ...form, emergency: [], bp: { ...form.bp, s1: sys, d1: dia, at1: taken } }, { date: DAY, profile: PROFILE, now: new Date(), ...(previous ? { previous } : {}) });
+    expect((await saveCheckInRecord(answers, { profile: PROFILE, update: store.update })).stored).toBe(true);
+  }
+  /** What the gates read as severe blood pressure: the reasons, and the readings they ask about. */
+  const severe = () => {
+    const r = walk().checkIn!.readiness;
+    return [...r.reasons.map(x => x.code).filter(code => code.startsWith('bpSevere')), ...(r.episodes ?? []).flatMap(e => e.readings).map(x => x.id).filter(id => id.startsWith('bp'))];
+  };
+  const pressures = () => store.getState().observations.filter(o => isBpKind(o.kind) && checkInDayOf(o) === DAY);
+  async function halfThenWhole() {
+    await store.update(prev => ({ ...prev, profile: PROFILE }));
+    await enter('190', '', iso(9, 0));
+    clock(9, 1);
+    await enter('190', '100', iso(9, 1));
+    expect(severe()).toEqual(['bpSevereUnconfirmed']);
+  }
+
+  it('190 with the other box empty, completed as 190/100, corrected in Track to 120/80: nothing severe is left, after a reload too', async () => {
+    const { EditPressureSheet } = await import('./EditSheets');
+    const { pairBloodPressure } = await import('@/health/aggregate');
+    await halfThenWhole();
+    host = render(createElement(EditPressureSheet, { open: true, onOpenChange: () => {}, reading: pairBloodPressure(pressures())[0] }));
+    await host.settle();
+    const boxes = host.all().filter(n => n.type === 'input' && n.props.inputMode === 'numeric');
+    await host.change(boxes[0], { value: '120' });
+    await host.change(boxes[1], { value: '80' });
+    await host.click(host.button('Save correction'));
+    await host.settle();
+    await reload();
+    expect(stored()!.bpReadings).toEqual([{ sys: 120, dia: 80, at: iso(9, 1) }]);
+    expect(severe()).toEqual([]);
+    clock(9, 10);
+    await report(['dizzy']);
+    expect(severe()).toEqual([]);
+  });
+
+  it('and with that 190/100 deleted in Track, the half is deleted with it', async () => {
+    await halfThenWhole();
+    await remove(pressures()[0].id);
+    await reload();
+    expect(pressures()).toHaveLength(0);
+    expect(stored()!.bpPartial ?? []).toEqual([]);
+    expect(severe()).toEqual([]);
   });
 });
 

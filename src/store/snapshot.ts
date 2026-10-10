@@ -27,6 +27,7 @@ import { compareObservations, type Observation } from '@/health/observation';
 import { withLogged } from '@/engine/readiness';
 import { doc, type Db, type Doc, type Rows, type StoreFailure, type StoreName, type TxHandle } from './db';
 import { readingKey } from './project';
+import { damagedReading } from './readings';
 
 export interface Snapshot {
   /** Moves on every commit; equal revisions mean equal contents. */
@@ -295,31 +296,47 @@ function docValue(s: Snapshot, key: Doc['key']): unknown {
 
 const isRecord = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
 
+/** Something only the screens' copy of a day carries (`logged`, `readingsOnly`, `durable`), never kept. */
+const screensOnly = (c: DailyCheckIn) => c.logged !== undefined || c.readingsOnly !== undefined || c.durable !== undefined;
+
 /**
- * A session's copy of its day's check-in as it is now kept (N-02, see
- * `toWorkoutSession`): Track's readings folded in once by the engine's own
- * projection, and without what only the screens' copy carries (`logged`,
- * `readingsOnly`, `durable`). Earlier builds kept the screens' copy, so it is
- * read this way wherever it comes in: from this device's store and from a
- * backup. One whose `logged` cannot be folded in is left as it is, for an
- * import to refuse.
+ * A stored check-in as it is kept (P-01): the day's own record, without what
+ * only the screens' copy of a day carries (`logged`, `readingsOnly`,
+ * `durable`). Earlier saves could store the screens' copy, so it is read this
+ * way wherever it comes in: from this device's store and from a backup.
+ *
+ * Track's readings are not folded in: they are kept in the series, and the
+ * gates attach them to the day again, so a Track reading the person deleted
+ * stays deleted (as R5-01 keeps a deleted check-in reading out). Without the
+ * mark a day with no check-in is read as any other, so its red flags carry:
+ * that can only add. An import reads the attached readings first, as it reads
+ * every reading, and refuses a file holding one it cannot read; here they are
+ * only let go, so one this app cannot read never stops a gate.
  */
 export function keptCheckIn<T extends DailyCheckIn>(c: T): T {
-  if (c.logged === undefined && c.readingsOnly === undefined && c.durable === undefined) return c;
-  const logged: unknown = c.logged;
-  const lists = (x: unknown) => x === undefined || (Array.isArray(x) && x.every(isRecord));
-  if (logged !== undefined && !(isRecord(logged) && lists(logged.glucose) && lists(logged.bp))) return c;
-  const { readingsOnly: _onlyReadings, durable: _stored, ...kept } = withLogged(c) as T;
+  if (!screensOnly(c)) return c;
+  const { logged: _logged, readingsOnly: _onlyReadings, durable: _stored, ...kept } = c;
+  void _logged;
   void _onlyReadings;
   void _stored;
   return kept as T;
 }
 
-/** A session with its check-in copy as it is kept; the same session when it already is. */
+/**
+ * A session with its copy of its day as it is kept (N-02, see
+ * `toWorkoutSession`): a record of what the session was started under, which
+ * no gate reads, so Track's readings are folded into it once by the engine's
+ * own projection, and the rest goes. The same session when it already is, or
+ * when its copy holds a reading this app cannot read (P-03).
+ */
 export function keptSession<T extends { checkIn?: unknown }>(s: T): T {
   if (!isRecord(s.checkIn)) return s;
-  const kept = keptCheckIn(s.checkIn as unknown as DailyCheckIn);
-  return kept === (s.checkIn as unknown) ? s : { ...s, checkIn: kept };
+  const c = s.checkIn as unknown as DailyCheckIn;
+  if (!screensOnly(c) || damagedReading(s.checkIn) !== undefined) return s;
+  const { readingsOnly: _onlyReadings, durable: _stored, ...kept } = withLogged(c);
+  void _onlyReadings;
+  void _stored;
+  return { ...s, checkIn: kept };
 }
 
 /**
@@ -350,7 +367,7 @@ export function fromRows(rows: Rows): Snapshot {
     sessions: (rows.sessions.filter(row => isRecord(row) && typeof row.id === 'string') as unknown as WorkoutSession[]).map(keptSession).sort(bySessionOrder),
     ...(isRecord(settings) ? { settings: settings as unknown as UserSettings } : {}),
     ...(isRecord(profile) ? { profile: profile as unknown as UserProfile } : {}),
-    checkIns: list<CheckInRecord>('checkIns'),
+    checkIns: list<CheckInRecord>('checkIns').map(keptCheckIn),
     personalRecords: list<PersonalRecord>('personalRecords'),
     bodyMetrics: list<BodyMetric>('bodyMetrics'),
     focusOverrides: isRecord(focusOverrides) ? focusOverrides as Record<string, DayFocus> : {},
