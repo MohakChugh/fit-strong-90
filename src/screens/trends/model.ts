@@ -9,15 +9,16 @@ import type { DayRange } from '@/health/aggregate';
 import { isDay } from '@/health/observation';
 import { isEnrolled } from '@/health/recommend';
 import { restDaysOf } from '@/screens/home/week';
-import { HYPO_LEVEL_1_MGDL } from '@/screens/track/escalation';
+import { HIGH_GLUCOSE_MGDL, HYPO_LEVEL_1_MGDL } from '@/screens/track/escalation';
 import { formatDayLong, formatValue, type DisplayPrefs } from '@/screens/track/format';
 import { LAB_OPTIONS, type LabKind } from '@/screens/track/logKinds';
 import { daysBetween } from '@/screens/track/periods';
-import { MGDL_PER_MMOL, decimalsFor, formatNumber } from '@/screens/track/units';
+import { displayBoundaries } from '@/screens/track/targets';
+import { MGDL_PER_MMOL, decimalsFor, formatNumber, safeDecimals } from '@/screens/track/units';
 import type { UserSettings } from '@/types';
 import type { UserProfile } from '@/types/profile';
 import { MARK_WORDS, type ChartModel, type ChartSeries, type PointSeries, type RangeSeries, type Slot, type SlotMark } from './chart';
-import { GLUCOSE_LINES, HIGH_GLUCOSE_MGDL, TRENDS, figuresFor, labPoints, readingsFor, type TrendDef, type TrendId } from './metrics';
+import { GLUCOSE_LINES, TRENDS, figuresFor, labPoints, readingsFor, type TrendDef, type TrendId } from './metrics';
 import {
   compareRanges, comparedText, monthEnd, monthStart, previousName, previousWindow, rangeText, windowOf, windowTitle,
   type TrendPeriod, type TrendWindow,
@@ -331,7 +332,9 @@ export function readingsView(input: TrendInput): TrendView {
   const r = readingsFor(def.id, { from: prev.from, to: w.to }, data, prefs);
   const unit = def.unit(prefs);
   const d = def.decimals(prefs);
-  const fmt = (v: number) => formatNumber(v, d);
+  // A glucose figure is never rounded across a line it is judged against: 53.9 mg/dL is no "54" (KT-01, J06).
+  const lines = def.id === 'glucose' ? displayBoundaries('glucose', unit) : [];
+  const fmt = (v: number) => formatNumber(v, safeDecimals(v, d, lines));
   const title = windowTitle(w, ctx.today);
   const against = previousName(w, ctx.today);
   const groups = GROUPS[def.id];
@@ -411,7 +414,7 @@ export function readingsView(input: TrendInput): TrendView {
       }),
     }));
   const mmol = prefs.glucose === 'mmol/L';
-  const lines = def.id !== 'glucose' ? [] : [
+  const refs = def.id !== 'glucose' ? [] : [
     { value: mmol ? HYPO_LEVEL_1_MGDL / MGDL_PER_MMOL : HYPO_LEVEL_1_MGDL, label: GLUCOSE_LINES[prefs.glucose].low },
     { value: mmol ? HIGH_GLUCOSE_MGDL / MGDL_PER_MMOL : HIGH_GLUCOSE_MGDL, label: GLUCOSE_LINES[prefs.glucose].high },
   ];
@@ -451,7 +454,7 @@ export function readingsView(input: TrendInput): TrendView {
 
   return {
     title, headline, change, stats, notes, ...(meter ? { meter } : {}),
-    chart: { slots, series, lines, unit, decimals: d, ...(average !== undefined ? { average: { value: average, label: `Average ${fmt(average)} ${unit}` } } : {}) },
+    chart: { slots, series, lines: refs, unit, decimals: d, ...(average !== undefined ? { average: { value: average, label: `Average ${fmt(average)} ${unit}` } } : {}) },
     table,
     summary: summaryOf(def.title, title, headline, change, [...(meter ? [meter] : []), ...notes]),
   };

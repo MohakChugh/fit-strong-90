@@ -48,7 +48,9 @@ describe('readings in the person’s own unit (Review Focus 1)', () => {
 
   it('converts every reading to the unit shown, whatever it was stored in', () => {
     expect(readingsFor('glucose', RANGE, both, { ...prefs, glucose: 'mg/dL' }).points.map(p => p.value)).toEqual([112, 126, 63]);
-    expect(readingsFor('glucose', RANGE, both, { ...prefs, glucose: 'mmol/L' }).points.map(p => p.value)).toEqual([6.2, 7, 3.5]);
+    // Unrounded, as the statistics count them (KT-15); the words round them as shown.
+    const mmol = readingsFor('glucose', RANGE, both, { ...prefs, glucose: 'mmol/L' }).points.map(p => p.value);
+    [112 / 18, 7, 3.5].forEach((v, i) => expect(mmol[i]).toBeCloseTo(v, 9));
   });
 
   it('judges low and high on the reading itself, in either unit', () => {
@@ -107,7 +109,7 @@ describe('back and leg pain, weight, waist and mood', () => {
 
   it('weight in the person’s own unit', () => {
     const r = readingsFor('weight', RANGE, data([newObservation({ kind: 'weight', value: 70, at, scope: 'pointInTime', source: 'manual' })]), { ...prefs, mass: 'lb' });
-    expect(r.points.map(p => p.value)).toEqual([154.3]);
+    expect(r.points[0].value).toBeCloseTo(70 / 0.45359237, 9);
     expect(r.texts.map(t => t.text)).toEqual(['154.3 lb at 7:30 am']);
   });
 });
@@ -142,8 +144,10 @@ describe('daily figures and labs', () => {
 
   it('labs in the unit their lab reports, oldest first', () => {
     const lab = (value: number, unit: '%' | 'mmol/mol', day: string) => newObservation({ kind: 'hba1c', value, unit, at: `${day}T12:00:00+05:30`, scope: 'pointInTime', source: 'manual' });
-    expect(labPoints('hba1c', [lab(53, 'mmol/mol', '2026-06-02'), lab(7.4, '%', '2026-03-02')], { ...prefs, hba1c: '%' }).map(p => [p.day, p.value, p.unit]))
-      .toEqual([['2026-03-02', 7.4, '%'], ['2026-06-02', 7, '%']]);
+    const labs = labPoints('hba1c', [lab(53, 'mmol/mol', '2026-06-02'), lab(7.4, '%', '2026-03-02')], { ...prefs, hba1c: '%' });
+    expect(labs.map(p => [p.day, p.unit])).toEqual([['2026-03-02', '%'], ['2026-06-02', '%']]);
+    expect(labs[0].value).toBe(7.4);
+    expect(labs[1].value).toBeCloseTo(7, 2);
   });
 
   it('knows which categories have data: sessions for Workout and Stretch, records for the rest, a meter’s LO for Glucose', () => {

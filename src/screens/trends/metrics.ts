@@ -9,12 +9,12 @@
 import { CATEGORIES, categoryById } from '@/categories';
 import { pairBloodPressure, type DayRange } from '@/health/aggregate';
 import type { Observation, ObservationKind } from '@/health/observation';
-import { HYPO_LEVEL_1_MGDL, glucoseFlag, pressureFlag } from '@/screens/track/escalation';
+import { HIGH_GLUCOSE_MGDL, HYPO_LEVEL_1_MGDL, glucoseFlag, pressureFlag } from '@/screens/track/escalation';
 import { formatClock, hasClockTime, inDisplayUnit, shownDecimals, tagLabel, unitLabel, type DisplayPrefs } from '@/screens/track/format';
 import type { LabKind } from '@/screens/track/logKinds';
 import { glucoseGroup } from '@/screens/track/targets';
 import { formatPressure } from '@/screens/track/timeline';
-import { decimalsFor, formatNumber, glucoseMgdl, roundTo, type GlucoseUnit } from '@/screens/track/units';
+import { decimalsFor, formatNumber, glucoseMgdl, type GlucoseUnit } from '@/screens/track/units';
 import { dayTotals, meterReadings, sessionMinutes, sessionsOf, stepsDays, stretchedDays, walkFigures, type TrendData } from './records';
 import { mayBeIn, type DayFigure, type LabPoint, type MeterReading, type ReadingPoint } from './stats';
 
@@ -81,9 +81,6 @@ export const TREND_ORDER: readonly TrendId[] = [
   'mood',
 ];
 
-/** Glucose under this is low (ADA level 1); over this is the high the check-in asks about. */
-export const HIGH_GLUCOSE_MGDL = 250;
-
 /** The lines as ADA writes them in each unit (Table 6.4), and 250 mg/dL as 13.9 mmol/L. */
 export const GLUCOSE_LINES: Record<GlucoseUnit, { low: string; high: string }> = {
   'mg/dL': { low: '70 mg/dL', high: '250 mg/dL' },
@@ -132,11 +129,14 @@ const SINGLE: Partial<Record<TrendId, ObservationKind>> = { weight: 'weight', wa
 const inside = (range: DayRange) => (x: { day: string }) => x.day >= range.from && x.day <= range.to;
 const byTime = (a: { at: string }, b: { at: string }) => Date.parse(a.at) - Date.parse(b.at);
 
-/** A record's value in the display unit, at the precision it is shown. */
+/**
+ * A record's value in the display unit, unrounded, as a statistic counts it
+ * (KT-15, J§4.10), with the precision it is shown at: never across a line it
+ * is judged against (`shownDecimals`).
+ */
 function shown(o: Observation, prefs: DisplayPrefs): { value: number; unit: string; decimals: number } {
   const v = inDisplayUnit(o, prefs);
-  const decimals = shownDecimals(v.value, o.kind, v.unit);
-  return { value: roundTo(v.value, decimals), unit: v.unit, decimals };
+  return { value: v.value, unit: v.unit, decimals: shownDecimals(v.value, o.kind, v.unit) };
 }
 
 const at = (o: Observation, prefs: DisplayPrefs) => (hasClockTime(o) ? ` at ${formatClock(o.at, prefs.hour12)}` : '');

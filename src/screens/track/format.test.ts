@@ -71,6 +71,9 @@ describe('values', () => {
     expect(formatObservation(obs({ kind: 'b12', value: 350.1, unit: 'pg/mL' }), DEFAULT_PREFS)).toBe('350.1 pg/mL');
     expect(formatObservation(obs({ kind: 'vitaminD', value: 11.96, unit: 'ng/mL' }), DEFAULT_PREFS)).toBe('11.96 ng/mL');
     expect(formatValue(53.9, 'glucose', 'mg/dL')).toBe('53.9 mg/dL');
+    // Above 250 is Trends' high (H3-04): 13.9 mmol/L is 250.2 mg/dL, so never "250 mg/dL" beside "Above 250".
+    expect(formatObservation(obs({ value: 13.9, unit: 'mmol/L' }), DEFAULT_PREFS)).toBe('250.2 mg/dL');
+    expect(formatObservation(obs({ value: 250 }), DEFAULT_PREFS)).toBe('250 mg/dL');
   });
 
   it('keeps the usual reading precision when it crosses nothing', () => {

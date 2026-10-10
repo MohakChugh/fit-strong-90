@@ -387,6 +387,38 @@ describe('a readings trend: Glucose (A-44, K-11)', () => {
   });
 });
 
+describe('a reading by a line is never rounded across it (KT-01, H3-04, KT-15, J06)', () => {
+  const at = (day: string, time: string) => `${day}T${time}:00+05:30`;
+
+  it('a serious low of 53.9 mg/dL keeps its decimal in the range, never “54”', () => {
+    const view = readingsView({ def: TRENDS.glucose, window: week, data: data([g(53.9, at('2026-10-05', '07:30')), g(180, at('2026-10-06', '07:30'))]), prefs, ctx: ctx() });
+    expect(view.stats[0]).toEqual({ label: 'Range', value: '53.9–180 mg/dL' });
+    expect(view.table.rows[0][1]).toBe('53.9 mg/dL at 7:30 am');
+  });
+
+  it('in mmol/L, 3.85 is below 3.9: shown as 3.85, never as the line itself', () => {
+    const mmol = (value: number, day: string) => newObservation({ kind: 'glucose', value, unit: 'mmol/L', at: at(day, '07:30'), scope: 'pointInTime', source: 'manual' });
+    const view = readingsView({ def: TRENDS.glucose, window: week, data: data([mmol(3.85, '2026-10-05'), mmol(6.2, '2026-10-06')]), prefs: { ...prefs, glucose: 'mmol/L' }, ctx: ctx() });
+    expect(view.stats.slice(0, 2)).toEqual([{ label: 'Range', value: '3.85–6.2 mmol/L' }, { label: 'Below 3.9 mmol/L', value: '1' }]);
+    const six = readingsView({ def: TRENDS.glucose, window: windowOf('sixMonths', TODAY), data: data([mmol(3.85, '2026-10-05'), mmol(6.2, '2026-10-06')]), prefs: { ...prefs, glucose: 'mmol/L' }, ctx: ctx() });
+    expect(six.table.rows).toEqual([['5–11 Oct', '2', '3.85–6.2 mmol/L', '5.0 mmol/L']]);
+  });
+
+  it('13.9 mmol/L read in mg/dL is 250.2, above 250, in its words, the range and the count', () => {
+    const high = newObservation({ kind: 'glucose', value: 13.9, unit: 'mmol/L', at: at('2026-10-06', '13:00'), scope: 'pointInTime', source: 'manual' });
+    const view = readingsView({ def: TRENDS.glucose, window: week, data: data([g(120, at('2026-10-05', '07:30')), high]), prefs, ctx: ctx() });
+    expect(view.table.rows[1]).toEqual(['Tuesday, 6 October', '250.2 mg/dL at 1:00 pm', 'Above 250 mg/dL']);
+    expect(view.stats.slice(0, 3)).toEqual([{ label: 'Range', value: '120–250.2 mg/dL' }, { label: 'Below 70 mg/dL', value: '0' }, { label: 'Above 250 mg/dL', value: '1' }]);
+  });
+
+  it('keeps each reading’s unrounded value, so the average is the readings’, not their rounded figures (§4.10)', () => {
+    const view = readingsView({ def: TRENDS.glucose, window: week, data: data(GLUCOSE), prefs: { ...prefs, glucose: 'mmol/L' }, ctx: ctx() });
+    const points = view.chart.series.flatMap(s => (s.kind === 'points' ? s.points.map(p => p.value) : []));
+    expect(points[0]).toBeCloseTo(118 / 18, 9);
+    expect(view.chart.average?.value).toBeCloseTo((118 + 168 + 280 + 62) / 4 / 18, 9);
+  });
+});
+
 describe('a week with only a meter’s LO (Review Focus 3)', () => {
   const lo = { date: '2026-10-06', glucoseDisplay: { display: 'LO', measuredAt: '2026-10-06T13:00:00+05:30' } } as unknown as CheckInRecord;
   const view = readingsView({ def: TRENDS.glucose, window: week, data: data(GLUCOSE.slice(0, 3), [], [lo]), prefs, ctx: ctx() });
