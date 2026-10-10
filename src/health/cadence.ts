@@ -41,11 +41,11 @@ export interface CadenceInput {
   observations: readonly Observation[];
 }
 
-/** Where each item's action lands: Track's quick log, opened on the right kind. */
+/** Where each item's action lands: that check's hub, with its own form open (journey §8.2, D55). */
 export const TRACK_ADD = {
-  bloodPressure: '/track?add=bloodPressure',
-  hba1c: '/track?add=hba1c',
-  b12: '/track?add=b12',
+  bloodPressure: '/hub/bp?add=bloodPressure',
+  hba1c: '/hub/labs?metric=hba1c&add=hba1c',
+  b12: '/hub/labs?metric=b12&add=b12',
 } as const;
 
 /** ADA 2026, 6.3a: under 7% for many adults. */

@@ -200,10 +200,10 @@ export const ROUTES = {
   reminders: '/you/habits',
   meals: '/guide/meals',
   week: '/guide/meals/week',
-  /** Track's own add forms, opened by its `add` parameter (`parseAddParam`). */
-  addGlucose: '/track?add=glucose',
-  addBloodPressure: '/track?add=bloodPressure',
-  addWaist: '/track?add=waist',
+  /** A reading's hub, with its own form open on arrival (`?add=`, `parseAddParam`). */
+  addGlucose: '/hub/glucose?add=glucose',
+  addBloodPressure: '/hub/bp?add=bloodPressure',
+  addWaist: '/hub/waist?add=waist',
 } as const;
 export type AppRoute = (typeof ROUTES)[keyof typeof ROUTES];
 

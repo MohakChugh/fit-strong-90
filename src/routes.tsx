@@ -21,6 +21,8 @@ const MealDetailScreen = lazy(() => import('@/screens/guide/MealDetailScreen'));
 const SampleWeekScreen = lazy(() => import('@/screens/guide/SampleWeekScreen'));
 const BackLeg = lazy(() => import('@/screens/track/BackLeg').then(m => ({ default: m.BackLeg })));
 const MetricFor = lazy(() => import('@/screens/track/MetricDetail').then(m => ({ default: m.MetricFor })));
+const MetricDetail = lazy(() => import('@/screens/track/MetricDetail').then(m => ({ default: m.MetricDetail })));
+const ReadingHub = lazy(() => import('@/screens/hub/ReadingHub'));
 const MyDay = lazy(() => import('@/screens/track/MyDay').then(m => ({ default: m.MyDay })));
 const TrackRoutes = lazy(() => import('@/screens/track/routes'));
 const WorkoutRoutes = lazy(() => import('@/screens/workout/routes'));
@@ -103,7 +105,9 @@ export function AppRoutes({ onboarded }: { onboarded: boolean }) {
         <Route path="/hub/food/ideas/:mealId" element={hub(<MealDetailScreen />)} />
         <Route path="/hub/food/week" element={hub(<SampleWeekScreen />)} />
         <Route path="/hub/back" element={hub(<BackLeg />)} />
-        <Route path="/hub/:id" element={hub(<MetricFor />)} />
+        {/* Steps keeps v1's metric screen until its own hub (Task 12). */}
+        <Route path="/hub/steps" element={hub(<MetricDetail kind="steps" />)} />
+        <Route path="/hub/:id" element={hub(<ReadingHub />)} />
         <Route path="/day/*" element={<DayRoutes />} />
         <Route path="/trends" element={<MyDay view="trends" />} />
         {/* Trends' own address. Until Plan 3 builds it, Trends; the log moved to /hub/workout/log (D51). */}
