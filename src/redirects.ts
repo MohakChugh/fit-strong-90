@@ -77,7 +77,8 @@ export function redirectFor(pathname: string, search: string, { onboarded = true
     return to ? keep(to, search) : MOVED;
   }
   if (p === '/track/back') return keep('/hub/back', search);
-  if (p === '/track/workout') return keep('/trends/workout', search);
+  // v1's Workout Log was its logging screen: logging a workout is the Workout hub's, its trend Trends' (B-14).
+  if (p === '/track/workout') return keep('/hub/workout/log', search);
   if (p === '/guide') return keep('/hub/learn', search);
   if (/^\/guide\/(topic|card)\//.test(p) || p === '/guide/sources') return keep(p.replace('/guide/', '/hub/learn/'), search);
   if (p === '/guide/meals') return keep('/hub/food/ideas', search);

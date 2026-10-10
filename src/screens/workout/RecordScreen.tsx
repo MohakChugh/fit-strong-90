@@ -104,7 +104,7 @@ function Record({ session, sessions, records, useMetric, today, saved, continuab
           {continuable ? (
             <>
               <p>It is still going. Pick it up in the Workout Log, where its sets can be changed.</p>
-              <Link to="/track/workout" viewTransition className={`${primary} mt-2`}>Continue this workout</Link>
+              <Link to="/hub/workout/log" viewTransition className={`${primary} mt-2`}>Continue this workout</Link>
             </>
           ) : (
             <>
@@ -112,7 +112,7 @@ function Record({ session, sessions, records, useMetric, today, saved, continuab
               <button type="button" className={`${primary} mt-2`} onClick={() => void run(prev => withWorkout(prev, asItStands(session)))}>
                 Save as it stands
               </button>
-              <Link to={`/track/workout?date=${session.date}`} viewTransition className={secondary}>Add the sets you did</Link>
+              <Link to={`/hub/workout/log?date=${session.date}`} viewTransition className={secondary}>Add the sets you did</Link>
             </>
           )}
         </Notice>

@@ -494,9 +494,8 @@ describe('wiring that names the opener (S-10, S-11)', () => {
 
   it('a row into a movement screen that opens on its refusal skips the transition, asked at the tap (codex V1-05)', () => {
     expect(read('src/screens/browse/BrowseScreen.tsx')).toMatch(/onClick=\{c\.mode \? \(\) => \{ if \(opensOnHold\(gateFor\(guided, c\.mode!\)\)\) skipNextTransition\(\); \} : undefined\}/);
-    const move = read('src/screens/move/routes.tsx');
-    expect(move).toMatch(/onClick=\{skipInto\('stretch'\)\}/);
-    expect(move).toMatch(/onClick=\{skipInto\('walk'\)\}/);
+    // The Workout hub has no rows into Stretch or Walk: its "Stretch instead" is offered only while the stretch gate is open
+    // (`movementCard`), so the Stretch hub never opens on its refusal from there.
     // Home's tiles ask the permission, not their line's tone.
     expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/const opensOnHoldNow = \(id: CategoryId\) => \{\s*const \{ mode \} = categoryById\(id\);\s*return mode !== undefined && opensOnHold\(permissionFor\(mode\)\);/);
   });
@@ -520,8 +519,10 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     expect(read('src/screens/move/StretchScreen.tsx')).toContain("back={{ to: '/home', label: 'Home' }}");
     expect(read('src/screens/walk/WalkSetup.tsx')).toContain("const back = { to: '/home', label: 'Home' };");
     for (const file of ['src/screens/move/PlanScreen.tsx', 'src/screens/move/ExercisesScreen.tsx']) {
-      expect(read(file), file).toContain("back={{ to: '/hub/workout', label: 'Move' }}");
+      expect(read(file), file).toContain("back={{ to: '/hub/workout', label: 'Workout' }}");
     }
+    // The Workout Log, at its own address in the hub (B-14, D51).
+    expect(read('src/screens/workout/TodayWorkoutScreen.tsx')).toContain("back={{ to: '/hub/workout', label: 'Workout' }}");
     for (const file of ['src/screens/move/StretchScreen.tsx', 'src/screens/walk/WalkSetup.tsx', 'src/screens/move/PlanScreen.tsx', 'src/screens/move/ExercisesScreen.tsx']) {
       expect(read(file), file).not.toContain("to: '/move'");
     }

@@ -14,7 +14,7 @@ const WorkoutRoutes = lazy(() => import('@/screens/workout/routes'));
  * Everything else Track had has moved (§19.3), and its old address is sent on
  * by `redirectFor`: My Day to `/day/:date` (or `/trends` for its trends view),
  * `metric/:kind` to its hub, `back` to `/hub/back` and the Workout Log to
- * `/trends/workout`. The moved paths stay listed, so the redirect inventory
+ * `/hub/workout/log`. The moved paths stay listed, so the redirect inventory
  * (`redirects.test.ts`) keeps checking them.
  */
 export default function TrackRoutes() {

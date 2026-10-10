@@ -28,7 +28,7 @@ describe('v1 → v2 redirects (journey §19.3)', () => {
     ['/track/metric/movement', '', '/trends'],
     ['/track/metric/pain', '', '/hub/back'],
     ['/track/back', '', '/hub/back'],
-    ['/track/workout', '', '/trends/workout'],
+    ['/track/workout', '', '/hub/workout/log'],
     ['/guide', '', '/hub/learn'],
     ['/guide/topic/sugar-checks', '', '/hub/learn/topic/sugar-checks'],
     ['/guide/card/plate', '', '/hub/learn/card/plate'],
@@ -45,7 +45,7 @@ describe('v1 → v2 redirects (journey §19.3)', () => {
     ['/welcome', '?goal=1', '/home?goal=1'],
     ['/dashboard', '?checkin=1', '/home?checkin=1'],
     ['/settings', '', '/me'],
-    ['/workout', '', '/trends/workout'],
+    ['/workout', '', '/hub/workout/log'],
   ];
   for (const [path, search, to] of cases) it(`${path}${search} → ${to}`, () => expect(redirectFor(path, search)).toBe(to));
 
@@ -69,8 +69,8 @@ describe('v1 → v2 redirects (journey §19.3)', () => {
 
   it('keeps the query on every redirect, beside a query of its own (K-17)', () => {
     // Quick Log opens the Workout Log on a past day this way.
-    expect(redirectFor('/track/workout', '?date=2026-10-05')).toBe('/trends/workout?date=2026-10-05');
-    expect(redirectFor('/workout', '?date=2026-10-05')).toBe('/trends/workout?date=2026-10-05');
+    expect(redirectFor('/track/workout', '?date=2026-10-05')).toBe('/hub/workout/log?date=2026-10-05');
+    expect(redirectFor('/workout', '?date=2026-10-05')).toBe('/hub/workout/log?date=2026-10-05');
     expect(redirectFor('/move/plan', '?from=today')).toBe('/hub/workout/plan?from=today');
     expect(redirectFor('/guide', '?q=dal')).toBe('/hub/learn?q=dal');
     expect(redirectFor('/you/focus', '?from=today')).toBe('/me/profile?chapter=movement&from=today');

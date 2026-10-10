@@ -136,7 +136,7 @@ export function QuickLog({ open, onOpenChange, initial, onSaved, prefs, day }: {
               // Only a navigation: closing the sheet first would also rewrite
               // My Day's address, and that second navigation could win the race
               // and bring the person straight back. Leaving My Day closes it.
-              onClick={() => navigate(pastDay ? `/track/workout?date=${pastDay}` : '/track/workout', { viewTransition: true })}
+              onClick={() => navigate(pastDay ? `/hub/workout/log?date=${pastDay}` : '/hub/workout/log', { viewTransition: true })}
             />
           </Group>
         </>

@@ -62,6 +62,11 @@ describe('the route table’s redirects keep the query and the state (journey §
     expect(places).toEqual(['/welcome?goal=1', '/home?goal=1']);
   });
 
+  it('the Workout Log’s and Trends’ workout addresses keep the query (D51)', async () => {
+    expect((await land({ pathname: '/trends/workout', search: '?from=bookmark' }, true)).at(-1)).toBe('/trends?from=bookmark');
+    expect((await land({ pathname: '/hub/workout/log/old', search: '?date=2026-10-05' }, true)).at(-1)).toBe('/hub/workout/log?date=2026-10-05');
+  });
+
   it('before setup, every address goes to setup with its query', async () => {
     const places = await land({ pathname: '/today', search: '?checkin=walk' }, false);
     expect(places.at(-1)).toBe('/setup?checkin=walk');

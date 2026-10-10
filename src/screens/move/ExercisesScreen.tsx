@@ -48,7 +48,7 @@ export function ExercisesScreen() {
 
   // An old Library link, `?ex=<id>`, opens that exercise.
   const legacy = params.get('ex');
-  if (legacy) return <Navigate to={`/move/exercises/${encodeURIComponent(legacy)}`} replace />;
+  if (legacy) return <Navigate to={`/hub/workout/exercises/${encodeURIComponent(legacy)}`} replace />;
 
   const summary = [
     kind !== 'all' && KINDS.find(k => k.value === kind)?.label,
@@ -58,7 +58,7 @@ export function ExercisesScreen() {
   return (
     <Screen
       title="Find an exercise"
-      back={{ to: '/hub/workout', label: 'Move' }}
+      back={{ to: '/hub/workout', label: 'Workout' }}
       trailing={(
         <button type="button" onClick={() => setFilterOpen(true)} aria-haspopup="dialog"
           className="press-feedback flex min-h-11 items-center px-2 text-[length:var(--text-body)] text-tint">
@@ -102,7 +102,7 @@ export function ExercisesScreen() {
         <Group key={g.kind} header={g.title}>
           {g.items.map(ex => (
             // The list as it is now, search and filters included, so the exercise's Back returns here.
-            <Row key={ex.id} as={Link} to={`/move/exercises/${ex.id}`} state={libraryState(location.pathname, location.search)} viewTransition icon={<KindIcon id={ex.id} />}
+            <Row key={ex.id} as={Link} to={`/hub/workout/exercises/${ex.id}`} state={libraryState(location.pathname, location.search)} viewTransition icon={<KindIcon id={ex.id} />}
               label={<Wrap>{ex.name}</Wrap>} detail={detailOf(ex) || undefined} chevron />
           ))}
         </Group>

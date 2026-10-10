@@ -130,7 +130,7 @@ describe('categories and shortcuts (B-14)', () => {
     expect(CATEGORIES.filter(c => c.id === 'water').map(c => c.group)).toEqual(['check']);
   });
   it('a shortcut has only a target: no hub, trend or group, so it can never be pinned as a tile', () => {
-    const shortcut: Shortcut = { id: 'log-workout', title: 'Log a workout', to: '/trends/workout' };
+    const shortcut: Shortcut = { id: 'log-workout', title: 'Log a workout', to: '/hub/workout/log' };
     // @ts-expect-error a shortcut is not a category
     const asCategory: Category = shortcut;
     expect(asCategory).toBe(shortcut);

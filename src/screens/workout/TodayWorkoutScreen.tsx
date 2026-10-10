@@ -61,7 +61,7 @@ export default function TodayWorkoutScreen() {
   const lifting = plan.exercises.length > 0 || active !== undefined;
 
   return (
-    <Screen title="Workout" back={{ to: '/track', label: 'Track' }} inline>
+    <Screen title="Workout" back={{ to: '/hub/workout', label: 'Workout' }} inline>
       {lifting ? (
         <Workout key={planKey(plan)} plan={plan} active={active} data={data} profile={profile} build={build}
           clinical={{ profile, checkIns }} now={now} checkedIn={todayCheckIn !== undefined} today={today} afterTheFact={past !== undefined}

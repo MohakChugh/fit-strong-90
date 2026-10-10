@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   ChevronDownIcon, CircleCheckIcon, CircleDashedIcon, CircleDotIcon, CircleIcon, CirclePauseIcon, MoonIcon, type LucideIcon,
 } from 'lucide-react';
@@ -95,7 +96,17 @@ function Phases({ current }: { current?: string }) {
  */
 export function PlanScreen() {
   const { data, update, date } = useGuided();
-  const [flow, dispatch] = useReducer(joinFlow, JOIN_CLOSED);
+  const [params, setParams] = useSearchParams();
+  // "Join the 12-week programme" on the Workout hub opens the Join flow at once (D35): read on arrival, then taken out of the address.
+  const [flow, dispatch] = useReducer(joinFlow, params.get('join') === '1' && !isEnrolled(data.settings, data.profile) ? { ...JOIN_CLOSED, open: true } : JOIN_CLOSED);
+  useEffect(() => {
+    if (!params.has('join')) return;
+    setParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('join');
+      return next;
+    }, { replace: true });
+  }, [params, setParams]);
   const submit = useMemo(() => joinController(update, dispatch), [update]);
   const [leaving, setLeaving] = useState(false);
   // A saved join or leave swaps the view from under its dialog, so the button
@@ -114,7 +125,7 @@ export function PlanScreen() {
   };
 
   return (
-    <Screen title="Your plan" back={{ to: '/hub/workout', label: 'Move' }}>
+    <Screen title="Your plan" back={{ to: '/hub/workout', label: 'Workout' }}>
       {planView(isEnrolled(data.settings, data.profile), { joining: flow.open, leaving }) === 'member'
         ? <MemberPlan focusOnArrival={switched} onLeave={leave} />
         : <JoinPlan focusOnArrival={switched} unsaved={!flow.open && flow.draft !== undefined} onJoin={() => dispatch({ type: 'open' })} />}

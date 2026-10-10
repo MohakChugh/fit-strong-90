@@ -24,6 +24,7 @@ const MetricFor = lazy(() => import('@/screens/track/MetricDetail').then(m => ({
 const MyDay = lazy(() => import('@/screens/track/MyDay').then(m => ({ default: m.MyDay })));
 const TrackRoutes = lazy(() => import('@/screens/track/routes'));
 const WorkoutRoutes = lazy(() => import('@/screens/workout/routes'));
+const TodayWorkoutScreen = lazy(() => import('@/screens/workout/TodayWorkoutScreen'));
 const DayRoutes = lazy(() => import('@/screens/day/routes'));
 const BrowseScreen = lazy(() => import('@/screens/browse/BrowseScreen'));
 const YouRoutes = lazy(() => import('@/screens/you/routes'));
@@ -90,6 +91,9 @@ export function AppRoutes({ onboarded }: { onboarded: boolean }) {
 
       <Route element={<AppShell />}>
         <Route path="/home/*" element={<HomeRoutes />} />
+        {/* Logging a workout (B-14); its trend is Trends' (Plan 3). Past workouts keep their record address, /track/workout/:id. */}
+        <Route path="/hub/workout/log" element={hub(<TodayWorkoutScreen />)} />
+        <Route path="/hub/workout/log/*" element={<Keeping to="/hub/workout/log" />} />
         <Route path="/hub/workout/*" element={hub(<MoveRoutes />)} />
         <Route path="/hub/stretch" element={hub(<StretchScreen />)} />
         <Route path="/hub/walk/*" element={hub(<WalkRoutes />)} />
@@ -102,6 +106,8 @@ export function AppRoutes({ onboarded }: { onboarded: boolean }) {
         <Route path="/hub/:id" element={hub(<MetricFor />)} />
         <Route path="/day/*" element={<DayRoutes />} />
         <Route path="/trends" element={<MyDay view="trends" />} />
+        {/* Trends' own address. Until Plan 3 builds it, Trends; the log moved to /hub/workout/log (D51). */}
+        <Route path="/trends/workout" element={<Keeping to="/trends" />} />
         <Route path="/trends/workout/*" element={<WorkoutRoutes />} />
         <Route path="/trends/:id" element={<MetricFor trend />} />
         <Route path="/browse" element={<BrowseScreen />} />
