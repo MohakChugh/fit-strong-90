@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
@@ -21,11 +21,13 @@ import { HistoryList } from './HistoryList';
 import { HubFrame, HubSection, SeeTrends } from './HubFrame';
 import { useHubGate, useHubOrigin } from './hooks';
 import { MovementCard } from './MovementCard';
-import { actionTarget, movementCard, resumeAllowed, runAction, stretchReason, type HubActionKind } from './movement';
+import { actionTarget, movementCard, offersRoutines, resumeAllowed, runAction, stretchReason, type HubActionKind } from './movement';
 import { goalLine, modeWeek, movementHistory } from './week';
 import { WeekStrip } from './WeekStrip';
 
 const REFUSED = new Set(['held', 'stopped', 'gap']);
+/** The area choices, which "Choose another routine" brings into view. */
+const AREA_ID = 'stretch-area';
 const routineTitle = (s: StretchSpec) => `${STRETCH_FOCUS_LABEL[s.focus]} · ${s.minutes} min`;
 
 /**
@@ -75,20 +77,36 @@ export default function StretchHub() {
     ...(line && plan.kind !== 'none' ? { detail: line } : {}),
     ...(reason ? { reason } : {}),
     // The gate allows it, but the builder can't make this routine today: say so, and offer the other routines.
-    ...(plan.kind === 'none' && g.permission.allowed ? { blocked: line ?? 'This routine cannot be put together safely today. Try another area or length.' } : {}),
+    // A saved run is held to its own steps then, as the player holds it (`todayDose`), so it is still carried on.
+    ...(plan.kind === 'none' && g.permission.allowed && !resume ? { blocked: line ?? 'This routine cannot be put together safely today. Try another area or length.' } : {}),
     gaps: g.gaps, stretchOpen: g.stretchOpen,
     ...(resume ? { saved: { minutesLeft: resume.minutesLeft, label: resume.label } } : {}),
   });
   const ctx = { mode: 'stretch' as const, href: stretchHref(spec), startLabel: 'Start stretch', ...(resume ? { resumeHref: resume.href } : {}) };
+  // "Choose another routine": the area choices, in view and focused on the one chosen.
+  const chooseAnother = () => {
+    const radio = document.getElementById(AREA_ID)?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]');
+    radio?.scrollIntoView({ block: 'center' });
+    radio?.focus();
+  };
   const act = (kind: HubActionKind) => runAction(actionTarget(kind, ctx), {
     start: g.start,
     go: to => navigate(to, { viewTransition: true, state: origin }),
     status: () => setStatusOpen(true),
-    local: () => {},
+    local: chooseAnother,
   });
   // Replace, not push: changing a choice is not a place to go Back to. The page stays where it is.
   const choose = (next: StretchSpec) => setParams({ focus: next.focus, minutes: String(next.minutes) }, { replace: true, preventScrollReset: true });
-  const offering = !REFUSED.has(card.state) && card.state !== 'join';
+  // On arrival only, a routine in the address the builder can't make today is let go, so a reload or a link
+  // doesn't keep it; one chosen here stays on screen beside its words, with the choices (kiro KH-01).
+  // Once: the address's own setter changes with the address, and a later choice must stay.
+  const letGo = useRef(chosen && card.state === 'unbuildable');
+  useEffect(() => {
+    if (!letGo.current) return;
+    letGo.current = false;
+    setParams(new URLSearchParams(), { replace: true, preventScrollReset: true });
+  }, [setParams]);
+  const offering = offersRoutines(card.state);
   // "In this routine" is what will run: while carrying on, what is left of it.
   const listed = resume ? { ...plan, steps: resume.left } : plan;
   const rows = previewRows(listed);
@@ -114,12 +132,14 @@ export default function StretchHub() {
         <HubSection title="Options">
           <div className="flex flex-col gap-4">
             <Group header="Area">
+              <div id={AREA_ID} className="contents">
               <ChoiceRows<StretchFocus>
                 label="Area"
                 options={STRETCH_FOCI.map(f => ({ value: f, label: STRETCH_FOCUS_LABEL[f] }))}
                 value={focus}
                 onChange={f => choose(offeredSpec({ focus: f, minutes }))}
               />
+              </div>
             </Group>
             <section aria-labelledby="stretch-length" className="flex flex-col">
               <h3 id="stretch-length" className="px-4 pb-2 text-[length:var(--text-footnote)] font-medium uppercase tracking-wide text-muted-foreground">Length</h3>

@@ -21,7 +21,9 @@ export type HubActionKind =
   | 'start' | 'continue' | 'review' | 'anyway' | 'mobility' | 'justWalk'
   | 'profile' | 'join' | 'stretch' | 'status' | 'otherTime'
   /** Walk: the walk still on this device, carried on (a restart, through the gate), reviewed and saved, or ended there and reviewed. */
-  | 'carryOn' | 'saveWalk' | 'finishWalk';
+  | 'carryOn' | 'saveWalk' | 'finishWalk'
+  /** Stretch: back to the area and length, when the builder can't make this routine today. */
+  | 'chooseRoutine';
 
 export interface HubAction {
   kind: HubActionKind;
@@ -30,7 +32,7 @@ export interface HubAction {
   disabled?: boolean;
 }
 
-export type CardState = 'go' | 'checkIn' | 'resume' | 'rest' | 'join' | 'held' | 'gap' | 'stopped' | 'paused' | 'unsaved';
+export type CardState = 'go' | 'checkIn' | 'resume' | 'rest' | 'join' | 'held' | 'gap' | 'stopped' | 'paused' | 'unsaved' | 'unbuildable';
 
 export interface HubCard {
   state: CardState;
@@ -142,7 +144,8 @@ export function movementCard(i: CardInput): HubCard {
     };
   }
   if (i.blocked) {
-    return { ...empty, state: 'held', tone: 'caution', title: i.title, reasons: [i.blocked] };
+    // Not a refusal: the gate allows a stretch, and another area or length may be made, so the choices stay (kiro KH-01).
+    return { ...empty, state: 'unbuildable', tone: 'caution', title: i.title, reasons: [i.blocked], secondary: [{ kind: 'chooseRoutine', label: 'Choose another routine' }] };
   }
   const go = i.gate === 'go';
   // A flare's own words, as on the tile; the button already says a check-in comes first.
@@ -303,6 +306,7 @@ export function actionTarget(kind: HubActionKind, c: ActionContext): ActionTarge
       return { via: 'status' };
     case 'otherTime':
     case 'finishWalk':
+    case 'chooseRoutine':
       return { via: 'local' };
     case 'carryOn':
       return { via: 'gate', mode: c.mode, href: c.resumeHref ?? c.href, label: 'Carry on walking' };
@@ -322,6 +326,16 @@ export function runAction(t: ActionTarget, fx: {
   else if (t.via === 'go') fx.go(t.to);
   else if (t.via === 'status') fx.status();
   else fx.local();
+}
+
+/**
+ * Whether the Stretch hub lists the routine and its area and length choices
+ * under the card: not while the card refuses (a hold, a stop, a profile gap)
+ * or the programme's Join is the way in. A routine the builder can't make
+ * keeps them, so another can be chosen (kiro KH-01).
+ */
+export function offersRoutines(state: CardState): boolean {
+  return state !== 'held' && state !== 'stopped' && state !== 'gap' && state !== 'join';
 }
 
 /** Whether a run saved today may be carried on under this status, as `recommend` offers it (A-34): never while Away or Unwell, and only a stretch during a flare. */

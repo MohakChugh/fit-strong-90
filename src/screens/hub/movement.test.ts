@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PERMISSION_TEXT, type Permission } from '@/engine/permission';
 import { movementLine, type TileLine } from '@/screens/home/tileLine';
 import {
-  JOIN_HREF, actionTarget, movementCard, pendingWalkCard, restDayOf, resumeAllowed, runAction, sessionParts, stretchReason,
+  JOIN_HREF, actionTarget, movementCard, offersRoutines, pendingWalkCard, restDayOf, resumeAllowed, runAction, sessionParts, stretchReason,
   type CardInput, type HubActionKind, type HubCard, type PendingWalkInput,
 } from './movement';
 
@@ -121,9 +121,9 @@ describe('movementCard: the hub column of the copy table (journey §7.5)', () =>
     expect(kinds(walk)).toEqual(['start', 'stretch']);
   });
 
-  it('a routine the builder can’t make today says so, with no Start', () => {
+  it('a routine the builder can’t make today says so, with no Start (its own state, kiro KH-01)', () => {
     const c = movementCard(input({ blocked: 'This routine cannot be put together safely today. Try another area or length.' }));
-    expect(c.state).toBe('held');
+    expect(c.state).toBe('unbuildable');
     expect(c.primary).toBeUndefined();
   });
 
@@ -440,5 +440,32 @@ describe('a run carried on says today’s words and changes, as the tile and a n
     expect(due.primary).toEqual({ kind: 'continue', label: 'Check in & continue' });
     // A change the gate allows only once checked in is not listed before then, as for a new start.
     expect(due.restrictions).toEqual([]);
+  });
+});
+
+describe('a routine the builder can’t make today: another can be chosen (kiro KH-01)', () => {
+  const words = 'This routine cannot be put together safely today. Try another area or length.';
+
+  it('its own state, the builder’s words, no Start, and a way back to the choices', () => {
+    const c = movementCard(input({ blocked: words }));
+    expect(c.state).toBe('unbuildable');
+    expect(c.reasons).toEqual([words]);
+    expect(c.primary).toBeUndefined();
+    expect(c.secondary).toEqual([{ kind: 'chooseRoutine', label: 'Choose another routine' }]);
+    expect(actionTarget('chooseRoutine', { mode: 'stretch', href: '/session?mode=stretch', startLabel: 'Start stretch' })).toEqual({ via: 'local' });
+  });
+
+  it('keeps the area and length on screen, while a real refusal still hides them', () => {
+    expect(offersRoutines(movementCard(input({ blocked: words })).state)).toBe(true);
+    for (const state of ['held', 'stopped', 'gap', 'join'] as const) expect(offersRoutines(state), state).toBe(false);
+    for (const state of ['go', 'checkIn', 'resume', 'paused'] as const) expect(offersRoutines(state), state).toBe(true);
+  });
+
+  it('a real hold is still the hold, whatever the builder says: the gate never yields', () => {
+    const p = held('stretch', [PERMISSION_TEXT.footWalk]);
+    const c = movementCard(input({ permission: p, gate: 'hold', blocked: words }));
+    expect(c.state).toBe('held');
+    expect(kinds(c)).not.toContain('start');
+    expect(kinds(c)).not.toContain('chooseRoutine');
   });
 });

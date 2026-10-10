@@ -557,6 +557,18 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     expect(player).toContain("import { todayDose, withBackChecks } from '@/session/carryOn';");
   });
 
+  it('a stretch the builder can’t make keeps its choices on screen, with a way to them, and isn’t kept in the address (kiro KH-01)', () => {
+    const hub = read('src/screens/hub/StretchHub.tsx');
+    expect(hub).toContain('const offering = offersRoutines(card.state);');
+    expect(hub).toContain('local: chooseAnother,');
+    expect(hub).toMatch(/const chooseAnother = \(\) => \{\s+const radio = document\.getElementById\(AREA_ID\)\?\.querySelector<HTMLElement>\('\[role="radio"\]\[aria-checked="true"\]'\);\s+radio\?\.scrollIntoView\(\{ block: 'center' \}\);\s+radio\?\.focus\(\);/);
+    expect(hub).toContain('<div id={AREA_ID} className="contents">');
+    expect(hub).toContain("const letGo = useRef(chosen && card.state === 'unbuildable');");
+    expect(hub).toMatch(/if \(!letGo\.current\) return;\s+letGo\.current = false;\s+setParams\(new URLSearchParams\(\), \{ replace: true, preventScrollReset: true \}\);/);
+    // A saved run is held to its own steps when nothing new can be built, as the player holds it.
+    expect(hub).toContain("plan.kind === 'none' && g.permission.allowed && !resume ? { blocked:");
+  });
+
   it('the walk summary, a full-screen task, can be left by Back, keeping the walk to save (codex V1-08, journey §20.4 rule 10)', () => {
     // Back, like Done, returns to where the walk was started: the Walk hub, or Home (motion M12, Plan 6).
     const summary = read('src/screens/walk/WalkSummary.tsx');
