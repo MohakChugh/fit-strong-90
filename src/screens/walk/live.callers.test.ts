@@ -77,6 +77,7 @@ const { permission } = await import('@/engine/permission');
 const { deviceGate } = await import('@/walk/gate');
 const { newWalkId } = await import('@/walk/plan');
 const { startedHref } = await import('@/walk/started');
+const { statusOn } = await import('@/health/status');
 /** A walk the shared start flow has just started, as the live screen's address: how every new walk arrives (H6-04). */
 const startedParams = () => new URLSearchParams(startedHref({ kind: 'walk', gps: false, steps: false }).split('?')[1]);
 
@@ -231,6 +232,39 @@ describe('"I need to stop", closed without an answer (journey §4.4, H6-01)', ()
     expect(status()).toBe('paused');
     expect(answer(p).reasons.join(' ')).toMatch(/Dizzy or faint/);
     expect(answer(p).reasons.join(' ')).not.toMatch(/haven’t said what happened/);
+  });
+});
+
+describe('Resume asks the status first, as the hubs’ Continue does (H2-01, journey §4.8)', () => {
+  const p = createDefaultProfile({ health: { ...known, diabetes: 'none' } });
+
+  it('stays paused while Unwell, says why in the hubs’ words, and carries on once the status is back to normal', async () => {
+    const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4 };
+    await store.update(prev => ({ ...prev, profile: p, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
+    router.params = startedParams();
+    host = render(createElement(LiveWalkScreen));
+    await host.settle();
+    expect(status()).toBe('running');
+    await h().click(h().button('Pause', { exact: true }));
+    expect(status()).toBe('paused');
+    // Off the walk screen, the person says they're unwell today.
+    await store.setSettings({ statusPeriods: [{ kind: 'unwell', from: DAY }] });
+    await h().settle();
+    expect(h().text()).toMatch(/A walk isn’t carried on while you’re unwell\./);
+    expect(h().buttons('Change status', { exact: true })).toHaveLength(1);
+    expect(h().buttons('Check in', { exact: true })).toHaveLength(0);
+    if (h().buttons('Resume', { exact: true }).length) await h().click(h().button('Resume', { exact: true }));
+    walk.live!.resume();
+    await h().settle();
+    expect(status()).toBe('paused');
+    // Back to normal, from the status sheet the hold offers: Resume carries on.
+    await h().click(h().button('Change status', { exact: true }));
+    await h().click(h().button(/^Normal/));
+    await h().click(h().button('Back to normal', { exact: true }));
+    await h().settle();
+    expect(statusOn(store.getState().settings.statusPeriods, DAY)).toBe('normal');
+    await h().click(h().button('Resume', { exact: true }));
+    expect(status()).toBe('running');
   });
 });
 

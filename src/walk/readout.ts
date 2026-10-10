@@ -287,22 +287,32 @@ export function endingLine(walk: Walk, time: (t: number) => string = t => timeOf
   return undefined;
 }
 
+/** The hubs' words for a walk the status won't let carry on (H2-01, journey §4.8, A-34). */
+export const STATUS_HOLD = {
+  away: 'A walk isn’t carried on while you’re away.',
+  unwell: 'A walk isn’t carried on while you’re unwell.',
+  flare: 'During a flare-up only a stretch is carried on.',
+  release: 'Change your status to carry on.',
+} as const;
+
 /**
  * What a held walk offers besides its reasons (re-audit N01, N06). Help comes
  * first in an emergency, and never a form in its place. After "I feel low",
  * the reading that can answer it. After "I need to stop" with nothing said
- * since, the stop's own question, which answers it (journey §4.4). Held for
- * the health questions, the profile where they are answered. Any other hold —
- * no check-in today, a reading too old to restart on, dizziness until today's
+ * since, the stop's own question, which answers it (journey §4.4). Held by
+ * the status, the status sheet, as the hubs offer it (H2-01). Held for the
+ * health questions, the profile where they are answered. Any other hold — no
+ * check-in today, a reading too old to restart on, dizziness until today's
  * answers change — the shared check-in, where today's answers are given and
  * changed.
  */
-export type HeldAction = 'emergency' | 'lowReading' | 'stop' | 'profile' | 'checkIn';
+export type HeldAction = 'emergency' | 'lowReading' | 'stop' | 'status' | 'profile' | 'checkIn';
 
 export function heldAction(refusal: Permission, low: boolean): HeldAction {
   if (refusal.disposition === 'emergency') return 'emergency';
   if (low) return 'lowReading';
   if (refusal.reasons.includes(STOP_UNANSWERED.reason)) return 'stop';
+  if (refusal.reasons.some(r => r === STATUS_HOLD.away || r === STATUS_HOLD.unwell || r === STATUS_HOLD.flare)) return 'status';
   const profile = refusal.reasons.some(r => r === PERMISSION_TEXT.healthUnreviewed || r === PERMISSION_TEXT.medicinesUnknown);
   return profile ? 'profile' : 'checkIn';
 }

@@ -12,7 +12,9 @@ import type { SymptomReport } from '@/components/checkin/pending';
 import type { GlucoseEntry } from '@/types/checkin';
 import { deriveHealth } from '@/engine/health';
 import { PERMISSION_TEXT } from '@/engine/permission';
-import { reachableHistory, untimedOf, walkInput, walkRefusal, type Clinical } from '@/walk/gate';
+import { heldBy, reachableHistory, statusRefusal, untimedOf, walkInput, walkRefusal, type Clinical } from '@/walk/gate';
+import { statusOn } from '@/health/status';
+import { StatusSheet } from '@/screens/today/StatusSheet';
 import { cn, toDateString } from '@/lib/utils';
 import { clock, spokenClock, timeOfDay } from '@/walk/format';
 import { feelLow, lowReading } from '@/walk/low';
@@ -20,7 +22,7 @@ import { needToStop } from '@/walk/stop';
 import { walkFromSearch, walkSetupHref } from '@/walk/plan';
 import { takeStarted } from '@/walk/started';
 import { walkSettings, withConsent } from '@/walk/consent';
-import { getState } from '@/store/useStore';
+import { getState, useStore } from '@/store/useStore';
 import {
   STEPS_DENIED,
   cueLine,
@@ -133,7 +135,9 @@ export default function LiveWalkScreen() {
   const day = snapshot ? toDateString(new Date(snapshot.now)) : date;
   const clinical: Clinical = useMemo(() => ({ profile, checkIns: reachableHistory(checkIns, day, profile) }), [profile, checkIns, day]);
   const hypoRisk = deriveHealth(profile.health).hypoRisk;
-  const [sheet, setSheet] = useState<'stop' | 'finish' | 'checkIn' | null>(null);
+  const [sheet, setSheet] = useState<'stop' | 'finish' | 'checkIn' | 'status' | null>(null);
+  // Today's status, which carrying the walk on asks first (H2-01).
+  const { settings } = useStore();
   // The last report from this screen that the device would not keep (N01).
   const [unsaved, setUnsaved] = useState(false);
 
@@ -185,7 +189,10 @@ export default function LiveWalkScreen() {
    */
   const question = snapshot.blocked ?? (running ? null : 'restart');
   // After a change to the phone's clock, the readings from before it, which the engine holds on (B-19); its reason says so.
-  const refusal = question ? walkRefusal(walkInput(clinical, new Date(snapshot.now), untimedOf(snapshot.walk)), question) : undefined;
+  // Carrying on asks the status too, after a stop and before any other hold (H2-01).
+  const refusal = question
+    ? heldBy(walkRefusal(walkInput(clinical, new Date(snapshot.now), untimedOf(snapshot.walk)), question), statusRefusal(statusOn(settings.statusPeriods, day), question))
+    : undefined;
   const emergency = refusal?.disposition === 'emergency';
   const low = lowOpen(checkIn, snapshot.walk);
   const action = refusal ? heldAction(refusal, low) : 'none';
@@ -287,6 +294,11 @@ export default function LiveWalkScreen() {
                   {action === 'stop' && (
                     <button type="button" onClick={() => setSheet('stop')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
                       Say what happened
+                    </button>
+                  )}
+                  {action === 'status' && (
+                    <button type="button" onClick={() => setSheet('status')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
+                      Change status
                     </button>
                   )}
                   {action === 'checkIn' && (
@@ -445,6 +457,9 @@ export default function LiveWalkScreen() {
         startLabel="Carry on walking"
         onStart={() => { setSheet(null); live.resume(); }}
       />
+
+      {/* Today's status, as the hubs offer it, for a walk the status holds (H2-01). */}
+      <StatusSheet open={sheet === 'status'} onOpenChange={o => { if (!o) setSheet(null); }} today={day} periods={settings.statusPeriods} startDate={settings.startDate} />
 
       <Sheet open={sheet === 'finish'} onOpenChange={o => { if (!o) setSheet(null); }} title="Finish walk" detent="medium">
         <p className="text-[length:var(--text-body)] leading-snug">

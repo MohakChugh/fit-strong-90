@@ -5,7 +5,7 @@ import { createDefaultProfile } from '@/profile/defaults';
 import { PERMISSION_TEXT, type Permission, type PermissionInput } from '@/engine/permission';
 import { toDateString } from '@/lib/utils';
 import { resetPendingCheckInsForTests, saveCheckInRecord } from '@/components/checkin/pending';
-import { allowsMovement, clinicalGate, deviceClinical, deviceGate, readingIds, storeStartPermission, untimedOf, walkInput, walkRefusal, watchClinical } from './gate';
+import { allowsMovement, clinicalGate, deviceClinical, deviceGate, heldBy, readingIds, STATUS_HOLD, statusRefusal, storeStartPermission, untimedOf, walkInput, walkRefusal, watchClinical } from './gate';
 import { glucoseReadingId } from '@/engine/readiness';
 import type { WalkIntent } from './live';
 
@@ -279,5 +279,45 @@ describe('the readings a walk’s clock change left untimed (B-19)', () => {
     expect(untimedOf({})).toBeUndefined();
     expect(untimedOf({ clockChangedAt: 5 })).toEqual(new Set());
     expect(untimedOf({ clockChangedAt: 5, untimedReadings: ['g:a', 'g:b'] })).toEqual(new Set(['g:a', 'g:b']));
+  });
+});
+
+describe('carrying a walk on asks the status first, as the hubs’ Continue does (H2-01, journey §4.8, A-34)', () => {
+  it('refuses a restart while Away or Unwell, and in a flare-up, in the hubs’ words', () => {
+    expect(statusRefusal('away', 'restart')).toMatchObject({ allowed: false, disposition: 'hold', reasons: [STATUS_HOLD.away], release: STATUS_HOLD.release, needsCheckIn: false });
+    expect(statusRefusal('unwell', 'restart')?.reasons).toEqual(['A walk isn’t carried on while you’re unwell.']);
+    expect(statusRefusal('flare', 'restart')?.reasons).toEqual(['During a flare-up only a stretch is carried on.']);
+    expect(statusRefusal('normal', 'restart')).toBeUndefined();
+  });
+
+  it('asks nothing of a new walk (“Start anyway”) or one recording now: the status changes only off the walk screen, and coming back is a restart', () => {
+    for (const status of ['away', 'unwell', 'flare'] as const) {
+      expect(statusRefusal(status, 'start')).toBeUndefined();
+      expect(statusRefusal(status, 'live')).toBeUndefined();
+    }
+  });
+
+  it('is asked by the live walk’s own gate, from the device’s status today', () => {
+    const settings = (statusPeriods?: { kind: 'unwell' | 'away' | 'flare'; from: string; to?: string }[]) =>
+      ({ currentWeight: 70, ...(statusPeriods ? { statusPeriods } : {}) }) as AppData['settings'];
+    const state = (s: AppData['settings']) => ({ profile: ordinary, checkIns: [checkIn()], settings: s });
+    const unwell = deviceGate(() => state(settings([{ kind: 'unwell', from: TODAY }])), () => NOW);
+    expect(unwell('restart')).toBe(false);
+    expect(unwell('start')).toBe(true);
+    expect(unwell('live')).toBe(true);
+    expect(deviceGate(() => state(settings([{ kind: 'unwell', from: '2026-10-01', to: '2026-10-07' }])), () => NOW)('restart')).toBe(true);
+    expect(deviceGate(() => state(settings()), () => NOW)('restart')).toBe(true);
+  });
+
+  it('shows a stop before the status, and the status before any other hold, as the hubs order them (§4.2)', () => {
+    const status = statusRefusal('unwell', 'restart')!;
+    const stop: Permission = { mode: 'walk', allowed: false, disposition: 'today', reasons: ['No exercise today.'], restrictions: [], needsCheckIn: false };
+    const hold: Permission = { ...stop, disposition: 'hold', reasons: ['Check in first.'], needsCheckIn: true };
+    expect(heldBy(stop, status)).toBe(stop);
+    expect(heldBy({ ...stop, disposition: 'emergency' }, status)?.disposition).toBe('emergency');
+    expect(heldBy(hold, status)).toBe(status);
+    expect(heldBy(hold, undefined)).toBe(hold);
+    expect(heldBy(undefined, status)).toBe(status);
+    expect(heldBy(undefined, undefined)).toBeUndefined();
   });
 });

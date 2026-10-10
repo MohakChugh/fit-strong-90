@@ -31,6 +31,9 @@ import { effectiveCheckIns, pendingCheckInsVersion, subscribePendingCheckIns } f
 import { createDefaultProfile } from '@/profile/defaults';
 import { toDateString } from '@/lib/utils';
 import { getState, subscribe, type StoreState } from '@/store/useStore';
+import { statusOn, type Status } from '@/health/status';
+import { resumeAllowed } from '@/screens/hub/movement';
+import { STATUS_HOLD } from './readout';
 import type { WalkIntent } from './live';
 import type { Walk } from './clock';
 
@@ -99,6 +102,29 @@ export function deviceClinical(state: Pick<StoreState, 'profile' | 'checkIns' | 
   return { profile, checkIns: effectiveCheckIns(state.checkIns, profile, state.observations ?? []) };
 }
 
+export { STATUS_HOLD } from './readout';
+
+/**
+ * H2-01, the live half (journey §4.8, A-34): carrying a walk on — Resume,
+ * "Continue walking" after a gap, a walk restored after a reload — is a
+ * restart, so it asks the status first, as the hubs' Continue does
+ * (`resumeAllowed`): never while Away or Unwell, and in a flare-up only a
+ * stretch carries on. A new walk ("Start anyway") and one recording now
+ * aren't asked: the status changes only off the walk screen, and coming back
+ * to it is a restart.
+ */
+export function statusRefusal(status: Status, intent: WalkIntent): Permission | undefined {
+  if (intent !== 'restart' || resumeAllowed(status, 'walk')) return undefined;
+  const reason = status === 'away' || status === 'unwell' ? STATUS_HOLD[status] : STATUS_HOLD.flare;
+  return { mode: 'walk', allowed: false, disposition: 'hold', reasons: [reason], release: STATUS_HOLD.release, restrictions: [], needsCheckIn: false };
+}
+
+/** The hold a walk shows: a stop first, then the status, then any other hold, as the hubs order them (§4.2). */
+export function heldBy(clinical: Permission | undefined, status: Permission | undefined): Permission | undefined {
+  if (clinical && (clinical.disposition === 'emergency' || clinical.disposition === 'today')) return clinical;
+  return status ?? clinical;
+}
+
 /** A gate over `read`, asked at the moment it is asked: never cached between two taps. */
 export function clinicalGate(read: () => Clinical, now: () => Date = () => new Date()): (intent: WalkIntent, untimed?: ReadonlySet<string>) => boolean {
   return (intent, untimed) => walkRefusal(walkInput(read(), now(), untimed), intent) === undefined;
@@ -130,6 +156,7 @@ export function deviceGate(
       const all = deviceClinical(state);
       memo = { state, pending, day, clinical: { profile: all.profile, checkIns: reachableHistory(all.checkIns, day, all.profile) } };
     }
+    if (statusRefusal(statusOn(state.settings.statusPeriods, day), intent)) return false;
     return walkRefusal(walkInput(memo.clinical, at, untimed), intent) === undefined;
   };
 }
