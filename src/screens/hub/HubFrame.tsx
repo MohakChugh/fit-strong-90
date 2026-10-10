@@ -6,7 +6,7 @@ import { Screen } from '@/components/hig/Screen';
 import { originOf, type Origin } from '@/components/hig/navigation';
 import { FROM_HOME } from '@/screens/home/model';
 import { UrgentContext } from '@/screens/home/urgent';
-import { HUB_BACK, HUB_WASH, morphNamed, trendHref } from './frame';
+import { HUB_BACK, morphNamed, trendHref, washOf } from './frame';
 
 /**
  * The frame every hub shares (journey §8.1).
@@ -29,9 +29,8 @@ export function HubFrame({ category, held = false, trailing, children }: {
   const transitioning = useViewTransitionState(category.hub);
   const fromHome = originOf(location.state)?.path === FROM_HOME.path;
   const name = morphNamed({ transitioning, fromHome, urgent, held }) ? 'hub-card-bg' : undefined;
-  const background = `linear-gradient(to bottom, color-mix(in oklab, var(${category.colour}) ${HUB_WASH}%, var(--grouped-bg)), var(--grouped-bg))`;
   return (
-    <Screen title={category.title} back={HUB_BACK} wash={{ background, ...(name ? { name } : {}) }} {...(trailing ? { trailing } : {})}>
+    <Screen title={category.title} back={HUB_BACK} wash={{ background: washOf(category), ...(name ? { name } : {}) }} {...(trailing ? { trailing } : {})}>
       {children}
     </Screen>
   );

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { categoryById } from '@/categories';
-import { HUB_BACK, hubCategory, morphNamed, skeletonTitle, stripLayout, trendHref } from './frame';
+import { HUB_BACK, HUB_WASH, hubCategory, morphNamed, skeletonTitle, stripLayout, trendHref, washOf } from './frame';
 
 describe('the hub frame (journey §8.1, §8.4; M3)', () => {
   it('goes Home with nothing below it to pop to (journey §19.1)', () => {
@@ -42,5 +42,9 @@ describe('the hub frame (journey §8.1, §8.4; M3)', () => {
 
   it('names a category only for an address that starts at a hub', () => {
     expect(hubCategory('/track/hub/glucose')).toBeUndefined();
+  });
+
+  it('washes a hub in its own colour, loading or loaded: solid, fading into the page (§8.1, §20.1)', () => {
+    expect(washOf(categoryById('glucose'))).toBe(`linear-gradient(to bottom, color-mix(in oklab, var(--cat-glucose) ${HUB_WASH}%, var(--grouped-bg)), var(--grouped-bg))`);
   });
 });

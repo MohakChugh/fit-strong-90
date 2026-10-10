@@ -16,6 +16,15 @@ export const HUB_BACK = { to: '/home', label: 'Home' } as const;
  */
 export const HUB_WASH = 8;
 
+/**
+ * The category's soft wash behind a hub's bar and title (journey §8.1): a
+ * solid colour layer, never glass (§20.1), fading into the page. The same
+ * for a hub and for its skeleton, so a hub still loading is already its colour.
+ */
+export function washOf(category: Pick<Category, 'colour'>): string {
+  return `linear-gradient(to bottom, color-mix(in oklab, var(${category.colour}) ${HUB_WASH}%, var(--grouped-bg)), var(--grouped-bg))`;
+}
+
 /** History shows the last 3 entries, then "Show all" (journey §8.2). */
 export const HISTORY_PREVIEW = 3;
 
