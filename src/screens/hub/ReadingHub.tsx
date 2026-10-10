@@ -13,7 +13,7 @@ import { Interpretation, Segmented } from '@/screens/track/ui';
 import { useToday } from '@/screens/track/useToday';
 import { HistoryList } from './HistoryList';
 import { HubFrame, HubSection, SeeTrends } from './HubFrame';
-import { useHubOrigin } from './hooks';
+import { useAddLink, useHubOrigin } from './hooks';
 import { historyRange, hubAdd, latestFor, readingSpec, weekValues, type ReadingSpec } from './reading';
 import { WeekDay } from './WeekDay';
 
@@ -44,18 +44,10 @@ function ReadingScreen({ spec }: { spec: ReadingSpec }) {
   // The cadence's "evening" depends on the hour: read from the shared clock, so render stays pure.
   const { now } = useClock();
   const origin = useHubOrigin(category.title);
-  const [params, setParams] = useSearchParams();
+  const [, setParams] = useSearchParams();
   const prefs = useMemo(() => displayPrefs(settings, profile, observations), [settings, profile, observations]);
-  // A link's `?add=` opens this hub's own form on arrival, once, then leaves the address (D55).
-  const [logOpen, setLogOpen] = useState(() => hubAdd(spec, params.get('add')) !== undefined);
-  useEffect(() => {
-    if (!params.has('add')) return;
-    setParams(prev => {
-      const next = new URLSearchParams(prev);
-      next.delete('add');
-      return next;
-    }, { replace: true });
-  }, [params, setParams]);
+  // A link's `?add=` opens this hub's own form, on arrival or while it is open, then leaves the address (D55, codex H2-06).
+  const [logOpen, setLogOpen] = useAddLink(add => hubAdd(spec, add) !== undefined);
   const [notice, setNotice] = useState<string>();
   const [fresh, setFresh] = useState<readonly string[]>([]);
   // A brief confirmation, as on Today's log; the reading itself stays in the list.

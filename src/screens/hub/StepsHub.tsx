@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { CheckCircle2Icon, PlusIcon } from 'lucide-react';
 import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
@@ -18,7 +17,7 @@ import { formatNumber } from '@/screens/track/units';
 import { useToday } from '@/screens/track/useToday';
 import { HistoryList } from './HistoryList';
 import { HubFrame, HubSection, SeeTrends } from './HubFrame';
-import { useHubOrigin } from './hooks';
+import { useAddLink, useHubOrigin } from './hooks';
 import { historyRange } from './reading';
 
 const NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -38,17 +37,9 @@ export default function StepsHub() {
   const { observations, settings, profile } = useStore();
   const current = useToday();
   const origin = useHubOrigin(category.title);
-  const [params, setParams] = useSearchParams();
   const prefs = useMemo(() => displayPrefs(settings, profile, observations), [settings, profile, observations]);
-  const [logOpen, setLogOpen] = useState(() => parseAddParam(params.get('add'))?.kind === 'steps');
-  useEffect(() => {
-    if (!params.has('add')) return;
-    setParams(prev => {
-      const next = new URLSearchParams(prev);
-      next.delete('add');
-      return next;
-    }, { replace: true });
-  }, [params, setParams]);
+  // A link's `?add=steps` opens the form, on arrival or while the hub is open (D55, codex H2-06).
+  const [logOpen, setLogOpen] = useAddLink(add => parseAddParam(add)?.kind === 'steps');
   const [goalOpen, setGoalOpen] = useState(false);
   const [howOpen, setHowOpen] = useState(false);
   const [notice, setNotice] = useState<string>();

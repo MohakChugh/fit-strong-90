@@ -6,6 +6,8 @@
  *   no Carry on (§4.8), keeps Review and save, and nothing records. In
  *   Normal, Return to walk asks the gate at the tap, and its check-in opens
  *   on the hub (§4.1).
+ * - H2-06: an Add link reaches a hub that is already open: its own form
+ *   opens and the address lets the link go; another metric's opens none.
  * Synthetic personas only (fixtures/personas.mjs).
  */
 import { persona } from '../fixtures/personas.mjs';
@@ -127,4 +129,48 @@ const carryOnGate = {
   },
 };
 
-export const cases = [carryOnUnwell, carryOnFlare, carryOnGate];
+const addWhileOpen = {
+  name: 'H2-06: an Add link reaches a hub that is already open',
+  async run(t) {
+    const page = await t.open({ seed: persona('P01'), route: '/hub/bp' });
+    const query = async () => new URL(page.url()).hash.split('?')[1] ?? '';
+    await t.step(1, 'Blood pressure open → its own Add link: the form opens, and the link is let go', async () => {
+      await ui.heading(page, 'Blood pressure');
+      await t.hash('/hub/bp?add=bloodPressure');
+      const form = page.getByRole('dialog', { name: 'Blood pressure' });
+      await form.waitFor({ timeout: 5000 }).catch(() => {});
+      await t.check(await form.count() === 1, 'the open Blood pressure hub ignored its own Add link');
+      await t.check(!/(^|&)add=/.test(await query()), `the address keeps the link: ?${await query()}`);
+      await t.checkpoint('h2-06-bp-form');
+      if (await form.count()) {
+        await ui.tap(ui.button(form, 'Close'));
+        await form.waitFor({ state: 'hidden' });
+      }
+    });
+    await t.step(2, 'The same link again opens it again; another metric’s link opens no form here', async () => {
+      await t.hash('/hub/bp?add=bloodPressure');
+      const form = page.getByRole('dialog', { name: 'Blood pressure' });
+      await form.waitFor({ timeout: 5000 }).catch(() => {});
+      await t.check(await form.count() === 1, 'the second Add link opened no form');
+      if (await form.count()) {
+        await ui.tap(ui.button(form, 'Close'));
+        await form.waitFor({ state: 'hidden' });
+      }
+      await t.hash('/hub/bp?add=glucose');
+      await page.waitForTimeout(500);
+      await t.check(await page.getByRole('dialog').count() === 0, 'another metric’s link opened a form on the Blood pressure hub');
+      await t.check(!/(^|&)add=/.test(await query()), `the address keeps another metric’s link: ?${await query()}`);
+    });
+    await t.step(3, 'Steps open → its Add link: the steps form opens', async () => {
+      await t.goto('/hub/steps');
+      await ui.heading(page, 'Steps');
+      await t.hash('/hub/steps?add=steps');
+      const form = page.getByRole('dialog', { name: 'Steps' });
+      await form.waitFor({ timeout: 5000 }).catch(() => {});
+      await t.check(await form.count() === 1, 'the open Steps hub ignored its Add link');
+      await t.check(!/(^|&)add=/.test(await query()), `the address keeps the link: ?${await query()}`);
+    });
+  },
+};
+
+export const cases = [carryOnUnwell, carryOnFlare, carryOnGate, addWhileOpen];
