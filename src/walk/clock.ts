@@ -161,14 +161,15 @@ export const CLOCK_JUMP_MS = 120_000;
 export interface Clocks { wall: number; mono: number }
 
 /**
- * One accrual step (B-19): the device clock's step while the two clocks agree,
- * or the monotonic step when they don't — and then the clock was changed.
+ * One accrual step (B-19, H6-09): always the monotonic step, which only time
+ * passing moves. The device clock's step only tells whether the clock was
+ * changed: by more than two minutes against the monotonic one, it was. A
+ * smaller change, however often, adds and takes away nothing.
  */
 export function stepOf(from: Clocks, to: Clocks): { ms: number; jumped: boolean } {
   const wall = to.wall - from.wall;
   const mono = to.mono - from.mono;
-  if (Math.abs(wall - mono) > CLOCK_JUMP_MS) return { ms: Math.max(0, mono), jumped: true };
-  return { ms: Math.max(0, wall), jumped: false };
+  return { ms: Math.max(0, mono), jumped: Math.abs(wall - mono) > CLOCK_JUMP_MS };
 }
 
 function emptySegment(start: number): Segment {

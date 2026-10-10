@@ -121,11 +121,22 @@ export function faultInit() {
  * Permission and sensor requests, counted (J01 step 1, J10 step 2), with a
  * geolocation that the test drives: `grant` | `deny` | `prompt-deny`.
  * Positions are stamped with the page's (frozen, test-driven) clock.
+ *
+ * `monotonic: 'wall'` runs `performance.now` with the wall clock, as a phone's
+ * two clocks run together: the harness freezes `Date` and moves it with
+ * `t.advance`, while the page's own monotonic clock keeps real time. A walk
+ * counts its time on the monotonic clock (B-19, H6-09), so a walk journey
+ * asks for this, and its walk then lasts exactly the time it advanced. The
+ * default keeps real time, which the 3D demos animate on.
  */
-export function sensorInit({ geo = 'deny' } = {}) {
+export function sensorInit({ geo = 'deny', monotonic = 'real' } = {}) {
   if (window.__acc?.sensorsInstalled) return;
   const acc = (window.__acc = window.__acc || {});
   acc.sensorsInstalled = true;
+  if (monotonic === 'wall') {
+    const base = performance.now() - Date.now();
+    performance.now = () => Date.now() + base;
+  }
   const calls = (acc.calls = { geolocation: 0, permissionsQuery: [], notification: 0, motion: 0, wakeLock: 0 });
   const g = (acc.geo = { mode: geo, watchers: new Map(), nextId: 1, last: undefined });
   const denied = () => ({ code: 1, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3, message: 'User denied Geolocation' });

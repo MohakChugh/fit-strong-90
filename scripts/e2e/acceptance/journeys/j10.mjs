@@ -17,7 +17,7 @@ const MEAL_AT = NOW - 20 * MINUTE; // 08:40 IST
 export const cases = [{
   name: 'after breakfast, location denied',
   async run(t) {
-    const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'deny' } });
+    const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'deny', monotonic: 'wall' } });
     const main = page.getByRole('main');
     let walkId;
 

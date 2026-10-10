@@ -203,10 +203,13 @@ describe('the open segment', () => {
 });
 
 describe('time under a changed clock (B-19)', () => {
-  it('takes the device clock’s step while the two clocks agree, even with the device clock frozen between steps', () => {
+  it('counts the monotonic step, never the device clock’s, while the two agree (H6-09)', () => {
     expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(1), mono: 1000 })).toEqual({ ms: 1000, jumped: false });
-    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(60), mono: 1000 })).toEqual({ ms: 60_000, jumped: false });
-    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(0), mono: 900 })).toEqual({ ms: 0, jumped: false });
+    // The device clock moved on a minute in a second: too little to be a change to the clock, and no walking either.
+    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(60), mono: 1000 })).toEqual({ ms: 1000, jumped: false });
+    // Or it stood still, or went back a little: the time walked still counts.
+    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(0), mono: 900 })).toEqual({ ms: 900, jumped: false });
+    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(-90), mono: 1000 })).toEqual({ ms: 1000, jumped: false });
   });
 
   it('takes the monotonic step, and says the clock changed, when they disagree by more than two minutes', () => {
@@ -214,7 +217,9 @@ describe('time under a changed clock (B-19)', () => {
     expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(-3600), mono: 1000 })).toEqual({ ms: 1000, jumped: true });
     expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(3600), mono: 1000 })).toEqual({ ms: 1000, jumped: true });
     // Exactly two minutes apart still agree.
-    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(121), mono: 1000 })).toEqual({ ms: 121_000, jumped: false });
+    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(121), mono: 1000 })).toEqual({ ms: 1000, jumped: false });
+    // A monotonic clock never runs back; if one seems to, nothing is counted.
+    expect(stepOf({ wall: s(0), mono: 5000 }, { wall: s(1), mono: 4000 })).toEqual({ ms: 0, jumped: false });
   });
 
   it('keeps every reading the device knew at each change, by identity (H6-02)', () => {

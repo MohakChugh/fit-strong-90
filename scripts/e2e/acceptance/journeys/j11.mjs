@@ -73,7 +73,7 @@ export const cases = [
   {
     name: 'hidden gap, continue walking',
     async run(t) {
-      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant' }, visibility: true, capabilities: { share: 'absent' } });
+      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant', monotonic: 'wall' }, visibility: true, capabilities: { share: 'absent' } });
       const main = page.getByRole('main');
       let id0;
 
@@ -165,7 +165,7 @@ export const cases = [
   {
     name: 'reload while paused',
     async run(t) {
-      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant' }, visibility: true });
+      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant', monotonic: 'wall' }, visibility: true });
       const main = page.getByRole('main');
 
       await t.step(5, 'Pause after the first segment, reload, wait a minute, resume with a far-away fix', async () => {
@@ -204,7 +204,7 @@ export const cases = [
   {
     name: 'lost signal while visible',
     async run(t) {
-      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant' }, visibility: true });
+      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant', monotonic: 'wall' }, visibility: true });
       const main = page.getByRole('main');
 
       await t.step(8, 'A fix every 10 s for 60 s, 30 s of silence while visible, then fixes resume further on', async () => {
@@ -246,7 +246,7 @@ export const cases = [
   {
     name: 'add the away time',
     async run(t) {
-      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant' }, visibility: true, capabilities: { share: 'absent' } });
+      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant', monotonic: 'wall' }, visibility: true, capabilities: { share: 'absent' } });
       const main = page.getByRole('main');
 
       await t.step(6, 'Explicitly add the three-minute away interval', async () => {

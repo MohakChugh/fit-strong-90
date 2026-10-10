@@ -1604,6 +1604,34 @@ describe('a change to the phone’s clock mid-walk (B-19)', () => {
     expect(live.getSnapshot()!.walk.clockChangedAt).toBeUndefined();
   });
 
+  it('counts only the time walked when the clock is moved on a little, however often (H6-09)', () => {
+    const w = world();
+    const live = createLiveWalk(w.ports);
+    live.attach(START);
+    w.advance(60_000);
+    // Each under two minutes, so none is a change to the clock; and none of it is walking.
+    for (let i = 0; i < 5; i++) {
+      w.jumpClock(90_000);
+      w.advance(1000);
+    }
+    const snap = live.getSnapshot()!;
+    expect(snap.observedMs).toBe(65_000);
+    expect(snap.walk.segments).toHaveLength(1);
+    expect(snap.walk.clockChangedAt).toBeUndefined();
+  });
+
+  it('counts the second walked when the clock is set back a little (H6-09)', () => {
+    const w = world();
+    const live = createLiveWalk(w.ports);
+    live.attach(START);
+    w.advance(60_000);
+    w.jumpClock(-30_000);
+    w.advance(1000);
+    expect(live.getSnapshot()!.observedMs).toBe(61_000);
+    live.pause();
+    expect(live.getSnapshot()!.walk.segments[0].accruedMs).toBe(61_000);
+  });
+
   it('asks the gate about a restart with the change it saw', () => {
     const w = world();
     const live = createLiveWalk(w.ports);
