@@ -6,7 +6,8 @@ import { recommend } from '@/health/recommend';
 import type { CheckInRecord, DailyCheckIn, Readiness } from '@/types/checkin';
 import type { SessionPlan } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
-import { says, urgentOf, withEffectiveToday } from './urgent';
+import type { ChapterId, UserSettings } from '@/types';
+import { recommendSources, says, urgentOf, withEffectiveToday } from './urgent';
 
 const TODAY = '2026-10-08';
 const at = (time: string, day = TODAY) => new Date(`${day}T${time}:00`);
@@ -238,5 +239,15 @@ describe('withEffectiveToday', () => {
     expect(withEffectiveToday(stored, effective)).toEqual([stored[0], effective]);
     expect(withEffectiveToday(stored, stored[1])).toEqual(stored);
     expect(withEffectiveToday(stored, undefined)).toEqual(stored);
+  });
+});
+
+describe('recommendSources: whether setup is unfinished (journey §6.4, L-20; board D80)', () => {
+  it('says so after Look around first, and not once a record is set up', () => {
+    const base = { now: at('09:00'), plan: plan(), checkIns: [] };
+    const state = (settings: Partial<UserSettings>, profile?: UserProfile) =>
+      ({ settings: settings as UserSettings, ...(profile ? { profile } : {}), sessions: [], observations: [] });
+    expect(recommendSources({ ...base, state: state({ onboardingComplete: true, setup: { stage: 'lookAround', skipped: [] as ChapterId[] } }) }).setupOpen).toBe(true);
+    expect(recommendSources({ ...base, state: state({ onboardingComplete: true }, diabetic) }).setupOpen).toBe(false);
   });
 });

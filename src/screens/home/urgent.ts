@@ -23,6 +23,7 @@ import { prefersHour12, timeOf } from '@/lib/time';
 import { toDateString } from '@/lib/utils';
 import { useClock, useWakeAt } from '@/screens/today/clock';
 import { loadProgress, type ProgressSlot, type SavedProgress } from '@/session/persistence';
+import { setupStateOf } from '@/setup/state';
 import { useStore, type StoreState } from '@/store/useStore';
 import type { CheckInRecord, Disposition, GlucoseEntry, Reason } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
@@ -243,6 +244,8 @@ export function recommendSources({ now, state, plan, checkIns }: {
   return {
     now, settings: state.settings, ...(state.profile ? { profile: state.profile } : {}), plan,
     sessions: state.sessions, checkIns, observations: state.observations, saved,
+    // While setup is unfinished, the profile hold says "Finish setting up" (L-20, board D80).
+    setupOpen: setupStateOf(state.settings, state.profile).stage !== 'done',
   };
 }
 

@@ -1,17 +1,18 @@
 /**
  * Setup's progress, as Me's "Finish setting up" reads it (journey §6.6, §16).
- *
- * The seam Plan 5 fills. It builds the eight chapters, and makes
- * `setupProgress` read `settings.setup`: the chapters skipped, and the ones
- * new since this person set up, each opening its own page. It keeps the
- * signature and the row's fields. Until then the only open chapters are the
- * gaps v1 already knows, and each opens the v1 screen that holds its answers.
+ * Plan 4 built this seam (D65), and Plan 5 fills it from `settings.setup`
+ * (board D79): the safety gaps the engine holds on, the chapters skipped, and
+ * the ones new since this person set up in v1. Each row opens the chapter's
+ * own pages; while setup is unfinished, setup itself (L-20).
  */
 import { REVIEW_LABEL, reviewNeeded } from '@/screens/you/summaries';
 import type { StoreResult } from '@/store/db';
 import { update } from '@/store/useStore';
 import type { ChapterId, UserSettings } from '@/types';
 import type { UserProfile } from '@/types/profile';
+import { CHAPTER_IDS, type PageId } from '@/types/setup';
+import { CHAPTER_TITLE, chapterOf, missingPages, type Ctx } from './graph';
+import { setupStateOf } from './state';
 
 export interface OpenChapter {
   chapter: ChapterId;
@@ -29,35 +30,66 @@ export interface OpenChapter {
   why: 'gap' | 'skipped' | 'new';
 }
 
-const TITLE: Record<ChapterId, string> = {
-  welcome: 'Welcome', about: 'About you', health: 'Your health', medicines: 'Your medicines',
-  backFeet: 'Your back and feet', movement: 'Your movement', food: 'Your food', day: 'Your day and coach',
+/** Where Me opens a chapter: its own pages in Profile & health, and Welcome's Display row at Display (§19.2). */
+export function chapterHref(chapter: ChapterId): string {
+  return chapter === 'welcome' ? '/me/display' : `/me/profile?chapter=${chapter}`;
+}
+
+/** The questions a v1 record was never asked, by chapter (§6.6). */
+const NEW_SINCE_V1: Partial<Record<ChapterId, string>> = { about: 'What to call you', food: 'Logging what you eat', day: 'Your usual meal times' };
+
+/** What a page that may be left asks, for its row. */
+const PAGE_TOPIC: Partial<Record<PageId, string>> = {
+  'about.name': 'What to call you', 'about.figure': 'Body for the exercise demos', 'movement.goal': 'Your weekly goal',
+  'food.pattern': 'What you eat', 'food.logging': 'Logging what you eat', 'day.reminders': 'Reminders', 'day.meals': 'Your usual meal times',
 };
 
-/** Where each chapter's answers are kept until Plan 5 gives the chapters their pages. */
-const HREF: Record<ChapterId, string> = {
-  welcome: '/me/display', about: '/me/profile', health: '/me/profile', medicines: '/me/profile',
-  backFeet: '/me/profile', movement: '/me/profile?chapter=movement', food: '/me/food', day: '/me/reminders',
-};
+const open = (chapter: ChapterId, why: OpenChapter['why'], detail: string, href = chapterHref(chapter)): OpenChapter =>
+  ({ chapter, label: CHAPTER_TITLE[chapter], detail, href, why });
 
-const open = (chapter: ChapterId, why: OpenChapter['why'], detail: string): OpenChapter => ({ chapter, label: TITLE[chapter], detail, href: HREF[chapter], why });
-
-/** The chapters left to answer, without those answered "Not now". */
-export function setupProgress({ profile, settings }: { profile: UserProfile | undefined; settings: UserSettings }): OpenChapter[] {
+/**
+ * The chapters left to answer, safety gaps first. A chapter answered "Not
+ * now" is left out, unless movement waits for it: a safety gap stays until
+ * it's answered, even where an earlier build stored "Not now" for it, so the
+ * one place that finishes it never goes while Home says "Finish setting up"
+ * (KH-08, board D80).
+ */
+export function setupProgress(
+  { profile, settings }: { profile: UserProfile | undefined; settings: UserSettings },
+  ctx: Ctx = { thisYear: new Date().getFullYear() },
+): OpenChapter[] {
+  const setup = setupStateOf(settings, profile);
+  const declined = setup.declined ?? [];
+  const keep = (rows: OpenChapter[]) => rows.filter(c => c.why === 'gap' || !declined.includes(c.chapter));
+  // Unfinished: setup carries on where it stopped (L-20, board D80).
+  if (setup.stage !== 'done' || !profile) return keep([open('health', 'gap', 'Answer the health questions before you move', '/setup')]);
   const review = reviewNeeded(profile);
-  const found = !profile ? [open('health', 'gap', 'Answer the health questions before you move')]
-    : review === 'health' ? [open('health', 'gap', REVIEW_LABEL.health)]
+  const gaps = review === 'health' ? [open('health', 'gap', REVIEW_LABEL.health)]
     // Without diabetes nothing is held on it (`sglt2Unknown`, engine/health.ts): asked, not required.
     : review === 'sglt2' ? [open('medicines', 'skipped', REVIEW_LABEL.sglt2)]
     : review ? [open('medicines', 'gap', REVIEW_LABEL[review])]
     : [];
-  const declined = settings.setup?.declined ?? [];
-  return found.filter(c => !declined.includes(c.chapter));
+  const answers = setup.answers;
+  const left = CHAPTER_IDS.filter(c => setup.skipped.includes(c) && !gaps.some(g => g.chapter === c)).map(c => {
+    if (!answers) return open(c, 'new', NEW_SINCE_V1[c] ?? 'A few questions');
+    const pages = [...(answers.skippedPages ?? []), ...missingPages(answers, ctx)].filter(id => chapterOf(id) === c);
+    const topics = [...new Set(pages.map(id => PAGE_TOPIC[id]).filter((t): t is string => t !== undefined))];
+    return open(c, 'skipped', topics.join(', ') || 'A few questions');
+  });
+  return keep([...gaps, ...left]);
 }
 
 /** "Finish setting up · 2 short chapters" (journey §6.6). */
 export function finishTitle(count: number): string {
   return `Finish setting up · ${count === 1 ? '1 short chapter' : `${count} short chapters`}`;
+}
+
+/** The line under the rows: what movement waits for, which has no "Not now", and what "Not now" does for the rest (KH-08). */
+export function finishFooter(rows: readonly OpenChapter[]): string {
+  const gaps = rows.filter(r => r.why === 'gap').map(r => r.label);
+  if (gaps.length === 0) return 'Not now keeps a chapter for later, in Profile & health.';
+  const waits = `Movement waits for ${gaps.join(' and ')}.`;
+  return gaps.length === rows.length ? waits : `${waits} Not now keeps the others for later, in Profile & health.`;
 }
 
 /** "Not now" on a Finish setting up row (journey §6.6, D65): the chapter waits in Profile & health, and the row goes. */

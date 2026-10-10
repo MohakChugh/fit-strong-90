@@ -103,6 +103,8 @@ export interface RecommendInput {
   saved: readonly SavedProgress[];
   /** The shared gate's answer for each mode, asked by the caller. */
   permissions: Record<Mode, Permission>;
+  /** Setup isn't finished ("Look around first", journey §6.4): the profile hold says so, and carries on setting up (L-20). */
+  setupOpen?: boolean;
 }
 
 /**
@@ -530,7 +532,7 @@ function safety(ctx: Context, suggestion: Recommendation): Recommendation | unde
 
 /** A hold, in the gate's own words, with the check-in as the way to put a mistaken answer right. */
 function holdFor(ctx: Context, held: Permission): Recommendation {
-  if (ctx.profileGap) return profileFirst(ctx.gaps, held);
+  if (ctx.profileGap) return profileFirst(ctx.gaps, held, ctx.input.setupOpen === true);
   return {
     kind: 'hold',
     title: headline(held).title,
@@ -546,7 +548,17 @@ function holdFor(ctx: Context, held: Permission): Recommendation {
  * of Today until it is done, and it says exactly what is missing, in the
  * gate's own words.
  */
-export function profileFirst(gaps: ProfileGaps, held: Permission): Recommendation {
+export function profileFirst(gaps: ProfileGaps, held: Permission, setupOpen = false): Recommendation {
+  // Its action is the profile's address, which opens setup where it stopped while setup is unfinished (board D80).
+  if (setupOpen) {
+    return {
+      kind: 'hold',
+      title: 'Finish setting up',
+      detail: held.release ?? '',
+      reason: PERMISSION_TEXT.healthUnreviewed,
+      action: { label: 'Carry on setting up', to: HREF.profile },
+    };
+  }
   return gaps.healthUnreviewed
     ? {
       kind: 'hold',

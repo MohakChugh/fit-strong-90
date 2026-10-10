@@ -14,7 +14,7 @@ import { TileIcon } from '@/screens/home/Tile';
 import { today as todayOf } from '@/screens/track/periods';
 import { deviceNoun, readInstallEnv } from '@/screens/welcome/install';
 import { FOCUS_CHOICES } from '@/screens/welcome/focus';
-import { finishTitle, notNow, setupProgress, type OpenChapter } from '@/setup/progress';
+import { finishFooter, finishTitle, notNow, setupProgress, type OpenChapter } from '@/setup/progress';
 import { useStore } from '@/store/useStore';
 import type { HomeLayout } from '@/types';
 import { packName } from '@/voice/packs';
@@ -56,7 +56,7 @@ export function MeHome() {
   return (
     <Screen title="Me">
       {finish.length > 0 && (
-        <Group header={finishTitle(finish.length)} footer="Not now keeps a chapter for later, in Profile & health.">
+        <Group header={finishTitle(finish.length)} footer={finishFooter(finish)}>
           {finish.map(c => <FinishRow key={c.chapter} chapter={c} />)}
         </Group>
       )}
@@ -118,7 +118,7 @@ export function MeHome() {
 
 /**
  * One chapter to finish: it opens where its answers are kept, with "Not now"
- * beside it (journey §6.6, D65). Narrower than 16 rem (its group is the
+ * beside it unless movement waits for it (journey §6.6, D65; KH-08). Narrower than 16 rem (its group is the
  * container, as for `Row`), "Not now" goes under the words.
  */
 function FinishRow({ chapter }: { chapter: OpenChapter }) {
@@ -133,15 +133,18 @@ function FinishRow({ chapter }: { chapter: OpenChapter }) {
           </span>
           <ChevronRightIcon aria-hidden className="size-5 shrink-0 text-muted-foreground" />
         </Link>
-        <EditButton
-          control="later"
-          label="Not now"
-          name={chapter.label}
-          onClick={() => void notNow(chapter.chapter).then(saved => {
-            if (!saved.ok) setProblem(`That did not save. ${saved.failure.message}`);
-            else focusTitle();
-          })}
-        />
+        {/* Movement waits for a safety gap, so it has no "Not now" (KH-08, board D80). */}
+        {chapter.why !== 'gap' && (
+          <EditButton
+            control="later"
+            label="Not now"
+            name={chapter.label}
+            onClick={() => void notNow(chapter.chapter).then(saved => {
+              if (!saved.ok) setProblem(`That did not save. ${saved.failure.message}`);
+              else focusTitle();
+            })}
+          />
+        )}
       </div>
       {problem && <p role="alert" className="px-4 pb-2 text-[length:var(--text-subhead)] leading-snug text-stop">{problem}</p>}
     </div>
