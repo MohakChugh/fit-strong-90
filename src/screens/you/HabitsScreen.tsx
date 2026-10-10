@@ -55,10 +55,10 @@ export function HabitsScreen() {
   const status = statusOn(settings.statusPeriods, today);
 
   return (
-    <Screen title="Habits & reminders" back={{ to: '/you', label: 'You' }}>
+    <Screen title="Reminders" back={{ to: '/me', label: 'Me' }}>
       <CalendarStill still={calendarStillReminds(habits, profile, today)} />
       {status !== 'normal' && (
-        <Notice>{`Your status is ${STATUS_LABEL[status]}, so reminders in the app stay quiet until it is Normal again. You can change it on Today.`}</Notice>
+        <Notice>{`Your status is ${STATUS_LABEL[status]}, so reminders in the app stay quiet until it is Normal again. You can change it on Home.`}</Notice>
       )}
       <Group header="Reminders" footer={`Every reminder starts off. Turn on only what helps. ${NOT_ADVICE}`}>
         {(['water', 'sittingBreak', 'mealWalk'] as const).map(habit => {

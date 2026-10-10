@@ -7,6 +7,7 @@
 import { docs } from '../lib/harness.mjs';
 import { persona } from '../fixtures/personas.mjs';
 import * as data from '../lib/data.mjs';
+import * as g from '../lib/guide.mjs';
 import * as ui from '../lib/ui.mjs';
 
 export const id = 'V-J12';
@@ -114,4 +115,47 @@ const fullGroup = {
   },
 };
 
-export const cases = [customise, browseMore, fullGroup];
+const offered = {
+  name: 'a newly relevant category is offered in Me once',
+  async run(t) {
+    const page = await t.open({ seed: persona('P02'), route: '/home' });
+    const main = page.getByRole('main');
+    await t.step(1, 'Home lays its tiles out; Me offers nothing', async () => {
+      await data.waitDb(t, s => !!docs(s).settings?.home, 'Home never stored its layout');
+      await ui.tab(page, 'Me');
+      await t.check(await ui.section(main, 'New for Home').count() === 0, 'Me offers a tile before anything changed');
+    });
+    await t.step(2, 'Reminders → Water → no fluid limit → Turn on', async () => {
+      await g.openHabits(t);
+      await ui.tap(main.getByRole('switch', { name: 'Water', exact: true }));
+      const ws = page.getByRole('dialog', { name: 'Water' });
+      await ws.waitFor();
+      await ui.tap(ui.row(ws.getByRole('radiogroup', { name: 'Has your care team told you to limit how much you drink?' }), 'No, there is no limit', 'radio'));
+      await ui.tap(ui.button(ws, 'Turn on'));
+      await ws.waitFor({ state: 'hidden' });
+    }, { input: 'water reminders on, no fluid limit' });
+    await t.step(3, 'Me: “Add Water to Home?” → Add', async () => {
+      await ui.tap(ui.back(page, 'Me'));
+      await ui.heading(page, 'Me');
+      const offer = ui.section(main, 'New for Home');
+      await t.must(await offer.getByText('Add Water to Home?', { exact: true }).count() === 1, `Me does not offer Water: ${(await main.innerText()).slice(0, 300)}`);
+      await t.checkpoint('me-offer-water');
+      await ui.tap(ui.button(offer, 'Add, Water'));
+      await page.getByText('Water added to Home', { exact: true }).waitFor();
+      await t.check(await ui.section(main, 'New for Home').count() === 0, 'the offer stays after Add');
+      const s = docs(await t.db()).settings;
+      await t.check(s.home.order.check.includes('water') && json(s.homeOffered) === '["water"]', `after Add: Check ${json(s.home.order.check)}, offered ${json(s.homeOffered)}`);
+    });
+    await t.step(4, 'Home shows Water; hidden again, it is not offered again', async () => {
+      await ui.tab(page, 'Home');
+      await t.check((await tilesIn(page, 'check')).includes('water'), 'Home has no Water tile');
+      await ui.tap(ui.row(main, 'Edit Home'));
+      await ui.tap(ui.button(main, 'Hide, Water'));
+      await ui.tap(main.getByRole('button', { name: 'Done', exact: true }).last());
+      await ui.tab(page, 'Me');
+      await t.check(await ui.section(main, 'New for Home').count() === 0, 'Water is offered again after it was hidden');
+    });
+  },
+};
+
+export const cases = [customise, browseMore, fullGroup, offered];

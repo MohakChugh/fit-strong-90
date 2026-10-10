@@ -71,7 +71,7 @@ export function FocusStep() {
         {explore && <PlainButton onClick={() => void choose('explore')}>{explore.label}</PlainButton>}
         {problem && <Notice tone="error">{problem}</Notice>}
         <p className="px-1 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
-          This sets where the app starts you, not what you can do. You can change it in You at any time.
+          This sets where the app starts you, not what you can do. You can change it in Me at any time.
         </p>
       </div>
 

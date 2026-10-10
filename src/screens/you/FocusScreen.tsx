@@ -56,8 +56,8 @@ export function FocusScreen() {
   };
 
   return (
-    <Screen title="What you’d like more of" back={{ to: '/you', label: 'You' }}>
-      <Group footer="Today suggests something to match. Choosing here does not join or leave the 12-week programme.">
+    <Screen title="What you’d like more of" back={{ to: '/me', label: 'Me' }}>
+      <Group footer="Home suggests something to match. Choosing here does not join or leave the 12-week programme.">
         <ChoiceRows
           label="What you’d like more of"
           options={FOCUS_CHOICES.map(({ value, label, detail }) => ({ value, label, detail }))}

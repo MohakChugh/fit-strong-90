@@ -69,15 +69,15 @@ export function decodeBackup(bytes) {
 
 // ---------------------------------------------------------------- navigation
 
-/** Me → Data & offline, the way a person gets there (v1's You button is v2's Me tab). */
+/** Me → Data, the way a person gets there. */
 export async function openData(t) {
   const page = t.page;
   if (!/^\/me\/data/.test(await t.route())) {
     await ui.tab(page, 'Me');
     await page.getByRole('heading', { level: 1, name: 'Me', exact: true }).waitFor();
-    await ui.tap(ui.row(page.getByRole('main'), 'Data & offline', 'link'));
+    await ui.tap(ui.row(page.getByRole('main'), 'Data', 'link'));
   }
-  await page.getByRole('heading', { level: 1, name: 'Data & offline', exact: true }).waitFor();
+  await page.getByRole('heading', { level: 1, name: 'Data', exact: true }).waitFor();
   return page.getByRole('main');
 }
 

@@ -8,12 +8,12 @@
  * quick taps build on each other, as in Edit Home.
  */
 import { useMemo } from 'react';
-import { defaultHome, relevantCategories, type CategoryId } from '@/categories';
+import { categoryById, defaultHome, relevantCategories, type CategoryId } from '@/categories';
 import { createDefaultProfile } from '@/profile/defaults';
 import type { StoreResult } from '@/store/db';
 import { getState, setSettings, useStore } from '@/store/useStore';
 import type { HomeLayout } from '@/types';
-import { storedLayout } from './layout';
+import { addButton, addTile, storedLayout } from './layout';
 
 export function useHomeLayout(): { layout: HomeLayout; fallback: HomeLayout; stored: HomeLayout | undefined; relevant: CategoryId[] } {
   const { profile, settings, observations } = useStore();
@@ -39,4 +39,20 @@ export function changeHome(fallback: HomeLayout, op: (layout: HomeLayout) => Hom
   const before = layoutNow(fallback);
   const next = op(before);
   return next === before ? undefined : { next, saved: setSettings({ home: next }) };
+}
+
+/**
+ * "Add Glucose to Home?" answered (journey §5.1). Either answer means it is
+ * never offered again; Add also puts the tile at the end of its group, in
+ * the same write. When that group has filled meanwhile, nothing is written
+ * and `undefined` comes back, so the offer stays to answer.
+ */
+export function answerOffer(fallback: HomeLayout, id: CategoryId, add: boolean): Promise<StoreResult> | undefined {
+  const offered = getState().settings.homeOffered ?? [];
+  const homeOffered = offered.includes(id) ? [...offered] : [...offered, id];
+  if (!add) return setSettings({ homeOffered });
+  const before = layoutNow(fallback);
+  if (before.order[categoryById(id).group].includes(id)) return setSettings({ homeOffered });
+  if (addButton(before, id).disabled) return undefined;
+  return setSettings({ home: addTile(before, id), homeOffered });
 }

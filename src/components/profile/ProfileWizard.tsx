@@ -613,7 +613,7 @@ function Summary({ p, programme, ack, setAck }: { p: UserProfile; programme: boo
           <div className="flex flex-col gap-1">
             <p className="font-semibold">Before vigorous exercise</p>
             {clearance.map(r => <p key={r.code}>{r.message}</p>)}
-            <p className="text-muted-foreground">You can update your clearance in You, under Profile & health, once you have it.</p>
+            <p className="text-muted-foreground">You can update your clearance in Me, under Profile & health, once you have it.</p>
           </div>
         </div>
       )}

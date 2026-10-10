@@ -22,7 +22,7 @@ export function VoiceScreen() {
   };
 
   return (
-    <Screen title="Voice & demos" back={{ to: '/you', label: 'You' }}>
+    <Screen title="Voice & demos" back={{ to: '/me', label: 'Me' }}>
       <VoiceSettingsCard
         voice={voice}
         onChange={patch => void write(

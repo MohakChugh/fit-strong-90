@@ -14,7 +14,7 @@ globalThis.localStorage = {
 } as Storage;
 
 const store = await import('@/store/useStore');
-const { changeHome, layoutNow } = await import('./homeLayout');
+const { answerOffer, changeHome, layoutNow } = await import('./homeLayout');
 const { addTile } = await import('./layout');
 
 /** P02's defaults: no conditions, so Move, Food, then the fill-ins. */
@@ -41,5 +41,47 @@ describe('changing Home from Browse or Me (journey §5.1, §14; Review Focus 1)'
   });
   it('writes nothing when the operation changes nothing', () => {
     expect(changeHome(DEFAULTS, l => l)).toBeUndefined();
+  });
+});
+
+/** P01's Check, full: Glucose, BP, Back & leg, Labs, then Weight as the fill-in. */
+const FULL: HomeLayout = { order: { move: ['workout', 'stretch', 'walk'], eat: ['food'], check: ['glucose', 'bp', 'back', 'labs', 'weight'], learn: [] }, hidden: [] };
+
+describe('answerOffer: offered once, never added silently (journey §5.1)', () => {
+  it('“Not now” records the offer and leaves Home alone', async () => {
+    await store.setSettings({ home: DEFAULTS });
+    expect((await answerOffer(DEFAULTS, 'water', false)!).ok).toBe(true);
+    expect(store.getState().settings.homeOffered).toEqual(['water']);
+    expect(store.getState().settings.home).toEqual(DEFAULTS);
+  });
+  it('“Add” puts the tile at the end of its group, and records the offer in the same write', async () => {
+    await store.setSettings({ home: DEFAULTS });
+    expect((await answerOffer(DEFAULTS, 'water', true)!).ok).toBe(true);
+    expect(store.getState().settings.home?.order.check).toEqual(['weight', 'sleep', 'water']);
+    expect(store.getState().settings.homeOffered).toEqual(['water']);
+  });
+  it('writes nothing when the group filled meanwhile, so the offer stays to answer', async () => {
+    await store.setSettings({ home: FULL });
+    expect(answerOffer(FULL, 'water', true)).toBeUndefined();
+    expect(store.getState().settings.homeOffered).toBeUndefined();
+  });
+  it('builds on the stored layout, not the defaults, and keeps every earlier answer', async () => {
+    const withWaist: HomeLayout = { ...DEFAULTS, order: { ...DEFAULTS.order, check: ['weight', 'sleep', 'waist'] } };
+    await store.setSettings({ home: withWaist, homeOffered: ['glucose'] });
+    expect((await answerOffer(DEFAULTS, 'water', true)!).ok).toBe(true);
+    expect(store.getState().settings.home?.order.check).toEqual(['weight', 'sleep', 'waist', 'water']);
+    expect(store.getState().settings.homeOffered).toEqual(['glucose', 'water']);
+  });
+  it('“Add” for a tile already on Home, added from Browse meanwhile, only records the answer', async () => {
+    const withWater: HomeLayout = { ...DEFAULTS, order: { ...DEFAULTS.order, check: ['weight', 'sleep', 'water'] } };
+    await store.setSettings({ home: withWater });
+    expect((await answerOffer(DEFAULTS, 'water', true)!).ok).toBe(true);
+    expect(store.getState().settings.home).toEqual(withWater);
+    expect(store.getState().settings.homeOffered).toEqual(['water']);
+  });
+  it('a double tap records the answer once', async () => {
+    await store.setSettings({ home: DEFAULTS });
+    await Promise.all([answerOffer(DEFAULTS, 'water', false), answerOffer(DEFAULTS, 'water', false)]);
+    expect(store.getState().settings.homeOffered).toEqual(['water']);
   });
 });

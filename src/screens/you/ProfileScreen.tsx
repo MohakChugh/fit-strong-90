@@ -68,7 +68,7 @@ export function ProfileScreen() {
   };
 
   return (
-    <Screen title="Profile & health" back={{ to: '/you', label: 'You' }}>
+    <Screen title="Profile & health" back={{ to: '/me', label: 'Me' }}>
       <CalendarStill still={calendarStillReminds(settings.habits, profile, today)} />
       {review && (
         <Group

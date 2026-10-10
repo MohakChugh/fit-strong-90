@@ -12,6 +12,7 @@ import {
   countsSentence,
   everyLabel,
   foodLine,
+  privacyLine,
   habitLine,
   habitsLine,
   listOf,
@@ -246,5 +247,11 @@ describe('habit lines, with an open foot wound (content re-check R03)', () => {
     expect(habitLine('sittingBreak', habits, wound)).toMatch(/foot wound/);
     expect(habitLine('mealWalk', habits, wound)).toMatch(/foot wound/);
     expect(habitsLine(habits, wound)).toBe('All off');
+  });
+});
+
+describe('privacyLine (B-24)', () => {
+  it('says where the records are, and when anything leaves', () => {
+    expect(privacyLine('iPhone')).toBe('Your records are stored on this iPhone. Backups and calendar files leave only when you share them.');
   });
 });

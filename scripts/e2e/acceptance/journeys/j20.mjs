@@ -20,15 +20,15 @@ const TABS = [['Home', ui.HOME_TITLE], ['Trends', 'Trends'], ['Browse', 'Browse'
 const PLACES = [['Move', 'Move'], ['Track', 'My Day'], ['Guide', 'Guide']];
 /** A shown title against a string (exact) or a pattern. */
 const titled = (shown, want) => (want instanceof RegExp ? want.test(shown) : shown === want);
-/** Me's editors, v1 You's: each opened from Me and back to it. */
+/** Me's sections (journey §16), each opened from Me and Back to it. "What you’d like more of" stays until Plan 5. */
 const YOU_EDITORS = [
-  ['Profile & health', /^Profile & health$|^Profile$/],
-  ['Food preferences', /^Food preferences$/],
+  ['Profile & health', /^Profile & health$/],
   ['What you’d like more of', /^What you’d like more of$/],
-  ['Habits & reminders', /^Habits & reminders$/],
+  ['Food', /^Food$/],
+  ['Reminders', /^Reminders$/],
   ['Voice & demos', /^Voice & demos$/],
-  ['Appearance', /^Appearance$/],
-  ['Data & offline', /^Data & offline$/],
+  ['Display', /^Display$/],
+  ['Data', /^Data$/],
 ];
 
 const h1 = page => page.getByRole('heading', { level: 1 });
@@ -89,10 +89,10 @@ const offline = {
       }
       // Me (v1's You) and its data screen report the truth about offline use.
       await ui.tab(page, 'Me');
-      await ui.tap(ui.row(main, 'Data & offline', 'link'));
+      await ui.tap(ui.row(main, 'Data', 'link'));
       await page.waitForTimeout(500);
       const data = await main.innerText();
-      await t.check(/Works offline[\s\S]{0,80}\bYes\b/.test(data), `Data & offline does not say the app works offline while it does: ${data.replace(/\n/g, ' ⏎ ').slice(0, 300)}`);
+      await t.check(/Works offline[\s\S]{0,80}\bYes\b/.test(data), `Data does not say the app works offline while it does: ${data.replace(/\n/g, ' ⏎ ').slice(0, 300)}`);
       await t.checkpoint('offline-data');
       // An optional voice asset that was never downloaded: captions, and no claim of a voice.
       // The player's start screen is behind today's check-in, answered offline.
@@ -128,7 +128,7 @@ const navigation = {
     const page = await t.open({ seed: persona('P01'), route: '/home' });
     const main = page.getByRole('main');
 
-    await t.step(2, 'Each root, Me and its editors, Done; details from My Day and Move and Back', async () => {
+    await t.step(2, 'Each root, Me and its sections, back to Home’s place; details from My Day and Move and Back', async () => {
       // v1's You button on each root is v2's Me tab, in the tab bar of every screen in the shell (journey §5).
       for (const [tab, heading] of TABS) {
         await ui.tab(page, tab);
@@ -156,10 +156,11 @@ const navigation = {
         const back = await ui.heading(page, 'Me');
         await t.check(back === 'Me', `Back from ${label} landed on “${back}”`);
       }
-      await ui.tap(ui.header(page).getByRole('button', { name: 'Done', exact: true }));
+      // Me is a tab (journey §5, D63): Home's tab goes back to the place it was left, My Day on 25 September.
+      await ui.tap(ui.link(page.getByRole('navigation', { name: 'Main' }), 'Home'));
       await waitRoute(page, trackRoute);
       await ui.heading(page, 'My Day');
-      await t.check(await t.route() === trackRoute, `Done from Me returned to ${await t.route()}, not ${trackRoute}`);
+      await t.check(await t.route() === trackRoute, `Home’s tab from Me returned to ${await t.route()}, not ${trackRoute}`);
 
       // A record detail from My Day keeps the day on return.
       const session = main.locator('a[href="#/track/session/legacy-strength"]');

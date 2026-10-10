@@ -104,6 +104,11 @@ export function reviewNeeded(profile: UserProfile | undefined): 'health' | 'medi
   return undefined;
 }
 
+/** B-24's privacy sentence, for this device. Plan 6 adds the one about map pictures when they arrive. */
+export function privacyLine(device: string): string {
+  return `Your records are stored on this ${device}. Backups and calendar files leave only when you share them.`;
+}
+
 /** What the review prompt says, by what needs reviewing. */
 export const REVIEW_LABEL: Record<NonNullable<ReturnType<typeof reviewNeeded>>, string> = {
   health: 'Your health answers need a review',

@@ -16,7 +16,7 @@ export function AppearanceScreen() {
   const [problem, setProblem] = useState<string>();
 
   return (
-    <Screen title="Appearance" back={{ to: '/you', label: 'You' }}>
+    <Screen title="Display" back={{ to: '/me', label: 'Me' }}>
       <Group header="Appearance">
         <ChoiceRows
           label="Appearance"

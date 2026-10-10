@@ -49,7 +49,7 @@ export function DataScreen() {
         : 'Clearing this browser’s data would delete it. Back up now and then.';
 
   return (
-    <Screen title="Data & offline" back={{ to: '/you', label: 'You' }}>
+    <Screen title="Data" back={{ to: '/me', label: 'Me' }}>
       <Group header={`On this ${device}`} footer="No account, no server, nothing sent anywhere: the only copy is the one here, and the backups you make.">
         <Row label="Your record" detail={counts.readings + counts.sessions + counts.checkIns > 0 ? countsSentence(counts) : 'Nothing recorded yet'} />
         <Row label="Kept safe" value={persisted ? 'Yes' : 'Not guaranteed'} detail={protection} />
