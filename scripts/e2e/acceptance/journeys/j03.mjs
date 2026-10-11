@@ -15,6 +15,7 @@ import { persona } from '../fixtures/personas.mjs';
 import { docs } from '../lib/harness.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as s from '../lib/safety-a.mjs';
+import * as setup from '../lib/setup.mjs';
 
 export const id = 'J03';
 export const title = 'Emergency precedence';
@@ -410,19 +411,13 @@ const step5 = {
       await s.closeSheet(page);
       await t.checkpoint('bladder-saved');
 
-      // Profile: no back or sciatica any more (v1's You button is v2's Me tab).
-      await ui.tab(page, 'Me');
-      await ui.tap(ui.row(main, 'Profile & health', 'link'));
-      await ui.tap(main.getByRole('button', { name: 'Edit back and legs', exact: true }));
-      const group = page.getByRole('group', { name: 'Pain or past injury' }).getByRole('group', { name: 'Pain or past injury' });
-      await group.waitFor();
-      await ui.tap(ui.checkbox(group, 'None'));
-      for (const area of ['Lower back', 'Sciatica']) {
-        await t.must(await ui.checkbox(group, area).getAttribute('aria-checked') !== 'true', `${area} stayed ticked after choosing None`);
-      }
+      // Profile: no back or sciatica any more. The pain chip is Your health's, and the areas go with it (journey §16).
+      await setup.openChapter(t, 'Your health');
+      await setup.tick(main, 'Back pain, sciatica or other pain', false);
+      // P01 has diabetes and treated blood pressure, so the limits are asked; v1 never asked about targets.
+      await setup.choose(main, 'Has a clinician given you any limits or targets?', 'No');
       await t.checkpoint('profile-edit');
-      await ui.tap(page.getByRole('button', { name: /^Save$/ }));
-      await page.waitForTimeout(600);
+      await setup.save(t);
       const snap0 = await t.db();
       await t.must((docs(snap0).profile?.pain?.areas ?? []).length === 0, `the profile still lists ${JSON.stringify(docs(snap0).profile?.pain?.areas)}`);
 

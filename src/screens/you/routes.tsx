@@ -1,24 +1,31 @@
 import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom';
+import { ChapterEditor } from '@/screens/setup/ChapterEditor';
+import { ProfileHealthScreen } from '@/screens/setup/ProfileHealthScreen';
+import { useSetupSession } from '@/setup/draft';
+import { setupStateOf } from '@/setup/state';
+import { useStore } from '@/store/useStore';
+import { CHAPTER_IDS } from '@/types/setup';
 import { DataScreen } from './DataScreen';
 import { DisplayScreen } from './DisplayScreen';
-import { FocusScreen } from './FocusScreen';
 import { FoodScreen } from './FoodScreen';
 import { GoalsScreen } from './GoalsScreen';
 import { HabitsScreen } from './HabitsScreen';
 import { MeHome } from './MeHome';
-import { ProfileScreen } from './ProfileScreen';
 import { VoiceScreen } from './VoiceScreen';
 
 /**
- * `/me/profile`, Profile & health: the seam Plan 5 replaces with the setup
- * chapters' own pages (journey §16). Until then v1's screens hold the
- * answers. The movement chapter (`?chapter=movement`, §19.2) is v1's "What
- * you'd like more of"; every other chapter is v1's Profile & health
- * (`HREF` in `src/setup/progress.ts`).
+ * `/me/profile`, Profile & health (journey §16): the chapters' answers, and
+ * `?chapter=…` for a chapter's own pages (§19.2). While setup is unfinished,
+ * it is setup itself, carrying on where it stopped (L-20, board D80).
  */
 function Profile() {
   const [params] = useSearchParams();
-  return params.get('chapter') === 'movement' ? <FocusScreen /> : <ProfileScreen />;
+  const { settings, profile } = useStore();
+  const session = useSetupSession();
+  if (!profile || session.entered || setupStateOf(settings, profile).stage !== 'done') return <Navigate to="/setup" replace />;
+  const chapter = params.get('chapter');
+  const known = CHAPTER_IDS.find(c => c === chapter && c !== 'welcome');
+  return known ? <ChapterEditor key={known} chapter={known} /> : <ProfileHealthScreen />;
 }
 
 /** Me, the fourth tab (journey §16): its root and its sections. */

@@ -255,6 +255,23 @@ export function capabilityInit(opts) {
       window.__acc.shares.push({ files });
     };
   }
+  if (opts.standalone === true) {
+    // The installed Home Screen app (V-J37): display-mode standalone, and Safari's own flag.
+    const real = window.matchMedia.bind(window);
+    window.matchMedia = query => (/display-mode:\s*(standalone|fullscreen|minimal-ui)/.test(query)
+      ? { matches: true, media: query, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false }
+      : real(query));
+    try { Object.defineProperty(Navigator.prototype, 'standalone', { configurable: true, get: () => true }); } catch { /* ignore */ }
+  }
+  if (opts.persist === 'refuse' && navigator.storage) {
+    // Temporary storage (B-30): the browser keeps the right to clear it. Asking is still counted, as `sensorInit` counts it.
+    const calls = window.__acc?.calls;
+    navigator.storage.persist = () => {
+      if (typeof calls?.persist === 'number') calls.persist += 1;
+      return Promise.resolve(false);
+    };
+    navigator.storage.persisted = () => Promise.resolve(false);
+  }
 }
 
 /**

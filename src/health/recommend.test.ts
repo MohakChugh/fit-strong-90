@@ -244,6 +244,18 @@ describe('1. safety comes first', () => {
     });
   });
 
+  it('says “Finish setting up” while setup is unfinished, and carries on setting up (journey §6.4, L-20)', () => {
+    const permissions = every(m => ({ ...firstCheckIn(m), reasons: [PERMISSION_TEXT.healthUnreviewed, PERMISSION_TEXT.noCheckIn], release: 'Answer the health questions in your profile.' }));
+    expect(recommend(input({ profile: undefined, permissions, setupOpen: true }))).toEqual({
+      kind: 'hold',
+      title: 'Finish setting up',
+      detail: 'Answer the health questions in your profile.',
+      reason: PERMISSION_TEXT.healthUnreviewed,
+      action: { label: 'Carry on setting up', to: HREF.profile },
+    });
+    expect(recommend(input({ profile: owner({}, { needsHealthReview: true }), permissions })).title).toBe('Finish your health profile');
+  });
+
   it('asks about the diabetes medicines when a diabetic profile never answered them', () => {
     const profile = owner({ medicinesReviewed: undefined });
     const release = 'Answer the diabetes medicine questions in your health profile.';

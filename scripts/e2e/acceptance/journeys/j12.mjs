@@ -15,6 +15,7 @@ import { persona } from '../fixtures/personas.mjs';
 import { docs } from '../lib/harness.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as sb from '../lib/safety-b.mjs';
+import * as setup from '../lib/setup.mjs';
 
 export const id = 'J12';
 export const title = 'Missing/stale glucose, medicine certainty and regimen';
@@ -23,11 +24,6 @@ export const safety = true;
 /** The modes P04 can start (D35). */
 const MODES = ['stretch', 'walk'];
 const STALE = /check your glucose within 30 minutes of starting/i;
-
-const SU = 'Sulfonylurea or meglitinide? (e.g. gliclazide, glimepiride)';
-const SGLT2 = 'An SGLT2 inhibitor, for diabetes, heart or kidney? (e.g. empagliflozin, dapagliflozin)';
-const METFORMIN = 'Metformin?';
-const DKA = 'Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?';
 
 /** P04 with today's check-in already holding a reading taken at `measuredAt` (retained fixture). */
 function withReading(measuredAt) {
@@ -76,24 +72,23 @@ async function openProfile(t) {
   await page.getByRole('heading', { level: 1, name: 'Profile & health', exact: true }).waitFor();
 }
 
-/** Edit the health answers (through the review row when the app asks for one) and save. */
-async function editHealth(t, answers) {
+/**
+ * Me → Profile & health → the review when asked for one, else Your medicines; answer; Save.
+ * v1 asked about a home blood-pressure cuff only with high blood pressure, so P04 is asked it here, once (board D79).
+ */
+async function editMedicines(t, answer) {
   const page = t.page;
   await openProfile(t);
   const main = page.getByRole('main');
-  const review = main.getByRole('button', { name: /^(Your health answers need a review|Medicines: not yet reviewed)/ });
-  await ui.tap((await review.count()) ? review : ui.button(main, 'Edit health'));
-  const dialog = page.getByRole('dialog', { name: 'Edit your answers' });
-  await dialog.waitFor();
-  for (const [group, choice] of answers) {
-    await ui.tap(ui.radio(dialog.getByRole('radiogroup', { name: group, exact: true }), choice));
-  }
-  await t.checkpoint(`health-edit-${answers.map(a => a[1]).join('-').replace(/\W+/g, '-').slice(0, 40)}`);
-  const save = ui.button(dialog, 'Save');
-  await t.must(!(await save.isDisabled()), `Save stays disabled after answering ${answers.map(a => a.join(': ')).join('; ')}: ${(await dialog.innerText()).match(/Answer each[^\n]*/)?.[0] ?? ''}`);
-  await ui.tap(save);
-  await dialog.waitFor({ state: 'hidden' });
-  await main.getByText(/^Saved\. Today uses your new answers\.$/).waitFor();
+  const review = main.getByRole('link', { name: /^(Your health answers need a review|Medicines: not yet reviewed)/ });
+  await ui.tap((await review.count()) ? review : ui.link(main, 'Edit Your medicines'));
+  // The editor's own title first: Profile & health's group headers are headings too, one of them "Your medicines".
+  await page.getByRole('heading', { level: 1, name: /^Your (health|medicines)$/ }).waitFor();
+  // Its first page, in the review (three chapters) and in Your medicines alike.
+  await main.getByRole('heading', { level: 2, name: 'Your medicines', exact: true }).waitFor();
+  await answer(main);
+  await t.checkpoint(`medicines-edit-${Date.now() % 1000}`);
+  await setup.save(t);
 }
 
 async function profileText(t) {
@@ -279,7 +274,7 @@ export const cases = [
       }, { input: 'needsHealthReview, medicinesReviewed absent; glucose 110 mg/dL now; weight 78 kg for 7 October 20:00' });
 
       await t.step(6, 'Review medicines: Not sure for insulin; save and reload', async () => {
-        await editHealth(t, [['Insulin', 'Not sure'], [SU, 'No'], [SGLT2, 'No'], [METFORMIN, 'No'], [DKA, 'No']]);
+        await editMedicines(t, async m => { await setup.choose(m, 'Has a clinician given you any limits or targets?', 'No'); await setup.choose(m, 'Do you take any regular medicines?', 'Yes'); await setup.tick(m, 'Not sure: Insulin'); await setup.choose(m, 'How do you take insulin?', 'Not sure'); await setup.choose(m, 'A severe low in the last 6 months, or do you often not feel lows coming?', 'No'); await setup.choose(m, 'Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?', 'No'); await setup.choose(m, 'Home blood-pressure cuff', 'No'); });
         await t.reload();
         await openProfile(t);
         const text = await profileText(t);
@@ -298,7 +293,7 @@ export const cases = [
       }, { input: 'Insulin: Not sure; SU No; SGLT2 No; metformin No; DKA No; then 31 minutes later' });
 
       await t.step(7, 'Confirm metformin only and leave glucose absent', async () => {
-        await editHealth(t, [['Insulin', 'No insulin'], [SU, 'No'], [SGLT2, 'No'], [METFORMIN, 'Yes'], [DKA, 'No']]);
+        await editMedicines(t, async m => { await setup.tick(m, 'Not sure: Insulin', false); await setup.tick(m, 'Metformin'); });
         await t.goto('/home?checkin=walk');
         const sheet = page.getByRole('dialog', { name: ui.CHECKIN });
         await sheet.waitFor();
@@ -325,13 +320,13 @@ export const cases = [
       }, { input: 'Insulin No; SU No; SGLT2 No; metformin Yes; DKA No; glucose cleared' });
 
       await t.step(8, 'Return to basal, then several injections a day; reload Profile & health and Guide', async () => {
-        await editHealth(t, [['Insulin', 'Long-acting only']]);
+        await editMedicines(t, async m => { await setup.tick(m, 'Insulin'); await setup.choose(m, 'How do you take insulin?', 'Long-acting only'); });
         let snap = await t.db();
         await t.check(docs(snap).profile?.health?.insulinRegimen === 'basalOnly' && docs(snap).profile.health.insulin === 'injections_or_pump',
           `regimen after choosing long-acting only: ${JSON.stringify({ insulin: docs(snap).profile?.health?.insulin, regimen: docs(snap).profile?.health?.insulinRegimen })}`);
         const basalGuide = await guideDiabetes(t);
         await t.checkpoint('guide-basal');
-        await editHealth(t, [['Insulin', 'Several injections a day']]);
+        await editMedicines(t, m => setup.choose(m, 'How do you take insulin?', 'Several injections a day'));
         await t.reload();
         await openProfile(t);
         const text = await profileText(t);

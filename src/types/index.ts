@@ -2,7 +2,7 @@ import type { UserProfile } from './profile';
 import type { CheckInRecord } from './checkin';
 import type { DayFocus } from './plan';
 import type { HabitSettings } from './habits';
-import type { ChapterId } from './setup';
+import type { SetupRecord } from './setup';
 import type { RecordStore } from '@/store/records';
 
 export type Phase = 'foundation' | 'hypertrophy' | 'strength';
@@ -163,7 +163,7 @@ export interface UserSettings {
   defaultWarmupExercises?: string[];
   defaultCooldownExercises?: string[];
   supersetRestSeconds?: number;
-  /** v5: the first-run answer to "What would you like more of?". Not an identity; Today uses it as a default. */
+  /** v5: "What would you most like to do?" (setup's Your movement). Not an identity; Home's suggestions use it as a default. */
   focus?: 'strength' | 'stretch' | 'move' | 'explore';
   /**
    * v5: the weekly recorded-movement goal the user chose, in minutes. Weekly,
@@ -201,11 +201,11 @@ export interface UserSettings {
   /** v2 (journey §5.1): categories Me has offered for Home, added or "Not now", so none is offered twice. */
   homeOffered?: CategoryId[];
   /**
-   * v2 (journey §6.6, §16): the chapters Me's "Finish setting up" was told
-   * "Not now". Plan 5 makes this its whole setup state, which keeps
-   * `declined` (§18.1).
+   * v2 (journey §6, §18.1): first run, "Set up once", and what Me's
+   * "Finish setting up" was told (`declined`, Plan 4). Absent on a v1
+   * record: `setupStateOf` reads its state from what v1 kept.
    */
-  setup?: { declined?: ChapterId[] };
+  setup?: SetupRecord;
   /** v2 (journey §16 Display): the app's own settings, since Safari doesn't report Reduce Transparency and the system's motion setting isn't everyone's choice. */
   display?: {
     reduceMotion?: boolean;
@@ -270,3 +270,4 @@ export type { UserProfile } from './profile';
 export type { HabitSettings } from './habits';
 export type { CheckInRecord, DailyCheckIn, Readiness } from './checkin';
 export type { ChapterId } from './setup';
+export type { PageId, SetupAnswers, SetupRecord, SetupState, Tri } from './setup';

@@ -146,3 +146,12 @@ describe('ranking', () => {
     expect(cards.indexOf('card-supplements')).toBeGreaterThan(cards.indexOf('card-plate'));
   });
 });
+
+describe('meals and setup’s food answers (board D82)', () => {
+  it('leaves out a meal naming an allergen setup stored, or a food Jain cooking leaves out', () => {
+    expect(meals('poha', contextOf([], { pattern: 'vegetarian', avoid: [], allergies: ['peanut'] }))).not.toContain('b-poha');
+    expect(meals('poha', contextOf([], { pattern: 'vegetarian', avoid: [] }))).toContain('b-poha');
+    expect(meals('poha', contextOf([], { pattern: 'jain', avoid: [] }))).not.toContain('b-poha');
+    expect(meals('dalia', contextOf([], { pattern: 'jain', avoid: [] }))).toContain('b-dalia');
+  });
+});

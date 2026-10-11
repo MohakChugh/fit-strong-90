@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
 import { buildSessionPlan } from '@/engine/session';
-import type { AppData, WorkoutSession } from '@/types';
+import type { AppData, DayOfWeek, WorkoutSession } from '@/types';
 import { StoreFailure, type StoreResult } from '@/store/db';
 import type { DailyCheckIn } from '@/types/checkin';
 import {
   canSwapToday, guidedRow, guidedSummary, JOIN_CLOSED, joinController, joinFlow, joinSeed, mondayOf, planView, overrideFor, programmeWeek, programmeWeekDates, startDateProblem,
-  STATUS_TEXT, swapChoices, swapToday, weekNote, weekView, withJoined, withLeft, type JoinAction, type JoinFlow, type WeekDay,
+  STATUS_TEXT, swapChoices, swapToday, weekNote, weekView, withLeft, type JoinAction, type JoinFlow, type WeekDay,
 } from './plan';
+import { JOIN } from '@/setup/fixtures';
 
 // Default profile: Monday to Saturday training (Lower A, Upper A, Lower B,
 // Upper B, Lower C, Upper C), Sunday rest. 2026-10-08 is a Thursday.
@@ -314,15 +315,6 @@ describe('joining and leaving the programme (F29)', () => {
     expect(startDateProblem('next week', TODAY)).toMatch(/choose a start date/i);
   });
 
-  it('joins with the answers given and the start date chosen, and touches nothing else', () => {
-    const before = record();
-    const answers = { profile: createDefaultProfile({ weightKg: 84, trainingDays: ['monday', 'wednesday', 'friday'] }), useMetric: false };
-    const after = withJoined(before, answers, '2026-10-12');
-    expect(after.settings).toEqual({ ...before.settings, startDate: '2026-10-12', currentWeight: 84, useMetric: false });
-    expect(after.profile).toEqual(answers.profile);
-    expect({ ...after, settings: before.settings, profile: before.profile }).toEqual(before);
-  });
-
   it('leaves by dropping only the start date: every session, check-in, swap and answer stays', () => {
     const before = record({ settings: { ...settings, startDate: '2026-09-28' } });
     const after = withLeft(before);
@@ -365,7 +357,7 @@ describe('the Join save lifecycle (R02)', () => {
     sessions: [], bodyMetrics: [], personalRecords: [], checkIns: [], focusOverrides: {},
     profile: createDefaultProfile({ weightKg: 80, trainingDays: ['monday'] }),
   });
-  const tueThu = { profile: createDefaultProfile({ weightKg: 80, trainingDays: ['tuesday', 'thursday'] }), startDate: '2026-10-12', useMetric: true };
+  const tueThu = { ...JOIN, days: ['tuesday', 'thursday'] as DayOfWeek[], startDate: '2026-10-12' };
   const refused = { ok: false as const, failure: new StoreFailure('quotaExceeded', 'Storage is full') };
   const ok = { ok: true as const, value: undefined };
 
@@ -389,26 +381,23 @@ describe('the Join save lifecycle (R02)', () => {
     const submit = joinController(r.write, r.dispatch);
     const saving = submit(tueThu);
     expect(r.state).toMatchObject({ open: true, busy: true });
-    expect(r.state.draft?.profile.trainingDays).toEqual(['tuesday', 'thursday']);
+    expect(r.state.draft?.days).toEqual(['tuesday', 'thursday']);
     r.settle();
     await saving;
     // Refused: still open, the reason shown, Tuesday and Thursday still there.
     expect(r.state).toMatchObject({ open: true, busy: false, error: 'That did not save. Storage is full' });
-    expect(r.state.draft?.profile.trainingDays).toEqual(['tuesday', 'thursday']);
+    expect(r.state.draft?.days).toEqual(['tuesday', 'thursday']);
     expect(r.attempts[0].profile?.trainingDays).toEqual(['tuesday', 'thursday']);
     expect(r.attempts[0].settings.startDate).toBe('2026-10-12');
   });
 
-  it('writes only the answers changed in this wizard over the latest profile (scan D-03)', async () => {
-    // Opened with Monday training and no foot answer; meanwhile another open
-    // copy saved an open foot wound. Join changes the training days only.
-    const openedWith = createDefaultProfile({ weightKg: 80, trainingDays: ['monday'] });
-    const draft = { ...tueThu, opened: { profile: openedWith, useMetric: true } };
+  it('writes only the programme’s answers over the latest profile (scan D-03)', async () => {
+    // Meanwhile another open copy saved an open foot wound. Join changes the programme's answers only.
     const attempts: AppData[] = [];
     const latest = stored();
     latest.profile = { ...latest.profile!, health: { ...latest.profile!.health, footStatus: 'current_wound_or_active_charcot' } };
     const write = (updater: (d: AppData) => AppData) => { attempts.push(updater(latest)); return Promise.resolve(ok); };
-    await joinController(write, () => {})(draft);
+    await joinController(write, () => {})(tueThu);
     expect(attempts[0].profile?.trainingDays).toEqual(['tuesday', 'thursday']);
     expect(attempts[0].profile?.health.footStatus).toBe('current_wound_or_active_charcot');
   });
@@ -421,13 +410,13 @@ describe('the Join save lifecycle (R02)', () => {
     await saving;
     r.dispatch({ type: 'cancel' });
     expect(r.state.open).toBe(false);
-    expect(r.state.draft?.profile.trainingDays).toEqual(['tuesday', 'thursday']);
+    expect(r.state.draft?.days).toEqual(['tuesday', 'thursday']);
     r.dispatch({ type: 'open' });
     // A fresh attempt: the answers come back, the old reason does not.
     expect(r.state.open).toBe(true);
     expect(r.state.error).toBeUndefined();
-    expect(r.state.draft?.profile.trainingDays).toEqual(['tuesday', 'thursday']);
-    expect(joinSeed(r.state, stored(), TODAY)).toEqual({ profile: tueThu.profile, startDate: '2026-10-12', useMetric: true });
+    expect(r.state.draft?.days).toEqual(['tuesday', 'thursday']);
+    expect(joinSeed(r.state, stored(), TODAY)).toEqual(tueThu);
   });
 
   it('closes and forgets the draft once the store confirms the save', async () => {
@@ -437,7 +426,7 @@ describe('the Join save lifecycle (R02)', () => {
     r.settle();
     await saving;
     expect(r.state).toEqual(JOIN_CLOSED);
-    expect(joinSeed(r.state, stored(), TODAY)).toEqual({ profile: stored().profile, startDate: TODAY, useMetric: true });
+    expect(joinSeed(r.state, stored(), TODAY)).toEqual({ experience: 'intermediate', equipment: 'fullGym', days: ['monday'], minutes: 60, startDate: TODAY });
   });
 
   it('sends one save however often it is submitted, and cannot be closed while saving', async () => {
@@ -459,7 +448,7 @@ describe('the Join save lifecycle (R02)', () => {
     await joinController(() => Promise.reject(new Error('disk gone')), dispatch)(tueThu);
     expect(state).toMatchObject({ open: true, busy: false });
     expect(state.error).toMatch(/did not save/i);
-    expect(state.draft?.profile.trainingDays).toEqual(['tuesday', 'thursday']);
+    expect(state.draft?.days).toEqual(['tuesday', 'thursday']);
   });
 
   it('retries with the kept answers after a refusal', async () => {

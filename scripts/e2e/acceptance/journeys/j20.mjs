@@ -20,10 +20,9 @@ const TABS = [['Home', ui.HOME_TITLE], ['Trends', 'Trends'], ['Browse', 'Browse'
 const PLACES = [['Move', 'Workout'], ['Track', 'My Day'], ['Guide', 'Learn']];
 /** A shown title against a string (exact) or a pattern. */
 const titled = (shown, want) => (want instanceof RegExp ? want.test(shown) : shown === want);
-/** Me's sections (journey §16), each opened from Me and Back to it. "What you’d like more of" stays until Plan 5. */
+/** Me's sections (journey §16), each opened from Me and Back to it. The focus is Profile & health's Your movement now (Plan 5). */
 const YOU_EDITORS = [
   ['Profile & health', /^Profile & health$/],
-  ['What you’d like more of', /^What you’d like more of$/],
   ['Goals', /^Goals$/],
   ['Food', /^Food$/],
   ['Reminders', /^Reminders$/],

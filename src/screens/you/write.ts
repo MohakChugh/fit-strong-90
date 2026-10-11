@@ -13,13 +13,13 @@ import type { StoreResult } from '@/store/db';
 import type { UserSettings } from '@/types';
 import type { HabitSettings } from '@/types/habits';
 import type { MedicineAnswer, UserProfile } from '@/types/profile';
-import type { WizardResult } from '@/components/profile/ProfileWizard';
-import { answeredProfile } from '@/components/profile/wizardSteps';
 import { createDefaultProfile } from '@/profile/defaults';
 import type { BackupMark } from '@/reminders/backup';
 import { withCalendarExport, withoutCalendarHabits, type CalendarExport } from '@/reminders/calendarNotice';
 import type { HabitId } from '@/reminders/schedule';
-import { withJoined, withLeft } from '@/screens/move/plan';
+import { withLeft } from '@/screens/move/plan';
+import { withJoinAnswers } from '@/programme/join';
+import type { JoinAnswers } from '@/types/setup';
 
 export function changeHabits(edit: (habits: HabitSettings) => HabitSettings): Promise<StoreResult> {
   return update(previous => ({
@@ -83,31 +83,6 @@ export function recordBackupCheck(at: string): Promise<StoreResult> {
   }));
 }
 
-/** The units chosen in the wizard, unless it left them as it found them. */
-const answeredMetric = (previous: boolean, result: Pick<WizardResult, 'useMetric' | 'opened'>) =>
-  result.opened && result.opened.useMetric === result.useMetric ? previous : result.useMetric;
-
-/**
- * Save answers from the profile wizard. The programme start date is written
- * only when the wizard asked it (`startDate: true`), so an edit of the health
- * questions can never move, or clear, the programme.
- */
-export function saveProfileAnswers(result: WizardResult, { startDate }: { startDate: boolean }): Promise<StoreResult> {
-  return update(previous => {
-    const profile = answeredProfile(previous.profile, result);
-    return {
-      ...previous,
-      profile,
-      settings: {
-        ...previous.settings,
-        currentWeight: profile.weightKg,
-        useMetric: answeredMetric(previous.settings.useMetric, result),
-        ...(startDate ? { startDate: result.startDate } : {}),
-      },
-    };
-  });
-}
-
 /** Remember the calendar file just made (D-01), so the app can say when Calendar keeps reminding after it has stopped. */
 export function recordCalendarExport(made: CalendarExport): Promise<StoreResult> {
   return changeHabits(habits => ({ ...habits, calendarExport: withCalendarExport(habits.calendarExport, made) }));
@@ -121,12 +96,9 @@ export function forgetCalendarEvents(deleted: readonly HabitId[]): Promise<Store
   });
 }
 
-/** Join the 12-week programme: its answers and a start date (board D8). The same write Move's Your plan makes. */
-export function joinProgramme(answers: Pick<WizardResult, 'profile' | 'useMetric' | 'opened'>, startDate: string): Promise<StoreResult> {
-  return update(previous => withJoined(previous, {
-    profile: answeredProfile(previous.profile, answers),
-    useMetric: answeredMetric(previous.settings.useMetric, answers),
-  }, startDate));
+/** Join the 12-week programme: its four answers and a start date (board D8, D81). The same write Your plan makes. */
+export function joinProgramme(j: JoinAnswers): Promise<StoreResult> {
+  return update(previous => withJoinAnswers(previous, j));
 }
 
 /** Leave it: no start date. Every session, record and answer stays. */

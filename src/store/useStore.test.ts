@@ -1103,3 +1103,45 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
     expect(left.ok && left.value).toEqual([]);
   });
 });
+
+describe('update with readings (journey §18.1: weight and height are dated readings)', () => {
+  it('stores the change and the readings in one write', async () => {
+    await booted();
+    const result = await store.update(previous => ({ ...previous, settings: { ...previous.settings, currentWeight: 80 } }), {
+      addObservations: [{ kind: 'weight', value: 80, unit: 'kg', scope: 'pointInTime', source: 'manual', context: 'profile' }],
+    });
+    expect(result.ok).toBe(true);
+    const state = store.getState();
+    expect(state.settings.currentWeight).toBe(80);
+    expect(state.observations.filter(o => o.kind === 'weight').map(o => [o.value, o.context])).toEqual([[80, 'profile']]);
+  });
+
+  it('stores neither when the reading is refused', async () => {
+    await booted({ failWrite: storeName => (storeName === 'observations' ? new DOMException('Disk is full', 'QuotaExceededError') : undefined) });
+    const result = await store.update(previous => ({ ...previous, settings: { ...previous.settings, currentWeight: 81 } }), {
+      addObservations: [{ kind: 'height', value: 170, unit: 'cm', scope: 'pointInTime', source: 'manual', context: 'profile' }],
+    });
+    expect(result.ok).toBe(false);
+    expect(store.getState().settings.currentWeight).not.toBe(81);
+    expect(store.getState().observations).toEqual([]);
+  });
+
+  it('gives each reading one identity however often the change is planned', async () => {
+    let refuse = true;
+    await booted({ failWrite: (s, v) => (refuse && s === 'settings' && v.key === 'settings' ? new DOMException('Disk is full', 'QuotaExceededError') : undefined) });
+    const waists = () => store.getState().observations.filter(o => o.kind === 'waist');
+    // Queued behind a write that is then refused: planned once on what is shown, and again on what was stored.
+    const first = store.update(previous => ({ ...previous, settings: { ...previous.settings, theme: 'dark' } }));
+    const second = store.update(previous => previous, { addObservations: [{ kind: 'waist', value: 90, unit: 'cm', scope: 'pointInTime', source: 'manual' }] });
+    const shown = waists().map(o => [o.id, o.at]);
+    expect((await first).ok).toBe(false);
+    refuse = false;
+    expect((await second).ok).toBe(true);
+    expect(shown).toHaveLength(1);
+    expect(waists().map(o => [o.id, o.at])).toEqual(shown);
+    // A reading already stored under its id is never written over by the same write planned again.
+    const [id] = shown[0];
+    await store.update(previous => previous, { addObservations: [{ id, kind: 'waist', value: 95, unit: 'cm', scope: 'pointInTime', source: 'manual' }] });
+    expect(waists().map(o => o.value)).toEqual([90]);
+  });
+});

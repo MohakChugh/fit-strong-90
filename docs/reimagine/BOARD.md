@@ -932,3 +932,68 @@ From journey §12, §20.2–20.4, §25 (B-10, B-14, B-15, B-16, B-20, B-30, B-32
 Built on `feat/v2-p3`, from `feat/v2-journey` at `0305bc5`: Plans 1, 2 and 4, Plan 6 Tasks 1–13, the storage foundation and Plan 1's re-check fixes. The plan was written before Plans 4 and 6 landed, so each task checks its steps against the live code, and its commit records where the build differs. D68–D74 were still free: the board's numbers run to D67, then Plan 6's D85.
 
 KV-25 (Kiro's Plan 1 review, deferred to this plan): the week's ring is keyed by the goal its own week had (`weeklyGoalOn(settings, monday)`, B-16, B-32), never by the goal last chosen. Home's This week and Trends' rings read it the same way, and a test holds them together.
+
+### 2026-10-10 — [claude] v2 Plan 5 (setup and upgrade): decisions before building
+
+The plan is `docs/superpowers/plans/2026-10-10-fitstrong-v2-plan-5-setup.md`. It folds in B-06, B-07, B-08, B-18, B-24 and B-31, and fills Plan 4's setup-progress seam (D65).
+
+| # | Decision | Why |
+| --- | --- | --- |
+| D75 | Setup keeps every answer as given in `settings.setup`: `draft` while unfinished, `answers` after. One function, `profileFrom()`, works out the profile from them. "Not sure" stays `'unsure'` in the answers, and becomes "may have" only there. Me edits a chapter with the same page views, one under another, and saves them together | §6.1; §16 "editable with the same pages" |
+| D76 | §6.3's crosswalk is corrected to v1's field names, and the spec's table is updated in the same commit. No row is dropped; a row whose v1 field doesn't exist says so | §6.3 asks for it |
+| D77 | Chapter 3's pain chip is "Back pain, sciatica or other pain", and chapter 5 lists every v1 area. "What helps" is kept in the answers only, never as `pain.preference`. `pain.neuroHistory` is new, and only Home's tiles read it | The engine reads calf and hamstring pain for everyone (`safety.ts`), and reads `preference` as a confirmed direction (`mobility.ts`); the engine reads today's symptoms, not the history (D29(2)) |
+| D78 | Insulin or a tablet that can cause lows, with diabetes "No" or prediabetes, is read as diabetes `'other'` | The rules about lows apply only with diabetes, and a person on insulin may have it (§6.1 "Not sure" is "may have") |
+| D79 | Upgraders aren't asked v2's new safety questions (eyes and feet without diabetes, "something else") unless they edit Your health. A Me edit owns only its chapters' fields. It re-asks what it makes newly needed: Your medicines, when diabetes or blood pressure is added. While a health review is pending, the three safety chapters open together | §6.6 "New questions are never forced"; the review clears only when every safety chapter is answered in one sitting |
+| D80 | "Look around first" and finishing both set `onboardingComplete`; `settings.setup.stage` says which. While setup is unfinished, the profile hold reads "Finish setting up · Carry on setting up", and `/me/profile` opens setup where it stopped. A Finish setting up row for a safety gap offers no "Not now", and stays listed even where an earlier build stored "Not now" for its chapter (KH-08, amending D65) | §19.1 keeps one launch flag; L-20. Movement waits for a gap, so the one place that finishes it can't disappear while tiles still say "Finish setting up" |
+| D81 | The programme's Join flow is its own four steps (experience, place, days, and length with a start date). Setup, Your plan and Goals all use it. It doesn't ask body weight or goals | Nothing in the engine reads them for the programme |
+| D82 | Chapter 7 writes the food contract Plan 7 consumes (Plan 7's "Plan 5, Tasks 2 and 3"), and Plan 5 lands Plan 7's Task 2 Steps 1, 6 and 8 early, word for word. In `src/types/profile.ts`: `ALLERGEN_IDS` (peanut, treeNut, milk, egg, wheat, soy, sesame, fish, shellfish, mustard) with `AllergenId`; `FoodPattern`, Jain included; and `FoodPreferences` with `allergies?: AllergenId[]`, `customAllergies?` (the person's own words), `level?`, `hardBefore?`, `careTeamTargets?` and `logReminder?`. The screening answer is kept in `food.hardBefore`, on this device, where Plan 7's D102 reads it. Until Plan 7 tags recipes, meal ideas leave out an idea whose own words name an allergen, a custom allergy or a food Jain cooking leaves out (`src/content/allergens.ts`, interim word matching). `food.mealTimes` isn't written: setup's meal times are the after-meal walk's (`habits.mealWalk.finish`) | One contract and one copy of each fact. Plan 7 branches from it, and the branch merges only after Plan 7 (B-22) |
+| D83 | Weight, height and waist changes are dated readings; `height` is a new observation kind (Weight hub). A field shown in pounds or feet and saved unchanged keeps the stored kilograms or centimetres exactly, and adds no reading. An undated v1 weight is never given a date | §18.1, B-16 |
+| D84 | v1's acknowledgement stays, on the Review page, for every first-time profile. In Safari on iPhone, Review offers "Moving to the Home Screen app?" with Make a backup, before finishing. Restored in the installed app, setup carries on at Review | v1's rule; A-27; §6.4 "a backup without a finished profile continues setup" |
+
+**Crosswalk corrections (D76):**
+- Prediabetes is an option of "Which type of diabetes?". It's a v1 value, which Home's Glucose tile and the session gate read.
+- `priorDkaOrInsulinDeficiency` is asked with every diabetes answer, as v1 asks it (`DIABETES_MEDICINES`), not only with type 1, insulin or a "-gliflozin".
+- Clinician limits are also asked with diabetes, as v1 asks them. ACSM screening counts diabetes (`profileRules`).
+- Dizziness on standing is also asked with diabetes (autonomic neuropathy) and with "something else". v1 asked everyone.
+- v1 has no `cardiac` effort-symptom, `footRestriction`, `footWound` or `neuroHistory` field:
+  - effort symptoms are asked at every check-in;
+  - a wound now, or a clinician's weight-bearing limit, is `footStatus: 'current_wound_or_active_charcot'`;
+  - `pain.neuroHistory` is new (D77).
+- The glucose start minimum sits with the insulin questions, which is where it's known whether lows are possible.
+- Chapter 3's eye-treatment and foot-wound questions offer no "Not sure": both are things a person knows (§1.2 "where safety allows").
+- `bpMedicinesReviewed` and `medicinesReviewed` are set only when every medicine they vouch for was answered (`wizardSteps.answeredOnOpen`).
+
+**Adaptations to the live code:**
+- **Names:** every seam the plan expects is there under its expected name (Task 1 Step 1).
+- **The food contract (D82).** The plan's Task 3 was written against an earlier draft of Plan 7. The Plan 7 committed beside it expects Plan 5 to leave the names above, `src/content/allergens.ts` (`ALLERGEN_TERMS`, `JAIN_LEAVES_OUT`, `leaveOut`, `mealPattern`, `withPicked`), meal ideas, search and a meal's page filtering through `leaveOut`, and Meal ideas' food question saving through `withPicked`. Task 3 builds exactly that, so Plan 7's own check (its Task 1 Step 1) passes. Allergies are two fields, not one: chips store canonical ids in `allergies`, and "Something else" stores the person's words in `customAllergies`. The canonical ids are Plan 7's (`wheat`, `shellfish`), not the plan's (`gluten`, `crustacean`). `food.mealTimes` isn't added. When Plan 7 runs, its Task 2 Steps 1, 6 and 8 are already done: skip them, and expect Step 7 to pass.
+- **KH-08 (review finding, Medium):** "Not now" on a safety gap row hid the only clear way to finish setup while the tiles kept saying "Finish setting up". D80 now keeps gap rows, with no "Not now" (Task 7).
+- **KH-15 (review finding, Low):** the profile editor's confirmation is "Saved. Home uses your new answers.": v2 has no Today screen (Task 14).
+
+### 2026-10-11 — [claude] v2 Plan 5 (setup and upgrade): built; reviews left to the coordinator
+
+- Setup replaces v1's Welcome: eight chapters at `/setup/:chapter/:page`, page 1 at `/setup`, Review at `/setup/review` (journey §6, §19.2). Its page graph has 29 pages; the minimal path is 15 and the complex path 26, within J§1.2's 20 and 30. `setup.pages.test.ts` and `setup.fields.test.ts` pass.
+- Every answer is kept as given in `settings.setup` (D75); `profileFrom()` is the one place "Not sure" becomes "may have". The crosswalk test reads every engine field the pages set.
+- Me → Profile & health reads each chapter back and edits it with setup's own pages (D79); while setup is unfinished, `/me/profile` is setup itself (D80). About you's address is `/me/profile?chapter=about`.
+- A v1 record opens Home with its tiles and one inline "FitStrong has a new Home" row (§6.6). The upgrade test: P01 to P06 keep the same profile and every permission when any chapter is saved as it opened (A-36).
+- The food contract Plan 7 consumes is in `src/types/profile.ts` (D82); Plan 7 skips its Task 2 Steps 1, 6 and 8.
+- Acceptance: the touched journeys at two sizes gave 198 of 204; the six failures, V-J17's and V-J18's check-in read before its first question, are fixed. The full suite (port 50001, through the shared lock) gave 1004 of 1028. J10 (4) and VJ12 (4) failed in the base (0305bc5) too, and pass with feat/v2-journey's own fix (179239d), taken word for word: a re-run of J07, J10, VJ12, V-J17 and V-J18 in all four projects gave 72 of 72. J11 (16) is pending: it stops at Plan 6's first-walk question "Keep a record of your route on this phone?", which Plan 6 Task 15 answers in the harness. Every Plan 5 journey passes: V-J10, V-J11, V-J13, V-J17, V-J18, V-J37, J01, J02, J03, J07, J12, J14, J17, J18, J20, M01 and S01.
+- Left for the coordinator: Task 17's Codex and Kiro reviews, which this entry doesn't include.
+
+Where the build differs from the plan's text, and why (each is in its commit too):
+- **A save vouches only for what it changed (H-DATA, D-03).** Task 14's `editedRecord` copied the review flags from what was saved. A copy opened before another tab added diabetes would then mark the diabetes medicines reviewed though they were never asked. The flags now change only through the edit's own diff, and settings only where the edit changed them, reminders one by one.
+- **Foot problems added in Your health bring Your back and feet (K-30, D79).** "Has a clinician told you to keep weight off a foot?" holds walking. For an upgrader that page waited for the new nerve question, so the plan's own check ("Nerves and feet appears") failed.
+- **Review shows what finishing stores** (`reviewRecord`): the plan's preview read "Not joined" to someone who had just joined the programme.
+- **A fluid-limit answer v1 kept in its reminders** (`habits.fluidLimit`, still read by the water rules) is prefilled and read back, as v1's Profile & health showed it.
+- **KH-08:** a Finish setting up row for a safety gap has no "Not now", and the footer says "Movement waits for …" (D80, Task 7). M01 now taps "Not now" on About you, and checks Your health offers none.
+- **KH-15:** "Saved. Home uses your new answers." (Task 14). No copy in setup's screens names Today.
+- **Found by eye at 320 px and 200% text:** setup's heading wraps long words, the acknowledgement's text may shrink, and the capsule takes its own line, so no page scrolls sideways and "Your medicines · 4 of 8" is never cut short.
+- **The new-Home row** sits directly under Right now, above Plan 6's lost-walk row, which draws nothing when there's no walk to recover.
+- **Journeys, where the plan's text met the live app:**
+  - V-J17 and V-J18 answer the check-in's first question ("None of these" right now) before reading it: the day's questions, glucose and ketones among them, show only then. V-J18's step 1 ("no ketone rows") would otherwise have passed on an empty sheet.
+  - J12 and J14 answer "Home blood-pressure cuff": v1 asked it only with high blood pressure, so P04's medicines chapter asks it once (D79). J12 waits for the editor's own title, since Profile & health's group headers are headings too.
+  - J07, J10, VJ12 and `hub.openHub` take feat/v2-journey's own fix (179239d) word for word: Plan 4's Browse lists Learn's "Water" beside the category, and Plan 6's walk stores an energy estimate beside its minutes and returns Done to the Walk hub. They failed in the base (0305bc5) too; the hunks are identical, so the merge is clean.
+- **Tests kept, not dropped:** the wizard's two-copies test is now two copies saving chapters; v1's read-back tests are ported to `chapterSections`; `installContext`'s tests moved to `install.test.ts`.
+
+Known, not changed here:
+- Profile & health reads a "Not sure" back as the engine stores it: "Diabetes: Other", "Heart or circulation: Yes". The editor shows "Not sure" ticked. A read-back in the person's own words would need the answers passed to `chapterSections`.
+- Me's `FinishRow` (Task 7) shows "Not now" only off a gap row: one line the FinishRow/OfferRow fix branch needs to keep.

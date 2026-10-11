@@ -437,6 +437,43 @@ button, [role="button"], a {
   animation-name: fs-nav-fade-out;
 }
 
+/* Setup's pages (M22): the incoming page slides 30% in from the trailing
+   edge and fades in, the outgoing one moves 30% the other way and fades, and
+   Back reverses both. The rest of the frame stays put: setup sets
+   data-task="setup" on <html>, and its own layer, setup-page, moves. The
+   spring's easing and length are set on <html> from design/motion.ts. */
+@keyframes setup-in-trailing { from { opacity: 0; transform: translate3d(30%, 0, 0); } }
+@keyframes setup-out-leading { to { opacity: 0; transform: translate3d(-30%, 0, 0); } }
+@keyframes setup-in-leading { from { opacity: 0; transform: translate3d(-30%, 0, 0); } }
+@keyframes setup-out-trailing { to { opacity: 0; transform: translate3d(30%, 0, 0); } }
+
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-task="setup"]::view-transition-old(root),
+  :root[data-task="setup"]::view-transition-new(root) {
+    animation: none;
+  }
+  ::view-transition-old(setup-page) {
+    animation: setup-out-leading var(--setup-ms, 588ms) var(--setup-ease, var(--ease-out-quart)) both;
+  }
+  ::view-transition-new(setup-page) {
+    animation: setup-in-trailing var(--setup-ms, 588ms) var(--setup-ease, var(--ease-out-quart)) both;
+  }
+  :root[data-nav="back"]::view-transition-old(setup-page) { animation-name: setup-out-trailing; }
+  :root[data-nav="back"]::view-transition-new(setup-page) { animation-name: setup-in-leading; }
+  .setup-capsule-fill { transition: width var(--setup-ms, 588ms) var(--setup-ease, var(--ease-out-quart)); }
+}
+
+/* Under Reduce Motion pages change with a fade (M22 RM; motion rule 4: reduced
+   motion replaces, it doesn't delete). The navigation runs no transition
+   then, so the arriving page fades itself in; the rules that cut every
+   animation to nothing, the system's and the app's own, are overridden for
+   this one. */
+.setup-page-fade { animation: fs-fade-in 200ms linear both; }
+@media (prefers-reduced-motion: reduce) {
+  .setup-page-fade { animation: fs-fade-in 200ms linear both !important; }
+}
+:root[data-reduce-motion] .setup-page-fade { animation: fs-fade-in 200ms linear both !important; }
+
 /* ==========================================================================
    Accessibility: honour the OS "reduce motion" setting.
    Content still appears, it just appears instantly instead of moving.

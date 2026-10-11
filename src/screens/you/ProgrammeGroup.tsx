@@ -1,24 +1,21 @@
 import { useState } from 'react';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
-import { ProfileWizard, type WizardResult } from '@/components/profile/ProfileWizard';
-import { createDefaultProfile } from '@/profile/defaults';
+import { JoinFlow } from '@/programme/JoinFlow';
+import { joinInitial } from '@/programme/join';
 import { useStore } from '@/store/useStore';
+import type { JoinAnswers } from '@/types/setup';
 import { isEnrolled } from '@/health/recommend';
 import { todayString } from '@/lib/utils';
-import { withFluidAnswer } from '@/reminders/water';
-import { startDateProblem } from '@/screens/move/plan';
 import { Notice, PlainButton } from './controls';
 import { shortDay } from './dates';
-import { WizardCover } from './WizardCover';
 import { joinProgramme, leaveProgramme } from './write';
 
 /**
  * The 12-week programme: join it, or leave it with a confirmation (journey
  * §16 Goals; board D8, D35). Joining and leaving are their own explicit
  * actions, here and in Move under Your plan, and membership is decided in
- * one place for the whole app (`isEnrolled`). Shown in Goals and in "What
- * you’d like more of".
+ * one place for the whole app (`isEnrolled`). Shown in Goals.
  */
 export function ProgrammeGroup() {
   const { settings, profile } = useStore();
@@ -31,11 +28,11 @@ export function ProgrammeGroup() {
   const [today] = useState(todayString);
   const enrolled = isEnrolled(settings, profile);
 
-  const join = async (result: WizardResult) => {
+  const join = async (j: JoinAnswers) => {
     if (busy) return;
     setBusy(true);
     setJoinProblem(undefined);
-    const saved = await joinProgramme(result, result.startDate);
+    const saved = await joinProgramme(j);
     setBusy(false);
     // A failed save keeps the answers on screen to try again.
     if (!saved.ok) setJoinProblem(`That did not save. ${saved.failure.message}`);
@@ -78,26 +75,14 @@ export function ProgrammeGroup() {
         )}
       </Group>
 
-      <WizardCover open={joining} onClose={() => { if (!busy) setJoining(false); }} label="Join the 12-week programme">
-        <ProfileWizard
-          // Someone with no answers yet is asked everything the programme
-          // needs, health first among it; anyone else only its own questions.
-          mode={profile ? 'edit' : 'onboarding'}
-          steps={profile ? ['about'] : ['about', 'body', 'health', 'summary']}
-          programme
-          askStartDate
-          startDateRule={date => startDateProblem(date, today)}
-          submitLabel="Join the programme"
-          busy={busy}
-          {...(joinProblem ? { error: joinProblem } : {})}
-          initial={{
-            profile: withFluidAnswer(profile ?? createDefaultProfile({ weightKg: settings.currentWeight || 0, needsHealthReview: true }), settings.habits),
-            useMetric: settings.useMetric,
-          }}
-          onCancel={() => { if (!busy) setJoining(false); }}
-          onComplete={result => void join(result)}
-        />
-      </WizardCover>
+      <JoinFlow
+        open={joining}
+        onOpenChange={next => { if (!busy) setJoining(next); }}
+        initial={joinInitial(profile, today)}
+        busy={busy}
+        {...(joinProblem ? { error: joinProblem } : {})}
+        onJoin={j => void join(j)}
+      />
 
       <Sheet open={leaving} dismissible={!busy} onOpenChange={next => { if (!next && !busy) setLeaving(false); }} title="Leave the programme" detent="large">
         <p className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug">Leave the 12-week programme?</p>

@@ -53,6 +53,7 @@ import { useClock, useWakeAt } from '@/screens/today/clock';
 import { ChooserSheet } from '@/screens/today/ChooserSheet';
 import { RecommendationCard } from '@/screens/today/RecommendationCard';
 import { MovePlanBack, StatusSheet } from '@/screens/today/StatusSheet';
+import { setupStateOf, showsNewHome } from '@/setup/state';
 import {
   SHEET_KEYS,
   chooserRows,
@@ -78,6 +79,7 @@ import { RemindersCapsule } from './RemindersCapsule';
 import { StatusButton } from './StatusButton';
 import { TileGrid, type TileState } from './TileGrid';
 import { TileMenu } from './TileMenu';
+import { NewHomeRow } from './NewHomeRow';
 import { movementLine } from './tileLine';
 import { RIGHT_NOW_ID, SAFETY_KINDS, SLOTS, UrgentContext, recommendSources, withEffectiveToday } from './urgent';
 import { WeekCard } from './WeekCard';
@@ -315,6 +317,8 @@ export function HomeScreen() {
   const first = useFirstLayout({ stored, fallback, ready: profile !== undefined, visit: clock.visit });
   // While a safety decision stands, nothing beside it moves (motion rule 2, M1).
   const still = SAFETY_KINDS.has(recommendation.kind) || urgent !== undefined;
+  // Once, for a record set up in v1, and never beside a safety state (§6.6, motion rule 2).
+  const newHome = showsNewHome(setupStateOf(settings, profile), still);
   const editor = useHomeEditor({ fallback: first.layout, still, urgent: urgent !== undefined });
   // `#/browse?pick=1` arrives as `?edit=add` (journey §19.2, D56): Edit Home,
   // with pick mode over it, once per request. The effect above then takes it
@@ -355,7 +359,7 @@ export function HomeScreen() {
 
   return (
     <Screen
-      title={greeting(now, (profile as { name?: string } | undefined)?.name)}
+      title={greeting(now, profile?.name)}
       navTitle={FROM_HOME.label}
       subtitle={format(now, 'EEEE, d MMMM')}
       // "2 reminders" at the right, under the status, where it can wrap at any text size (kiro KV-08).
@@ -388,6 +392,9 @@ export function HomeScreen() {
           Something else
         </button>
       </div>
+
+      {/* The first thing under Right now (J02, V-J13). */}
+      {newHome && <NewHomeRow />}
 
       {/* A walk the app lost mid-way, offered to save (journey §9.4): under the
           Right now card, so an urgent surface always ranks above it (A-57). */}

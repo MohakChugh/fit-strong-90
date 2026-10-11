@@ -1448,10 +1448,17 @@ export interface UpdateOptions {
    * the next save (scan C2-01). An id no longer stored is passed over.
    */
   removeObservations?: readonly string[];
+  /**
+   * Readings recorded in the same write: the weight, height and waist an edit
+   * of the profile states, each a dated reading (journey §18.1). Their ids and
+   * times are fixed here, so a re-plan never makes a second record.
+   */
+  addObservations?: readonly ObservationInput[];
 }
 
 export function update(updater: (previous: AppData) => AppData, options: UpdateOptions = {}): Promise<StoreResult> {
   const now = nowAt();
+  const adding = (options.addObservations ?? []).map(input => ({ ...input, id: input.id ?? freshId(), at: input.at ?? now }));
   return enqueue<void>({
     ...(options.hold ? { hold: true } : {}),
     plan: base => {
@@ -1461,14 +1468,17 @@ export function update(updater: (previous: AppData) => AppData, options: UpdateO
       const after = updater(structuredClone(before));
       const change = describeUpdate(base, before, after, now, options.readings ?? 'append');
       const doomed = new Set((options.removeObservations ?? []).filter(id => findObservation(base, id)));
-      if (doomed.size === 0) return { change, result: () => undefined };
+      // An invalid reading throws here, so the whole write is refused before anything shows.
+      // One already stored, from an earlier plan of this same write, isn't added twice.
+      const added = adding.filter(input => !findObservation(base, input.id)).map(input => newObservation(input));
+      if (doomed.size === 0 && added.length === 0) return { change, result: () => undefined };
       const observations = change?.observations;
       return {
         change: {
           ...change,
           observations: {
             ...observations,
-            put: (observations?.put ?? []).filter(o => !doomed.has(o.id)),
+            put: [...(observations?.put ?? []).filter(o => !doomed.has(o.id)), ...added],
             remove: [...(observations?.remove ?? []), ...doomed],
           },
         },

@@ -97,7 +97,7 @@ describe('v1 → v2 redirects (journey §19.3)', () => {
       glucose: '/hub/glucose',
       bloodPressure: '/hub/bp', bloodPressureSystolic: '/hub/bp', bloodPressureDiastolic: '/hub/bp',
       backLeg: '/hub/back', backPain: '/hub/back', legPain: '/hub/back',
-      weight: '/hub/weight', waist: '/hub/waist', water: '/hub/water', steps: '/hub/steps', sleep: '/hub/sleep',
+      weight: '/hub/weight', waist: '/hub/waist', water: '/hub/water', steps: '/hub/steps', sleep: '/hub/sleep', height: '/hub/weight',
       hba1c: '/hub/labs?metric=hba1c', b12: '/hub/labs?metric=b12', vitaminD: '/hub/labs?metric=vitaminD',
       walking: '/trends/walk', walkDuration: '/trends/walk', walkDistance: '/trends/walk', activeEnergy: '/trends/walk',
       movementMinutes: '/trends', mood: '/trends/mood',
@@ -109,7 +109,7 @@ describe('v1 → v2 redirects (journey §19.3)', () => {
 
   it('covers every route v1 declared (inventory from src/screens/*/routes.tsx)', () => {
     const files = import.meta.glob<string>('./screens/*/routes.tsx', { query: '?raw', import: 'default', eager: true });
-    const bases: Record<string, string> = { today: '/today', move: '/move', walk: '/walk', track: '/track', guide: '/guide', you: '/you', welcome: '/welcome', workout: '/track/workout' };
+    const bases: Record<string, string> = { today: '/today', move: '/move', walk: '/walk', track: '/track', guide: '/guide', you: '/you', workout: '/track/workout' };
     const read: string[] = [];
     for (const [file, source] of Object.entries(files)) {
       const area = file.split('/')[2];

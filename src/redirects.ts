@@ -12,6 +12,8 @@ const METRIC: Record<string, string> = {
   bloodPressure: '/hub/bp', bloodPressureSystolic: '/hub/bp', bloodPressureDiastolic: '/hub/bp', bp: '/hub/bp',
   backLeg: '/hub/back', backPain: '/hub/back', legPain: '/hub/back', pain: '/hub/back',
   weight: '/hub/weight', waist: '/hub/waist', water: '/hub/water', steps: '/hub/steps', sleep: '/hub/sleep',
+  // BMI and height live on the Weight hub (journey §5.1).
+  height: '/hub/weight',
   hba1c: '/hub/labs?metric=hba1c', b12: '/hub/labs?metric=b12', vitaminD: '/hub/labs?metric=vitaminD', vitd: '/hub/labs?metric=vitaminD',
   movementMinutes: '/trends', movement: '/trends',
   walking: '/trends/walk', walkDuration: '/trends/walk', walkDistance: '/trends/walk',

@@ -1,7 +1,7 @@
 import { createContext, useContext, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { BellIcon, ChevronRightIcon, CompassIcon, HardDriveIcon, HeartPulseIcon, MicIcon, SaladIcon, SunMoonIcon, TargetIcon } from 'lucide-react';
+import { BellIcon, ChevronRightIcon, HardDriveIcon, HeartPulseIcon, MicIcon, SaladIcon, SunMoonIcon, TargetIcon } from 'lucide-react';
 import { categoryById, newlyRelevant, type CategoryId } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
@@ -13,8 +13,7 @@ import { addButton } from '@/screens/home/layout';
 import { TileIcon } from '@/screens/home/Tile';
 import { useLocalDay } from '@/screens/today/clock';
 import { deviceNoun, readInstallEnv } from '@/screens/welcome/install';
-import { FOCUS_CHOICES } from '@/screens/welcome/focus';
-import { finishTitle, notNow, setupProgress, type OpenChapter } from '@/setup/progress';
+import { finishFooter, finishTitle, notNow, setupProgress, type OpenChapter } from '@/setup/progress';
 import { useStore } from '@/store/useStore';
 import type { HomeLayout } from '@/types';
 import { packName } from '@/voice/packs';
@@ -134,14 +133,13 @@ export function MeHome() {
   const review = reviewNeeded(profile);
   const nudge = backupNudge(now, backupMark(settings.habits), recordSpan(state), state.revision);
   const backup = backupState(settings.habits);
-  const focus = FOCUS_CHOICES.find(f => f.value === settings.focus);
   const voice = profile?.voice;
 
   return (
     <Screen title="Me">
       <AnswersContext value={rows}>
       {finish.length > 0 && (
-        <Group header={finishTitle(finish.length)} footer="Not now keeps a chapter for later, in Profile & health.">
+        <Group header={finishTitle(finish.length)} footer={finishFooter(finish)}>
           {finish.map(c => <FinishRow key={c.chapter} chapter={c} />)}
         </Group>
       )}
@@ -162,8 +160,6 @@ export function MeHome() {
           detail={review ? <span className="text-caution">{REVIEW_LABEL[review]}</span> : conditionsLine(profile)}
           chevron
         />
-        {/* v1's focus choice, by its own name, until Plan 5 puts it in Profile & health's movement chapter. */}
-        <Row as={Link} to="/me/profile?chapter=movement" viewTransition icon={<CompassIcon />} label="What you’d like more of" detail={focus?.label ?? 'Not chosen'} chevron />
         <Row as={Link} to="/me/goals" viewTransition icon={<TargetIcon />} label="Goals" detail={goalsLine(settings, day)} chevron />
         <Row as={Link} to="/me/food" viewTransition icon={<SaladIcon />} label="Food" detail={foodLine(profile?.food)} chevron />
       </Group>
@@ -204,7 +200,7 @@ export function MeHome() {
 
 /**
  * One chapter to finish: it opens where its answers are kept, with "Not now"
- * beside it (journey §6.6, D65). Narrower than 16 rem (its group is the
+ * beside it unless movement waits for it (journey §6.6, D65; KH-08). Narrower than 16 rem (its group is the
  * container, as for `Row`), "Not now" goes under the words.
  */
 function FinishRow({ chapter }: { chapter: OpenChapter }) {
@@ -220,13 +216,16 @@ function FinishRow({ chapter }: { chapter: OpenChapter }) {
           </span>
           <ChevronRightIcon aria-hidden className="size-5 shrink-0 text-muted-foreground" />
         </Link>
-        <EditButton
-          control="later"
-          label="Not now"
-          name={chapter.label}
-          disabled={answer?.saving === true}
-          onClick={() => answers.notNow(chapter)}
-        />
+        {/* Movement waits for a safety gap, so it has no "Not now" (KH-08, board D80). */}
+        {chapter.why !== 'gap' && (
+          <EditButton
+            control="later"
+            label="Not now"
+            name={chapter.label}
+            disabled={answer?.saving === true}
+            onClick={() => answers.notNow(chapter)}
+          />
+        )}
       </div>
       {answer?.problem && <p role="alert" className="px-4 pb-2 text-[length:var(--text-subhead)] leading-snug text-stop">{answer.problem}</p>}
     </div>

@@ -6,8 +6,7 @@ import {
 import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
-import { ProfileWizard } from '@/components/profile/ProfileWizard';
-import { WizardCover } from '@/screens/you/WizardCover';
+import { JoinFlow } from '@/programme/JoinFlow';
 import { useGuided } from '@/hooks/useGuided';
 import { isEnrolled } from '@/health/recommend';
 import { setFocusOverride } from '@/store/useStore';
@@ -19,7 +18,7 @@ import { toFailure, type StoreResult } from '@/store/db';
 import type { DayFocus } from '@/types/plan';
 import { ChoiceRows, PrimaryButton } from './controls';
 import {
-  canSwapToday, JOIN_CLOSED, joinController, joinFlow, joinSeed, PHASE_INFO, planView, programmeWeek, programmeWeekDates, startDateProblem,
+  canSwapToday, JOIN_CLOSED, joinController, joinFlow, joinSeed, PHASE_INFO, planView, programmeWeek, programmeWeekDates,
   STATUS_TEXT, swapChoices, swapToday, weekNote, weekView, withLeft, type DayStatus, type WeekDay,
 } from './plan';
 
@@ -130,21 +129,14 @@ export function PlanScreen() {
         ? <MemberPlan focusOnArrival={switched} onLeave={leave} />
         : <JoinPlan focusOnArrival={switched} unsaved={!flow.open && flow.draft !== undefined} onJoin={() => dispatch({ type: 'open' })} />}
 
-      <WizardCover open={flow.open} onClose={cancel} label="Join the 12-week programme">
-        <ProfileWizard
-          mode="edit"
-          steps={['about']}
-          programme
-          askStartDate
-          startDateRule={day => startDateProblem(day, date)}
-          submitLabel="Join the programme"
-          busy={flow.busy}
-          error={flow.error}
-          initial={joinSeed(flow, data, date)}
-          onCancel={cancel}
-          onComplete={answers => { void submit(answers).then(result => { if (result?.ok) setSwitched(true); }); }}
-        />
-      </WizardCover>
+      <JoinFlow
+        open={flow.open}
+        onOpenChange={next => { if (!next) cancel(); }}
+        initial={joinSeed(flow, data, date)}
+        busy={flow.busy}
+        {...(flow.error ? { error: flow.error } : {})}
+        onJoin={answers => { void submit(answers).then(result => { if (result?.ok) setSwitched(true); }); }}
+      />
     </Screen>
   );
 }
