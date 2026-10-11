@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { CHAPTER_IDS, PAGE_IDS, type PageId, type SetupAnswers } from '@/types/setup';
 import { COMPLEX, EVERYTHING, FOOT_WOUND, GLIFLOZIN_NO_DIABETES, INSULIN_NO_DIABETES, JOIN, MINIMAL, NO_CLASSES, NO_CONDITIONS, UNSURE, withC } from './fixtures';
 import {
-  PAGES, capsuleOf, chapterComplete, commitPage, firstPageOf, guardFor, hrefOf, missingPages, nextFromReview, nextMove, nextPage, pageAt, pageDef, pageDone, pageInvalid, pathFor,
-  prevPage, resumeAt, skipMove, skippedChapters,
+  PAGES, backFromReview, capsuleOf, chapterComplete, commitPage, firstPageOf, guardFor, hrefOf, missingPages, nextFromReview, nextMove, nextPage, pageAt, pageDef, pageDone,
+  pageInvalid, pathFor, prevPage, resumeAt, skipMove, skippedChapters,
 } from './graph';
 
 const CTX = { thisYear: 2026 };
@@ -186,6 +186,14 @@ describe('moving through setup', () => {
     const feet: SetupAnswers = { ...COMPLEX, conditions: { ...COMPLEX.conditions, feet: 'yes' } };
     expect(nextFromReview(feet, 'health.bp', CTX)).toBe('health.feet');
     expect(nextFromReview(feet, 'health.limits', CTX)).toBe('backFeet.history');
+  });
+
+  it('from Review, Back walks back within the chapter, then to Review again (K5-14; board D156)', () => {
+    expect(backFromReview(COMPLEX, 'about.figure')).toBe('about.name');
+    expect(backFromReview(COMPLEX, 'about.name')).toBe('review');
+    expect(backFromReview(COMPLEX, 'medicines.regular')).toBe('review');
+    // Your back and feet without pain opens at the question that brings it: Back from there is Review too.
+    expect(backFromReview(MINIMAL, firstPageOf('backFeet', MINIMAL))).toBe('review');
   });
 
   it('opens a chapter at its first page; Your back and feet without pain at the question that brings it', () => {

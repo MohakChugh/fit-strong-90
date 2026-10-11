@@ -200,6 +200,12 @@ export function nextFromReview(a: SetupAnswers, from: PageId, ctx: Ctx): PageId 
     ?? 'review';
 }
 
+/** Back, in a chapter opened with Review's Edit: within that chapter, then Review again (K5-14; board D156). */
+export function backFromReview(a: SetupAnswers, from: PageId): PageId {
+  const prev = prevPage(a, from);
+  return prev !== undefined && chapterOf(prev) === chapterOf(from) ? prev : 'review';
+}
+
 /** A move setup stores before it's made (M22): where to, and the answers stored. */
 export interface PlannedMove { to: PageId; answers: SetupAnswers }
 

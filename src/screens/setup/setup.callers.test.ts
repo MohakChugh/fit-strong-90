@@ -8,12 +8,12 @@ import { createElement } from 'react';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, type Host, type HostChild, type HostNode } from '@/test/host';
 
-const router = vi.hoisted(() => ({ navigate: vi.fn() }));
+const router = vi.hoisted(() => ({ navigate: vi.fn(), state: null as unknown }));
 vi.mock('react-router-dom', async () => {
   const { createElement: h } = await import('react');
   return {
     useNavigate: () => router.navigate,
-    useLocation: () => ({ pathname: '/me/profile', search: '?chapter=health', state: null }),
+    useLocation: () => ({ pathname: '/me/profile', search: '?chapter=health', state: router.state }),
     useSearchParams: () => [new URLSearchParams('chapter=health')],
     Link: ({ children, to, onClick }: { children?: unknown; to: string; onClick?: () => void }) => h('a', { href: `#${to}`, onClick }, children as never),
   };
@@ -65,6 +65,7 @@ let host: Host | undefined;
 let fake: ReturnType<typeof fakeIndexedDB>;
 beforeEach(async () => {
   router.navigate = vi.fn();
+  router.state = null;
   saves.length = 0;
   local.clear();
   store.resetForTests();
@@ -177,6 +178,16 @@ describe('setup’s pages', () => {
     await host.click(host.button('Skip for now', { exact: true }));
     await host.settle();
     expect(router.navigate).toHaveBeenCalledWith('/setup/about/figure', undefined);
+  });
+
+  it('Back from the first page of a chapter opened with Review’s Edit returns to Review (K5-14; board D156)', async () => {
+    const { PageFrame } = await import('./PageFrame');
+    const { HealthConditions } = await import('./pages/health');
+    router.state = { fromReview: true };
+    host = render(createElement(PageFrame, { id: 'health.conditions', View: HealthConditions }));
+    await host.settle();
+    await host.click(host.button('Back', { exact: true }));
+    expect(router.navigate).toHaveBeenCalledWith('/setup/review', { replace: true, state: { back: true, fromReview: true } });
   });
 });
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { markBack } from '@/components/hig/navigation';
 import { pageEdits, rememberEdits } from '@/setup/draft';
-import { capsuleOf, hrefOf, nextMove, pageDef, pageInvalid, prevPage, skipMove, type PlannedMove } from '@/setup/graph';
+import { backFromReview, capsuleOf, hrefOf, nextMove, pageDef, pageInvalid, prevPage, skipMove, type PlannedMove } from '@/setup/graph';
 import { PlainButton, PrimaryButton } from '@/screens/you/controls';
 import type { PageId, SetupAnswers } from '@/types/setup';
 import type { PageView } from './controls';
@@ -14,7 +14,8 @@ import { useCtx, useMove, useSetupAnswers, type Recovery } from './useSetup';
  * A setup page (journey §6.1): its view, then Next, which stores the answers
  * before moving (M22), and "Skip for now" on a preference page only. Back
  * keeps what the page held, for this session (§6.1). Opened from Review's
- * Edit, Next walks that chapter and then returns to Review. After a refused
+ * Edit, Next walks that chapter and then returns to Review, and so does Back
+ * from its first page (K5-14). After a refused
  * store, Try again and Continue without saving plan the move again from the
  * page as it is now (H5-02).
  */
@@ -62,7 +63,7 @@ export function PageFrame({ id, View }: { id: PageId; View: PageView }) {
   const recovery: Recovery = { failed: move.failed, retry: () => attempt(last), continueUnsaved: () => attempt(last, true) };
 
   const back = () => {
-    const prev = prevPage(a, id);
+    const prev = fromReview ? backFromReview(a, id) : prevPage(a, id);
     markBack();
     navigate(prev && prev !== 'welcome.start' ? hrefOf(prev) : '/setup', { replace: true, state: { back: true, ...carry } });
   };
