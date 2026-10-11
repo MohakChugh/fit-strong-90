@@ -1155,8 +1155,10 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
     expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route, routeGen: 0 })).ok).toBe(true);
     expect(ofWalk().length).toBeGreaterThan(0);
     expect(store.getState().records.routes).toEqual([]);
-    // Nor from the journal, read in the save.
+    // Nor from the journal, read in the save: a checkpoint written after the erase holds no route either (H6R-06).
     await store.putWalkJournal(journalEntry(another(), T + 3_660_000, [LINE]));
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value.map(e => e.route)).toEqual([undefined]);
     expect((await store.saveWalk({ walkId: 'mgh3k2x2-2b3c4d5e', observations: walkObservations(finishWalk(another(), T + 3_700_000, 'finish')), routeStartedAt: ROUTE.startedAt, routeGen: 0 })).ok).toBe(true);
     expect(store.getState().records.routes).toEqual([]);
   });
@@ -1200,6 +1202,29 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
     expect((await store.importRecord(file, 'replace')).ok).toBe(true);
     expect(store.getState().records.routes).toEqual([]);
     expect(store.getState().settings.walk?.erased).toEqual({ generation: 1, walks: [WALK] });
+  });
+
+  it('writes no coordinates back from a checkpoint made before another tab erased routes or said No, its own transaction says (H6R-06)', async () => {
+    const fake = await booted();
+    await keepsRoutes();
+    // Another tab erases every route; this one hasn't heard.
+    const tab = await openDb(fake);
+    const theirs = { saveRoutes: true as const, map: 'off' as const, erased: { generation: 1, walks: [WALK] } };
+    expect((await commitChange(tab, undefined, () => ({ change: { settings: { patch: { walk: theirs } } } }))).ok).toBe(true);
+    expect(store.getState().settings.walk?.erased).toBeUndefined();
+    await store.putWalkJournal(journalEntry(another(), T + 3_660_000, [LINE]));
+    let left = await store.readWalkJournals();
+    expect(left.ok && left.value.map(e => [e.id, e.route])).toEqual([['mgh3k2x2-2b3c4d5e', undefined]]);
+    // Or says No to keeping routes, a walk begun since its erase included.
+    const since = startWalk('mgh3k2x3-3c4d5e6f', { kind: 'walk', gps: true, steps: false, keepRoute: true, routeGen: 1 }, T + 7_200_000);
+    await store.putWalkJournal(journalEntry(since, T + 7_260_000, [LINE]));
+    left = await store.readWalkJournals();
+    expect(left.ok && left.value.find(e => e.id === since.id)?.route).toEqual([LINE]);
+    expect((await commitChange(tab, undefined, () => ({ change: { settings: { patch: { walk: { ...theirs, saveRoutes: false } } } } }))).ok).toBe(true);
+    tab.close();
+    await store.putWalkJournal(journalEntry(since, T + 7_320_000, [LINE]));
+    left = await store.readWalkJournals();
+    expect(left.ok && left.value.find(e => e.id === since.id)?.route).toBeUndefined();
   });
 
   it('changes one walk answer at a time, against what is stored: another tab’s erase and answers stay (H6R-07)', async () => {

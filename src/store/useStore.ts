@@ -1202,12 +1202,22 @@ export function writeRecords(write: {
 /**
  * A walk's recovery checkpoint, written straight to the journal store: outside
  * the record, so it moves no revision and reaches no other tab or backup.
- * Nothing is kept while storage is unavailable.
+ * Nothing is kept while storage is unavailable. Its route goes in only on
+ * this phone's yes and for a walk no "Erase all routes" has erased, both as
+ * stored, read in the write's own transaction: a checkpoint from a tab that
+ * hasn't heard yet never writes coordinates back (H6R-06, board D176).
  */
 export function putWalkJournal(entry: JournalEntry): Promise<StoreResult> {
   const handle = db;
   if (!handle) return Promise.resolve({ ok: false, failure: unavailableFailure() });
-  return handle.transact(tx => tx.put(JOURNAL_STORE, entry));
+  return handle.transact(tx => {
+    if (!entry.route) return tx.put(JOURNAL_STORE, entry);
+    tx.get('settings', 'settings', row => {
+      const walk = ((row as Doc | undefined)?.value as UserSettings | undefined)?.walk;
+      const keeps = walk?.saveRoutes === true && !routeErased(walk, entry.id, entry.walk.plan);
+      tx.put(JOURNAL_STORE, keeps ? entry : (({ route: _gone, ...rest }) => { void _gone; return rest; })(entry));
+    });
+  });
 }
 
 /** Every readable checkpoint on this device. One that can't be read is left out, never guessed. */
