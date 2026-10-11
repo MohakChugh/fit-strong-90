@@ -201,6 +201,13 @@ describe('a correction made against a meal that changed underneath it (H7-08; bo
     expect(h.text()).toMatch(/changed elsewhere at 1:15 pm.*It’s now Dinner, Roti \(whole-wheat\) ×2/);
     expect(item(h, 'Roti (whole-wheat)')).toContain('3 rotis');
     expect(toasts).toEqual([]);
+    // The reason reads in the sheet's scroll, and only Save is held in view: a long reason never covers the tray (K7R-06).
+    const sticky = h.all().find(n => String(n.props.className ?? '').split(' ').includes('sticky'))!;
+    expect(textOf(sticky.children)).toBe('Save meal');
+    expect(allIn(sticky).some(n => n.props.role === 'alert')).toBe(false);
+    expect(h.all().some(n => n.props.role === 'alert' && textOf(n.children).includes('changed elsewhere'))).toBe(true);
+    expect(allIn(sticky).some(n => n.type === 'button' && textOf(n.children) === 'Delete meal')).toBe(false);
+    expect(h.buttons('Delete meal', { exact: true })).toHaveLength(1);
   });
 
   it('never brings back a meal deleted underneath it, and keeps its deletion record', async () => {

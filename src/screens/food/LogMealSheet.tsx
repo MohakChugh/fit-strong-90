@@ -89,6 +89,10 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
   const [confirming, setConfirming] = useState(false);
   // A food's portion, your own food or Quick add, holding what isn't in the tray yet (H7-19).
   const [pageHolds, setPageHolds] = useState(false);
+  const errorAt = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error) errorAt.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [error]);
   // Opened from a usual meal, the tray and Save come first, and finding more food waits for "Add more" (board D139).
   const [adding, setAdding] = useState(!request.usual || draft.items.length === 0);
   const busy = useRef(false);
@@ -427,14 +431,15 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
               </Group>
             )}
 
-            {/* Save stays in view, however long the list above it (board D139, B-10's three taps). */}
+            {/* Why it didn't save reads in the scroll, brought into view, so a long reason never covers the tray (K7R-06). */}
+            {error && <div ref={errorAt}><ErrorText>{error}</ErrorText></div>}
+            {/* Only Save stays in view, however long the list above it (board D139, B-10's three taps); Delete follows it. */}
             <div className="sticky bottom-0 z-10 -mx-[min(1rem,20px)] flex flex-col gap-3 border-t border-separator bg-grouped-bg px-[min(1rem,20px)] pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
-              {error && <ErrorText>{error}</ErrorText>}
               <PrimaryButton onClick={() => void save()} disabled={saving || items.length === 0 || future || (editing !== undefined && !dirty)}>
                 {saving ? FOOD_COPY.saving : FOOD_COPY.save}
               </PrimaryButton>
-              {editing && <SecondaryButton tone="stop" onClick={() => void remove()} disabled={saving}>{FOOD_COPY.deleteMeal}</SecondaryButton>}
             </div>
+            {editing && <SecondaryButton tone="stop" onClick={() => void remove()} disabled={saving}>{FOOD_COPY.deleteMeal}</SecondaryButton>}
           </div>
         )}
       </div>
