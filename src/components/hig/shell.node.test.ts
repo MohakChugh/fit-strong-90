@@ -274,6 +274,14 @@ describe('a sheet that will not close yet (review C2-07)', () => {
     expect(read('src/components/hig/targets.ts')).toMatch(/primary: 'min-h-\[60px\]'/);
   });
 
+  it('gives the first walk’s two consent answers the same weight, neither the primary one (§24, K6R-06)', () => {
+    const sheet = read('src/screens/walk/PreflightSheet.tsx');
+    for (const q of ['keepRoute', 'mapPictures']) {
+      expect(sheet, q).toMatch(new RegExp(`<SecondaryButton onClick=\\{\\(\\) => onAnswer\\(\\{ page, (keep|show): true \\}\\)\\}>\\{CONSENT\\.${q}\\.yes\\}</SecondaryButton>`));
+      expect(sheet, q).not.toMatch(new RegExp(`<PrimaryButton[^>]*>\\{CONSENT\\.${q}\\.(yes|no)\\}`));
+    }
+  });
+
   it('sizes every live walk control as a target, 48 px at least and 12 px apart, and the walk’s main buttons 60 px (§20.4 rule 1, H6-11, KH-10)', () => {
     const live = read('src/screens/walk/LiveWalkScreen.tsx');
     // Nothing tappable on the live walk under 48 px: Tailwind's 44 px and smaller are gone.
