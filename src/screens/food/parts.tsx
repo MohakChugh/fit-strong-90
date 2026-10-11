@@ -21,11 +21,18 @@ import { ErrorText, Hint, NumberField, PrimaryButton, SecondaryButton, Segmented
 import { CheckRows } from '@/screens/you/controls';
 import type { AllergenId } from '@/types/profile';
 
-const STEP = 'press-feedback flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-full bg-grouped-bg px-3 text-[length:var(--text-subhead)] font-semibold text-tint disabled:opacity-40';
-const FIELD = 'h-11 w-full rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50';
+// 48 px targets, 12 px apart (§20.4 rule 1; board D141).
+const STEP = 'press-feedback flex min-h-12 min-w-12 shrink-0 items-center justify-center gap-1 rounded-full bg-grouped-bg px-3 text-[length:var(--text-subhead)] font-semibold text-tint disabled:opacity-40';
+const FIELD = 'h-12 w-full rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50';
 const LABEL = 'px-4 pb-2 text-[length:var(--text-footnote)] font-medium uppercase tracking-wide text-muted-foreground';
 
-/** "Less" and "More" with what they change between them (B-08). At the smallest step, "Less" reads "Remove". */
+/**
+ * "Less" and "More" with what they change between them (B-08). At the smallest
+ * step, "Less" reads "Remove". In a narrow container, and so at large text
+ * (the breakpoints are in rem, which grows with it), the quantity takes its
+ * own line above the two buttons, so neither squeezes it; narrower still, each
+ * button has a line of its own (H7-16; board D141).
+ */
 export function Stepper({ label, text, onLess, onMore, removes, moreDisabled }: {
   label: string;
   text: string;
@@ -35,14 +42,16 @@ export function Stepper({ label, text, onLess, onMore, removes, moreDisabled }: 
   moreDisabled: boolean;
 }) {
   return (
-    <div role="group" aria-label={label} className="flex items-center gap-2">
-      <button type="button" className={STEP} onClick={onLess}>
-        {removes ? FOOD_COPY.remove : <><span aria-hidden>−</span>{FOOD_COPY.less}</>}
-      </button>
-      <span className="numeric min-w-0 flex-1 text-center text-[length:var(--text-body)] [overflow-wrap:break-word]">{text}</span>
-      <button type="button" className={STEP} onClick={onMore} disabled={moreDisabled}>
-        <span aria-hidden>+</span>{FOOD_COPY.more}
-      </button>
+    <div role="group" aria-label={label} className="@container">
+      <div className="flex items-center gap-3 @max-[22rem]:grid @max-[22rem]:grid-cols-2 @max-[13rem]:grid-cols-1">
+        <button type="button" className={`${STEP} @max-[22rem]:order-2`} onClick={onLess}>
+          {removes ? FOOD_COPY.remove : <><span aria-hidden>−</span>{FOOD_COPY.less}</>}
+        </button>
+        <span className="numeric min-w-0 flex-1 text-center text-[length:var(--text-body)] [overflow-wrap:break-word] @max-[22rem]:col-span-full @max-[22rem]:order-1">{text}</span>
+        <button type="button" className={`${STEP} @max-[22rem]:order-3`} onClick={onMore} disabled={moreDisabled}>
+          <span aria-hidden>+</span>{FOOD_COPY.more}
+        </button>
+      </div>
     </div>
   );
 }
@@ -87,7 +96,7 @@ export function FoodRow({ food, numbers, warning, added, onOpen, onAdd }: {
   onAdd: () => void;
 }) {
   return (
-    <div className="flex items-center gap-2 pr-3">
+    <div className="flex items-center gap-3 pr-3">
       <button type="button" onClick={onOpen} className="press-feedback min-h-[3.25rem] min-w-0 flex-1 px-4 py-2.5 text-left">
         <span className="block text-[length:var(--text-body)] leading-snug">{food.name}</span>
         <span className="block text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{foodRowDetail(food, numbers)}</span>
@@ -108,7 +117,7 @@ export function FoodRow({ food, numbers, warning, added, onOpen, onAdd }: {
 
 function BackToMeal({ onBack }: { onBack: () => void }) {
   return (
-    <button type="button" onClick={onBack} className="press-feedback flex min-h-11 items-center gap-1 self-start text-[length:var(--text-body)] text-tint">
+    <button type="button" onClick={onBack} className="press-feedback flex min-h-12 items-center gap-1 self-start text-[length:var(--text-body)] text-tint">
       <ChevronLeftIcon className="size-5" aria-hidden />{FOOD_COPY.backToMeal}
     </button>
   );
@@ -250,7 +259,7 @@ export function OwnFoodPage({ name: typed, numbers, onBack, onAdd }: {
         <label htmlFor={ids.name} className={LABEL}>{FOOD_COPY.ownName}</label>
         <input id={ids.name} value={name} maxLength={60} autoComplete="off" onChange={e => { setName(e.target.value); setProblem(undefined); }} className={FIELD} />
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-3">
         <div className="flex w-24 flex-col">
           <label htmlFor={ids.qty} className={LABEL}>{FOOD_COPY.ownPerQty}</label>
           <input id={ids.qty} value={qty} inputMode="decimal" onChange={e => { setQty(e.target.value); setProblem(undefined); }} className={FIELD} />

@@ -44,7 +44,7 @@ import { endFoodUndos, offerFoodUndo } from './undo';
 
 const SLOTS: Slot[] = ['breakfast', 'lunch', 'snack', 'dinner'];
 const SLOT_OPTIONS = SLOTS.map(id => ({ id, label: SLOT_LABEL[id] }));
-const FIELD = 'h-11 w-full rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50';
+const FIELD = 'h-12 w-full rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50';
 const LABEL = 'px-4 pb-2 text-[length:var(--text-footnote)] font-medium uppercase tracking-wide text-muted-foreground';
 
 /** A time that hasn't come yet, read when Save is tapped. */
