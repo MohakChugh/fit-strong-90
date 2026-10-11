@@ -22,7 +22,9 @@ const INPUT = 'numeric min-h-11 min-w-0 rounded-lg bg-grouped-bg px-2 text-right
  * entered). Opening the picker is looking, not editing: it shows the moment
  * the row stands for, and only a change made in it becomes the time (T3-02).
  * Until then the row keeps standing for "now", or for the captured moment to
- * the second.
+ * the second. An open, untouched picker follows a captured moment that moves (a
+ * past day's meal changed from breakfast to dinner), so it never shows one time
+ * while Save records another (H7R-05).
  */
 export function TimeRow({ value, onChange, label = 'Time', footer, captured }: {
   value: string | undefined;
@@ -35,7 +37,7 @@ export function TimeRow({ value, onChange, label = 'Time', footer, captured }: {
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
   const current = useToday();
-  // What the open picker shows before any change: the moment, to the minute.
+  // What the open picker shows before any change: now, to the minute, as it was when opened.
   const [shown, setShown] = useState<string>();
   const open = value !== undefined || shown !== undefined;
   return (
@@ -69,7 +71,7 @@ export function TimeRow({ value, onChange, label = 'Time', footer, captured }: {
             ref={input}
             id={id}
             type="datetime-local"
-            value={value ?? shown}
+            value={value ?? (captured ? toLocalInput(captured.at) : shown)}
             // A hint for the picker; Save refuses a future time either way.
             max={`${current}T23:59`}
             aria-describedby={value === undefined ? `${id}-hint` : undefined}

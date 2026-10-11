@@ -470,3 +470,27 @@ describe('a past day’s meal, at that meal’s usual hour (K7-12)', () => {
     expect(mealsIn(store.getState().records).map(m => [m.meal, m.at])).toEqual([['dinner', '2026-10-05T20:30:00.000+05:30']]);
   });
 });
+
+describe('an open time picker on a past day’s meal (H7R-05, K7-12)', () => {
+  const when = (h: Host) => h.field('When').props.value;
+  it('follows the meal’s hour while it’s only open, so it shows the time Save records', async () => {
+    const h = await open({}, { day: '2026-10-05', meal: 'breakfast' });
+    await h.click(h.button(/^Add Roti \(whole-wheat\)/));
+    await h.click(h.button(/^When/));
+    expect(when(h)).toBe('2026-10-05T08:30');
+    await h.click(h.button('Dinner', { exact: true }));
+    expect(when(h)).toBe('2026-10-05T20:30');
+    await h.click(h.button('Save meal', { exact: true }));
+    expect(mealsIn(store.getState().records).map(m => m.at)).toEqual(['2026-10-05T20:30:00.000+05:30']);
+  });
+  it('keeps a time the person set, whatever the meal', async () => {
+    const h = await open({}, { day: '2026-10-05', meal: 'breakfast' });
+    await h.click(h.button(/^Add Roti \(whole-wheat\)/));
+    await h.click(h.button(/^When/));
+    await h.change(h.field('When'), { value: '2026-10-05T09:15' });
+    await h.click(h.button('Dinner', { exact: true }));
+    expect(when(h)).toBe('2026-10-05T09:15');
+    await h.click(h.button('Save meal', { exact: true }));
+    expect(mealsIn(store.getState().records).map(m => [m.meal, m.at.slice(0, 16)])).toEqual([['dinner', '2026-10-05T09:15']]);
+  });
+});
