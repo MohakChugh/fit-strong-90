@@ -116,7 +116,7 @@ export function TrendChart({ model, label, summary, table, view, origin }: {
             onKeyDown={keys}
             onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); pick(e); }}
             onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) pick(e); }}
-            className="absolute inset-0 touch-pan-y rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-tint"
+            className="absolute inset-0 touch-pan-y touch-pinch-zoom rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-tint"
           >
             <svg width={width} height={HEIGHT} aria-hidden className="block">
               <Grid ticks={ticks} text={tickText} plot={plot} y={y} />

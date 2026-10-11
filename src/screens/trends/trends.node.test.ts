@@ -65,3 +65,11 @@ describe('the Labs row opens the lab it names (H3-20)', () => {
     expect(read('CategoryTrend.tsx')).toContain("const lab: LabKind = asked !== null ? labFrom(asked) : latestLab(state.observations, prefs)?.lab ?? 'hba1c';");
   });
 });
+
+describe('the chart keeps pinch zoom (H3-18, journey §20.4 rule 7)', () => {
+  it('lets the page scroll and pinch-zoom over the plot, which keeps its own taps and drags', () => {
+    const chart = read('TrendChart.tsx');
+    const slider = chart.slice(chart.indexOf('role="slider"'), chart.indexOf('<svg width={width}'));
+    expect(slider).toMatch(/className="[^"]*\btouch-pan-y touch-pinch-zoom\b/);
+  });
+});
