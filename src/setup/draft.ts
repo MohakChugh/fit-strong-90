@@ -11,14 +11,26 @@ import { nowAt } from '@/health/observation';
 import type { StoreResult } from '@/store/db';
 import { getState, subscribe, update } from '@/store/useStore';
 import { completedSetup, lookedAround, measurementsFrom } from './assemble';
+import { mergeAnswers, mergeSkipped } from './merge';
+import { prefillAnswers } from './prefill';
 import type { Ctx } from './graph';
 import { setupStateOf } from './state';
 
-export function withDraft(data: AppData, at: PageId, answers: SetupAnswers): AppData {
+/**
+ * The draft with `answers` stored and `at` to resume on. Given what the page
+ * opened with, only the page's own changes are written, onto the draft as it
+ * is now, so another tab's newer answers stay (H5-12, D165).
+ */
+export function withDraft(data: AppData, at: PageId, answers: SetupAnswers, opened?: SetupAnswers): AppData {
   const setup = setupStateOf(data.settings, data.profile);
   // Another tab finished setup meanwhile: nothing here may reopen it (Review Focus 4).
   if (setup.stage === 'done') return data;
-  return { ...data, settings: { ...data.settings, setup: { ...setup, draft: { at, answers } } } };
+  let stored = answers;
+  if (opened) {
+    const now = setup.draft?.answers ?? prefillAnswers(data.settings, data.profile);
+    stored = { ...mergeAnswers(now, opened, answers), skippedPages: mergeSkipped(now.skippedPages, opened.skippedPages, answers.skippedPages) };
+  }
+  return { ...data, settings: { ...data.settings, setup: { ...setup, draft: { at, answers: stored } } } };
 }
 
 export type SaveOutcome = 'saved' | 'session' | 'failed';
@@ -106,15 +118,16 @@ export function resetSetupSession(): void {
  * since, is the same as a draft that won't save: setup goes on in its
  * explicit unsaved mode, so its warning shows and its answers live here
  * (H5-06). Once stored or kept, what the page `from` held is the draft's, so
- * it's forgotten there (K5-05).
+ * it's forgotten there (K5-05). `opened`: what the page opened with, so only
+ * its own changes are written (`withDraft`, H5-12).
  */
-export async function saveDraft(to: PageId, answers: SetupAnswers, from?: PageId): Promise<SaveOutcome> {
+export async function saveDraft(to: PageId, answers: SetupAnswers, from?: PageId, opened?: SetupAnswers): Promise<SaveOutcome> {
   let outcome: SaveOutcome;
   if (current().unsaved) {
     keepInSession(to, answers);
     outcome = 'session';
   } else {
-    outcome = outcomeOf(await update(d => withDraft(d, to, answers)), getState().status);
+    outcome = outcomeOf(await update(d => withDraft(d, to, answers, opened)), getState().status);
     if (outcome === 'session') continueWithoutSaving(to, answers);
   }
   if (from !== undefined && outcome !== 'failed') forgetEdits(from);

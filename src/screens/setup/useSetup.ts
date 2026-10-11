@@ -27,11 +27,18 @@ export function useSetupAnswers(): { answers: SetupAnswers; at: PageId | undefin
 
 type NavState = Record<string, unknown> | undefined;
 
+/** How a move is made: `state` goes with the navigation; `from`, the page left, has its edits in the draft then (K5-05); `opened`, what it opened with, so only its own changes are stored (H5-12). */
+export interface MoveOpts {
+  state?: NavState;
+  from?: PageId;
+  opened?: SetupAnswers;
+}
+
 export interface Move {
-  /** Store the draft, then go to `to` (M22). `state` goes with the navigation; `from`, the page left, has its edits in the draft then (K5-05). */
-  go: (to: PageId, answers: SetupAnswers, state?: NavState, from?: PageId) => void;
+  /** Store the draft, then go to `to` (M22). */
+  go: (to: PageId, answers: SetupAnswers, opts?: MoveOpts) => void;
   /** B-07: go to `to` without saving, keeping `answers` in this session only. */
-  goUnsaved: (to: PageId, answers: SetupAnswers, state?: NavState, from?: PageId) => void;
+  goUnsaved: (to: PageId, answers: SetupAnswers, opts?: MoveOpts) => void;
   /** The last store was refused: the page stays, with its answers (§6.1). */
   failed: boolean;
 }
@@ -50,15 +57,13 @@ export interface Recovery {
 
 /** `mover`, with each move carrying its navigation's state ("from Review", "Welcome back") to where it lands, and the page it leaves. */
 function movesWithState(
-  save: (to: PageId, answers: SetupAnswers, from?: PageId) => Promise<SaveOutcome>,
+  save: (to: PageId, answers: SetupAnswers, from?: PageId, opened?: SetupAnswers) => Promise<SaveOutcome>,
   on: { moved: (to: PageId, state: NavState) => void; failed: () => void },
-): (to: PageId, answers: SetupAnswers, state?: NavState, from?: PageId) => void {
-  let pending: NavState;
-  let leaving: PageId | undefined;
-  const move = mover((to, answers) => save(to, answers, leaving), { moved: to => on.moved(to, pending), failed: () => on.failed() });
-  return (to, answers, state, from) => {
-    pending = state;
-    leaving = from;
+): (to: PageId, answers: SetupAnswers, opts?: MoveOpts) => void {
+  let pending: MoveOpts = {};
+  const move = mover((to, answers) => save(to, answers, pending.from, pending.opened), { moved: to => on.moved(to, pending.state), failed: () => on.failed() });
+  return (to, answers, opts = {}) => {
+    pending = opts;
     void move(to, answers);
   };
 }
@@ -77,11 +82,11 @@ export function useMove(): Move {
   return {
     go: run,
     failed,
-    goUnsaved: (to, answers, state, from) => {
+    goUnsaved: (to, answers, opts = {}) => {
       continueWithoutSaving(to, answers);
-      if (from) forgetEdits(from);
+      if (opts.from) forgetEdits(opts.from);
       setFailed(false);
-      navigate(hrefOf(to), state ? { state } : undefined);
+      navigate(hrefOf(to), opts.state ? { state: opts.state } : undefined);
     },
   };
 }

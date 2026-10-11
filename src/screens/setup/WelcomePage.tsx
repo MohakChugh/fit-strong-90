@@ -37,7 +37,7 @@ export function WelcomePage() {
   // Planned from what setup holds now, again after a refused store (H5-02).
   const start = (unsaved = false) => {
     const go = unsaved ? move.goUnsaved : move.go;
-    if (at && at !== 'welcome.start') go(resumeAt(answers, at, ctx), answers, { welcomeBack: true });
+    if (at && at !== 'welcome.start') go(resumeAt(answers, at, ctx), answers, { state: { welcomeBack: true } });
     else go('about.name', answers);
   };
   const recovery: Recovery = { failed: move.failed, retry: () => start(), continueUnsaved: () => start(true) };

@@ -57,7 +57,7 @@ export function PageFrame({ id, View }: { id: PageId; View: PageView }) {
         return;
       }
     }
-    (unsaved ? move.goUnsaved : move.go)(planned.to, planned.answers, carry, id);
+    (unsaved ? move.goUnsaved : move.go)(planned.to, planned.answers, { ...(carry ? { state: carry } : {}), from: id, opened: answers });
   };
   const recovery: Recovery = { failed: move.failed, retry: () => attempt(last), continueUnsaved: () => attempt(last, true) };
 

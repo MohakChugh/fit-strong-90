@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SetupAnswers } from '@/types/setup';
-import { mergeAnswers } from './merge';
+import { mergeAnswers, mergeSkipped } from './merge';
 
 describe('answers changed in one copy, onto the answers as they are now (H5-12, H5-13; board D165)', () => {
   it('writes only what this copy changed; another copy’s answers stay', () => {
@@ -33,5 +33,13 @@ describe('answers changed in one copy, onto the answers as they are now (H5-12, 
 
   it('leaves the skipped pages as they are now, for the caller', () => {
     expect(mergeAnswers({ skippedPages: ['movement.goal'] }, {}, { skippedPages: [] }).skippedPages).toEqual(['movement.goal']);
+  });
+});
+
+describe('a page’s own skip marks, onto the marks as they are now (H5-12)', () => {
+  it('adds a page skipped here, takes one answered here off, and keeps another copy’s', () => {
+    expect(mergeSkipped(['movement.goal'], [], ['about.figure'])).toEqual(['movement.goal', 'about.figure']);
+    expect(mergeSkipped(['movement.goal', 'about.figure'], ['about.figure'], [])).toEqual(['movement.goal']);
+    expect(mergeSkipped(['movement.goal'], ['food.logging'], ['food.logging'])).toEqual(['movement.goal']);
   });
 });

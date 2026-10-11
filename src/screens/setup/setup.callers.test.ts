@@ -19,6 +19,12 @@ vi.mock('react-router-dom', async () => {
   };
 });
 vi.mock('@/components/hig/navigation', async importOriginal => ({ ...await importOriginal<typeof import('@/components/hig/navigation')>(), cameFrom: () => false }));
+// What each move asks the draft to store, passed through to the real one.
+const saves = vi.hoisted(() => [] as unknown[][]);
+vi.mock('@/setup/draft', async importOriginal => {
+  const real = await importOriginal<typeof import('@/setup/draft')>();
+  return { ...real, saveDraft: (...args: Parameters<typeof real.saveDraft>) => { saves.push(args); return real.saveDraft(...args); } };
+});
 
 const local = new Map<string, string>();
 globalThis.localStorage = {
@@ -59,6 +65,7 @@ let host: Host | undefined;
 let fake: ReturnType<typeof fakeIndexedDB>;
 beforeEach(async () => {
   router.navigate = vi.fn();
+  saves.length = 0;
   local.clear();
   store.resetForTests();
   resetSetupSessionForTests();
@@ -140,6 +147,21 @@ describe('Your medicines in Me', () => {
 });
 
 describe('setup’s pages', () => {
+  it('a Next hands the draft what its page opened with, so only its own changes are stored (H5-12)', async () => {
+    const { PageFrame } = await import('./PageFrame');
+    const { AboutName } = await import('./pages/about');
+    host = render(createElement(PageFrame, { id: 'about.name', View: AboutName }));
+    await host.settle();
+    await host.change(host.field('Name (optional)'), { value: 'Kai' });
+    await host.click(host.button('Next', { exact: true }));
+    await host.settle();
+    expect(saves).toHaveLength(1);
+    const [to, answers, from, opened] = saves[0] as [string, { name?: string }, string, { name?: string }];
+    expect([to, answers.name, from]).toEqual(['about.figure', 'Kai', 'about.name']);
+    expect(opened).toBeDefined();
+    expect(opened.name).toBeUndefined();
+  });
+
   it('Skip for now never gets past an answer that can’t be stored, such as an underage year; cleared, it skips (K5-04, H5-15)', async () => {
     const { PageFrame } = await import('./PageFrame');
     const { AboutName } = await import('./pages/about');

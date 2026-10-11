@@ -8,7 +8,7 @@
  * stricter stays ("Not sure" is never turned into "No", §6.1); for anything
  * else, this one's, the later.
  */
-import type { SetupAnswers, Tri } from '@/types/setup';
+import type { PageId, SetupAnswers, Tri } from '@/types/setup';
 import { sameValue } from '@/store/transfer';
 import { has } from './facts';
 
@@ -46,4 +46,13 @@ export function mergeAnswers(now: SetupAnswers, opened: SetupAnswers, mine: Setu
     }
   }
   return out as SetupAnswers;
+}
+
+/** A page's own skip marks, as changed from what it opened with, onto the marks as they are now. */
+export function mergeSkipped(now: readonly PageId[] | undefined, opened: readonly PageId[] | undefined, mine: readonly PageId[] | undefined): PageId[] {
+  const [was, is] = [new Set(opened ?? []), new Set(mine ?? [])];
+  const out = new Set(now ?? []);
+  for (const page of is) if (!was.has(page)) out.add(page);
+  for (const page of was) if (!is.has(page)) out.delete(page);
+  return [...out];
 }

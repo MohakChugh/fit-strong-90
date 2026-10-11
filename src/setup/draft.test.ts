@@ -214,6 +214,18 @@ describe('without saving (B-07)', () => {
     expect(pageEdits('about.name')).toEqual({});
   });
 
+  it('a Next stores only its page’s changes onto the draft as it is now: another tab’s answers stay (H5-12)', async () => {
+    const { NO_CONDITIONS } = await import('./fixtures');
+    await store.start({ factory: fakeIndexedDB() });
+    expect((await store.update(d => withDraft(d, 'about.name', { metric: true }))).ok).toBe(true);
+    const opened = store.getState().settings.setup!.draft!.answers!;
+    // Tab B, from the same draft, stores the health answers.
+    expect((await store.update(d => withDraft(d, 'health.diabetes', { ...opened, conditions: { ...NO_CONDITIONS, diabetes: 'yes' } }, opened))).ok).toBe(true);
+    // Tab A, opened before that, stores its name.
+    expect(await saveDraft('about.figure', { ...opened, name: 'Kai' }, 'about.name', opened)).toBe('saved');
+    expect(store.getState().settings.setup?.draft?.answers).toMatchObject({ name: 'Kai', conditions: { diabetes: 'yes' } });
+  });
+
   it('remembers what a page held, so Back never loses it (§6.1)', () => {
     rememberEdits('about.name', { name: 'As' });
     expect(pageEdits('about.name')).toEqual({ name: 'As' });
