@@ -3,9 +3,10 @@
  * §11.1, B-13). The ideas stay v1's plate-method templates; this map lets the
  * one filter, `mealsFor`, know their allergens and whether a Jain plate suits
  * them. An "or" component lists every dish it could be, so its tags are the
- * union. A component no dish in the table is says what it may carry. Every
- * food a component names is in one of its dishes or in its `also`, which
- * mealDishes.node.test.ts checks against the names it says (H7-02).
+ * union. A component no dish in the table is says what it may carry, and that
+ * its make-up isn't established. Every food a component names is in one of
+ * its dishes or in its `also`, which mealDishes.node.test.ts checks against
+ * the names it says (H7-02).
  */
 import type { AllergenId } from '@/types/profile';
 
@@ -14,6 +15,12 @@ export interface ComponentFoods {
   /** Ingredients it names that none of its dishes holds ("lauki or palak"), by key: their names and tags count too. */
   also?: readonly string[];
   mayContain?: readonly AllergenId[];
+  /**
+   * Its make-up isn't established ("a few seeds or nuts" names none): the idea
+   * isn't fully tagged, whatever `mayContain` says, so it's kept from anyone
+   * with an allergy until its contents are known (B-13, H7-03).
+   */
+  unknown?: true;
 }
 
 export const componentKey = (mealId: string, componentName: string) => `${mealId}|${componentName}`;
@@ -81,7 +88,7 @@ export const MEAL_DISHES: Readonly<Record<string, ComponentFoods>> = {
   's-sprouts-chaat|Onion, tomato and cucumber with lemon': { dishes: ['sprouts-chaat'], also: ['onion'] },
   's-fruit|Whole fruit, such as guava, orange, apple or papaya': { dishes: ['guava'] },
   's-salad-seeds|Cucumber, tomato, carrot and onion': { dishes: [SALAD], also: ['carrot', 'onion'] },
-  's-salad-seeds|A few seeds or nuts': { dishes: [], mayContain: ['peanut', 'treeNut', 'sesame'] },
+  's-salad-seeds|A few seeds or nuts': { dishes: [], mayContain: ['peanut', 'treeNut', 'sesame'], unknown: true },
   's-salad-seeds|Curd on top, if you like': { dishes: ['dahi'] },
   's-chaas|Chaas': { dishes: ['chaas'] },
   's-boiled-egg|Boiled egg': { dishes: ['boiled-egg'] },

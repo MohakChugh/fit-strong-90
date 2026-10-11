@@ -15,7 +15,11 @@ describe('meal ideas as dishes (B-13)', () => {
       for (const k of also ?? []) expect(ingredientByKey(k), `${key}: ${k}`).toBeDefined();
     }
   });
-  it('says what a component with no dish may carry', () => {
-    for (const [key, c] of Object.entries(MEAL_DISHES)) if (c.dishes.length === 0) expect(c.mayContain?.length, key).toBeGreaterThan(0);
+  it('says what a component with no dish may carry, and that its make-up isn’t established (H7-03)', () => {
+    for (const [key, c] of Object.entries(MEAL_DISHES)) {
+      if (c.dishes.length > 0 || (c.also?.length ?? 0) > 0) continue;
+      expect(c.mayContain?.length, key).toBeGreaterThan(0);
+      expect(c.unknown, key).toBe(true);
+    }
   });
 });

@@ -70,8 +70,8 @@ export function suits(meal: MealTemplate, pattern?: Pattern): boolean {
 /**
  * A template's allergen tags (B-13): its components' dishes and the
  * ingredients they name, what a component with no dish may carry, and every
- * word it and its dishes go by. A component the map doesn't know leaves the
- * template not fully tagged.
+ * word it and its dishes go by. A component the map doesn't know, or whose
+ * make-up isn't established, leaves the template not fully tagged (H7-03).
  */
 export function mealTags(meal: MealTemplate, pattern?: Pattern): AllergenTags {
   const contains = new Set<AllergenId>();
@@ -85,6 +85,7 @@ export function mealTags(meal: MealTemplate, pattern?: Pattern): AllergenTags {
       continue;
     }
     for (const a of mapped.mayContain ?? []) may.add(a);
+    if (mapped.unknown) complete = false;
     for (const part of partsOf(mapped)) {
       if (!part) {
         complete = false;

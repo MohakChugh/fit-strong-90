@@ -237,6 +237,13 @@ describe('allergies and the Jain pattern from recipe tags (B-13, board D99, D100
     expect(mealAllowed(unknown, food('vegetarian', { allergies: ['soy'] }))).toBe(false);
     expect(mealAllowed(unknown, food('vegetarian'))).toBe(true);
   });
+  it('keeps an idea with a part whose make-up isn’t established from anyone with an allergy, whatever that part may carry (H7-03)', () => {
+    // "A few seeds or nuts" names no seed or nut: soy nuts, chia or pumpkin seeds are all among them.
+    expect(mealTags(meal('s-salad-seeds'), 'vegetarian').complete).toBe(false);
+    expect(ids(food('vegetarian', { allergies: ['soy'] }), 'snack')).not.toContain('s-salad-seeds');
+    expect(ids(food('vegetarian', { customAllergies: ['chia'] }), 'snack')).not.toContain('s-salad-seeds');
+    expect(ids(food('vegetarian'), 'snack')).toContain('s-salad-seeds');
+  });
   it('takes the picker’s allergies when it gives them: an empty list is “none”, and emptied own words go', () => {
     const stored: FoodPreferences = { pattern: 'vegetarian', avoid: [], allergies: ['peanut'], customAllergies: ['brinjal'], level: 'meals' };
     expect(withPicked(stored, { pattern: 'vegetarian', avoid: [], region: 'any', allergies: ['milk'], customAllergies: ['drumstick'] }))
