@@ -331,3 +331,33 @@ describe('browser Back with the sheet open (H7-19)', () => {
     expect(item(h, 'Roti (whole-wheat)')).toContain('1 roti');
   });
 });
+
+describe('Save within reach, and a usual meal’s tray first (K7-07; board D139)', () => {
+  /** Whether a node sits in a footer that sticks to the sheet's foot. */
+  const sticky = (h: Host, node: HostNode) => {
+    const path = (n: HostNode, trail: HostNode[]): HostNode[] | undefined => {
+      if (n === node) return trail;
+      for (const c of n.children) if (typeof c !== 'string') { const found = path(c, [...trail, c]); if (found) return found; }
+      return undefined;
+    };
+    const roots = h.all().filter(n => n.props.role === 'dialog');
+    const trail = roots.map(r => path(r, [r])).find(Boolean) ?? [];
+    return trail.some(n => /\bsticky\b/.test(String(n.props.className ?? '')) && /\bbottom-0\b/.test(String(n.props.className ?? '')));
+  };
+  it('keeps “Save meal” in a footer that stays in view', async () => {
+    const h = await open({});
+    expect(sticky(h, h.button('Save meal', { exact: true }))).toBe(true);
+  });
+  it('opens a usual meal on its tray, with search under “Add more”', async () => {
+    const at = '2026-10-07T13:10:00.000+05:30';
+    const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti (whole-wheat)', unit: 'piece', count: 2, gramsPerPortion: 40 } as const;
+    expect((await food.saveMeal({ id: 'meal-y', at, day: '2026-10-07', meal: 'lunch', items: [roti], level: 'meals', loggedAt: at, edits: [] })).ok).toBe(true);
+    const h = await open({}, { usual: 'yesterday:meal-y' });
+    expect(item(h, 'Roti (whole-wheat)')).toContain('2 rotis');
+    expect(() => h.field('Search foods')).toThrow();
+    expect(h.text()).not.toContain('Common Indian foods');
+    await h.click(h.button('Add more', { exact: true }));
+    expect(h.field('Search foods')).toBeDefined();
+    expect(h.text()).toContain('Common Indian foods');
+  });
+});

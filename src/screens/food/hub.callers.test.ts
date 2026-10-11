@@ -194,4 +194,15 @@ describe('Right now, at most five choices (K7-06; board D138)', () => {
   });
 });
 
+describe('usual meals for the latest meal not yet logged (K7-07; board D139)', () => {
+  it('offers yesterday’s lunch after 15:30 while today’s lunch isn’t logged, and not once it is', async () => {
+    vi.setSystemTime(new Date(2026, 9, 8, 16, 0, 0));
+    const h = await hub({ level: 'meals' }, [mealOn('meal-1', '2026-10-07T13:10:00.000+05:30', 'lunch', [roti])]);
+    expect(choices(h, 'Right now')).toContain('Same as yesterday’s lunch Roti (whole-wheat) ×2');
+    expect((await food.saveMeal(mealOn('meal-2', '2026-10-08T13:30:00.000+05:30', 'lunch', [roti]))).ok).toBe(true);
+    await h.settle();
+    expect(choices(h, 'Right now').some(c => c.startsWith('Same as yesterday’s lunch'))).toBe(false);
+  });
+});
+
 export { choices };

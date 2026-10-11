@@ -51,6 +51,7 @@ export const FOOD_COPY = {
   yourMeal: 'Your meal',
   nothingAdded: 'Nothing added yet. Search, or choose from the foods below.',
   search: 'Search foods',
+  addMore: 'Add more',
   searchPlaceholder: 'Roti, dal, poha…',
   common: 'Common Indian foods',
   results: 'Results',
