@@ -5,7 +5,8 @@
  * - H2-01: a walk left running, then Unwell or a flare: the Walk hub offers
  *   no Carry on (§4.8), keeps Review and save, and nothing records. In
  *   Normal, Return to walk asks the gate at the tap, and its check-in opens
- *   on the hub (§4.1).
+ *   on the hub (§4.1). Left open more than 3 hours, the walk is only
+ *   reviewed and saved, as the live screen would finish it (board D184).
  * - H2-06: an Add link reaches a hub that is already open: its own form
  *   opens and the address lets the link go; another metric's opens none.
  * - H2-07: the steps form's Paste is at least 48 by 48, and grows with
@@ -110,15 +111,16 @@ const carryOnFlare = {
 };
 
 const carryOnGate = {
-  name: 'H2-01: in Normal, Return to walk asks the gate at the tap',
+  name: 'H2-01: in Normal, Return to walk asks the gate at the tap; left open overnight, the walk is only reviewed and saved',
   async run(t) {
-    const page = await t.open({ seed: persona('P02'), route: '/home' });
+    // A walk late in the evening, so a new day, with no check-in yet, comes before the walk is left open (board D184).
+    const page = await t.open({ seed: persona('P02'), route: '/home', time: Date.parse('2026-10-08T22:30:00+05:30') });
     let walkId;
     await t.step(1, 'Walk hub → Start walk → check in → two minutes → Home, the walk still open', async () => {
       walkId = await walkLeftOpen(t);
-    }, { input: 'P02, normal answers' });
-    await t.step(2, 'The next morning, no check-in yet: Return to walk opens the check-in on the hub, then carries on', async () => {
-      await t.setTime(Date.parse('2026-10-09T08:30:00+05:30'));
+    }, { input: 'P02, 22:30, normal answers' });
+    await t.step(2, 'Just past midnight, under 3 hours away and no check-in yet: Return to walk opens the check-in on the hub, then carries on', async () => {
+      await t.setTime(Date.parse('2026-10-09T00:15:00+05:30'));
       await t.reload();
       const text = await walkCard(t);
       const back = ui.button(hub.card(page), 'Return to walk');
@@ -135,7 +137,21 @@ const carryOnGate = {
         await page.waitForURL(/#\/walk\/live/, { timeout: 10000 });
         await t.check((await walk.stored(page))?.id === walkId, 'the walk carried on is not the one left open');
       }
-    }, { input: 'Thursday 9 October 08:30, normal answers' });
+      // Left open again, for the morning.
+      await t.hash('/home');
+      await page.getByRole('heading', { level: 1, name: ui.HOME_TITLE }).waitFor();
+    }, { input: 'Friday 9 October 00:15, normal answers' });
+    await t.step(3, 'The next morning, more than 3 hours away: no Return to walk; Review and save ends it as left open, at its summary', async () => {
+      await t.setTime(Date.parse('2026-10-09T08:30:00+05:30'));
+      await t.reload();
+      const text = await walkCard(t);
+      await t.checkpoint('h2-01-left-open');
+      await t.check(/left open/i.test(text), `the card does not say the walk was left open: ${text.slice(0, 240)}`);
+      await refusesCarryOn(t, 'Left open', /3 hours/);
+      const summary = flat(await page.getByRole('main').innerText());
+      await t.check(/This walk was left open/.test(summary), `the summary does not say the walk was left open: ${summary.slice(0, 240)}`);
+      await t.check((await walk.stored(page))?.endedBy === 'stale', `the walk ended as ${(await walk.stored(page))?.endedBy}, not as left open`);
+    }, { input: 'Friday 9 October 08:30' });
   },
 };
 

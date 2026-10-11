@@ -189,7 +189,10 @@ describe('peekWalk', () => {
     const storage = memory();
     expect(peekWalk(storage)).toBeNull();
     storeWalk(storage, aWalk());
-    expect(peekWalk(storage)).toMatchObject({ state: 'inProgress', href: '/walk/live', id: 'mgh3k2x1-1a2b3c4d' });
+    expect(peekWalk(storage)).toMatchObject({ state: 'inProgress', href: '/walk/live', id: 'mgh3k2x1-1a2b3c4d', seenAt: T + 420_000 });
+    // Left for another screen: when it was left, which is when the live screen counts its time away from.
+    storeWalk(storage, leaveWalk(aWalk(), T + 480_000, 'left'));
+    expect(peekWalk(storage)?.seenAt).toBe(T + 480_000);
     storeWalk(storage, finishWalk(aWalk(), T + 500_000, 'finish'));
     expect(peekWalk(storage)).toMatchObject({ state: 'unsaved', href: '/walk/summary' });
   });

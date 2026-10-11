@@ -400,6 +400,19 @@ describe('a walk still on this device: status comes first, then the gate (codex 
     for (const c of [stop, gap, hold]) expect(carriesOn(c)).toBe(false);
   });
 
+  it('left open longer than a walk is carried on: Review and save, never Return to walk; under it, the card is as it was', () => {
+    for (const gate of ['go', 'checkIn'] as const) {
+      const over = gate === 'checkIn' ? { permission: held('walk', [PERMISSION_TEXT.noCheckIn], { needsCheckIn: true }), gate } : {};
+      const left = pending({ ...over, leftOpen: true });
+      expect(carriesOn(left), gate).toBe(false);
+      expect(left.primary, gate).toEqual({ kind: 'finishWalk', label: 'Review and save' });
+      expect(left.title, gate).toBe('A walk was left open');
+      expect(left.note, gate).toBe('After more than 3 hours away, a walk isn’t carried on. Save what was recorded, or discard it.');
+      expect(pending({ ...over, leftOpen: false }), gate).toEqual(pending(over));
+      expect(pending({ ...over, leftOpen: false }).primary, gate).toEqual({ kind: 'carryOn', label: 'Return to walk' });
+    }
+  });
+
   it('a walk waiting to be saved: Review and save, whatever the status or the gate (saving is not movement)', () => {
     for (const status of ['normal', 'flare', 'unwell', 'away'] as const) {
       const c = pending({ state: 'unsaved', status, permission: held('walk', ['Chest pain.'], { disposition: 'emergency' }), gate: 'emergency' });

@@ -18,6 +18,7 @@ import type { UserSettings } from '@/types';
 import type { SessionPlan, StretchFocus } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import { checkInOnly, type TileLine } from '@/screens/home/tileLine';
+import { STALE_AFTER_MS } from '@/walk/clock';
 import { startLabelFor } from '@/screens/today/model';
 
 export type HubActionKind =
@@ -203,6 +204,8 @@ export interface PendingWalkInput {
   state: 'inProgress' | 'unsaved';
   /** When it started, as the clock reads it: "9:00 am". */
   started: string;
+  /** Away longer than a walk is carried on (`leftOpen`): coming back would only finish it as left open. */
+  leftOpen?: boolean;
   permission: Permission;
   gate: Gate;
   status: Status;
@@ -215,6 +218,7 @@ const SAVE_WALK: HubAction = { kind: 'saveWalk', label: 'Review and save' };
 const FINISH_WALK: HubAction = { kind: 'finishWalk', label: 'Review and save' };
 const CHANGE_STATUS: HubAction = { kind: 'status', label: 'Change status' };
 const KEPT = 'Nothing has been recorded since the walk screen closed. Save what was recorded, or discard it.';
+const LEFT_OPEN = `After more than ${STALE_AFTER_MS / 3_600_000} hours away, a walk isn’t carried on. Save what was recorded, or discard it.`;
 
 /**
  * The Walk hub's card while a walk is still on this device, before any new
@@ -267,6 +271,10 @@ export function pendingWalkCard(i: PendingWalkInput): HubCard {
       ...empty, ...refusal, state: 'held', tone: 'caution', title: headline(p).title, detail: started, primary: FINISH_WALK,
       secondary: [i.gate === 'recheck' ? { kind: 'review', label: 'Enter a new reading' } : REVIEW],
     };
+  }
+  // Away longer than the live screen carries a walk on: Return to walk would only land on "left open" (board D184).
+  if (i.leftOpen) {
+    return { ...empty, state: 'unsaved', tone: 'normal', title: 'A walk was left open', detail: started, note: LEFT_OPEN, primary: FINISH_WALK };
   }
   return {
     ...empty, state: 'resume', tone: 'normal', title: 'A walk is in progress', detail: `${started}. Nothing is recorded while the walk screen is closed.`,

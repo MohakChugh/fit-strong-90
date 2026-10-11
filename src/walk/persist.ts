@@ -13,7 +13,7 @@
 
 import { isDay } from '@/health/observation';
 import { toDateString } from '@/lib/utils';
-import type { EndedBy, Gap, PainAnswer, Segment, Walk, WalkPlan, WalkStatus } from './clock';
+import { lastSeen, type EndedBy, type Gap, type PainAnswer, type Segment, type Walk, type WalkPlan, type WalkStatus } from './clock';
 import { isMeal, isWalkId } from './plan';
 import { offsetAt } from './time';
 
@@ -236,6 +236,8 @@ export interface WalkPeek {
   /** `inProgress`: return to it at `/walk/live`. `unsaved`: finished, review and save it at `/walk/summary`. */
   state: 'inProgress' | 'unsaved';
   href: '/walk/live' | '/walk/summary';
+  /** When this device last saw it recording (`lastSeen`): a walk in progress is left open once `leftOpen` says so. */
+  seenAt: number;
 }
 
 /**
@@ -252,5 +254,6 @@ export function peekWalk(storage: WalkStorage | undefined = sessionWalkStorage()
     startedAt: walk.startedAt,
     state: unsaved ? 'unsaved' : 'inProgress',
     href: unsaved ? '/walk/summary' : '/walk/live',
+    seenAt: lastSeen(walk),
   };
 }

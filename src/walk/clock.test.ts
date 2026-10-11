@@ -7,7 +7,9 @@ import {
   daysAround,
   finishWalk,
   heartbeat,
+  lastSeen,
   leaveWalk,
+  leftOpen,
   nextMidnight,
   observedMs,
   openSegment,
@@ -149,6 +151,28 @@ describe('a walk left too long', () => {
 
     const justInTime = returnToWalk(away, s(1200) + STALE_AFTER_MS);
     expect(justInTime.walk.status).toBe('running');
+  });
+});
+
+describe('when a walk is left open, as the Walk hub reads it (board D184)', () => {
+  /** What coming back at `now` does to `walk`, as the live screen does it: restored, then returned to. */
+  const comesBack = (walk: Walk, now: number) => returnToWalk(restoreWalk(walk, now), now).walk;
+
+  it('says so exactly when coming back would finish it as left open, for a walk away, paused or still marked recording', () => {
+    const away = leaveWalk(walkFor(), s(1200), 'left');
+    const paused = pauseWalk(walkFor(), s(600));
+    const recording = heartbeat(walkFor(), s(900));
+    // Read back after the clock went back: away from the earlier moment, its last heartbeat later.
+    const setBack = restoreWalk(recording, s(800));
+    const cases = [['away', away, s(1200)], ['paused', paused, s(600)], ['recording', recording, s(900)], ['restored after the clock went back', setBack, s(800)]] as const;
+    for (const [name, walk, since] of cases) {
+      expect(lastSeen(walk), name).toBe(since);
+      for (const now of [since + STALE_AFTER_MS, since + STALE_AFTER_MS + 1]) {
+        expect(leftOpen(lastSeen(walk), now), `${name} at +${now - since}`).toBe(comesBack(walk, now).status === 'finished');
+      }
+      expect(leftOpen(lastSeen(walk), since + STALE_AFTER_MS), name).toBe(false);
+      expect(leftOpen(lastSeen(walk), since + STALE_AFTER_MS + 1), name).toBe(true);
+    }
   });
 });
 

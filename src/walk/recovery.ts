@@ -6,7 +6,7 @@
  */
 import { differenceInCalendarDays, format } from 'date-fns';
 import type { Observation } from '@/health/observation';
-import { finishWalk, openSegment, restoreWalk, type Walk } from './clock';
+import { finishWalk, openSegment, restoreWalk, returnToWalk, type Walk } from './clock';
 import { JOURNAL_STALE_MS, type JournalEntry } from './journal';
 import { loadWalk, storeWalk, type WalkStorage } from './persist';
 import { hasRecord, summarise, walkObservationIds } from './record';
@@ -28,8 +28,13 @@ export function interruptedWalk(walk: Walk): Walk {
 export function endOpenWalk(storage: WalkStorage | undefined, now: number): boolean {
   const walk = loadWalk(storage);
   if (!walk) return false;
-  // Kept for this page even when the browser refuses the write, so the summary opened next still has it.
-  if (walk.status !== 'finished') storeWalk(storage, finishWalk(restoreWalk(walk, now), now, 'stop'));
+  if (walk.status !== 'finished') {
+    const restored = restoreWalk(walk, now);
+    // Left open, it ends as the live screen would end it: left open, when it was last seen (`returnToWalk`).
+    const back = returnToWalk(restored, now).walk;
+    // Kept for this page even when the browser refuses the write, so the summary opened next still has it.
+    storeWalk(storage, back.status === 'finished' ? back : finishWalk(restored, now, 'stop'));
+  }
   return true;
 }
 

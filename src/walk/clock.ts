@@ -149,6 +149,18 @@ export interface Walk {
 export const STALE_AFTER_MS = 3 * 60 * 60 * 1000;
 
 /**
+ * Whether a walk last seen recording at `since` is left open at `now`:
+ * coming back then finishes it, when it was last seen, rather than carrying
+ * it on. The one threshold the live screen and the Walk hub both read.
+ */
+export const leftOpen = (since: number, now: number): boolean => now - since > STALE_AFTER_MS;
+
+/** When this device last saw the walk recording: what `leftOpen` counts from. */
+export function lastSeen(walk: Walk): number {
+  return walk.status === 'away' && walk.awaySince !== undefined ? walk.awaySince : walk.seenAt;
+}
+
+/**
  * Closing and reopening the walk screen this fast is not a real absence — it
  * is React's development double-mount, or a route bouncing — so the segment
  * simply carries on. Only for a closed screen: a hidden app always leaves a
@@ -283,7 +295,7 @@ export function returnToWalk(walk: Walk, now: number): Return {
   const away = Math.max(0, now - since);
   const base = { ...walk, awaySince: undefined, awayCause: undefined };
 
-  if (away > STALE_AFTER_MS) {
+  if (leftOpen(since, now)) {
     return { walk: { ...base, status: 'finished', finishedAt: since, endedBy: 'stale', seenAt: now } };
   }
 
@@ -340,7 +352,7 @@ export function restoreWalk(walk: Walk, now: number): Walk {
       awayCause: 'interrupted',
     };
   }
-  if (walk.status === 'paused' && now - walk.seenAt > STALE_AFTER_MS) {
+  if (walk.status === 'paused' && leftOpen(walk.seenAt, now)) {
     return { ...walk, status: 'finished', finishedAt: walk.seenAt, endedBy: 'stale' };
   }
   return walk;
