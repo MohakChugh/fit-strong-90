@@ -103,7 +103,10 @@ export default function FoodHubScreen() {
             {todays.length === 0
               ? <Row label={FOOD_COPY.nothingToday} />
               : todays.map(m => <Row key={m.id} as={Link} to={logHref({ edit: m.id })} label={SLOT_LABEL[m.meal]} detail={mealRowDetail(m, numbers, hour12)} chevron />)}
-            {todayLines.estimate && <Row label={todayLines.estimate} {...(todayLines.missing ? { detail: todayLines.missing } : {})} />}
+            {/* What has no estimate is said on its own, with a total or without one (A-17, H7-14). */}
+            {todayLines.estimate
+              ? <Row label={todayLines.estimate} {...(todayLines.missing ? { detail: todayLines.missing } : {})} />
+              : todayLines.missing && <Row label={todayLines.missing} />}
           </Group>
         </HubSection>
       )}
