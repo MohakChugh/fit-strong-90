@@ -3,6 +3,7 @@ import type { FoodPreferences } from '@/types/profile';
 import { MEALS } from './meals';
 import type { Pattern, Slot } from './schema';
 import { JAIN_LEAVES_OUT, withPicked } from './allergens';
+import { componentKey, MEAL_DISHES, type ComponentFoods } from './mealDishes';
 import { componentsFor, isAvoided, mealAllowed, mealsFor, mealTags, sampleWeek, suits, WEEKDAYS } from './week';
 
 const PATTERNS: Pattern[] = ['vegetarian', 'eggetarian', 'nonVegetarian', 'vegan'];
@@ -238,6 +239,20 @@ describe('allergies and the Jain pattern from recipe tags (B-13, board D99, D100
     // Poha's idea names tomato, which its recipe doesn't hold.
     expect(mealTags(meal('b-poha'), 'vegetarian').words).toContain('tamatar');
     expect(ids(food('vegetarian', { customAllergies: ['tamatar'] }), 'breakfast')).not.toContain('b-poha');
+  });
+  it('never counts a part the map doesn’t know, or a dish the table lacks, as suiting a Jain plate (K7-18)', () => {
+    const base = meal('l-roti-dal-sabzi');
+    const extra = (name: string) => ({ ...base, components: [...base.components, { ...base.components[0], name, aliases: [] }] });
+    expect(suits(base, 'jain')).toBe(true);
+    expect(suits(extra('Something new'), 'jain')).toBe(false);
+    const map = MEAL_DISHES as Record<string, ComponentFoods>;
+    const key = componentKey(base.id, 'A dish since removed');
+    map[key] = { dishes: ['no-such-dish'] };
+    try {
+      expect(suits(extra('A dish since removed'), 'jain')).toBe(false);
+    } finally {
+      delete map[key];
+    }
   });
   it('keeps out, for anyone with an allergy, an idea with a part the map doesn’t know', () => {
     const base = meal('l-roti-dal-sabzi');

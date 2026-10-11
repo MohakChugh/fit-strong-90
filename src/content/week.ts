@@ -65,7 +65,11 @@ export function suits(meal: MealTemplate, pattern?: Pattern): boolean {
   if (!meal.patterns.includes(p)) return false;
   if (pattern !== 'jain') return true;
   if ([...ownWords(meal, pattern)].some(w => JAIN_WORDS.has(w))) return false;
-  return componentsFor(meal, pattern).every(c => partsOf(dishesOf(meal, c) ?? { dishes: [] }).every(part => part?.patterns.includes('jain') === true));
+  // A part the map doesn't know, or a dish the table lacks, never suits it (K7-18).
+  return componentsFor(meal, pattern).every(c => {
+    const mapped = dishesOf(meal, c);
+    return mapped !== undefined && partsOf(mapped).every(part => part?.patterns.includes('jain') === true);
+  });
 }
 
 /**
