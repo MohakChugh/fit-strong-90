@@ -35,6 +35,14 @@ import { useFoodUndoScope } from './undo';
 
 /** Where an idea and the sample week go back to. */
 const FROM_HUB = { from: 'hub' };
+/**
+ * Right now's choices (B-08, rule 13; board D138): at most five, as up to two
+ * usual meals, "Log what you ate" (or "Log what you eat"), and ideas to fill,
+ * never more than the three the journey shows (§11.2).
+ */
+const RIGHT_NOW_MAX = 5;
+const RIGHT_NOW_USUAL = 2;
+const RIGHT_NOW_IDEAS = 3;
 
 export default function FoodHubScreen() {
   const { profile, records } = useStore();
@@ -56,8 +64,8 @@ export default function FoodHubScreen() {
   const numbers = numbersView(profile);
   const meals = mealsIn(records);
   const slot = slotAt(now.getHours() * 60 + now.getMinutes());
-  const ideas = mealsFor(food, slot).slice(0, 3);
-  const usual = level === 'ideas' ? [] : usualFor(slot, today, meals, savedMealsIn(records));
+  const usual = level === 'ideas' ? [] : usualFor(slot, today, meals, savedMealsIn(records)).slice(0, RIGHT_NOW_USUAL);
+  const ideas = mealsFor(food, slot).slice(0, Math.min(RIGHT_NOW_IDEAS, RIGHT_NOW_MAX - 1 - usual.length));
   const todays = mealsOn(meals, today);
   const todayLines = totalsLines(totalsOf(todays.flatMap(m => m.items)), numbers);
   const target = careTeamLine(food?.careTeamTargets, numbers);

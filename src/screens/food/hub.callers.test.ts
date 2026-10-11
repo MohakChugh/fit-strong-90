@@ -176,4 +176,22 @@ describe('choosing a level from “Log a meal” with logging off (H7-18)', () =
   });
 });
 
+describe('Right now, at most five choices (K7-06; board D138)', () => {
+  const usual = (id: string, name: string) => ({ id, name, meal: 'lunch' as const, items: [roti], savedAt: '2026-10-07T13:00:00.000+05:30', updatedAt: '2026-10-07T13:00:00.000+05:30' });
+  it('offers up to two usual meals, ideas to fill, and “Log what you ate”', async () => {
+    const h = await hub({ level: 'meals' }, [mealOn('meal-1', '2026-10-07T13:10:00.000+05:30', 'lunch', [roti])]);
+    expect((await food.saveMeal(mealOn('meal-0', '2026-10-01T13:10:00.000+05:30', 'lunch', [roti]), { usual: usual('usual-1', 'Weekday lunch') })).ok).toBe(true);
+    expect((await store.writeRecords({ put: { savedMeals: [usual('usual-2', 'Light lunch')] } })).ok).toBe(true);
+    await h.settle();
+    const offered = choices(h, 'Right now');
+    expect(offered.length).toBe(5);
+    expect(offered).toContain('Log what you ate');
+    expect(offered.filter(c => /Same as yesterday|Weekday lunch|Light lunch/.test(c))).toHaveLength(2);
+  });
+  it('keeps three ideas with nothing usual to offer', async () => {
+    const h = await hub({ level: 'meals' });
+    expect(choices(h, 'Right now')).toHaveLength(4);
+  });
+});
+
 export { choices };
