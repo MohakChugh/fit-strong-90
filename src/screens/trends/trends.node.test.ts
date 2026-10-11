@@ -136,3 +136,12 @@ describe('the shared choice of segments has 48 px targets (H3-19, journey §20.4
     expect(html).not.toContain('min-h-11');
   });
 });
+
+describe('the one action of an empty Trends is a 60 px primary button (KT-06, journey §20.4 rule 1)', () => {
+  it('is the shared primary button, 60 px tall, to Today’s log’s Add list', () => {
+    const trends = read('TrendsScreen.tsx');
+    const empty = trends.slice(trends.indexOf('if (ctx.since === undefined)'), trends.indexOf('return (\n    <Screen title="Trends">\n      <YourWeekCard'));
+    expect(empty).toContain('<PrimaryButton className="min-h-[60px]" onClick={() => navigate(\'/day/today?add=\', { state: origin, viewTransition: true })}>');
+    expect(empty).not.toContain('min-h-12');
+  });
+});

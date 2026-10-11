@@ -7,7 +7,7 @@
  * surface above it is the shell's (B-02).
  */
 import { useContext, useMemo } from 'react';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronRightIcon, PlusIcon, SmileIcon } from 'lucide-react';
 import { GROUPS, categoryById, type CategoryId } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
@@ -20,6 +20,7 @@ import { UrgentContext, useHeld } from '@/screens/home/urgent';
 import { displayPrefs } from '@/screens/track/logKinds';
 import { addDays, mondayOf } from '@/screens/track/periods';
 import { recordPath } from '@/screens/track/timeline';
+import { PrimaryButton } from '@/screens/track/ui';
 import { useToday } from '@/screens/track/useToday';
 import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
 import { RouteThumb } from '@/screens/walk/RouteThumb';
@@ -57,6 +58,7 @@ export default function TrendsScreen() {
   const today = useToday();
   const urgent = useContext(UrgentContext);
   const location = useLocation();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const thisWeek = mondayOf(today);
   const lastWeek = addDays(thisWeek, -7);
@@ -103,10 +105,11 @@ export default function TrendsScreen() {
         <div className="flex flex-col items-start gap-3 rounded-xl bg-grouped-card p-4">
           <h2 className="text-[length:var(--text-title-2)] font-semibold">Nothing recorded yet</h2>
           <p className="text-[length:var(--text-body)] leading-snug text-muted-foreground">Each reading, walk, stretch and workout you record shows here, week by week.</p>
-          <Link to="/day/today?add=" state={origin} className="press-feedback inline-flex min-h-12 items-center gap-2 rounded-full bg-tint px-5 text-[length:var(--text-body)] font-semibold text-on-tint">
+          {/* The screen's one action: the shared primary button, at the 60 px a primary action has (§20.4 rule 1, KT-06). */}
+          <PrimaryButton className="min-h-[60px]" onClick={() => navigate('/day/today?add=', { state: origin, viewTransition: true })}>
             <PlusIcon className="size-5" aria-hidden />
             Add a record
-          </Link>
+          </PrimaryButton>
         </div>
       </Screen>
     );
