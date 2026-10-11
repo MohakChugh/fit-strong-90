@@ -4,7 +4,7 @@ import { MEALS } from './meals';
 import type { Pattern, Slot } from './schema';
 import { JAIN_LEAVES_OUT, withPicked } from './allergens';
 import { componentKey, MEAL_DISHES, type ComponentFoods } from './mealDishes';
-import { componentsFor, isAvoided, mealAllowed, mealsFor, mealTags, sampleWeek, suits, WEEKDAYS } from './week';
+import { componentsFor, isAvoided, mealAllowed, mealsFor, mealTags, sampleWeek, suits, veganSwaps, WEEKDAYS } from './week';
 
 const PATTERNS: Pattern[] = ['vegetarian', 'eggetarian', 'nonVegetarian', 'vegan'];
 const SLOTS: Slot[] = ['breakfast', 'lunch', 'snack', 'dinner'];
@@ -259,7 +259,38 @@ describe('allergies and the Jain pattern from recipe tags (B-13, board D99, D100
     const unknown = { ...base, components: [...base.components, { ...base.components[0], name: 'Something new' }] };
     expect(mealTags(unknown, 'vegetarian').complete).toBe(false);
     expect(mealAllowed(unknown, food('vegetarian', { allergies: ['soy'] }))).toBe(false);
-    expect(mealAllowed(unknown, food('vegetarian'))).toBe(true);
+    // With no allergy it stays, for a plate every food suits; a vegetarian's needs each part known (H7-20).
+    expect(mealAllowed(unknown, food('nonVegetarian'))).toBe(true);
+    expect(mealAllowed(unknown, food('vegetarian'))).toBe(false);
+  });
+  it('reads every recipe behind a plate against its pattern, not only Jain’s: a vegan’s dal, khichdi and dalia are made with oil, as the map says (H7-20)', () => {
+    for (const m of mealsFor(food('vegan'))) expect(mealTags(m, 'vegan').contains, m.id).not.toEqual(expect.arrayContaining(['milk']));
+    expect(mealTags(meal('b-dalia'), 'vegetarian').contains).toContain('milk');
+    expect(ids(food('vegan'), 'breakfast')).toContain('b-dalia');
+    expect(ids(food('vegan'), 'lunch')).toContain('l-roti-dal-sabzi');
+    expect(ids(food('vegan'), 'dinner')).toEqual(['d-khichdi', 'd-millet-roti-dal', 'd-dal-bhat']);
+    expect(veganSwaps(meal('d-khichdi'), 'vegan')).toEqual([{ from: 'ghee', to: 'sunflower oil' }]);
+    expect(veganSwaps(meal('d-khichdi'), 'vegetarian')).toEqual([]);
+    expect(veganSwaps(meal('b-poha'), 'vegan')).toEqual([]);
+  });
+  it('keeps from a plate any idea a recipe of which its pattern doesn’t eat, unless the map says how that plate makes it (H7-20)', () => {
+    const base = meal('l-chana-roti');
+    const map = MEAL_DISHES as Record<string, ComponentFoods>;
+    const withPart = (name: string, foods: ComponentFoods) => {
+      map[componentKey(base.id, name)] = foods;
+      return { ...base, components: [...base.components, { ...base.components[0], name, aliases: [] }] };
+    };
+    try {
+      expect(suits(withPart('Raita on the side', { dishes: ['raita'] }), 'vegan')).toBe(false);
+      expect(suits(withPart('An egg on top', { dishes: ['boiled-egg'] }), 'vegetarian')).toBe(false);
+      expect(suits(withPart('Dal with a ghee tadka', { dishes: ['toor-dal'] }), 'vegan')).toBe(false);
+      expect(suits(withPart('Dal with an oil tadka', { dishes: ['toor-dal'], vegan: { ghee: 'oil' } }), 'vegan')).toBe(true);
+      // A swap is said only where a dish has what it swaps.
+      expect(veganSwaps(withPart('A sabzi', { dishes: ['mixed-veg-sabzi'], vegan: { ghee: 'oil' } }), 'vegan')).toEqual([]);
+    } finally {
+      for (const name of ['Raita on the side', 'An egg on top', 'Dal with a ghee tadka', 'Dal with an oil tadka', 'A sabzi']) delete map[componentKey(base.id, name)];
+    }
+    expect(suits(base, 'vegan')).toBe(true);
   });
   it('keeps an idea with a part whose make-up isn’t established from anyone with an allergy, whatever that part may carry (H7-03)', () => {
     // "A few seeds or nuts" names no seed or nut: soy nuts, chia or pumpkin seeds are all among them.

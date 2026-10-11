@@ -1,7 +1,7 @@
 import { Navigate, useLocation, useParams } from 'react-router-dom';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
-import { componentsFor, DISCLAIMER, getMeal, idsShown, mealAllowed, mealTags, resolveGroups, SLOTS } from '@/content';
+import { componentsFor, DISCLAIMER, getMeal, idsShown, mealAllowed, mealTags, resolveGroups, SLOTS, veganSwaps } from '@/content';
 import { allergenList } from '@/food/allergens';
 import { FOOD_COPY } from '@/food/copy';
 import { REGION_LABEL } from './format';
@@ -35,6 +35,8 @@ export default function MealDetailScreen() {
   const pattern = food?.pattern;
   const parts = componentsFor(meal, pattern);
   const tags = mealTags(meal, pattern);
+  // A vegan plate's recipes, as the map makes them (H7-20).
+  const swapped = veganSwaps(meal, pattern).map(s => `${s.to} instead of ${s.from}`);
   // One pass over the screen: each claim and caution once, in reading order.
   const groups = resolveGroups(
     [meal.claimIds, measureClaimIds(meal, pattern, meal.claimIds), meal.swaps, [...meal.salt, ...meal.sugar], OWN_PORTIONS],
@@ -62,7 +64,7 @@ export default function MealDetailScreen() {
         ))}
       </Group>
 
-      <Group header="Allergens in our recipes" footer={FOOD_COPY.recipeNote}>
+      <Group header="Allergens in our recipes" footer={swapped.length > 0 ? `${FOOD_COPY.veganSwap(swapped.join(', '))} ${FOOD_COPY.recipeNote}` : FOOD_COPY.recipeNote}>
         <Row
           label={tags.contains.length > 0 ? FOOD_COPY.contains(allergenList(tags.contains)) : FOOD_COPY.noTaggedAllergens}
           {...(tags.mayContain.length > 0 ? { detail: FOOD_COPY.mayContain(allergenList(tags.mayContain)) } : {})}

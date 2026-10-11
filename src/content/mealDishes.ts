@@ -21,11 +21,19 @@ export interface ComponentFoods {
    * with an allergy until its contents are known (B-13, H7-03).
    */
   unknown?: true;
+  /**
+   * How a vegan plate makes its dishes: ingredients in place of their own, by
+   * key (ghee → sunflower oil). Its dishes' tags and patterns are read as so
+   * made, and the idea says so (H7-20).
+   */
+  vegan?: Readonly<Record<string, string>>;
 }
 
 export const componentKey = (mealId: string, componentName: string) => `${mealId}|${componentName}`;
 
 const SALAD = 'cucumber-tomato-salad';
+/** A vegan plate's dal, khichdi and dalia take sunflower oil where our recipe has ghee. */
+const OIL: ComponentFoods['vegan'] = { ghee: 'oil' };
 const SIDE: ComponentFoods = { dishes: [SALAD, 'mixed-veg-sabzi'] };
 const ROTI: ComponentFoods = { dishes: ['roti', 'jowar-roti'] };
 
@@ -45,21 +53,21 @@ export const MEAL_DISHES: Readonly<Record<string, ComponentFoods>> = {
   'b-poha|A few peanuts': { dishes: ['roasted-peanuts'] },
   'b-upma|Beans, carrot, onion and other vegetables cooked in': { dishes: ['upma'] },
   'b-upma|Upma': { dishes: ['upma'] },
-  'b-upma|Sambar or dal on the side': { dishes: ['sambar', 'toor-dal'] },
+  'b-upma|Sambar or dal on the side': { dishes: ['sambar', 'toor-dal'], vegan: OIL },
   'b-upma|Dahi (curd), if you like': { dishes: ['dahi'] },
   'b-moong-chilla|Onion, tomato and palak in the batter, and a salad': { dishes: ['moong-dal-chilla', SALAD] },
   'b-moong-chilla|Moong dal chilla': { dishes: ['moong-dal-chilla'] },
   'b-moong-chilla|Mint chutney': { dishes: ['mint-chutney'] },
   'b-moong-chilla|Dahi (curd)': { dishes: ['dahi'] },
-  'b-dalia|Vegetables cooked in, and a salad': { dishes: ['vegetable-dalia', SALAD] },
-  'b-dalia|Moong dal, cooked in': { dishes: ['vegetable-dalia'] },
-  'b-dalia|Dalia (broken wheat)': { dishes: ['vegetable-dalia'] },
+  'b-dalia|Vegetables cooked in, and a salad': { dishes: ['vegetable-dalia', SALAD], vegan: OIL },
+  'b-dalia|Moong dal, cooked in': { dishes: ['vegetable-dalia'], vegan: OIL },
+  'b-dalia|Dalia (broken wheat)': { dishes: ['vegetable-dalia'], vegan: OIL },
   'b-egg-bhurji|Salad, or more vegetables': SIDE,
   'b-egg-bhurji|Egg bhurji with onion, tomato and palak': { dishes: ['egg-bhurji'] },
   'b-egg-bhurji|Whole-wheat or millet roti': ROTI,
   // Lunch
   'l-roti-dal-sabzi|Sabzi and salad — bhindi, lauki, gobhi or palak, with kheera and tomato': { dishes: ['mixed-veg-sabzi', 'bhindi-sabzi', SALAD], also: ['lauki', 'spinach'] },
-  'l-roti-dal-sabzi|Dal': { dishes: ['toor-dal'] },
+  'l-roti-dal-sabzi|Dal': { dishes: ['toor-dal'], vegan: OIL },
   'l-roti-dal-sabzi|Whole-wheat or millet roti': ROTI,
   'l-roti-dal-sabzi|Dahi (curd)': { dishes: ['dahi'] },
   'l-rice-sambar-poriyal|Poriyal and a kosambari-style salad': { dishes: ['poriyal', SALAD] },
@@ -93,16 +101,16 @@ export const MEAL_DISHES: Readonly<Record<string, ComponentFoods>> = {
   's-chaas|Chaas': { dishes: ['chaas'] },
   's-boiled-egg|Boiled egg': { dishes: ['boiled-egg'] },
   // Dinner
-  'd-khichdi|Vegetables cooked in, and a sabzi on the side': { dishes: ['moong-dal-khichdi', 'mixed-veg-sabzi'] },
-  'd-khichdi|Moong dal': { dishes: ['moong-dal-khichdi'] },
-  'd-khichdi|Rice or millet, cooked with the dal': { dishes: ['moong-dal-khichdi'] },
+  'd-khichdi|Vegetables cooked in, and a sabzi on the side': { dishes: ['moong-dal-khichdi', 'mixed-veg-sabzi'], vegan: OIL },
+  'd-khichdi|Moong dal': { dishes: ['moong-dal-khichdi'], vegan: OIL },
+  'd-khichdi|Rice or millet, cooked with the dal': { dishes: ['moong-dal-khichdi'], vegan: OIL },
   'd-khichdi|Dahi (curd)': { dishes: ['dahi'] },
   'd-millet-roti-dal|Sabzi and salad': SIDE,
-  'd-millet-roti-dal|Dal': { dishes: ['toor-dal'] },
+  'd-millet-roti-dal|Dal': { dishes: ['toor-dal'], vegan: OIL },
   // Bajra roti is made as jowar roti is (millet flour and water), with no allergen of its own.
   'd-millet-roti-dal|Jowar or bajra roti': { dishes: ['jowar-roti'] },
   'd-dal-bhat|Tarkari (vegetable curry) and salad': SIDE,
-  'd-dal-bhat|Dal': { dishes: ['toor-dal'] },
+  'd-dal-bhat|Dal': { dishes: ['toor-dal'], vegan: OIL },
   'd-dal-bhat|Rice': { dishes: ['rice'] },
   'd-paneer-bhurji|Salad and a vegetable side': SIDE,
   'd-paneer-bhurji|Paneer bhurji with onion and tomato': { dishes: ['paneer-bhurji'] },

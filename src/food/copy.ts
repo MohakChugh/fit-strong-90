@@ -70,6 +70,7 @@ export const FOOD_COPY = {
   whatsInIt: 'What’s in it',
   notCounted: 'not counted',
   recipeNote: 'Tagged from our recipe. Kitchens and brands differ.',
+  veganSwap: (swaps: string) => `For your plate, our recipes use ${swaps}.`,
   contains: (list: string) => `Contains ${list}`,
   mayContain: (list: string) => `May contain ${list}`,
   noTaggedAllergens: 'None of the allergens we tag',

@@ -1,6 +1,6 @@
 import { allergiesOf, recommendable, type AllergenTags } from '@/food/allergens';
 import { foodById, ingredientByKey } from '@/food/data';
-import type { Food } from '@/food/types';
+import type { Food, FoodIngredient } from '@/food/types';
 import type { AllergenId, FoodPreferences } from '@/types/profile';
 import { JAIN_LEAVES_OUT, mealPattern } from './allergens';
 import { MEALS } from './meals';
@@ -39,37 +39,84 @@ interface Part {
 }
 
 const dishPart = (f: Food): Part => ({ patterns: f.patterns, words: f.words, ...f.allergens });
+const ingredientPart = (i: FoodIngredient): Part =>
+  ({ patterns: i.patterns, words: i.words, contains: i.contains, mayContain: i.mayContain, complete: true, named: !i.blend });
 
-/** A component's foods: its dishes and the ingredients it names apart from them (H7-02). `undefined` for one the table lacks. */
-function partsOf(mapped: ComponentFoods): (Part | undefined)[] {
+/**
+ * A dish made with other ingredients in place of some of its own (a vegan
+ * plate's sunflower oil for ghee, H7-20): read from the ingredients, as the
+ * table reads the dish itself. `undefined` if one isn't in the table.
+ */
+function madeWith(f: Food, swaps: Readonly<Record<string, string>>): Part | undefined {
+  const used = f.recipe.ingredients.map(r => ingredientByKey(swaps[r.key] ?? r.key));
+  if (used.some(i => i === undefined)) return undefined;
+  const parts = (used as FoodIngredient[]).map(ingredientPart);
+  const contains = [...new Set(parts.flatMap(x => x.contains))];
+  return {
+    // A pattern suits the dish when it suits every ingredient (as patternsOf reads a recipe).
+    patterns: parts.reduce<readonly Pattern[]>((ok, x) => ok.filter(q => x.patterns.includes(q)), parts[0]?.patterns ?? []),
+    words: [...new Set([...[f.name, ...f.aliases].flatMap(tokens), ...parts.flatMap(x => x.words)])],
+    contains,
+    mayContain: [...new Set(parts.flatMap(x => x.mayContain))].filter(a => !contains.includes(a)),
+    complete: true,
+    named: parts.every(x => x.named),
+  };
+}
+
+/**
+ * A component's foods as this person's plate makes them: its dishes (with
+ * the map's vegan swaps, for a vegan) and the ingredients it names apart from
+ * them (H7-02, H7-20). `undefined` for one the table lacks.
+ */
+function partsOf(mapped: ComponentFoods, pattern?: Pattern): (Part | undefined)[] {
+  const swaps = pattern === 'vegan' ? mapped.vegan : undefined;
   return [
     ...mapped.dishes.map(id => {
       const f = foodById(id);
-      return f && dishPart(f);
+      if (!f) return undefined;
+      return swaps ? madeWith(f, swaps) : dishPart(f);
     }),
     ...(mapped.also ?? []).map(key => {
       const i = ingredientByKey(key);
-      return i && { patterns: i.patterns, words: i.words, contains: i.contains, mayContain: i.mayContain, complete: true, named: !i.blend };
+      return i && ingredientPart(i);
     }),
   ];
 }
 
 /**
- * Whether a template suits an eating pattern. A Jain plate is a vegetarian
- * one whose words name nothing Jain cooking leaves out, and whose dishes
- * all suit it (D100). Other patterns are as the templates were written.
+ * Whether a template suits an eating pattern: the template is written for
+ * it, and every recipe behind each part the person eats, as their plate
+ * makes it, suits it too (H7-20). A Jain plate's words also name nothing
+ * Jain cooking leaves out (D100). A part the map doesn't know, or a dish the
+ * table lacks, never suits a pattern (K7-18). Every food suits a
+ * non-vegetarian plate.
  */
 export function suits(meal: MealTemplate, pattern?: Pattern): boolean {
   const p = mealPattern(pattern);
-  if (p === undefined) return true;
+  if (p === undefined || pattern === undefined) return true;
   if (!meal.patterns.includes(p)) return false;
-  if (pattern !== 'jain') return true;
-  if ([...ownWords(meal, pattern)].some(w => JAIN_WORDS.has(w))) return false;
-  // A part the map doesn't know, or a dish the table lacks, never suits it (K7-18).
+  if (pattern === 'nonVegetarian') return true;
+  if (pattern === 'jain' && [...ownWords(meal, pattern)].some(w => JAIN_WORDS.has(w))) return false;
   return componentsFor(meal, pattern).every(c => {
     const mapped = dishesOf(meal, c);
-    return mapped !== undefined && partsOf(mapped).every(part => part?.patterns.includes('jain') === true);
+    return mapped !== undefined && partsOf(mapped, pattern).every(part => part?.patterns.includes(pattern) === true);
   });
+}
+
+/** The swaps a vegan plate makes in this idea's recipes, as the map says (H7-20): "sunflower oil instead of ghee". */
+export function veganSwaps(meal: MealTemplate, pattern?: Pattern): { from: string; to: string }[] {
+  if (pattern !== 'vegan') return [];
+  const seen = new Map<string, { from: string; to: string }>();
+  for (const c of componentsFor(meal, pattern)) {
+    const mapped = dishesOf(meal, c);
+    for (const [from, to] of Object.entries(mapped?.vegan ?? {})) {
+      const made = mapped!.dishes.some(id => foodById(id)?.recipe.ingredients.some(r => r.key === from));
+      const a = ingredientByKey(from);
+      const b = ingredientByKey(to);
+      if (made && a && b) seen.set(`${from}>${to}`, { from: a.name.toLowerCase(), to: b.name.toLowerCase() });
+    }
+  }
+  return [...seen.values()];
 }
 
 /**
@@ -92,7 +139,7 @@ export function mealTags(meal: MealTemplate, pattern?: Pattern): AllergenTags {
     }
     for (const a of mapped.mayContain ?? []) may.add(a);
     if (mapped.unknown) complete = named = false;
-    for (const part of partsOf(mapped)) {
+    for (const part of partsOf(mapped, pattern)) {
       if (!part) {
         complete = named = false;
         continue;
