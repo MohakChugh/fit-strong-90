@@ -238,6 +238,7 @@ export const RAW_FIELDS: Readonly<Record<RawKey, (a: SetupAnswers) => boolean>> 
   hba1cPercent: a => a.targets === 'yes' && factsOf(a).diabetic,
   glucoseStartMin: always,
   metforminSince: a => a.classes?.metformin === 'yes',
+  customAllergies: always,
 };
 
 /** The page a number typed under `key` is on. */

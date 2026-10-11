@@ -412,8 +412,9 @@ describe('one store of answers (board D169)', () => {
   it('numbers as typed are read as setup takes them: a key setup lacks, or a text longer than its field, is unreadable by name (H5-18)', async () => {
     const { readSettings } = await import('@/store/importCheck');
     const draft = (raw: unknown) => readSettings({ setup: { stage: 'open', draft: { at: 'about.name', answers: {}, raw } } });
-    expect(draft({ birthYear: '195', 'heightCm.ft': '5' }).unreadable).toEqual([]);
+    expect(draft({ birthYear: '195', 'heightCm.ft': '5', customAllergies: 'kiwi, '.repeat(300) }).unreadable).toEqual([]);
     expect(draft({ birthYear: '1'.repeat(13) }).unreadable).toEqual(['settings.setup.draft.raw']);
+    expect(draft({ customAllergies: 'k'.repeat(1861) }).unreadable).toEqual(['settings.setup.draft.raw']);
     expect(draft({ name: 'Kai' }).unreadable).toEqual(['settings.setup.draft.raw']);
   });
 

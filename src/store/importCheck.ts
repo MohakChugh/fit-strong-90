@@ -20,7 +20,7 @@ import { isDay } from '@/health/observation';
 import { isTextScale } from '@/lib/textSize';
 import { ALLERGEN_IDS } from '@/types/profile';
 import { CHAPTER_IDS, CONDITION_IDS, MEDICINE_CLASSES, PAGE_IDS } from '@/types/setup';
-import { NAME_MAX, OWN_ALLERGIES_MAX, OWN_ALLERGY_LENGTH_MAX, RAW_KEYS, TYPED_MAX } from '@/setup/limits';
+import { NAME_MAX, OWN_ALLERGIES_MAX, OWN_ALLERGY_LENGTH_MAX, RAW_KEYS, typedMax, type RawKey } from '@/setup/limits';
 import { RECORD_STORES } from './records';
 
 type Check = (x: unknown) => boolean;
@@ -112,8 +112,11 @@ const ANSWER_SPEC: Spec = {
 /** Setup's state, field by field (Review Focus 5): a draft at a page this build lacks loses only its page, never its answers. */
 const SETUP_SPEC: Spec = {
   stage: oneOf('open', 'lookAround', 'done'),
-  // Numbers as typed (H5R-13, H5-18): only the fields setup has, each as long as its field takes.
-  draft: { at: oneOf(...PAGE_IDS), answers: ANSWER_SPEC, raw: recordOf(oneOf(...RAW_KEYS), x => typeof x === 'string' && x.length <= TYPED_MAX) },
+  // What was typed (H5R-13, H5-18): only the fields setup has, each as long as its field takes.
+  draft: {
+    at: oneOf(...PAGE_IDS), answers: ANSWER_SPEC,
+    raw: x => isRecord(x) && Object.entries(x).every(([k, v]) => RAW_KEYS.includes(k as RawKey) && typeof v === 'string' && v.length <= typedMax(k as RawKey)),
+  },
   answers: ANSWER_SPEC,
   completedAt: text,
   skipped: listOf(oneOf(...CHAPTER_IDS)),

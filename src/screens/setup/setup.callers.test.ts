@@ -456,6 +456,38 @@ describe('a setup page, its answers kept as they’re given (§6.1; H5-16, K5-17
     expect(host.text()).toContain(SAVE_FAILED);
   });
 
+  it('a field takes no more than a backup holds: the name by its length, and allergies of the person’s own kept as typed until they fit (H5-18)', async () => {
+    const { NAME_MAX } = await import('@/setup/limits');
+    host = await page('about.name');
+    expect(host.field('Name (optional)').props.maxLength).toBe(NAME_MAX);
+    host.unmount();
+    const { FoodAllergies } = await import('./pages/food');
+    const { PageFrame } = await import('./PageFrame');
+    const allergies = async () => {
+      const shown = render(createElement(PageFrame, { id: 'food.allergies', View: FoodAllergies }));
+      await shown.settle();
+      return shown;
+    };
+    host = await allergies();
+    const long = `kiwi, ${'x'.repeat(61)}`;
+    await host.change(host.field('Something else you’re allergic to (optional)'), { value: long });
+    await host.click(host.button('Next', { exact: true }));
+    await host.settle();
+    expect(router.navigate).not.toHaveBeenCalled();
+    expect(host.text()).toContain('Each allergy in 60 characters or fewer.');
+    await reopen();
+    expect([draft()?.answers?.allergies, draft()?.answers?.customAllergies]).toEqual([undefined, undefined]);
+    expect(draft()?.raw).toEqual({ customAllergies: long });
+    host = await allergies();
+    expect(host.field('Something else you’re allergic to (optional)').props.value).toBe(long);
+    await host.change(host.field('Something else you’re allergic to (optional)'), { value: 'kiwi, brinjal' });
+    await host.click(host.button('Next', { exact: true }));
+    await host.settle();
+    expect(router.navigate).toHaveBeenCalledWith('/setup/food/logging', undefined);
+    expect(draft()?.answers).toMatchObject({ allergies: [], customAllergies: ['kiwi', 'brinjal'] });
+    expect(draft()?.raw).toBeUndefined();
+  });
+
   it('Me’s Save waits for a number typed that isn’t an answer yet (H5R-15)', async () => {
     expect((await store.update(d => completedSetup(d, MINIMAL, NOW, CTX))).ok).toBe(true);
     host = render(createElement(ChapterEditor, { chapter: 'about' }));

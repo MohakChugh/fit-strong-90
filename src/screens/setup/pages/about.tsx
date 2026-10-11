@@ -3,7 +3,7 @@ import { Group } from '@/components/hig/List';
 import { Segmented } from '@/screens/you/controls';
 import { convertWeightText, weightFieldText } from '@/components/profile/wizardSteps';
 import { asksAdult, birthYearProblem } from '@/setup/age';
-import { nameProblem } from '@/setup/limits';
+import { NAME_MAX, nameProblem } from '@/setup/limits';
 import { heightFrom, heightProblem, heightText, numberFrom, textOf, waistFrom, waistProblem, waistText, weightFrom, weightProblem, type HeightText } from '@/setup/units';
 import { YES_NO } from '../choices';
 import { Ask, Missing, NumberAnswer, TextInput, type PageProps } from '../controls';
@@ -20,7 +20,7 @@ export function AboutName({ a, raw, set, tried, ctx }: PageProps) {
   return (
     <>
       <Group footer="Shown on screen only. The voice coach never says it.">
-        <TextInput label="Name (optional)" text={a.name ?? ''} onText={name => set({ name })} autoComplete="given-name" />
+        <TextInput label="Name (optional)" text={a.name ?? ''} onText={name => set({ name })} autoComplete="given-name" maxLength={NAME_MAX} />
       </Group>
       <Missing show={tried && nameIssue !== null}>{nameIssue ?? ''}</Missing>
       <Group footer="Some advice changes with age.">

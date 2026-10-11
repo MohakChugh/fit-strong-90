@@ -4,7 +4,7 @@ import { Group } from '@/components/hig/List';
 import { ChoiceRows, type Choice } from '@/screens/you/controls';
 import { cn } from '@/lib/utils';
 import type { Ctx } from '@/setup/graph';
-import { TYPED_MAX } from '@/setup/limits';
+import { typedMax } from '@/setup/limits';
 import type { SetupAnswers, Tri } from '@/types/setup';
 
 /** Numbers as typed, by their key (`RAW_KEYS`). */
@@ -146,7 +146,7 @@ export function NumberAnswer({ label, text, onText, placeholder, decimals = fals
   hint?: string;
 }) {
   return (
-    <TextInput label={label} text={text} inputMode={decimals ? 'decimal' : 'numeric'} placeholder={placeholder} hint={hint} maxLength={TYPED_MAX}
+    <TextInput label={label} text={text} inputMode={decimals ? 'decimal' : 'numeric'} placeholder={placeholder} hint={hint} maxLength={typedMax('birthYear')}
       onText={onText} />
   );
 }
