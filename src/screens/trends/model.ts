@@ -12,7 +12,7 @@ import { restDaysOf } from '@/screens/home/week';
 import { HIGH_GLUCOSE_MGDL, HYPO_LEVEL_1_MGDL } from '@/screens/track/escalation';
 import { formatClock, formatDayLong, formatValue, type DisplayPrefs } from '@/screens/track/format';
 import { LAB_OPTIONS, type LabKind } from '@/screens/track/logKinds';
-import { daysBetween } from '@/screens/track/periods';
+import { addDays, daysBetween } from '@/screens/track/periods';
 import { displayBoundaries } from '@/screens/track/targets';
 import { MGDL_PER_MMOL, decimalsFor, formatNumber, safeDecimals } from '@/screens/track/units';
 import type { UserSettings } from '@/types';
@@ -79,6 +79,7 @@ export interface TrendInput {
 }
 
 const noon = (day: string) => new Date(`${day}T12:00:00`);
+const earlier = (a: string, b: string) => (a < b ? a : b);
 const cap = (s: string) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
 
 /** "Tue 6 Oct", and "Tue 30 Dec 2025" outside today's year, so an older clinical value is never undated (H3-05). */
@@ -265,10 +266,26 @@ export function dailyView(input: TrendInput): TrendView {
   }
 
   const dayly = w.period === 'week' || w.period === 'month';
-  const cellsOf = (win: TrendWindow) => win.buckets.map(b => (dayly ? dayCell(b.from, byDay.get(b.from), input, rule) : bucketCell(b, figures, input, rule)));
-  const current = cellsOf(w);
-  // A shorter month or 6 months before has fewer slots: those have nothing behind them.
-  const before: (Cell | undefined)[] = cellsOf(prev);
+  const cellOf = (b: DayRange) => (dayly ? dayCell(b.from, byDay.get(b.from), input, rule) : bucketCell(b, figures, input, rule));
+  const current = w.buckets.map(cellOf);
+  // The period before, slot by slot, over the same days as the slot it sits behind (H3-13): a day for a day; in 6 Months the
+  // same days from the start of the 6 months before; in Year the same month a year before; and beside the slot holding today,
+  // only as many of its days as have passed, the comparison's own (A-42). A longer window has nothing behind its last days.
+  const beforeRanges: (DayRange | undefined)[] = w.buckets.map((b, i) => {
+    if (dayly) return prev.buckets[i];
+    const same = w.period === 'year' ? prev.buckets[i]
+      : { from: addDays(prev.from, daysBetween(w.from, b.from)), to: addDays(prev.from, daysBetween(w.from, b.to)) };
+    if (!same || same.from > prev.to) return undefined;
+    const elapsed = b.from <= ctx.today && ctx.today < b.to ? addDays(same.from, daysBetween(b.from, ctx.today)) : same.to;
+    return { from: same.from, to: earlier(earlier(elapsed, same.to), prev.to) };
+  });
+  const before = beforeRanges.map(r => (r ? cellOf(r) : undefined));
+  // 6 Months and Year name the days behind each slot: a month by its name, other days by their dates.
+  const beforeName = (i: number): string => {
+    const r = beforeRanges[i];
+    if (dayly || !r) return '';
+    return `, ${r.from.endsWith('-01') && r.to === monthEnd(r.from) ? format(noon(r.from), 'MMMM yyyy') : rangeText(r, ctx.today)}`;
+  };
   const beforeLabel = cap(against);
   const slots: Slot[] = w.buckets.map((b, i) => {
     const c = current[i];
@@ -283,7 +300,7 @@ export function dailyView(input: TrendInput): TrendView {
       ...(c.mark ? { mark: c.mark } : {}),
       ...(future ? { future: true as const } : {}),
       ...(dayly && !future ? { day: b.from } : {}),
-      text: `${name}: ${c.text}.${was ? ` ${beforeLabel}: ${was.brief}.` : ''}`,
+      text: `${name}: ${c.text}.${was ? ` ${beforeLabel}${beforeName(i)}: ${was.brief}.` : ''}`,
     };
   });
   const series: ChartSeries[] = [
@@ -301,7 +318,7 @@ export function dailyView(input: TrendInput): TrendView {
   };
 
   const head = dayly ? 'Day' : w.period === 'sixMonths' ? 'Week' : 'Month';
-  const rows = w.buckets.flatMap((b, i) => (b.from > ctx.today ? [] : [[slots[i].name, current[i].text, before[i]?.brief ?? '']]));
+  const rows = w.buckets.flatMap((b, i) => (b.from > ctx.today ? [] : [[slots[i].name, current[i].text, before[i] ? `${before[i].brief}${beforeName(i)}` : '']]));
   return {
     title, headline, change, stats, notes, chart,
     table: { columns: [head, title, beforeLabel], rows },

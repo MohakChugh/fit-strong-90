@@ -4,6 +4,7 @@ import type { CheckInRecord } from '@/types/checkin';
 import { bpContext, newObservation, type Observation } from '@/health/observation';
 import { weekdayOf } from '@/health/status';
 import { DEFAULT_PREFS } from '@/screens/track/format';
+import { addDays } from '@/screens/track/periods';
 import { TRENDS } from './metrics';
 import { dailyView, labsView, readingCount, readingsView, trendContext, trendRow } from './model';
 import { windowOf } from './periods';
@@ -137,7 +138,7 @@ describe('6 Months of a stated measure: each week’s bar is its average a day (
     const bars = view.chart.series[1];
     expect(bars.kind === 'bars' && [bars.values[slot('2026-09-21')], bars.values[slot('2026-09-28')], bars.values[slot('2026-10-05')], bars.values[slot('2026-10-12')]])
       .toEqual([null, 5500, 18500 / 3, null]);
-    expect(view.chart.slots[slot('2026-09-28')].text).toBe('28 Sep – 4 Oct: 5,500 steps a day on average, from 7 days with steps. The 6 months before: Not entered.');
+    expect(view.chart.slots[slot('2026-09-28')].text).toBe('28 Sep – 4 Oct: 5,500 steps a day on average, from 7 days with steps. The 6 months before, 31 Mar – 6 Apr: Not entered.');
     expect(view.chart.slots[slot('2026-10-12')]).toMatchObject({ future: true, label: '12 Oct' });
     expect(view.chart.slots[slot('2026-10-12')].text.startsWith('12–18 Oct: Still to come.')).toBe(true);
   });
@@ -169,9 +170,43 @@ describe('a counted Year: a month on average, a bar a month (D68)', () => {
     expect([view.chart.slots[0].name, view.chart.slots[10].name]).toEqual(['November 2025', 'September 2026']);
     const bars = view.chart.series[1];
     expect(bars.kind === 'bars' && bars.values.slice(9)).toEqual([null, 110, 70]);
-    expect(view.chart.slots[10].text).toBe('September 2026: 110 min. The 12 months before: Before your first record.');
+    expect(view.chart.slots[10].text).toBe('September 2026: 110 min. The 12 months before, September 2025: Before your first record.');
     expect(view.chart.slots.every(s => s.day === undefined)).toBe(true);
     expect(view.table.columns).toEqual(['Month', 'Nov 2025 – Oct 2026', 'The 12 months before']);
+  });
+});
+
+describe('the period before, slot by slot, over the same days (H3-13)', () => {
+  // 30 minutes of walking every day from 1 November 2024 to today, Thursday 8 October 2026.
+  const days = Array.from({ length: 707 }, (_, i) => addDays('2024-11-01', i)).filter(d => d <= TODAY);
+  const every = data(days.flatMap((d, i) => walk(`e${i}`, d, 30)));
+  const c = ctx({ since: '2024-11-01' });
+
+  it('Year: this October so far beside the same days of last October, both named, never the whole month', () => {
+    const year = dailyView({ def: TRENDS.walk, window: windowOf('year', TODAY), data: every, prefs, ctx: c });
+    const october = year.chart.slots.findIndex(s => s.key === '2026-10-01');
+    const [previous, current] = year.chart.series;
+    expect([previous.kind === 'bars' && previous.values[october], current.kind === 'bars' && current.values[october]]).toEqual([240, 240]);
+    expect(year.chart.slots[october].text).toBe('October 2026: 240 min. The 12 months before, 1–8 Oct 2025: 240 min.');
+    // A month wholly past is set beside the whole of the same month a year before.
+    expect(year.chart.slots[october - 1].text).toBe('September 2026: 900 min. The 12 months before, September 2025: 900 min.');
+    expect(year.table.rows.at(-1)).toEqual(['October 2026', '240 min', '240 min, 1–8 Oct 2025']);
+  });
+
+  it('6 Months: each week beside the same days from the start of the 6 months before, as long as it', () => {
+    const six = dailyView({ def: TRENDS.walk, window: windowOf('sixMonths', TODAY), data: every, prefs, ctx: c });
+    const [previous, current] = six.chart.series;
+    if (previous.kind !== 'bars' || current.kind !== 'bars') throw new Error('bars');
+    // 1–3 May is three days: beside 1–3 November, never the two days of 1–2 November's week.
+    expect(six.chart.slots[0].text).toBe('1–3 May: 90 min. The 6 months before, 1–3 Nov 2025: 90 min.');
+    // This week so far, Monday to Thursday, beside the same 4 days: the comparison's own days (A-42).
+    const now = six.chart.slots.findIndex(s => s.key === '2026-10-05');
+    expect([previous.values[now], current.values[now]]).toEqual([120, 120]);
+    expect(six.chart.slots[now].text).toBe('5–11 Oct: 120 min. The 6 months before, 7–10 Apr: 120 min.');
+    expect(six.change).toMatchObject({ text: 'The same as the 6 months before', compared: '1 May – 8 Oct vs 1 Nov 2025 – 10 Apr 2026' });
+    // The 6 months before are 3 days shorter: the last week has 28–30 April behind it, never 1–2 May, this window's own.
+    expect(previous.values.at(-1)).toBe(90);
+    expect(six.chart.slots.at(-1)?.text).toBe('26–31 Oct: Still to come. The 6 months before, 28–30 Apr: 90 min.');
   });
 });
 
