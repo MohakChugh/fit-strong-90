@@ -168,7 +168,7 @@ function dayCell(day: string, f: DayFigure | undefined, { def, prefs, ctx }: Tre
   // Shading is for movement charts only (J§12.2); a rest day is shaded only when nothing was done on it.
   const mark: SlotMark | undefined = !def.movement ? undefined : status !== 'normal' ? status : !f && ctx.restOn(day) ? 'rest' : undefined;
   if (f) {
-    // FitStrong walks only, or walks after an entered total: a lower bound, said so wherever it's said (D90).
+    // FitStrong walks only, or walks after an entered total: a lower bound, said so wherever it's said (D127).
     const brief = `${lowerBound(f) ? 'at least ' : ''}${formatNumber(f.value, d)} ${unit}`;
     return { value: f.value, ...(mark ? { mark } : {}), text: `${brief}${f.note ? `, ${f.note}` : ''}${mark ? ` (${MARK_WORDS[mark]})` : ''}`, brief };
   }
@@ -230,7 +230,7 @@ export function dailyView(input: TrendInput): TrendView {
     coverage: statistic === 'total' ? countText(s.recordDays, ['day', 'days'])
       : statistic === 'perDay' ? countText(s.days, def.coverage)
         : `from ${countText(s.days, ['day', 'days'])}`,
-    // An average over a lower bound is one too (D90).
+    // An average over a lower bound is one too (D127).
     ...(value === undefined ? { value: rule === 'stated' ? 'Not entered' : 'Nothing recorded' } : { value: `${s.partialDays > 0 ? 'at least ' : ''}${formatNumber(value, d)}`, unit }),
   };
 
@@ -259,7 +259,7 @@ export function dailyView(input: TrendInput): TrendView {
 
   const notes: string[] = [];
   const list = statusList(s.status);
-  // Counted: status days and empty rest days are in the total, out of the average (D88); stated: each figure counts, its day named.
+  // Counted: status days and empty rest days are in the total, out of the average (D125); stated: each figure counts, its day named.
   if (list) notes.push(rule === 'counted' ? `Includes ${s.outside > 0 ? `${formatNumber(s.outside, d)} ${unit} on ` : ''}${list}, not in the average.` : `Includes ${list}.`);
   if (s.restDays > 0) notes.push(`Includes ${countText(s.restDays, ['rest day', 'rest days'])} with nothing recorded, not in the average.`);
   if (s.partialDays > 0) {

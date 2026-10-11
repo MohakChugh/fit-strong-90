@@ -37,7 +37,7 @@ export interface WeekFacts {
   /** "by this time last week", "the week before". */
   beforeName: string;
   stretchDays: number;
-  /** `partial`: the average takes in a day that is a lower bound (D90). */
+  /** `partial`: the average takes in a day that is a lower bound (D127). */
   steps?: { perDay: number; days: number; partial: boolean };
   /** Readings past a line, a meter's LO and HI among them: never how many were taken (KT-05, A-15, K-51). */
   glucose?: { lows: number; highs: number };

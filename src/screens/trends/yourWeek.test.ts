@@ -86,7 +86,7 @@ describe('Your week’s facts and sentences (journey §12.1, B-15)', () => {
     expect(weekSentences(high, prefs)).toEqual(['1 glucose reading was above 250 mg/dL this week.']);
   });
 
-  it('steps that are a lower bound are said as one (D90, H3-11)', () => {
+  it('steps that are a lower bound are said as one (D127, H3-11)', () => {
     const walked = (day: string, id: string) => newObservation({ kind: 'steps', value: 1000, at: `${day}T18:00:00.000+05:30`, scope: 'sessionObserved', source: 'measured', coverageMs: 600_000, context: `walk:${id}` });
     const facts = weekFacts({ week: '2026-10-05', data: data([walked('2026-10-05', 'a'), walked('2026-10-06', 'b'), steps('2026-10-07', 5500)]), prefs, ctx: ctx() });
     expect(weekSentences(facts, prefs)).toContain('At least 2,500 steps a day on average this week, from 3 days with steps.');

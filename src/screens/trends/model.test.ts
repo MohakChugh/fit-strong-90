@@ -101,7 +101,7 @@ describe('a counted measure: Walk, with Away days and a rest day (B-15, D25, K-4
     expect(view.chart.slots[2]).toMatchObject({ mark: 'away', text: 'Wednesday, 30 September: Away. The week before: 30 min.' });
     expect(view.chart.slots[4]).toMatchObject({ mark: 'away', text: 'Friday, 2 October: 10 min (Away). The week before: 10 min.' });
     expect(view.chart.slots[6]).toMatchObject({ mark: 'rest', text: 'Sunday, 4 October: Rest day. The week before: Rest day.' });
-    // Over the 4 Normal days with data, never the Away day's 10 minutes or the empty rest day (D88, KT-03, KT-08).
+    // Over the 4 Normal days with data, never the Away day's 10 minutes or the empty rest day (D125, KT-03, KT-08).
     expect(view.chart.average).toEqual({ value: 27.5, label: 'Average 28 min a day' });
   });
 
@@ -332,7 +332,7 @@ describe('steps that are a lower bound (J§9.6, V-J26)', () => {
 
   it('says “at least”, with both sources, and notes how many days are lower bounds', () => {
     expect(view.chart.slots[3].text).toBe('Thursday, 8 October: at least 7,300 steps, 6,050 entered at 12:05 pm + 1,250 in walks after 12:05 pm. Last week: Not entered.');
-    // FitStrong walks only is a lower bound too (D90, H3-11).
+    // FitStrong walks only is a lower bound too (D127, H3-11).
     expect(view.chart.slots[2].text).toBe('Wednesday, 7 October: at least 4,210 steps, in FitStrong walks · day total not entered. Last week: Not entered.');
     expect(view.notes).toEqual(['2 days show at least the steps counted: FitStrong walks only, or walks after a total was entered.']);
     expect(view.headline).toEqual({ statistic: 'A day on average', coverage: '2 days with steps', value: 'at least 5,755', unit: 'steps' });
@@ -340,7 +340,7 @@ describe('steps that are a lower bound (J§9.6, V-J26)', () => {
     expect(view.chart.average?.label).toBe('Average: at least 5,755 steps a day');
   });
 
-  it('a lower bound is never set against a whole total: no exact change (D90, H3-11)', () => {
+  it('a lower bound is never set against a whole total: no exact change (D127, H3-11)', () => {
     // Last week's Monday to Wednesday were entered totals of 6,000; this week's are FitStrong walks of 1,000 each.
     const obs = [
       ...['2026-09-28', '2026-09-29', '2026-09-30'].map(d => steps(d, 6000)),

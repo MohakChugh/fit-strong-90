@@ -6,7 +6,7 @@
  *   nothing in it is a real 0, and a day of data. A status day (Away, Unwell,
  *   Flare-up) and a planned rest day with nothing recorded are shaded and
  *   aren't days of data: they are out of the average, both what was done on
- *   them and the days, though the total keeps it (D25, K-49, D88).
+ *   them and the days, though the total keeps it (D25, K-49, D125).
  * - `stated`: steps, water and sleep, which the person enters. A day without
  *   a figure is "Not entered", never 0, and isn't a day of data (D14).
  * - readings: each numeric reading counts once, at its measured time. A
@@ -79,9 +79,9 @@ export interface DailyStats {
   recordDays: number;
   /** What was recorded on the days of data, over them; absent with no day of data. */
   perDay?: number;
-  /** Counted: what was recorded on status days, in the total but not the average (D88). */
+  /** Counted: what was recorded on status days, in the total but not the average (D125). */
   outside: number;
-  /** Counted: planned rest days with nothing recorded, left out of the average (D88, KT-08). */
+  /** Counted: planned rest days with nothing recorded, left out of the average (D125, KT-08). */
   restDays: number;
   /** The highest day of data. */
   high?: { day: string; value: number };
@@ -149,7 +149,7 @@ export type Comparison =
   | { shown: true; direction: Direction; difference: number }
   /**
    * `fewKinds`: readings of more than one kind (fasting, after a meal), none on 3 days in both windows (KT-07).
-   * `partial`: a day's figure is a lower bound, never set against a whole one (D90, H3-11).
+   * `partial`: a day's figure is a lower bound, never set against a whole one (D127, H3-11).
    */
   | { shown: false; reason: 'fewDays' | 'meterLo' | 'fewKinds' | 'partial' };
 
@@ -163,7 +163,7 @@ export function compareDaily(current: DailyStats, previous: DailyStats, statisti
   const a = figureOf(current, statistic);
   const b = figureOf(previous, statistic);
   if (current.days < MIN_DAYS || previous.days < MIN_DAYS || a === undefined || b === undefined) return { shown: false, reason: 'fewDays' };
-  // A lower bound has no exact difference from anything (D90).
+  // A lower bound has no exact difference from anything (D127).
   if (current.partialDays + previous.partialDays > 0) return { shown: false, reason: 'partial' };
   return change(a, b, decimals);
 }
