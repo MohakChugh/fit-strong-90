@@ -6,7 +6,7 @@ import { weekdayOf } from '@/health/status';
 import { DEFAULT_PREFS } from '@/screens/track/format';
 import { addDays } from '@/screens/track/periods';
 import { TRENDS } from './metrics';
-import { dailyView, labsView, readingCount, readingsView, trendContext, trendRow } from './model';
+import { dailyView, labsView, latestLab, readingCount, readingsView, trendContext, trendRow } from './model';
 import { windowOf } from './periods';
 import type { DayContext } from './stats';
 
@@ -800,6 +800,14 @@ describe('more of labs and the rows', () => {
     expect(trendRow(TRENDS.labs, data([lab('hba1c', 7.4, '2025-11-20')]), prefs, ctx()).value).toBe('Latest HbA1c: 7.4% · Thu 20 Nov 2025');
     const old = g(118, '2025-12-30T07:30:00+05:30');
     expect(trendRow(TRENDS.glucose, data([old]), prefs, ctx({ since: '2025-12-30' })).value).toBe('Latest: 118 mg/dL at 7:30 am · Tue 30 Dec 2025');
+  });
+
+  it('the Labs row opens the lab it names: one rule, the latest result of any lab (H3-20)', () => {
+    const both = data([lab('hba1c', 7.1, '2026-03-02'), lab('b12', 410, '2026-06-02')]);
+    expect(trendRow(TRENDS.labs, both, prefs, ctx())).toMatchObject({ value: 'Latest Vitamin B12: 410 pg/mL · Tue 2 Jun', search: '?metric=b12' });
+    expect(latestLab(both.observations, prefs)?.lab).toBe('b12');
+    expect(latestLab([], prefs)).toBeUndefined();
+    expect(trendRow(TRENDS.labs, data([]), prefs, ctx()).search).toBeUndefined();
   });
 
   it('the Labs row names the latest result of any lab, or says there are none', () => {

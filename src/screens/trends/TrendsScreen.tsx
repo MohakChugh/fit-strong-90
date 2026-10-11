@@ -36,7 +36,7 @@ import { WEEK_BRIEF_KEY, briefPause, briefSeen, emptyLine, pendingGoalText, week
 /** A category's row (§12.1): its icon, its title, its figure with the statistic named, and a small chart. */
 function TrendLink({ row, origin }: { row: TrendRowView; origin: Origin }) {
   return (
-    <Link to={`/trends/${row.id}`} state={origin} viewTransition className="@container press-feedback block transition-colors active:bg-muted/60">
+    <Link to={`/trends/${row.id}${row.search ?? ''}`} state={origin} viewTransition className="@container press-feedback block transition-colors active:bg-muted/60">
       <span className="flex min-h-[3.25rem] items-center gap-3 px-4 py-2.5 @max-[16rem]:flex-wrap @max-[16rem]:px-2">
         {row.id === 'mood'
           ? <span aria-hidden className="flex size-11 shrink-0 items-center justify-center rounded-full bg-tint/10 text-tint"><SmileIcon className="size-6" strokeWidth={2.1} /></span>

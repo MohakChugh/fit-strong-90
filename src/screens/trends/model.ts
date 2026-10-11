@@ -572,10 +572,20 @@ export function labsView(lab: LabKind, data: TrendData, prefs: DisplayPrefs, tod
   };
 }
 
+/** The latest result of any lab, the one the Labs row names and Labs opens on without `?metric=` (H3-20). */
+export function latestLab(observations: TrendData['observations'], prefs: DisplayPrefs): { lab: LabKind; row: LabRow } | undefined {
+  return LAB_OPTIONS
+    .flatMap(o => labHistory(labPoints(o.kind, observations, prefs)).map(row => ({ lab: o.kind, row })))
+    .sort((a, b) => a.row.day.localeCompare(b.row.day))
+    .at(-1);
+}
+
 export interface TrendRowView {
   id: TrendId;
   title: string;
   colour: string;
+  /** The trend's address after its path: Labs opens the lab its row names. */
+  search?: string;
   /** The figure with its statistic named: "A day on average this week: 6,167 steps" (J§12.1). */
   value: string;
   /** The small chart's values, oldest first; empty draws none. */
@@ -586,13 +596,11 @@ export interface TrendRowView {
 export function trendRow(def: TrendDef, data: TrendData, prefs: DisplayPrefs, ctx: DayContext): TrendRowView {
   const base = { id: def.id, title: def.title, colour: def.colour };
   if (def.family === 'labs') {
-    const latest = LAB_OPTIONS
-      .flatMap(o => labHistory(labPoints(o.kind, data.observations, prefs)).map(r => ({ lab: o.kind, r })))
-      .sort((a, b) => a.r.day.localeCompare(b.r.day))
-      .at(-1);
+    const latest = latestLab(data.observations, prefs);
     return {
       ...base,
-      value: latest ? `Latest ${LAB_TITLE[latest.lab]}: ${formatValue(latest.r.value, latest.lab, latest.r.unit)} · ${shortDay(latest.r.day, ctx.today)}` : 'No results yet',
+      value: latest ? `Latest ${LAB_TITLE[latest.lab]}: ${formatValue(latest.row.value, latest.lab, latest.row.unit)} · ${shortDay(latest.row.day, ctx.today)}` : 'No results yet',
+      ...(latest ? { search: `?metric=${latest.lab}` } : {}),
       spark: [],
     };
   }

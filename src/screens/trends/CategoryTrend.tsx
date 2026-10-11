@@ -23,8 +23,8 @@ import { useToday } from '@/screens/track/useToday';
 import { RouteThumb } from '@/screens/walk/RouteThumb';
 import { useStore } from '@/store/useStore';
 import type { RouteRecord } from '@/walk/routeRecord';
-import { labPoints, trendDef, type TrendDef, type TrendId } from './metrics';
-import { dailyView, labsView, readingsView, trendContext } from './model';
+import { trendDef, type TrendDef, type TrendId } from './metrics';
+import { dailyView, labsView, latestLab, readingsView, trendContext } from './model';
 import { PeriodControl } from './PeriodControl';
 import { anchorOf, isCurrent, isTrendPeriod, nextWindow, pagerLabels, previousWindow, windowOf, type TrendPeriod } from './periods';
 import { activities } from './records';
@@ -151,8 +151,8 @@ function LabsTrend({ def }: { def: TrendDef }) {
   const location = useLocation();
   const [params, setParams] = useSearchParams();
   const asked = params.get('metric');
-  // The lab the address names (B-14), or the first with results; HbA1c when none has any.
-  const lab: LabKind = asked !== null ? labFrom(asked) : LAB_OPTIONS.find(o => labPoints(o.kind, state.observations, prefs).length > 0)?.kind ?? 'hba1c';
+  // The lab the address names (B-14), or the latest result of any, as the Labs row names it (H3-20); HbA1c when none has any.
+  const lab: LabKind = asked !== null ? labFrom(asked) : latestLab(state.observations, prefs)?.lab ?? 'hba1c';
   const view = useMemo(() => labsView(lab, data, prefs, today), [lab, data, prefs, today]);
   const choose = (next: LabKind) => {
     markInPlace();

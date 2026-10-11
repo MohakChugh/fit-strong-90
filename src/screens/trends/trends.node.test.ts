@@ -58,3 +58,10 @@ describe('Your week keeps the goal its own week had, whichever week it is (H3-14
     expect(trends).not.toContain('rings.find(r => r.week === week)?.goal');
   });
 });
+
+describe('the Labs row opens the lab it names (H3-20)', () => {
+  it('the row carries its lab, and Labs opened without one shows the latest, by the same rule', () => {
+    expect(read('TrendsScreen.tsx')).toContain('to={`/trends/${row.id}${row.search ?? \'\'}`}');
+    expect(read('CategoryTrend.tsx')).toContain("const lab: LabKind = asked !== null ? labFrom(asked) : latestLab(state.observations, prefs)?.lab ?? 'hba1c';");
+  });
+});
