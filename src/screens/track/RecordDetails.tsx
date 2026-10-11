@@ -54,6 +54,10 @@ function usePrefs(): DisplayPrefs {
 
 type Back = { to: string; label: string };
 
+/** An energy reading's screen in counts-free (B-11, H7-07). */
+const COUNTS_FREE_FIGURE = 'No energy figure is shown while numbers are off. They can be turned on in Me → Food.';
+const COUNTS_FREE_EDIT = 'It can’t be corrected while numbers are off, since that shows its figure.';
+
 /** The screen for a record that is no longer on this device: an old link, or one just deleted elsewhere. */
 function Gone({ title, back }: { title: string; back: Back }) {
   return (
@@ -124,16 +128,19 @@ export function ReadingDetail() {
   // A screen opened from here comes back here.
   const here: Origin = { path: location.pathname, label: kindTitle(o.kind) };
 
+  // Counts-free hides an energy figure from movement on its own screen too, however it's reached: its time,
+  // source and Delete stay, and nothing that shows the figure, a correction included (B-11, H7-07).
+  const figureHidden = o.kind === 'activeEnergy' && countsFree(profile);
   const shown = inDisplayUnit(o, prefs);
   // Never rounded across a threshold the reading is judged against (J06).
   const value = formatNumber(shown.value, shownDecimals(shown.value, o.kind, shown.unit));
   const unit = unitLabel(shown.unit);
-  const blocked = editBlock(o) ?? replacedBlock(o, observations);
+  const blocked = figureHidden ? COUNTS_FREE_EDIT : editBlock(o) ?? replacedBlock(o, observations);
   const reading = interpretation(o, prefs, profile);
   const isTotal = o.scope === 'dayTotal';
   const counts = countsForDay(o, observations);
   const earlier = isTotal ? observations.filter(x => x.kind === o.kind && x.day === o.day && x.scope === 'dayTotal' && x.id !== o.id).sort(compareObservations) : [];
-  const enteredAs = o.unit !== shown.unit ? formatValue(o.value, o.kind, o.unit) : undefined;
+  const enteredAs = o.unit !== shown.unit && !figureHidden ? formatValue(o.value, o.kind, o.unit) : undefined;
 
   // A check-in's reading leaves the record every gate reads as well, in the
   // same write, so the next save of that day cannot bring it back (C2-01).
@@ -156,7 +163,11 @@ export function ReadingDetail() {
 
   return (
     <Screen title={kindTitle(o.kind)} back={back}>
-      <Stat value={value} unit={unit} label={isTotal ? `Day total, ${formatDayLong(o.day, current)}` : dateline(o, prefs, current)} size="reading" tone={reading?.tone === 'default' ? undefined : reading?.tone} />
+      {figureHidden ? (
+        <p className="px-1 text-[length:var(--text-body)] leading-snug text-muted-foreground">{dateline(o, prefs, current)}. {COUNTS_FREE_FIGURE}</p>
+      ) : (
+        <Stat value={value} unit={unit} label={isTotal ? `Day total, ${formatDayLong(o.day, current)}` : dateline(o, prefs, current)} size="reading" tone={reading?.tone === 'default' ? undefined : reading?.tone} />
+      )}
 
       <Group>
         {!isTotal && <Row label="Time" value={isLabKind(o.kind) ? 'Date of test' : hasClockTime(o) ? formatClock(o.at, prefs.hour12) : 'Not recorded'} />}
@@ -182,7 +193,7 @@ export function ReadingDetail() {
         />
       )}
 
-      {earlier.length > 0 && (
+      {earlier.length > 0 && !figureHidden && (
         <Group header="Other entries for this day" footer="The latest statement is the day’s total; earlier ones are kept, not added.">
           {earlier.map(x => (
             <Row

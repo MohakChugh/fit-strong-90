@@ -52,7 +52,7 @@ Object.assign(globalThis, {
 
 const store = await import('@/store/useStore');
 const { WalkSummary } = await import('@/screens/walk/WalkSummary');
-const { WalkDetail } = await import('./RecordDetails');
+const { ReadingDetail, WalkDetail } = await import('./RecordDetails');
 const { MyDay } = await import('./MyDay');
 const { saveMeal } = await import('@/food/store');
 const { nowAt } = await import('@/health/observation');
@@ -139,6 +139,30 @@ describe('a walk’s energy estimate, counts-free (B-11, KH-09)', () => {
     await before.settle();
     expect(before.text()).toContain('Energy (estimate)');
     expect(before.text()).toMatch(/about \d+ kcal/);
+  });
+});
+
+describe('an energy reading’s own screen, counts-free (H7-07)', () => {
+  it('shows no figure for an energy reading with no walk, opened by its address, and keeps its delete', async () => {
+    const at = nowAt();
+    const added = await store.addObservation({ kind: 'activeEnergy', value: 21.4, scope: 'sessionObserved', source: 'manual', at, coverageMs: 600_000 });
+    expect(added.ok).toBe(true);
+    router.id = added.ok ? added.value.id : '';
+    const free = await show(ReadingDetail, 'meals');
+    expect(free.text()).toContain('Active energy');
+    expect(free.text()).not.toMatch(/kcal|21/);
+    expect(free.text()).toContain('Delete this reading');
+    expect(free.buttons('Correct this')).toHaveLength(0);
+
+    await store.update(prev => ({ ...prev, profile: person('estimates') }));
+    await free.settle();
+    expect(free.text()).toMatch(/21(\.4)? kcal|21\.4/);
+  });
+  it('keeps a clinical measurement’s figure: only energy from movement goes (B-11)', async () => {
+    const added = await store.addObservation({ kind: 'weight', value: 71.5, unit: 'kg', scope: 'pointInTime', source: 'manual', at: nowAt() });
+    expect(added.ok).toBe(true);
+    router.id = added.ok ? added.value.id : '';
+    expect((await show(ReadingDetail, 'meals')).text()).toContain('71.5');
   });
 });
 
