@@ -20,16 +20,25 @@ export interface Allergen {
   aliases: readonly string[];
 }
 
+// Every word Plan 5's interim lists read as an allergen is kept (board D82), since setup and backups stored
+// custom allergies against them; allergens.test.ts holds that list (H7-01, K7-01).
 const ALLERGEN_DEFS: Record<AllergenId, Omit<Allergen, 'id'>> = {
   peanut: { label: 'Peanuts', name: 'peanut', aliases: ['peanut', 'groundnut', 'moongphali', 'mungfali', 'nut', 'मूंगफली', 'मूँगफली'] },
   treeNut: { label: 'Tree nuts (almond, cashew)', name: 'tree nuts', aliases: ['tree nut', 'nut', 'almond', 'badam', 'cashew', 'kaju', 'walnut', 'akhrot', 'pistachio', 'pista', 'hazelnut', 'pecan', 'बादाम', 'काजू'] },
-  milk: { label: 'Milk', name: 'milk', aliases: ['milk', 'dairy', 'lactose', 'curd', 'dahi', 'yogurt', 'yoghurt', 'paneer', 'ghee', 'butter', 'cream', 'cheese', 'khoya', 'doodh', 'दूध', 'दही', 'पनीर', 'घी'] },
-  egg: { label: 'Egg', name: 'egg', aliases: ['egg', 'anda', 'अंडा'] },
+  milk: {
+    label: 'Milk', name: 'milk',
+    aliases: [
+      'milk', 'dairy', 'lactose', 'curd', 'dahi', 'yogurt', 'yoghurt', 'paneer', 'ghee', 'butter', 'buttermilk', 'cream', 'cheese', 'khoya', 'khoa',
+      'mawa', 'malai', 'chhena', 'doodh', 'raita', 'chaas', 'lassi', 'thayir', 'दूध', 'दही', 'पनीर', 'घी',
+    ],
+  },
+  egg: { label: 'Egg', name: 'egg', aliases: ['egg', 'anda', 'omelette', 'अंडा'] },
   // Our recipes use no barley, rye or oats, so gluten here is wheat's (D99).
-  wheat: { label: 'Wheat (gluten)', name: 'wheat', aliases: ['wheat', 'gluten', 'atta', 'maida', 'sooji', 'suji', 'rava', 'semolina', 'gehun', 'coeliac', 'celiac', 'गेहूं', 'गेहूँ', 'मैदा'] },
+  wheat: { label: 'Wheat (gluten)', name: 'wheat', aliases: ['wheat', 'gluten', 'atta', 'maida', 'sooji', 'suji', 'rava', 'semolina', 'dalia', 'daliya', 'gehun', 'coeliac', 'celiac', 'गेहूं', 'गेहूँ', 'मैदा'] },
   soy: { label: 'Soy', name: 'soy', aliases: ['soy', 'soya', 'soybean', 'tofu'] },
-  sesame: { label: 'Sesame (til)', name: 'sesame', aliases: ['sesame', 'til', 'gingelly', 'तिल'] },
-  fish: { label: 'Fish', name: 'fish', aliases: ['fish', 'seafood', 'machli', 'machhli', 'मछली'] },
+  // "Seeds" may be sesame, as Plan 5 read it.
+  sesame: { label: 'Sesame (til)', name: 'sesame', aliases: ['sesame', 'til', 'gingelly', 'seed', 'तिल'] },
+  fish: { label: 'Fish', name: 'fish', aliases: ['fish', 'seafood', 'machli', 'machhli', 'meen', 'मछली'] },
   shellfish: { label: 'Shellfish (prawn, crab)', name: 'shellfish', aliases: ['shellfish', 'seafood', 'crustacean', 'prawn', 'shrimp', 'jhinga', 'crab', 'lobster', 'mollusc', 'mollusk', 'squid', 'clam', 'oyster', 'mussel', 'झींगा'] },
   mustard: { label: 'Mustard (rai)', name: 'mustard', aliases: ['mustard', 'rai', 'sarson', 'सरसों', 'राई'] },
 };

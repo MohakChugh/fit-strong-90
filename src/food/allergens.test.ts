@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALLERGEN_IDS } from '@/types/profile';
+import { ALLERGEN_IDS, type AllergenId } from '@/types/profile';
 import { ALLERGENS, allergenList, allergiesOf, allergyWarning, recommendable, resolveAllergens, type AllergenTags } from './allergens';
 
 const tags = (over: Partial<AllergenTags> = {}): AllergenTags => ({ contains: [], mayContain: [], complete: true, words: [], ...over });
@@ -35,6 +35,28 @@ describe('resolveAllergens: the person’s own words to canonical ids (B-13, Rev
   it('names nothing for a word it doesn’t know', () => {
     expect(resolveAllergens('brinjal')).toEqual([]);
     expect(resolveAllergens('  ')).toEqual([]);
+  });
+  // Plan 5's interim word lists (board D82), which setup and restored backups wrote custom allergies against (H7-01, K7-01).
+  const PLAN_5_TERMS: Record<AllergenId, readonly string[]> = {
+    peanut: ['peanut', 'groundnut', 'moongphali', 'mungfali', 'nut', 'मूंगफली'],
+    treeNut: ['nut', 'almond', 'badam', 'cashew', 'kaju', 'walnut', 'akhrot', 'pistachio', 'pista', 'hazelnut', 'pecan', 'बादाम', 'काजू'],
+    milk: ['milk', 'dairy', 'lactose', 'curd', 'dahi', 'yogurt', 'yoghurt', 'paneer', 'cheese', 'ghee', 'butter', 'buttermilk', 'cream', 'khoya', 'doodh', 'raita', 'chaas', 'lassi', 'thayir', 'दूध', 'दही', 'पनीर', 'घी'],
+    egg: ['egg', 'anda', 'omelette', 'अंडा'],
+    wheat: ['wheat', 'gluten', 'atta', 'maida', 'sooji', 'suji', 'rava', 'semolina', 'dalia', 'daliya', 'गेहूं'],
+    soy: ['soy', 'soya', 'soybean', 'tofu'],
+    sesame: ['sesame', 'til', 'gingelly', 'seed', 'तिल'],
+    fish: ['fish', 'seafood', 'machli', 'machhli', 'meen', 'मछली'],
+    shellfish: ['shellfish', 'seafood', 'prawn', 'shrimp', 'jhinga', 'crab', 'lobster', 'squid', 'clam', 'oyster', 'mussel', 'झींगा'],
+    mustard: ['mustard', 'rai', 'sarson', 'सरसों', 'राई'],
+  };
+  it('keeps every word Plan 5 read as an allergen, so an allergy setup or a backup stored still names it (H7-01, K7-01)', () => {
+    for (const [id, terms] of Object.entries(PLAN_5_TERMS)) for (const term of terms) expect(resolveAllergens(term), `${term} → ${id}`).toContain(id);
+    expect(resolveAllergens('Buttermilk')).toEqual(['milk']);
+    expect(resolveAllergens('omelettes')).toEqual(['egg']);
+    expect(resolveAllergens('seeds')).toEqual(['sesame']);
+  });
+  it('reads the other words for milk sweets and cream as milk (K7-01)', () => {
+    for (const word of ['khoa', 'mawa', 'malai', 'chhena']) expect(resolveAllergens(word), word).toEqual(['milk']);
   });
 });
 

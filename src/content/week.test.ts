@@ -141,6 +141,17 @@ describe('setup’s food answers in meal ideas (board D82)', () => {
     expect(ids(food('vegetarian', { customAllergies: ['groundnuts'] }), 'breakfast')).not.toContain('b-poha');
   });
 
+  it('reads a word Plan 5 stored for an allergen as that allergen, through every dish: buttermilk is milk (H7-01, K7-01)', () => {
+    const milk = ids(food('vegetarian', { allergies: ['milk'] }));
+    for (const word of ['buttermilk', 'lassi', 'raita', 'chaas', 'thayir']) {
+      expect(ids(food('vegetarian', { customAllergies: [word] })), word).toEqual(milk);
+      expect(ids(food('vegetarian', { customAllergies: [word] }), 'lunch'), word).not.toContain('l-palak-paneer');
+    }
+    expect(ids(food('eggetarian', { customAllergies: ['omelette'] }), 'breakfast')).not.toContain('b-egg-bhurji');
+    expect(ids(food('vegetarian', { customAllergies: ['daliya'] }), 'lunch')).not.toContain('l-roti-dal-sabzi');
+    expect(ids(food('nonVegetarian', { customAllergies: ['meen'] }), 'lunch')).not.toContain('l-fish-curry-rice');
+  });
+
   it('gives a Jain plate vegetarian ideas at every meal, with nothing Jain cooking leaves out', () => {
     const jain = food('jain');
     for (const slot of SLOTS) {
