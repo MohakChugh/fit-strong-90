@@ -2,11 +2,12 @@ import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { CheckIcon } from 'lucide-react';
 import { Sheet } from '@/components/hig/Sheet';
 import { PATTERN_DETAIL, PATTERN_LABEL, unmatchedAvoid, withPicked, type Pattern, type Region } from '@/content';
-import { ALLERGENS } from '@/food/allergens';
+import { ALLERGENS, setupAllergyAnswer } from '@/food/allergens';
 import { FOOD_COPY } from '@/food/copy';
 import { CheckRows } from '@/screens/you/controls';
 import type { AllergenId, FoodPreferences } from '@/types/profile';
 import { cn } from '@/lib/utils';
+import { useStore } from '@/store/useStore';
 import { AVOID_HELP, ownAllergyNote, parseAllergies, parseAvoid, REGION_LABEL, unmatchedNote } from './format';
 import { saveFood } from './useGuide';
 
@@ -41,8 +42,11 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
     food?.region && food.region !== 'mixed' ? food.region : 'any',
   );
   const [avoid, setAvoid] = useState(food?.avoid.join(', ') ?? '');
-  const [chosen, setChosen] = useState<AllergenId[]>(food?.allergies ?? []);
-  const [otherAllergies, setOtherAllergies] = useState((food?.customAllergies ?? []).join(', '));
+  // With no food record yet, the allergies start from the answer setup is keeping for one (board D185).
+  const { settings } = useStore();
+  const [waiting] = useState(() => (food ? undefined : setupAllergyAnswer(settings.setup)));
+  const [chosen, setChosen] = useState<AllergenId[]>(food?.allergies ?? waiting?.allergies ?? []);
+  const [otherAllergies, setOtherAllergies] = useState((food?.customAllergies ?? waiting?.customAllergies ?? []).join(', '));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   const avoidId = useId();

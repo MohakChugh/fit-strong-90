@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { ALLERGEN_IDS, type AllergenId } from '@/types/profile';
-import { ALLERGENS, allergenList, allergiesOf, allergyWarning, ownFoodTags, recommendable, resolveAllergens, type AllergenTags } from './allergens';
+import { ALLERGEN_IDS, type AllergenId, type FoodPreferences } from '@/types/profile';
+import {
+  ALLERGENS, allergenList, allergiesOf, allergyAnswer, allergyWarning, ownFoodTags, recommendable, resolveAllergens, setupAllergyAnswer, type AllergenTags,
+} from './allergens';
 import type { CustomFood } from './types';
 
 const tags = (over: Partial<AllergenTags> = {}): AllergenTags => ({ contains: [], mayContain: [], complete: true, named: true, words: [], ...over });
@@ -151,5 +153,32 @@ describe('your own food’s allergens: unanswered is unknown, and its name is re
   it('never reads your own food as fully known by name', () => {
     expect(ownFoodTags(own({ allergens: [] }))).toMatchObject({ complete: true, named: false });
     expect(ownFoodTags(own())).toMatchObject({ complete: false, named: false });
+  });
+});
+
+describe('the allergy answer setup keeps for a food record not made yet (Plan 5’s D166, D167; board D185)', () => {
+  // Asked on setup's 'food.allergies' page whatever the pattern: with 'food.pattern' skipped, it waits in setup's answers.
+  it('reads the answer from finished setup, or else the draft, as given', () => {
+    expect(setupAllergyAnswer({ stage: 'done', answers: { allergies: ['peanut'], customAllergies: ['brinjal'], skippedPages: ['food.pattern'] } }))
+      .toEqual({ allergies: ['peanut'], customAllergies: ['brinjal'] });
+    expect(setupAllergyAnswer({ stage: 'open', draft: { answers: { allergies: ['milk'] } } })).toEqual({ allergies: ['milk'] });
+    expect(setupAllergyAnswer({ answers: { pattern: 'vegan' }, draft: { answers: { customAllergies: ['chaach'] } } })).toEqual({ customAllergies: ['chaach'] });
+    // "No food allergies" is an answer: an empty list.
+    expect(setupAllergyAnswer({ answers: { allergies: [] } })).toEqual({ allergies: [] });
+  });
+  it('is nothing, never “none”, when setup holds no answer, or one it can’t read', () => {
+    expect(setupAllergyAnswer(undefined)).toBeUndefined();
+    expect(setupAllergyAnswer({})).toBeUndefined();
+    expect(setupAllergyAnswer({ answers: { pattern: 'vegetarian' } })).toBeUndefined();
+    expect(setupAllergyAnswer({ answers: { allergies: 'peanut' } } as never)).toBeUndefined();
+    expect(setupAllergyAnswer({ answers: { allergies: ['peanut', 'unicorn', 7] } } as never)).toEqual({ allergies: ['peanut'] });
+  });
+  it('gives the food record’s own allergies wherever there is one, and setup’s only without', () => {
+    const setup = { answers: { allergies: ['milk' as const] } };
+    const vegan: FoodPreferences = { pattern: 'vegan', avoid: [] };
+    expect(allergyAnswer({ ...vegan, allergies: ['peanut'] } as FoodPreferences, setup)).toEqual({ allergies: ['peanut'] });
+    expect(allergyAnswer(vegan, setup)).toEqual({});
+    expect(allergyAnswer(undefined, setup)).toEqual({ allergies: ['milk'] });
+    expect(allergyAnswer(undefined, undefined)).toBeUndefined();
   });
 });

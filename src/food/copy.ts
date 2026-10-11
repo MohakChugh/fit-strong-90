@@ -14,6 +14,11 @@ export const FOOD_COPY = {
   noIdeaLeft: (slot: string) => `${slot} · every idea has a food you’re allergic to or chose to leave out`,
   chooseFood: 'What you eat',
   chooseFoodDetail: 'Tell us how you eat, for ideas that suit you',
+  // With no food record and no allergy answer waiting, allergies aren't known: never "none" (board D185).
+  allergiesFirst: 'Tell us about food allergies first',
+  allergiesFirstDetail: 'Meal ideas leave out anything you’re allergic to, so we ask before showing any.',
+  notChosenYet: 'Not chosen yet',
+  notChosenAllergies: 'Not chosen yet — meals for every pattern, without your allergies',
   logWhatYouAte: 'Log what you ate',
   startLogging: 'Log what you eat',
   startLoggingDetail: 'Optional: meals only, or with estimates',

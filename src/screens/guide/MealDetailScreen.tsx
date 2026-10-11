@@ -20,7 +20,7 @@ const OWN_PORTIONS = ['fd-personal-plan'];
 export default function MealDetailScreen() {
   const { mealId = '' } = useParams();
   const { state } = useLocation();
-  const { ctx, food } = useGuide();
+  const { ctx, food, allergies, filter } = useGuide();
   const meal = getMeal(mealId);
   if (!meal) return <Navigate to="/hub/food/ideas" replace />;
 
@@ -36,8 +36,9 @@ export default function MealDetailScreen() {
   const pattern = food?.pattern;
   const parts = componentsFor(meal, pattern);
   const tags = mealTags(meal, pattern);
-  // Why an idea is kept from this person's suggestions, in the allergy's own words (K7-14).
-  const warning = food ? allergyWarning(tags, allergiesOf(food)) : undefined;
+  // Why an idea is kept from this person's suggestions, in the allergy's own words (K7-14), with no food record from
+  // the allergies setup is keeping; with no answer at all, that they're not known, which is never none (board D185).
+  const warning = allergies ? allergyWarning(tags, allergiesOf(allergies)) : FOOD_COPY.allergiesFirst;
   // A vegan plate's recipes, as the map makes them (H7-20).
   const swapped = veganSwaps(meal, pattern).map(s => `${s.to} instead of ${s.from}`);
   // One pass over the screen: each claim and caution once, in reading order.
@@ -55,7 +56,7 @@ export default function MealDetailScreen() {
       <Lead>
         {slot}
         {where ? ` · ${where}` : ''}
-        {food && !mealAllowed(meal, food) ? ' · Outside the food choices you gave' : ''}
+        {filter && !mealAllowed(meal, filter) ? ' · Outside the food choices you gave' : ''}
       </Lead>
       <RoughCarbs />
 

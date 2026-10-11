@@ -13,7 +13,7 @@ import { Group, Row } from '@/components/hig/List';
 import { cameFrom } from '@/components/hig/navigation';
 import { Sheet } from '@/components/hig/Sheet';
 import { TOAST_STYLE } from '@/components/hig/toast';
-import { allergiesOf, allergyWarning, ownFoodTags } from '@/food/allergens';
+import { allergiesOf, allergyAnswer, allergyWarning, ownFoodTags } from '@/food/allergens';
 import { FOOD_COPY } from '@/food/copy';
 import { FOODS, foodById } from '@/food/data';
 import { atOn, openDraft } from '@/food/draft';
@@ -57,13 +57,14 @@ type Page =
   | { kind: 'quick' };
 
 export function LogMealSheet({ request, onClose }: { request: LogRequest; onClose: () => void }) {
-  const { profile, records } = useStore();
+  const { profile, records, settings } = useStore();
   const today = useToday();
   const { now: clock } = useClock();
   const hour12 = prefersHour12();
   const ids = { search: useId(), usual: useId() };
   const numbers = numbersView(profile);
-  const allergies = allergiesOf(profile?.food);
+  // With no food record yet, the allergies setup is keeping warn as well (board D185).
+  const allergies = allergiesOf(allergyAnswer(profile?.food, settings.setup));
   const meals = mealsIn(records);
   const saved = savedMealsIn(records);
   const customs = customFoodsIn(records);

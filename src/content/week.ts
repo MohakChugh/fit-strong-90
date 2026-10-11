@@ -170,8 +170,11 @@ export function isAvoided(meal: MealTemplate, avoid: readonly string[] = [], pat
   });
 }
 
-/** Every filter for one person (A-16, B-13): the pattern, the foods they leave out, and their allergies. */
-export function mealAllowed(meal: MealTemplate, food?: FoodPreferences): boolean {
+/**
+ * Every filter for one person (A-16, B-13): the pattern, the foods they leave out, and their allergies. A
+ * filter may hold allergies alone: setup's waiting answer, before there's a food record (board D185).
+ */
+export function mealAllowed(meal: MealTemplate, food?: Partial<FoodPreferences>): boolean {
   return suits(meal, food?.pattern)
     && !isAvoided(meal, food?.avoid, food?.pattern)
     && recommendable(mealTags(meal, food?.pattern), allergiesOf(food));
@@ -212,7 +215,7 @@ export function ownAllergyReading(entry: string): { allergens: AllergenId[] } | 
  * there come first and every other dish still follows, so a preference
  * narrows the order, never the choice.
  */
-export function mealsFor(food?: FoodPreferences, slot?: Slot): MealTemplate[] {
+export function mealsFor(food?: Partial<FoodPreferences>, slot?: Slot): MealTemplate[] {
   const pool = MEALS.filter(m => (slot === undefined || m.slot === slot) && mealAllowed(m, food));
   const region = food?.region && food.region !== 'mixed' ? food.region : undefined;
   if (!region) return pool;

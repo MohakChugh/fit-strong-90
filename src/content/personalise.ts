@@ -17,6 +17,11 @@ export interface GuideContext {
   /** The person's own answer restated, e.g. "You have type 2 diabetes". */
   because: ReadonlyMap<Predicate, string>;
   food?: FoodPreferences;
+  /**
+   * What the person is allergic to as far as it's known: the food record's, or setup's waiting answer
+   * without one (board D185). Absent is not known, never none: meal ideas ask first.
+   */
+  allergies?: Pick<FoodPreferences, 'allergies' | 'customAllergies'>;
 }
 
 /** A context from explicit facts: for tests, and for callers without a profile. */

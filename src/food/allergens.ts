@@ -10,6 +10,7 @@
  */
 import { tokens } from '@/content/text';
 import { ALLERGEN_IDS, type AllergenId, type FoodPreferences } from '@/types/profile';
+import type { SetupRecord } from '@/types/setup';
 import type { CustomFood } from './types';
 
 export interface Allergen {
@@ -86,6 +87,34 @@ function resolve(text: string): { ids: AllergenId[]; whole: boolean } {
   if (exact.length > 0) return { ids: unique(exact), whole: true };
   const have = new Set(words);
   return { ids: unique(ALIASES.filter(a => a.words.length > 0 && a.words.every(w => have.has(w))).map(a => a.id)), whole: false };
+}
+
+/** What the person said they're allergic to: the chips' ids and their own words. */
+export type AllergyAnswer = Pick<FoodPreferences, 'allergies' | 'customAllergies'>;
+
+/**
+ * The allergy answer setup keeps for a food record not made yet (Plan 5's D166, D167; board D185): asked on its
+ * 'food.allergies' page whatever the pattern, so with the pattern skipped it waits in setup's answers. Read from
+ * finished setup, else the draft, as far as it can be read. Nothing is no answer, which is never "none".
+ */
+export function setupAllergyAnswer(setup: SetupRecord | undefined): AllergyAnswer | undefined {
+  const answered = (a: unknown): a is Record<string, unknown> =>
+    typeof a === 'object' && a !== null && ((a as Record<string, unknown>).allergies !== undefined || (a as Record<string, unknown>).customAllergies !== undefined);
+  const answers = [setup?.answers, setup?.draft?.answers].find(answered);
+  if (!answers) return undefined;
+  const allergies = Array.isArray(answers.allergies) ? answers.allergies.filter(isAllergenId) : undefined;
+  const custom = Array.isArray(answers.customAllergies) ? answers.customAllergies.filter((w): w is string => typeof w === 'string' && w.trim() !== '') : undefined;
+  if (!allergies && !custom) return undefined;
+  return { ...(allergies ? { allergies } : {}), ...(custom ? { customAllergies: custom } : {}) };
+}
+
+/**
+ * The person's allergies as far as they're known (board D185): their food record's wherever there is one, and
+ * without one, setup's waiting answer. Nothing means not known: meal ideas ask first, never treat it as none.
+ */
+export function allergyAnswer(food: AllergyAnswer | undefined, setup: SetupRecord | undefined): AllergyAnswer | undefined {
+  if (!food) return setupAllergyAnswer(setup);
+  return { ...(food.allergies ? { allergies: food.allergies } : {}), ...(food.customAllergies ? { customAllergies: food.customAllergies } : {}) };
 }
 
 export interface Allergies {

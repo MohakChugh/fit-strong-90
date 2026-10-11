@@ -11,14 +11,15 @@ import { createDefaultProfile } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, textOf, type Host } from '@/test/host';
 
-const params = vi.hoisted(() => ({ mealId: 'd-khichdi' }));
+const params = vi.hoisted(() => ({ mealId: 'd-khichdi', q: '' }));
 vi.mock('react-router-dom', async () => {
   const { createElement: h } = await import('react');
   return {
     useNavigate: () => () => {},
     useLocation: () => ({ pathname: '/me/food', search: '', state: null, key: 'k0' }),
     useParams: () => ({ mealId: params.mealId }),
-    Link: ({ children }: { children?: unknown }) => h('a', null, children as never),
+    useSearchParams: () => [new URLSearchParams(params.q ? { q: params.q } : {}), () => {}],
+    Link: ({ children, to }: { children?: unknown; to?: string }) => h('a', { href: to }, children as never),
     Navigate: () => null,
   };
 });
@@ -30,6 +31,10 @@ vi.mock('sonner', () => ({
 vi.mock('@/components/hig/Screen', async () => {
   const { createElement: h } = await import('react');
   return { Screen: ({ title, children }: { title: string; children?: unknown }) => h('main', null, h('h1', null, title), children as never) };
+});
+vi.mock('@/screens/hub/HubFrame', async () => {
+  const { createElement: h } = await import('react');
+  return { HubFrame: ({ children }: { children?: unknown }) => h('main', null, children as never) };
 });
 vi.mock('@/components/hig/Sheet', async () => {
   const { createElement: h } = await import('react');
@@ -156,6 +161,73 @@ describe('removing an allergy offers Undo, until you leave Me → Food (K7R-01; 
     host = undefined;
     await new Promise(r => setTimeout(r, 0));
     expect(toasts.dismissed).toContain(offered.id);
+  });
+});
+
+describe('meal ideas with no food record yet: allergies not known, never none (Plan 5’s D166, D167; board D185)', () => {
+  // What setup's 'food.allergies' page keeps when 'food.pattern' was skipped: no food record, the answer waiting.
+  const WAITING = { stage: 'done' as const, answers: { allergies: ['peanut' as const], customAllergies: ['brinjal'], skippedPages: ['food.pattern' as const] } };
+  const ASK = 'Tell us about food allergies first';
+  const ideas = (h: Host) => h.all().map(n => n.props.href).filter((to): to is string => typeof to === 'string' && to.startsWith('/hub/food/ideas/'));
+  const person = async (setup?: typeof WAITING) => {
+    await store.update(prev => ({ ...prev, profile: createDefaultProfile({ birthYear: 1970, weightKg: 70 }), settings: { ...prev.settings, ...(setup ? { setup } : {}) } }));
+    expect(store.getState().profile?.food).toBeUndefined();
+  };
+  const shown = async (load: () => Promise<{ default: () => unknown }>) => {
+    host = render(createElement((await load()).default as never));
+    await host.settle();
+    return host;
+  };
+  it('leave out the allergies setup is keeping: no peanut idea, and nothing asked', async () => {
+    await person(WAITING);
+    const h = await shown(() => import('@/screens/guide/MealIdeasScreen'));
+    expect(ideas(h).length).toBeGreaterThan(0);
+    expect(ideas(h)).not.toContain('/hub/food/ideas/b-poha');
+    expect(h.text()).not.toContain(ASK);
+  });
+  it('ask first, with no answer at all, and offer no idea until then', async () => {
+    await person();
+    const h = await shown(() => import('@/screens/guide/MealIdeasScreen'));
+    expect(ideas(h)).toEqual([]);
+    expect(h.text()).toContain(ASK);
+  });
+  it('in search too: no peanut poha with the waiting answer, and asked first with none', async () => {
+    params.q = 'poha';
+    try {
+      await person(WAITING);
+      let h = await shown(() => import('@/screens/guide/GuideScreen'));
+      expect(ideas(h)).not.toContain('/hub/food/ideas/b-poha');
+      expect(h.text()).not.toContain(ASK);
+      h.unmount();
+      store.resetForTests();
+      await store.start({ factory: fakeIndexedDB(), broadcast: null });
+      await person();
+      h = await shown(() => import('@/screens/guide/GuideScreen'));
+      expect(ideas(h)).toEqual([]);
+      expect(h.text()).toContain(ASK);
+    } finally {
+      params.q = '';
+    }
+  });
+  it('on a meal idea’s page: warns from the waiting answer, and asks with none', async () => {
+    params.mealId = 'b-poha';
+    await person(WAITING);
+    let h = await shown(() => import('@/screens/guide/MealDetailScreen'));
+    expect(h.text()).toContain('Contains peanut, which you listed as an allergy');
+    h.unmount();
+    store.resetForTests();
+    await store.start({ factory: fakeIndexedDB(), broadcast: null });
+    await person();
+    h = await shown(() => import('@/screens/guide/MealDetailScreen'));
+    expect(h.text()).toContain(ASK);
+  });
+  it('start the picker from the waiting answer', async () => {
+    await person(WAITING);
+    const { FoodPicker } = await import('@/screens/guide/FoodPicker');
+    host = render(createElement(FoodPicker, { open: true, onOpenChange() {}, canSave: true }));
+    await host.settle();
+    expect(host.all().find(n => n.props.role === 'checkbox' && textOf(n.children) === 'Peanuts')?.props['aria-checked']).toBe(true);
+    expect(host.field('Something else').props.value).toBe('brinjal');
   });
 });
 

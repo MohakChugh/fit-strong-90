@@ -148,6 +148,20 @@ describe('your own food’s allergens, in the tray (H7-04)', () => {
   });
 });
 
+describe('with no food record yet, the allergies setup is keeping (Plan 5’s D166, D167; board D185)', () => {
+  it('warn in the tray as the food record’s would', async () => {
+    // What setup's 'food.allergies' page keeps when 'food.pattern' was skipped.
+    await store.update(prev => ({
+      ...prev, profile: createDefaultProfile({ birthYear: 1970, weightKg: 70 }),
+      settings: { ...prev.settings, setup: { stage: 'done', answers: { allergies: ['peanut'], skippedPages: ['food.pattern'] } } },
+    }));
+    host = render(createElement(LogMealSheet, { request: {}, onClose: () => {} }));
+    await host.settle();
+    await addOwn(host, 'Peanut chutney');
+    expect(item(host, 'Peanut chutney')).toContain('May contain peanut, which you listed as an allergy');
+  });
+});
+
 describe('your own food’s checklist, once answered (K7R-04; board D182)', () => {
   const own = async (h: Host, name: string) => {
     await h.change(h.field('Search foods'), { value: name });
