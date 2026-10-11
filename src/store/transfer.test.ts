@@ -1086,6 +1086,46 @@ describe('no import resolves or reopens this device’s incidents, in any mode (
   });
 });
 
+describe('an import keeps this device’s standing for each mode (H6R-04, board D175)', () => {
+  const profile = createDefaultProfile({
+    weightKg: 72,
+    health: { diabetes: 'type2', metformin: true, glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
+  });
+  const TODAY = '2026-10-08';
+  const NOW = new Date(2026, 9, 8, 13, 40);
+  const evaluated = (c: DailyCheckIn): CheckInRecord => ({ ...c, readiness: evaluateCheckIn(profile, c) });
+  const day = (over: Partial<DailyCheckIn> = {}): DailyCheckIn => ({ date: TODAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over });
+  const snapshot = (checkIns: CheckInRecord[]) => ({ ...emptySnapshot(3), profile, settings: { theme: 'dark' } as UserSettings, checkIns });
+  const file = (checkIns: CheckInRecord[]) => toTransferDoc({ ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings, checkIns }, '2026-10-08T13:20:00.000+05:30');
+  const MODES = [['Replace', 'replace', undefined], ['Merge, keeping this device’s', 'merge', 'keepDevice'], ['Merge, taking the file’s', 'merge', 'takeFile']] as const;
+  const after = (base: ReturnType<typeof snapshot>, raw: TransferDoc, mode: 'replace' | 'merge', onConflict?: 'keepDevice' | 'takeFile') => {
+    const next = prepare(base, planImport(raw, mode, base, { now: NOW, ...(onConflict ? { onConflict } : {}) }).change).next;
+    const all = effectiveCheckIns(next.checkIns, profile, next.observations);
+    return (m: 'walk' | 'stretch') => permission({ profile, checkIn: all.find(c => c.date === TODAY), recent: all, now: NOW }, m);
+  };
+
+  it('a foot sore said today, which refuses only walking, still refuses it after the file’s healthy copy of the day', () => {
+    const sore = snapshot([evaluated(day({ news: ['footProblem'] }))]);
+    const ask = (m: 'walk' | 'stretch') => permission({ profile, checkIn: sore.checkIns[0], recent: sore.checkIns, now: NOW }, m);
+    // Walking only: the day's own readiness is no hold.
+    expect(ask('walk').allowed).toBe(false);
+    expect(ask('stretch').allowed).toBe(true);
+    for (const [name, mode, onConflict] of MODES) {
+      const next = after(sore, file([evaluated(day())]), mode, onConflict);
+      expect(next('walk').allowed, name).toBe(false);
+      expect(next('walk').reasons.join(' '), name).toMatch(/foot/i);
+    }
+  });
+
+  it('walking that made the leg worse today still ends walking for the day after the file’s copy from before', () => {
+    const provoked = snapshot([evaluated(day({ provoked: ['brisk-walking'], back: { pain: 3, legPain: 4, reach: 'thigh' } }))]);
+    expect(permission({ profile, checkIn: provoked.checkIns[0], recent: provoked.checkIns, now: NOW }, 'walk').allowed).toBe(false);
+    for (const [name, mode, onConflict] of MODES) {
+      expect(after(provoked, file([evaluated(day({ back: { pain: 3, legPain: 4, reach: 'thigh' } }))]), mode, onConflict)('walk').allowed, name).toBe(false);
+    }
+  });
+});
+
 describe('a file’s readings never release this device’s clock hold, in any mode (B-19, H6R-03, board D174)', () => {
   const profile = createDefaultProfile({
     weightKg: 72,

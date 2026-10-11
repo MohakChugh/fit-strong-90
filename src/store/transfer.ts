@@ -911,7 +911,8 @@ const holds = (r: { disposition?: string }) => DISPOSITION_ORDER.indexOf((r.disp
 /**
  * This device's incidents (journey §4.6, H6-03, P8-02): whether its own
  * record holds movement today at hold or worse — an unresolved low, a stop, a
- * red flag, an emergency answer — asked of the engine as every gate asks it,
+ * red flag, an emergency answer — or refuses one mode, as a foot sore refuses
+ * walking (H6R-04), asked of the engine as every gate asks it,
  * with Track's readings; or still has serious readings, or answers about
  * them, that decide today. If so, every record their standing depends on: the
  * days the engine reads today (`reachableHistory`), with their readings. An
@@ -947,8 +948,11 @@ export function openIncidents(base: Pick<Snapshot, 'checkIns' | 'observations' |
     for (const id of readingIdsIn(c)) known.add(id);
     for (const a of c.resolutions ?? []) for (const id of a.readings) known.add(id);
   }
-  // An answer about a reading decides its standing as much as the reading does (P8-02).
-  if (!holds(r) && (r.episodes?.length ?? 0) === 0 && !reach.some(c => c.resolutions?.length)) return { checkIns: [], observations: [], known };
+  // An answer about a reading decides its standing as much as the reading does (P8-02), and a
+  // refusal of one mode is an incident whatever the day's overall rank: a new foot sore refuses
+  // only walking, and the day's readiness is no hold (H6R-04, board D175).
+  const refuses = r.reasons.some(x => (x.refuses?.length ?? 0) > 0);
+  if (!holds(r) && !refuses && (r.episodes?.length ?? 0) === 0 && !reach.some(c => c.resolutions?.length)) return { checkIns: [], observations: [], known };
   // Track-only days are in the view, so in `reach` whenever they can count.
   const days = new Set(reach.map(c => c.date));
   return {
