@@ -159,8 +159,8 @@ describe('setup in a backup file, read field by field (journey §18.1; D-08; Rev
     expect(planImport(file({ settings: { ...settings, setup } }), 'replace', emptySnapshot()).change.settings?.replace?.setup).toEqual(setup);
   });
 
-  it('keeps every "Not sure" setup offers, the four new ones included (K5-09)', () => {
-    const unsure = { ...setup, draft: { at: 'backFeet.history', answers: { kidneyTreatment: 'unsure', eyeTreatment: 'unsure', footWound: 'unsure', footRestriction: 'unsure' } } };
+  it('keeps every "Not sure" setup offers, the four new ones included (K5-09), and a metformin year emptied (H5-21)', () => {
+    const unsure = { ...setup, draft: { at: 'backFeet.history', answers: { kidneyTreatment: 'unsure', eyeTreatment: 'unsure', footWound: 'unsure', footRestriction: 'unsure', metforminSince: '' } } };
     expect(preview(file({ settings: { ...settings, setup: unsure } })).unreadableFields).toEqual([]);
   });
 

@@ -81,7 +81,7 @@ export interface SetupAnswers {
   regular?: Tri;
   /** A row per class. Rows left unticked become 'no' when the page is stored. */
   classes?: Partial<Record<MedicineClass, Tri>>;
-  /** As typed; stored only once it reads as a year (the page's check). */
+  /** As typed; stored only once it reads as a year (the page's check). Emptied, `''`: no year, which clears a stored one (H5-21). */
   metforminSince?: string;
   insulinHow?: 'basalOnly' | 'multipleDaily' | 'pump' | 'closedLoop' | 'unsure';
   lowsRisk?: Tri;

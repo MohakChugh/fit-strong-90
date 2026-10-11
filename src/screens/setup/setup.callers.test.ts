@@ -107,6 +107,22 @@ describe('a clinical edit in Me (H5-08; board D162)', () => {
   });
 });
 
+describe('Your medicines in Me', () => {
+  it('clearing the year metformin was started clears it from the record (H5-21)', async () => {
+    const { withMeds } = await import('@/setup/fixtures');
+    expect((await store.update(d => completedSetup(d, withMeds({ metformin: 'yes' }, { metforminSince: '2019' }), NOW, CTX))).ok).toBe(true);
+    expect(store.getState().profile?.health.metforminSince).toBe('2019');
+    host = render(createElement(ChapterEditor, { chapter: 'medicines' }));
+    await host.settle();
+    await host.change(host.field('Year you started metformin (optional)'), { value: '' });
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('Saved.');
+    expect(store.getState().profile?.health.metformin).toBe(true);
+    expect(store.getState().profile?.health.metforminSince).toBeUndefined();
+  });
+});
+
 describe('setup’s pages', () => {
   it('Skip for now never gets past an answer that can’t be stored, such as an underage year; cleared, it skips (K5-04, H5-15)', async () => {
     const { PageFrame } = await import('./PageFrame');

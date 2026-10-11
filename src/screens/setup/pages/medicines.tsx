@@ -25,7 +25,7 @@ export function MedicinesWhich({ a, set, tried, ctx }: PageProps) {
         <>
           <Group>
             <TextInput label="Year you started metformin (optional)" inputMode="numeric" placeholder="2019" text={a.metforminSince ?? ''}
-              onText={t => set({ metforminSince: t.trim() === '' ? undefined : t.trim() })} />
+              onText={t => set({ metforminSince: t.trim() })} />
           </Group>
           <Missing show={tried && problem !== null}>{problem ?? ''}</Missing>
         </>

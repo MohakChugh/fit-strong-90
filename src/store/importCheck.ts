@@ -84,7 +84,7 @@ const ANSWER_SPEC: Spec = {
   eyeDisease: oneOf('mild', 'moderate', 'severe', 'unsure'), feetNumb: tri, footWound: oneOf('now', 'past', 'no', 'unsure'),
   clearance: oneOf('none', 'moderate', 'vigorous', 'unsure'), targets: tri, bpStopSystolic: num(90, 250),
   bpPermission: shape({ sys: num(90, 250), dia: num(50, 150) }, ['sys', 'dia']), hba1cPercent: num(4, 15),
-  regular: tri, classes: recordOf(oneOf(...MEDICINE_CLASSES), tri), metforminSince: x => typeof x === 'string' && /^\d{4}$/.test(x),
+  regular: tri, classes: recordOf(oneOf(...MEDICINE_CLASSES), tri), metforminSince: x => typeof x === 'string' && (x === '' || /^\d{4}$/.test(x)),
   insulinHow: oneOf('basalOnly', 'multipleDaily', 'pump', 'closedLoop', 'unsure'), lowsRisk: tri, glucoseStartMin: num(3, 300),
   glucoseStartUnit: oneOf('mg/dL', 'mmol/L'), priorDka: tri, ketoneTest: oneOf('none', 'urine', 'blood'), dizzy: tri,
   glucoseMonitor: oneOf('none', 'meter', 'cgm'), glucoseUnit: oneOf('mg/dL', 'mmol/L'), bpCuff: bool,

@@ -243,6 +243,14 @@ describe('each answer maps to v1’s own value (journey §6.3, board D76)', () =
     expect(h({ ...t2, classes: { ...NO_CLASSES, insulin: 'yes' }, insulinHow: 'basalOnly' })).toMatchObject({ insulin: 'injections_or_pump', insulinRegimen: 'basalOnly' });
   });
 
+  it('clears the stored metformin year when the field is emptied, and keeps it when the year isn’t asked (H5-21)', () => {
+    const base = profileFrom(withMeds({ metformin: 'yes' }, { metforminSince: '2019' }), undefined, TODAY, CTX);
+    expect(base.health.metforminSince).toBe('2019');
+    expect(profileFrom(withMeds({ metformin: 'yes' }, { metforminSince: '' }), base, TODAY, CTX).health.metforminSince).toBeUndefined();
+    expect(profileFrom(withMeds({ metformin: 'yes' }), base, TODAY, CTX).health.metforminSince).toBe('2019');
+    expect(profileFrom(withMeds({ metformin: 'yes' }, { metforminSince: '2021' }), base, TODAY, CTX).health.metforminSince).toBe('2021');
+  });
+
   it('keeps the year metformin was started only while metformin is taken', () => {
     const base = createDefaultProfile({ health: { metformin: true, metforminSince: '2019' } });
     expect(h(withMeds({ metformin: 'no' }, { metforminSince: '2019' }), base).metforminSince).toBeUndefined();

@@ -93,7 +93,9 @@ export function healthFrom(a: SetupAnswers, base: HealthProfile, today: string):
       const answer = a.regular === 'no' ? 'no' : a.classes?.[cls];
       if (answer !== undefined) next[field] = med(answer);
     }
-    put(next, 'metforminSince', next.metformin === true ? a.metforminSince ?? base.metforminSince : undefined);
+    // An emptied year clears the stored one; a year not asked keeps it (H5-21).
+    const since = a.metforminSince === undefined ? base.metforminSince : a.metforminSince || undefined;
+    put(next, 'metforminSince', next.metformin === true ? since : undefined);
   }
   const insulinAnswer = a.regular === 'no' ? 'no' : a.classes?.insulin;
   if (insulinAnswer !== undefined || diabetes === 'type1') {
