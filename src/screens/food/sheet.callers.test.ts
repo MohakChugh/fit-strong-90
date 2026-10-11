@@ -272,7 +272,7 @@ describe('your own food in a meal whose food is gone (H7-10; board D134)', () =>
   });
 });
 
-const { PortionPage } = await import('./parts');
+const { OwnFoodPage, PortionPage, QuickPage } = await import('./parts');
 const { foodById } = await import('@/food/data');
 
 describe('a food’s portion page, weighed (H7-12)', () => {
@@ -348,6 +348,27 @@ describe('a food’s portion page, weighed (H7-12)', () => {
     await host.click(host.button('Add to meal', { exact: true }));
     expect(saved).toEqual([]);
     expect(host.text()).toContain('That figure can’t be right');
+  });
+});
+
+describe('“Carb figures are rough estimates” on your own food and Quick add too, while carbs are ranges (K7-13)', () => {
+  const ROUGH = 'Carb figures are rough estimates. Follow your care team’s plan.';
+  const shown = async (element: unknown) => {
+    host = render(element);
+    await host.settle();
+    const text = host.text();
+    host.unmount();
+    host = undefined;
+    return text;
+  };
+  it('says it on each page that stands in for the tray, and nothing without ranges', async () => {
+    for (const ranges of [true, false]) {
+      const numbers = { show: true, ranges } as const;
+      const own = await shown(createElement(OwnFoodPage, { name: 'Kheer', numbers, allergies: { known: [], custom: [] }, onBack() {}, onAdd() {} }));
+      const quick = await shown(createElement(QuickPage, { numbers, onBack() {}, onAdd() {} }));
+      expect(own.includes(ROUGH), `own food, ranges ${ranges}`).toBe(ranges);
+      expect(quick.includes(ROUGH), `quick add, ranges ${ranges}`).toBe(ranges);
+    }
   });
 });
 

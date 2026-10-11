@@ -301,6 +301,8 @@ export function OwnFoodPage({ name: typed, numbers, allergies, onBack, onAdd, on
           <NumberField label={FOOD_COPY.ownKcal} mode="numeric" unit="kcal" value={kcal} onChange={v => { setKcal(v); setProblem(undefined); }} />
           <NumberField label={FOOD_COPY.ownCarbs} unit="g" value={carbs} onChange={v => { setCarbs(v); setProblem(undefined); }} />
           <Hint>{FOOD_COPY.ownUnknown}</Hint>
+          {/* This page stands in for the tray, so it says what the tray says (K-22, K7-13). */}
+          {numbers.ranges && <Hint>{FOOD_COPY.roughCarbs}</Hint>}
         </>
       )}
       {/* Once answered, unticked means "not in it": said, with each of the person's allergies left unticked (K7R-04; D182). */}
@@ -343,6 +345,8 @@ export function QuickPage({ numbers, onBack, onAdd, onDirty }: {
       <BackToMeal onBack={onBack} />
       <Segmented label={FOOD_COPY.quickHow} options={SIZES} value={size} onChange={setSize} />
       {numbers.show && <NumberField label={FOOD_COPY.quickKcal} mode="numeric" unit="kcal" value={kcal} onChange={v => { setKcal(v); setProblem(undefined); }} />}
+      {/* As the tray it stands in for says it (K-22, K7-13). */}
+      {numbers.show && numbers.ranges && <Hint>{FOOD_COPY.roughCarbs}</Hint>}
       {problem && <ErrorText>{problem}</ErrorText>}
       <PrimaryButton onClick={add}>{FOOD_COPY.addToMeal}</PrimaryButton>
     </div>
