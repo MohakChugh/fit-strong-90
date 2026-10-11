@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Screen } from '@/components/hig/Screen';
 import { dayOf, nowAt } from '@/health/observation';
-import { measurementsFrom } from '@/setup/assemble';
 import { whatChanges } from '@/setup/changes';
-import { editChapters, editPath, editedRecord } from '@/setup/edit';
-import { CHAPTER_TITLE, SAFETY_CHAPTERS, chapterOf, commitPage, pageDef, pageDone } from '@/setup/graph';
+import { editMeasurements, editOf, editedProfile, editedRecord, editorOpens, editorState } from '@/setup/edit';
+import { saveClinicalEdit } from '@/setup/effective';
+import { CHAPTER_TITLE, chapterOf } from '@/setup/graph';
 import { answersToEdit } from '@/setup/prefill';
 import { setupStateOf } from '@/setup/state';
 import { Notice, PrimaryButton } from '@/screens/you/controls';
@@ -19,25 +19,23 @@ import { useCtx } from './useSetup';
  * One chapter of Profile & health (journey §16, board D79): its own page
  * views, one under another, and any page the change makes necessary, with
  * one Save. While a health review is pending, the three safety chapters open
- * together: only all three answered clear it.
+ * together, with whether the person exercises now: only all of them
+ * answered clear it.
  */
 export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
   const { settings, profile } = useStore();
   const ctx = useCtx();
   const [today] = useState(() => dayOf(nowAt()));
-  const reviewing = profile?.needsHealthReview === true && SAFETY_CHAPTERS.includes(chapter);
-  const asked: readonly ChapterId[] = reviewing ? SAFETY_CHAPTERS : [chapter];
+  const opens = editorOpens(chapter, profile);
   const [opened] = useState<SetupAnswers>(() => (profile ? answersToEdit(setupStateOf(settings, profile).answers, profile, settings, today, ctx) : {}));
   const [edits, setEdits] = useState<Partial<SetupAnswers>>({});
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<{ tone: 'status' | 'error'; lines: string[] }>();
   const a: SetupAnswers = { ...opened, ...edits };
-  const chapters = editChapters(asked, a, opened);
-  const pages = editPath(chapters, a, opened, ctx);
-  const committed = pages.reduce((x, id) => commitPage(id, x), a);
-  const left = pages.filter(id => !pageDone(id, committed, ctx));
-  const blocking = left.filter(id => !pageDef(id).skippable);
+  const state = editorState(opens, a, opened, ctx);
+  const { pages, blocking } = state;
+  const reviewing = opens.reviewing;
 
   const set = (patch: Partial<SetupAnswers>) => {
     setOutcome(undefined);
@@ -52,8 +50,10 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
     }
     setBusy(true);
     const now = nowAt();
-    const edit = { chapters, opened, answers: committed, skipped: left };
-    const saved = await update(d => editedRecord(d, edit, today, ctx), { addObservations: measurementsFrom(committed, profile, now) });
+    const edit = editOf(state, opened);
+    // Stricter answers count for every gate from this tap; what the edit releases waits for the write, held until stored (H5-08).
+    const saved = await saveClinicalEdit(edit.chapters, editedProfile(getState(), edit, today, ctx),
+      () => update(d => editedRecord(d, edit, today, ctx), { hold: true, addObservations: editMeasurements(edit, now) }));
     setBusy(false);
     if (!saved.ok) {
       setOutcome({ tone: 'error', lines: [`That did not save. ${saved.failure.message}`] });

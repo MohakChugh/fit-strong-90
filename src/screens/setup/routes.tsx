@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { MOTION, springLinear } from '@/design/motion';
 import { guardFor, hrefOf, pageAt, resumeAt } from '@/setup/graph';
+import { useStore } from '@/store/useStore';
 import type { PageId } from '@/types/setup';
 import { PageFrame } from './PageFrame';
 import { PAGE_VIEWS } from './pages';
@@ -62,9 +63,11 @@ function ByAddress() {
 function Guarded({ id }: { id: PageId }) {
   const location = useLocation();
   const { answers } = useSetupAnswers();
+  const { epoch } = useStore();
   const ctx = useCtx();
   const to = guardFor(answers, id, ctx);
   if (to !== undefined && to !== id) return <Navigate to={hrefOf(to)} replace state={location.state} />;
   if (id === 'review') return <ReviewPage />;
-  return <PageFrame key={id} id={id} View={PAGE_VIEWS[id as keyof typeof PAGE_VIEWS]} />;
+  // A record replaced under the page draws it again from the new one (H5-07).
+  return <PageFrame key={`${id}:${epoch}`} id={id} View={PAGE_VIEWS[id as keyof typeof PAGE_VIEWS]} />;
 }

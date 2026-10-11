@@ -948,7 +948,8 @@ describe('Home’s targets and layout (kiro KV-08, KV-10, KV-11, KV-15, KV-18, K
   it('Me holds each row’s answer above its lists until it is stored, and FinishRow keeps its props (codex H4-04, journey §4.5)', () => {
     const me = read('src/screens/you/MeHome.tsx');
     expect(me).toContain('function FinishRow({ chapter }: { chapter: OpenChapter }) {');
-    expect(me).toMatch(/const finish = withHeld\(setupProgress\(\{ profile, settings \}\)/);
+    // Setup's answers as this session holds them name the chapter an unfinished setup still asks (K5-07).
+    expect(me).toMatch(/const finish = withHeld\(setupProgress\(\{ profile, settings, answers: setupAnswers \}\)/);
     expect(me).toMatch(/\? withHeld\(newlyRelevant\(/);
     expect(me).toMatch(/if \(saved\.ok\) \{\s+hold\(key, undefined\);/);
     expect(me).not.toMatch(/const \[problem, setProblem\] = useState/);

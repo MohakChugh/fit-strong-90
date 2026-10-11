@@ -4,8 +4,9 @@
  * (§6.4), and Me's chapters for someone set up in v1 (§16). Only what v1
  * asked: it asked about the eyes and feet only with diabetes, so without it
  * those chips stay unanswered rather than read back as "No" (contract H-DATA,
- * board D79); and a medicine answer counts only when v1 counted it
- * (`answeredOnOpen`).
+ * board D79), unless the record holds a value there: that is read back
+ * whatever the diabetes answer, so a Save never files "No" over it (K5-02).
+ * A medicine answer counts only when v1 counted it (`answeredOnOpen`).
  */
 import type { UserSettings } from '@/types';
 import type { MedicineAnswer, UserProfile } from '@/types/profile';
@@ -19,7 +20,7 @@ import { profileFrom, put, settingsFrom } from './assemble';
 import { fieldsOfChapter, keysOfChapter } from './fields';
 import { SAFETY_CHAPTERS, type Ctx } from './graph';
 
-type Kept = Pick<UserSettings, 'useMetric' | 'focus' | 'weeklyMovementGoalMinutes' | 'habits' | 'startDate'>;
+type Kept = Pick<UserSettings, 'useMetric' | 'focus' | 'weeklyMovementGoalMinutes' | 'habits' | 'startDate'> & Partial<Pick<UserSettings, 'setup'>>;
 
 const tri = (v: MedicineAnswer | undefined): Tri | undefined => (v === true ? 'yes' : v === 'unsure' ? 'unsure' : v === false ? 'no' : undefined);
 
@@ -36,17 +37,18 @@ export function answersFromProfile(p: UserProfile, s: Kept): SetupAnswers {
   if (p.weightKg > 0) a.weightKg = p.weightKg;
   if (p.waistCm) a.waistCm = p.waistCm;
 
-  // 3. Your health, as v1's health step asked it.
+  // 3. Your health, as v1's health step asked it. Eyes and feet: with diabetes, or a value the record holds (K5-02).
+  const eyesHeld = h.retinopathy !== 'none_or_mild';
+  const feetHeld = h.peripheralNeuropathy !== 'no' || h.footStatus !== 'healthy';
   a.conditions = {
     diabetes: h.diabetes === 'none' ? 'no' : 'yes',
     bp: h.hypertension === 'none' ? 'no' : h.hypertension === 'unsure' ? 'unsure' : 'yes',
     heart: h.heartOrVascularDisease ? 'yes' : 'no',
     kidney: h.kidneyDisease === 'none' ? 'no' : h.kidneyDisease === 'unsure' ? 'unsure' : 'yes',
     pain: p.pain.areas.length > 0 ? 'yes' : 'no',
-    ...(d.diabetic ? {
-      eyes: h.retinopathy === 'none_or_mild' ? 'no' : h.retinopathy === 'unknown' ? 'unsure' : 'yes',
-      feet: h.peripheralNeuropathy === 'no' && h.footStatus === 'healthy' ? 'no'
-        : h.peripheralNeuropathy === 'unsure' && h.footStatus === 'healthy' ? 'unsure' : 'yes',
+    ...(d.diabetic || eyesHeld ? { eyes: !eyesHeld ? 'no' : h.retinopathy === 'unknown' ? 'unsure' : 'yes' } as const : {}),
+    ...(d.diabetic || feetHeld ? {
+      feet: !feetHeld ? 'no' : h.peripheralNeuropathy === 'unsure' && h.footStatus === 'healthy' ? 'unsure' : 'yes',
     } as const : {}),
   };
   if (h.diabetes !== 'none') a.diabetesType = h.diabetes;
@@ -57,7 +59,7 @@ export function answersFromProfile(p: UserProfile, s: Kept): SetupAnswers {
   // An answer v1 kept in its reminders is still the answer (`fluidRestriction`, reminders/water.ts).
   const fluid = fluidRestriction(p, s.habits);
   if (fluid !== undefined) a.fluidLimit = tri(fluid);
-  if (d.diabetic && h.retinopathy !== 'none_or_mild') {
+  if (eyesHeld) {
     a.eyeTreatment = h.retinopathy === 'recent_eye_treatment' ? 'yes' : 'no';
     if (h.retinopathy !== 'recent_eye_treatment') a.eyeDisease = h.retinopathy === 'moderate' ? 'moderate' : h.retinopathy === 'severe_or_proliferative' ? 'severe' : 'unsure';
   }
@@ -134,15 +136,30 @@ export function answersFromProfile(p: UserProfile, s: Kept): SetupAnswers {
 }
 
 /**
- * What setup starts from when nothing was drafted: what the record already
- * says (K-57, §6.4). An unreviewed profile's health, medicine and pain values
- * may be defaults nobody gave, so setup asks those again (contract H-DATA).
+ * An unreviewed profile's health, medicine and pain values may be defaults
+ * nobody gave, so they're asked again, never shown as answers (contract
+ * H-DATA). So is whether the person exercises now: its default "Yes" would
+ * skip the engine's light-work rule for the inactive (H5-11). The same rule
+ * for setup and for Me's review (H5-10, K5-01).
  */
-export function prefillAnswers(settings: Kept, profile: UserProfile | undefined): SetupAnswers {
-  if (!profile) return { metric: settings.useMetric, ...(settings.focus ? { focus: settings.focus } : {}) };
-  const out = answersFromProfile(profile, settings);
-  if (profile.needsHealthReview) for (const c of SAFETY_CHAPTERS) for (const k of keysOfChapter(c)) delete out[k];
+const UNREVIEWED: readonly (keyof SetupAnswers)[] = [...SAFETY_CHAPTERS.flatMap(keysOfChapter), 'active'];
+const withoutClinical = (out: SetupAnswers): SetupAnswers => {
+  for (const k of UNREVIEWED) delete out[k];
   return out;
+};
+function withoutUnreviewed(out: SetupAnswers, profile: UserProfile): SetupAnswers {
+  return profile.needsHealthReview ? withoutClinical(out) : out;
+}
+
+/** What setup starts from when nothing was drafted: what the record already says (K-57, §6.4), less what an unreviewed profile can't vouch for. */
+export function prefillAnswers(settings: Kept, profile: UserProfile | undefined): SetupAnswers {
+  if (!profile) {
+    const base = { metric: settings.useMetric, ...(settings.focus ? { focus: settings.focus } : {}) };
+    // Setup answers a backup kept when its health or pain answers couldn't be read: the rest carry on, those are asked again (H5-17).
+    const kept = settings.setup?.answers;
+    return kept ? { ...base, ...withoutClinical(structuredClone(kept)) } : base;
+  }
+  return withoutUnreviewed(answersFromProfile(profile, settings), profile);
 }
 
 const read = (o: unknown, path: string): unknown =>
@@ -153,7 +170,9 @@ const read = (o: unknown, path: string): unknown =>
  * by chapter, they still give the record as it is. A chapter whose fields
  * were changed somewhere else since (a fluid limit set in Reminders, say)
  * takes what the record says now. So "Not sure" survives, and an edit made
- * elsewhere is never undone.
+ * elsewhere is never undone. An answer the stored ones lack keeps what the
+ * record says (H5-01): a lost diabetes chip must not leave insulin added
+ * later without its lows questions. A pending review asks its questions again.
  */
 export function answersToEdit(stored: SetupAnswers | undefined, p: UserProfile, s: UserSettings, today: string, ctx: Ctx): SetupAnswers {
   const out: SetupAnswers = answersFromProfile(p, s);
@@ -163,10 +182,11 @@ export function answersToEdit(stored: SetupAnswers | undefined, p: UserProfile, 
     const current = { profile: p, settings: s };
     for (const chapter of CHAPTER_IDS) {
       if (!fieldsOfChapter(chapter).every(path => sameValue(read(record, path), read(current, path)))) continue;
-      for (const key of keysOfChapter(chapter)) put(out, key, stored[key]);
+      for (const key of keysOfChapter(chapter)) if (stored[key] !== undefined) put(out, key, stored[key]);
     }
     if (stored.skippedPages) out.skippedPages = [...stored.skippedPages];
   }
+  withoutUnreviewed(out, p);
   // Membership has one definition (D35): this answer always says what's true now.
   if (isEnrolled(s, p)) out.programme = 'joined';
   else if (out.programme === 'joined') delete out.programme;

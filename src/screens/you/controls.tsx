@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, KeyboardEvent, ReactNode } from 'react';
 import { Switch as SwitchPrimitive } from '@base-ui/react/switch';
 import { CheckIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -6,7 +6,8 @@ import { cn } from '@/lib/utils';
 /**
  * The few controls these screens need beyond `hig`: the iOS switch, a list of
  * choices with a checkmark, a full-width primary action and a time field.
- * All at least 44 px tall, all labelled, all in the one accent colour.
+ * All at least 48 px tall (§20.4.1; H5-22), all labelled, all in the one
+ * accent colour.
  */
 
 export function PrimaryButton({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -28,7 +29,7 @@ export function PlainButton({ className, tone = 'tint', ...props }: ButtonHTMLAt
     <button
       type="button"
       className={cn(
-        'press-feedback flex min-h-11 w-full items-center justify-center rounded-xl px-4 text-center text-[length:var(--text-body)] font-medium disabled:opacity-50',
+        'press-feedback flex min-h-12 w-full items-center justify-center rounded-xl px-4 text-center text-[length:var(--text-body)] font-medium disabled:opacity-50',
         tone === 'stop' ? 'text-stop' : 'text-tint',
         className,
       )}
@@ -39,10 +40,10 @@ export function PlainButton({ className, tone = 'tint', ...props }: ButtonHTMLAt
 
 /**
  * The iOS switch: a 51 × 31 track, accent when on, inside a control at least
- * 48 × 48 (journey §20.4 rule 1). All of it is in rem, the track, its inset
- * and the thumb's travel too, so it grows with the text size and the thumb
- * stays inside the track at every size. The thumb carries no meaning on its
- * own — the switch is announced as on or off with its label.
+ * 48 × 48 (journey §20.4 rule 1; H5-22, D159). All of it is in rem, the track,
+ * its inset and the thumb's travel too, so it grows with the text size and the
+ * thumb stays inside the track at every size. The thumb carries no meaning on
+ * its own — the switch is announced as on or off with its label.
  */
 export function Toggle({ checked, onChange, label, disabled }: {
   checked: boolean;
@@ -85,6 +86,30 @@ export interface Choice<T extends string> {
   detail?: string;
 }
 
+const STEP: Record<string, number> = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+
+/**
+ * A radio group's keyboard, as WAI-ARIA's radio group pattern has it (H5-23;
+ * board D160): one tab stop, on the chosen option or else the first, and the
+ * arrow keys move to the next or previous option, wrapping, and choose it.
+ * Enter and Space are each button's own.
+ */
+function radioKeys<T extends string>(options: readonly { value: T }[], value: T | undefined, onChange: (value: T) => void) {
+  const chosen = options.findIndex(o => o.value === value);
+  const stop = chosen >= 0 ? chosen : 0;
+  return (i: number) => ({
+    tabIndex: i === stop ? 0 : -1,
+    onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
+      const step = STEP[e.key];
+      if (step === undefined) return;
+      e.preventDefault();
+      const next = (i + step + options.length) % options.length;
+      onChange(options[next].value);
+      (e.currentTarget.parentElement?.children[next] as HTMLElement | undefined)?.focus();
+    },
+  });
+}
+
 /**
  * One choice of several, as iOS lists them: a row each, a checkmark on the
  * one chosen. Meant to sit inside a `Group`.
@@ -96,9 +121,10 @@ export function ChoiceRows<T extends string>({ label, options, value, onChange }
   value: T | undefined;
   onChange: (value: T) => void;
 }) {
+  const keys = radioKeys(options, value, onChange);
   return (
     <div role="radiogroup" aria-label={label} className="[&>*+*]:border-t [&>*+*]:border-separator">
-      {options.map(option => {
+      {options.map((option, i) => {
         const on = option.value === value;
         return (
           <button
@@ -106,6 +132,7 @@ export function ChoiceRows<T extends string>({ label, options, value, onChange }
             type="button"
             role="radio"
             aria-checked={on}
+            {...keys(i)}
             onClick={() => onChange(option.value)}
             className="press-feedback flex min-h-[3.25rem] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors active:bg-muted/60"
           >
@@ -160,9 +187,10 @@ export function Segmented<T extends string>({ label, options, value, onChange }:
   value: T | undefined;
   onChange: (value: T) => void;
 }) {
+  const keys = radioKeys(options, value, onChange);
   return (
     <div role="radiogroup" aria-label={label} className="grid grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] gap-1 rounded-xl bg-muted/70 p-1">
-      {options.map(option => {
+      {options.map((option, i) => {
         const on = option.value === value;
         return (
           <button
@@ -170,9 +198,10 @@ export function Segmented<T extends string>({ label, options, value, onChange }:
             type="button"
             role="radio"
             aria-checked={on}
+            {...keys(i)}
             onClick={() => onChange(option.value)}
             className={cn(
-              'numeric min-h-11 rounded-lg px-2 text-[length:var(--text-subhead)] font-medium transition-colors',
+              'numeric min-h-12 rounded-lg px-2 text-[length:var(--text-subhead)] font-medium transition-colors',
               on ? 'bg-grouped-card text-foreground ring-1 ring-separator' : 'text-muted-foreground',
             )}
           >
@@ -203,7 +232,7 @@ export function TimeField({ id, label, value, onChange }: {
         type="time"
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="numeric min-h-11 min-w-0 max-w-full rounded-lg bg-muted/60 px-[min(0.75rem,2vw)] text-[length:var(--text-body)] text-foreground outline-none focus-visible:ring-3 focus-visible:ring-tint/40"
+        className="numeric min-h-12 min-w-0 max-w-full rounded-lg bg-muted/60 px-[min(0.75rem,2vw)] text-[length:var(--text-body)] text-foreground outline-none focus-visible:ring-3 focus-visible:ring-tint/40"
       />
     </label>
   );

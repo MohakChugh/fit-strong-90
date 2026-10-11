@@ -68,6 +68,10 @@ describe('movementCard: the hub column of the copy table (journey §7.5)', () =>
     expect(c.state).toBe('gap');
     expect(c.title).toBe('Your diabetes medicines');
     expect(c.primary).toEqual({ kind: 'profile', label: 'Answer the questions about your medicines' });
+    // While setup is unfinished, the chapter it still asks, with a count (§6.1; K5-07).
+    const ask = 'Answer 2 questions about your back and feet';
+    expect(movementCard(input({ permission: p, gate: 'hold', gaps: { healthUnreviewed: true, medicinesUnknown: false, ask }, line: line('Finish setting up · your back and feet', 'caution') })).primary)
+      .toEqual({ kind: 'profile', label: ask });
     expect(kinds(c)).toContain('review');
   });
 
@@ -397,6 +401,16 @@ describe('a walk still on this device: status comes first, then the gate (codex 
     expect(hold).toMatchObject({ state: 'held', title: 'No walk for now', reasons: [PERMISSION_TEXT.footWalk], primary: { kind: 'finishWalk' } });
     expect(kinds(hold)).toContain('review');
     for (const c of [stop, gap, hold]) expect(carriesOn(c)).toBe(false);
+  });
+
+  it('a profile gap while setup is unfinished: the action names the chapter it still asks, as the hub’s card does (K5-07 with H2-01)', () => {
+    const ask = 'Answer 2 questions about your back and feet';
+    const gap = pending({ permission: held('walk', [PERMISSION_TEXT.healthUnreviewed]), gate: 'hold', gaps: { healthUnreviewed: true, medicinesUnknown: false, ask } });
+    expect(gap).toMatchObject({ state: 'gap', primary: { kind: 'finishWalk' } });
+    expect(gap.secondary).toContainEqual({ kind: 'profile', label: ask });
+    // A finished setup's review keeps its words.
+    expect(pending({ permission: held('walk', [PERMISSION_TEXT.healthUnreviewed]), gate: 'hold', gaps: { healthUnreviewed: true, medicinesUnknown: false } }).secondary)
+      .toContainEqual({ kind: 'profile', label: 'Answer the questions about your health' });
   });
 
   it('a walk waiting to be saved: Review and save, whatever the status or the gate (saving is not movement)', () => {

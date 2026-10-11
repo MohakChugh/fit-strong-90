@@ -11,8 +11,8 @@ import { ChoiceRows, Notice, PlainButton, PrimaryButton } from './controls';
 import { checkOutcome, checkedLine, type CheckOutcome } from './dataStatus';
 import { shortDate, shortDay } from './dates';
 import { latestOnly } from './latest';
-import { restoreLocked } from './restore';
-import { countsSentence, keepsOpenLine, plural, previewLines, recordCounts, routeNotes } from './summaries';
+import { replaceErases, restoreLocked } from './restore';
+import { keepsOpenLine, plural, previewLines, routeNotes } from './summaries';
 import { walkSettings } from '@/walk/consent';
 import { recordBackupCheck, recordExport } from './write';
 
@@ -60,8 +60,8 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
   // Only the file chosen last may change what is shown: a large file chosen
   // first and read last must not replace the preview of the one after it.
   const [selection] = useState(latestOnly);
-  const here = recordCounts(state);
-  const heldHere = here.readings + here.sessions + here.checkIns + here.bodyMetrics + here.personalRecords + (here.routes ?? 0);
+  // Anything Replace would delete here, setup's answers so far included: then it is asked twice (H5-25, K5-06).
+  const erases = replaceErases(state);
 
   const locked = restoreLocked(stage);
 
@@ -181,9 +181,9 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
             {...(note ? { note } : {})}
             place={place}
             device={device}
-            heldHere={heldHere}
+            erases={erases !== undefined}
             onMerge={policy => void apply(stage.raw, stage.preview, 'merge', policy)}
-            onReplace={() => (heldHere > 0
+            onReplace={() => (erases !== undefined
               ? setStage({ kind: 'confirmReplace', raw: stage.raw, preview: stage.preview })
               : void apply(stage.raw, stage.preview, 'replace'))}
           />
@@ -193,7 +193,7 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
           <>
             <p className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug">Replace everything on this {device}?</p>
             <p className="px-1 text-[length:var(--text-body)] leading-snug">
-              This deletes the {countsSentence(here)} on this {device}, with its profile and settings, and keeps only what is in the file{(total(stage.preview.rejected) || stage.preview.unreadableObservations) > 0 ? ', leaving out the records in it that cannot be read' : ''}. It cannot be undone.
+              This deletes {erases ?? 'what is here'} on this {device}, and keeps only what is in the file{(total(stage.preview.rejected) || stage.preview.unreadableObservations) > 0 ? ', leaving out the records in it that cannot be read' : ''}. It cannot be undone.
             </p>
             {(stage.preview.replaceRemoves?.routes ?? 0) > 0 && (
               <p className="px-1 text-[length:var(--text-body)] leading-snug">{`Your ${plural(stage.preview.replaceRemoves?.routes ?? 0, 'route')} on this ${device} go too.`}</p>
@@ -232,14 +232,15 @@ function fieldsUnreadable(preview: ImportPreview): { health: boolean; settings: 
   return { health, settings: fields.filter(f => f !== 'profile.health' && f !== 'profile.pain').length };
 }
 
-function PreviewBody({ preview, saveRoutes, note, place, device, heldHere, onMerge, onReplace }: {
+function PreviewBody({ preview, saveRoutes, note, place, device, erases, onMerge, onReplace }: {
   preview: ImportPreview;
   /** This phone's own answer about keeping routes, for what happens to the file's (B-26). */
   saveRoutes: boolean | 'unasked';
   note?: string;
   place: 'welcome' | 'you';
   device: string;
-  heldHere: number;
+  /** Replace would delete something here, so it's asked twice. */
+  erases: boolean;
   onMerge: (policy: ConflictPolicy) => void;
   onReplace: () => void;
 }) {
@@ -326,7 +327,7 @@ function PreviewBody({ preview, saveRoutes, note, place, device, heldHere, onMer
               onClick={onReplace}
               className="press-feedback min-h-11 w-full rounded-xl px-4 text-[length:var(--text-body)] font-medium text-stop"
             >
-              {heldHere > 0 ? 'Replace everything here' : 'Replace with this backup'}
+              {erases ? 'Replace everything here' : 'Replace with this backup'}
             </button>
             <p className="px-4 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
               Makes this {device} hold exactly what is in the file, settings and profile included.{preview.keepsOpen ? ` ${keepsOpenLine(device)}` : ''}

@@ -17,6 +17,14 @@ describe('what the answers mean in the engine’s terms (journey §6.3, board D7
     expect(diabetesOf({ conditions: { diabetes: 'yes' }, diabetesType: 'prediabetes', classes: { metformin: 'yes' } })).toBe('prediabetes');
   });
 
+  it('reads insulin or a lows tablet as diabetes that can go low even with no diabetes answer at all (H5-01)', () => {
+    expect(diabetesOf({ classes: { insulin: 'yes' } })).toBe('other');
+    expect(diabetesOf({ conditions: { bp: 'no' }, classes: { lowsTablet: 'unsure' } })).toBe('other');
+    expect(factsOf({ regular: 'yes', classes: { insulin: 'yes' } }).hypoRisk).toBe(true);
+    // Without a medicine that can cause lows, an unanswered chip is still unanswered.
+    expect(diabetesOf({ classes: { metformin: 'yes' } })).toBeUndefined();
+  });
+
   it('counts a "-gliflozin" as a ketone risk, whatever the diagnosis', () => {
     expect(factsOf(GLIFLOZIN_NO_DIABETES).ketoneRisk).toBe(true);
     expect(factsOf(withMeds({ gliflozin: 'unsure' })).ketoneRisk).toBe(true);
@@ -34,6 +42,19 @@ describe('what the answers mean in the engine’s terms (journey §6.3, board D7
     expect(factsOf(withC({ feet: 'yes' }, { footWound: 'no', footRestriction: 'yes' })).footHeld).toBe(true);
     expect(factsOf(withC({ feet: 'yes' }, { footWound: 'now', footRestriction: 'no' })).footHeld).toBe(true);
     expect(factsOf(withC({ feet: 'yes' }, { footWound: 'past', footRestriction: 'no' })).footHeld).toBe(false);
+  });
+
+  it('holds walking when a wound now, or a clinician’s limit, isn’t ruled out (K5-09)', () => {
+    expect(factsOf(withC({ feet: 'yes' }, { footWound: 'unsure', footRestriction: 'no' })).footHeld).toBe(true);
+    expect(factsOf(withC({ feet: 'yes' }, { footWound: 'no', footRestriction: 'unsure' })).footHeld).toBe(true);
+    expect(factsOf(withC({ feet: 'no' }, { footRestriction: 'unsure' })).footLimit).toBe(true);
+  });
+
+  it('keeps a clinician’s limit holding walks after the foot chip is taken away (H5-03)', () => {
+    const f = factsOf(withC({ feet: 'no' }, { footWound: 'no', footRestriction: 'yes' }));
+    expect(f.footHeld).toBe(true);
+    expect(f.footLimit).toBe(true);
+    expect(factsOf(withC({ feet: 'no' }, { footWound: 'now', footRestriction: 'no' })).footHeld).toBe(false);
   });
 
   it('reads type 1 as insulin, and diabetes with a lows tablet as a risk of lows', () => {

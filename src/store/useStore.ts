@@ -117,6 +117,13 @@ export interface StoreState {
    * this device.
    */
   revision: number;
+  /**
+   * Moves on when the whole record is replaced in this copy: a backup
+   * restored with Replace, or everything deleted. What a screen kept for the
+   * record before (setup's answers on a page, say) belonged to that record,
+   * and is dropped when this moves (H5-07).
+   */
+  epoch: number;
 }
 
 // ============================================================================
@@ -171,6 +178,8 @@ let channel: BroadcastLike | undefined;
 let detachVisibility: (() => void) | undefined;
 /** Bumped by `resetForTests`, so a commit still in flight from an earlier test cannot touch the next one. */
 let generation = 0;
+/** `StoreState.epoch`: moves on when the whole record is replaced (H5-07). */
+let epoch = 0;
 
 interface Planned<T> {
   /** `null`: nothing to do, and nothing is written. */
@@ -233,6 +242,7 @@ function toState(s: Snapshot): StoreState {
     saving: jobs.some(j => j.kind === 'mutation'),
     installed,
     revision: committed.revision,
+    epoch,
   };
 }
 
@@ -650,6 +660,7 @@ export function resetForTests(): void {
   migration = undefined;
   persisted = false;
   installed = undefined;
+  epoch = 0;
   listeners.clear();
   state = toState(view);
 }
@@ -1346,6 +1357,7 @@ export function clearAll(): Promise<StoreResult> {
     needsStorage: 'This app cannot reach this device’s storage right now, so it cannot delete what is kept there. Close the app, open it again, and try again.',
     plan: () => ({ change: { reset: true, schemaVersion: SCHEMA_VERSION }, result: () => undefined }),
     after: () => {
+      epoch += 1;
       try {
         resetData();
         return undefined;
@@ -1531,6 +1543,13 @@ export interface UpdateOptions {
    */
   hold?: boolean;
   /**
+   * Only worth doing if it is stored, as with clear-all and an import: with
+   * nothing to store to, it is refused with this message before anything
+   * changes, even in this session's memory. Finishing setup is one such
+   * change, since without saving its safety gap must stay (B-07; H5-06).
+   */
+  needsStorage?: string;
+  /**
    * Readings to delete in the same write: a check-in's reading taken out of
    * the record and the series together, so neither brings the other back on
    * the next save (scan C2-01). An id no longer stored is passed over.
@@ -1542,6 +1561,12 @@ export interface UpdateOptions {
    * times are fixed here, so a re-plan never makes a second record.
    */
   addObservations?: readonly ObservationInput[];
+  /**
+   * The readings are added only when this holds of the change as planned
+   * against what is stored: a write its own updater turns down (setup
+   * finished in another tab, say) adds none of them (H5-09).
+   */
+  addObservationsWhen?: (before: AppData, after: AppData) => boolean;
 }
 
 export function update(updater: (previous: AppData) => AppData, options: UpdateOptions = {}): Promise<StoreResult> {
@@ -1549,6 +1574,7 @@ export function update(updater: (previous: AppData) => AppData, options: UpdateO
   const adding = (options.addObservations ?? []).map(input => ({ ...input, id: input.id ?? freshId(), at: input.at ?? now }));
   return enqueue<void>({
     ...(options.hold ? { hold: true } : {}),
+    ...(options.needsStorage ? { needsStorage: options.needsStorage } : {}),
     plan: base => {
       const before = appDataOf(base);
       // A copy: an updater that edits in place — the old `localStorage` habit —
@@ -1558,7 +1584,8 @@ export function update(updater: (previous: AppData) => AppData, options: UpdateO
       const doomed = new Set((options.removeObservations ?? []).filter(id => findObservation(base, id)));
       // An invalid reading throws here, so the whole write is refused before anything shows.
       // One already stored, from an earlier plan of this same write, isn't added twice.
-      const added = adding.filter(input => !findObservation(base, input.id)).map(input => newObservation(input));
+      const wanted = options.addObservationsWhen?.(before, after) ?? true;
+      const added = wanted ? adding.filter(input => !findObservation(base, input.id)).map(input => newObservation(input)) : [];
       if (doomed.size === 0 && added.length === 0) return { change, result: () => undefined };
       const observations = change?.observations;
       return {
@@ -1721,6 +1748,11 @@ export function importRecord(raw: unknown, mode: ImportMode, options: ImportOpti
     plan: base => {
       const planned = planImport(raw, mode, base, options);
       return { change: planned.change, result: () => planned.report };
+    },
+    // Replace makes this the backup's record: what screens kept for the one before is that record's (H5-07).
+    after: () => {
+      if (mode === 'replace') epoch += 1;
+      return undefined;
     },
   });
 }

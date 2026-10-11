@@ -6,15 +6,15 @@ import { markBack } from '@/components/hig/navigation';
 import { dayOf, nowAt } from '@/health/observation';
 import { timeOf } from '@/lib/time';
 import { cn } from '@/lib/utils';
-import { completedSetup, measurementsFrom } from '@/setup/assemble';
-import { enterWithoutSaving, useSetupSession } from '@/setup/draft';
+import { measurementsFrom } from '@/setup/assemble';
+import { finishSetup } from '@/setup/draft';
 import { CHAPTER_TITLE, firstPageOf, hrefOf, prevPage } from '@/setup/graph';
-import { ACKNOWLEDGEMENT, clearanceNotes, reviewRecord, reviewThings } from '@/setup/review';
+import { ACKNOWLEDGEMENT, clearanceNotes, reviewRecord, reviewThings, whyOtherDiabetes } from '@/setup/review';
 import { HANDOFF, deviceNoun, installContext, readInstallEnv } from '@/screens/welcome/install';
 import { BackupSheet } from '@/screens/you/DataSheets';
 import { Notice, PrimaryButton } from '@/screens/you/controls';
 import { chapterSections } from '@/screens/you/summaries';
-import { getState, update, useStore } from '@/store/useStore';
+import { useStore } from '@/store/useStore';
 import { Missing } from './controls';
 import { SetupShell } from './SetupShell';
 import { useCtx, useSetupAnswers } from './useSetup';
@@ -34,9 +34,9 @@ export function ReviewPage() {
   const navigate = useNavigate();
   const state = useStore();
   const { answers } = useSetupAnswers();
-  const session = useSetupSession();
   const ctx = useCtx();
-  const [today] = useState(() => dayOf(nowAt()));
+  const [now] = useState(nowAt);
+  const today = dayOf(now);
   const [{ context, device }] = useState(() => {
     const env = readInstallEnv();
     return { context: installContext(env), device: deviceNoun(env) };
@@ -51,6 +51,8 @@ export function ReviewPage() {
   const { profile, settings } = reviewRecord(answers, state, today, ctx);
   const things = reviewThings(profile, settings, clock);
   const notes = clearanceNotes(profile);
+  // Each body measure with when it was taken, the readings finishing would add as from now (H5-24).
+  const readings = [...state.observations, ...measurementsFrom(answers, state.profile, now).map(o => ({ ...o, at: now }))];
 
   const back = () => {
     const prev = prevPage(answers, 'review');
@@ -64,21 +66,12 @@ export function ReviewPage() {
       return;
     }
     if (busy) return;
-    // Without saving (B-07): the app opens for this session, and nothing is stored, so every hold stays.
-    if (session.unsaved) {
-      enterWithoutSaving();
-      navigate('/home', { replace: true });
-      return;
-    }
     setBusy(true);
     setProblem(undefined);
-    const now = nowAt();
-    const hasSteps = getState().observations.some(o => o.kind === 'steps');
-    // Held until stored: finishing opens Home, and a refusal must leave the person here, where it is said (D-04).
-    const saved = await update(d => completedSetup(d, answers, now, { ...ctx, hasSteps }), { hold: true, addObservations: measurementsFrom(answers, state.profile, now) });
+    const finished = await finishSetup(answers, ctx);
     setBusy(false);
-    if (saved.ok || getState().status === 'unavailable') navigate('/home', { replace: true });
-    else setProblem(`That did not save. ${saved.failure.message}`);
+    if (finished.kind === 'home') navigate('/home', { replace: true });
+    else setProblem(finished.message);
   };
 
   return (
@@ -91,8 +84,8 @@ export function ReviewPage() {
           {notes.map(n => <Row key={n} label={n} />)}
         </Group>
       )}
-      {chapterSections(profile, settings, today).map(s => (
-        <Group key={s.chapter} header={CHAPTER_TITLE[s.chapter]}>
+      {chapterSections(profile, settings, today, readings).map(s => (
+        <Group key={s.chapter} header={CHAPTER_TITLE[s.chapter]} footer={s.chapter === 'health' ? whyOtherDiabetes(answers) : undefined}>
           {s.rows.map(r => <Row key={r.label} label={r.label} detail={r.value} />)}
           <Row onClick={() => navigate(hrefOf(firstPageOf(s.chapter, answers)), { state: { fromReview: true } })}
             aria-label={`Edit ${CHAPTER_TITLE[s.chapter]}`} label={<span className="text-tint">Edit</span>} />

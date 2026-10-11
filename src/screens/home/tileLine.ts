@@ -53,7 +53,7 @@ export function checkInOnly(p: Permission): boolean {
 const FLARE: Partial<Record<Mode, string>> = { guided: 'Gentle only today', stretch: 'Gentle stretch' };
 const STRETCH_SUGGESTED = 'Stretch is suggested today';
 
-export function movementLine({ mode, permission: p, status, normal, enrolled = true, recheckAt, now, hour12 = prefersHour12() }: {
+export function movementLine({ mode, permission: p, status, normal, enrolled = true, recheckAt, now, hour12 = prefersHour12(), gapChapter }: {
   mode: Mode;
   permission: Permission;
   status: Status;
@@ -73,6 +73,8 @@ export function movementLine({ mode, permission: p, status, normal, enrolled = t
   recheckAt?: string;
   now?: Date;
   hour12?: boolean;
+  /** While setup is unfinished, the safety chapter it still asks: "your back and feet" (§6.1; K5-07). */
+  gapChapter?: string;
 }): TileLine {
   if (!p.allowed && (p.disposition === 'emergency' || p.disposition === 'today')) return { text: 'Not today', tone: 'stop' };
   if (status === 'away' || status === 'unwell') return { text: 'Paused', tone: 'quiet' };
@@ -84,7 +86,7 @@ export function movementLine({ mode, permission: p, status, normal, enrolled = t
     // The gate may add detail after its fixed sentence (a stale reading says how old it is), so a reason counts by how it starts.
     const said = (text: string) => p.reasons.some(r => r.startsWith(text));
     const gap = PROFILE_GAP.find(([reason]) => said(reason));
-    if (gap) return { text: `Finish setting up · ${gap[1]}`, tone: 'caution' };
+    if (gap) return { text: `Finish setting up · ${gapChapter ?? gap[1]}`, tone: 'caution' };
     if (checkInOnly(p)) {
       return { text: outside ? line : `${line} · check in first`, tone: 'normal' };
     }

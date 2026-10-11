@@ -18,8 +18,9 @@ import { conditionBlock } from '@/reminders/water';
 import { defaultHome, isHomeLayout } from '@/categories';
 import { withJoinAnswers } from '@/programme/join';
 import { withWeeklyGoal } from '@/screens/track/weeklyGoal';
+import { sameValue } from '@/store/transfer';
 import { diabetesOf, factsOf, has } from './facts';
-import { SAFETY_CHAPTERS, chapterComplete, skippedChapters, type Ctx } from './graph';
+import { REVIEW_ALSO, SAFETY_CHAPTERS, chapterComplete, pageDone, skippedChapters, type Ctx } from './graph';
 import { setupStateOf } from './state';
 
 const med = (t: Tri | undefined): MedicineAnswer => (t === 'yes' ? true : t === 'unsure' ? 'unsure' : false);
@@ -57,18 +58,20 @@ export function healthFrom(a: SetupAnswers, base: HealthProfile, today: string):
   }
   if (c.heart !== undefined) next.heartOrVascularDisease = has(c.heart);
   if (c.kidney !== undefined) {
-    next.kidneyDisease = !has(c.kidney) ? 'none' : a.kidneyTreatment === 'yes' ? 'dialysis_or_transplant' : c.kidney === 'unsure' ? 'unsure' : 'ckd';
+    next.kidneyDisease = !has(c.kidney) ? 'none' : has(a.kidneyTreatment) ? 'dialysis_or_transplant' : c.kidney === 'unsure' ? 'unsure' : 'ckd';
   }
   if (a.fluidLimit !== undefined) next.fluidRestriction = med(a.fluidLimit);
   if (c.eyes !== undefined) {
-    next.retinopathy = !has(c.eyes) ? 'none_or_mild' : a.eyeTreatment === 'yes' ? 'recent_eye_treatment' : EYES[a.eyeDisease ?? 'unsure'];
+    next.retinopathy = !has(c.eyes) ? 'none_or_mild' : has(a.eyeTreatment) ? 'recent_eye_treatment' : EYES[a.eyeDisease ?? 'unsure'];
   }
   if (c.feet !== undefined) {
     next.peripheralNeuropathy = !has(c.feet) || a.feetNumb === 'no' ? 'no' : a.feetNumb === 'yes' ? 'yes' : 'unsure';
     next.footStatus = !has(c.feet) ? 'healthy'
-      : a.footWound === 'now' || a.footRestriction === 'yes' ? 'current_wound_or_active_charcot'
+      : a.footWound === 'now' || a.footWound === 'unsure' ? 'current_wound_or_active_charcot'
       : a.footWound === 'past' ? 'past_ulcer_or_charcot' : 'healthy';
   }
+  // A clinician's weight-bearing limit outranks the foot chip: only the limit, answered again, releases it (K-30; H5-03).
+  if (f.footLimit) next.footStatus = 'current_wound_or_active_charcot';
   if (a.clearance !== undefined) next.clearance = a.clearance === 'moderate' || a.clearance === 'vigorous' ? a.clearance : 'none';
   if (a.targets !== undefined || a.glucoseStartMin !== undefined) {
     const targets = a.targets === 'yes';
@@ -90,7 +93,9 @@ export function healthFrom(a: SetupAnswers, base: HealthProfile, today: string):
       const answer = a.regular === 'no' ? 'no' : a.classes?.[cls];
       if (answer !== undefined) next[field] = med(answer);
     }
-    put(next, 'metforminSince', next.metformin === true ? a.metforminSince ?? base.metforminSince : undefined);
+    // An emptied year clears the stored one; a year not asked keeps it (H5-21).
+    const since = a.metforminSince === undefined ? base.metforminSince : a.metforminSince || undefined;
+    put(next, 'metforminSince', next.metformin === true ? since : undefined);
   }
   const insulinAnswer = a.regular === 'no' ? 'no' : a.classes?.insulin;
   if (insulinAnswer !== undefined || diabetes === 'type1') {
@@ -133,18 +138,18 @@ export function painFrom(a: SetupAnswers, base: PainProfile): PainProfile {
   const chip = a.conditions?.pain;
   if (chip === undefined) return base;
   const next: PainProfile = { ...base };
+  // A nerve damaged in the past is history, not pain now: no pain today keeps it (H5-19).
+  if (a.neuroHistory !== undefined) next.neuroHistory = med(a.neuroHistory);
   if (chip === 'no') {
     next.areas = [];
     next.worseWith = 'unknown';
     put(next, 'sciaticaSide', undefined);
-    put(next, 'neuroHistory', undefined);
     return next;
   }
   if (a.painAreas !== undefined) next.areas = [...a.painAreas];
   const back = next.areas.includes('lowerBack') || next.areas.includes('sciatica');
   put(next, 'sciaticaSide', next.areas.includes('sciatica') ? a.sciaticaSide ?? base.sciaticaSide : undefined);
   next.worseWith = back ? a.worseWith ?? base.worseWith : 'unknown';
-  if (a.neuroHistory !== undefined) next.neuroHistory = med(a.neuroHistory);
   return next;
 }
 
@@ -194,11 +199,13 @@ export function profileFrom(a: SetupAnswers, base: UserProfile | undefined, toda
     if (reviews.bp && bpMedicinesAsked(next.health)) next.health.bpMedicinesReviewed = true;
     else if (bpMedicinesAsked(next.health) && !bpMedicinesAsked(start.health)) put(next.health, 'bpMedicinesReviewed', undefined);
   }
+  // Your day and coach asks the fluid limit too, when water reminders go on: the engine reads it as Your health's (§6.3; H5-04).
+  if (on('day') && a.fluidLimit !== undefined) next.health.fluidRestriction = med(a.fluidLimit);
   if (on('health') || on('backFeet')) next.pain = painFrom(a, start.pain);
   if (on('food')) put(next, 'food', foodFrom(a, start.food));
   if (on('day') && a.voice) next.voice = { ...start.voice, ...a.voice };
-  // Only every safety chapter, complete, in one sitting clears a review (§6.1; contract H-DATA).
-  if (SAFETY_CHAPTERS.every(c => on(c) && chapterComplete(c, a, ctx))) next.needsHealthReview = false;
+  // Only every safety chapter, complete, in one sitting, with whether they exercise now, clears a review (§6.1; H-DATA; H5-11).
+  if (SAFETY_CHAPTERS.every(c => on(c) && chapterComplete(c, a, ctx)) && REVIEW_ALSO.every(id => pageDone(id, a, ctx))) next.needsHealthReview = false;
   next.ladder = base ? ladderAfterEdit(base, next, today) : startingLadder(next);
   return next;
 }
@@ -238,7 +245,7 @@ export function settingsFrom(a: SetupAnswers, base: UserSettings, profile: UserP
 }
 
 /** A dated reading for each body measure that changed (§18.1). A v1 weight with no date is never given one (B-16). */
-export function measurementsFrom(a: SetupAnswers, before: UserProfile | undefined, at: string): ObservationInput[] {
+export function measurementsFrom(a: SetupAnswers, before: Partial<Pick<UserProfile, 'weightKg' | 'heightCm' | 'waistCm'>> | undefined, at: string): ObservationInput[] {
   const changed = (value: number | undefined, was: number | undefined) => value !== undefined && Number.isFinite(value) && value > 0 && value !== was;
   const reading = (kind: 'weight' | 'height' | 'waist', value: number, unit: string): ObservationInput =>
     ({ kind, value, unit, scope: 'pointInTime', source: 'manual', at, context: 'profile' });
@@ -249,9 +256,15 @@ export function measurementsFrom(a: SetupAnswers, before: UserProfile | undefine
   ];
 }
 
-/** "Start using FitStrong": the profile, the settings, completion and Home's first tiles, as one record (§6.2, §5.1). */
+/**
+ * "Start using FitStrong": the profile, the settings, completion and Home's
+ * first tiles, as one record (§6.2, §5.1). Planned inside the write against
+ * what is stored, it changes nothing once another tab has finished setup, or
+ * when the stored draft is no longer the one Review showed (H5-09).
+ */
 export function completedSetup(data: AppData, a: SetupAnswers, now: string, ctx: Ctx & { hasSteps: boolean }): AppData {
   const prior = setupStateOf(data.settings, data.profile);
+  if (prior.stage === 'done' || (prior.draft?.answers !== undefined && !sameValue(prior.draft.answers, a))) return data;
   const today = now.slice(0, 10);
   const profile = profileFrom(a, data.profile, today, ctx);
   const joined = a.programme === 'join' && a.join !== undefined;
@@ -273,8 +286,10 @@ export function completedSetup(data: AppData, a: SetupAnswers, now: string, ctx:
   return next;
 }
 
-/** "Look around first" (§6.4): Home now, with every movement held; the answers so far wait in the draft. */
+/** "Look around first" (§6.4): Home now, with every movement held; the answers so far wait in the draft, and what pages held goes (K5-05). */
 export function lookedAround(data: AppData): AppData {
   const prior = setupStateOf(data.settings, data.profile);
-  return { ...data, settings: { ...data.settings, onboardingComplete: true, setup: { ...prior, stage: 'lookAround' } } };
+  const { edits: _held, ...draft } = prior.draft ?? {};
+  void _held;
+  return { ...data, settings: { ...data.settings, onboardingComplete: true, setup: { ...prior, stage: 'lookAround', ...(prior.draft ? { draft } : {}) } } };
 }

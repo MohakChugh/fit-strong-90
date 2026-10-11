@@ -5,7 +5,7 @@ import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { cn } from '@/lib/utils';
 import { useSetupSession } from '@/setup/draft';
 import { PlainButton, PrimaryButton } from '@/screens/you/controls';
-import { useSetupAnswers, type Move } from './useSetup';
+import { useSetupAnswers, type Recovery } from './useSetup';
 
 /**
  * The glass capsule: the chapter and how far along setup is; its fill moves on
@@ -23,14 +23,14 @@ function Capsule({ label, fraction }: { label: string; fraction: number }) {
   );
 }
 
-/** A refused store (§6.1, B-07): the answers stay on screen, with the two ways on. */
-function SaveFailed({ move }: { move: Move }) {
+/** A refused store (§6.1, B-07): the answers stay on screen, with the two ways on, each from the page as it is now (H5-02). */
+function SaveFailed({ recovery }: { recovery: Recovery }) {
   return (
     <div role="alert" className="flex flex-col gap-2 rounded-xl bg-caution/10 p-4">
       <p className="text-[length:var(--text-body)] font-semibold leading-snug">Your answers aren’t being saved on this phone.</p>
       <p className="text-[length:var(--text-subhead)] leading-snug">They’re still here. Try again, or carry on without saving: then they’re kept only until you close FitStrong.</p>
-      <PrimaryButton className="min-h-[3.75rem]" onClick={move.retry}>Try again</PrimaryButton>
-      <PlainButton className="min-h-12" onClick={move.continueUnsaved}>Continue without saving</PlainButton>
+      <PrimaryButton className="min-h-[3.75rem]" onClick={recovery.retry}>Try again</PrimaryButton>
+      <PlainButton className="min-h-12" onClick={recovery.continueUnsaved}>Continue without saving</PlainButton>
     </div>
   );
 }
@@ -41,11 +41,13 @@ function SaveFailed({ move }: { move: Move }) {
  * warning while unsaved, and a refused store. The page is named
  * `setup-page` for its own view transition; under Reduce Motion it fades in.
  */
-export function SetupShell({ title, capsule, onBack, move, children }: {
+export function SetupShell({ title, capsule, onBack, onClose, recovery, children }: {
   title: string;
   capsule?: { label: string; fraction: number };
   onBack?: () => void;
-  move?: Move;
+  /** Before Close goes Home: a page keeps what it holds and itself as the page to resume on (H5-16). */
+  onClose?: () => void;
+  recovery?: Recovery;
   children: ReactNode;
 }) {
   const navigate = useNavigate();
@@ -74,7 +76,7 @@ export function SetupShell({ title, capsule, onBack, move, children }: {
             : <span className="min-w-12" aria-hidden />}
           {capsule ? <Capsule {...capsule} /> : <span className="flex-1" aria-hidden />}
           {canClose
-            ? <button type="button" onClick={() => navigate('/home')} className="press-feedback min-h-12 min-w-12 px-2 text-[length:var(--text-body)] text-tint">Close</button>
+            ? <button type="button" onClick={() => { onClose?.(); navigate('/home'); }} className="press-feedback min-h-12 min-w-12 px-2 text-[length:var(--text-body)] text-tint">Close</button>
             : <span className="min-w-12" aria-hidden />}
         </div>
       </div>
@@ -87,7 +89,7 @@ export function SetupShell({ title, capsule, onBack, move, children }: {
           </p>
         )}
         {children}
-        {move?.failed && <SaveFailed move={move} />}
+        {recovery?.failed && <SaveFailed recovery={recovery} />}
       </div>
     </div>
   );

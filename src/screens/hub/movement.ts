@@ -70,8 +70,12 @@ export interface CardInput {
   title: string;
   detail?: string;
   reason?: string;
-  /** Unanswered profile questions, as the gate reads them (`profileGaps`). */
-  gaps: { healthUnreviewed: boolean; medicinesUnknown: boolean };
+  /**
+   * Unanswered profile questions, as the gate reads them (`profileGaps`), and
+   * while setup is unfinished the safety chapter it still asks, in words
+   * (`askAbout`: "Answer 2 questions about your back and feet"; K5-07).
+   */
+  gaps: { healthUnreviewed: boolean; medicinesUnknown: boolean; ask?: string };
   /** The stretch gate allows a start, or needs only a check-in: "Stretch instead" is honest. */
   stretchOpen: boolean;
   /** Workout: in the programme (D35). */
@@ -122,7 +126,7 @@ export function movementCard(i: CardInput): HubCard {
     return {
       // Home's card for the same gap (`profileFirst`), and before the programme's Join, as the tile says it (§4.2).
       ...empty, ...refusal, state: 'gap', tone: 'caution', title: i.gaps.healthUnreviewed ? 'Finish your health profile' : 'Your diabetes medicines',
-      primary: { kind: 'profile', label: `Answer the questions about ${chapter}` }, secondary: [REVIEW],
+      primary: { kind: 'profile', label: i.gaps.ask ?? `Answer the questions about ${chapter}` }, secondary: [REVIEW],
     };
   }
   // Outside the programme nothing starts and there is nothing to check in for (D35): any hold the tile says is the card's.
@@ -245,7 +249,8 @@ export function pendingWalkCard(i: PendingWalkInput): HubCard {
     const chapter = i.gaps.healthUnreviewed ? 'your health' : 'your medicines';
     return {
       ...empty, ...refusal, state: 'gap', tone: 'caution', title: i.gaps.healthUnreviewed ? 'Finish your health profile' : 'Your diabetes medicines', detail: started,
-      primary: FINISH_WALK, secondary: [{ kind: 'profile', label: `Answer the questions about ${chapter}` }, REVIEW],
+      // While setup is unfinished, the chapter it still asks, as the hub's own card names it (K5-07).
+      primary: FINISH_WALK, secondary: [{ kind: 'profile', label: i.gaps.ask ?? `Answer the questions about ${chapter}` }, REVIEW],
     };
   }
   if (i.gate === 'hold' || i.gate === 'recheck') {

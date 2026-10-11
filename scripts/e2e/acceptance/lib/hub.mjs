@@ -84,7 +84,8 @@ export async function refusal(page) {
     // A way to today's check-in: "Review today’s check-in", or "Enter a new reading" while a re-check waits.
     review: (await has('Review today’s check-in')) || (await has('Enter a new reading')),
     recheck: await has('Enter a new reading'),
-    profile: (await c.getByRole('button', { name: /^Answer the questions about your (health|medicines)$/ }).count()) > 0,
+    // "Answer the questions about your health", or while setup is unfinished "Answer 2 questions about your back and feet" (K5-07).
+    profile: (await c.getByRole('button', { name: /^Answer (the questions|\d+ questions?) about your (health|medicines|back and feet)$/ }).count()) > 0,
     stretchInstead: await has('Stretch instead'),
     join: await has('Join the 12-week programme'),
   };

@@ -162,6 +162,11 @@ describe('setup in a backup file, read field by field (journey §18.1; D-08; Rev
     expect(planImport(file({ settings: { ...settings, setup } }), 'replace', emptySnapshot()).change.settings?.replace?.setup).toEqual(setup);
   });
 
+  it('keeps every "Not sure" setup offers, the four new ones included (K5-09), and a metformin year emptied (H5-21)', () => {
+    const unsure = { ...setup, draft: { at: 'backFeet.history', answers: { kidneyTreatment: 'unsure', eyeTreatment: 'unsure', footWound: 'unsure', footRestriction: 'unsure', metforminSince: '' } } };
+    expect(preview(file({ settings: { ...settings, setup: unsure } })).unreadableFields).toEqual([]);
+  });
+
   it('leaves out, by name, a page this build lacks or an answer of the wrong kind, and keeps the rest', () => {
     const odd = { ...setup, draft: { at: 'health.somewhere', answers: { ...setup.draft.answers, conditions: { diabetes: 'maybe' } } } };
     expect(preview(file({ settings: { ...settings, setup: odd } })).unreadableFields)
@@ -169,6 +174,13 @@ describe('setup in a backup file, read field by field (journey §18.1; D-08; Rev
     const { change } = planImport(file({ settings: { ...settings, setup: odd } }), 'replace', emptySnapshot(), { allowRejected: true });
     expect(change.settings?.replace?.setup).toEqual({ ...setup, draft: { answers: { figure: 'female', weightKg: 72 } } });
     expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: ['nowhere'] } } })).unreadableFields).toEqual(['settings.setup.skipped']);
+  });
+
+  it('keeps the skipped pages of a backup from before Your day was split into a page each (K5-12)', () => {
+    const answers = { skippedPages: ['day.reminders', 'movement.goal'] };
+    expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: ['day', 'movement'], answers } } })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: [], answers: { skippedPages: ['day.somewhere'] } } } })).unreadableFields)
+      .toEqual(['settings.setup.answers.skippedPages']);
   });
 
   it('keeps answers a newer build added, as it keeps unknown fields', () => {
@@ -239,5 +251,15 @@ describe('the food fields Plan 7 adds (journey §18.1, B-13)', () => {
     for (const over of bad) {
       expect(preview(file({ settings, profile: profile({ ...food, ...over }) })).unreadableFields, JSON.stringify(over)).toEqual(['profile.food']);
     }
+  });
+});
+
+describe('the limits setup and a backup share (H5-18)', () => {
+  it('a backup holds every answer setup takes, and nothing setup refuses', async () => {
+    const { NAME_MAX, OWN_ALLERGIES_MAX, OWN_ALLERGY_LENGTH_MAX } = await import('@/setup/limits');
+    const answers = (a: Record<string, unknown>) => preview(file({ settings: { ...settings, setup: { stage: 'open', draft: { answers: a } } } })).unreadableFields;
+    expect(answers({ name: 'x'.repeat(NAME_MAX), customAllergies: Array.from({ length: OWN_ALLERGIES_MAX }, () => 'y'.repeat(OWN_ALLERGY_LENGTH_MAX)) })).toEqual([]);
+    expect(answers({ name: 'x'.repeat(NAME_MAX + 1) })).toEqual(['settings.setup.draft.answers.name']);
+    expect(answers({ customAllergies: ['y'.repeat(OWN_ALLERGY_LENGTH_MAX + 1)] })).toEqual(['settings.setup.draft.answers.customAllergies']);
   });
 });

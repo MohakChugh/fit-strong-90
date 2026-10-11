@@ -1306,3 +1306,295 @@ Production build: `npm run build` succeeds, and the CSP's `img-src` is `'self' d
 
 Left for later:
 - **The Walk hub offers "Return to walk" for a walk that will only be finished.** `peekWalk` reads any unfinished walk as in progress. After more than 3 h away (`STALE_AFTER_MS`), the live screen ends the walk at once, after the check-in and "Carry on walking": "This walk was left open, so it was finished at 9:02 am". Offering "Review and save" for such a walk is a decision for H2-01's owner. It would also make M02's step 2 deterministic.
+
+### 2026-10-12 — [claude] v2 Plan 5 review fixes (Codex H5, Kiro K5)
+
+Worktree `/Users/chumohak/Projects/fit-strong-90-v2-p5`, branch `feat/v2-p5`, from `214ef04`.
+Baseline at 214ef04: `tsc -b --force` 0, `npm run lint` 0, `vitest run --maxWorkers=3` 210 files and 5,865 tests passing.
+
+Principle for every fix: an answer path never gives the engine weaker inputs than the person supplied, and "Not sure" or unanswered never becomes "No" (§6.1, §4).
+
+#### Decisions (owner: "don't ask"; numbered from D150)
+
+| D | Finding | Decision |
+|---|---|---|
+| D150 | K5-08 | Allergies get their own page, which can't be skipped, with a one-tap "No food allergies". The rest of chapter 7 stays skippable. |
+| D151 | K5-09 | "Not sure" is added to eye treatment in the last 3 months, a foot wound now, dialysis or transplant, and the weight-off-foot limit. Each "Not sure" maps to the stricter value. |
+| D152 | K5-10 | A usual glucose start figure must be at least 70 mg/dL or 3.9 mmol/L, with an error that says why. |
+| D153 | K5-11 | Review says why a diabetes 'other' interpretation was made. |
+| D154 | K5-12 | "Your day" is split into 3–4 skippable pages. The minimal path stays at 20 pages or fewer and the complex path at 30 or fewer. The published graph is updated. |
+| D155 | K5-13 | Plain words first, with the term in brackets, e.g. "a doctor or nurse (clinician)". |
+| D156 | K5-14 | Back from a chapter opened from Review returns to Review. |
+| D157 | K5-15 | Save is blocked when a shown page is half-answered, with the reason next to it. |
+| D158 | H5-16, K5-17 | A debounced, durable autosave of answers, keeping raw number text. Back and Close checkpoint the position. Next still waits for confirmation. |
+| D159 | H5-22 | The body picture is illustrative only, and selection uses the labelled list. Every control is at least 48×48 px, with 12 px gaps. |
+| D160 | H5-23 | The shared radio groups get real radio-group keyboard behaviour: a roving tab stop, arrow keys and selection, done once in the shared controls. |
+| D161 | H5-05 | While setup is unfinished, gates use one conservative effective profile: the required gap, plus any stricter answers disclosed in the draft. A completed v1 upgrade is unaffected. |
+| D162 | H5-08 | Stricter clinical answers take effect at once. A restriction is released only after the write is confirmed. |
+| D163 | K5-02 | K5-02's second remedy (in Me, never fill checklist rows that were empty on open) is not adopted. Every non-default eye or foot value is now read back, so a conditions row that opens empty holds the default and its "No" writes the same value. B-08's "unticked is No" stays: the medicines checklist has no other way to answer No per row, and an unvouched medicine value is exactly what the `medicinesUnknown` review asks. The K5-16 committed-save upgrade cases check that no engine input weakens. |
+| D164 | H5-20 | A food record keeps needing its pattern (D82). Plan 7 on `feat/v2-journey` indexes its labels by `food.pattern`, so making it optional would break that build at the merge. Logging and screening answers given after a skipped pattern wait, as given, in setup's own answers. Profile & health and Review read them from there, Your food stays under Finish setting up, and the profile takes them once the pattern is answered. |
+| D165 | H5-12, H5-13 | Answers changed in one copy are written onto the answers as they are now, change by change, and row by row for the conditions and medicine checklists. Where both copies changed the same Yes, No or Not sure, the stricter value stays, since "Not sure" is never turned into "No" (§6.1). For any other answer, the later save wins, as the person's latest. A draft's resume page is checked again against the merged answers when setup resumes (`resumeAt`) or opens a page (`guardFor`). |
+| D166 | H5-18 | Setup and backups share one set of limits (`src/setup/limits.ts`). Allergies left unknown, for example by a backup's unreadable list, keep Your food open under Finish setting up ("Food allergies"). Meal ideas still read unknown allergies as none (`leaveOut`, Plan 7). That is a handoff to Plan 7, not changed on this branch, to avoid conflicting with Plan 7's own allergen code on `feat/v2-journey`. |
+| D167 | K5-08 | Allergies have their own page, `food.allergies`, that can't be skipped, and "No food allergies" is one tap. The pattern and logging pages stay skippable. A food record still needs its pattern (D164), so with the pattern skipped the allergy answer waits, as given, in setup's own answers, as the logging answers do. Review and Profile & health read it from there, Your food stays under Finish setting up ("What you eat"), and Me's Your food stores it with the pattern once that's answered. Handoff to Plan 7, with D166: with no food record, its food picker starts empty and its search offers meals unfiltered. Both should read allergies as unknown, and the picker can't take setup's answer from the profile. |
+
+#### Findings
+
+(Filled in as each one is done: verdict, test, fix, mutation check, commit.)
+
+##### H5-10 = K5-01 (High): Me's health review prefilled unconfirmed defaults. FIXED, `1d08d48`
+- Verdict: reproduced. `answersToEdit` on an unreviewed type 1 profile gave dizzy No, severe lows No and ketone test None as answers. Answering only the home cuff left `blocking` empty, so one Save cleared `needsHealthReview`.
+- Test: `prefill.test.ts`. A pending review opens with no safety answers, with or without stored answers. A Save that answered only the cuff is blocked at `health.conditions` and keeps the review.
+- Fix: `withoutUnreviewed` in `prefill.ts`, one clearing rule for setup's prefill and Me's review. `editorState` and `editorOpens` in `edit.ts` hold the editor's logic as pure functions, which `ChapterEditor` uses.
+- Mutant: dropping the rule from `answersToEdit` was killed (2 tests).
+- Acceptance helpers: `reviewAsP01` (J02, J17) and J12 step 6 answer every question the review asks again.
+
+##### H5-11 (High): unreviewed activity history defaulted to Yes. FIXED, `43da680`
+- Verdict: reproduced. `active` was read from `currentlyActive` (default true) and never cleared. The review cleared without asking it, so `lightOnly` was skipped for an inactive diabetic without clearance.
+- Test: `prefill.test.ts` (no `active` prefilled, focus kept) and `edit.test.ts`. The review blocks on `movement.focus` and stays pending. Answered No, it clears and `lightOnly` is true. A focus changed there is saved, and `skipped` is unchanged.
+- Fix: `active` is cleared with the safety keys. `REVIEW_ALSO = ['movement.focus']` (graph.ts) is shown in the review and required to clear it (assemble.ts). The review saves what that page sets, writing only what changed (edit.ts).
+- Mutants: 4, all killed (prefill clearing, clearing rule, `editPath` `also`, settings ownership).
+
+##### H5-01 (High): partial restored answers bypassed the insulin and lows follow-ups. FIXED, `f1be582`
+- Verdict: reproduced. Stored answers without `conditions` made `answersToEdit` delete the reconstructed chip. Insulin added in Me then gave `diabetesOf` undefined, with no lows or ketone pages, diabetes 'none', and `hypoRisk` false.
+- Tests: `facts.test.ts` (insulin or a lows tablet with no chip is 'other'), `prefill.test.ts` (a missing stored answer keeps the record's), and `edit.test.ts`, the full scenario. It blocks on limits, lows and ketones; once answered, the profile is 'other' with `hypoRisk` true.
+- Fix: `answersToEdit` keeps a reconstructed answer when the stored one is absent. `diabetesOf` reads a lows medicine as 'other' even with no chip (two independent defences).
+- Mutants: each is killed by its own test. The full scenario needs both removed to fail.
+
+##### H5-03 ≈ K5-02 (High): eyes and feet read back only with diabetes, and the foot chip outranked a clinician's limit. FIXED, `800f205`
+- Verdict: both reproduced. Saving Your health on a record without diabetes, with one row ticked, turned `recent_eye_treatment` (red) into `none_or_mild` and a foot wound into healthy. Unticking feet with the limit Yes wrote healthy at once.
+- Tests: `prefill.test.ts` (non-default values are read back without diabetes), `facts.test.ts` (the limit holds walks with the chip unticked), and `edit.test.ts`. Unticking feet brings `backFeet.history`, keeps `footStatus` and FOOT; the limit answered No releases. The red outcome and the wound survive a reachable Save.
+- Fix: read-back in prefill.ts. `footLimit` and `footHeld` in facts.ts. Precedence in `healthFrom`. The history page stays while the limit stands (graph.ts, backFeet.tsx). `editChapters` brings Your back and feet when the chip goes and the limit stands.
+- Mutants: 7, all killed. Decision D163 covers K5-02's second remedy.
+
+##### H5-04 = K5-03 (High): Your day and coach asked the fluid limit but never wrote it. FIXED, `b8fb891`
+- Verdict: reproduced. A day-only save left `health.fluidRestriction` undefined and only turned the reminder off.
+- Test: `edit.test.ts`, through the chapter-restricted save. Water on with Yes, Not sure and No gives true, 'unsure' and false; the reminder is on only with No.
+- Fix: in `profileFrom`, the day chapter writes `fluidRestriction` with health's own conversion.
+- Mutant: dropping the write was killed.
+
+##### H5-02 (High): Try again saved an obsolete answer and followed its obsolete route. FIXED, `45f5130`
+- Verdict: reproduced by reading the code. `useMove.retry` replayed `failed.answers` and `failed.to`, and `continueUnsaved` the same snapshot. Browser reproduction: V-J17's two new cases, run on a snapshot of the unfixed tree (see the acceptance section).
+- Tests: `setup.pages.test.ts`, `nextMove` and `skipMove` plan from the current answers (a corrected page goes to `health.bp`, not `health.diabetes`). V-J17's new cases "Try again stores the page as corrected" and "Continue without saving keeps the page as corrected".
+- Fix: `useMove` keeps only that a store was refused. Each page's `Recovery` runs its own move again from the page as it is now (`PageFrame`, `WelcomePage`). `goUnsaved` handles B-07.
+- Mutation: the unfixed snapshot is the mutant. It must fail the two new V-J17 cases, and the fixed snapshot must pass them.
+
+##### H5-06 (High): storage unavailable from launch bypassed B-07. FIXED, `21d18d8`
+- Verdict: reproduced. With the store in memory mode, a Next's 'session' outcome never set `unsaved`, and Review's completion completed the profile in memory.
+- Tests: `draft.test.ts`. Storage refused from the start: `saveDraft` gives an unsaved session with the answers. `finishSetup` enters without saving with no profile, `onboardingComplete` unset and stage not done. A `needsStorage` write in memory mode changes nothing.
+- Fix: `saveDraft` (from useMove) enters the explicit unsaved mode on any 'session' outcome. `finishSetup` (from ReviewPage) never completes in that mode, and its write `needsStorage`, so storage going during the finish is refused too. `UpdateOptions.needsStorage` passes through to the store's existing mechanism.
+- Mutants: 4, all killed. A redundant status pre-check was removed after its mutant survived, leaving one mechanism.
+
+##### H5-07 = K5-05 (High): restore left the previous setup's answers in memory. FIXED, `c6366c9`
+- Verdict: reproduced. After a Replace, the page edits and an unsaved session from before survived, and edits stayed after Next and finish.
+- Tests: `draft.test.ts`. A successful Next forgets its page's edits and a refused one keeps them. Replace leaves no edits or unsaved session, showing the backup's draft. Merge keeps the session. Look around and finish forget the pages.
+- Fix: `StoreState.epoch` moves on a Replace import or clear-all. Setup's session and page edits are scoped to it (draft.ts). `saveDraft(from)` and Continue without saving forget the page left. `finishSetup` resets. `lookAroundFirst` clears the page edits. The page key includes the epoch (remount).
+- Mutants: 6, all killed.
+
+##### H5-09 (High): an in-flight completion could overwrite another tab's finished setup. FIXED, `ee14087`
+- Verdict: reproduced. A finish planned after another tab had finished replaced its foot limit with healthy and added a stale weight reading. A finish of answers changed since Review (insulin) completed over the change.
+- Tests: `draft.test.ts`. After another tab finished, a finish goes Home and keeps that tab's record with none of its readings. With the draft changed, it fails with the reason, the stage stays open and the change is kept.
+- Fix: `completedSetup`, planned inside the write, changes nothing when setup is done or the stored draft isn't the one Review showed. The update option `addObservationsWhen` adds readings only when this write finishes setup. `finishSetup` tells the person when the answers changed in another window.
+- Mutants: 5, all killed.
+
+##### H5-05 (High): "Look around first" didn't guarantee the profile-gap hold. FIXED, `d482831`
+- Verdict: reproduced. `deviceClinical` and `useGuided` read the stored reviewed profile of a v1 record left part-way, ignoring setup's stage and its draft.
+- Tests: `effective.test.ts`. A part-way record with a drafted wound is held for the gap with the wound applied, after Look around too. A looser draft never loosens. Unsaved answers count. A completed upgrade returns the stored profile itself. The walk gate reads the same. Every health field's rule is checked both ways round.
+- Fix: `src/setup/effective.ts`. `gateProfile` (D161) is the one profile every gate reads, through `useGuided` and `deviceClinical`. `stricterProfile`, `stricterHealth` and `stricterPain` merge field by field; the rule table is a Record over `HealthProfile`'s keys. `useSetupSession` got a server snapshot.
+- Ten caller and walk test files seeded "profile + onboardingComplete unset". That state is only ever setup left part-way, now held by design, so their fixtures say setup is finished.
+- Mutants: 8, all killed.
+
+##### H5-08 (High): a clinical edit could release a hold before its write succeeded. FIXED, `10e415a`
+- Verdict: reproduced through the real ChapterEditor (`setup.callers.test.ts`). With the old optimistic save, a healed wound showed healthy while its write was held, and a refused new wound vanished.
+- Tests: the caller test (release waits for the stored write; a stricter answer counts while refused) and `effective.test.ts` (a refused edit outlasts another chapter's save and goes with its own chapters' stored save).
+- Fix: `saveClinicalEdit` (D162) holds chapter edits on their way, keyed by chapters, and the gate folds them in. ChapterEditor writes with `hold: true`.
+- Mutants: the old save fails both caller tests. No hold, no fold, keep-on-refusal and the same-chapters rule are each killed.
+
+#### Acceptance
+
+- After the Highs: a snapshot of `10e415a`, run through the shared lock with `--only=V-J10,V-J11,V-J13,V-J17,V-J18,V-J37,J01,J02,J12,J14,M01` in all four projects. 188 of 188 cases passed in 10.2 min (`/tmp/fit-checks/accept-p5fix-highs.log`).
+- H5-02 in the browser (V-J17's two new cases). On a snapshot of the unfixed tree, 0 of 2 passed: both went to "Which type of diabetes?". On `45f5130`, 4 of 4 passed, and all of V-J17 there passed 8 of 8.
+
+##### I-01 (integrator): the food logging level read-back used words other than Plan 7's. FIXED, `30c5123`
+- Test: `summaries.test.ts` pins Plan 7's `LEVEL_LABEL` words for each level; it failed before.
+- Fix: `summaries.ts` `LEVEL` uses Plan 7's words word for word. `@/food/copy` isn't on this branch, and adding it would cause an add/add conflict. Once merged, `LEVEL` can become `LEVEL_LABEL`.
+
+##### K5-09 (Low–Med): no "Not sure" on four safety questions. FIXED, `508da7e` (D151)
+- Tests: assemble, facts, pages and importCheck; each failed before.
+- Fix: the types, facts, `healthFrom`, the eyes page, the page options with footers, and the validator.
+- Mutants: 7, all killed.
+
+##### H5-19 (Medium): past neurological history was coupled to current pain. FIXED, `5cb7a07`
+- Tests: assemble (no pain keeps the history, and its question sets it without pain), pages (the page stays with a history), and edit (Me's Your back and feet offers the question). Each failed before.
+- Fix: `painFrom` keeps or sets the history whatever the chip. The history page's `when` includes a history. The view shows the question with pain, a history kept, or in Me. Me's fallback page list adds the history page.
+- Mutants: 4, all killed.
+
+##### K5-18 (Low): pain "Not sure" reached only the first Home layout. FIXED, `a7b9bad`
+- Test: `homeLayout.test.ts`, with setup's answers holding Not sure, Back & leg is relevant. It failed on the assertion.
+- Fix: `homeAnswers` reads `backUnsure` from setup's own answers; `useHomeLayout` (and so Me's offers) uses it.
+- Mutant: killed.
+
+##### H5-15 = K5-04 (Medium): Me saved invalid or underage birth years, and first-run Skip got past the age gate. FIXED, `7e9bd38`
+- Tests: `setup.callers.test.ts` (the real PageFrame: Skip with 2015 stays and says why; cleared, it skips) and `edit.test.ts` (Save waits for 195, 2015, and 2008 with No or no answer). Both failed before.
+- Fix: `PageDef.invalid` and `pageInvalid` (graph.ts). PageFrame's Skip on an invalid page stays. Me's `blocking` includes invalid preference pages.
+- Mutants: 4, all killed.
+
+##### H5-27 (Medium): a hidden metformin year blocked Next. FIXED, `bb04485`
+- Test: `setup.pages.test.ts`; it failed before.
+- Fix: the year is checked only while metformin is Yes, and `commitPage` drops a hidden one.
+- Mutants: 2, killed.
+
+##### H5-21 (Medium): clearing the metformin year didn't clear the stored year. FIXED, `17f9286`
+- Tests: `setup.callers.test.ts` (the real ChapterEditor, which failed before), assemble and importCheck.
+- Fix: an emptied field is `''`, meaning no year. In `healthFrom`, `''` clears, undefined keeps and a new year replaces. The validator accepts `''`.
+- Mutants: 3, all killed.
+
+##### H5-26 (Medium): visible usual meal times weren't accepted as shown. FIXED, `4019d6d`
+- Tests: pages (the committed page stores the shown times) and edit (an upgrader's unchanged day chapter saves). Both failed before.
+- Fix: `finishFor` lives in graph.ts. `commitPage('day.meals')` stores the shown times, and DayMeals checks the shown times.
+- Mutants: 2, killed.
+
+##### K5-10 (Low): glucose start figures below 70 mg/dL were silently unused. FIXED, `4435460` (D152)
+- Test: the pages test fails before. Fix: bounds of 70–300 mg/dL and 3.9–17 mmol/L, with an error that says why. Mutant: killed.
+
+##### H5-20 (Medium): skipping the eating pattern dropped the later food answers. FIXED, `95a9ca4` (D164)
+- Test: `edit.test.ts`. The answers are kept and read back, and the profile takes them once the pattern is answered. The read-back failed before.
+- Fix: `chapterSections` reads the level from setup's answers while there's no food record. The food contract is unchanged (D164).
+- Mutant: killed.
+
+##### H5-14 (Medium): an unrelated chapter save could invent a body reading. FIXED, `b3b3433`
+- Tests: `setup.callers.test.ts`, the real ChapterEditor; it failed before with a 68 kg reading. Also `edit.test.ts` for `editMeasurements`.
+- Fix: `editMeasurements` makes readings only from About you's measures that this edit changed from what it opened with.
+- Mutants: 2, killed.
+
+##### H5-13 (Medium): an unrelated Me edit overwrote another copy's raw answers. FIXED, `0dc6b4b` (D165)
+- Tests: `edit.test.ts`, two copies of Me: B's Not sure and B's skipped goal outlast A's name save; it failed before. Also `merge.test.ts`.
+- Fix: `merge.ts`, `mergeAnswers` (row by row for checklists; the stricter Yes, No or Not sure where both changed). `editedRecord` stores the merged answers and keeps other chapters' skip marks.
+- Mutants: 6, all killed. The first run's two survivors each became a new test.
+
+##### H5-12 (Medium): concurrent draft saves replaced answers from other pages. FIXED, `61ceebd` (D165)
+- Tests: `draft.test.ts` (tab A's name and tab B's health answers both survive; it failed before), `merge.test.ts` (`mergeSkipped`), and `setup.callers.test.ts` (PageFrame hands over its opened answers).
+- Fix: `withDraft` and `saveDraft` merge the page's own changes and skip mark onto the draft as stored, planned inside the write. `MoveOpts` carries what the page opened with.
+- Mutants: 6, all killed.
+
+##### H5-17 (Medium): a rejected imported profile left the health hold impossible to repair through setup. FIXED, `ff76b6f`
+- Tests: state (done with no profile reads as lookAround) and prefill (the kept setup answers carry on, the clinical ones are asked again). Both failed before.
+- Fix: `setupStateOf` treats done with no profile as Look around (app open, every hold applies, `/setup` reachable). `prefillAnswers` carries on from setup's kept answers less the clinical ones.
+- Mutants: 3, all killed.
+
+##### H5-18 (Medium): setup accepted data its own backup validator rejects. FIXED, `c2e4f07` (D166)
+- Tests: pages (the limits), progress (Your food stays open while allergies are unanswered) and importCheck (a backup holds everything setup takes at the limits).
+- Fix: `src/setup/limits.ts` is shared by importCheck and setup. An answer over a limit is invalid, cannot be skipped or saved, and shows an error at the field. Finish setting up keeps "Food allergies" open.
+- Mutants: 6, all killed. Meal ideas reading unknown allergies as none is a handoff to Plan 7 (D166).
+
+##### H5-25 = K5-06 (Medium): replacing a draft-only record skipped the second confirmation. FIXED, `ae1a3ba`
+- Test: `restore.test.ts`, `replaceErases`; it failed before.
+- Fix: RestoreFlow asks twice whenever `replaceErases` names something. The confirmation says what goes, including "your setup answers so far".
+- Mutants: 3, all killed. The sheet itself is covered by a browser check (below).
+
+##### K5-15 (Low): skippable pages saved half answered in Me. FIXED, `d4979ca` (D157)
+- Tests:
+  - `edit.test.ts`: water on with no fluid answer, walks with no meal, and allergies unticked each hold Save; a page left as it opened doesn't.
+  - Caller tests: Your food in Me, and estimates chosen after "Yes".
+  - All of them failed before the fix.
+- Fix: a preference page this edit changed, and left unanswered, holds Save as a safety page does. The page says why at the question, and the food-logging suggestion now says what it waits for.
+- Mutants: 3, all killed.
+
+##### K5-14 (Low): Back from a chapter opened from Review walked into the chapter before. FIXED, `f220cb4` (D156)
+- Tests: `backFromReview` in the graph, and a caller test through PageFrame with `fromReview`; both failed before.
+- Fix: Back from the chapter's first page goes to Review, still carrying `fromReview`.
+- Mutants: 2, both killed.
+
+##### K5-11 (Low): Review never said why diabetes read as "Other". FIXED, `ab82e34` (D153)
+- Tests: `review.test.ts` (`whyOtherDiabetes`) and a host render of Review; both failed before.
+- Fix: Your health's footer on Review gives one of three reasons:
+  - a medicine that can cause lows, with diabetes No, unanswered or prediabetes;
+  - "Not sure" about diabetes;
+  - the type unknown.
+- Mutants: 5, all killed.
+
+##### K5-07 (Medium): the hold always said "your health" or "your medicines". FIXED, `76ba6b2`
+- Tests:
+  - `progress.test.ts` (`safetyLeft`, `askAbout`, Me's row);
+  - `movement.test.ts` (the hub's action);
+  - `tileLine.test.ts` (`gapChapter`);
+  - a host test of `useSafetyLeft` through the store.
+- Fix: while setup is unfinished, the hold names the first safety chapter with a page left, and how many: the tile line ("Finish setting up · your back and feet"), the hub ("Answer 2 questions about your back and feet") and Me's row. A finished setup's review keeps its words. `hub.mjs` accepts the new label.
+- Mutants: 9, all killed. The wiring into Home and the hubs is checked in the browser.
+
+##### K5-08 (Medium): allergies sat on a skippable page. FIXED, `1602e35` (D150, D167)
+- Tests:
+  - the graph (the page can't be skipped, "No food allergies" answers it, counts and reach);
+  - `edit.test.ts` (an allergy answer waits with a skipped pattern, is read back, and is stored with the pattern);
+  - a caller test through PageFrame (no Skip, and Next waits for the answer);
+  - `progress.test.ts` (the topic).
+- Fix: `food.allergies` is its own page that can't be skipped. The minimal path is 16 pages, the complex one 27.
+- Mutants: 5, all killed (one after adding the topic test).
+
+##### K5-12 (Medium, UX): Your day was one page of about ten controls. FIXED, `d2bc373` (D154)
+- Tests: the graph (four pages, each skippable, with their own `done`); walks off with a foot held; counts of 19 and 30; reach; the import check keeps the old `day.reminders` in a backup's skipped pages; progress topics.
+- Fix: four pages: water (with the fluid limit), sitting breaks, after-meal walks (not shown while a foot is held), and quiet hours with delivery. The minimal path is 19 pages (20 or fewer), the complex one 30 (30 or fewer).
+- Mutants: 10, all killed.
+- The views use base-ui's Switch, which the test host can't render, so they're checked in the browser.
+
+##### K5-13 (Low, UX): jargon. FIXED, `f462273` (D155)
+- Test: a host render of the health, medicines and back-and-feet pages, and every title: each term appears only in brackets after plain words.
+- Fix:
+  - "a doctor or nurse (clinician)"
+  - "a hot, swollen foot (Charcot foot)"
+  - "very ill from high ketones (diabetic ketoacidosis, or DKA)"
+  - "a pump that adjusts itself (closed-loop system)"
+  - "long-term blood sugar target (HbA1c)"
+  - Diuretic and CGM already read this way.
+  - The acceptance helper and journeys J03, J12 and J14 use the new words.
+- Mutants: 7, all killed.
+
+##### H5-16 = K5-17 (Medium): answers weren't kept until Next, and Back didn't keep the position. FIXED, `50fc0bc` (D158)
+- Tests:
+  - `draft.test.ts`: stored 500 ms after a change, as typed (195 stays 195), and read on a new session; Back stores the page it goes to; Next takes its page's held answers away, and a change waiting through a slow write never puts them back; Look around first drops them; without saving, the session keeps `at`, and the draft's kept answers aren't drawn over the session's; a change from a record a backup replaced is dropped; a backup never brings them.
+  - Caller tests: Back, Close after Look around first, and leaving the page.
+- Fix: `draft.edits` by page; `autosaveEdits`, `flushEdits` and `flushPending`. The import drops `draft.edits`, so half-typed answers stay on the device that typed them (H5-07).
+- V-J17 now waits for the ticks to be kept before it reads the stored setup. The early run of V-J17, J01, J02, M01 and V-J13 passed 56/56.
+- Mutants: 14, all killed (three after adding the tests).
+
+##### H5-22 (Medium): tap targets under 48 px, and the clickable body picture. FIXED, `06f36fc`, `82dbd50` (D159)
+- Tests:
+  - a host render of the shared controls (each tappable at least 48 px);
+  - the body picture has no tap handlers, and the list chooses;
+  - `targets.node.test.ts`: no `h-10`, `h-11`, `min-h-10` or `min-h-11` in setup or its controls, which covers the switch.
+- Fix: these controls are now 48 px or more: TextInput, NumberAnswer, TimeField, Toggle (h-12), Segmented and PlainButton. The picture only shows what's chosen.
+- Mutants: 6, all killed.
+- `82dbd50` fixes the type check: the node-only file check had to live in a `.node.test.ts`.
+
+##### H5-23 (Medium): radio groups had no radio-group keyboard. FIXED, `054c286` (D160)
+- Test: ChoiceRows and Segmented each have one tab stop (the chosen option, else the first), and the arrows move, choose and wrap; any other key is the button's own.
+- Fix: `radioKeys` in the shared controls, written once.
+- Mutants: 5, all killed.
+- Handoff: the other screens' radio groups are outside setup and outside D160 (walk, track, check-in, today, move, the voice card).
+
+##### H5-24 (Medium): Review and Profile & health showed body measures undated and rounded. FIXED, `8f795da`
+- Tests: `summaries.test.ts` (entered or logged, date and time, the day only when that's all that was kept, "date not recorded", the latest matching reading wins, to a tenth in inches); caller tests of Review (the readings finishing will add) and Profile & health.
+- Fix: `chapterSections` takes the body readings.
+- Mutants: 8, all killed.
+
+##### K5-16 (Low): the upgrade test didn't cover the committed save. ADDED, `5513c62`
+- New cases: each persona, plus four records without diabetes (eye treatment, moderate eye disease, a foot wound, numb feet not sure), Saves every chapter as the editor does. The questions v1 never asked are answered as the record says. The health record (apart from the BP-medicine review flag the shown rows vouch for) and every permission stay.
+- Mutants: the four that revert K5-02's read-back are all killed.
+
+#### Verification at `5513c62`
+- **Gates:** `tsc -b --force` 0, lint 0, and vitest 214 files with 6,019 tests passing. The baseline was 210 files and 5,865 tests.
+- **Acceptance:** 188/188 passed, 0 failed, all four projects (`/tmp/fit-checks/accept-p5fix.log`). The run was on the worktree, through the shared lock, with `--only=V-J10,V-J11,V-J13,V-J17,V-J18,V-J37,J01,J02,J12,J14,M01`.
+- **Early run after H5-16:** V-J17, J01, J02, M01 and V-J13 passed 56/56 (`/tmp/fit-checks/accept-p5fix-h516.log`).
+- **Browser checks:** headless Chromium against `npx vite --port 5400 --strictPort --host 127.0.0.1`, at 320 px with 200% text and at 428 px, light and dark. 160/160 checks passed, and no tap target was under 48 px on any setup page checked. Screenshots and `report.json` are in `/tmp/fit-checks/shots-p5fix/`, and the script is `/tmp/fit-checks/p5fix-browser.mjs`.
+- **What the browser checks covered:**
+  - H5-16: a reload resumes with the year as typed.
+  - H5-23: one tab stop, arrows move, choose and wrap, and Tab leaves the group.
+  - K5-09: four "Not sure" options.
+  - K5-13: plain-words copy.
+  - H5-22: the picture has no tap areas, and the switches are 48 px.
+  - K5-07: the tile line, the hub's action and Me's row.
+  - K5-08: no Skip on allergies.
+  - K5-12: four pages, and the fluid limit isn't asked twice.
+  - H5-24: Review and Profile & health.
+  - K5-14: Back to Review.
+  - H5-19: Me's nerve question.
+  - H5-25: the second confirmation at Welcome.

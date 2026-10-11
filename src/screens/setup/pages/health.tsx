@@ -3,7 +3,7 @@ import { Group } from '@/components/hig/List';
 import { factsOf } from '@/setup/facts';
 import { pageDone } from '@/setup/graph';
 import { numberFrom } from '@/setup/units';
-import { CONDITION_ROWS, TRI, YES_NO } from '../choices';
+import { CONDITION_ROWS, TRI } from '../choices';
 import { Ask, Missing, NumberAnswer, TextInput, TriChecklist, type PageProps } from '../controls';
 
 /** "Do you have any of these?": one checklist, "Not sure" on every row (journey §6.2 ch. 3; B-08). */
@@ -39,7 +39,8 @@ export function HealthFluid({ a, set, tried }: PageProps) {
     <>
       {factsOf(a).kidney && (
         <Ask label="Are you on dialysis, or have you had a kidney transplant?" header="Are you on dialysis, or have you had a kidney transplant?"
-          options={YES_NO} value={a.kidneyTreatment} onChange={kidneyTreatment => set({ kidneyTreatment })} tried={tried} />
+          options={TRI} value={a.kidneyTreatment} onChange={kidneyTreatment => set({ kidneyTreatment })} tried={tried}
+          footer="“Not sure” is read as yes, so the app plays safe." />
       )}
       <Ask label="Has a doctor given you a fluid limit?" header="Has a doctor given you a fluid limit?" options={TRI}
         value={a.fluidLimit} onChange={fluidLimit => set({ fluidLimit })} tried={tried} footer="It changes your rest-time and water advice." />
@@ -50,8 +51,9 @@ export function HealthFluid({ a, set, tried }: PageProps) {
 export function HealthEyes({ a, set, tried }: PageProps) {
   return (
     <>
-      <Ask label="Eye treatment or surgery in the last 3 months?" header="Eye treatment or surgery in the last 3 months?" options={YES_NO}
-        value={a.eyeTreatment} onChange={eyeTreatment => set({ eyeTreatment })} tried={tried} />
+      <Ask label="Eye treatment or surgery in the last 3 months?" header="Eye treatment or surgery in the last 3 months?" options={TRI}
+        value={a.eyeTreatment} onChange={eyeTreatment => set({ eyeTreatment })} tried={tried}
+        footer="Yes, or “Not sure”, means no exercise until your eye doctor says it’s fine." />
       {a.eyeTreatment === 'no' && (
         <Ask label="How bad is the eye disease from diabetes?" header="How bad is the eye disease from diabetes?" tried={tried}
           value={a.eyeDisease} onChange={eyeDisease => set({ eyeDisease })} footer="As your eye doctor last said. “Not sure” is fine."
@@ -66,10 +68,10 @@ export function HealthFeet({ a, set, tried }: PageProps) {
     <>
       <Ask label="Numbness or loss of feeling in your feet?" header="Numbness or loss of feeling in your feet?" options={TRI}
         value={a.feetNumb} onChange={feetNumb => set({ feetNumb })} tried={tried} />
-      <Ask label="A wound, an ulcer or a Charcot foot?" header="A wound, an ulcer or a Charcot foot?" tried={tried}
+      <Ask label="A wound, an ulcer, or a hot, swollen foot (Charcot foot)?" header="A wound, an ulcer, or a hot, swollen foot (Charcot foot)?" tried={tried}
         value={a.footWound} onChange={footWound => set({ footWound })}
-        options={[{ value: 'now', label: 'Yes, now' }, { value: 'past', label: 'In the past' }, { value: 'no', label: 'No' }]}
-        footer="A wound now keeps walks off until it has healed." />
+        options={[{ value: 'now', label: 'Yes, now' }, { value: 'past', label: 'In the past' }, { value: 'no', label: 'No' }, { value: 'unsure', label: 'Not sure' }]}
+        footer="A wound now, or “Not sure”, keeps walks off until it has healed." />
     </>
   );
 }
@@ -97,21 +99,21 @@ export function HealthLimits(props: PageProps) {
   const targets = f.bp || f.diabetic;
   return (
     <>
-      <Ask label="Has a clinician cleared you to exercise?" header="Has a clinician cleared you to exercise?" tried={tried}
+      <Ask label="Has a doctor or nurse (clinician) cleared you to exercise?" header="Has a doctor or nurse (clinician) cleared you to exercise?" tried={tried}
         value={a.clearance} onChange={clearance => set({ clearance })}
         options={[
           { value: 'none', label: 'Not yet' }, { value: 'moderate', label: 'Yes, for moderate exercise' },
           { value: 'vigorous', label: 'Yes, for vigorous exercise' }, { value: 'unsure', label: 'Not sure' },
         ]} />
       {targets && (
-        <Ask label="Has a clinician given you any limits or targets?" header="Has a clinician given you any limits or targets?" options={TRI}
+        <Ask label="Has a doctor or nurse (clinician) given you any limits or targets?" header="Has a doctor or nurse (clinician) given you any limits or targets?" options={TRI}
           value={a.targets} onChange={t => set({ targets: t })} tried={tried} />
       )}
       {targets && a.targets === 'yes' && (
-        <Group header="Your limits and targets" footer="Only what your clinician gave you. Leave the rest empty.">
+        <Group header="Your limits and targets" footer="Only what your doctor or nurse gave you. Leave the rest empty.">
           {f.bp && <NumberAnswer label="Stop exercise if the top number is above (optional)" placeholder="180" value={a.bpStopSystolic} onChange={bpStopSystolic => set({ bpStopSystolic })} />}
           {f.bp && <BpPermission {...props} />}
-          {f.diabetic && <NumberAnswer label="HbA1c target, % (optional)" decimals placeholder="7" value={a.hba1cPercent} onChange={hba1cPercent => set({ hba1cPercent })} />}
+          {f.diabetic && <NumberAnswer label="Long-term blood sugar target (HbA1c), % (optional)" decimals placeholder="7" value={a.hba1cPercent} onChange={hba1cPercent => set({ hba1cPercent })} />}
         </Group>
       )}
       <Missing show={tried && a.clearance !== undefined && (!targets || a.targets !== undefined) && !pageDone('health.limits', a, props.ctx)}>

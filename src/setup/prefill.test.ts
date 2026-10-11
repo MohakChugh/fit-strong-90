@@ -3,13 +3,17 @@ import type { AppData, UserSettings } from '@/types';
 import { createDefaultProfile } from '@/profile/defaults';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import { profileFrom } from './assemble';
+import { editOf, editedRecord, editorOpens, editorState } from './edit';
+import { keysOfChapter } from './fields';
 import { UNSURE } from './fixtures';
-import { pageDone } from './graph';
+import { SAFETY_CHAPTERS, pageDone } from './graph';
 import { answersFromProfile, answersToEdit, prefillAnswers } from './prefill';
 
 const TODAY = '2026-10-10';
 const CTX = { thisYear: 2026 };
 const S: UserSettings = { ...migrateData({ version: CURRENT_VERSION } as AppData).settings, useMetric: true, startDate: '2026-09-24', focus: 'strength' };
+const recordOf = (profile: AppData['profile'], settings: UserSettings = S): AppData =>
+  ({ ...migrateData({ version: CURRENT_VERSION } as AppData), profile, settings: { ...settings, onboardingComplete: true } });
 
 /** P01 of codex-acceptance.md, as v1 stored it. */
 const P01 = createDefaultProfile({
@@ -70,6 +74,17 @@ describe('answers v1 already gave (K-57; journey §6.4, §16)', () => {
     expect(pageDone('health.conditions', a, CTX)).toBe(false);
   });
 
+  it('reads back an eye or foot value the record holds, with or without diabetes (K5-02, H5-03)', () => {
+    const eyes = answersFromProfile(createDefaultProfile({ health: { medicinesReviewed: true, retinopathy: 'recent_eye_treatment' } }), S);
+    expect(eyes).toMatchObject({ conditions: { eyes: 'yes' }, eyeTreatment: 'yes' });
+    const moderate = answersFromProfile(createDefaultProfile({ health: { medicinesReviewed: true, retinopathy: 'moderate' } }), S);
+    expect(moderate).toMatchObject({ conditions: { eyes: 'yes' }, eyeTreatment: 'no', eyeDisease: 'moderate' });
+    const wound = answersFromProfile(createDefaultProfile({ health: { medicinesReviewed: true, footStatus: 'current_wound_or_active_charcot' } }), S);
+    expect(wound).toMatchObject({ conditions: { feet: 'yes' }, footWound: 'now' });
+    const numb = answersFromProfile(createDefaultProfile({ health: { medicinesReviewed: true, peripheralNeuropathy: 'unsure' } }), S);
+    expect(numb).toMatchObject({ conditions: { feet: 'unsure' }, feetNumb: 'unsure' });
+  });
+
   it('a migrated, unreviewed profile reads what it kept, but no medicine never answered', () => {
     const migrated = createDefaultProfile({ needsHealthReview: true, health: { diabetes: 'type2' } });
     const a = answersFromProfile(migrated, S);
@@ -86,6 +101,15 @@ describe('answers v1 already gave (K-57; journey §6.4, §16)', () => {
     expect(a.glucoseMonitor).toBeUndefined();
   });
 
+  it('nor whether they exercise now: the default “Yes” would skip the engine’s light-work rule for the inactive (H5-11)', () => {
+    const p = createDefaultProfile({ needsHealthReview: true, health: { diabetes: 'type2', clearance: 'none' } });
+    expect(p.health.currentlyActive).toBe(true);
+    expect(prefillAnswers(S, p).active).toBeUndefined();
+    expect(answersToEdit(undefined, p, S, TODAY, CTX).active).toBeUndefined();
+    // The focus is a preference, not a health answer: it stays.
+    expect(prefillAnswers(S, p).focus).toBe('strength');
+  });
+
   it('carries a fluid-limit answer v1 kept in its reminders, as the water rules still read it (reminders/water.ts)', () => {
     const habits = { ...S.habits, fluidLimit: true };
     expect(answersFromProfile(P01, { ...S, habits }).fluidLimit).toBe('yes');
@@ -93,6 +117,13 @@ describe('answers v1 already gave (K-57; journey §6.4, §16)', () => {
     // The profile's own answer, where there is one, comes first.
     expect(answersFromProfile({ ...P01, health: { ...P01.health, fluidRestriction: 'unsure' } }, { ...S, habits }).fluidLimit).toBe('unsure');
     expect(answersFromProfile(P01, S).fluidLimit).toBeUndefined();
+  });
+
+  it('carries on from the setup answers a backup kept when its health answers were left out, asking those again (H5-17; H-DATA)', () => {
+    const kept = { ...S, setup: { stage: 'done' as const, skipped: [], answers: { name: 'Kai', figure: 'either' as const, conditions: { diabetes: 'no' as const }, regular: 'no' as const, active: 'yes' as const, pattern: 'vegan' as const } } };
+    const a = prefillAnswers(kept, undefined);
+    expect(a).toMatchObject({ name: 'Kai', figure: 'either', pattern: 'vegan' });
+    expect([a.conditions, a.regular, a.active]).toEqual([undefined, undefined, undefined]);
   });
 
   it('a v1 Welcome left part-way fills in its focus (K-57)', () => {
@@ -115,6 +146,37 @@ describe('the answers Me edits with (§16)', () => {
     expect(a.fluidLimit).toBe('yes');
     expect(a.conditions?.diabetes).toBe('yes');
     expect(a.classes?.insulin).toBe('unsure');
+  });
+
+  it('an answer the stored answers lack keeps what the record says, never nothing (H5-01)', () => {
+    // A reviewed record without diabetes, restored with setup answers that lack the conditions.
+    const none = createDefaultProfile({ weightKg: 70, health: { medicinesReviewed: true } });
+    const { conditions: _lost, ...stored } = answersFromProfile(none, S);
+    void _lost;
+    expect(answersToEdit(stored, none, S, TODAY, CTX).conditions?.diabetes).toBe('no');
+  });
+
+  // A type 1 profile still waiting for its review: severe lows, dizziness and ketones below are defaults nobody gave.
+  const unreviewed = createDefaultProfile({
+    needsHealthReview: true,
+    health: { diabetes: 'type1', insulin: 'injections_or_pump', medicinesReviewed: true, priorDkaOrInsulinDeficiency: false, clinicianTargets: { hba1cPercent: 7 } },
+  });
+
+  it('a pending review opens with none of its health, medicine or pain values as answers (H5-10, K5-01; H-DATA)', () => {
+    for (const stored of [undefined, answersFromProfile(unreviewed, S)]) {
+      const a = answersToEdit(stored, unreviewed, S, TODAY, CTX);
+      for (const c of SAFETY_CHAPTERS) for (const k of keysOfChapter(c)) expect(a[k], `${k}, stored ${stored ? 'answers' : 'none'}`).toBeUndefined();
+    }
+  });
+
+  it('a pending review is never cleared by a Save that answered only what the old editor asked (H5-10, K5-01)', () => {
+    const opened = answersToEdit(undefined, unreviewed, S, TODAY, CTX);
+    // The home cuff was all the old editor left unanswered here.
+    const state = editorState(editorOpens('health', unreviewed), { ...opened, bpCuff: false }, opened, CTX);
+    expect(state.blocking).toContain('health.conditions');
+    const after = editedRecord(recordOf(unreviewed), editOf(state, opened), TODAY, CTX);
+    // Cleared, it would vouch for the default "no severe lows", which starts a type 1 at 90 instead of 145 mg/dL.
+    expect(after.profile?.needsHealthReview).toBe(true);
   });
 
   it('says what’s true of the programme now (D35)', () => {

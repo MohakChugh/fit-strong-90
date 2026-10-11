@@ -123,7 +123,7 @@ describe('every day’s effective record (round 3, B01 and B04)', () => {
     vi.useRealTimers();
   });
 
-  const settings = { currentWeight: 82 } as AppData['settings'];
+  const settings = { currentWeight: 82, onboardingComplete: true } as AppData['settings'];
   const chest = (date: string): DailyCheckIn => ({ date, urgentSymptoms: true, emergency: ['chest'], news: [], sleep: 'gt7', energy: 4 });
   /** A save the device refuses, as the check-in sheet makes it. */
   const refusedSave = (answers: DailyCheckIn, stored: CheckInRecord[]) => saveCheckInRecord(answers, {
@@ -245,7 +245,7 @@ describe('a change to the phone’s clock mid-walk (B-19, the conservative path)
   });
 
   it('is asked of the device’s own gates with the change, as the live walk asks them', () => {
-    const state = { profile: onInsulin, checkIns: clinical.checkIns, settings: { currentWeight: 70 } as AppData['settings'] };
+    const state = { profile: onInsulin, checkIns: clinical.checkIns, settings: { currentWeight: 70, onboardingComplete: true } as AppData['settings'] };
     for (const gate of [deviceGate(() => state, () => NOW), clinicalGate(() => clinical, () => NOW)]) {
       expect(gate('restart')).toBe(true);
       expect(gate('restart', before)).toBe(false);
@@ -260,14 +260,14 @@ describe('B-01’s final gate, asked of what the device holds at that moment', (
   const reading = (minutes: number) => ({ glucose: { value: 140, unit: 'mg/dL' as const, measuredAt: minutesBefore(NOW, minutes), source: 'meter' as const } });
 
   it('starts on a reading taken 10 minutes ago, and not on one taken 40 minutes ago', () => {
-    device.state = { profile: onInsulin, checkIns: [checkIn(reading(10))], settings: { currentWeight: 70 }, observations: [] };
+    device.state = { profile: onInsulin, checkIns: [checkIn(reading(10))], settings: { currentWeight: 70, onboardingComplete: true }, observations: [] };
     expect(allowsMovement(storeStartPermission(NOW))).toBe(true);
-    device.state = { profile: onInsulin, checkIns: [checkIn(reading(40))], settings: { currentWeight: 70 }, observations: [] };
+    device.state = { profile: onInsulin, checkIns: [checkIn(reading(40))], settings: { currentWeight: 70, onboardingComplete: true }, observations: [] };
     expect(allowsMovement(storeStartPermission(NOW))).toBe(false);
   });
 
   it('asks the start question, so no check-in today is no start', () => {
-    device.state = { profile: ordinary, checkIns: [], settings: { currentWeight: 70 }, observations: [] };
+    device.state = { profile: ordinary, checkIns: [], settings: { currentWeight: 70, onboardingComplete: true }, observations: [] };
     const p = storeStartPermission(NOW);
     expect(allowsMovement(p)).toBe(false);
     expect(p.needsCheckIn).toBe(true);
@@ -299,7 +299,7 @@ describe('carrying a walk on asks the status first, as the hubs’ Continue does
 
   it('is asked by the live walk’s own gate, from the device’s status today', () => {
     const settings = (statusPeriods?: { kind: 'unwell' | 'away' | 'flare'; from: string; to?: string }[]) =>
-      ({ currentWeight: 70, ...(statusPeriods ? { statusPeriods } : {}) }) as AppData['settings'];
+      ({ currentWeight: 70, onboardingComplete: true, ...(statusPeriods ? { statusPeriods } : {}) }) as AppData['settings'];
     const state = (s: AppData['settings']) => ({ profile: ordinary, checkIns: [checkIn()], settings: s });
     const unwell = deviceGate(() => state(settings([{ kind: 'unwell', from: TODAY }])), () => NOW);
     expect(unwell('restart')).toBe(false);

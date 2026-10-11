@@ -25,7 +25,7 @@ export function MedicinesWhich({ a, set, tried, ctx }: PageProps) {
         <>
           <Group>
             <TextInput label="Year you started metformin (optional)" inputMode="numeric" placeholder="2019" text={a.metforminSince ?? ''}
-              onText={t => set({ metforminSince: t.trim() === '' ? undefined : t.trim() })} />
+              onText={t => set({ metforminSince: t.trim() })} />
           </Group>
           <Missing show={tried && problem !== null}>{problem ?? ''}</Missing>
         </>
@@ -42,7 +42,7 @@ export function MedicinesLows({ a, set, tried, ctx }: PageProps) {
         <Ask label="How do you take insulin?" header="How do you take insulin?" tried={tried} value={a.insulinHow} onChange={insulinHow => set({ insulinHow })}
           options={[
             { value: 'basalOnly', label: 'Long-acting only' }, { value: 'multipleDaily', label: 'Several injections a day' },
-            { value: 'pump', label: 'A pump' }, { value: 'closedLoop', label: 'A closed-loop system' }, { value: 'unsure', label: 'Not sure' },
+            { value: 'pump', label: 'A pump' }, { value: 'closedLoop', label: 'A pump that adjusts itself (closed-loop system)' }, { value: 'unsure', label: 'Not sure' },
           ]} />
       )}
       <Ask label="A severe low in the last 6 months, or do you often not feel lows coming?" header="A severe low in the last 6 months, or do you often not feel lows coming?"
@@ -54,7 +54,9 @@ export function MedicinesLows({ a, set, tried, ctx }: PageProps) {
             options={[{ value: 'mg/dL', label: 'mg/dL' }, { value: 'mmol/L', label: 'mmol/L' }]} />
         </div>
       </Group>
-      <Missing show={tried && answered && !pageDone('medicines.lows', a, ctx)}>Check the glucose number: 54 to 300 mg/dL, or 3 to 17 mmol/L.</Missing>
+      <Missing show={tried && answered && !pageDone('medicines.lows', a, ctx)}>
+        Check the glucose number: 70 to 300 mg/dL, or 3.9 to 17 mmol/L. Below 70 mg/dL (3.9 mmol/L) is a low, so exercise never starts there.
+      </Missing>
     </>
   );
 }
@@ -64,8 +66,8 @@ export function MedicinesKetones({ a, set, tried }: PageProps) {
   return (
     <>
       {f.diabetic && (
-        <Ask label="Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?"
-          header="Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?"
+        <Ask label="Ever been very ill from high ketones (diabetic ketoacidosis, or DKA), or been told your body makes too little insulin?"
+          header="Ever been very ill from high ketones (diabetic ketoacidosis, or DKA), or been told your body makes too little insulin?"
           options={TRI} value={a.priorDka} onChange={priorDka => set({ priorDka })} tried={tried} />
       )}
       {f.ketoneRisk && (

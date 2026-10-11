@@ -949,7 +949,7 @@ describe('round 3: what the walk acts on is every day’s effective record', () 
     pain: { areas: ['lowerBack', 'sciatica'], sciaticaSide: 'left', worseWith: 'flexion' },
     health: { diabetes: 'type2', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
   });
-  const settings = { currentWeight: 82 } as AppData['settings'];
+  const settings = { currentWeight: 82, onboardingComplete: true } as AppData['settings'];
   const readiness: Readiness = {
     outcome: 'green', modifiers: [], back: 'green', nerveFlag: false, reasons: [], actions: [],
     vigorousLocked: false, capHeavy: false, rpeOnly: false, notices: [],
@@ -1344,7 +1344,7 @@ describe('B-19: a change to the phone’s clock, asked of the real gate (H6-02)'
     health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
   });
   const plain = createDefaultProfile({ health: { diabetes: 'none', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true } });
-  const settings = { currentWeight: 82 } as AppData['settings'];
+  const settings = { currentWeight: 82, onboardingComplete: true } as AppData['settings'];
   const at = (h: number, m: number, s = 0) => new Date(2026, 9, 8, h, m, s);
   const DAY = '2026-10-08';
   const day = (over: Partial<DailyCheckIn> = {}): DailyCheckIn => ({ date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over });

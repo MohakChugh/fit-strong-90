@@ -3,6 +3,7 @@ import { Group } from '@/components/hig/List';
 import { Segmented } from '@/screens/you/controls';
 import { convertWeightText, weightFieldText } from '@/components/profile/wizardSteps';
 import { asksAdult, birthYearProblem } from '@/setup/age';
+import { nameProblem } from '@/setup/limits';
 import { heightFrom, heightProblem, heightText, waistFrom, waistProblem, waistText, weightFrom, weightProblem, type HeightText } from '@/setup/units';
 import { YES_NO } from '../choices';
 import { Ask, Missing, NumberAnswer, TextInput, type PageProps } from '../controls';
@@ -10,11 +11,13 @@ import { Ask, Missing, NumberAnswer, TextInput, type PageProps } from '../contro
 /** About you, page 1: what to call the person, and the year they were born (B-31). */
 export function AboutName({ a, set, tried, ctx }: PageProps) {
   const problem = birthYearProblem(a.birthYear, ctx.thisYear);
+  const nameIssue = nameProblem(a.name);
   return (
     <>
       <Group footer="Shown on screen only. The voice coach never says it.">
         <TextInput label="Name (optional)" text={a.name ?? ''} onText={name => set({ name })} autoComplete="given-name" />
       </Group>
+      <Missing show={tried && nameIssue !== null}>{nameIssue ?? ''}</Missing>
       <Group footer="Some advice changes with age.">
         <NumberAnswer label="Year you were born (optional)" placeholder="1958" value={a.birthYear} onChange={birthYear => set({ birthYear })} />
       </Group>

@@ -4,6 +4,7 @@
  * with its answers; without saving, nothing is stored and every hold applies.
  */
 import { docs } from '../lib/harness.mjs';
+import * as data from '../lib/data.mjs';
 import * as setup from '../lib/setup.mjs';
 import * as ui from '../lib/ui.mjs';
 
@@ -32,7 +33,9 @@ async function refusedNext(t) {
     await ui.heading(page, 'Do you have any of these?');
     await setup.tick(main, 'Not sure: Diabetes');
     await setup.tick(main, 'High blood pressure');
-    const stored = docs(await t.db()).settings?.setup;
+    // Each change is kept as typed shortly after it's made (H5-16): what's stored before the refused Next includes the ticks.
+    const kept = s => docs(s).settings?.setup?.draft?.edits?.['health.conditions']?.conditions?.bp === 'yes';
+    const stored = docs(await data.waitDb(t, kept, 'the ticks were not kept as typed')).settings?.setup;
     await t.setPageFaults(FAIL_SETTINGS);
     await ui.tap(ui.button(main, 'Next'));
     const alert = main.getByRole('alert').filter({ hasText: SAVE_FAILED });
@@ -113,6 +116,44 @@ export const cases = [
         await ui.heading(page, 'Do you have any of these?');
         await t.check(await main.getByText('Welcome back, let’s carry on.', { exact: true }).count() === 1, 'no “Welcome back” after the reload');
       });
+    },
+  },
+  {
+    // H5-02: the recovery actions store the page as it is now, never the refused submission.
+    name: 'Try again stores the page as corrected',
+    async run(t) {
+      const page = await refusedNext(t);
+      const main = page.getByRole('main');
+      await t.step(2, 'Take back “Not sure” about diabetes; writes work again; Try again', async () => {
+        await setup.tick(main, 'Not sure: Diabetes', false);
+        await t.setPageFaults(null);
+        await ui.tap(ui.button(main, 'Try again'));
+        const landed = await ui.heading(page, 'High blood pressure');
+        await t.check(landed === 'High blood pressure', `Try again went to “${landed}”`);
+        const draft = docs(await t.checkpoint('corrected-try-again')).settings?.setup?.draft;
+        await t.check(draft?.at === 'health.bp' && draft?.answers?.conditions?.diabetes === 'no' && draft?.answers?.conditions?.bp === 'yes',
+          `Try again stored ${JSON.stringify(draft)}`);
+      }, { input: 'Not sure: Diabetes unticked after the refusal' });
+    },
+  },
+  {
+    name: 'Continue without saving keeps the page as corrected',
+    async run(t) {
+      const page = await refusedNext(t);
+      const main = page.getByRole('main');
+      await t.step(2, 'Take back “Not sure” about diabetes; Continue without saving', async () => {
+        await setup.tick(main, 'Not sure: Diabetes', false);
+        await ui.tap(ui.button(main, 'Continue without saving'));
+        // The corrected page's next page, not the refused one's ("Which type of diabetes?").
+        const landed = await ui.heading(page, 'High blood pressure');
+        await t.check(landed === 'High blood pressure', `Continue without saving went to “${landed}”`);
+        await t.checkpoint('corrected-continue-unsaved');
+        // Back on the conditions, the answer kept is the corrected one.
+        await ui.tap(ui.button(main, 'Back'));
+        await ui.heading(page, 'Do you have any of these?');
+        await t.check(await main.getByRole('checkbox', { name: 'Not sure: Diabetes', exact: true }).getAttribute('aria-checked') === 'false',
+          '“Not sure: Diabetes” is ticked again after Continue without saving');
+      }, { input: 'Not sure: Diabetes unticked after the refusal' });
     },
   },
 ];

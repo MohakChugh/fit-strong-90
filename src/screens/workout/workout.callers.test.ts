@@ -84,7 +84,7 @@ beforeEach(async () => {
   store.resetForTests();
   fake = fakeIndexedDB({ failWrite: (name, row) => (refuse && name === 'sessions' && row.status !== 'in_progress' ? new DOMException('Full', 'QuotaExceededError') : undefined) });
   await store.start({ factory: fake, broadcast: null });
-  await store.update(prev => ({ ...prev, profile, settings: { ...prev.settings, startDate: '2026-09-24' }, checkIns: [record(profile, answered())] }));
+  await store.update(prev => ({ ...prev, profile, settings: { ...prev.settings, startDate: '2026-09-24', onboardingComplete: true }, checkIns: [record(profile, answered())] }));
 });
 afterEach(() => {
   host?.unmount();

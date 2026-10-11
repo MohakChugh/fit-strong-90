@@ -78,7 +78,7 @@ function Harness() {
 async function seeded(p: UserProfile, walk?: UserSettings['walk']) {
   const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } };
   const rec: CheckInRecord = { ...morning, readiness: evaluateCheckIn(p, morning) };
-  await store.update(prev => ({ ...prev, profile: p, checkIns: [rec], settings: { ...prev.settings, ...(walk ? { walk } : {}) } }));
+  await store.update(prev => ({ ...prev, profile: p, checkIns: [rec], settings: { ...prev.settings, onboardingComplete: true, ...(walk ? { walk } : {}) } }));
   host = render(createElement(Harness));
   await host.settle();
   return host;

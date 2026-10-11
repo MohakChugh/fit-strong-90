@@ -20,6 +20,7 @@ import { isDay } from '@/health/observation';
 import { isTextScale } from '@/lib/textSize';
 import { ALLERGEN_IDS } from '@/types/profile';
 import { CHAPTER_IDS, CONDITION_IDS, MEDICINE_CLASSES, PAGE_IDS } from '@/types/setup';
+import { NAME_MAX, OWN_ALLERGIES_MAX, OWN_ALLERGY_LENGTH_MAX } from '@/setup/limits';
 import { RECORD_STORES } from './records';
 
 type Check = (x: unknown) => boolean;
@@ -73,23 +74,25 @@ const VOICE: Check = shape({
 /** Allergies a chip names: the canonical ids (B-13, board D82). */
 const ALLERGIES: Check = listOf(oneOf(...ALLERGEN_IDS));
 /** Allergies in the person's own words (Plan 7, B-13). */
-const CUSTOM_ALLERGIES: Check = x => Array.isArray(x) && x.length <= 30 && x.every(a => typeof a === 'string' && a.trim() !== '' && a.length <= 60);
+const CUSTOM_ALLERGIES: Check = x => Array.isArray(x) && x.length <= OWN_ALLERGIES_MAX && x.every(a => typeof a === 'string' && a.trim() !== '' && a.length <= OWN_ALLERGY_LENGTH_MAX);
+/** A name, as setup takes it (H5-18). */
+const NAME: Check = x => typeof x === 'string' && x.length <= NAME_MAX;
 
 /** Each setup answer a file may hold, by its type (journey §18.1). One that fails is left out by name; unknown ones are kept. */
 const ANSWER_SPEC: Spec = {
-  name: x => typeof x === 'string' && x.length <= 60, birthYear: num(1900, 2100), adult: bool,
+  name: NAME, birthYear: num(1900, 2100), adult: bool,
   figure: oneOf('male', 'female', 'either'), metric: bool, heightCm: num(50, 260), weightKg: num(10, 400), waistCm: num(30, 250),
   conditions: recordOf(oneOf(...CONDITION_IDS), tri), diabetesType: oneOf('type1', 'type2', 'prediabetes', 'other', 'unsure'),
-  bpMedicine: tri, kidneyTreatment: oneOf('yes', 'no'), fluidLimit: tri, eyeTreatment: oneOf('yes', 'no'),
-  eyeDisease: oneOf('mild', 'moderate', 'severe', 'unsure'), feetNumb: tri, footWound: oneOf('now', 'past', 'no'),
+  bpMedicine: tri, kidneyTreatment: tri, fluidLimit: tri, eyeTreatment: tri,
+  eyeDisease: oneOf('mild', 'moderate', 'severe', 'unsure'), feetNumb: tri, footWound: oneOf('now', 'past', 'no', 'unsure'),
   clearance: oneOf('none', 'moderate', 'vigorous', 'unsure'), targets: tri, bpStopSystolic: num(90, 250),
   bpPermission: shape({ sys: num(90, 250), dia: num(50, 150) }, ['sys', 'dia']), hba1cPercent: num(4, 15),
-  regular: tri, classes: recordOf(oneOf(...MEDICINE_CLASSES), tri), metforminSince: x => typeof x === 'string' && /^\d{4}$/.test(x),
+  regular: tri, classes: recordOf(oneOf(...MEDICINE_CLASSES), tri), metforminSince: x => typeof x === 'string' && (x === '' || /^\d{4}$/.test(x)),
   insulinHow: oneOf('basalOnly', 'multipleDaily', 'pump', 'closedLoop', 'unsure'), lowsRisk: tri, glucoseStartMin: num(3, 300),
   glucoseStartUnit: oneOf('mg/dL', 'mmol/L'), priorDka: tri, ketoneTest: oneOf('none', 'urine', 'blood'), dizzy: tri,
   glucoseMonitor: oneOf('none', 'meter', 'cgm'), glucoseUnit: oneOf('mg/dL', 'mmol/L'), bpCuff: bool,
   painAreas: listOf(oneOf(...PAIN_AREAS)), sciaticaSide: oneOf('left', 'right', 'both'), worseWith: oneOf('flexion', 'extension', 'unknown'),
-  helps: listOf(oneOf('moving', 'lying', 'heat', 'bendingForward', 'archingBack')), neuroHistory: tri, footRestriction: oneOf('yes', 'no'),
+  helps: listOf(oneOf('moving', 'lying', 'heat', 'bendingForward', 'archingBack')), neuroHistory: tri, footRestriction: tri,
   focus: oneOf('stretch', 'move', 'strength', 'explore'), active: oneOf('yes', 'no'), weeklyGoal: x => x === 'none' || num(0, 10080)(x),
   programme: oneOf('join', 'notNow', 'joined'),
   join: shape({
@@ -101,7 +104,9 @@ const ANSWER_SPEC: Spec = {
   water: shape({ on: bool, glassMl: num(1, 5000), everyMinutes: num(1, 1440), from: clock, to: clock }, ['on', 'glassMl', 'everyMinutes', 'from', 'to']),
   sitting: habitWindow, mealWalk: shape({ on: bool, meals: listOf(oneOf(...MEALS)) }, ['on', 'meals']),
   mealFinish: recordOf(oneOf(...MEALS), clock), quiet: x => x === 'none' || shape({ from: clock, to: clock }, ['from', 'to'])(x),
-  delivery: oneOf('app', 'calendar'), voice: VOICE, skippedPages: listOf(oneOf(...PAGE_IDS)),
+  delivery: oneOf('app', 'calendar'), voice: VOICE,
+  // `day.reminders` was Your day's one page until it was split (K5-12): a backup from before keeps its skipped pages.
+  skippedPages: listOf(oneOf(...PAGE_IDS, 'day.reminders')),
 };
 
 /** Setup's state, field by field (Review Focus 5): a draft at a page this build lacks loses only its page, never its answers. */
@@ -208,7 +213,7 @@ const PROFILE_SPEC: Spec = {
   voice: VOICE,
   figure: oneOf('male', 'female'),
   needsHealthReview: bool,
-  name: x => typeof x === 'string' && x.length <= 60,
+  name: NAME,
   waistCm: num(0, 300),
   // All or nothing (D-08): an unreadable allergy must not leave the rest standing as "no allergies".
   food: shape({
@@ -246,8 +251,21 @@ function read(doc: Record<string, unknown>, spec: Spec, path: string): { kept: R
   return { kept, unreadable };
 }
 
+/**
+ * Setup's half-typed page answers (`draft.edits`, H5-16) stay on the device
+ * they were typed on: never given, they are never restored, so a restore
+ * never draws them over its own answers (H5-07).
+ */
+function withoutHeld(doc: Record<string, unknown>): Record<string, unknown> {
+  const setup = doc.setup;
+  if (!isRecord(setup) || !isRecord(setup.draft) || !('edits' in setup.draft)) return doc;
+  const { edits: _held, ...draft } = setup.draft;
+  void _held;
+  return { ...doc, setup: { ...setup, draft } };
+}
+
 export function readSettings(doc: Record<string, unknown>): { settings: Record<string, unknown>; unreadable: string[] } {
-  const { kept, unreadable } = read(doc, SETTINGS_SPEC, 'settings.');
+  const { kept, unreadable } = read(withoutHeld(doc), SETTINGS_SPEC, 'settings.');
   return { settings: kept, unreadable };
 }
 

@@ -4,10 +4,10 @@ import { Sheet } from '@/components/hig/Sheet';
 import { VoiceSettingsCard } from '@/components/profile/VoiceSettingsCard';
 import { createDefaultProfile } from '@/profile/defaults';
 import { MEAL_LABEL } from '@/reminders/copy';
-import { factsOf } from '@/setup/facts';
+import { finishFor } from '@/setup/graph';
 import { CheckRows, ChoiceRows, TimeField, Toggle } from '@/screens/you/controls';
 import {
-  DEFAULT_FINISH, DEFAULT_QUIET, DEFAULT_SITTING, DEFAULT_WATER, GLASS_SIZES, SITTING_EVERY, WATER_EVERY, mealProblem, windowProblem,
+  DEFAULT_QUIET, DEFAULT_SITTING, DEFAULT_WATER, GLASS_SIZES, SITTING_EVERY, WATER_EVERY, mealProblem, windowProblem,
 } from '@/screens/you/habitOptions';
 import { everyLabel } from '@/screens/you/summaries';
 import type { Meal } from '@/types/habits';
@@ -16,20 +16,11 @@ import { TRI } from '../choices';
 import { Ask, Missing, type PageProps } from '../controls';
 
 const MEALS: Meal[] = ['breakfast', 'lunch', 'dinner'];
-/** Usual finish times for the meals chosen, labelled defaults until the person changes them (§6.1). */
-const finishFor = (meals: readonly Meal[], kept: Partial<Record<Meal, string>> | undefined) =>
-  Object.fromEntries(meals.map(m => [m, kept?.[m] ?? DEFAULT_FINISH[m]])) as Partial<Record<Meal, string>>;
 
-/** Reminders (journey §6.2 ch. 8): water, sitting breaks, after-meal walks, quiet hours, and how reminders come. */
-export function DayReminders({ a, set, tried }: PageProps) {
+/** Water reminders (journey §6.2 ch. 8; K5-12), with the fluid limit they need answered "No" (reminders/water.ts). */
+export function DayWater({ a, set, tried }: PageProps) {
   const water = a.water ?? { on: false, ...DEFAULT_WATER };
-  const sitting = a.sitting ?? { on: false, ...DEFAULT_SITTING };
-  const walk = a.mealWalk ?? { on: false, meals: [] };
-  const quiet = a.quiet;
-  const footHeld = factsOf(a).footHeld;
   const waterIssue = water.on ? windowProblem(water.from, water.to, water.everyMinutes) : undefined;
-  const sittingIssue = sitting.on ? windowProblem(sitting.from, sitting.to, sitting.everyMinutes) : undefined;
-
   return (
     <>
       <Group header="Water" footer={water.on ? 'Usual choices are filled in. Change them to yours.' : undefined}>
@@ -55,7 +46,16 @@ export function DayReminders({ a, set, tried }: PageProps) {
           Water reminders stay off with a fluid limit, or while you’re not sure. Your care team’s plan comes first.
         </p>
       )}
+    </>
+  );
+}
 
+/** Sitting-break reminders (journey §6.2 ch. 8; K5-12). */
+export function DaySitting({ a, set, tried }: PageProps) {
+  const sitting = a.sitting ?? { on: false, ...DEFAULT_SITTING };
+  const sittingIssue = sitting.on ? windowProblem(sitting.from, sitting.to, sitting.everyMinutes) : undefined;
+  return (
+    <>
       <Group header="Sitting breaks">
         <Row label="Sitting-break reminders" accessory={<Toggle label="Sitting-break reminders" checked={sitting.on} onChange={on => set({ sitting: { ...sitting, on } })} />} />
         {sitting.on && (
@@ -68,21 +68,33 @@ export function DayReminders({ a, set, tried }: PageProps) {
         )}
       </Group>
       <Missing show={tried && sittingIssue !== undefined}>{sittingIssue ?? ''}</Missing>
+    </>
+  );
+}
 
-      {footHeld
-        ? <Group><Row label="After-meal walks" detail="Not offered while a foot needs weight kept off it." /></Group>
-        : (
-          <Group header="After-meal walks">
-            <Row label="After-meal walks" accessory={<Toggle label="After-meal walks" checked={walk.on}
-              onChange={on => set({ mealWalk: { ...walk, on }, mealFinish: finishFor(walk.meals, a.mealFinish) })} />} />
-            {walk.on && (
-              <CheckRows label="After which meals?" value={walk.meals} options={MEALS.map(m => ({ value: m, label: MEAL_LABEL[m] }))}
-                onChange={meals => set({ mealWalk: { ...walk, meals }, mealFinish: finishFor(meals, a.mealFinish) })} />
-            )}
-          </Group>
+/** After-meal walks (journey §6.2 ch. 8; K5-12): not offered, so not shown, while a foot needs weight kept off it. */
+export function DayWalks({ a, set, tried }: PageProps) {
+  const walk = a.mealWalk ?? { on: false, meals: [] };
+  return (
+    <>
+      <Group header="After-meal walks">
+        <Row label="After-meal walks" accessory={<Toggle label="After-meal walks" checked={walk.on}
+          onChange={on => set({ mealWalk: { ...walk, on }, mealFinish: finishFor(walk.meals, a.mealFinish) })} />} />
+        {walk.on && (
+          <CheckRows label="After which meals?" value={walk.meals} options={MEALS.map(m => ({ value: m, label: MEAL_LABEL[m] }))}
+            onChange={meals => set({ mealWalk: { ...walk, meals }, mealFinish: finishFor(meals, a.mealFinish) })} />
         )}
-      <Missing show={tried && walk.on && !footHeld && walk.meals.length === 0}>Choose at least one meal.</Missing>
+      </Group>
+      <Missing show={tried && walk.on && walk.meals.length === 0}>Choose at least one meal.</Missing>
+    </>
+  );
+}
 
+/** Quiet hours, and how reminders come (journey §6.2 ch. 8; K5-12). */
+export function DayQuiet({ a, set }: PageProps) {
+  const quiet = a.quiet;
+  return (
+    <>
       <Group header="Quiet hours" footer="No reminders between these times.">
         <Row label="Quiet hours" accessory={<Toggle label="Quiet hours" checked={quiet !== undefined && quiet !== 'none'}
           onChange={on => set({ quiet: on ? { ...DEFAULT_QUIET } : 'none' })} />} />
@@ -105,7 +117,8 @@ export function DayReminders({ a, set, tried }: PageProps) {
 export function DayMeals({ a, set, tried }: PageProps) {
   const meals = a.mealWalk?.meals ?? [];
   const finish = finishFor(meals, a.mealFinish);
-  const problem = mealProblem(meals, a.mealFinish ?? {});
+  // The times shown are the ones checked and stored (H5-26).
+  const problem = mealProblem(meals, finish);
   return (
     <>
       <Group footer="Usual times are filled in. Change them to yours: a short walk is suggested soon after.">

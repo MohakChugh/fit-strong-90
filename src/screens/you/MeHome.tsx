@@ -12,6 +12,7 @@ import { answerOffer, useHomeLayout } from '@/screens/home/homeLayout';
 import { addButton } from '@/screens/home/layout';
 import { TileIcon } from '@/screens/home/Tile';
 import { useLocalDay } from '@/screens/today/clock';
+import { useSetupAnswers } from '@/screens/setup/useSetup';
 import { deviceNoun, readInstallEnv } from '@/screens/welcome/install';
 import { finishFooter, finishTitle, notNow, setupProgress, type OpenChapter } from '@/setup/progress';
 import { useStore } from '@/store/useStore';
@@ -82,7 +83,9 @@ export function MeHome() {
     return next;
   });
   const held = [...answers.values()];
-  const finish = withHeld(setupProgress({ profile, settings }), held.flatMap(a => (a.chapter ? [{ row: a.chapter, at: a.at }] : [])), (a, b) => a.chapter === b.chapter);
+  // Setup's answers as this session holds them, so an unfinished setup names the chapter it still asks (K5-07).
+  const { answers: setupAnswers } = useSetupAnswers();
+  const finish = withHeld(setupProgress({ profile, settings, answers: setupAnswers }), held.flatMap(a => (a.chapter ? [{ row: a.chapter, at: a.at }] : [])), (a, b) => a.chapter === b.chapter);
   // Only once Home has laid its tiles out: until then its defaults include every relevant one.
   const offers = stored
     ? withHeld(newlyRelevant({ relevant, layout: stored, offered: settings.homeOffered ?? [] }), held.flatMap(a => (a.offer ? [{ row: a.offer, at: a.at }] : [])), (a, b) => a === b)

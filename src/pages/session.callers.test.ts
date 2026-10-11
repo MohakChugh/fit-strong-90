@@ -112,7 +112,7 @@ afterEach(() => {
 const ci = (over: Partial<DailyCheckIn> = {}): DailyCheckIn => ({ date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over });
 async function seed(profile: UserProfile, records: DailyCheckIn[]) {
   const recs: CheckInRecord[] = records.map(c => ({ ...c, readiness: evaluateCheckIn(profile, c, records.filter(r => r.date < c.date)) }));
-  await store.update(prev => ({ ...prev, profile, settings: { ...prev.settings, startDate: START }, checkIns: recs }));
+  await store.update(prev => ({ ...prev, profile, settings: { ...prev.settings, startDate: START, onboardingComplete: true }, checkIns: recs }));
 }
 function paused(plan: SessionPlan, index: number): RunnerState {
   return { planId: plan.id, date: plan.date, status: 'paused', index, stepStartedAt: 1_000, pausedAt: 1_000, visit: 1, extraMs: {}, logs: [], startedAt: 0, activeMs: 60_000 };

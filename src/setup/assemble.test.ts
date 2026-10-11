@@ -39,6 +39,21 @@ describe('"Not sure" is "may have", through the engine itself (journey §6.1)', 
   });
 });
 
+describe('"Not sure" where it is now offered (K5-09; board D151)', () => {
+  const health = (a: Parameters<typeof withC>[1], c: Parameters<typeof withC>[0]) => profileFrom(withC(c, a), undefined, TODAY, CTX).health;
+
+  it('reads each as the stricter value', () => {
+    expect(health({ kidneyTreatment: 'unsure', fluidLimit: 'no', clearance: 'none' }, { kidney: 'yes' }).kidneyDisease).toBe('dialysis_or_transplant');
+    expect(health({ eyeTreatment: 'unsure', clearance: 'none' }, { eyes: 'yes' }).retinopathy).toBe('recent_eye_treatment');
+    expect(health({ feetNumb: 'no', footWound: 'unsure', footRestriction: 'no' }, { feet: 'yes' }).footStatus).toBe('current_wound_or_active_charcot');
+    expect(health({ feetNumb: 'no', footWound: 'no', footRestriction: 'unsure' }, { feet: 'yes' }).footStatus).toBe('current_wound_or_active_charcot');
+  });
+
+  it('a limit not ruled out holds walks whatever the foot chip says, as Yes does (H5-03)', () => {
+    expect(health({ footRestriction: 'unsure' }, { feet: 'no' }).footStatus).toBe('current_wound_or_active_charcot');
+  });
+});
+
 describe('medicines whatever the diagnosis (A-06, K-05)', () => {
   it('insulin with diabetes "No" is diabetes that can go low (Review Focus 3, D78)', () => {
     const p = profileFrom(INSULIN_NO_DIABETES, undefined, TODAY, CTX);
@@ -93,11 +108,17 @@ describe('gaps stay gaps (journey §6.1)', () => {
 });
 
 describe('back, feet and food', () => {
-  it('back pain and sciatica set the areas and the leg; no pain clears them', () => {
+  it('back pain and sciatica set the areas and the leg; no pain clears them, and keeps the nerve history (H5-19)', () => {
     const p = profileFrom(COMPLEX, undefined, TODAY, CTX);
     expect(p.pain).toMatchObject({ areas: ['lowerBack', 'sciatica'], sciaticaSide: 'left', worseWith: 'flexion', neuroHistory: false });
     const none = profileFrom({ ...COMPLEX, conditions: { ...COMPLEX.conditions, pain: 'no' } }, p, TODAY, CTX);
-    expect(none.pain).toEqual({ areas: [], worseWith: 'unknown', preference: p.pain.preference });
+    expect(none.pain).toEqual({ areas: [], worseWith: 'unknown', preference: p.pain.preference, neuroHistory: false });
+  });
+
+  it('a past nerve injury stays when there is no pain now, and its question sets it without pain (H5-19)', () => {
+    const injured = createDefaultProfile({ pain: { areas: ['sciatica'], sciaticaSide: 'left', worseWith: 'flexion', neuroHistory: true } });
+    expect(profileFrom(withC({ pain: 'no' }), injured, TODAY, CTX).pain.neuroHistory).toBe(true);
+    expect(profileFrom(withC({ pain: 'no' }, { neuroHistory: 'unsure' }), createDefaultProfile(), TODAY, CTX).pain.neuroHistory).toBe('unsure');
   });
 
   it('a wound now, or a clinician’s limit, holds walking (K-30)', () => {
@@ -220,6 +241,14 @@ describe('each answer maps to v1’s own value (journey §6.3, board D76)', () =
     expect(h({ ...t2, classes: { ...NO_CLASSES, insulin: 'unsure' }, insulinHow: 'basalOnly' }).insulin).toBe('unsure');
     expect(h({ ...t2, classes: { ...NO_CLASSES, insulin: 'yes' } }).insulin).toBe('unsure');
     expect(h({ ...t2, classes: { ...NO_CLASSES, insulin: 'yes' }, insulinHow: 'basalOnly' })).toMatchObject({ insulin: 'injections_or_pump', insulinRegimen: 'basalOnly' });
+  });
+
+  it('clears the stored metformin year when the field is emptied, and keeps it when the year isn’t asked (H5-21)', () => {
+    const base = profileFrom(withMeds({ metformin: 'yes' }, { metforminSince: '2019' }), undefined, TODAY, CTX);
+    expect(base.health.metforminSince).toBe('2019');
+    expect(profileFrom(withMeds({ metformin: 'yes' }, { metforminSince: '' }), base, TODAY, CTX).health.metforminSince).toBeUndefined();
+    expect(profileFrom(withMeds({ metformin: 'yes' }), base, TODAY, CTX).health.metforminSince).toBe('2019');
+    expect(profileFrom(withMeds({ metformin: 'yes' }, { metforminSince: '2021' }), base, TODAY, CTX).health.metforminSince).toBe('2021');
   });
 
   it('keeps the year metformin was started only while metformin is taken', () => {

@@ -19,8 +19,8 @@ export const PAGE_IDS = [
   'medicines.regular', 'medicines.which', 'medicines.lows', 'medicines.ketones', 'medicines.standing', 'medicines.monitors',
   'backFeet.where', 'backFeet.side', 'backFeet.history',
   'movement.focus', 'movement.goal', 'movement.programme',
-  'food.pattern', 'food.logging',
-  'day.reminders', 'day.meals', 'day.voice',
+  'food.pattern', 'food.allergies', 'food.logging',
+  'day.water', 'day.sitting', 'day.walks', 'day.meals', 'day.quiet', 'day.voice',
   'review',
 ] as const;
 export type PageId = (typeof PAGE_IDS)[number];
@@ -63,12 +63,15 @@ export interface SetupAnswers {
   conditions?: Partial<Record<ConditionId, Tri>>;
   diabetesType?: 'type1' | 'type2' | 'prediabetes' | 'other' | 'unsure';
   bpMedicine?: Tri;
-  kidneyTreatment?: 'yes' | 'no';
+  /** "Not sure" is read as dialysis or a transplant (K5-09, board D151). */
+  kidneyTreatment?: Tri;
   fluidLimit?: Tri;
-  eyeTreatment?: 'yes' | 'no';
+  /** "Not sure" is read as recent eye treatment (K5-09, board D151). */
+  eyeTreatment?: Tri;
   eyeDisease?: 'mild' | 'moderate' | 'severe' | 'unsure';
   feetNumb?: Tri;
-  footWound?: 'now' | 'past' | 'no';
+  /** "Not sure" is read as a wound now (K5-09, board D151). */
+  footWound?: 'now' | 'past' | 'no' | 'unsure';
   clearance?: 'none' | 'moderate' | 'vigorous' | 'unsure';
   targets?: Tri;
   bpStopSystolic?: number;
@@ -78,7 +81,7 @@ export interface SetupAnswers {
   regular?: Tri;
   /** A row per class. Rows left unticked become 'no' when the page is stored. */
   classes?: Partial<Record<MedicineClass, Tri>>;
-  /** As typed; stored only once it reads as a year (the page's check). */
+  /** As typed; stored only once it reads as a year (the page's check). Emptied, `''`: no year, which clears a stored one (H5-21). */
   metforminSince?: string;
   insulinHow?: 'basalOnly' | 'multipleDaily' | 'pump' | 'closedLoop' | 'unsure';
   lowsRisk?: Tri;
@@ -97,7 +100,8 @@ export interface SetupAnswers {
   /** Optional, and kept here only (board D77). */
   helps?: ('moving' | 'lying' | 'heat' | 'bendingForward' | 'archingBack')[];
   neuroHistory?: Tri;
-  footRestriction?: 'yes' | 'no';
+  /** "Not sure" is read as a limit, which holds walking (K5-09, board D151). */
+  footRestriction?: Tri;
   // ---- 6. Your movement
   focus?: 'stretch' | 'move' | 'strength' | 'explore';
   active?: 'yes' | 'no';
@@ -135,7 +139,16 @@ export interface SetupRecord {
   /** 'open' while setup runs; 'lookAround' after "Look around first"; 'done' once finished (board D80). */
   stage?: 'open' | 'lookAround' | 'done';
   /** Unfinished setup: the page to resume on, and the answers so far (§6.1, §18.1). */
-  draft?: { at?: PageId; answers?: SetupAnswers };
+  draft?: {
+    at?: PageId;
+    answers?: SetupAnswers;
+    /**
+     * What each page left before Next holds, as typed, so closing the app
+     * loses nothing (§6.1; H5-16, K5-17). A page's Next or Skip stores its
+     * answers and takes its entry away.
+     */
+    edits?: Partial<Record<PageId, Partial<SetupAnswers>>>;
+  };
   /** Finished setup: the answers as given, for editing in Me with the same pages (§16). */
   answers?: SetupAnswers;
   /** When setup was finished here, ISO with offset. Absent for a record set up in v1. */

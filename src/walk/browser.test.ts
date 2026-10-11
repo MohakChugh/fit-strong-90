@@ -26,7 +26,7 @@ vi.mock('@/store/useStore', async importOriginal => {
   };
 });
 state.value = {
-  status: 'ready', profile, settings: { currentWeight: 80 }, observations: [],
+  status: 'ready', profile, settings: { currentWeight: 80, onboardingComplete: true }, observations: [],
   checkIns: [{ ...day, readiness: evaluateCheckIn(profile, day) } satisfies CheckInRecord],
 };
 

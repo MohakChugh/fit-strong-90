@@ -81,11 +81,11 @@ const PAGES = {
   },
   'Your feet': async (s, a) => {
     await choose(s, 'Numbness or loss of feeling in your feet?', a.feetNumb);
-    await choose(s, 'A wound, an ulcer or a Charcot foot?', a.footWound);
+    await choose(s, 'A wound, an ulcer, or a hot, swollen foot (Charcot foot)?', a.footWound);
   },
-  'Exercise limits from a clinician': async (s, a) => {
-    await choose(s, 'Has a clinician cleared you to exercise?', a.clearance);
-    await choose(s, 'Has a clinician given you any limits or targets?', a.targets);
+  'Exercise limits from a doctor or nurse': async (s, a) => {
+    await choose(s, 'Has a doctor or nurse (clinician) cleared you to exercise?', a.clearance);
+    await choose(s, 'Has a doctor or nurse (clinician) given you any limits or targets?', a.targets);
   },
   'Your medicines': (s, a) => choose(s, 'Do you take any regular medicines?', a.regular),
   'Do any of these apply?': async (s, a) => {
@@ -98,7 +98,7 @@ const PAGES = {
     await choose(s, 'A severe low in the last 6 months, or do you often not feel lows coming?', a.lowsRisk);
   },
   Ketones: async (s, a) => {
-    await choose(s, 'Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?', a.priorDka);
+    await choose(s, 'Ever been very ill from high ketones (diabetic ketoacidosis, or DKA), or been told your body makes too little insulin?', a.priorDka);
     await choose(s, 'Can you test ketones?', a.ketoneTest);
   },
   'Standing up': (s, a) => choose(s, 'Do you get dizzy when you stand up?', a.dizzy),
@@ -117,7 +117,7 @@ const PAGES = {
   },
   'Nerves and feet': async (s, a) => {
     await choose(s, 'Has a doctor ever said a nerve in your back or leg was damaged?', a.neuro);
-    await choose(s, 'Has a clinician told you to keep weight off a foot?', a.footRestriction);
+    await choose(s, 'Has a doctor or nurse (clinician) told you to keep weight off a foot?', a.footRestriction);
   },
   'What would you most like to do?': async (s, a) => {
     await choose(s, 'What would you most like to do?', a.focus);
@@ -125,8 +125,9 @@ const PAGES = {
   },
   'Your weekly goal': (s, a) => choose(s, 'Your weekly goal', a.goal),
   'Join the 12-week strength programme?': (s, a) => choose(s, 'Join the 12-week strength programme?', a.programme),
-  'How do you eat?': async (s, a) => {
-    await choose(s, 'How do you eat?', a.pattern);
+  'How do you eat?': (s, a) => choose(s, 'How do you eat?', a.pattern),
+  // A page of its own, never skipped (K5-08).
+  'Any food allergies?': async (s, a) => {
     if (a.allergies === 'none') await tick(s, 'No food allergies');
     else for (const x of a.allergies ?? []) await tick(s, x);
   },
@@ -134,7 +135,11 @@ const PAGES = {
     await choose(s, 'Would you like to log what you eat?', a.level);
     await choose(s, 'Has food or weight ever been hard for you?', a.screen);
   },
-  Reminders: async () => {},
+  // Your day, a page at a time (K5-12): the journeys leave each reminder as it is.
+  'Water reminders': async () => {},
+  'Sitting breaks': async () => {},
+  'After-meal walks': async () => {},
+  'Quiet hours': async () => {},
   'When do you usually finish your meals?': async () => {},
   'Your voice coach': (s, a) => choose(s, 'Voice coach', a.voice),
 };
@@ -207,12 +212,34 @@ export async function save(t, { expectSaved = true } = {}) {
   if (expectSaved) await main.getByText('Saved. Home uses your new answers.', { exact: true }).waitFor({ timeout: 15000 });
 }
 
-/** P01's review (codex-acceptance J02 step 3): what the variant left unanswered, in the review editor. */
+/**
+ * P01's review (codex-acceptance J02 step 3), in the review editor. A pending
+ * review asks every safety question again, with nothing the record holds shown
+ * as an answer (H5-10, K5-01), so each is answered as P01 would: type 2
+ * diabetes, treated high blood pressure, and back pain with sciatica on the
+ * left; metformin since 2019 and nothing else; no prior DKA.
+ */
 export async function reviewAsP01(main) {
-  await choose(main, 'Has a clinician given you any limits or targets?', 'No');
+  await tick(main, 'Diabetes');
+  await tick(main, 'High blood pressure');
+  await tick(main, 'Back pain, sciatica or other pain');
+  await choose(main, 'Which type of diabetes?', 'Type 2');
+  await choose(main, 'Do you take medicine for high blood pressure?', 'Yes');
+  await choose(main, 'Has a doctor or nurse (clinician) cleared you to exercise?', 'Yes, for vigorous exercise');
+  await choose(main, 'Has a doctor or nurse (clinician) given you any limits or targets?', 'No');
   await choose(main, 'Do you take any regular medicines?', 'Yes');
   await tick(main, 'Metformin');
   await fill(main, 'Year you started metformin (optional)', '2019');
-  await choose(main, 'Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?', 'No');
+  await choose(main, 'Ever been very ill from high ketones (diabetic ketoacidosis, or DKA), or been told your body makes too little insulin?', 'No');
+  await choose(main, 'Do you get dizzy when you stand up?', 'No');
+  await choose(main, 'Glucose meter or sensor', 'A glucose meter (finger-prick)');
+  await choose(main, 'Glucose unit', 'mg/dL');
+  await choose(main, 'Home blood-pressure cuff', 'Yes');
+  await tick(main, 'Lower back');
+  await tick(main, 'Sciatica (pain down the leg)');
+  await choose(main, 'Which leg?', 'Left leg');
+  await choose(main, 'What makes it worse?', 'Sitting or bending forward');
   await choose(main, 'Has a doctor ever said a nerve in your back or leg was damaged?', 'No');
+  // The review asks this too (H5-11): its default "Yes" was never an answer.
+  await choose(main, 'Do you exercise now?', 'Yes');
 }

@@ -23,7 +23,8 @@ globalThis.localStorage = {
 
 const store = await import('@/store/useStore');
 const { notNow, setupProgress } = await import('@/setup/progress');
-const unreviewed = createDefaultProfile({ weightKg: 70, needsHealthReview: true });
+// Allergies answered ("No food allergies"): setup never passes over them (K5-08), and unanswered they keep Your food open too (H5-18).
+const unreviewed = createDefaultProfile({ weightKg: 70, needsHealthReview: true, food: { pattern: 'vegetarian', avoid: [], allergies: [] } });
 const open = () => setupProgress({ profile: unreviewed, settings: store.getState().settings }).map(c => c.chapter);
 /** Set up, with About you passed over: a row "Not now" answers, beside the gap. */
 const setUp = () => store.update(previous => ({ ...previous, settings: { ...previous.settings, onboardingComplete: true, setup: { stage: 'done', skipped: ['about'] } } }));

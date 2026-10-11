@@ -3,7 +3,7 @@ import { fakeIndexedDB } from '@/store/fakeIdb';
 import { createDefaultProfile } from '@/profile/defaults';
 import type { ChapterId, UserSettings } from '@/types';
 import { CHAPTER_IDS, type SetupAnswers } from '@/types/setup';
-import { MINIMAL } from './fixtures';
+import { COMPLEX, MINIMAL } from './fixtures';
 
 // The store sweeps localStorage on clear-all; node has none, so give it one.
 const local = new Map<string, string>();
@@ -17,7 +17,7 @@ globalThis.localStorage = {
 } as Storage;
 
 const store = await import('@/store/useStore');
-const { chapterHref, finishFooter, finishTitle, notNow, setupProgress } = await import('./progress');
+const { askAbout, chapterHref, finishFooter, finishTitle, notNow, safetyLeft, setupProgress } = await import('./progress');
 
 const ctx = { thisYear: 2026 };
 /** Set up in v1: done, with no setup state written yet. */
@@ -25,7 +25,7 @@ const v1 = { onboardingComplete: true } as UserSettings;
 const finished = (answers: SetupAnswers, skipped: ChapterId[] = []) =>
   ({ onboardingComplete: true, setup: { stage: 'done', skipped, answers, completedAt: '2026-10-08T09:00:00.000+05:30' } }) as UserSettings;
 /** Every answer given, the questions new since v1 included. */
-const answered = createDefaultProfile({ weightKg: 70, name: 'Asha', food: { pattern: 'vegetarian', avoid: [], level: 'ideas' }, health: { medicinesReviewed: true } });
+const answered = createDefaultProfile({ weightKg: 70, name: 'Asha', food: { pattern: 'vegetarian', avoid: [], level: 'ideas', allergies: [] }, health: { medicinesReviewed: true } });
 const rows = (profile: Parameters<typeof setupProgress>[0]['profile'], s: UserSettings) =>
   setupProgress({ profile, settings: s }, ctx).map(c => [c.chapter, c.detail, c.why]);
 
@@ -40,14 +40,46 @@ describe('setupProgress, from setup’s state (journey §6.6, §16; board D79)',
     expect(setupProgress({ profile: answered, settings: finished(MINIMAL) }, ctx)).toEqual([]);
   });
 
+  it('names each of Your day’s pages skipped (K5-12)', () => {
+    const skipped = { ...MINIMAL, skippedPages: ['day.water', 'day.sitting', 'day.walks', 'day.quiet'] as SetupAnswers['skippedPages'] };
+    expect(rows(answered, finished(skipped, ['day']))).toEqual([['day', 'Water reminders, Sitting breaks, After-meal walks, Quiet hours', 'skipped']]);
+  });
+
+  it('names allergies left unanswered on their own page, from setup’s answers (K5-08)', () => {
+    const { allergies: _a, ...noAllergies } = MINIMAL;
+    void _a;
+    expect(rows({ ...answered, food: { pattern: 'vegetarian', avoid: [], level: 'ideas' } }, finished(noAllergies, ['food']))).toEqual([['food', 'Food allergies', 'skipped']]);
+  });
+
+  it('keeps Your food open while allergies are unanswered, a backup’s unreadable list included (H5-18)', () => {
+    const noFood = { ...answered, food: undefined };
+    expect(rows(noFood, finished(MINIMAL))).toEqual([['food', 'Food allergies', 'skipped']]);
+    const unanswered = { ...answered, food: { pattern: 'vegetarian' as const, avoid: [], level: 'ideas' as const } };
+    expect(rows(unanswered, finished(MINIMAL))).toEqual([['food', 'Food allergies', 'skipped']]);
+  });
+
   it('while setup is unfinished, its one row carries on setting up (L-20)', () => {
     expect(setupProgress({ profile: undefined, settings: {} as UserSettings }, ctx)).toEqual([
-      { chapter: 'health', label: 'Your health', detail: 'Answer the health questions before you move', href: '/setup', why: 'gap' },
+      { chapter: 'health', label: 'Your health', detail: 'Answer 1 question about your health before you move', href: '/setup', why: 'gap' },
     ]);
     expect(rows(undefined, { onboardingComplete: true, setup: { stage: 'lookAround', skipped: [] as ChapterId[] } } as UserSettings))
-      .toEqual([['health', 'Answer the health questions before you move', 'gap']]);
+      .toEqual([['health', 'Answer 1 question about your health before you move', 'gap']]);
     // A v1 Welcome left part-way has a profile, and setup still carries on (K-57).
     expect(setupProgress({ profile: answered, settings: { onboardingComplete: false } as UserSettings }, ctx).map(c => c.href)).toEqual(['/setup']);
+  });
+
+  it('names the safety chapter setup still asks, with how many of its questions are left (§6.1; K5-07)', () => {
+    const { sciaticaSide: _s, worseWith: _w, neuroHistory: _n, ...noBack } = COMPLEX;
+    void [_s, _w, _n];
+    expect(safetyLeft(noBack, ctx)).toEqual({ chapter: 'backFeet', count: 2 });
+    expect(askAbout({ chapter: 'backFeet', count: 2 })).toBe('Answer 2 questions about your back and feet');
+    expect(askAbout({ chapter: 'medicines', count: 1 })).toBe('Answer 1 question about your medicines');
+    const lookAround = { onboardingComplete: true, setup: { stage: 'lookAround', skipped: [], draft: { at: 'movement.focus', answers: noBack } } } as unknown as UserSettings;
+    expect(rows(undefined, lookAround)).toEqual([['backFeet', 'Answer 2 questions about your back and feet before you move', 'gap']]);
+    // This session's answers, without saving, count over the draft's.
+    expect(setupProgress({ profile: undefined, settings: {} as UserSettings, answers: noBack }, ctx).map(c => c.chapter)).toEqual(['backFeet']);
+    // Every safety question answered: nothing to name.
+    expect(safetyLeft(COMPLEX, ctx)).toBeUndefined();
   });
 
   it('lists an upgrader’s new chapters as new, after any safety gap (§6.6)', () => {
@@ -80,7 +112,7 @@ describe('setupProgress, from setup’s state (journey §6.6, §16; board D79)',
     const p = createDefaultProfile({ weightKg: 70, health: { medicinesReviewed: true } });
     expect(rows(p, { onboardingComplete: true, setup: { declined: ['about'] } } as UserSettings)).toEqual([['food', 'Logging what you eat', 'new']]);
     // Movement waits for a gap, so its row stays, even where an earlier build stored "Not now" for it.
-    expect(rows(undefined, { setup: { declined: ['health'] } } as UserSettings)).toEqual([['health', 'Answer the health questions before you move', 'gap']]);
+    expect(rows(undefined, { setup: { declined: ['health'] } } as UserSettings)).toEqual([['health', 'Answer 1 question about your health before you move', 'gap']]);
     const review = createDefaultProfile({ weightKg: 70, health: { medicinesReviewed: true }, needsHealthReview: true });
     expect(rows(review, { onboardingComplete: true, setup: { declined: ['health', 'about', 'food'] } } as UserSettings))
       .toEqual([['health', 'Your health answers need a review', 'gap']]);

@@ -112,6 +112,9 @@ describe('movementLine (journey §7.5)', () => {
     const p = { ...base, allowed: false, disposition: 'hold' as const, reasons: [PERMISSION_TEXT.medicinesUnknown], needsCheckIn: false };
     expect(movementLine({ mode: 'stretch', permission: p, status: 'normal', normal: 'x' })).toEqual({ text: 'Finish setting up · your medicines', tone: 'caution' });
     expect(movementLine({ mode: 'walk', permission: hold(PERMISSION_TEXT.healthUnreviewed), status: 'normal', normal: 'x' }).text).toBe('Finish setting up · your health');
+    // While setup is unfinished, the safety chapter it still asks (§6.1; K5-07).
+    expect(movementLine({ mode: 'walk', permission: hold(PERMISSION_TEXT.healthUnreviewed), status: 'normal', normal: 'x', gapChapter: 'your back and feet' }).text)
+      .toBe('Finish setting up · your back and feet');
   });
   it('the Workout tile’s normal line when not enrolled (D35, L-03)', () => {
     expect(workoutNormal({ enrolled: false, label: 'Full Body B', minutes: 45 })).toBe('12-week programme · not joined');

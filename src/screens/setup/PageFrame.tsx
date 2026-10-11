@@ -1,20 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { markBack } from '@/components/hig/navigation';
-import { pageEdits, rememberEdits } from '@/setup/draft';
-import { capsuleOf, commitPage, hrefOf, nextFromReview, nextPage, pageDef, pageDone, prevPage } from '@/setup/graph';
+import { autosaveEdits, flushEdits, flushPending, pageEdits, rememberEdits } from '@/setup/draft';
+import { backFromReview, capsuleOf, hrefOf, nextMove, pageDef, pageInvalid, prevPage, skipMove, type PlannedMove } from '@/setup/graph';
 import { PlainButton, PrimaryButton } from '@/screens/you/controls';
 import type { PageId, SetupAnswers } from '@/types/setup';
 import type { PageView } from './controls';
 import { SetupShell } from './SetupShell';
 import { PAGE_TITLE } from './titles';
-import { useCtx, useMove, useSetupAnswers } from './useSetup';
+import { useCtx, useMove, useSetupAnswers, type Recovery } from './useSetup';
 
 /**
  * A setup page (journey §6.1): its view, then Next, which stores the answers
  * before moving (M22), and "Skip for now" on a preference page only. Back
  * keeps what the page held, for this session (§6.1). Opened from Review's
- * Edit, Next walks that chapter and then returns to Review.
+ * Edit, Next walks that chapter and then returns to Review, and so does Back
+ * from its first page (K5-14). Each change is kept in the draft as typed
+ * shortly after it's made, and Back and Close keep the page to resume on
+ * (H5-16, K5-17; board D158). After a refused
+ * store, Try again and Continue without saving plan the move again from the
+ * page as it is now (H5-02).
  */
 export function PageFrame({ id, View }: { id: PageId; View: PageView }) {
   const navigate = useNavigate();
@@ -24,46 +29,64 @@ export function PageFrame({ id, View }: { id: PageId; View: PageView }) {
   const ctx = useCtx();
   const [edits, setEdits] = useState<Partial<SetupAnswers>>(() => pageEdits(id));
   const [tried, setTried] = useState(false);
+  // The move the last store was for: Try again makes it again.
+  const [last, setLast] = useState<'next' | 'skip'>('next');
   const a: SetupAnswers = { ...answers, ...edits };
   const fromReview = (location.state as { fromReview?: boolean } | null)?.fromReview === true;
   const carry = fromReview ? { fromReview: true } : undefined;
-  const after = (stored: SetupAnswers) => (fromReview ? nextFromReview(stored, id, ctx) : nextPage(stored, id));
 
   const set = (patch: Partial<SetupAnswers>) => setEdits(e => {
     const next = { ...e, ...patch };
-    rememberEdits(id, next);
+    autosaveEdits(id, next);
     return next;
   });
+  // A change still waiting is kept as the page is left, or the app goes to the background (H5-16).
+  useEffect(() => {
+    const away = () => { if (document.visibilityState === 'hidden') void flushPending(id); };
+    document.addEventListener('visibilitychange', away);
+    return () => {
+      document.removeEventListener('visibilitychange', away);
+      void flushPending(id);
+    };
+  }, [id]);
 
-  const next = () => {
-    const stored = commitPage(id, a);
-    if (!pageDone(id, stored, ctx)) {
-      setTried(true);
-      return;
+  /** Next or Skip for now, stored then made; or, without saving, kept for this session (B-07). */
+  const attempt = (kind: 'next' | 'skip', unsaved = false) => {
+    setLast(kind);
+    let planned: PlannedMove | undefined;
+    if (kind === 'skip') {
+      // Optional is optional; an answer given that can't be stored isn't: it's fixed or cleared first, and the page says why (K5-04).
+      if (pageInvalid(id, a, ctx)) {
+        setTried(true);
+        return;
+      }
+      rememberEdits(id, {});
+      planned = skipMove(id, answers, ctx, fromReview);
+    } else {
+      planned = nextMove(id, a, ctx, fromReview);
+      if (!planned) {
+        setTried(true);
+        return;
+      }
     }
-    // Answering a page takes it off the skipped list.
-    const toStore = { ...stored, skippedPages: (stored.skippedPages ?? []).filter(p => p !== id) };
-    move.go(after(toStore), toStore, carry);
+    (unsaved ? move.goUnsaved : move.go)(planned.to, planned.answers, { ...(carry ? { state: carry } : {}), from: id, opened: answers });
   };
-
-  const skip = () => {
-    rememberEdits(id, {});
-    const toStore = { ...answers, skippedPages: [...new Set([...(answers.skippedPages ?? []), id])] };
-    move.go(after(toStore), toStore, carry);
-  };
+  const recovery: Recovery = { failed: move.failed, retry: () => attempt(last), continueUnsaved: () => attempt(last, true) };
 
   const back = () => {
-    const prev = prevPage(a, id);
+    const prev = fromReview ? backFromReview(a, id) : prevPage(a, id);
+    // Reopened later, setup resumes on the page Back went to, with this one's answers as typed (H5-16).
+    void flushEdits(id, prev ?? 'welcome.start');
     markBack();
     navigate(prev && prev !== 'welcome.start' ? hrefOf(prev) : '/setup', { replace: true, state: { back: true, ...carry } });
   };
 
   return (
-    <SetupShell title={PAGE_TITLE[id]} capsule={capsuleOf(id, answers)} onBack={back} move={move}>
+    <SetupShell title={PAGE_TITLE[id]} capsule={capsuleOf(id, answers)} onBack={back} onClose={() => void flushEdits(id, id)} recovery={recovery}>
       <View a={a} set={set} tried={tried} ctx={ctx} mode="setup" />
       <div className="mt-auto flex flex-col gap-2 pt-2">
-        <PrimaryButton className="min-h-[3.75rem]" onClick={next}>Next</PrimaryButton>
-        {pageDef(id).skippable && <PlainButton className="min-h-12" onClick={skip}>Skip for now</PlainButton>}
+        <PrimaryButton className="min-h-[3.75rem]" onClick={() => attempt('next')}>Next</PrimaryButton>
+        {pageDef(id).skippable && <PlainButton className="min-h-12" onClick={() => attempt('skip')}>Skip for now</PlainButton>}
       </div>
     </SetupShell>
   );

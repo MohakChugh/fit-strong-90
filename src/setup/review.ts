@@ -13,6 +13,7 @@ import { withJoinAnswers } from '@/programme/join';
 import { MEAL_LABEL } from '@/reminders/copy';
 import { everyLabel, listOf } from '@/screens/you/summaries';
 import { profileFrom, settingsFrom } from './assemble';
+import { diabetesOf, has } from './facts';
 import type { Ctx } from './graph';
 
 /** v1's acknowledgement, kept for every first-time profile (board D84). Review's tick box says it. */
@@ -55,4 +56,19 @@ export function clearanceNotes(p: UserProfile): string[] {
   return profileRules(p).reasons
     .filter(r => r.code.startsWith('clearance') || r.code === 'bpUnknown' || r.code === 'eyeTreatment')
     .map(r => r.message);
+}
+
+/**
+ * Why diabetes reads as "Other" when the person didn't choose "Another type"
+ * (`diabetesOf`, board D78), for Review to say under Your health (K5-11;
+ * board D153); `undefined` otherwise.
+ */
+export function whyOtherDiabetes(a: SetupAnswers): string | undefined {
+  if (diabetesOf(a) !== 'other') return undefined;
+  const chip = a.conditions?.diabetes;
+  if (!has(chip) || a.diabetesType === 'prediabetes') {
+    return 'Diabetes shows as “Other” because insulin, or a tablet that can cause lows, is ticked or marked “Not sure”. FitStrong checks for lows as it would with diabetes.';
+  }
+  if (chip === 'unsure') return 'Diabetes shows as “Other” because you’re not sure you have it. FitStrong takes the care diabetes needs until you know.';
+  return a.diabetesType === 'other' ? undefined : 'Diabetes shows as “Other” because its type isn’t known. FitStrong takes the care any type needs.';
 }

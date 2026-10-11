@@ -118,7 +118,7 @@ const answer = (p: UserProfile) => permission({ profile: p, checkIn: today()!, n
 async function feelingLow(p: UserProfile) {
   const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } };
   const rec: CheckInRecord = { ...morning, readiness: evaluateCheckIn(p, morning) };
-  await store.update(prev => ({ ...prev, profile: p, checkIns: [rec] }));
+  await store.update(prev => ({ ...prev, profile: p, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [rec] }));
   router.params = startedParams();
   host = render(createElement(LiveWalkScreen));
   await host.settle();
@@ -175,7 +175,7 @@ describe('"I need to stop", closed without an answer (journey §4.4, H6-01)', ()
   /** Walking on a normal check-in, with nobody on insulin: only the stop can hold this walk. */
   async function walking() {
     const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4 };
-    await store.update(prev => ({ ...prev, profile: p, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
+    await store.update(prev => ({ ...prev, profile: p, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
     router.params = startedParams();
     host = render(createElement(LiveWalkScreen));
     await host.settle();
@@ -243,7 +243,7 @@ describe('Resume asks the status first, as the hubs’ Continue does (H2-01, jou
 
   it('stays paused while Unwell, says why in the hubs’ words, and carries on once the status is back to normal', async () => {
     const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4 };
-    await store.update(prev => ({ ...prev, profile: p, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
+    await store.update(prev => ({ ...prev, profile: p, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
     router.params = startedParams();
     host = render(createElement(LiveWalkScreen));
     await host.settle();
@@ -275,7 +275,7 @@ describe('the walking time while paused (M13)', () => {
   it('dims the time and leaves its label at full contrast', async () => {
     const p = createDefaultProfile({ health: { ...known, diabetes: 'none' } });
     const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4 };
-    await store.update(prev => ({ ...prev, profile: p, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
+    await store.update(prev => ({ ...prev, profile: p, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
     router.params = startedParams();
     host = render(createElement(LiveWalkScreen));
     await host.settle();
@@ -299,7 +299,7 @@ describe('a walk’s address is a choice, never authorisation (H6-04, KH-12)', (
     const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4 };
     await store.update(prev => ({
       ...prev, profile: p, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }],
-      settings: { ...prev.settings, ...(walkSettings ? { walk: walkSettings } : {}) },
+      settings: { ...prev.settings, onboardingComplete: true, ...(walkSettings ? { walk: walkSettings } : {}) },
     }));
   }
 

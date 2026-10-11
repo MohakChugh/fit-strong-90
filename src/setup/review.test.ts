@@ -3,8 +3,8 @@ import type { AppData } from '@/types';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import { chapterSections } from '@/screens/you/summaries';
 import { completedSetup, profileFrom, settingsFrom } from './assemble';
-import { COMPLEX, GLIFLOZIN_NO_DIABETES, JOIN, MINIMAL, withC, withMeds } from './fixtures';
-import { clearanceNotes, reviewRecord, reviewThings } from './review';
+import { COMPLEX, GLIFLOZIN_NO_DIABETES, INSULIN_NO_DIABETES, JOIN, MINIMAL, NO_CLASSES, UNSURE, withC, withMeds } from './fixtures';
+import { clearanceNotes, reviewRecord, reviewThings, whyOtherDiabetes } from './review';
 
 const TODAY = '2026-10-10';
 const CTX = { thisYear: 2026 };
@@ -92,5 +92,27 @@ describe('Review shows what finishing stores (§6.2)', () => {
       // Only completion, setup's own record and Home's first tiles are added on finishing.
       expect({ ...shown.settings, onboardingComplete: done.settings.onboardingComplete, setup: done.settings.setup, home: done.settings.home }).toEqual(done.settings);
     }
+  });
+});
+
+describe('why diabetes reads as “Other” when the person didn’t choose it (K5-11; board D153)', () => {
+  const unsureOfAll = withMeds({ insulin: 'unsure', lowsTablet: 'unsure', gliflozin: 'unsure', metformin: 'unsure', betaBlocker: 'unsure', diuretic: 'unsure', other: 'unsure' });
+
+  it('a medicine that can cause lows, with diabetes “No”, unanswered, or prediabetes', () => {
+    for (const a of [INSULIN_NO_DIABETES, unsureOfAll, withC({ diabetes: 'yes' }, { diabetesType: 'prediabetes', regular: 'yes', classes: { ...NO_CLASSES, lowsTablet: 'yes' } })]) {
+      expect(profileFrom(a, undefined, TODAY, CTX).health.diabetes).toBe('other');
+      expect(whyOtherDiabetes(a)).toBe('Diabetes shows as “Other” because insulin, or a tablet that can cause lows, is ticked or marked “Not sure”. FitStrong checks for lows as it would with diabetes.');
+    }
+  });
+
+  it('“Not sure” about diabetes, or about its type', () => {
+    expect(whyOtherDiabetes(UNSURE)).toBe('Diabetes shows as “Other” because you’re not sure you have it. FitStrong takes the care diabetes needs until you know.');
+    expect(whyOtherDiabetes(withC({ diabetes: 'yes' }, { diabetesType: 'unsure' }))).toBe('Diabetes shows as “Other” because its type isn’t known. FitStrong takes the care any type needs.');
+  });
+
+  it('nothing for a type the person chose, or for no diabetes', () => {
+    expect(whyOtherDiabetes(withC({ diabetes: 'yes' }, { diabetesType: 'other' }))).toBeUndefined();
+    expect(whyOtherDiabetes(MINIMAL)).toBeUndefined();
+    expect(whyOtherDiabetes(COMPLEX)).toBeUndefined();
   });
 });

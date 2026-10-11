@@ -8,6 +8,7 @@ import { shortDate, shortDay } from './dates';
 import type { HabitSettings } from '@/types/habits';
 import { createDefaultProfile } from '@/profile/defaults';
 import { newObservation } from '@/health/observation';
+import { timeOf } from '@/lib/time';
 import { formatClock } from '@/reminders/time';
 import type { ImportPreview } from '@/store/transfer';
 import {
@@ -78,7 +79,7 @@ describe('the profile, read back', () => {
   it('shows each answer as it was given, in the units the user chose', () => {
     const rows = chapters(owner);
     expect(rows.about.Weight).toBe('82.4 kg');
-    expect(chapters(owner, { ...S1, useMetric: false }).about).toMatchObject({ Weight: '181.7 lb', Height: '5 ft 10 in' });
+    expect(chapters(owner, { ...S1, useMetric: false }).about).toMatchObject({ Weight: '181.7 lb', Height: '5 ft 10.1 in' });
     expect(rows.backFeet).toEqual({ 'Pain or past injury': 'Lower back, Sciatica', 'Which leg': 'Left', 'Worse with': 'Sitting or bending forward' });
     expect(rows.medicines).toMatchObject({ 'A “-gliflozin” medicine': 'Not sure', Metformin: 'Yes, since 2019' });
     expect(chapterSections(owner, S1, '2026-10-10').map(c => c.chapter)).toEqual(['about', 'health', 'medicines', 'backFeet', 'movement', 'food', 'day']);
@@ -283,6 +284,28 @@ describe('chapterSections: Profile & health by chapter (journey §16; Plan 5)', 
     expect(rows.food).toMatchObject({ 'What you eat': 'Vegetarian', Allergies: 'Peanuts' });
   });
 
+  it('a body measure says when it was measured, from the reading it came from, and as stored (§4.10, B-24; H5-24)', () => {
+    const at = '2026-10-08T09:30:00+05:30';
+    const when = `${shortDate(at)} at ${timeOf(at)}`;
+    const p = createDefaultProfile({ weightKg: 72.5, heightCm: 160.5, waistCm: 81.3 });
+    const reading = (kind: 'weight' | 'height' | 'waist', value: number, extra = {}) =>
+      newObservation({ kind, value, unit: kind === 'weight' ? 'kg' : 'cm', scope: 'pointInTime', source: 'manual', at, context: 'profile', ...extra });
+    const about = (observations: Parameters<typeof chapterSections>[3], settings = S) =>
+      Object.fromEntries(chapterSections(p, settings, '2026-10-10', observations).find(c => c.chapter === 'about')!.rows.map(r => [r.label, r.value]));
+    // Entered in setup or Profile & health; logged elsewhere, with only the day known; and a value no reading holds, as v1 kept it.
+    expect(about([reading('weight', 72.5), reading('height', 160.5, { source: 'manual', context: undefined, timeUnknown: true }), reading('waist', 80)])).toMatchObject({
+      Weight: `72.5 kg, entered ${when}`, Height: `160.5 cm, logged ${shortDate(at)}`, Waist: '81.3 cm, date not recorded',
+    });
+    // The latest reading of that value dates it; a later one of another value doesn't.
+    const later = '2026-10-09T08:00:00+05:30';
+    expect(about([reading('weight', 72.5), reading('weight', 72.5, { at: later }), reading('weight', 74, { at: '2026-10-10T08:00:00+05:30' })]).Weight)
+      .toBe(`72.5 kg, entered ${shortDate(later)} at ${timeOf(later)}`);
+    // In inches, to a tenth: what was typed is never rounded away.
+    expect(about([], { ...S, useMetric: false })).toMatchObject({ Height: '5 ft 3.2 in, date not recorded', Waist: '32 in, date not recorded' });
+    // Without the readings, the values alone.
+    expect(about(undefined).Weight).toBe('72.5 kg');
+  });
+
   it('says Not sure where it was said (V-J17)', () => {
     expect(read(profileFrom(UNSURE, undefined, '2026-10-10', { thisYear: 2026 })).medicines.Insulin).toBe('Not sure');
   });
@@ -328,13 +351,21 @@ describe('chapterSections: Profile & health by chapter (journey §16; Plan 5)', 
     });
     expect(rows.backFeet).toEqual({ 'Pain or past injury': 'Lower back, Sciatica', 'Which leg': 'Left', 'Worse with': 'Sitting or bending forward', 'A nerve damaged in the past': 'No' });
     expect(rows.movement).toEqual({ 'What you’d most like to do': 'Stretch more', 'Exercise now': 'No', 'Weekly goal': '90 minutes a week', 'The 12-week programme': 'Not joined' });
-    expect(rows.food['Logging what you eat']).toBe('Meals, with calorie and carb estimates');
+    expect(rows.food['Logging what you eat']).toBe('Meals with estimates');
     expect(rows.day).toEqual({ Reminders: 'Water and walks after meals', 'Quiet hours': '10:00 pm to 7:00 am', 'Reminders come': 'In the app', 'Voice coach': 'On' });
+  });
+
+  it('reads the logging level in Plan 7’s own words, so Profile & health, Review and Me → Food agree (integrator I-01)', () => {
+    // LEVEL_LABEL in Plan 7's src/food/copy.ts, word for word.
+    const PLAN7 = { ideas: 'Meal ideas only', meals: 'Meals only, no numbers', estimates: 'Meals with estimates' } as const;
+    for (const level of ['ideas', 'meals', 'estimates'] as const) {
+      expect(read(createDefaultProfile({ food: { pattern: 'vegetarian', avoid: [], level } })).food['Logging what you eat'], level).toBe(PLAN7[level]);
+    }
   });
 
   it('in feet, inches and pounds when those are the units chosen', () => {
     expect(whole({ ...COMPLEX, metric: false, waistCm: 80 }, false).about).toEqual({
-      Name: 'Asha', Born: '1958', 'Body for the exercise demos': 'Female figure', Height: '5 ft 2 in', Weight: '149.9 lb', Waist: '31 in',
+      Name: 'Asha', Born: '1958', 'Body for the exercise demos': 'Female figure', Height: '5 ft 2.2 in', Weight: '149.9 lb', Waist: '31.5 in',
     });
     expect(whole({ ...COMPLEX, waistCm: 80 }).about.Waist).toBe('80 cm');
   });

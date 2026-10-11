@@ -24,6 +24,7 @@ import { FOCUS_CHOICES } from '@/screens/welcome/focus';
 import { allergyName } from '@/setup/allergies';
 import { allergenName } from '@/food/allergens';
 import { LEVEL_LABEL } from '@/food/copy';
+import { answersOf, setupStateOf } from '@/setup/state';
 import { shortDate, shortDay } from './dates';
 
 /** Formats minutes after midnight for display, in the phone's own style. */
@@ -358,9 +359,11 @@ const FIGURE = { male: 'Male figure', female: 'Female figure' } as const;
 const KIDNEY_ANSWER: Record<UserProfile['health']['kidneyDisease'], string> = {
   none: 'No', ckd: 'Yes', dialysis_or_transplant: 'Dialysis or transplant', unsure: 'Not sure',
 };
-const LEVEL: Record<NonNullable<FoodPreferences['level']>, string> = {
-  ideas: 'Meal ideas only', meals: 'Meals, with no numbers', estimates: 'Meals, with calorie and carb estimates',
-};
+/**
+ * The logging level, in Plan 7's own words (`LEVEL_LABEL`, src/food/copy.ts),
+ * so Profile & health, Review and Me → Food say it alike (integrator I-01).
+ */
+const LEVEL: Record<NonNullable<FoodPreferences['level']>, string> = LEVEL_LABEL;
 const minutesOf = (hhmm: string) => {
   const [h, m] = hhmm.split(':').map(Number);
   return h * 60 + m;
@@ -372,19 +375,55 @@ export interface ChapterSection {
 }
 
 /** The allergies as the person gave them: the chips' names, then their own words (board D82). */
-function allergiesLine(food: FoodPreferences | undefined): string {
+function allergiesLine(food: Pick<FoodPreferences, 'allergies' | 'customAllergies'> | undefined): string {
   const given = [...(food?.allergies ?? []).map(allergyName), ...(food?.customAllergies ?? [])];
   if (given.length > 0) return given.join(', ');
   // An empty list is the answer "No food allergies"; no list was never asked.
   return food?.allergies ? 'None' : 'None given';
 }
 
+/** A body measure, as a reading of it says (or would say, once stored). */
+export interface BodyReading {
+  kind: ObservationKind;
+  value: number;
+  at: string;
+  source: Observation['source'];
+  context?: string;
+  timeUnknown?: boolean;
+  seq?: number;
+}
+
+const HOW: Record<Observation['source'], string> = { manual: 'logged', measured: 'measured', imported: 'imported' };
+
+/**
+ * When a body measure was taken, from the reading it came from (§4.10, B-24;
+ * H5-24): the latest reading of that kind holding the value, its date, its
+ * time unless only the day was kept, and how it was given. A value no
+ * reading holds, as v1 kept it, has no date to show, and none is made up.
+ */
+function measured(kind: 'weight' | 'height' | 'waist', value: number, readings: readonly BodyReading[]): string {
+  const latest = readings
+    .filter(o => o.kind === kind && Math.abs(o.value - value) < 1e-6)
+    .reduce<BodyReading | undefined>((best, o) => (!best || Date.parse(o.at) > Date.parse(best.at) || (o.at === best.at && (o.seq ?? 0) > (best.seq ?? 0)) ? o : best), undefined);
+  if (!latest) return 'date not recorded';
+  const how = latest.context === 'profile' ? 'entered' : HOW[latest.source];
+  return `${how} ${shortDate(latest.at)}${latest.timeUnknown ? '' : ` at ${timeOf(latest.at)}`}`;
+}
+
+/** To a tenth, as stored: 160.5 stays 160.5, 158 stays 158. */
+const tenths = (n: number) => String(Math.round(n * 10) / 10);
+
 /**
  * Each setup chapter's answers, read back from the record the engine reads
  * (journey §16): Profile & health's groups and Review's cards. In v1's words
  * where v1 named them, so a row reads as it always has.
  */
-export function chapterSections(profile: UserProfile, settings: UserSettings, today: string, format: ClockFormat = clockFormat): ChapterSection[] {
+export function chapterSections(
+  profile: UserProfile, settings: UserSettings, today: string,
+  /** The body readings, for when each measure was taken (H5-24); without them, the values alone. */
+  readings?: readonly BodyReading[],
+  format: ClockFormat = clockFormat,
+): ChapterSection[] {
   const h = profile.health;
   const metric = settings.useMetric;
   // Until the medicines are reviewed, what is stored may be a default nobody chose (B08).
@@ -392,15 +431,17 @@ export function chapterSections(profile: UserProfile, settings: UserSettings, to
   const medicine = (value: string) => (unconfirmed && value !== 'Not answered yet' ? `${value}, not yet confirmed` : value);
   const bpUnconfirmed = bpMedicinesUnknown(h);
   const bpMedicine = (value: string) => (bpUnconfirmed && value !== 'Not answered yet' ? `${value}, not yet confirmed` : value);
-  const inches = (cm: number) => Math.round(cm / 2.54);
+  const inches = (cm: number) => Math.round((cm / 2.54) * 10) / 10;
+  const feet = (cm: number) => `${Math.floor(inches(cm) / 12)} ft ${tenths(inches(cm) - Math.floor(inches(cm) / 12) * 12)} in`;
+  const when = (kind: 'weight' | 'height' | 'waist', value: number, shown: string) => (readings ? `${shown}, ${measured(kind, value, readings)}` : shown);
 
   const about: SummaryRow[] = [
     { label: 'Name', value: profile.name ?? 'Not given' },
     ...(profile.birthYear ? [{ label: 'Born', value: String(profile.birthYear) }] : []),
     { label: 'Body for the exercise demos', value: profile.figure ? FIGURE[profile.figure] : 'Either' },
-    { label: 'Height', value: !profile.heightCm ? 'Not entered' : metric ? `${Math.round(profile.heightCm)} cm` : `${Math.floor(inches(profile.heightCm) / 12)} ft ${inches(profile.heightCm) % 12} in` },
-    { label: 'Weight', value: profile.weightKg > 0 ? `${kgToDisplay(profile.weightKg, metric)} ${metric ? 'kg' : 'lb'}` : 'Not entered' },
-    ...(profile.waistCm ? [{ label: 'Waist', value: metric ? `${Math.round(profile.waistCm)} cm` : `${inches(profile.waistCm)} in` }] : []),
+    { label: 'Height', value: !profile.heightCm ? 'Not entered' : when('height', profile.heightCm, metric ? `${tenths(profile.heightCm)} cm` : feet(profile.heightCm)) },
+    { label: 'Weight', value: profile.weightKg > 0 ? when('weight', profile.weightKg, `${kgToDisplay(profile.weightKg, metric)} ${metric ? 'kg' : 'lb'}`) : 'Not entered' },
+    ...(profile.waistCm ? [{ label: 'Waist', value: when('waist', profile.waistCm, metric ? `${tenths(profile.waistCm)} cm` : `${tenths(inches(profile.waistCm))} in`) }] : []),
   ];
 
   const eyesOrFeet = diabetic(profile) || h.retinopathy !== 'none_or_mild' || h.footStatus !== 'healthy' || h.peripheralNeuropathy !== 'no';
@@ -458,8 +499,10 @@ export function chapterSections(profile: UserProfile, settings: UserSettings, to
   const food = profile.food;
   const foodRows: SummaryRow[] = [
     { label: 'What you eat', value: food ? FOOD_PATTERN[food.pattern] : 'Not chosen' },
-    { label: 'Allergies', value: allergiesLine(food) },
-    { label: 'Logging what you eat', value: LEVEL[food?.level ?? 'ideas'] },
+    // Allergies, asked whatever the pattern, wait in setup's own answers with it (K5-08, D167).
+    { label: 'Allergies', value: allergiesLine(food ?? answersOf(setupStateOf(settings, profile))) },
+    // A level chosen after the pattern was skipped waits in setup's own answers, until the pattern is answered (H5-20, D164).
+    { label: 'Logging what you eat', value: LEVEL[food?.level ?? answersOf(setupStateOf(settings, profile)).foodLevel ?? 'ideas'] },
   ];
 
   const hb = settings.habits;
