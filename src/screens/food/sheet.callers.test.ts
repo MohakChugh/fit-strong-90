@@ -17,6 +17,8 @@ import type { MealRecord } from '@/food/types';
 const nav = vi.hoisted(() => ({
   shouldBlock: undefined as undefined | ((a: { currentLocation: { pathname: string; search: string }; nextLocation: { pathname: string; search: string }; historyAction: string }) => boolean),
   state: 'unblocked' as 'unblocked' | 'blocked' | 'proceeding',
+  /** Where the blocked navigation was going, as the router gives it. */
+  location: undefined as undefined | { pathname: string; search: string; key: string },
   proceeded: 0,
   resets: 0,
   redraw: new Set<() => void>(),
@@ -31,10 +33,13 @@ vi.mock('react-router-dom', async () => {
         nav.redraw.add(redraw);
         return () => void nav.redraw.delete(redraw);
       }, []);
+      // As the router does, the blocker's own state changes in a later render (a transition), not the one the handler sets off.
+      const later = (next: typeof nav.state) => setTimeout(() => { nav.state = next; nav.location = undefined; nav.redraw.forEach(r => r()); }, 0);
       return {
         state: nav.state,
-        proceed: () => { nav.proceeded += 1; nav.state = 'proceeding'; },
-        reset: () => { nav.resets += 1; nav.state = 'unblocked'; nav.redraw.forEach(r => r()); },
+        ...(nav.state === 'blocked' && nav.location ? { location: nav.location } : {}),
+        proceed: () => { nav.proceeded += 1; later('proceeding'); },
+        reset: () => { nav.resets += 1; later('unblocked'); },
       };
     },
     useNavigate: () => () => {},
@@ -260,12 +265,15 @@ describe('browser Back with the sheet open (H7-19)', () => {
   const back = async (h: Host) => {
     const blocked = nav.shouldBlock?.({ currentLocation: { pathname: '/hub/food/log', search: '' }, nextLocation: { pathname: '/hub/food', search: '' }, historyAction: 'POP' }) ?? false;
     nav.state = blocked ? 'blocked' : 'unblocked';
+    // The history entry Back goes to has one key, however many times Back is tried.
+    nav.location = blocked ? { pathname: '/hub/food', search: '', key: 'entry-hub-food' } : undefined;
     nav.redraw.forEach(r => r());
     await h.settle();
     return blocked;
   };
   beforeEach(() => {
     nav.state = 'unblocked';
+    nav.location = undefined;
     nav.proceeded = 0;
     nav.resets = 0;
   });

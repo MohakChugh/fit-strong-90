@@ -137,14 +137,24 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
   useEffect(() => {
     latest.current = blocker;
   });
-  if (blocker.state === 'blocked' && !saving && page.kind !== 'discard') setPage({ kind: 'discard' });
+  // The router moves the blocker on in a later render (a transition), so a Back this sheet has answered isn't
+  // asked about again in the render before it does; once it has, the next Back is asked about afresh.
+  const [answered, setAnswered] = useState(false);
+  if (blocker.state !== 'blocked' && answered) setAnswered(false);
+  if (blocker.state === 'blocked' && !answered && !saving && page.kind !== 'discard') {
+    setAnswered(true);
+    setPage({ kind: 'discard' });
+  }
   const leave = () => {
     leaving.current = true;
     if (latest.current.state === 'blocked') latest.current.proceed();
     else onClose();
   };
   const stay = () => {
-    if (latest.current.state === 'blocked') latest.current.reset();
+    const b = latest.current;
+    if (b.state !== 'blocked') return;
+    setAnswered(true);
+    b.reset();
   };
   const close = () => {
     if (saving) return;
