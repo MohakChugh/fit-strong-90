@@ -10,7 +10,7 @@ import { isDay } from '@/health/observation';
 import { isEnrolled } from '@/health/recommend';
 import { restDaysOf } from '@/screens/home/week';
 import { HIGH_GLUCOSE_MGDL, HYPO_LEVEL_1_MGDL } from '@/screens/track/escalation';
-import { formatDayLong, formatValue, type DisplayPrefs } from '@/screens/track/format';
+import { formatClock, formatDayLong, formatValue, type DisplayPrefs } from '@/screens/track/format';
 import { LAB_OPTIONS, type LabKind } from '@/screens/track/logKinds';
 import { daysBetween } from '@/screens/track/periods';
 import { displayBoundaries } from '@/screens/track/targets';
@@ -440,13 +440,19 @@ export function readingsView(input: TrendInput): TrendView {
     const s = stat(b, sr.id);
     return s.mean === undefined || s.min === undefined || s.max === undefined ? [] : [{ label: sr.label, n: s.n, min: s.min, max: s.max, mean: s.mean }];
   });
+  // A meter's HI and LO have no number, so no range or mean: each is said and listed on its own, dated (H3-15).
+  const metersIn = (b: DayRange) => r.meters.filter(m => m.day >= b.from && m.day <= b.to).sort((x, y) => x.day.localeCompare(y.day) || (x.at ?? '').localeCompare(y.at ?? ''))
+    .map(m => ({ display: m.display, when: `${shortDay(m.day, ctx.today)}${m.at ? ` at ${formatClock(m.at, prefs.hour12)}` : ''}` }));
   const said = (b: DayRange): string => {
     if (b.from > ctx.today) return 'Still to come';
     if (dayly) {
       const day = texts.filter(t => t.day === b.from).map(t => `${t.text}${t.note ? `, ${lowerFirst(t.note)}` : ''}`);
       return day.length ? day.join('; ') : 'No readings';
     }
-    const parts = plotted(b).map(p => `${named ? `${p.label}: ` : ''}${countText(p.n, READING)}, ${fmt(p.min)} to ${fmt(p.max)} ${unit}, average ${fmt(p.mean)} ${unit}`);
+    const parts = [
+      ...plotted(b).map(p => `${named ? `${p.label}: ` : ''}${countText(p.n, READING)}, ${fmt(p.min)} to ${fmt(p.max)} ${unit}, average ${fmt(p.mean)} ${unit}`),
+      ...metersIn(b).map(m => `Meter showed ${m.display} on ${m.when}`),
+    ];
     return parts.length ? parts.join('; ') : 'No readings';
   };
   const slots: Slot[] = w.buckets.map(b => {
@@ -464,9 +470,12 @@ export function readingsView(input: TrendInput): TrendView {
     ? { columns: ['Day', 'Reading', 'Note'], rows: texts.map(t => [formatDayLong(t.day, ctx.today), t.text, t.note ?? '']) }
     : {
       columns: [w.period === 'sixMonths' ? 'Week' : 'Month', 'Readings', 'Range', 'Average'],
-      rows: w.buckets.flatMap(b => plotted(b).map(p => [
-        `${slotName(w.period, b, ctx.today)}${named ? ` · ${p.label}` : ''}`, formatNumber(p.n), `${fmt(p.min)}–${fmt(p.max)} ${unit}`, `${fmt(p.mean)} ${unit}`,
-      ])),
+      rows: w.buckets.flatMap(b => [
+        ...plotted(b).map(p => [
+          `${slotName(w.period, b, ctx.today)}${named ? ` · ${p.label}` : ''}`, formatNumber(p.n), `${fmt(p.min)}–${fmt(p.max)} ${unit}`, `${fmt(p.mean)} ${unit}`,
+        ]),
+        ...metersIn(b).map(m => [`${slotName(w.period, b, ctx.today)} · Meter`, `${m.display} on ${m.when}`, m.display === 'LO' ? 'Below what the meter can show' : 'Above what the meter can show', '']),
+      ]),
     };
 
   return {

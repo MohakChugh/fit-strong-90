@@ -682,6 +682,20 @@ describe('more of the readings view (A-43, A-44, K-11)', () => {
     expect(back.table.rows).toEqual([['5–11 Oct · Back pain', '1', '4.0–4.0 of 10', '4.0 of 10'], ['5–11 Oct · Leg pain', '1', '2.0–2.0 of 10', '2.0 of 10']]);
   });
 
+  it('a week or a month with a meter’s LO or HI says it and lists it, dated, number or not (H3-15)', () => {
+    const six = readingsView({ def: TRENDS.glucose, window: windowOf('sixMonths', TODAY), data: data([], [], [display('2026-10-06', 'LO', '13:00')]), prefs, ctx: ctx() });
+    const i = six.chart.slots.findIndex(s => s.key === '2026-10-05');
+    expect(six.chart.slots[i].text).toBe('5–11 Oct: Meter showed LO on Tue 6 Oct at 1:00 pm.');
+    expect(six.table.rows).toEqual([['5–11 Oct · Meter', 'LO on Tue 6 Oct at 1:00 pm', 'Below what the meter can show', '']]);
+    const year = readingsView({ def: TRENDS.glucose, window: windowOf('year', TODAY), data: data([g(140, at('2026-10-05', '07:30'))], [], [display('2026-10-07', 'HI', '21:00')]), prefs, ctx: ctx() });
+    const october = year.chart.slots.findIndex(s => s.key === '2026-10-01');
+    expect(year.chart.slots[october].text).toBe('October 2026: 1 reading, 140 to 140 mg/dL, average 140 mg/dL; Meter showed HI on Wed 7 Oct at 9:00 pm.');
+    expect(year.table.rows).toEqual([
+      ['October 2026', '1', '140–140 mg/dL', '140 mg/dL'],
+      ['October 2026 · Meter', 'HI on Wed 7 Oct at 9:00 pm', 'Above what the meter can show', ''],
+    ]);
+  });
+
   it('6 Months of blood pressure: a range for each number, named', () => {
     const six = readingsView({ def: TRENDS.bp, window: windowOf('sixMonths', TODAY), data: data([...reading('2026-10-05', 132, 84), ...reading('2026-10-06', 184, 96), ...reading('2026-10-07', 128)]), prefs, ctx: ctx() });
     const at5 = six.chart.slots.findIndex(s => s.key === '2026-10-05');
