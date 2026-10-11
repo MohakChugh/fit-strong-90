@@ -57,6 +57,7 @@ import {
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
 import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult } from './db';
 import { parseJournalEntry, withJournalled, type JournalEntry } from '@/walk/journal';
+import { sameClockChange, type ClockSeen } from '@/walk/clock';
 import { clockGeneration, routeErased, walkSettings, withClockChange, withErase, type WalkSettings } from '@/walk/consent';
 import { routeRecord, type RouteRecord } from '@/walk/routeRecord';
 import type { WalkInput } from '@/walk/record';
@@ -652,6 +653,7 @@ export function resetForTests(): void {
   persisted = false;
   installed = undefined;
   listeners.clear();
+  clockSeen = [];
   state = toState(view);
 }
 
@@ -1352,17 +1354,26 @@ export function acquisitionStamp(): number {
   return clockGeneration(state.settings);
 }
 
+/** B-19: the changes to the clock this page has marked, each by the observation that saw it (H6F-04). */
+let clockSeen: { seen: ClockSeen; marked: Promise<StoreResult> }[] = [];
+
 /**
- * B-19: a walk saw this phone's clock change. The device's clock generation
- * moves on, against the settings this transaction finds, so another tab's
- * change is never lost; from then on every movement gate holds someone who
- * can go low until a reading taken since, a finished walk's next start
- * included (H6R-02, board D174).
+ * B-19: a walk or the page saw this phone's clock change. The device's clock
+ * generation moves on, against the settings this transaction finds, so
+ * another tab's change is never lost; from then on every movement gate holds
+ * someone who can go low until a reading acquired since, a finished walk's
+ * next start included (H6R-02, board D174). A change this page has already
+ * marked, seen again by its own observation (`seen`), is not marked twice:
+ * a walk and the page watching the same moment (H6F-04, board D187).
  */
-export function markClockChange(days: readonly string[]): Promise<StoreResult> {
-  return enqueue<void>({
+export function markClockChange(days: readonly string[], seen?: ClockSeen): Promise<StoreResult> {
+  const known = seen && clockSeen.find(c => sameClockChange(c.seen, seen));
+  if (known) return known.marked;
+  const marked = enqueue<void>({
     plan: base => ({ change: { settings: { patch: { walk: withClockChange(walkSettings(base.settings ?? {}), days) } } }, result: () => undefined }),
   });
+  if (seen) clockSeen.push({ seen, marked });
+  return marked;
 }
 
 /** A walk, its route and its recovery state gone in one transaction (F09). Only the observations named go; the walk's pain ratings can stay. */

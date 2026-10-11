@@ -16,7 +16,7 @@ const profile = createDefaultProfile({
   health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
 });
 const day = { date: TODAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7' as const, energy: 4 as const, glucose: reading };
-const state = vi.hoisted(() => ({ value: undefined as unknown, listeners: new Set<() => void>(), marked: [] as (readonly string[])[] }));
+const state = vi.hoisted(() => ({ value: undefined as unknown, listeners: new Set<() => void>(), marked: [] as (readonly string[])[], seen: [] as unknown[] }));
 vi.mock('@/store/useStore', async importOriginal => {
   const real = await importOriginal<typeof import('@/store/useStore')>();
   const { walkSettings: walkOf, withClockChange: changed } = await import('./consent');
@@ -25,8 +25,9 @@ vi.mock('@/store/useStore', async importOriginal => {
     getState: () => state.value as ReturnType<typeof real.getState>,
     subscribe: (l: () => void) => { state.listeners.add(l); return () => void state.listeners.delete(l); },
     // The device's own change, as the store's transaction makes it.
-    markClockChange: (days: readonly string[]) => {
+    markClockChange: (days: readonly string[], seen?: unknown) => {
       state.marked.push(days);
+      state.seen.push(seen);
       const was = state.value as { settings: { walk?: ReturnType<typeof walkOf> } };
       state.value = { ...was, settings: { ...was.settings, walk: changed(walkOf(was.settings), days) } };
       for (const l of [...state.listeners]) l();
@@ -53,8 +54,11 @@ describe('the browser’s live walk ports (B-19)', () => {
     const ports = browserPorts();
     const was = state.value;
     expect(ports.mayRun('live')).toBe(true);
-    ports.clockChanged!([TODAY]);
+    // With the two clocks it was seen between, so the store can tell it from the page's own look at it (H6F-04).
+    const seen = { from: { wall: 1, mono: 1 }, to: { wall: 3_600_002, mono: 2 } };
+    ports.clockChanged!([TODAY], seen);
     expect(state.marked).toEqual([[TODAY]]);
+    expect(state.seen).toEqual([seen]);
     for (const intent of ['start', 'restart', 'live'] as const) expect(ports.mayRun(intent), intent).toBe(false);
     // A reading taken here since, in the phone's new clock generation: on again.
     const since = { ...day, glucose: { ...reading, measuredAt: new Date().toISOString(), gen: 1 }, glucoseEarlier: [reading] };

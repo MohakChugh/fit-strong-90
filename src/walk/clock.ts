@@ -177,6 +177,26 @@ export const CLOCK_JUMP_MS = 120_000;
 /** The two clocks at one moment. */
 export interface Clocks { wall: number; mono: number }
 
+/** B-19: the two clocks as a change to the phone's clock was seen between them: one observation of it (H6F-04). */
+export interface ClockSeen { from: Clocks; to: Clocks }
+
+/**
+ * B-19: two observations of the one change to the phone's clock, as a walk
+ * and the page both see it (H6F-04, board D187): over spans of the monotonic
+ * clock that overlap, the same way and by as much, to the same place. Never
+ * by how many changes have been counted since, which can't say what a span
+ * nobody watched held: a second change the same way and size, later, is a
+ * change of its own.
+ */
+export function sameClockChange(a: ClockSeen, b: ClockSeen): boolean {
+  const drift = (s: ClockSeen) => (s.to.wall - s.from.wall) - (s.to.mono - s.from.mono);
+  const after = (s: ClockSeen) => s.to.wall - s.to.mono;
+  return a.from.mono < b.to.mono && b.from.mono < a.to.mono
+    && Math.sign(drift(a)) === Math.sign(drift(b))
+    && Math.abs(Math.abs(drift(a)) - Math.abs(drift(b))) <= CLOCK_JUMP_MS
+    && Math.abs(after(a) - after(b)) <= CLOCK_JUMP_MS;
+}
+
 /**
  * One accrual step (B-19, H6-09): always the monotonic step, which only time
  * passing moves. The device clock's step only tells whether the clock was

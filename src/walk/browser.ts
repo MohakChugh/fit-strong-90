@@ -153,7 +153,7 @@ export function browserPorts(): LivePorts {
   return {
     mayRun: intent => storeGate(intent),
     watchClinical,
-    clockChanged: days => void markClockChange(days),
+    clockChanged: (days, seen) => void markClockChange(days, seen),
     keepsRoutes: () => walkSettings(getState().settings).saveRoutes === true,
     now: () => Date.now(),
     monotonic: () => performance.now(),

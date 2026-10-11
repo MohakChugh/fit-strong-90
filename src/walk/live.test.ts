@@ -5,7 +5,7 @@ import { createDefaultProfile } from '@/profile/defaults';
 import { toDateString } from '@/lib/utils';
 import type { UserProfile } from '@/types/profile';
 import { reportSymptoms, resetPendingCheckInsForTests, saveCheckInRecord, type StoreUpdate, type SymptomReport } from '@/components/checkin/pending';
-import { STALE_AFTER_MS, type WalkPlan } from './clock';
+import { STALE_AFTER_MS, type ClockSeen, type WalkPlan } from './clock';
 import { deviceClinical, deviceGate, walkInput, walkRefusal, watchClinical } from './gate';
 import { walkSettings, withClockChange } from './consent';
 import { feelLow, lowReading } from './low';
@@ -38,8 +38,8 @@ function world(options: {
   /** A real gate in place of the switchable one, given this world's clock. */
   gate?: (now: () => Date) => (intent: WalkIntent) => boolean;
   watchClinical?: (onChange: () => void) => () => void;
-  /** The device, told of a change to the clock the walk saw (B-19, board D174). */
-  clockChanged?: (days: readonly string[]) => void;
+  /** The device, told of a change to the clock the walk saw (B-19, board D174), and the two clocks it was seen between (H6F-04). */
+  clockChanged?: (days: readonly string[], seen?: ClockSeen) => void;
 } = {}) {
   /** What the safety engine would answer, question by question. Tests flip it between arrivals. */
   const yes: Record<WalkIntent, boolean> = { start: true, restart: true, live: true };
@@ -1607,12 +1607,16 @@ describe('finishing', () => {
 
 describe('a change to the phone’s clock mid-walk (B-19)', () => {
   it('keeps the time recorded right, splits the segment at the change, and takes fixes in the new clock', () => {
-    const w = world();
+    const told: ClockSeen[] = [];
+    const w = world({ clockChanged: (_days, seen) => { if (seen) told.push(seen); } });
     const live = createLiveWalk(w.ports);
     live.attach(START);
     walkFor(w, 60, 0);
+    const before = { wall: w.now, mono: w.ports.monotonic!() };
     w.jumpClock(-3_600_000);
     w.advance(1000);
+    // The device is told the step it was seen in, by both clocks, so the page's own look at it is not marked again (H6F-04).
+    expect(told).toEqual([{ from: before, to: { wall: before.wall + 1000 - 3_600_000, mono: before.mono + 1000 } }]);
     walkFor(w, 30, 80);
     const snap = live.getSnapshot()!;
     expect(snap.observedMs).toBe(91_000);

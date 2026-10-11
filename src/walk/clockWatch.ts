@@ -16,8 +16,7 @@
  * a longer span the minute's check didn't run, timers held up, and two
  * clocks that stopped agreeing then can't be told from one that changed.
  */
-import { clockGeneration } from './consent';
-import { CLOCK_JUMP_MS, daysAround } from './clock';
+import { CLOCK_JUMP_MS, daysAround, type Clocks, type ClockSeen } from './clock';
 import { getState, markClockChange } from '@/store/useStore';
 
 /** How often the page looks while it is in view. */
@@ -31,16 +30,15 @@ export interface ClockWatchPorts {
   visible(): boolean;
   /** Whether the device's record has been read, so a change can be kept with it. */
   ready(): boolean;
-  /** This phone's clock generation now: a change a walk has already marked is not marked again. */
-  generation(): number;
   every(fn: () => void, ms: number): () => void;
   /** `fn` with whether the page is in view, each time it is hidden or shown. */
   onVisibility(fn: (visible: boolean) => void): () => void;
-  changed(days: readonly string[]): void;
+  /** A change, seen around `days` between the two clocks `seen` holds: the store tells one a walk has marked already by it (H6F-04). */
+  changed(days: readonly string[], seen: ClockSeen): void;
 }
 
 export function watchClock(ports: ClockWatchPorts): () => void {
-  const take = () => ({ wall: ports.now(), mono: ports.monotonic(), gen: ports.generation() });
+  const take = (): Clocks => ({ wall: ports.now(), mono: ports.monotonic() });
   let last = take();
   /** Since the last look; `backOnly` across a time out of view. */
   const look = (backOnly: boolean) => {
@@ -50,8 +48,7 @@ export function watchClock(ports: ClockWatchPorts): () => void {
     const drift = (next.wall - last.wall) - (next.mono - last.mono);
     const judged = backOnly || next.mono - last.mono <= IN_VIEW_SPAN_MS;
     const changed = judged && (backOnly ? drift < -CLOCK_JUMP_MS : Math.abs(drift) > CLOCK_JUMP_MS);
-    // Once only: a walk recording now may already have marked it.
-    if (changed && next.gen === last.gen) ports.changed(daysAround(last.wall, next.wall));
+    if (changed) ports.changed(daysAround(last.wall, next.wall), { from: last, to: next });
     last = take();
   };
   const stopEvery = ports.every(() => { if (ports.visible()) look(false); }, CLOCK_CHECK_MS);
@@ -70,7 +67,6 @@ export function startClockWatch(): () => void {
     monotonic: () => performance.now(),
     visible: () => document.visibilityState === 'visible',
     ready: () => getState().status !== 'loading',
-    generation: () => clockGeneration(getState().settings),
     every(fn, ms) {
       const id = window.setInterval(fn, ms);
       return () => window.clearInterval(id);
@@ -80,6 +76,6 @@ export function startClockWatch(): () => void {
       document.addEventListener('visibilitychange', heard);
       return () => document.removeEventListener('visibilitychange', heard);
     },
-    changed: days => void markClockChange(days),
+    changed: (days, seen) => void markClockChange(days, seen),
   });
 }

@@ -36,6 +36,7 @@ import {
   startWalk,
   stepOf,
   updateOpenSegment,
+  type ClockSeen,
   type EndedBy,
   type Gap,
   type Walk,
@@ -122,11 +123,13 @@ export interface LivePorts {
   /** The monotonic clock, ms (B-19). Absent: the device clock, so no change is ever seen. */
   monotonic?(): number;
   /**
-   * B-19: the phone's clock changed, seen around `days`. The device keeps the
-   * change (`markClockChange`), so every gate, this walk's own included, holds
-   * someone who can go low until a reading taken since (board D174).
+   * B-19: the phone's clock changed, seen around `days` between the two
+   * clocks `seen` holds. The device keeps the change (`markClockChange`), so
+   * every gate, this walk's own included, holds someone who can go low until a
+   * reading acquired since (board D174), and marks it once though the page saw
+   * it too (H6F-04).
    */
-  clockChanged?(days: readonly string[]): void;
+  clockChanged?(days: readonly string[], seen?: ClockSeen): void;
   /** Run `fn` after `ms`. Returns a function that cancels it. */
   later(fn: () => void, ms: number): () => void;
   storage: WalkStorage | undefined;
@@ -583,15 +586,16 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     const open = walk && walk.status === 'running' ? openSegment(walk) : undefined;
     if (!walk || !open) return;
     const m = mono();
-    const step = stepOf({ wall: open.accruedAt, mono: monoAt ?? m }, { wall: now, mono: m });
+    const from = { wall: open.accruedAt, mono: monoAt ?? m };
+    const step = stepOf(from, { wall: now, mono: m });
     monoAt = m;
     if (!step.jumped) {
       walk = accrueOpen(walk, step.ms, now);
       return;
     }
     walk = splitAtClockChange(walk, now, step.ms);
-    // The device's change, not this walk's: it holds every gate until a reading taken since (H6R-02).
-    ports.clockChanged?.(daysAround(open.accruedAt, now));
+    // The device's change, not this walk's: it holds every gate until a reading acquired since (H6R-02).
+    ports.clockChanged?.(daysAround(open.accruedAt, now), { from, to: { wall: now, mono: m } });
     if (track) {
       track = newTrack(now);
       trackBase = [];

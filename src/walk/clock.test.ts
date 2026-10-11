@@ -18,6 +18,7 @@ import {
   restoreWalk,
   resumeWalk,
   returnToWalk,
+  sameClockChange,
   splitAtClockChange,
   splitAtMidnight,
   splitAtOffsetChange,
@@ -297,6 +298,36 @@ describe('time under a changed clock (B-19)', () => {
     w = splitAtMidnight(w, mid + 30_000);
     expect(w.segments.map(x => x.accruedMs)).toEqual([60_000, 30_000]);
     expect(w.segments[1].day).not.toBe(w.segments[0].day);
+  });
+});
+
+describe('one change to the clock, told apart from another by its own observation (B-19, H6F-04, board D187)', () => {
+  const MIN = 60_000;
+  /** Seen between monotonic `from` and `to` (ms), the clock reading `before` then `after` minutes off its usual place. */
+  const seen = (from: number, to: number, before: number, after: number) => ({
+    from: { wall: T + from + before * MIN, mono: from },
+    to: { wall: T + to + after * MIN, mono: to },
+  });
+  // Set back 20 minutes at monotonic 30 s, as a walk sees it in one second.
+  const walk = seen(29_000, 30_000, 0, -20);
+
+  it('is the same change seen over a span around it, to the same place, the same way and by as much', () => {
+    expect(sameClockChange(walk, seen(0, 60_000, 0, -20))).toBe(true);
+    expect(sameClockChange(seen(0, 60_000, 0, -20), walk)).toBe(true);
+    // A little drift either way is still that change.
+    expect(sameClockChange(walk, seen(0, 60_000, 0.5, -19.5))).toBe(true);
+  });
+
+  it('is another change over a span that doesn’t overlap, or one the other way, or by another amount, or to another place', () => {
+    // The same again, ten minutes later.
+    expect(sameClockChange(walk, seen(659_000, 660_000, -20, -40))).toBe(false);
+    expect(sameClockChange(walk, seen(30_000, 31_000, 0, -20))).toBe(false);
+    // To the same place, but set forward from 40 minutes back.
+    expect(sameClockChange(walk, seen(0, 60_000, -40, -20))).toBe(false);
+    // To the same place, from 20 minutes ahead: by 40.
+    expect(sameClockChange(walk, seen(0, 60_000, 20, -20))).toBe(false);
+    // The same way and by as much, from 10 minutes ahead: to another place.
+    expect(sameClockChange(walk, seen(0, 60_000, 10, -10))).toBe(false);
   });
 });
 
