@@ -286,8 +286,10 @@ export function completedSetup(data: AppData, a: SetupAnswers, now: string, ctx:
   return next;
 }
 
-/** "Look around first" (§6.4): Home now, with every movement held; the answers so far wait in the draft. */
+/** "Look around first" (§6.4): Home now, with every movement held; the answers so far wait in the draft, and what pages held goes (K5-05). */
 export function lookedAround(data: AppData): AppData {
   const prior = setupStateOf(data.settings, data.profile);
-  return { ...data, settings: { ...data.settings, onboardingComplete: true, setup: { ...prior, stage: 'lookAround' } } };
+  const { edits: _held, ...draft } = prior.draft ?? {};
+  void _held;
+  return { ...data, settings: { ...data.settings, onboardingComplete: true, setup: { ...prior, stage: 'lookAround', ...(prior.draft ? { draft } : {}) } } };
 }

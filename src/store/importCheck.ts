@@ -251,8 +251,21 @@ function read(doc: Record<string, unknown>, spec: Spec, path: string): { kept: R
   return { kept, unreadable };
 }
 
+/**
+ * Setup's half-typed page answers (`draft.edits`, H5-16) stay on the device
+ * they were typed on: never given, they are never restored, so a restore
+ * never draws them over its own answers (H5-07).
+ */
+function withoutHeld(doc: Record<string, unknown>): Record<string, unknown> {
+  const setup = doc.setup;
+  if (!isRecord(setup) || !isRecord(setup.draft) || !('edits' in setup.draft)) return doc;
+  const { edits: _held, ...draft } = setup.draft;
+  void _held;
+  return { ...doc, setup: { ...setup, draft } };
+}
+
 export function readSettings(doc: Record<string, unknown>): { settings: Record<string, unknown>; unreadable: string[] } {
-  const { kept, unreadable } = read(doc, SETTINGS_SPEC, 'settings.');
+  const { kept, unreadable } = read(withoutHeld(doc), SETTINGS_SPEC, 'settings.');
   return { settings: kept, unreadable };
 }
 

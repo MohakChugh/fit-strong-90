@@ -4,6 +4,7 @@
  * with its answers; without saving, nothing is stored and every hold applies.
  */
 import { docs } from '../lib/harness.mjs';
+import * as data from '../lib/data.mjs';
 import * as setup from '../lib/setup.mjs';
 import * as ui from '../lib/ui.mjs';
 
@@ -32,7 +33,9 @@ async function refusedNext(t) {
     await ui.heading(page, 'Do you have any of these?');
     await setup.tick(main, 'Not sure: Diabetes');
     await setup.tick(main, 'High blood pressure');
-    const stored = docs(await t.db()).settings?.setup;
+    // Each change is kept as typed shortly after it's made (H5-16): what's stored before the refused Next includes the ticks.
+    const kept = s => docs(s).settings?.setup?.draft?.edits?.['health.conditions']?.conditions?.bp === 'yes';
+    const stored = docs(await data.waitDb(t, kept, 'the ticks were not kept as typed')).settings?.setup;
     await t.setPageFaults(FAIL_SETTINGS);
     await ui.tap(ui.button(main, 'Next'));
     const alert = main.getByRole('alert').filter({ hasText: SAVE_FAILED });

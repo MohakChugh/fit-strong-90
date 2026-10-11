@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { markBack } from '@/components/hig/navigation';
-import { pageEdits, rememberEdits } from '@/setup/draft';
+import { autosaveEdits, flushEdits, flushPending, pageEdits, rememberEdits } from '@/setup/draft';
 import { backFromReview, capsuleOf, hrefOf, nextMove, pageDef, pageInvalid, prevPage, skipMove, type PlannedMove } from '@/setup/graph';
 import { PlainButton, PrimaryButton } from '@/screens/you/controls';
 import type { PageId, SetupAnswers } from '@/types/setup';
@@ -15,7 +15,9 @@ import { useCtx, useMove, useSetupAnswers, type Recovery } from './useSetup';
  * before moving (M22), and "Skip for now" on a preference page only. Back
  * keeps what the page held, for this session (§6.1). Opened from Review's
  * Edit, Next walks that chapter and then returns to Review, and so does Back
- * from its first page (K5-14). After a refused
+ * from its first page (K5-14). Each change is kept in the draft as typed
+ * shortly after it's made, and Back and Close keep the page to resume on
+ * (H5-16, K5-17; board D158). After a refused
  * store, Try again and Continue without saving plan the move again from the
  * page as it is now (H5-02).
  */
@@ -35,9 +37,18 @@ export function PageFrame({ id, View }: { id: PageId; View: PageView }) {
 
   const set = (patch: Partial<SetupAnswers>) => setEdits(e => {
     const next = { ...e, ...patch };
-    rememberEdits(id, next);
+    autosaveEdits(id, next);
     return next;
   });
+  // A change still waiting is kept as the page is left, or the app goes to the background (H5-16).
+  useEffect(() => {
+    const away = () => { if (document.visibilityState === 'hidden') void flushPending(id); };
+    document.addEventListener('visibilitychange', away);
+    return () => {
+      document.removeEventListener('visibilitychange', away);
+      void flushPending(id);
+    };
+  }, [id]);
 
   /** Next or Skip for now, stored then made; or, without saving, kept for this session (B-07). */
   const attempt = (kind: 'next' | 'skip', unsaved = false) => {
@@ -64,12 +75,14 @@ export function PageFrame({ id, View }: { id: PageId; View: PageView }) {
 
   const back = () => {
     const prev = fromReview ? backFromReview(a, id) : prevPage(a, id);
+    // Reopened later, setup resumes on the page Back went to, with this one's answers as typed (H5-16).
+    void flushEdits(id, prev ?? 'welcome.start');
     markBack();
     navigate(prev && prev !== 'welcome.start' ? hrefOf(prev) : '/setup', { replace: true, state: { back: true, ...carry } });
   };
 
   return (
-    <SetupShell title={PAGE_TITLE[id]} capsule={capsuleOf(id, answers)} onBack={back} recovery={recovery}>
+    <SetupShell title={PAGE_TITLE[id]} capsule={capsuleOf(id, answers)} onBack={back} onClose={() => void flushEdits(id, id)} recovery={recovery}>
       <View a={a} set={set} tried={tried} ctx={ctx} mode="setup" />
       <div className="mt-auto flex flex-col gap-2 pt-2">
         <PrimaryButton className="min-h-[3.75rem]" onClick={() => attempt('next')}>Next</PrimaryButton>

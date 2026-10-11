@@ -287,3 +287,46 @@ describe('plain words first, the term in brackets (K5-13; board D155)', () => {
     }
   });
 });
+
+describe('a setup page, kept as typed (§6.1; H5-16, K5-17; board D158)', () => {
+  const draft = () => store.getState().settings.setup?.draft;
+
+  it('Back keeps what the page holds, and the page it goes to, before any Next', async () => {
+    const { PageFrame } = await import('./PageFrame');
+    const { AboutName } = await import('./pages/about');
+    host = render(createElement(PageFrame, { id: 'about.name', View: AboutName }));
+    await host.settle();
+    await host.change(host.field('Year you were born (optional)'), { value: '195' });
+    await host.click(host.button('Back', { exact: true }));
+    await host.settle();
+    expect(saves).toHaveLength(0);
+    expect(draft()).toMatchObject({ at: 'welcome.start', edits: { 'about.name': { birthYear: 195 } } });
+  });
+
+  it('Close, after Look around first, keeps the page itself to resume on', async () => {
+    const { PageFrame } = await import('./PageFrame');
+    const { AboutFigure } = await import('./pages/about');
+    const { lookedAround } = await import('@/setup/assemble');
+    expect((await store.update(lookedAround)).ok).toBe(true);
+    host = render(createElement(PageFrame, { id: 'about.figure', View: AboutFigure }));
+    await host.settle();
+    await host.click(radio(host, 'Body for the exercise demos', 'Female'));
+    await host.click(host.button('Close', { exact: true }));
+    await host.settle();
+    expect(router.navigate).toHaveBeenCalledWith('/home');
+    expect(draft()).toMatchObject({ at: 'about.figure', edits: { 'about.figure': { figure: 'female' } } });
+  });
+
+  it('a change still waiting is kept as the page is left', async () => {
+    const { PageFrame } = await import('./PageFrame');
+    const { AboutName } = await import('./pages/about');
+    host = render(createElement(PageFrame, { id: 'about.name', View: AboutName }));
+    await host.settle();
+    await host.change(host.field('Name (optional)'), { value: 'Kai' });
+    expect(draft()?.edits).toBeUndefined();
+    host.unmount();
+    host = undefined;
+    await new Promise(r => setTimeout(r, 30));
+    expect(draft()).toMatchObject({ at: 'about.name', edits: { 'about.name': { name: 'Kai' } } });
+  });
+});

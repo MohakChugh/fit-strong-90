@@ -16,12 +16,23 @@ import { prefillAnswers } from './prefill';
 import type { Ctx } from './graph';
 import { setupStateOf } from './state';
 
+type Held = Partial<Record<PageId, Partial<SetupAnswers>>>;
+
+/** The pages' held answers with page `id`'s set to `held`, or taken away when it holds none. */
+function heldWith(edits: Held | undefined, id: PageId, held: Partial<SetupAnswers>): Held | undefined {
+  const { [id]: _was, ...rest } = edits ?? {};
+  void _was;
+  const next = Object.keys(held).length > 0 ? { ...rest, [id]: held } : rest;
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
 /**
  * The draft with `answers` stored and `at` to resume on. Given what the page
  * opened with, only the page's own changes are written, onto the draft as it
- * is now, so another tab's newer answers stay (H5-12, D165).
+ * is now, so another tab's newer answers stay (H5-12, D165). What the page
+ * `from` held is its answers now, so its entry goes; other pages' stay (H5-16).
  */
-export function withDraft(data: AppData, at: PageId, answers: SetupAnswers, opened?: SetupAnswers): AppData {
+export function withDraft(data: AppData, at: PageId, answers: SetupAnswers, opened?: SetupAnswers, from?: PageId): AppData {
   const setup = setupStateOf(data.settings, data.profile);
   // Another tab finished setup meanwhile: nothing here may reopen it (Review Focus 4).
   if (setup.stage === 'done') return data;
@@ -30,7 +41,22 @@ export function withDraft(data: AppData, at: PageId, answers: SetupAnswers, open
     const now = setup.draft?.answers ?? prefillAnswers(data.settings, data.profile);
     stored = { ...mergeAnswers(now, opened, answers), skippedPages: mergeSkipped(now.skippedPages, opened.skippedPages, answers.skippedPages) };
   }
-  return { ...data, settings: { ...data.settings, setup: { ...setup, draft: { at, answers: stored } } } };
+  const edits = from === undefined ? setup.draft?.edits : heldWith(setup.draft?.edits, from, {});
+  return { ...data, settings: { ...data.settings, setup: { ...setup, draft: { at, answers: stored, ...(edits ? { edits } : {}) } } } };
+}
+
+/**
+ * What page `id` holds, as typed, onto the draft, with `at` to resume on: the
+ * page itself, or Back's page before (§6.1; H5-16, K5-17). The draft's
+ * answers stay as they are: only a Next or Skip stores a page's answers.
+ */
+export function withPageEdits(data: AppData, at: PageId, id: PageId, held: Partial<SetupAnswers>): AppData {
+  const setup = setupStateOf(data.settings, data.profile);
+  if (setup.stage === 'done') return data;
+  const edits = heldWith(setup.draft?.edits, id, held);
+  const { edits: _old, ...draft } = setup.draft ?? {};
+  void _old;
+  return { ...data, settings: { ...data.settings, setup: { ...setup, draft: { ...draft, at, ...(edits ? { edits } : {}) } } } };
 }
 
 export type SaveOutcome = 'saved' | 'session' | 'failed';
@@ -108,7 +134,7 @@ export function enterWithoutSaving(): void {
 
 /** Setup's session and what its pages held, forgotten once setup is finished (K5-05). */
 export function resetSetupSession(): void {
-  edits.clear();
+  clearHeld();
   publish(EMPTY);
 }
 
@@ -122,12 +148,14 @@ export function resetSetupSession(): void {
  * its own changes are written (`withDraft`, H5-12).
  */
 export async function saveDraft(to: PageId, answers: SetupAnswers, from?: PageId, opened?: SetupAnswers): Promise<SaveOutcome> {
+  // A change still waiting to be kept would put back what this move stores (H5-16).
+  if (from !== undefined) cancelAutosave(from);
   let outcome: SaveOutcome;
   if (current().unsaved) {
     keepInSession(to, answers);
     outcome = 'session';
   } else {
-    outcome = outcomeOf(await update(d => withDraft(d, to, answers, opened)), getState().status);
+    outcome = outcomeOf(await update(d => withDraft(d, to, answers, opened, from)), getState().status);
     if (outcome === 'session') continueWithoutSaving(to, answers);
   }
   if (from !== undefined && outcome !== 'failed') forgetEdits(from);
@@ -188,7 +216,7 @@ export async function finishSetup(answers: SetupAnswers, ctx: Ctx, now: string =
 export async function lookAroundFirst(): Promise<string | undefined> {
   const saved = await update(lookedAround, { hold: true });
   if (!saved.ok && getState().status !== 'unavailable') return `That did not save. ${saved.failure.message}`;
-  edits.clear();
+  clearHeld();
   return undefined;
 }
 
@@ -206,18 +234,80 @@ const heldNow = () => {
   }
   return edits;
 };
-export const pageEdits = (id: PageId): Partial<SetupAnswers> => heldNow().get(id) ?? {};
+/**
+ * What page `id` held: this session's, else what the draft kept when the app
+ * last closed (H5-16). Without saving, the draft is behind this session's
+ * answers, so what it kept is never drawn over them (K5-05).
+ */
+export const pageEdits = (id: PageId): Partial<SetupAnswers> => {
+  const { settings, profile } = getState();
+  const kept = current().unsaved ? undefined : setupStateOf(settings, profile).draft?.edits?.[id];
+  return heldNow().get(id) ?? kept ?? {};
+};
 export function rememberEdits(id: PageId, next: Partial<SetupAnswers>): void {
   heldNow().set(id, next);
 }
 /** A page's answers stored: the draft has them, so a change made elsewhere since is never drawn under them (K5-05). */
 export function forgetEdits(id: PageId): void {
+  cancelAutosave(id);
   heldNow().delete(id);
+}
+
+/** How long after a change its page's answers are kept in the draft (§6.1; board D158). */
+export const AUTOSAVE_MS = 500;
+/** Each change waiting to be kept, with the record it was made in (`StoreState.epoch`). */
+const waiting = new Map<PageId, { timer: ReturnType<typeof setTimeout>; epoch: number }>();
+
+export function cancelAutosave(id: PageId): void {
+  clearTimeout(waiting.get(id)?.timer);
+  waiting.delete(id);
+}
+function clearHeld(): void {
+  for (const id of [...waiting.keys()]) cancelAutosave(id);
+  edits.clear();
+}
+
+/**
+ * A change on page `id`: held at once for this session, and kept in the
+ * draft as typed shortly after, so closing the app loses nothing (§6.1;
+ * H5-16, K5-17; board D158). Next still stores the page's answers itself,
+ * and waits until they're stored.
+ */
+export function autosaveEdits(id: PageId, held: Partial<SetupAnswers>, delayMs = AUTOSAVE_MS): void {
+  rememberEdits(id, held);
+  cancelAutosave(id);
+  waiting.set(id, { epoch: getState().epoch, timer: setTimeout(() => void flushPending(id), delayMs) });
+}
+
+/**
+ * A change still waiting on page `id`, kept now: as the page is left, or the
+ * app goes to the background. Only into the record it was made in: once a
+ * backup replaces it, or everything is deleted, it's dropped (H5-07).
+ */
+export function flushPending(id: PageId): Promise<void> {
+  const change = waiting.get(id);
+  cancelAutosave(id);
+  return change && change.epoch === getState().epoch ? flushEdits(id, id) : Promise.resolve();
+}
+
+/**
+ * What page `id` holds, kept now, with `at` to resume on: Back's page before,
+ * or the page itself on Close (H5-16). Without saving, the session keeps the
+ * page to resume on, and its pages' answers are this session's already.
+ */
+export async function flushEdits(id: PageId, at: PageId): Promise<void> {
+  cancelAutosave(id);
+  if (current().unsaved) {
+    keepInSession(at, current().answers);
+    return;
+  }
+  const held = pageEdits(id);
+  await update(d => withPageEdits(d, at, id, held));
 }
 
 export function resetSetupSessionForTests(): void {
   session = EMPTY;
   sessionEpoch = 0;
-  edits.clear();
+  clearHeld();
   editsEpoch = 0;
 }

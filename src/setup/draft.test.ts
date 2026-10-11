@@ -18,8 +18,8 @@ globalThis.localStorage = {
 
 const store = await import('@/store/useStore');
 const {
-  continueWithoutSaving, enterWithoutSaving, finishSetup, getSetupSession, keepInSession, lookAroundFirst, mover, outcomeOf, pageEdits, rememberEdits,
-  resetSetupSessionForTests, saveDraft, withDraft,
+  autosaveEdits, continueWithoutSaving, enterWithoutSaving, finishSetup, flushEdits, flushPending, forgetEdits, getSetupSession, keepInSession, lookAroundFirst, mover, outcomeOf,
+  pageEdits, rememberEdits, resetSetupSessionForTests, saveDraft, withDraft,
 } = await import('./draft');
 const { MINIMAL } = await import('./fixtures');
 const { setupStateOf } = await import('./state');
@@ -233,5 +233,112 @@ describe('without saving (B-07)', () => {
     rememberEdits('about.name', { name: 'As' });
     expect(pageEdits('about.name')).toEqual({ name: 'As' });
     expect(pageEdits('about.figure')).toEqual({});
+  });
+});
+
+describe('a page’s answers, kept as typed while it’s open (§6.1; H5-16, K5-17; board D158)', () => {
+  const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+  const stored = () => store.getState().settings.setup?.draft;
+
+  it('are stored shortly after each change, half-typed numbers as typed, and a new session opens the page on them', async () => {
+    await store.start({ factory: fakeIndexedDB() });
+    autosaveEdits('about.name', { name: 'As', birthYear: 195 }, 10);
+    expect(stored()?.edits).toBeUndefined();
+    await wait(60);
+    expect(stored()).toMatchObject({ at: 'about.name', edits: { 'about.name': { name: 'As', birthYear: 195 } } });
+    // The app closed and opened again.
+    expect((await store.reload()).ok).toBe(true);
+    resetSetupSessionForTests();
+    expect(pageEdits('about.name')).toEqual({ name: 'As', birthYear: 195 });
+  });
+
+  it('Back stores the page it goes to, with what this page held', async () => {
+    await store.start({ factory: fakeIndexedDB() });
+    expect((await store.update(d => withDraft(d, 'health.bp', MINIMAL))).ok).toBe(true);
+    rememberEdits('health.bp', { bpMedicine: 'unsure' });
+    await flushEdits('health.bp', 'health.conditions');
+    expect(stored()).toMatchObject({ at: 'health.conditions', answers: MINIMAL, edits: { 'health.bp': { bpMedicine: 'unsure' } } });
+  });
+
+  it('a Next stores its page’s answers and forgets what it held, a change still waiting included; another page’s stay', async () => {
+    await store.start({ factory: fakeIndexedDB() });
+    autosaveEdits('about.figure', { figure: 'female' }, 10);
+    await wait(60);
+    autosaveEdits('about.name', { name: 'Kai' }, 10);
+    expect(await saveDraft('about.figure', { name: 'Kai' }, 'about.name', {})).toBe('saved');
+    await wait(60);
+    expect(stored()?.edits).toEqual({ 'about.figure': { figure: 'female' } });
+    expect(stored()?.answers?.name).toBe('Kai');
+  });
+
+  it('a page’s Next takes away what it held once kept, and a change waiting through a slow write never puts it back', async () => {
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake });
+    autosaveEdits('about.name', { name: 'Ka' }, 10);
+    await wait(60);
+    expect(stored()?.edits).toEqual({ 'about.name': { name: 'Ka' } });
+    autosaveEdits('about.name', { name: 'Kai' }, 10);
+    fake.control.hold();
+    const next = saveDraft('about.figure', { name: 'Kai' }, 'about.name', {});
+    await wait(60);
+    fake.control.release();
+    expect(await next).toBe('saved');
+    await wait(60);
+    expect(stored()).toMatchObject({ at: 'about.figure', answers: { name: 'Kai' } });
+    expect(stored()?.edits).toBeUndefined();
+  });
+
+  it('Look around first forgets what the pages held, kept ones included (K5-05)', async () => {
+    await store.start({ factory: fakeIndexedDB() });
+    rememberEdits('about.name', { name: 'As' });
+    await flushEdits('about.name', 'about.name');
+    expect(stored()?.edits).toEqual({ 'about.name': { name: 'As' } });
+    expect(await lookAroundFirst()).toBeUndefined();
+    expect(stored()?.edits).toBeUndefined();
+    expect(pageEdits('about.name')).toEqual({});
+  });
+
+  it('without saving, what the draft kept from before is never drawn over this session’s answers (K5-05)', async () => {
+    await store.start({ factory: fakeIndexedDB() });
+    rememberEdits('health.conditions', { conditions: { diabetes: 'unsure', bp: 'yes' } });
+    await flushEdits('health.conditions', 'health.conditions');
+    // The next write is refused; the page is corrected and goes on without saving.
+    continueWithoutSaving('health.bp', { conditions: { diabetes: 'no', bp: 'yes' } });
+    forgetEdits('health.conditions');
+    expect(pageEdits('health.conditions')).toEqual({});
+  });
+
+  it('without saving, Back keeps the page to resume on in this session', async () => {
+    await store.start({ factory: fakeIndexedDB({ openFails: 'error' }) });
+    continueWithoutSaving('health.bp', MINIMAL);
+    await flushEdits('health.bp', 'health.conditions');
+    expect(getSetupSession()).toMatchObject({ unsaved: true, at: 'health.conditions', answers: MINIMAL });
+  });
+
+  it('a change still waiting when a backup replaces the record is never kept in the new one (H5-07)', async () => {
+    const { TRANSFER_FORMAT } = await import('@/store/transfer');
+    await store.start({ factory: fakeIndexedDB() });
+    autosaveEdits('health.conditions', { conditions: { diabetes: 'no' } }, 20);
+    const backup = {
+      format: TRANSFER_FORMAT, version: 1, exportedAt: '2026-10-08T19:00:00.000+05:30', schemaVersion: 5,
+      settings: { setup: { stage: 'open', draft: { at: 'about.figure', answers: { figure: 'female' } } } },
+      observations: [], sessions: [], checkIns: [], personalRecords: [], bodyMetrics: [], focusOverrides: {}, contentState: [],
+    };
+    expect((await store.importRecord(backup, 'replace')).ok).toBe(true);
+    await flushPending('health.conditions');
+    await wait(60);
+    expect(stored()).toEqual({ at: 'about.figure', answers: { figure: 'female' } });
+  });
+
+  it('a backup never brings half-typed answers: they stay on the device they were typed on (H5-07)', async () => {
+    const { TRANSFER_FORMAT } = await import('@/store/transfer');
+    await store.start({ factory: fakeIndexedDB() });
+    const backup = {
+      format: TRANSFER_FORMAT, version: 1, exportedAt: '2026-10-08T19:00:00.000+05:30', schemaVersion: 5,
+      settings: { setup: { stage: 'open', draft: { at: 'about.name', answers: { figure: 'female' }, edits: { 'about.name': { name: 'Someone' } } } } },
+      observations: [], sessions: [], checkIns: [], personalRecords: [], bodyMetrics: [], focusOverrides: {}, contentState: [],
+    };
+    expect((await store.importRecord(backup, 'replace')).ok).toBe(true);
+    expect(stored()).toEqual({ at: 'about.name', answers: { figure: 'female' } });
   });
 });

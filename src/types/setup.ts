@@ -139,7 +139,16 @@ export interface SetupRecord {
   /** 'open' while setup runs; 'lookAround' after "Look around first"; 'done' once finished (board D80). */
   stage?: 'open' | 'lookAround' | 'done';
   /** Unfinished setup: the page to resume on, and the answers so far (§6.1, §18.1). */
-  draft?: { at?: PageId; answers?: SetupAnswers };
+  draft?: {
+    at?: PageId;
+    answers?: SetupAnswers;
+    /**
+     * What each page left before Next holds, as typed, so closing the app
+     * loses nothing (§6.1; H5-16, K5-17). A page's Next or Skip stores its
+     * answers and takes its entry away.
+     */
+    edits?: Partial<Record<PageId, Partial<SetupAnswers>>>;
+  };
   /** Finished setup: the answers as given, for editing in Me with the same pages (§16). */
   answers?: SetupAnswers;
   /** When setup was finished here, ISO with offset. Absent for a record set up in v1. */
