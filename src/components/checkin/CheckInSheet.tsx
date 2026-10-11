@@ -260,7 +260,7 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
   const save = async (f: CheckInForm, show?: 'outcome') => {
     const n = ++seq.current;
     const at = new Date();
-    const answers = buildCheckIn(f, { date, profile, now: at, ...(record ? { previous: record } : {}) });
+    const answers = buildCheckIn(f, { date, profile, now: at, ...(record ? { previous: record } : {}), timeChosen: timeSet });
     typedAt.current = null;
     setNow(at);
     // Counted the moment they are given, before storage replies (B02).

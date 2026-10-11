@@ -493,16 +493,23 @@ function appendUnique<T>(list: T[], items: T[], same: (a: T, b: T) => boolean): 
   return out;
 }
 
-function glucoseFromForm(form: CheckInForm, profile: UserProfile, previous: DailyCheckIn | undefined, stamp: string, v: Visible) {
+function glucoseFromForm(form: CheckInForm, profile: UserProfile, previous: DailyCheckIn | undefined, stamp: string, v: Visible, timeChosen: boolean) {
   const prev = previous?.glucose;
   const prevShown = previous?.glucoseDisplay;
   const at = form.glucoseAt;
+  // The saved reading given another time, what it says unchanged: that
+  // reading retimed, not a new one. It keeps its clock generation, so it is
+  // never read as taken since a change to the clock (B-19, H6R-03).
+  const retimed = (e: GlucoseEntry | undefined) => (timeChosen && e ? { gen: e.gen ?? 0 } : {});
   if (form.glucoseDisplay) {
     if (prevShown && prevShown.display === form.glucoseDisplay && (prevShown.measuredAt ?? null) === at) return { glucoseDisplay: prevShown };
     const source = form.source ?? defaultSource(profile);
     // In this phone's offset, written out: HI and LO are kept here and nowhere else, so their clock is too (H3-01).
     const ms = Date.parse(at ?? stamp);
-    const reading: GlucoseDisplayReading = { display: form.glucoseDisplay, measuredAt: Number.isFinite(ms) ? measuredStamp(new Date(ms)) : at ?? stamp, ...(source ? { source } : {}) };
+    const reading: GlucoseDisplayReading = {
+      display: form.glucoseDisplay, measuredAt: Number.isFinite(ms) ? measuredStamp(new Date(ms)) : at ?? stamp, ...(source ? { source } : {}),
+      ...retimed(prevShown?.display === form.glucoseDisplay ? prevShown : undefined),
+    };
     return { glucoseDisplay: reading };
   }
   const text = form.glucose.trim();
@@ -528,6 +535,7 @@ function glucoseFromForm(form: CheckInForm, profile: UserProfile, previous: Dail
     ...(source ? { source } : {}),
     ...(v.glucoseTrend && form.trend ? { trend: form.trend } : {}),
     ...(v.rapidInsulin && form.rapid ? { rapidInsulinLast2h: true } : {}),
+    ...retimed(prev && prev.value === value && prev.unit === form.unit ? prev : undefined),
   };
   return { glucose: reading };
 }
@@ -549,7 +557,11 @@ function ketonesFromForm(form: CheckInForm, kind: 'blood' | 'urine', previous: D
 
 export function buildCheckIn(
   form: CheckInForm,
-  ctx: { date: string; profile: UserProfile; now: Date; previous?: DailyCheckIn },
+  ctx: {
+    date: string; profile: UserProfile; now: Date; previous?: DailyCheckIn;
+    /** The person chose when the glucose reading was taken, rather than it being timed as typed. */
+    timeChosen?: boolean;
+  },
 ): DailyCheckIn {
   const { profile, previous, now } = ctx;
   const stamp = now.toISOString();
@@ -597,7 +609,7 @@ export function buildCheckIn(
   let glucoseDisplay = previous?.glucoseDisplay;
   let glucoseEarlier = previous?.glucoseEarlier ?? [];
   if (v.glucose) {
-    const next = glucoseFromForm(form, profile, previous, stamp, v);
+    const next = glucoseFromForm(form, profile, previous, stamp, v, ctx.timeChosen === true);
     glucose = next.glucose;
     glucoseDisplay = next.glucoseDisplay;
     const kept: GlucoseEntry[] = [glucose, glucoseDisplay].filter((x): x is GlucoseEntry => !!x);
@@ -757,17 +769,19 @@ export function carryForward(saved: DailyCheckIn | undefined, next: DailyCheckIn
 
 /**
  * A day without what only the gates attach to it for themselves: the record
- * the device had stored (`durable`, N-01), Track's readings (`logged`, X2-01)
- * and the mark of a day made only of them (`readingsOnly`). None is saved
+ * the device had stored (`durable`, N-01), Track's readings (`logged`, X2-01),
+ * the mark of a day made only of them (`readingsOnly`) and the device's clock
+ * changes (`clockHold`, B-19). None is saved
  * inside a check-in, whatever the answers were built from (P-01): stored, they
  * would act as readings nobody took, skip the day's red flags, or hold a copy
  * of the day nothing else checks, and an import refuses them.
  */
 export function withoutGateFields<T extends DailyCheckIn>(c: T): T {
-  const { durable: _durable, logged: _logged, readingsOnly: _onlyReadings, ...own } = c;
+  const { durable: _durable, logged: _logged, readingsOnly: _onlyReadings, clockHold: _clock, ...own } = c;
   void _durable;
   void _logged;
   void _onlyReadings;
+  void _clock;
   return own as T;
 }
 

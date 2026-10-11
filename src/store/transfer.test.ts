@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
 import type { CheckInRecord, DailyCheckIn, Readiness } from '@/types/checkin';
 import { evaluateCheckIn, glucoseReadingId, STOP_UNANSWERED } from '@/engine/readiness';
-import { permission } from '@/engine/permission';
+import { permission, PERMISSION_TEXT } from '@/engine/permission';
 import { effectiveCheckIns } from '@/components/checkin/pending';
 import type { UserSettings, WorkoutSession } from '@/types';
 import { newObservation, type Observation } from '@/health/observation';
@@ -1082,6 +1082,58 @@ describe('no import resolves or reopens this device’s incidents, in any mode (
     expect(before(base).allowed).toBe(true);
     for (const [name, mode, onConflict] of MODES) {
       expect(walkAfter(base, back, mode, onConflict).allowed, name).toBe(true);
+    }
+  });
+});
+
+describe('a file’s readings never release this device’s clock hold, in any mode (B-19, H6R-03, board D174)', () => {
+  const profile = createDefaultProfile({
+    weightKg: 72,
+    health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
+  });
+  const TODAY = '2026-10-08';
+  const NOW = new Date(2026, 9, 8, 13, 40);
+  const at = (h: number, m = 0) => new Date(2026, 9, 8, h, m).toISOString();
+  const record = (over: Partial<DailyCheckIn> = {}): CheckInRecord => {
+    const c: DailyCheckIn = { date: TODAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over };
+    return { ...c, readiness: evaluateCheckIn(profile, c) };
+  };
+  const old = { value: 110, unit: 'mg/dL' as const, measuredAt: at(13, 15), source: 'meter' as const };
+  /** Taken on this phone since its clock changed: of its new generation. */
+  const since = { value: 120, unit: 'mg/dL' as const, measuredAt: at(13, 38), source: 'meter' as const, gen: 1 };
+  const walkSettings = { saveRoutes: 'unasked' as const, map: 'unasked' as const, clock: { generation: 1, days: [TODAY] } };
+  const device = (checkIns: CheckInRecord[]) => ({ ...emptySnapshot(3), profile, settings: { theme: 'dark', walk: walkSettings } as UserSettings, checkIns });
+  const MODES = [['Replace', 'replace', undefined], ['Merge, keeping this device’s', 'merge', 'keepDevice'], ['Merge, taking the file’s', 'merge', 'takeFile']] as const;
+  const after = (base: ReturnType<typeof device>, raw: TransferDoc, mode: 'replace' | 'merge', onConflict?: 'keepDevice' | 'takeFile') => {
+    const plan = planImport(raw, mode, base, { now: NOW, ...(onConflict ? { onConflict } : {}) });
+    const next = prepare(base, plan.change).next;
+    const all = effectiveCheckIns(next.checkIns, profile, next.observations, next.settings?.walk?.clock);
+    return { next, plan, walk: permission({ profile, checkIn: all.find(c => c.date === TODAY), recent: all, now: NOW }, 'walk') };
+  };
+
+  it('a reading in the file, however new and whatever generation it says, is held as this phone’s clock hold holds it', () => {
+    const base = device([record({ glucose: old })]);
+    const track = newObservation({ id: 'track-since', kind: 'glucose', value: 118, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: at(13, 39), gen: 1 });
+    const raw = toTransferDoc({
+      ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings, observations: [track],
+      checkIns: [record({ glucose: since, glucoseEarlier: [old] })],
+    }, '2026-10-08T13:39:30.000+05:30');
+    for (const [name, mode, onConflict] of MODES) {
+      const { next, walk } = after(base, raw, mode, onConflict);
+      expect(walk.reasons, name).toContain(PERMISSION_TEXT.clockChanged);
+      expect(next.settings?.walk?.clock, name).toEqual(walkSettings.clock);
+      expect(next.observations.find(o => o.id === 'track-since')?.gen, name).toBeUndefined();
+    }
+  });
+
+  it('keeps this phone’s own reading taken since, when the file holds the same one: no conflict, and it still releases', () => {
+    const base = device([record({ glucose: since, glucoseEarlier: [old] })]);
+    const own = toTransferDoc({ ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings, checkIns: [record({ glucose: since, glucoseEarlier: [old] })] }, '2026-10-08T13:39:30.000+05:30');
+    for (const [name, mode, onConflict] of MODES.filter(([, mode]) => mode === 'merge')) {
+      const { next, plan, walk } = after(base, own, mode, onConflict);
+      expect(plan.report.conflicts?.checkIns, name).toBe(0);
+      expect(next.checkIns.find(c => c.date === TODAY)?.glucose?.gen, name).toBe(1);
+      expect(walk.allowed, `${name}: ${walk.reasons.join(' ')}`).toBe(true);
     }
   });
 });

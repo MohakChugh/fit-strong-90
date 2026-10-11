@@ -6,10 +6,12 @@ import { toDateString } from '@/lib/utils';
 import type { UserProfile } from '@/types/profile';
 import { reportSymptoms, resetPendingCheckInsForTests, saveCheckInRecord, type StoreUpdate, type SymptomReport } from '@/components/checkin/pending';
 import { STALE_AFTER_MS, type WalkPlan } from './clock';
-import { deviceClinical, deviceGate, readingIds, untimedOf, walkInput, walkRefusal, watchClinical } from './gate';
+import { deviceClinical, deviceGate, walkInput, walkRefusal, watchClinical } from './gate';
+import { walkSettings, withClockChange } from './consent';
 import { feelLow, lowReading } from './low';
 import { legReport, needToStop, stopAnswer, stopReport, type LegAnswers } from './stop';
 import { evaluateCheckIn, STOP_UNANSWERED } from '@/engine/readiness';
+import { PERMISSION_TEXT } from '@/engine/permission';
 import { createStepDetector } from './steps';
 import type { Fix } from './gps';
 import { createLiveWalk, MOTION_WAIT_MS, NOTICE_MIN_GAP_MS, type GeoError, type JournalPort, type LivePorts, type WalkIntent } from './live';
@@ -34,10 +36,10 @@ function world(options: {
   wakeLock?: boolean | 'refuse';
   storage?: WalkStorage;
   /** A real gate in place of the switchable one, given this world's clock. */
-  gate?: (now: () => Date) => (intent: WalkIntent, untimed?: ReadonlySet<string>) => boolean;
+  gate?: (now: () => Date) => (intent: WalkIntent) => boolean;
   watchClinical?: (onChange: () => void) => () => void;
-  /** The readings the device knows, for a clock change to leave untimed (B-19). */
-  readingsNow?: (days: readonly string[]) => string[];
+  /** The device, told of a change to the clock the walk saw (B-19, board D174). */
+  clockChanged?: (days: readonly string[]) => void;
 } = {}) {
   /** What the safety engine would answer, question by question. Tests flip it between arrivals. */
   const yes: Record<WalkIntent, boolean> = { start: true, restart: true, live: true };
@@ -78,10 +80,10 @@ function world(options: {
     mayRun(intent, walk) {
       asked.push(intent);
       askedWith.push(walk?.clockChangedAt);
-      return realGate ? realGate(intent, untimedOf(walk)) : allow[intent];
+      return realGate ? realGate(intent) : allow[intent];
     },
     ...(options.watchClinical ? { watchClinical: options.watchClinical } : {}),
-    ...(options.readingsNow ? { readingsNow: options.readingsNow } : {}),
+    ...(options.clockChanged ? { clockChanged: options.clockChanged } : {}),
     now: () => now,
     monotonic: () => now - skew,
     later(fn, ms) {
@@ -1350,14 +1352,19 @@ describe('B-19: a change to the phone’s clock, asked of the real gate (H6-02)'
   const day = (over: Partial<DailyCheckIn> = {}): DailyCheckIn => ({ date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over });
   const reading = (h: number, m: number, value = 140) => ({ glucose: { value, unit: 'mg/dL' as const, measuredAt: at(h, m).toISOString(), source: 'meter' as const } });
 
-  /** The device: stored check-ins, the production gate over them, the readings it knows, and a check-in save. */
+  /** The device: stored check-ins and settings, the production gate over them, the clock changes it keeps, and a check-in save. */
   function device(who: UserProfile, first: DailyCheckIn) {
-    const store = { checkIns: [{ ...first, readiness: evaluateCheckIn(who, first) }] as CheckInRecord[] };
+    const store = { checkIns: [{ ...first, readiness: evaluateCheckIn(who, first) }] as CheckInRecord[], settings };
     const listeners = new Set<() => void>();
-    const read = () => ({ profile: who, checkIns: store.checkIns, settings });
+    const read = () => ({ profile: who, checkIns: store.checkIns, settings: store.settings });
+    const notify = () => { for (const l of [...listeners]) l(); };
     const w = world({
       gate: now => deviceGate(read, now),
-      readingsNow: days => readingIds(deviceClinical(read()).checkIns, days),
+      // The device keeps the change, as the store's `markClockChange` does.
+      clockChanged: days => {
+        store.settings = { ...store.settings, walk: withClockChange(walkSettings(store.settings), days) };
+        notify();
+      },
       watchClinical: onChange => {
         listeners.add(onChange);
         const stop = watchClinical(onChange);
@@ -1365,11 +1372,11 @@ describe('B-19: a change to the phone’s clock, asked of the real gate (H6-02)'
       },
     });
     const update: StoreUpdate = async apply => {
-      store.checkIns = apply({ checkIns: store.checkIns } as AppData).checkIns ?? [];
-      for (const l of [...listeners]) l();
+      store.checkIns = apply({ checkIns: store.checkIns, settings: store.settings } as AppData).checkIns ?? [];
+      notify();
       return { ok: true };
     };
-    return { w, save: (a: DailyCheckIn) => saveCheckInRecord(a, { profile: who, update }) };
+    return { w, store, save: (a: DailyCheckIn) => saveCheckInRecord(a, { profile: who, update }) };
   }
 
   it('holds a walk that is recording when the clock jumps, until a reading taken since the change', async () => {
@@ -1405,6 +1412,28 @@ describe('B-19: a change to the phone’s clock, asked of the real gate (H6-02)'
     live.resume();
     expect(live.getSnapshot()!.walk.status).toBe('paused');
     expect(live.getSnapshot()!.blocked).toBe('restart');
+  });
+
+  it('outlasts the walk that saw it: after Finish, the next walk starts only on a reading taken since (H6R-02)', async () => {
+    const d = device(onInsulin, day(reading(19, 0)));
+    d.w.now = at(19, 1).getTime();
+    const live = createLiveWalk(d.w.ports);
+    live.attach(START);
+    d.w.advance(60_000);
+    // Moved on five minutes: the 19:00 reading still looks fresh.
+    d.w.jumpClock(5 * 60_000);
+    d.w.advance(1000);
+    expect(live.getSnapshot()!.walk.status).toBe('paused');
+    live.finish('finish');
+    live.detach();
+    clearWalk(d.w.storage);
+    const next = { id: 'mgh3k2x2-2b3c4d5e', plan: PLAN };
+    expect(createLiveWalk(d.w.ports).attach(next)).toBe('none');
+    expect(walkRefusal(walkInput(deviceClinical({ profile: onInsulin, ...d.store }), new Date(d.w.now)), 'start')?.reasons).toContain(PERMISSION_TEXT.clockChanged);
+    // A reading taken since: stamped with the device's new clock generation as it is saved.
+    await d.save(day(reading(19, 8, 130)));
+    expect(d.store.checkIns.find(c => c.date === DAY)?.glucose?.gen).toBe(1);
+    expect(createLiveWalk(d.w.ports).attach(next)).toBe('created');
   });
 
   it('changes nothing for someone who doesn’t need a reading to move', () => {

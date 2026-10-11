@@ -4,6 +4,7 @@
  * in Me → Data. This phone's own answers, never switched on by an import (B-26).
  */
 import type { UserSettings } from '@/types';
+import type { ObservationInput } from '@/health/observation';
 import type { WalkPlan } from './clock';
 
 export type WalkSettings = NonNullable<UserSettings['walk']>;
@@ -12,6 +13,24 @@ export const UNASKED: WalkSettings = { saveRoutes: 'unasked', map: 'unasked' };
 
 export function walkSettings(s: Pick<UserSettings, 'walk'>): WalkSettings {
   return s.walk ?? UNASKED;
+}
+
+/**
+ * B-19: this phone's clock changed during a walk. Its generation moves on, so
+ * every reading taken here from now carries the new one, and the days either
+ * side of the change are those whose earlier readings can't be timed (board
+ * D174).
+ */
+export function withClockChange(walk: WalkSettings, days: readonly string[]): WalkSettings {
+  return { ...walk, clock: { generation: (walk.clock?.generation ?? 0) + 1, days: [...new Set(days)].sort() } };
+}
+
+/** The clock generation readings taken here now carry (`gen`): 0 until a walk sees the clock change. */
+export const clockGeneration = (s: Pick<UserSettings, 'walk'> | undefined): number => s?.walk?.clock?.generation ?? 0;
+
+/** A glucose reading recorded here now, in this phone's clock generation; anything else, as it is. */
+export function takenHere(input: ObservationInput, generation: number): ObservationInput {
+  return input.kind === 'glucose' && input.gen === undefined && generation > 0 ? { ...input, gen: generation } : input;
 }
 
 export type PreflightPage = 'keepRoute' | 'mapPictures' | 'stepCard';

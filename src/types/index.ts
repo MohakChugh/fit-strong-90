@@ -1,5 +1,5 @@
 import type { UserProfile } from './profile';
-import type { CheckInRecord } from './checkin';
+import type { CheckInRecord, ClockHold } from './checkin';
 import type { DayFocus } from './plan';
 import type { HabitSettings } from './habits';
 import type { SetupRecord } from './setup';
@@ -227,6 +227,14 @@ export interface UserSettings {
     stepCardSeen?: boolean;
     /** When "Erase all routes" last ran on this phone (B-05): no route of a walk started before it is kept. */
     routesErasedAt?: number;
+    /**
+     * B-19: changes to this phone's clock seen during a walk. `generation`
+     * counts them, and readings taken here carry it (`gen`). Until one of the
+     * latest generation is taken, a reading from before the change on `days`
+     * can't be timed, and every movement gate holds someone who can go low.
+     * This phone's own: an import never brings it (board D174).
+     */
+    clock?: ClockHold;
   };
   /**
    * The ids of readings and sessions deleted on this record, kept so that

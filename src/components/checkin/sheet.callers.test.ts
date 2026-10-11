@@ -1553,3 +1553,35 @@ describe('an unanswered stop in the check-in: "Say what happened", never a box t
     expect(h().buttons('Say what happened', { exact: true })).toHaveLength(1);
   });
 });
+
+describe('after a change to the phone’s clock, through the sheet (B-19, H6R-02, H6R-03, board D174)', () => {
+  const p = createDefaultProfile(PROFILES.insulin);
+  const reading = { value: 140, unit: 'mg/dL' as const, measuredAt: at(2026, 10, 9, 9, 0).toISOString(), source: 'meter' as const };
+  const said = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: reading } satisfies DailyCheckIn;
+
+  it('offers no start on the reading from before; retimed it is still that reading; a new one taken here lets the walk go', async () => {
+    clock(9, 5);
+    await seed(p, [said]);
+    await store.markClockChange([DAY]);
+    await openSheet('walk');
+    // Asked again, not "Start walk": the reading it holds was timed by the clock as it was.
+    expect(h().text()).toContain('Right now, any of these?');
+    expect(startOffered()).toBe(false);
+    await none();
+    await seePlan();
+    expect(h().text()).toContain(PERMISSION_TEXT.clockChanged);
+    expect(startOffered()).toBe(false);
+    // The 09:00 reading moved to 09:04, as the person reads the clock now.
+    await changeAnswers();
+    await h().change(h().field('Time measured'), { value: '09:04' });
+    await seePlan();
+    expect(stored()?.glucose).toMatchObject({ value: 140, gen: 0 });
+    expect(startOffered()).toBe(false);
+    // A new reading, typed now.
+    await changeAnswers();
+    await typeGlucose('128');
+    await seePlan();
+    expect(stored()?.glucose).toMatchObject({ value: 128, gen: 1 });
+    expect(startOffered()).toBe(true);
+  });
+});

@@ -57,6 +57,7 @@ import {
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
 import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult } from './db';
 import { parseJournalEntry, type JournalEntry } from '@/walk/journal';
+import { clockGeneration, takenHere, walkSettings, withClockChange } from '@/walk/consent';
 import { routeRecord, type RouteRecord } from '@/walk/routeRecord';
 import type { WalkInput } from '@/walk/record';
 import { SCHEMA_VERSION, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
@@ -736,7 +737,8 @@ export function addObservation(input: ObservationInput): Promise<StoreResult<Obs
   const fixed: ObservationInput = { ...input, id: input.id ?? freshId(), at: input.at ?? nowAt() };
   return enqueue<Observation>({
     plan: base => {
-      const record = newObservation(fixed);
+      // In this phone's clock generation as the transaction finds it (B-19, board D174).
+      const record = newObservation(takenHere(fixed, clockGeneration(base.settings)));
       if (findObservation(base, record.id)) {
         throw new StoreFailure('conflict', 'A record with that id is already on this device. Correct it rather than adding it again.');
       }
@@ -772,7 +774,7 @@ export function addObservations(inputs: readonly ObservationInput[]): Promise<St
       const invalid: FailureDetail[] = [];
       fixed.forEach((input, index) => {
         try {
-          records.push(newObservation(input));
+          records.push(newObservation(takenHere(input, clockGeneration(base.settings))));
         } catch (error) {
           invalid.push({ index, id: input.id, reason: error instanceof Error ? error.message : String(error) });
         }
@@ -1304,6 +1306,19 @@ export function eraseRoutes(): Promise<StoreResult> {
         result: () => undefined,
       };
     },
+  });
+}
+
+/**
+ * B-19: a walk saw this phone's clock change. The device's clock generation
+ * moves on, against the settings this transaction finds, so another tab's
+ * change is never lost; from then on every movement gate holds someone who
+ * can go low until a reading taken since, a finished walk's next start
+ * included (H6R-02, board D174).
+ */
+export function markClockChange(days: readonly string[]): Promise<StoreResult> {
+  return enqueue<void>({
+    plan: base => ({ change: { settings: { patch: { walk: withClockChange(walkSettings(base.settings ?? {}), days) } } }, result: () => undefined }),
   });
 }
 

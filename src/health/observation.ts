@@ -108,6 +108,12 @@ export interface Observation {
    * (a v4 check-in, a body measurement). The day is exact; the time is not.
    */
   timeUnknown?: true;
+  /**
+   * B-19, a glucose reading only: this device's clock generation when it was
+   * taken here (`settings.walk.clock`), kept through corrections. Absent:
+   * generation 0, or taken elsewhere (an import drops it).
+   */
+  gen?: number;
 }
 
 export interface KindSpec {
@@ -293,6 +299,8 @@ export interface ObservationInput {
   coverageMs?: number;
   /** The time in `at` is a stand-in for a date-only record. */
   timeUnknown?: boolean;
+  /** B-19: the clock generation it was taken in (`Observation.gen`). */
+  gen?: number;
 }
 
 let lastStamp = 0;
@@ -378,6 +386,7 @@ export function observationProblem(o: Observation): string | undefined {
   if (o.editedAt !== undefined && !isAt(o.editedAt)) return `editedAt is not an ISO instant with an offset: ${String(o.editedAt)}`;
   if (o.seq !== undefined && !(Number.isSafeInteger(o.seq) && o.seq >= 0)) return 'seq must be a whole number';
   if (o.timeUnknown !== undefined && o.timeUnknown !== true) return 'timeUnknown is either true or absent';
+  if (o.gen !== undefined && !(kind === 'glucose' && Number.isSafeInteger(o.gen) && o.gen >= 0)) return 'gen is a whole number, on a glucose reading only';
   return undefined;
 }
 
@@ -408,6 +417,7 @@ export function newObservation(input: ObservationInput): Observation {
     ...(input.note !== undefined ? { note: input.note } : {}),
     ...(input.coverageMs !== undefined ? { coverageMs: input.coverageMs } : {}),
     ...(input.timeUnknown === true ? { timeUnknown: true as const } : {}),
+    ...(input.gen !== undefined ? { gen: input.gen } : {}),
   };
   const problem = observationProblem(record);
   if (problem !== undefined) throw new ObservationError(problem);

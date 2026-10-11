@@ -25,7 +25,7 @@ import type { Permission, PermissionInput } from '@/engine/permission';
 import type { CheckInRecord } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { arrivalGate, liveGate, startGate } from '@/session/gate';
-import { glucoseReadingId, STOP_UNANSWERED, withLogged } from '@/engine/readiness';
+import { STOP_UNANSWERED } from '@/engine/readiness';
 import { reachableHistory } from '@/engine/reach';
 import { effectiveCheckIns, pendingCheckInsVersion, subscribePendingCheckIns } from '@/components/checkin/pending';
 import { createDefaultProfile } from '@/profile/defaults';
@@ -35,7 +35,6 @@ import { statusOn, type Status } from '@/health/status';
 import { resumeAllowed } from '@/screens/hub/movement';
 import { STATUS_HOLD } from './readout';
 import type { WalkIntent } from './live';
-import type { Walk } from './clock';
 
 /** Movement is allowed only on a plain yes: a check-in that is still needed is not one. */
 export function allowsMovement(p: Permission): boolean {
@@ -56,38 +55,13 @@ export interface Clinical {
 }
 
 /**
- * B-19: every glucose reading on these days' records, Track's included, by
- * identity: what a walk keeps when it sees the phone's clock change. Those
- * readings were timed by the clock as it was, so none can say how old it is.
- */
-export function readingIds(checkIns: readonly CheckInRecord[], days: readonly string[]): string[] {
-  const want = new Set(days);
-  const ids = new Set<string>();
-  for (const c of checkIns) {
-    if (!want.has(c.date)) continue;
-    const v = withLogged(c);
-    for (const e of [...(v.glucoseEarlier ?? []), v.glucose, v.glucoseDisplay]) if (e) ids.add(glucoseReadingId(e, c.date));
-  }
-  return [...ids];
-}
-
-/**
- * The readings a walk's clock change left untimed, for the engine (B-19):
- * named by identity, never by comparing their times with the change's, which
- * come from two different clocks. Nothing when the walk saw no change.
- */
-export function untimedOf(walk?: Pick<Walk, 'clockChangedAt' | 'untimedReadings'>): ReadonlySet<string> | undefined {
-  return walk?.clockChangedAt === undefined ? undefined : new Set(walk.untimedReadings ?? []);
-}
-
-/**
  * The engine's input at `now`: today's effective record as the check-in, and every day's as the earlier ones.
- * After a change to the clock (B-19), the readings from before it, for the engine to hold on (`PermissionInput.untimed`).
+ * A change to the phone's clock is the device's (`clockHold`, on the records), never the walk's (B-19, board D174).
  */
-export function walkInput(clinical: Clinical, now: Date, untimed?: ReadonlySet<string>): PermissionInput {
+export function walkInput(clinical: Clinical, now: Date): PermissionInput {
   const today = toDateString(now);
   const checkIn = clinical.checkIns.find(c => c.date === today);
-  return { profile: clinical.profile, now, ...(checkIn ? { checkIn } : {}), recent: [...clinical.checkIns], ...(untimed ? { untimed } : {}) };
+  return { profile: clinical.profile, now, ...(checkIn ? { checkIn } : {}), recent: [...clinical.checkIns] };
 }
 
 /**
@@ -98,8 +72,9 @@ export function walkInput(clinical: Clinical, now: Date, untimed?: ReadonlySet<s
  */
 export function deviceClinical(state: Pick<StoreState, 'profile' | 'checkIns' | 'settings'> & { observations?: StoreState['observations'] }): Clinical {
   const profile = state.profile ?? createDefaultProfile({ weightKg: state.settings.currentWeight || 0, needsHealthReview: true });
-  // Track's glucose and blood pressure readings count as the check-in's do (scan X2-01).
-  return { profile, checkIns: effectiveCheckIns(state.checkIns, profile, state.observations ?? []) };
+  // Track's glucose and blood pressure readings count as the check-in's do (scan X2-01), and the
+  // changes to this phone's clock its walks have seen hold every gate (B-19, board D174).
+  return { profile, checkIns: effectiveCheckIns(state.checkIns, profile, state.observations ?? [], state.settings.walk?.clock) };
 }
 
 export { STATUS_HOLD } from './readout';
@@ -131,8 +106,8 @@ export function heldBy(clinical: Permission | undefined, status: Permission | un
 }
 
 /** A gate over `read`, asked at the moment it is asked: never cached between two taps. */
-export function clinicalGate(read: () => Clinical, now: () => Date = () => new Date()): (intent: WalkIntent, untimed?: ReadonlySet<string>) => boolean {
-  return (intent, untimed) => walkRefusal(walkInput(read(), now(), untimed), intent) === undefined;
+export function clinicalGate(read: () => Clinical, now: () => Date = () => new Date()): (intent: WalkIntent) => boolean {
+  return intent => walkRefusal(walkInput(read(), now()), intent) === undefined;
 }
 
 /** The days the engine's rules can reach (C2-05): the engine's own, used here every second of a walk. */
@@ -147,12 +122,12 @@ export { reachableHistory } from '@/engine/reach';
 export function deviceGate(
   read: () => Pick<StoreState, 'profile' | 'checkIns' | 'settings'> & { observations?: StoreState['observations'] },
   now: () => Date = () => new Date(),
-): (intent: WalkIntent, untimed?: ReadonlySet<string>) => boolean {
+): (intent: WalkIntent) => boolean {
   // Keyed on the state itself, not the parts read today: the store hands out a
   // new state only when something changed, so whatever the gate comes to read
   // from it is covered, and a quiet walk asks the cache.
   let memo: { state: unknown; pending: number; day: string; clinical: Clinical } | undefined;
-  return (intent, untimed) => {
+  return intent => {
     const at = now();
     const state = read();
     const day = toDateString(at);
@@ -162,7 +137,7 @@ export function deviceGate(
       memo = { state, pending, day, clinical: { profile: all.profile, checkIns: reachableHistory(all.checkIns, day, all.profile) } };
     }
     if (statusRefusal(statusOn(state.settings.statusPeriods, day), intent)) return false;
-    return walkRefusal(walkInput(memo.clinical, at, untimed), intent) === undefined;
+    return walkRefusal(walkInput(memo.clinical, at), intent) === undefined;
   };
 }
 

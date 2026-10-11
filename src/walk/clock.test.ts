@@ -247,14 +247,12 @@ describe('time under a changed clock (B-19)', () => {
     expect(stepOf({ wall: s(0), mono: 5000 }, { wall: s(1), mono: 4000 })).toEqual({ ms: 0, jumped: false });
   });
 
-  it('keeps every reading the device knew at each change, by identity (H6-02)', () => {
-    let w = splitAtClockChange(accrueOpen(walkFor(), 60_000, s(60)), s(3600), 1000, ['g:a']);
-    expect(w.untimedReadings).toEqual(['g:a']);
-    // A reading taken between two changes was timed by a clock that moved again.
-    w = splitAtClockChange(accrueOpen(w, 60_000, s(3660)), s(7200), 1000, ['g:a', 'g:b']);
-    expect(w.untimedReadings).toEqual(['g:a', 'g:b']);
-    w = splitAtClockChange(accrueOpen(w, 60_000, s(7260)), s(9000), 1000);
-    expect(w.untimedReadings).toEqual(['g:a', 'g:b']);
+  it('leaves which readings each change left untimed to the device, which keeps every change (H6-02, H6R-02, board D174)', () => {
+    let w = splitAtClockChange(accrueOpen(walkFor(), 60_000, s(60)), s(3600), 1000);
+    // A reading taken between two changes was timed by a clock that moved again: the device's generation says so (gate.test).
+    w = splitAtClockChange(accrueOpen(w, 60_000, s(3660)), s(7200), 1000);
+    expect(w.untimedReadings).toBeUndefined();
+    expect(w.clockChangedAt).toBe(s(7200));
   });
 
   it('looks for those readings on the days either side of both clocks', () => {

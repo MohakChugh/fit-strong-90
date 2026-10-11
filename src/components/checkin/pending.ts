@@ -19,9 +19,10 @@
  */
 
 import type { AppData } from '@/types';
-import type { BpPartialReading, BpReading, CheckInRecord, DailyCheckIn, EmergencyFlag, EpisodeAnswer, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, SymptomReach } from '@/types/checkin';
+import type { BpPartialReading, BpReading, CheckInRecord, ClockHold, DailyCheckIn, EmergencyFlag, EpisodeAnswer, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, SymptomReach } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
-import { completes, evaluateCheckIn, newsReadingId, stoppedIn } from '@/engine/readiness';
+import { completes, evaluateCheckIn, glucoseReadingId, newsReadingId, stoppedIn } from '@/engine/readiness';
+import { clockGeneration } from '@/walk/consent';
 import { checkInDayOf, measuredStamp, type Observation } from '@/health/observation';
 import { pairBloodPressure } from '@/health/aggregate';
 import { carryForward, withoutGateFields } from './form';
@@ -352,6 +353,7 @@ export function loggedReadings(observations: readonly Observation[]): Map<string
     const reading: GlucoseReading = {
       value: o.value, unit, unitConfirmed: true, source: o.source === 'measured' ? 'sensor' : 'meter',
       ...(o.timeUnknown ? {} : { measuredAt: o.at }),
+      ...(o.gen !== undefined ? { gen: o.gen } : {}),
     };
     (day(o.day).glucose ??= []).push(reading);
   }
@@ -370,7 +372,22 @@ export function loggedReadings(observations: readonly Observation[]): Map<string
  * holds only them: evidence for every rule, never a check-in. Nothing here
  * is stored: a save reads the store's own records.
  */
-export function effectiveCheckIns(stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[] = []): CheckInRecord[] {
+export function effectiveCheckIns(
+  stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[] = [], clock?: ClockHold,
+): CheckInRecord[] {
+  return withClockHold(effectiveDays(stored, profile, observations), clock);
+}
+
+/**
+ * B-19: the changes to this phone's clock (`settings.walk.clock`), on every
+ * day the gates read, so each gate can tell a reading taken since the latest
+ * from one taken before it (board D174). The records as they are without one.
+ */
+export function withClockHold<T extends DailyCheckIn>(records: T[], clock: ClockHold | undefined): T[] {
+  return clock ? records.map(c => ({ ...c, clockHold: clock })) : records;
+}
+
+function effectiveDays(stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[]): CheckInRecord[] {
   const logged = observations.length ? loggedReadings(observations) : new Map<string, NonNullable<DailyCheckIn['logged']>>();
   if (waiting.size === 0 && logged.size === 0) return [...stored];
   const dates = new Set([...stored.map(c => c.date), ...waiting.keys(), ...logged.keys()]);
@@ -492,6 +509,24 @@ function stopAnswered(days: readonly DailyCheckIn[], at: Date): EpisodeAnswer {
   return { kind: 'news', readings, resolution: 'resolved', at: at.toISOString() };
 }
 
+/**
+ * B-19: a glucose reading the day doesn't hold yet is one taken now, on this
+ * phone, so it carries the clock generation the transaction finds (board
+ * D174). One the day already holds keeps its own, and so does one given with
+ * a generation: retimed in the check-in (`buildCheckIn`), or corrected.
+ */
+function takenNow(answers: DailyCheckIn, base: DailyCheckIn | undefined, generation: number): DailyCheckIn {
+  if (generation === 0) return answers;
+  const held = new Set([base?.glucose, base?.glucoseDisplay, ...(base?.glucoseEarlier ?? [])]
+    .filter((e): e is GlucoseEntry => !!e).map(e => glucoseReadingId(e, base!.date)));
+  const fresh = <T extends GlucoseEntry>(e: T): T => (e.gen === undefined && !held.has(glucoseReadingId(e, answers.date)) ? { ...e, gen: generation } : e);
+  return {
+    ...answers,
+    ...(answers.glucose ? { glucose: fresh(answers.glucose) } : {}),
+    ...(answers.glucoseDisplay ? { glucoseDisplay: fresh(answers.glucoseDisplay) } : {}),
+  };
+}
+
 async function saveWith(
   date: string,
   build: (today: CheckInRecord | undefined, recent: readonly CheckInRecord[]) => DailyCheckIn,
@@ -505,7 +540,7 @@ async function saveWith(
     const recent = list.filter(x => x.date < date);
     const mine = list.find(x => x.date === date);
     const base = effectiveRecord(mine, waitingFor(date, mine), profile, recent);
-    answers = build(base, recent);
+    answers = takenNow(build(base, recent), base, clockGeneration(prev.settings));
     record = toStore(profile, carryForward(base, answers), recent);
     // Given on this visit: from here it is answered, not merely kept.
     restored.delete(date);

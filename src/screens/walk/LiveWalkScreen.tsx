@@ -12,7 +12,7 @@ import type { SymptomReport } from '@/components/checkin/pending';
 import type { GlucoseEntry } from '@/types/checkin';
 import { deriveHealth } from '@/engine/health';
 import { PERMISSION_TEXT } from '@/engine/permission';
-import { heldBy, reachableHistory, statusRefusal, untimedOf, walkInput, walkRefusal, type Clinical } from '@/walk/gate';
+import { heldBy, reachableHistory, statusRefusal, walkInput, walkRefusal, type Clinical } from '@/walk/gate';
 import { statusOn } from '@/health/status';
 import { StatusSheet } from '@/screens/today/StatusSheet';
 import { cn, toDateString } from '@/lib/utils';
@@ -191,7 +191,7 @@ export default function LiveWalkScreen() {
   // After a change to the phone's clock, the readings from before it, which the engine holds on (B-19); its reason says so.
   // Carrying on asks the status too, after a stop and before any other hold (H2-01).
   const refusal = question
-    ? heldBy(walkRefusal(walkInput(clinical, new Date(snapshot.now), untimedOf(snapshot.walk)), question), statusRefusal(statusOn(settings.statusPeriods, day), question))
+    ? heldBy(walkRefusal(walkInput(clinical, new Date(snapshot.now)), question), statusRefusal(statusOn(settings.statusPeriods, day), question))
     : undefined;
   const emergency = refusal?.disposition === 'emergency';
   const low = lowOpen(checkIn, snapshot.walk);

@@ -3,7 +3,7 @@ import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import type { DailyCheckIn, Mode } from '@/types/checkin';
 
 import { permission, resumePermission, PERMISSION_TEXT, FRESH_MINUTES } from './permission';
-import { evaluateCheckIn, glucoseReadingId, profileOnlyReadiness, STOP_UNANSWERED } from './readiness';
+import { evaluateCheckIn, profileOnlyReadiness, STOP_UNANSWERED } from './readiness';
 import { bpMedicinesUnknown, deriveHealth, glucoseStartMin, profileGaps } from './health';
 
 const DATE = '2026-10-09';
@@ -314,26 +314,61 @@ describe('"I need to stop" with nothing said since (journey §4.4, H6-01)', () =
   });
 });
 
-describe('B-19: a change to the phone’s clock, by reading identity (H6-02)', () => {
-  const g = (minutes: number, value = 140) => ({ value, unit: 'mg/dL' as const, measuredAt: at(minutes) });
-  const askAfter = (c: DailyCheckIn | undefined, untimed: ReadonlySet<string>, live = false) => {
+describe('B-19: a change to the phone’s clock, held by the device and its clock generations (H6-02, H6R-02, H6R-03, board D174)', () => {
+  const g = (minutes: number, value = 140, gen?: number) => ({ value, unit: 'mg/dL' as const, measuredAt: at(minutes), ...(gen !== undefined ? { gen } : {}) });
+  /** One change seen, around today: the device's, on every day the gates read. */
+  const changed = { generation: 1, days: [DATE] };
+  const askAfter = (c: DailyCheckIn | undefined, live = false, recent: DailyCheckIn[] = [], hold: typeof changed | null = changed) => {
     const profile = createDefaultProfile(insulin);
-    const input = { profile, ...(c ? { checkIn: { ...c, readiness: evaluateCheckIn(profile, c) } } : {}), now: NOW, untimed };
+    const day = c ? { ...c, ...(hold ? { clockHold: hold } : {}) } : undefined;
+    const input = { profile, ...(day ? { checkIn: { ...day, readiness: evaluateCheckIn(profile, day) } } : {}), now: NOW, recent };
     return live ? resumePermission(input, 'walk') : permission(input, 'walk');
   };
 
-  it('holds a reading the change left untimed, start and carrying on, and lets one taken since go', () => {
-    const before = new Set([glucoseReadingId(g(10), DATE)]);
+  it('holds a reading from before the change, start and carrying on, and lets one taken since go', () => {
     for (const live of [false, true]) {
-      expect(askAfter(ci({ glucose: g(10) }), before, live).reasons).toContain(PERMISSION_TEXT.clockChanged);
-      expect(askAfter(ci({ glucose: g(2, 130), glucoseEarlier: [g(10)] }), before, live).allowed).toBe(true);
+      expect(askAfter(ci({ glucose: g(10) }), live).reasons).toContain(PERMISSION_TEXT.clockChanged);
+      expect(askAfter(ci({ glucose: g(2, 130, 1), glucoseEarlier: [g(10)] }), live).allowed).toBe(true);
     }
   });
 
   it('releases nothing on a reading the device has not stored yet (N-01)', () => {
-    const before = new Set([glucoseReadingId(g(10), DATE)]);
     const stored = ci({ glucose: g(10) });
-    const effective = { ...ci({ glucose: g(2, 130), glucoseEarlier: [g(10)] }), durable: stored };
-    expect(askAfter(effective, before).reasons).toContain(PERMISSION_TEXT.clockChanged);
+    const effective = { ...ci({ glucose: g(2, 130, 1), glucoseEarlier: [g(10)] }), durable: stored };
+    expect(askAfter(effective).reasons).toContain(PERMISSION_TEXT.clockChanged);
+  });
+
+  it('never releases on a reading retimed to after the change, or one brought in by an import: neither has the new generation', () => {
+    // The 10-minute-old reading moved to a minute ago keeps its generation, 0.
+    expect(askAfter(ci({ glucose: g(1, 140, 0) })).reasons).toContain(PERMISSION_TEXT.clockChanged);
+    // An import drops the file's generations: a new-looking reading of no generation here.
+    expect(askAfter(ci({ glucose: g(1, 120) })).reasons).toContain(PERMISSION_TEXT.clockChanged);
+  });
+
+  it('reads a reading taken since as the current one, though the clock set back gives it an earlier time', () => {
+    // The clock was set back an hour: the reading from before reads 50 minutes ahead, the one taken since 2 minutes ago.
+    const c = ci({ glucose: g(-50), glucoseEarlier: [g(2, 125, 1)] });
+    expect(askAfter(c).allowed).toBe(true);
+    expect(askAfter({ ...c, glucoseEarlier: [g(2, 125)] }).allowed).toBe(false);
+  });
+
+  it('takes a Track reading taken since, or a meter’s number, as the current one over one from before read later by the old clock', () => {
+    // Track's reading taken since, two minutes ago; the check-in's from before the change reads 50 minutes ahead.
+    const logged = ci({ glucose: g(-50), logged: { glucose: [{ ...g(2, 125, 1), unitConfirmed: true }] } });
+    expect(askAfter(logged).allowed).toBe(true);
+    // A number taken since, beside a meter's LO from before the change that reads later.
+    const shown = ci({ glucose: g(2, 125, 1), glucoseDisplay: { display: 'LO', measuredAt: at(-50) } });
+    expect(askAfter(shown).reasons).not.toContain(PERMISSION_TEXT.clockChanged);
+  });
+
+  it('is the device’s: a day outside the change, or a phone that never saw one, is not held for it', () => {
+    expect(askAfter(ci({ glucose: g(10) }), false, [], { generation: 1, days: ['2026-10-01'] }).allowed).toBe(true);
+    expect(askAfter(ci({ glucose: g(10) }), false, [], null).allowed).toBe(true);
+  });
+
+  it('reaches a record that came back from a save without it, through the other days the gates read', () => {
+    const earlier = { ...ci({ date: '2026-10-08' }), clockHold: changed };
+    expect(askAfter(ci({ glucose: g(10) }), false, [earlier], null).reasons).toContain(PERMISSION_TEXT.clockChanged);
   });
 });
+

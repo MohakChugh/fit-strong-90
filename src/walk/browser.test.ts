@@ -5,9 +5,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CheckInRecord } from '@/types/checkin';
 import { createDefaultProfile } from '@/profile/defaults';
-import { evaluateCheckIn, glucoseReadingId } from '@/engine/readiness';
+import { evaluateCheckIn } from '@/engine/readiness';
 import { toDateString } from '@/lib/utils';
-import type { Walk } from './clock';
+import { walkSettings, withClockChange } from './consent';
 
 const NOW = new Date();
 const TODAY = toDateString(NOW);
@@ -16,13 +16,22 @@ const profile = createDefaultProfile({
   health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
 });
 const day = { date: TODAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7' as const, energy: 4 as const, glucose: reading };
-const state = vi.hoisted(() => ({ value: undefined as unknown, listeners: new Set<() => void>() }));
+const state = vi.hoisted(() => ({ value: undefined as unknown, listeners: new Set<() => void>(), marked: [] as (readonly string[])[] }));
 vi.mock('@/store/useStore', async importOriginal => {
   const real = await importOriginal<typeof import('@/store/useStore')>();
+  const { walkSettings: walkOf, withClockChange: changed } = await import('./consent');
   return {
     ...real,
     getState: () => state.value as ReturnType<typeof real.getState>,
     subscribe: (l: () => void) => { state.listeners.add(l); return () => void state.listeners.delete(l); },
+    // The device's own change, as the store's transaction makes it.
+    markClockChange: (days: readonly string[]) => {
+      state.marked.push(days);
+      const was = state.value as { settings: { walk?: ReturnType<typeof walkOf> } };
+      state.value = { ...was, settings: { ...was.settings, walk: changed(walkOf(was.settings), days) } };
+      for (const l of [...state.listeners]) l();
+      return Promise.resolve({ ok: true });
+    },
   };
 });
 state.value = {
@@ -39,14 +48,19 @@ const { browserPorts, liveWalk } = await import('./browser');
 const { cachedJournal, journalPort } = await import('./journalPort');
 
 describe('the browser’s live walk ports (B-19)', () => {
-  it('name the readings the device knows, and ask the gate with the ones a clock change left untimed', () => {
+  it('tell the device of a change to the clock, then ask the gate of the device: held until a reading taken since (H6R-02)', () => {
     const ports = browserPorts();
-    const known = ports.readingsNow!([TODAY]);
-    expect(known).toEqual([glucoseReadingId(reading, TODAY)]);
-    const walk = (over: Partial<Walk>) => ({ id: 'a1b2', ...over }) as Walk;
-    expect(ports.mayRun('live', walk({}))).toBe(true);
-    expect(ports.mayRun('live', walk({ clockChangedAt: NOW.getTime(), untimedReadings: [...known] }))).toBe(false);
-    expect(ports.mayRun('restart', walk({ clockChangedAt: NOW.getTime(), untimedReadings: [] }))).toBe(true);
+    const was = state.value;
+    expect(ports.mayRun('live')).toBe(true);
+    ports.clockChanged!([TODAY]);
+    expect(state.marked).toEqual([[TODAY]]);
+    for (const intent of ['start', 'restart', 'live'] as const) expect(ports.mayRun(intent), intent).toBe(false);
+    // A reading taken here since, in the phone's new clock generation: on again.
+    const since = { ...day, glucose: { ...reading, measuredAt: new Date().toISOString(), gen: 1 }, glucoseEarlier: [reading] };
+    state.value = { ...(state.value as object), checkIns: [{ ...since, readiness: evaluateCheckIn(profile, since) }] };
+    expect(ports.mayRun('restart')).toBe(true);
+    expect(walkSettings((state.value as { settings: object }).settings).clock).toEqual(withClockChange(walkSettings({}), [TODAY]).clock);
+    state.value = was;
   });
 
   it('ask this phone’s own route consent, as it is now, at each journal write (H6-04)', () => {
