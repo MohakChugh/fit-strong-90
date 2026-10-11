@@ -279,3 +279,22 @@ describe('the usual meal times Me shows (H5-26)', () => {
     expect(editedRecord(data, editOf(state, a), TODAY, CTX).settings.habits?.mealWalk?.finish).toEqual({ lunch: '13:30' });
   });
 });
+
+describe('food answers after a skipped eating pattern (H5-20; board D164)', () => {
+  it('are kept as given and read back, and the profile takes them once the pattern is answered', async () => {
+    const { chapterSections } = await import('@/screens/you/summaries');
+    const skipped: SetupAnswers = { ...MINIMAL, pattern: undefined, allergies: undefined, foodLevel: 'meals', hardBefore: 'yes', skippedPages: ['food.pattern'] };
+    const data = finished(skipped);
+    // A food record needs its pattern (D82): none yet, and the answers wait in setup's own.
+    expect(data.profile?.food).toBeUndefined();
+    expect(data.settings.setup?.answers).toMatchObject({ foodLevel: 'meals', hardBefore: 'yes' });
+    const logging = (d: AppData) => chapterSections(d.profile!, d.settings, TODAY).find(s => s.chapter === 'food')!.rows.find(r => r.label === 'Logging what you eat')!.value;
+    expect(logging(data)).toBe('Meals only, no numbers');
+    // Me → Your food: the pattern answered, the level and the screening answer go with it.
+    const a = opened(data);
+    const state = editorState(editorOpens('food', data.profile), { ...a, pattern: 'vegetarian', allergies: [] }, a, CTX);
+    const after = editedRecord(data, editOf(state, a), TODAY, CTX);
+    expect(after.profile?.food).toMatchObject({ pattern: 'vegetarian', level: 'meals', hardBefore: 'yes' });
+    expect(logging(after)).toBe('Meals only, no numbers');
+  });
+});

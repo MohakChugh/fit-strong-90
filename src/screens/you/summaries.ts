@@ -22,6 +22,7 @@ import { isEnrolled } from '@/health/recommend';
 import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
 import { FOCUS_CHOICES } from '@/screens/welcome/focus';
 import { allergyName } from '@/setup/allergies';
+import { answersOf, setupStateOf } from '@/setup/state';
 import { shortDate, shortDay } from './dates';
 
 /** Formats minutes after midnight for display, in the phone's own style. */
@@ -423,7 +424,8 @@ export function chapterSections(profile: UserProfile, settings: UserSettings, to
   const foodRows: SummaryRow[] = [
     { label: 'What you eat', value: food ? FOOD_PATTERN[food.pattern] : 'Not chosen' },
     { label: 'Allergies', value: allergiesLine(food) },
-    { label: 'Logging what you eat', value: LEVEL[food?.level ?? 'ideas'] },
+    // A level chosen after the pattern was skipped waits in setup's own answers, until the pattern is answered (H5-20, D164).
+    { label: 'Logging what you eat', value: LEVEL[food?.level ?? answersOf(setupStateOf(settings, profile)).foodLevel ?? 'ideas'] },
   ];
 
   const hb = settings.habits;
