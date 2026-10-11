@@ -3,6 +3,7 @@ import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
 import type { SymptomReport } from '@/components/checkin/pending';
 import type { SymptomReach } from '@/types/checkin';
+import { TARGET } from '@/components/hig/targets';
 import { cn } from '@/lib/utils';
 import { answering, LEG_QUESTIONS, legReport, NO_LEG, REACH, REACH_LABEL, SPREAD_QUESTION, STOP_CHOICES, STOP_LOW, stopAnswer, type LegAnswers, type StopChoice } from '@/walk/stop';
 import { PrimaryButton, SecondaryButton } from './parts';
@@ -122,7 +123,8 @@ function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close }
       <Group header={STOP_CHOICES.find(c => c.choice === 'leg')!.label}>
         <div className="flex flex-col gap-2 px-4 py-3">
           <span id="walk-leg-reach" className="text-[length:var(--text-subhead)] text-muted-foreground">How far down symptoms reach now</span>
-          <div role="radiogroup" aria-labelledby="walk-leg-reach" className="flex flex-wrap gap-1.5">
+          {/* The most stressful screen: every choice a full target, 12 px apart (§20.4 rule 1, K6R-07). */}
+          <div role="radiogroup" aria-labelledby="walk-leg-reach" className={cn('flex flex-wrap', TARGET.gap)}>
             {REACH.map(r => (
               <button
                 key={r}
@@ -130,7 +132,7 @@ function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close }
                 role="radio"
                 aria-checked={leg.reach === r}
                 onClick={() => setLeg(a => ({ ...a, reach: r }))}
-                className={cn('min-h-11 min-w-11 rounded-lg px-3 text-[length:var(--text-subhead)]', leg.reach === r ? 'bg-tint font-semibold text-on-tint' : 'bg-grouped-bg')}
+                className={cn('rounded-lg px-3 text-[length:var(--text-subhead)]', TARGET.tap, leg.reach === r ? 'bg-tint font-semibold text-on-tint' : 'bg-grouped-bg')}
               >
                 {REACH_LABEL[r]}
               </button>
@@ -138,7 +140,7 @@ function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close }
           </div>
         </div>
         {questions.map(q => (
-          <label key={q.key} className="flex min-h-11 items-start gap-3 px-4 py-3 text-[length:var(--text-body)] leading-snug">
+          <label key={q.key} className={cn('flex items-start gap-3 px-4 py-3 text-[length:var(--text-body)] leading-snug', TARGET.tap)}>
             <input type="checkbox" className="mt-0.5 size-5 shrink-0" checked={leg[q.key] === true} onChange={() => toggle(q.key)} />
             <span>{q.label}</span>
           </label>

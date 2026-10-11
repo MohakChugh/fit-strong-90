@@ -282,6 +282,22 @@ describe('a sheet that will not close yet (review C2-07)', () => {
     }
   });
 
+  it('gives the first walk’s two consent answers the same weight, neither the primary one (§24, K6R-06)', () => {
+    const sheet = read('src/screens/walk/PreflightSheet.tsx');
+    for (const q of ['keepRoute', 'mapPictures']) {
+      expect(sheet, q).toMatch(new RegExp(`<SecondaryButton onClick=\\{\\(\\) => onAnswer\\(\\{ page, (keep|show): true \\}\\)\\}>\\{CONSENT\\.${q}\\.yes\\}</SecondaryButton>`));
+      expect(sheet, q).not.toMatch(new RegExp(`<PrimaryButton[^>]*>\\{CONSENT\\.${q}\\.(yes|no)\\}`));
+    }
+  });
+
+  it('sizes the stop questions’ every choice as a target, 48 px at least and 12 px apart (§20.4 rule 1, K6R-07)', () => {
+    const stop = read('src/screens/walk/StopSheet.tsx');
+    expect(stop).not.toMatch(/min-h-(?:8|9|10|11)\b|min-w-11|gap-1\.5/);
+    expect(stop).toMatch(/role="radiogroup" aria-labelledby="walk-leg-reach" className=\{cn\('flex flex-wrap', TARGET\.gap\)\}/);
+    expect(stop).toMatch(/className=\{cn\('rounded-lg px-3 text-\[length:var\(--text-subhead\)\]', TARGET\.tap,/);
+    expect(stop).toMatch(/<label key=\{q\.key\} className=\{cn\('flex items-start gap-3 px-4 py-3 text-\[length:var\(--text-body\)\] leading-snug', TARGET\.tap\)\}>/);
+  });
+
   it('sizes every live walk control as a target, 48 px at least and 12 px apart, and the walk’s main buttons 60 px (§20.4 rule 1, H6-11, KH-10)', () => {
     const live = read('src/screens/walk/LiveWalkScreen.tsx');
     // Nothing tappable on the live walk under 48 px: Tailwind's 44 px and smaller are gone.
@@ -296,6 +312,8 @@ describe('a sheet that will not close yet (review C2-07)', () => {
     for (const label of ['Check in', 'Turn the voice on', 'Health questions', 'Allow motion and count steps', 'Say what happened', 'Done']) {
       expect(control(label), label).toMatch(/TARGET\.(tap|primary)/);
     }
+    // The one way on from a hold is the main target in its region (K6R-07).
+    for (const label of ['Say what happened', 'Change status', 'Check in', 'Health questions']) expect(control(label), label).toMatch(/TARGET\.primary/);
     // The stop row and the gap notice's choices are main targets, side by side or stacked 12 px apart.
     for (const label of ['I need to stop', 'I feel low', 'Continue walking', 'Finish']) expect(control(label), label).toMatch(/TARGET\.primary/);
     const grids = lines.filter(l => l.includes("'grid grid-cols-1"));

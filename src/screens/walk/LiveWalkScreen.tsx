@@ -295,23 +295,24 @@ export default function LiveWalkScreen() {
                   {refusal.reasons.map(r => <p key={r}>{r}</p>)}
                   {refusal.release && <p className="text-muted-foreground">{refusal.release}</p>}
                   <p className="text-muted-foreground">Your walk so far is kept. Finish to save it.</p>
+                  {/* The one way on from the hold: a main target (§20.4 rule 1, K6R-07). */}
                   {action === 'stop' && (
-                    <button type="button" onClick={() => setSheet('stop')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
+                    <button type="button" onClick={() => setSheet('stop')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.primary)}>
                       Say what happened
                     </button>
                   )}
                   {action === 'status' && (
-                    <button type="button" onClick={() => setSheet('status')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
+                    <button type="button" onClick={() => setSheet('status')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.primary)}>
                       Change status
                     </button>
                   )}
                   {action === 'checkIn' && (
-                    <button type="button" onClick={() => setSheet('checkIn')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
+                    <button type="button" onClick={() => setSheet('checkIn')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.primary)}>
                       Check in
                     </button>
                   )}
                   {action === 'profile' && (
-                    <button type="button" onClick={() => navigate('/you/profile')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
+                    <button type="button" onClick={() => navigate('/you/profile')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.primary)}>
                       Health questions
                     </button>
                   )}
