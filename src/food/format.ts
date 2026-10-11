@@ -17,6 +17,8 @@ import { countText, portionText } from './units';
 export const SLOT_LABEL: Record<Slot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', snack: 'Snack', dinner: 'Dinner' };
 
 const fmt = (n: number) => n.toLocaleString('en-IN');
+/** The person's own carb figure as they gave it, to one decimal, or under 1 g (K7R-07): never rounded off, as it may set a dose. */
+const ownGrams = (g: number) => (g < 1 ? 'under 1 g' : `${g.toLocaleString('en-IN', { maximumFractionDigits: 1 })} g`);
 const to = (n: number, step: number, how: 'round' | 'floor' | 'ceil') => Math[how](n / step) * step;
 const carbStep = (n: number) => (n < 10 ? 1 : 5);
 
@@ -44,7 +46,7 @@ export function carbsRangeText(c: { low: number; high: number }): string | undef
 /** An item's carbs: a range with ranges on, except the person's own figure, which is never one (board D132). */
 function itemCarbsText(c: ItemCarbs, ranges: boolean): string | undefined {
   if (!ranges) return carbsText(c.g);
-  return c.own ? `${fmt(Math.round(c.g))} g carbs, your own figure` : carbsRangeText(c);
+  return c.own ? `${ownGrams(c.g)} carbs, your own figure` : carbsRangeText(c);
 }
 
 /** One item's estimate in the tray, or nothing when numbers aren't shown. */
@@ -77,7 +79,7 @@ export function totalsLines(t: Totals, view: NumbersView): TotalsLines {
   const carbs = view.ranges ? ranged : t.withCarbs > 0 ? carbsText(t.carbsG) : undefined;
   const parts = [t.withKcal > 0 ? kcalText(t.kcal) : undefined, carbs].filter(Boolean);
   const base = parts.length > 0 ? `Estimated ${parts.join(' · ')} in logged foods` : undefined;
-  const ownG = `${fmt(Math.round(t.ownCarbsG))} g`;
+  const ownG = ownGrams(t.ownCarbsG);
   const own = !view.ranges || t.withOwnCarbs === 0 ? undefined
     : !base ? `${ownG} carbs from foods you entered yourself`
       : ranged ? `plus ${ownG} from foods you entered yourself`

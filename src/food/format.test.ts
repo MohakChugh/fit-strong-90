@@ -55,13 +55,19 @@ describe('your own food’s carbs, with ranges on (H7-05, K7-05; board D132)', (
   const mine = { ...bhel, kcal: 300, carbsG: 40 };
   it('read as your own figure, never as a range', () => {
     expect(itemEstimate({ ...bhel, carbsG: 30 }, ranged)).toBe('Estimated 30 g carbs, your own figure · no calorie estimate');
-    expect(itemEstimate({ ...bhel, carbsG: 42.5 }, ranged)).toBe('Estimated 43 g carbs, your own figure · no calorie estimate');
+    // As entered, to one decimal, or under 1 g: never rounded off (K7R-07).
+    expect(itemEstimate({ ...bhel, carbsG: 42.5 }, ranged)).toBe('Estimated 42.5 g carbs, your own figure · no calorie estimate');
+    expect(itemEstimate({ ...bhel, carbsG: 12.5 }, ranged)).toBe('Estimated 12.5 g carbs, your own figure · no calorie estimate');
+    expect(itemEstimate({ ...bhel, carbsG: 0.4 }, ranged)).toBe('Estimated under 1 g carbs, your own figure · no calorie estimate');
+    expect(itemEstimate({ ...bhel, carbsG: 1234.5 }, ranged)).toBe('Estimated 1,234.5 g carbs, your own figure · no calorie estimate');
     expect(itemEstimate(mine, shown)).toBe('Estimated 300 kcal · 40 g carbs');
   });
   it('stay out of the closed range, named apart', () => {
     expect(totalsLines(totalsOf([roti, mine]), ranged).estimate).toBe('Estimated 500 kcal · about 30–60 g carbs in logged foods, plus 40 g from foods you entered yourself');
     expect(totalsLines(totalsOf([roti, { ...bhel, carbsG: 40 }]), ranged).estimate).toBe('Estimated 200 kcal · about 30–60 g carbs in logged foods, plus 40 g from foods you entered yourself');
     expect(totalsLines(totalsOf([mine]), ranged).estimate).toBe('Estimated 300 kcal in logged foods, plus 40 g carbs from foods you entered yourself');
+    expect(totalsLines(totalsOf([roti, { ...bhel, carbsG: 12.5 }]), ranged).estimate).toBe('Estimated 200 kcal · about 30–60 g carbs in logged foods, plus 12.5 g from foods you entered yourself');
+    expect(totalsLines(totalsOf([roti, { ...bhel, carbsG: 0.4 }]), ranged).estimate).toBe('Estimated 200 kcal · about 30–60 g carbs in logged foods, plus under 1 g from foods you entered yourself');
     expect(totalsLines(totalsOf([{ ...bhel, carbsG: 40 }, { ...bhel, name: 'Thepla', carbsG: 25 }]), ranged))
       .toEqual({ estimate: '65 g carbs from foods you entered yourself', missing: '2 items have no calorie estimate' });
   });
