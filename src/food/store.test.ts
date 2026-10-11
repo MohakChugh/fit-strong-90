@@ -17,7 +17,7 @@ globalThis.localStorage = {
 
 const store = await import('@/store/useStore');
 const food = await import('./store');
-const { corrected, customFoodsIn, mealsIn, savedMealsIn } = await import('./records');
+const { corrected, customFoodsIn, mealsIn, savedMealsIn, stored: asStored } = await import('./records');
 
 const AT = '2026-10-08T13:10:00.000+05:30';
 const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57 } as const;
@@ -310,6 +310,33 @@ describe('own foods logged before snapshots (H7R-01; board D146)', () => {
     await store.start({ factory: fake, broadcast: null });
     expect(mealsIn(store.getState().records)).toHaveLength(5);
     expect(savedMealsIn(store.getState().records)).toHaveLength(1);
+  });
+
+  it('keeps a meal held with equal carb ends from before D149, the item with no carb estimate and all else as it was (H7F-03; board D207)', async () => {
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake, broadcast: null });
+    const flat = { ...roti, carbsG: 40, carbsLowG: 40, carbsHighG: 40 };
+    const { carbsG, carbsLowG, carbsHighG, ...noCarbs } = flat;
+    void carbsG; void carbsLowG; void carbsHighG;
+    const held = meal('meal-flat', { items: [flat, roti], editedAt: AT, edits: [{ replacedAt: AT, at: AT, meal: 'lunch', items: [flat] }] });
+    const usual = { id: 'usual-flat', name: 'Lunch', meal: 'lunch', items: [flat], savedAt: AT, updatedAt: AT };
+    // A tiny weighed portion's ends may meet under 1 g: that's a reading ("under 1 g carbs"), and it stays.
+    const tiny = { ...roti, count: 1, gramsPerPortion: 1, weighed: true as const, kcal: 3, carbsG: 0.5, carbsLowG: 0.5, carbsHighG: 0.5 };
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { records: { meals: { put: [asStored(held), asStored(meal('meal-ok', { items: [tiny] })), asStored(meal('meal-bad', { items: [{ ...flat, carbsG: 30 }] }))] }, savedMeals: { put: [usual] } } } }))).ok).toBe(true);
+    tab.close();
+    store.resetForTests();
+    await store.start({ factory: fake, broadcast: null });
+    const meals = mealsIn(store.getState().records);
+    // One never valid, its estimate outside its own range, isn't quietly put right: it stays as stored, unread.
+    expect(meals.map(m => m.id)).toEqual(['meal-flat', 'meal-ok']);
+    expect((await stored(fake)).records.meals.find(r => r.id === 'meal-bad')?.items).toEqual([{ ...flat, carbsG: 30 }]);
+    expect(meals[0].items).toEqual([noCarbs, roti]);
+    expect(meals[0].edits[0].items).toEqual([noCarbs]);
+    expect(meals[1]).toEqual(meal('meal-ok', { items: [tiny] }));
+    expect(savedMealsIn(store.getState().records)[0].items).toEqual([noCarbs]);
+    // Written once: what's stored reads the same.
+    expect((await stored(fake)).records.meals.find(r => r.id === 'meal-flat')?.items).toEqual([noCarbs, roti]);
   });
 
   it('takes a backup made before snapshots whole, each item given its snapshot from the file’s own food, else this phone’s', async () => {

@@ -30,7 +30,7 @@
  * (`migrateToV6`), never moved from its v4 blob again.
  */
 
-import { customFoodsIn, withSnapshots } from '@/food/records';
+import { customFoodsIn, keptReadable } from '@/food/records';
 import { migrateData } from '@/services/storage';
 import type { AppData, WorkoutSession } from '@/types';
 import type { CheckInRecord } from '@/types/checkin';
@@ -309,9 +309,9 @@ export async function migrateToV6(db: Db): Promise<StoreResult<{ from: number; a
   return { ok: true, value: { from: marker, alreadyDone: committed.value.resolution === null } };
 }
 
-/** The meals and usual meals an own-food item from before snapshots is given one in (`withSnapshots`), or nothing. */
+/** The meals and usual meals an item is kept readable in (`keptReadable`): an own food given its snapshot, a flat range none. Or nothing. */
 function snapshotsChange(records: Records): Change | null {
-  const give = withSnapshots(customFoodsIn(records));
+  const give = keptReadable(customFoodsIn(records));
   const changed = (list: readonly StoredRecord[]) => list.map(give).filter((r, i) => r !== list[i]) as StoredRecord[];
   const meals = changed(records.meals);
   const savedMeals = changed(records.savedMeals);
@@ -320,7 +320,8 @@ function snapshotsChange(records: Records): Change | null {
 }
 
 /**
- * Own-food items logged before snapshots, each given one once (board D146, H7R-01): every meal, earlier
+ * Own-food items logged before snapshots, each given one once (board D146, H7R-01), and a table food held
+ * with equal carb ends given no carb estimate (H7F-03, D207): every meal, earlier
  * version and usual meal in one transaction, planned again against what is stored if another copy wrote
  * meanwhile. Schema 6 stays: the rows themselves say what's left to do, so there is nothing else to mark,
  * and a start with none writes nothing. A device that can't write it now keeps its rows, and tries again

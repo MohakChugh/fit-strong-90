@@ -166,16 +166,43 @@ export function upgradedItem(x: unknown, foodOf: (id: string) => CustomFood | un
 }
 
 /**
- * A meal (every earlier version too) or a usual meal with its items as `upgradedItem` makes them, from these
- * foods, the first of an id winning: the same row when nothing in it changes.
+ * A table food stored with equal carb ends of 1 g or more before D149 refused them (H7F-03; board D207): a
+ * single figure, never a range, so it keeps everything else and has no carb estimate. Any other item is itself.
  */
-export function withSnapshots(foods: readonly CustomFood[]): (row: unknown) => unknown {
+export function withoutFlatRange(x: unknown): unknown {
+  if (!isObject(x) || x.kind !== 'food') return x;
+  const { carbsG, carbsLowG, carbsHighG, ...rest } = x;
+  const flat = typeof carbsHighG === 'number' && carbsHighG >= 1 && carbsLowG === carbsHighG && carbsG === carbsHighG;
+  return flat ? rest : x;
+}
+
+/** These foods by id, the first of an id winning. */
+function foodsById(foods: readonly CustomFood[]): (id: string) => CustomFood | undefined {
   const byId = new Map<string, CustomFood>();
   for (const f of foods) if (!byId.has(f.id)) byId.set(f.id, f);
-  const foodOf = (id: string) => byId.get(id);
+  return id => byId.get(id);
+}
+
+/**
+ * A meal (every earlier version too) or a usual meal with its items as `upgradedItem` makes them, from these
+ * foods, the first of an id winning: the same row when nothing in it changes. A file's rows are read so.
+ */
+export function withSnapshots(foods: readonly CustomFood[]): (row: unknown) => unknown {
+  const foodOf = foodsById(foods);
+  return eachItem(i => upgradedItem(i, foodOf));
+}
+
+/** The rows this device holds, kept readable at start: `withSnapshots`, and no flat carb range either (H7F-03). */
+export function keptReadable(foods: readonly CustomFood[]): (row: unknown) => unknown {
+  const foodOf = foodsById(foods);
+  return eachItem(i => withoutFlatRange(upgradedItem(i, foodOf)));
+}
+
+/** A meal (every earlier version too) or a usual meal with each item as `f` makes it: the same row when nothing changes. */
+function eachItem(f: (item: unknown) => unknown): (row: unknown) => unknown {
   const items = (list: unknown) => {
     if (!Array.isArray(list)) return list;
-    const next = list.map(i => upgradedItem(i, foodOf));
+    const next = list.map(f);
     return next.some((v, i) => v !== list[i]) ? next : list;
   };
   return row => {
