@@ -76,17 +76,19 @@ export function HabitsScreen() {
           // Water follows the fluid answer; standing and walking follow the Guide (R03).
           const blocked = (habit === 'water' && !!waterBlock(profile, habits)) || !habitOffered(habit, profile, habits);
           const on = !!habits?.[habit]?.enabled && !blocked;
+          // As a list row does (hig Row), in the group's container: in a narrow group, as at large text, the label
+          // keeps at least 60% of its line, and the switch goes under it once the two no longer fit side by side.
           return (
-            <div key={habit} className="flex min-h-[3.25rem] items-center gap-3 pr-4">
+            <div key={habit} className="flex min-h-[3.25rem] items-center gap-3 pr-4 @max-[16rem]:flex-wrap @max-[16rem]:gap-x-1.5 @max-[16rem]:px-2">
               <button
                 type="button"
                 onClick={() => setOpen(habit)}
-                className="press-feedback flex min-h-[3.25rem] min-w-0 flex-1 items-center gap-3 py-2.5 pl-4 text-left transition-colors active:bg-muted/60"
+                className="press-feedback flex min-h-[3.25rem] min-w-0 flex-1 items-center gap-3 py-2.5 pl-4 text-left transition-colors active:bg-muted/60 @max-[16rem]:min-w-[60%] @max-[16rem]:pl-0"
               >
                 <span className="flex size-7 shrink-0 items-center justify-center text-tint [&_svg]:size-5" aria-hidden>{ICON[habit]}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[length:var(--text-body)] leading-snug">{HABIT_LABEL[habit]}</span>
-                  <span className="block text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{habitLine(habit, habits, profile, clockFormat)}</span>
+                  <span className="block text-[length:var(--text-body)] leading-snug [overflow-wrap:break-word]">{HABIT_LABEL[habit]}</span>
+                  <span className="block text-[length:var(--text-subhead)] leading-snug text-muted-foreground [overflow-wrap:break-word]">{habitLine(habit, habits, profile, clockFormat)}</span>
                 </span>
               </button>
               <Toggle checked={on} disabled={blocked} onChange={next => toggle(habit, next)} label={HABIT_LABEL[habit]} />

@@ -13,6 +13,9 @@
  *   stopped.
  * - KH-17: About's "Sources and licences" names the licences of what the
  *   app is built from, as well as Learn's sources.
+ * - §20.4 rule 1: Me's switches are at least 48 px each way and grow with
+ *   the text, the thumb stays in its track, and no words lie under a
+ *   switch: Reminders' rows put it under the label once the two don't fit.
  */
 import { docs } from '../lib/harness.mjs';
 import { persona } from '../fixtures/personas.mjs';
@@ -313,4 +316,50 @@ const licences = {
   },
 };
 
-export const cases = [finishSettingUp, goals, display, systemMotion, deleteTwice, refusedAnswers, goalsAtMidnight, liveMotion, licences];
+/** Each switch on the screen: its target, whether its thumb is inside its track, and any words of its row drawn over it. */
+const switches = page => page.getByRole('main').evaluate(main => [...main.querySelectorAll('[role="switch"]')].map(el => {
+  const box = el.getBoundingClientRect();
+  const track = el.querySelector('span[aria-hidden]')?.getBoundingClientRect();
+  const thumb = el.querySelector('span[aria-hidden] > *')?.getBoundingClientRect();
+  const over = [];
+  const walk = document.createTreeWalker(el.parentElement, NodeFilter.SHOW_TEXT);
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+    if (!n.textContent.trim() || el.contains(n)) continue;
+    const range = document.createRange();
+    range.selectNodeContents(n);
+    if ([...range.getClientRects()].some(r => r.right > box.left + 0.5 && r.left < box.right - 0.5 && r.bottom > box.top + 0.5 && r.top < box.bottom - 0.5)) over.push(n.textContent.trim());
+  }
+  return {
+    name: el.getAttribute('aria-label'),
+    width: box.width,
+    height: box.height,
+    inTrack: !!track && !!thumb && thumb.left >= track.left - 0.5 && thumb.right <= track.right + 0.5,
+    over,
+  };
+}));
+
+const switchTargets = {
+  name: '§20.4 rule 1: Me’s switches are 48 px targets that grow with the text, the thumb in its track',
+  async run(t) {
+    for (const [n, scale] of [[1, 1], [2, 2]]) {
+      await t.step(n, `Me → Reminders at ${scale * 100}% text: each switch at least ${48 * scale} px each way, its thumb in its track, no words under it`, async () => {
+        if (n > 1) await t.context.close();
+        const page = await t.open({ seed: persona('P02'), route: '/me/reminders', ...(scale > 1 ? { textScale: scale } : {}) });
+        await ui.heading(page, 'Reminders');
+        // Banners in the app is on, so a thumb is read at the far end of its travel too, once it has slid there.
+        await page.waitForTimeout(400);
+        const all = await switches(page);
+        const names = ['Water', 'Sitting breaks', 'Walk after meals', 'Banners in the app'];
+        await t.must(names.every(name => all.some(s => s.name === name)), `Reminders’ switches are ${JSON.stringify(all.map(s => s.name))}`);
+        if (n === 1) await t.checkpoint('me-switch-targets');
+        for (const s of all) {
+          await t.check(s.width >= 48 * scale - 0.5 && s.height >= 48 * scale - 0.5, `${s.name}’s switch is ${s.width.toFixed(1)} × ${s.height.toFixed(1)} px at ${scale * 100}% text`);
+          await t.check(s.inTrack, `${s.name}’s thumb is outside its track at ${scale * 100}% text`);
+          await t.check(s.over.length === 0, `${s.name}’s switch lies over “${s.over.join(' ')}” at ${scale * 100}% text`);
+        }
+      });
+    }
+  },
+};
+
+export const cases = [finishSettingUp, goals, display, systemMotion, deleteTwice, refusedAnswers, goalsAtMidnight, liveMotion, licences, switchTargets];

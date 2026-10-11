@@ -223,7 +223,8 @@ export function ChoiceChips<T extends string>({ legend, options, value, onChange
               aria-pressed={selected}
               onClick={() => onChange(selected ? undefined : option.id)}
               className={cn(
-                'press-feedback min-h-11 rounded-full px-4 text-[length:var(--text-subhead)] font-medium ring-1',
+                // 48 px tall at the least, in rem so it grows with the text size (journey §20.4 rule 1).
+                'press-feedback min-h-12 rounded-full px-4 text-[length:var(--text-subhead)] font-medium ring-1',
                 selected ? 'bg-tint text-on-tint ring-tint' : 'bg-grouped-card text-foreground ring-separator',
               )}
             >

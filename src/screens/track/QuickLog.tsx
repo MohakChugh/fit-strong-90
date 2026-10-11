@@ -628,7 +628,8 @@ function PressureForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
         <button
           type="button"
           onClick={addSecond}
-          className="press-feedback -my-1 min-h-11 self-start px-1 text-[length:var(--text-body)] font-medium text-tint"
+          // 48 px tall at the least, in rem so it grows with the text size (journey §20.4 rule 1).
+          className="press-feedback -my-1 min-h-12 self-start px-1 text-[length:var(--text-body)] font-medium text-tint"
         >
           Add a second reading
         </button>

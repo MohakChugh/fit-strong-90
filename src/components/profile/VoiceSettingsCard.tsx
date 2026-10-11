@@ -109,7 +109,7 @@ export function VoiceSettingsCard({ voice, onChange }: { voice: VoiceSettings; o
             <span className="text-sm font-medium leading-none">Start sessions muted</span>
             <span className="text-sm text-muted-foreground">Captions only; unmute any time during a session.</span>
           </div>
-          {/* The 44-point iOS switch the rest of You uses, named by its row. */}
+          {/* The 48 px iOS switch the rest of Me uses, named by its row. */}
           <Toggle checked={voice.muted} onChange={muted => onChange({ muted })} label="Start sessions muted" />
         </div>
       </div>

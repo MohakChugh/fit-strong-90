@@ -61,6 +61,8 @@ const { BAR_COLOR, themeColorFor } = await import('@/lib/themeColor');
 const { ScreenLoading } = await import('./AppShell');
 const { OwnsUrgent, UrgentBanner } = await import('@/screens/home/UrgentBanner');
 const { UrgentContext } = await import('@/screens/home/urgent');
+const { Toggle } = await import('@/screens/you/controls');
+const { ChoiceChips } = await import('@/screens/track/ui');
 
 const ROOT = path.resolve(__dirname, '../../..');
 const read = (file: string) => fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -798,6 +800,38 @@ describe('Home’s targets and layout (kiro KV-08, KV-10, KV-11, KV-15, KV-18, K
     expect(paste?.[1]).toMatch(/\bmin-h-12\b/);
     expect(paste?.[1]).toMatch(/\bmin-w-12\b/);
     expect(paste?.[1]).not.toMatch(/\bmin-h-11\b/);
+  });
+
+  it('Me’s switch is at least 48 by 48, and all in rem, so it grows with the text and its thumb stays in its track (journey §20.4 rules 1 and 7)', () => {
+    for (const checked of [false, true]) {
+      const m = html(h(Toggle, { checked, onChange: () => {}, label: 'Water' }));
+      const root = classOf(m, /class="(group\/toggle [^"]*)"/).split(' ');
+      expect(root).toEqual(expect.arrayContaining(['min-h-12', 'min-w-12']));
+      expect(root).not.toContain('h-11');
+      // The track, its inset, the thumb and the thumb's travel are all in rem: none of it stays put while the rest grows.
+      expect(m).toContain('h-[1.9375rem] w-[3.1875rem]');
+      expect(m).toContain('size-[1.6875rem]');
+      expect(m).not.toMatch(/\[[\d.]+px\]/);
+    }
+  });
+
+  it('Reminders’ rows put the switch under the label once the two no longer fit side by side, as a list row does', () => {
+    const habits = read('src/screens/you/HabitsScreen.tsx');
+    expect(habits).toMatch(/<div key=\{habit\} className="flex min-h-\[3\.25rem\][^"]*@max-\[16rem\]:flex-wrap[^"]*"/);
+    expect(habits).toMatch(/onClick=\{\(\) => setOpen\(habit\)\}\s*className="[^"]*min-w-0 flex-1[^"]*@max-\[16rem\]:min-w-\[60%\]/);
+  });
+
+  it('QuickLog’s "Add a second reading" and its When chips are at least 48 px tall, in rem so they grow with the text (journey §20.4 rule 1)', () => {
+    const second = /className="([^"]*)"\s*>\s*Add a second reading\s*</.exec(read('src/screens/track/QuickLog.tsx'));
+    expect(second?.[1]).toMatch(/\bmin-h-12\b/);
+    expect(second?.[1]).not.toMatch(/\bmin-h-11\b/);
+    const m = html(h(ChoiceChips, { legend: 'When', options: [{ id: 'morning', label: 'Morning' }, { id: 'evening', label: 'Evening' }], value: 'morning', onChange: () => {} }));
+    const chips = [...m.matchAll(/<button[^>]*class="([^"]*)"[^>]*>(Morning|Evening)<\/button>/g)];
+    expect(chips.map(c => c[2])).toEqual(['Morning', 'Evening']);
+    for (const [, cls] of chips) {
+      expect(cls.split(' ')).toContain('min-h-12');
+      expect(cls).not.toMatch(/\bmin-h-11\b/);
+    }
   });
 
   it('a hub’s "Saved on this device" stands until the next Add, never on a timer (journey §20.4 rule 8; kiro KH-16)', () => {

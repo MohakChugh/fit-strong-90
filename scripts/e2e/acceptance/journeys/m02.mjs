@@ -9,7 +9,8 @@
  * - H2-06: an Add link reaches a hub that is already open: its own form
  *   opens and the address lets the link go; another metric's opens none.
  * - H2-07: the steps form's Paste is at least 48 by 48, and grows with
- *   the text size (§20.4 rule 1).
+ *   the text size (§20.4 rule 1). So do the blood pressure form's "Add a
+ *   second reading" and its When chips.
  * - KH-02: the Steps hub while walking is held for the feet: no walking
  *   advice and no step goal, the hold in words, and a total still saves.
  * - KH-11: Back & leg's emergency signs in body text and normal ink,
@@ -206,6 +207,32 @@ const pasteTarget = {
   },
 };
 
+const pressureTargets = {
+  name: '§20.4 rule 1: the BP form’s Add a second reading and When chips are 48 px targets that grow with the text',
+  async run(t) {
+    for (const [n, scale] of [[1, 1], [2, 2]]) {
+      await t.step(n, `Blood pressure → Add reading at ${scale * 100}% text: Add a second reading and each When chip at least ${48 * scale} px each way`, async () => {
+        if (n > 1) await t.context.close();
+        const page = await t.open({ seed: persona('P01'), route: '/hub/bp', ...(scale > 1 ? { textScale: scale } : {}) });
+        await ui.heading(page, 'Blood pressure');
+        await ui.tap(ui.button(page.getByRole('main'), 'Add reading'));
+        const form = page.getByRole('dialog', { name: 'Blood pressure' });
+        await form.waitFor();
+        const second = ui.button(form, 'Add a second reading');
+        await t.must(await second.count() === 1, 'the blood pressure form has no Add a second reading');
+        const chips = form.getByRole('group', { name: 'When', exact: true }).getByRole('button');
+        await t.must(await chips.count() === 2, `the form’s When offers ${await chips.count()} chips, not Morning and Evening`);
+        if (n === 1) await t.checkpoint('bp-form-targets');
+        const targets = [['Add a second reading', await box(second)]];
+        for (const chip of await chips.all()) targets.push([`When’s ${flat(await chip.innerText())}`, await box(chip)]);
+        for (const [name, b] of targets) {
+          await t.check(b.width >= 48 * scale - 0.5 && b.height >= 48 * scale - 0.5, `${name} is ${b.width.toFixed(1)} × ${b.height.toFixed(1)} px at ${scale * 100}% text`);
+        }
+      });
+    }
+  },
+};
+
 const stepsFootHold = {
   name: 'KH-02: the Steps hub while walking is held for the feet',
   async run(t) {
@@ -305,4 +332,4 @@ const savedStays = {
   },
 };
 
-export const cases = [carryOnUnwell, carryOnFlare, carryOnGate, addWhileOpen, pasteTarget, stepsFootHold, backSigns, savedStays];
+export const cases = [carryOnUnwell, carryOnFlare, carryOnGate, addWhileOpen, pasteTarget, pressureTargets, stepsFootHold, backSigns, savedStays];
