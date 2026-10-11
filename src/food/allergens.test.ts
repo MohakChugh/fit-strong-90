@@ -112,6 +112,13 @@ describe('allergyWarning: logging never hides a food, it says why (B-13)', () =>
     expect(allergyWarning(tags({ words: ['brinjal'] }), allergiesOf({ customAllergies: ['Brinjal'] }))).toBe('Contains brinjal, which you listed as an allergy');
     expect(allergyWarning(tags({ contains: ['milk'] }), allergiesOf({ allergies: ['peanut'] }))).toBeUndefined();
   });
+  it('says when not everything is known by name, for an allergy in the person’s own words (K7-14)', () => {
+    expect(allergyWarning(tags({ named: false }), allergiesOf({ customAllergies: ['brinjal'] }))).toBe('Not everything in it is known by name. Check it for brinjal.');
+    expect(allergyWarning(tags({ named: false }), allergiesOf({ allergies: ['peanut'] }))).toBeUndefined();
+    // The tags speak for peanut; only the own words need checking.
+    expect(allergyWarning(tags({ named: false }), allergiesOf({ allergies: ['peanut'], customAllergies: ['brinjal'] }))).toBe('Not everything in it is known by name. Check it for brinjal.');
+    expect(allergyWarning(tags({ named: false, words: ['brinjal'] }), allergiesOf({ customAllergies: ['brinjal'] }))).toBe('Contains brinjal, which you listed as an allergy');
+  });
   it('lists allergens as a sentence would', () => {
     expect(allergenList(['wheat'])).toBe('wheat');
     expect(allergenList(['milk', 'treeNut', 'sesame'])).toBe('milk, tree nuts and sesame');

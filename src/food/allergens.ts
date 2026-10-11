@@ -151,8 +151,11 @@ export function allergyWarning(tags: AllergenTags, allergies: Allergies): string
   const words = new Set(tags.words);
   const hits = allergies.custom.filter(entry => entry.every(w => words.has(w))).map(entry => entry.join(' '));
   if (hits.length > 0) return `Contains ${and(hits)}, ${listed(hits.length)}`;
-  const all = [...allergies.known.map(allergenName), ...allergies.custom.map(entry => entry.join(' '))];
-  return !tags.complete && all.length > 0 ? `What’s in it isn’t known. Check it for ${or(all)}.` : undefined;
+  const own = allergies.custom.map(entry => entry.join(' '));
+  const all = [...allergies.known.map(allergenName), ...own];
+  if (!tags.complete && all.length > 0) return `What’s in it isn’t known. Check it for ${or(all)}.`;
+  // A blend's allergens are tagged; an allergy in the person's own words can't be matched against it (K7-02, K7-14).
+  return !tags.named && own.length > 0 ? `Not everything in it is known by name. Check it for ${or(own)}.` : undefined;
 }
 
 /**

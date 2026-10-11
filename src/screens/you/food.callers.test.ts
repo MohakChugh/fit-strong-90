@@ -11,12 +11,13 @@ import { createDefaultProfile } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, textOf, type Host } from '@/test/host';
 
+const params = vi.hoisted(() => ({ mealId: 'd-khichdi' }));
 vi.mock('react-router-dom', async () => {
   const { createElement: h } = await import('react');
   return {
     useNavigate: () => () => {},
     useLocation: () => ({ pathname: '/me/food', search: '', state: null, key: 'k0' }),
-    useParams: () => ({ mealId: 'd-khichdi' }),
+    useParams: () => ({ mealId: params.mealId }),
     Link: ({ children }: { children?: unknown }) => h('a', null, children as never),
     Navigate: () => null,
   };
@@ -155,5 +156,30 @@ describe('“Carb figures are rough estimates” on every food screen while carb
         expect(host.text(), s.name).not.toContain(ROUGH);
       }
     }
+  });
+});
+
+describe('a meal idea outside your allergies says why, in caution ink (K7-14)', () => {
+  const caution = (h: Host) => h.all().filter(n => /\btext-caution\b/.test(String(n.props.className ?? ''))).map(n => textOf(n.children));
+  it('in the allergy’s own words: “Contains peanut, which you listed as an allergy”', async () => {
+    params.mealId = 'b-poha';
+    await store.update(prev => ({ ...prev, profile: createDefaultProfile({ birthYear: 1970, weightKg: 70, food: { pattern: 'vegetarian', avoid: [], allergies: ['peanut'] } }) }));
+    host = render(createElement((await import('@/screens/guide/MealDetailScreen')).default));
+    await host.settle();
+    expect(caution(host)).toContain('Contains peanut, which you listed as an allergy');
+  });
+  it('and for a part whose make-up isn’t known', async () => {
+    params.mealId = 's-salad-seeds';
+    await store.update(prev => ({ ...prev, profile: createDefaultProfile({ birthYear: 1970, weightKg: 70, food: { pattern: 'vegetarian', avoid: [], allergies: ['soy'] } }) }));
+    host = render(createElement((await import('@/screens/guide/MealDetailScreen')).default));
+    await host.settle();
+    expect(caution(host)).toContain('What’s in it isn’t known. Check it for soy.');
+  });
+  it('and says nothing for an idea that suits', async () => {
+    params.mealId = 'b-idli-sambar';
+    await store.update(prev => ({ ...prev, profile: createDefaultProfile({ birthYear: 1970, weightKg: 70, food: { pattern: 'vegetarian', avoid: [], allergies: ['peanut'] } }) }));
+    host = render(createElement((await import('@/screens/guide/MealDetailScreen')).default));
+    await host.settle();
+    expect(caution(host).filter(t => /listed as an allergy|Check it for/.test(t))).toEqual([]);
   });
 });

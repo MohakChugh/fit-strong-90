@@ -2,7 +2,7 @@ import { Navigate, useLocation, useParams } from 'react-router-dom';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { componentsFor, DISCLAIMER, getMeal, idsShown, mealAllowed, mealTags, resolveGroups, SLOTS, veganSwaps } from '@/content';
-import { allergenList } from '@/food/allergens';
+import { allergenList, allergiesOf, allergyWarning } from '@/food/allergens';
 import { FOOD_COPY } from '@/food/copy';
 import { REGION_LABEL } from './format';
 import { componentDetail, measureClaimIds } from './mealText';
@@ -36,6 +36,8 @@ export default function MealDetailScreen() {
   const pattern = food?.pattern;
   const parts = componentsFor(meal, pattern);
   const tags = mealTags(meal, pattern);
+  // Why an idea is kept from this person's suggestions, in the allergy's own words (K7-14).
+  const warning = food ? allergyWarning(tags, allergiesOf(food)) : undefined;
   // A vegan plate's recipes, as the map makes them (H7-20).
   const swapped = veganSwaps(meal, pattern).map(s => `${s.to} instead of ${s.from}`);
   // One pass over the screen: each claim and caution once, in reading order.
@@ -67,6 +69,7 @@ export default function MealDetailScreen() {
       </Group>
 
       <Group header="Allergens in our recipes" footer={swapped.length > 0 ? `${FOOD_COPY.veganSwap(swapped.join(', '))} ${FOOD_COPY.recipeNote}` : FOOD_COPY.recipeNote}>
+        {warning && <p className="px-4 pt-3 text-[length:var(--text-body)] leading-snug text-caution">{warning}</p>}
         <Row
           label={tags.contains.length > 0 ? FOOD_COPY.contains(allergenList(tags.contains)) : FOOD_COPY.noTaggedAllergens}
           {...(tags.mayContain.length > 0 ? { detail: FOOD_COPY.mayContain(allergenList(tags.mayContain)) } : {})}
