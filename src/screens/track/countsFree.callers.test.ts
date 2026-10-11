@@ -103,6 +103,17 @@ describe('a walk’s energy estimate, counts-free (B-11, KH-09)', () => {
     }
   });
 
+  it('leaves the energy out for meal ideas only after “Yes” or “Prefer not to say” to the screening question (K7-04; board D133)', async () => {
+    for (const hardBefore of ['yes', 'preferNot'] as const) {
+      await store.update(prev => ({ ...prev, profile: createDefaultProfile({ birthYear: 1970, weightKg: 78, food: { pattern: 'vegetarian', avoid: [], level: 'ideas', hardBefore } }) }));
+      host?.unmount();
+      host = render(createElement(WalkSummary as never));
+      await host.settle();
+      expect(host.text(), hardBefore).toContain('Your walk');
+      expect(host.text(), hardBefore).not.toMatch(ENERGY);
+    }
+  });
+
   it('leaves the summary’s energy row out, and Save still keeps the estimate (board D101)', async () => {
     const h = await show(WalkSummary, 'meals');
     expect(h.text()).not.toMatch(ENERGY);

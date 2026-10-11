@@ -21,12 +21,16 @@ export function logsMeals(food: FoodPreferences | undefined): boolean {
 }
 
 /**
- * Counts-free ("Meals only, no numbers", B-11; board D101): no calorie or
- * carb figure and no energy figure from movement anywhere, on old records
- * too; no food prompts; no numeric targets.
+ * Counts-free (B-11; board D101, D133): no calorie or carb figure and no
+ * energy figure from movement anywhere, on old records too; no food prompts;
+ * no numeric targets. It's "Meals only, no numbers", and also any level but
+ * estimates once "Has food or weight ever been hard for you?" is answered
+ * Yes or Prefer not to say: meal ideas only then shows no movement energy.
  */
 export function countsFree(profile: Pick<UserProfile, 'food'> | undefined): boolean {
-  return foodLevel(profile?.food) === 'meals';
+  const level = foodLevel(profile?.food);
+  const hard = profile?.food?.hardBefore === 'yes' || profile?.food?.hardBefore === 'preferNot';
+  return level === 'meals' || (hard && level !== 'estimates');
 }
 
 /**
