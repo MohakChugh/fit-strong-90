@@ -216,3 +216,15 @@ describe('a preference page half answered in Me (K5-15; board D157)', () => {
     expect(store.getState().profile?.food?.level).toBe('ideas');
   });
 });
+
+describe('Review (journey §6.2)', () => {
+  it('says why diabetes reads as “Other” under Your health (K5-11; board D153)', async () => {
+    const { ReviewPage } = await import('./ReviewPage');
+    const { withDraft } = await import('@/setup/draft');
+    const { INSULIN_NO_DIABETES } = await import('@/setup/fixtures');
+    expect((await store.update(d => withDraft(d, 'review', INSULIN_NO_DIABETES))).ok).toBe(true);
+    host = render(createElement(ReviewPage));
+    await host.settle();
+    expect(host.text()).toContain('Diabetes shows as “Other” because insulin, or a tablet that can cause lows, is ticked or marked “Not sure”.');
+  });
+});

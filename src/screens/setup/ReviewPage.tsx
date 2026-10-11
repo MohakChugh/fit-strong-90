@@ -8,7 +8,7 @@ import { timeOf } from '@/lib/time';
 import { cn } from '@/lib/utils';
 import { finishSetup } from '@/setup/draft';
 import { CHAPTER_TITLE, firstPageOf, hrefOf, prevPage } from '@/setup/graph';
-import { ACKNOWLEDGEMENT, clearanceNotes, reviewRecord, reviewThings } from '@/setup/review';
+import { ACKNOWLEDGEMENT, clearanceNotes, reviewRecord, reviewThings, whyOtherDiabetes } from '@/setup/review';
 import { HANDOFF, deviceNoun, installContext, readInstallEnv } from '@/screens/welcome/install';
 import { BackupSheet } from '@/screens/you/DataSheets';
 import { Notice, PrimaryButton } from '@/screens/you/controls';
@@ -81,7 +81,7 @@ export function ReviewPage() {
         </Group>
       )}
       {chapterSections(profile, settings, today).map(s => (
-        <Group key={s.chapter} header={CHAPTER_TITLE[s.chapter]}>
+        <Group key={s.chapter} header={CHAPTER_TITLE[s.chapter]} footer={s.chapter === 'health' ? whyOtherDiabetes(answers) : undefined}>
           {s.rows.map(r => <Row key={r.label} label={r.label} detail={r.value} />)}
           <Row onClick={() => navigate(hrefOf(firstPageOf(s.chapter, answers)), { state: { fromReview: true } })}
             aria-label={`Edit ${CHAPTER_TITLE[s.chapter]}`} label={<span className="text-tint">Edit</span>} />
