@@ -316,8 +316,16 @@ describe('chapterSections: Profile & health by chapter (journey §16; Plan 5)', 
     });
     expect(rows.backFeet).toEqual({ 'Pain or past injury': 'Lower back, Sciatica', 'Which leg': 'Left', 'Worse with': 'Sitting or bending forward', 'A nerve damaged in the past': 'No' });
     expect(rows.movement).toEqual({ 'What you’d most like to do': 'Stretch more', 'Exercise now': 'No', 'Weekly goal': '90 minutes a week', 'The 12-week programme': 'Not joined' });
-    expect(rows.food['Logging what you eat']).toBe('Meals, with calorie and carb estimates');
+    expect(rows.food['Logging what you eat']).toBe('Meals with estimates');
     expect(rows.day).toEqual({ Reminders: 'Water and walks after meals', 'Quiet hours': '10:00 pm to 7:00 am', 'Reminders come': 'In the app', 'Voice coach': 'On' });
+  });
+
+  it('reads the logging level in Plan 7’s own words, so Profile & health, Review and Me → Food agree (integrator I-01)', () => {
+    // LEVEL_LABEL in Plan 7's src/food/copy.ts, word for word.
+    const PLAN7 = { ideas: 'Meal ideas only', meals: 'Meals only, no numbers', estimates: 'Meals with estimates' } as const;
+    for (const level of ['ideas', 'meals', 'estimates'] as const) {
+      expect(read(createDefaultProfile({ food: { pattern: 'vegetarian', avoid: [], level } })).food['Logging what you eat'], level).toBe(PLAN7[level]);
+    }
   });
 
   it('in feet, inches and pounds when those are the units chosen', () => {

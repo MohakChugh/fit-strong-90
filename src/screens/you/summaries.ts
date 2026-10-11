@@ -317,8 +317,13 @@ const FIGURE = { male: 'Male figure', female: 'Female figure' } as const;
 const KIDNEY_ANSWER: Record<UserProfile['health']['kidneyDisease'], string> = {
   none: 'No', ckd: 'Yes', dialysis_or_transplant: 'Dialysis or transplant', unsure: 'Not sure',
 };
+/**
+ * The logging level, in Plan 7's own words (`LEVEL_LABEL`, src/food/copy.ts),
+ * so Profile & health, Review and Me → Food say it alike. That module isn't on
+ * this branch; once merged, this can be `LEVEL_LABEL` itself.
+ */
 const LEVEL: Record<NonNullable<FoodPreferences['level']>, string> = {
-  ideas: 'Meal ideas only', meals: 'Meals, with no numbers', estimates: 'Meals, with calorie and carb estimates',
+  ideas: 'Meal ideas only', meals: 'Meals only, no numbers', estimates: 'Meals with estimates',
 };
 const minutesOf = (hhmm: string) => {
   const [h, m] = hhmm.split(':').map(Number);
