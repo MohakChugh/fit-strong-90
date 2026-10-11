@@ -85,3 +85,15 @@ describe('answerOffer: offered once, never added silently (journey §5.1)', () =
     expect(store.getState().settings.homeOffered).toEqual(['water']);
   });
 });
+
+describe('what Home’s tiles read after setup (K5-18)', () => {
+  it('keeps "Not sure" about pain, which only setup’s answers hold: Back & leg stays relevant, and Me can offer it', async () => {
+    const { homeAnswers } = await import('./homeLayout');
+    const { relevantCategories } = await import('@/categories');
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const settings = { ...store.getState().settings, onboardingComplete: true, setup: { stage: 'done' as const, skipped: [], answers: { conditions: { pain: 'unsure' as const } } } };
+    const profile = createDefaultProfile({ weightKg: 70 });
+    expect(relevantCategories(homeAnswers(profile, settings, false))).toContain('back');
+    expect(relevantCategories(homeAnswers(profile, { ...settings, setup: { ...settings.setup, answers: { conditions: { pain: 'no' as const } } } }, false))).not.toContain('back');
+  });
+});

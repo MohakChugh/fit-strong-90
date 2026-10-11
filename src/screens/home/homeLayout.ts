@@ -8,21 +8,33 @@
  * quick taps build on each other, as in Edit Home.
  */
 import { useMemo } from 'react';
-import { categoryById, defaultHome, relevantCategories, type CategoryId } from '@/categories';
+import { categoryById, defaultHome, relevantCategories, type CategoryId, type HomeAnswers } from '@/categories';
 import { createDefaultProfile } from '@/profile/defaults';
 import type { StoreResult } from '@/store/db';
 import { getState, setSettings, useStore } from '@/store/useStore';
-import type { HomeLayout } from '@/types';
+import type { HomeLayout, UserSettings } from '@/types';
+import type { UserProfile } from '@/types/profile';
+import { answersOf, setupStateOf } from '@/setup/state';
 import { addButton, addTile, storedLayout } from './layout';
+
+/**
+ * What Home's tiles read from the record (journey §5.1), "Not sure" about
+ * pain included: the profile doesn't keep it, setup's answers do, so Back &
+ * leg stays relevant after setup and Me can offer it (K5-18).
+ */
+export function homeAnswers(profile: UserProfile | undefined, settings: UserSettings, hasSteps: boolean): HomeAnswers {
+  return {
+    profile: profile ?? createDefaultProfile({ weightKg: settings.currentWeight || 0, needsHealthReview: true }),
+    settings,
+    hasSteps,
+    backUnsure: answersOf(setupStateOf(settings, profile)).conditions?.pain === 'unsure',
+  };
+}
 
 export function useHomeLayout(): { layout: HomeLayout; fallback: HomeLayout; stored: HomeLayout | undefined; relevant: CategoryId[] } {
   const { profile, settings, observations } = useStore();
   const hasSteps = useMemo(() => observations.some(o => o.kind === 'steps'), [observations]);
-  const answers = useMemo(() => ({
-    profile: profile ?? createDefaultProfile({ weightKg: settings.currentWeight || 0, needsHealthReview: true }),
-    settings,
-    hasSteps,
-  }), [profile, settings, hasSteps]);
+  const answers = useMemo(() => homeAnswers(profile, settings, hasSteps), [profile, settings, hasSteps]);
   const fallback = useMemo(() => defaultHome(answers), [answers]);
   const relevant = useMemo(() => relevantCategories(answers), [answers]);
   const stored = storedLayout(settings.home);
