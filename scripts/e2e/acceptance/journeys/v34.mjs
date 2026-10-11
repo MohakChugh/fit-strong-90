@@ -100,14 +100,20 @@ export const cases = [{
       await t.check(await page.getByRole('main').getByRole('link', { name: /walk/i }).count() === 1, 'Today’s log does not list the walk once');
     });
 
-    await t.step(6, 'Me → Data → Erase all routes: the walk stays, and no coordinate is left anywhere (B-05)', async () => {
+    await t.step(6, 'Me → Data → Erase all routes, asked twice: the walk stays, and no coordinate is left anywhere (B-05, board D182)', async () => {
       await t.goto('/me/data');
       const main = page.getByRole('main');
       await ui.tap(ui.row(main, 'Erase all routes'));
-      const sheet = page.getByRole('dialog', { name: 'Erase all routes?' });
+      const sheet = page.getByRole('dialog', { name: 'Erase all routes' });
       await sheet.waitFor();
       await ui.tap(ui.button(sheet, 'Erase routes'));
+      await page.waitForTimeout(400);
+      // The first yes only asks again (§20.4 rule 6).
+      await t.check(walk.routesIn(await t.db()).length === 1, 'the first confirmation erased the routes');
+      await t.check(/Erase every route for good\?/.test(await sheet.innerText()), `no second confirmation: ${(await sheet.innerText()).replace(/\s+/g, ' ').slice(0, 200)}`);
+      await ui.tap(ui.button(sheet, 'Erase all routes'));
       await page.waitForTimeout(600);
+      await t.check(/All routes erased\./.test(await main.innerText()), 'Data does not say the routes were erased');
       const snap = await t.db();
       await t.check(walk.routesIn(snap).length === 0 && walk.walkObservations(snap).length > 0, 'the routes or the walk are wrong after erasing');
       const leaks = [...walk.positionsIn(snap, 'db'), ...walk.positionsIn(await t.storage(), 'web')];
