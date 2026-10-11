@@ -240,6 +240,12 @@ export interface LiveWalk {
   enableMotion(): Promise<void>;
   /** Erase every point kept for this walk and keep none from now on (B-05). */
   forgetRoute(): void;
+  /**
+   * This phone's answer to keeping routes changed: a checkpoint now, so the
+   * journal holds the route only while it is kept, not until the next one is
+   * due (K6R-14).
+   */
+  routeConsentChanged(): void;
 }
 
 export function createLiveWalk(ports: LivePorts): LiveWalk {
@@ -809,6 +815,10 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
         listenForMotion(ports.now());
       }
       emit();
+    },
+
+    routeConsentChanged() {
+      if (walk) persist('now');
     },
 
     forgetRoute() {

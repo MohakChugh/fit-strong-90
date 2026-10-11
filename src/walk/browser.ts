@@ -185,9 +185,15 @@ export function liveWalk(): LiveWalk {
   shared = live;
   /** The count of erases this tab knows of; `null` until the store has been read. */
   let erased: number | null = null;
+  /** This phone's answer to keeping routes, as last heard. */
+  let keeps: boolean | null = null;
   const heard = () => {
     const state = getState();
     if (state.status === 'loading') return;
+    // Keep walk routes turned off, here or in another tab: the journal lets go of the route at once (K6R-14).
+    const keepsNow = walkSettings(state.settings).saveRoutes === true;
+    if (keeps !== null && keepsNow !== keeps) live.routeConsentChanged();
+    keeps = keepsNow;
     const count = erasedGeneration(state.settings.walk);
     if (erased === null) { erased = count; return; }
     if (count === erased) return;

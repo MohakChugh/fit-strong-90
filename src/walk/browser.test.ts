@@ -46,6 +46,7 @@ Object.assign(globalThis, {
 });
 const { browserPorts, liveWalk } = await import('./browser');
 const { cachedJournal, journalPort } = await import('./journalPort');
+const { clearWalk, sessionWalkStorage } = await import('./persist');
 
 describe('the browser’s live walk ports (B-19)', () => {
   it('tell the device of a change to the clock, then ask the gate of the device: held until a reading taken since (H6R-02)', () => {
@@ -96,6 +97,26 @@ describe('“Erase all routes”, heard by this tab’s live walk (B-05)', () =>
     expect(live.getSnapshot()!.walk.plan.keepRoute).toBe(false);
     expect(cachedJournal('mgh3k2x1-9z8y7x6w')?.route).toBeUndefined();
     expect(cachedJournal('mgh3k2x1-0a0a0a0a')?.route).toBeUndefined();
+    live.detach();
+    state.value = was;
+  });
+});
+
+describe('“Keep walk routes” turned off, heard by this tab’s live walk (K6R-14)', () => {
+  it('checkpoints at once without the route, not when the next checkpoint is due', () => {
+    const was = state.value as { settings: { walk?: object } };
+    const heard = () => { for (const l of [...state.listeners]) l(); };
+    state.value = { ...was, settings: { ...was.settings, walk: { saveRoutes: true, map: 'off' } } };
+    const live = liveWalk();
+    heard();
+    // The walk the test before left behind in this page is cleared, as its summary would.
+    clearWalk(sessionWalkStorage());
+    expect(live.attach({ id: 'mgh3k2x1-5e5e5e5e', plan: { kind: 'walk', gps: true, steps: false, keepRoute: true } })).toBe('created');
+    expect(cachedJournal('mgh3k2x1-5e5e5e5e')?.route).toEqual([]);
+    // Turned off, here or in another tab.
+    state.value = { ...was, settings: { ...was.settings, walk: { saveRoutes: false, map: 'off' } } };
+    heard();
+    expect(cachedJournal('mgh3k2x1-5e5e5e5e')?.route).toBeUndefined();
     live.detach();
     state.value = was;
   });
