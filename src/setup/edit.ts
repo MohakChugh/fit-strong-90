@@ -100,8 +100,13 @@ export function editorState(opens: Pick<Opens, 'asked' | 'also'>, a: SetupAnswer
   const pages = editPath(chapters, a, opened, ctx, opens.also);
   const committed = pages.reduce((x, id) => commitPage(id, x), a);
   const left = pages.filter(id => !pageDone(id, committed, ctx));
-  // A safety page left, or a preference page holding an answer that can't be stored (H5-15).
-  return { chapters, also: opens.also, pages, committed, left, blocking: left.filter(id => !pageDef(id).skippable || pageInvalid(id, committed, ctx)) };
+  // A safety page left; a preference page holding an answer that can't be stored (H5-15); or one this edit changed
+  // and left half answered, such as water on with no fluid answer, which would be stored off unsaid (K5-15).
+  const changed = (id: PageId) => pageDef(id).sets.some(k => !sameValue(committed[k], opened[k]));
+  return {
+    chapters, also: opens.also, pages, committed, left,
+    blocking: left.filter(id => !pageDef(id).skippable || pageInvalid(id, committed, ctx) || changed(id)),
+  };
 }
 
 /** What Save stores, from the editor's state and the answers it opened with. */

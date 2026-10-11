@@ -330,3 +330,28 @@ describe('raw answers another copy saved meanwhile (H5-13)', () => {
     expect(after.settings.setup?.answers?.skippedPages).toContain('movement.goal');
   });
 });
+
+describe('a shown page half answered holds Save, with the reason at it (K5-15; board D157)', () => {
+  const water = { on: true, glassMl: 250, everyMinutes: 120, from: '09:00', to: '21:00' };
+  const data = finished(MINIMAL);
+  const a = opened(data);
+  const blocking = (chapter: 'day' | 'food' | 'movement', answers: SetupAnswers, from = a) =>
+    editorState(editorOpens(chapter, data.profile), answers, from, CTX).blocking;
+
+  it('water turned on with no fluid answer, or after-meal walks with no meal', () => {
+    expect(blocking('day', { ...a, water })).toContain('day.reminders');
+    expect(blocking('day', { ...a, mealWalk: { on: true, meals: [] } })).toContain('day.reminders');
+    expect(blocking('day', { ...a, water, fluidLimit: 'no' })).toEqual([]);
+  });
+
+  it('an answer taken away: allergies unticked would store them unknown', () => {
+    expect(blocking('food', { ...a, allergies: undefined })).toContain('food.pattern');
+  });
+
+  it('a preference page left as it opened still waits under Finish setting up', () => {
+    const noGoal = { ...a, weeklyGoal: undefined };
+    const state = editorState(editorOpens('movement', data.profile), noGoal, noGoal, CTX);
+    expect(state.left).toContain('movement.goal');
+    expect(state.blocking).toEqual([]);
+  });
+});

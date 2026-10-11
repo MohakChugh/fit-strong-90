@@ -95,6 +95,7 @@ export function FoodLogging({ a, set, tried }: PageProps) {
           <Row onClick={() => set({ foodLevel: 'estimates' })} label={<span className="text-tint">Keep estimates</span>} />
         </Group>
       )}
+      <Missing show={tried && choosingEstimates && suggest && a.foodLevel === undefined}>Choose “Use meals only” or “Keep estimates”.</Missing>
     </>
   );
 }

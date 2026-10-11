@@ -179,3 +179,29 @@ describe('setup’s pages', () => {
     expect(router.navigate).toHaveBeenCalledWith('/setup/about/figure', undefined);
   });
 });
+
+describe('a preference page half answered in Me (K5-15; board D157)', () => {
+  it('holds Save, saying why at the question: allergies unticked would be stored unknown', async () => {
+    expect((await store.update(d => completedSetup(d, MINIMAL, NOW, CTX))).ok).toBe(true);
+    host = render(createElement(ChapterEditor, { chapter: 'food' }));
+    await host.settle();
+    await host.click(host.button('No food allergies', { exact: true }));
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('Tick your allergies, or “No food allergies”.');
+    expect(host.text()).not.toContain('Saved.');
+    expect(store.getState().profile?.food?.allergies).toEqual([]);
+  });
+
+  it('and estimates chosen after “Yes” to food being hard asks for meals only or estimates, at the suggestion', async () => {
+    expect((await store.update(d => completedSetup(d, MINIMAL, NOW, CTX))).ok).toBe(true);
+    host = render(createElement(ChapterEditor, { chapter: 'food' }));
+    await host.settle();
+    await host.click(radio(host, 'Would you like to log what you eat?', 'Yes, with calorie and carb estimates'));
+    await host.click(radio(host, 'Has food or weight ever been hard for you?', 'Yes'));
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('Choose “Use meals only” or “Keep estimates”.');
+    expect(store.getState().profile?.food?.level).toBe('ideas');
+  });
+});
