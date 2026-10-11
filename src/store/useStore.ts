@@ -1443,6 +1443,13 @@ export interface UpdateOptions {
    */
   hold?: boolean;
   /**
+   * Only worth doing if it is stored, as with clear-all and an import: with
+   * nothing to store to, it is refused with this message before anything
+   * changes, even in this session's memory. Finishing setup is one such
+   * change, since without saving its safety gap must stay (B-07; H5-06).
+   */
+  needsStorage?: string;
+  /**
    * Readings to delete in the same write: a check-in's reading taken out of
    * the record and the series together, so neither brings the other back on
    * the next save (scan C2-01). An id no longer stored is passed over.
@@ -1461,6 +1468,7 @@ export function update(updater: (previous: AppData) => AppData, options: UpdateO
   const adding = (options.addObservations ?? []).map(input => ({ ...input, id: input.id ?? freshId(), at: input.at ?? now }));
   return enqueue<void>({
     ...(options.hold ? { hold: true } : {}),
+    ...(options.needsStorage ? { needsStorage: options.needsStorage } : {}),
     plan: base => {
       const before = appDataOf(base);
       // A copy: an updater that edits in place — the old `localStorage` habit —

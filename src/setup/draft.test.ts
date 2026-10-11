@@ -17,9 +17,13 @@ globalThis.localStorage = {
 
 const store = await import('@/store/useStore');
 const {
-  continueWithoutSaving, enterWithoutSaving, getSetupSession, keepInSession, mover, outcomeOf, pageEdits, rememberEdits,
-  resetSetupSessionForTests, withDraft,
+  continueWithoutSaving, enterWithoutSaving, finishSetup, getSetupSession, keepInSession, mover, outcomeOf, pageEdits, rememberEdits,
+  resetSetupSessionForTests, saveDraft, withDraft,
 } = await import('./draft');
+const { MINIMAL } = await import('./fixtures');
+const { setupStateOf } = await import('./state');
+const CTX = { thisYear: 2026 };
+const NOW = '2026-10-10T09:00:00.000+05:30';
 
 const fresh = (): AppData => migrateData({ version: CURRENT_VERSION } as AppData);
 const ok = { ok: true as const, value: undefined };
@@ -101,6 +105,30 @@ describe('without saving (B-07)', () => {
     expect(getSetupSession()).toEqual({ unsaved: true, entered: false, at: 'health.bp', answers: { conditions: { diabetes: 'unsure' }, diabetesType: 'unsure' } });
     enterWithoutSaving();
     expect(getSetupSession().entered).toBe(true);
+  });
+
+  it('storage refused from the start runs setup in its unsaved mode: the warning shows, and the answers live in this session (H5-06)', async () => {
+    await store.start({ factory: fakeIndexedDB({ openFails: 'error' }) });
+    expect(store.getState().status).toBe('unavailable');
+    expect(await saveDraft('health.conditions', MINIMAL)).toBe('session');
+    expect(getSetupSession()).toMatchObject({ unsaved: true, at: 'health.conditions', answers: MINIMAL });
+  });
+
+  it('and finishing then completes nothing, even in this session’s memory, so every hold stays (H5-06)', async () => {
+    await store.start({ factory: fakeIndexedDB({ openFails: 'error' }) });
+    expect(await finishSetup(MINIMAL, CTX, NOW)).toEqual({ kind: 'home' });
+    expect(getSetupSession().entered).toBe(true);
+    const s = store.getState();
+    expect(s.profile).toBeUndefined();
+    expect(s.settings.onboardingComplete).not.toBe(true);
+    expect(setupStateOf(s.settings, s.profile).stage).not.toBe('done');
+  });
+
+  it('a write that needs storage is refused with nothing to store to, before anything changes, even in memory (H5-06)', async () => {
+    await store.start({ factory: fakeIndexedDB({ openFails: 'error' }) });
+    const result = await store.update(d => ({ ...d, settings: { ...d.settings, onboardingComplete: true } }), { hold: true, needsStorage: 'Not stored' });
+    expect(result.ok ? undefined : result.failure.code).toBe('unavailable');
+    expect(store.getState().settings.onboardingComplete).not.toBe(true);
   });
 
   it('remembers what a page held, so Back never loses it (§6.1)', () => {

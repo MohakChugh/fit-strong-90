@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getState, update, useStore } from '@/store/useStore';
-import { continueWithoutSaving, getSetupSession, keepInSession, mover, outcomeOf, useSetupSession, withDraft, type SaveOutcome } from '@/setup/draft';
+import { useStore } from '@/store/useStore';
+import { continueWithoutSaving, mover, saveDraft, useSetupSession, type SaveOutcome } from '@/setup/draft';
 import { hrefOf, type Ctx } from '@/setup/graph';
 import { prefillAnswers } from '@/setup/prefill';
 import { setupStateOf } from '@/setup/state';
@@ -66,13 +66,7 @@ export function useMove(): Move {
   // Only that a store was refused: never what was refused, so nothing stale can be replayed (H5-02).
   const [failed, setFailed] = useState(false);
   const run = useMemo(() => movesWithState(
-    async (to, answers) => {
-      if (getSetupSession().unsaved) {
-        keepInSession(to, answers);
-        return 'session';
-      }
-      return outcomeOf(await update(d => withDraft(d, to, answers)), getState().status);
-    },
+    saveDraft,
     {
       moved: (to, state) => { setFailed(false); navigate(hrefOf(to), state ? { state } : undefined); },
       failed: () => setFailed(true),
