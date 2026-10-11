@@ -6,12 +6,12 @@ import { FOOD_COPY, LEVEL_LABEL } from '@/food/copy';
 import { foodLevel, numbersView } from '@/food/level';
 import { promptDefault } from '@/food/prompts';
 import { LevelSheet } from '@/screens/food/LevelSheet';
-import { offerFoodUndo, useFoodUndoScope } from '@/screens/food/undo';
+import { endFoodUndos, offerFoodUndo, useFoodUndoScope } from '@/screens/food/undo';
 import { ownAllergyStatus } from '@/screens/guide/format';
 import { formatDayShort } from '@/screens/track/format';
 import { ConfirmSheet, NumberField } from '@/screens/track/ui';
 import { useToday } from '@/screens/track/useToday';
-import { useStore } from '@/store/useStore';
+import { getState, useStore } from '@/store/useStore';
 import type { Meal } from '@/types/habits';
 import { ALLERGEN_IDS, type AllergenId, type FoodPreferences } from '@/types/profile';
 import { CheckRows, ChoiceRows, Notice, PlainButton, Segmented, TimeField, type Choice } from './controls';
@@ -51,6 +51,17 @@ function cleared(food: FoodPreferences | undefined): FoodPreferences | undefined
 }
 /** "Peanut", "Tree nuts", "Brinjal": the start of a sentence. */
 const opening = (text: string) => text.charAt(0).toLocaleUpperCase() + text.slice(1);
+
+/**
+ * An allergy in the person's own words put back by Undo as adding it puts one (`addAvoid`: 30 at most, and the
+ * same word in any case is there already), in its old place where there's room (H7F-04).
+ */
+function putBack(list: readonly string[], item: string, at: number): string[] {
+  const added = addAvoid(list, item);
+  if (added.length === list.length) return added;
+  const place = Math.min(Math.max(0, at), list.length);
+  return [...list.slice(0, place), added[added.length - 1], ...list.slice(place)];
+}
 
 const keeps = (food: FoodPreferences) => (food.allergies?.length ?? 0) > 0 || (food.customAllergies?.length ?? 0) > 0 || food.hardBefore !== undefined;
 
@@ -96,14 +107,21 @@ export function FoodScreen() {
     return saved.ok;
   };
 
-  /** Undo for an allergy just removed, as it was: offered at once, standing until the person leaves Me → Food. */
-  const offerBack = (what: string, back: (food: FoodPreferences) => FoodPreferences) => offerFoodUndo({
+  /**
+   * Undo for an allergy just removed, offered at once, standing until the person leaves Me → Food or clears
+   * their food choices. It's said to be back only once the stored record holds it, and otherwise says why: the
+   * record went with Clear, or there's no room (H7F-01, H7F-04; board D207).
+   */
+  const offerBack = (what: string, back: (food: FoodPreferences) => FoodPreferences, holds: (food: FoodPreferences) => boolean) => offerFoodUndo({
     text: FOOD_COPY.allergyRemoved(opening(what)),
     restored: FOOD_COPY.allergyBack(opening(what)),
     scope: '/me/food',
     undo: async () => {
       const saved = await changeProfile(current => (current.food ? { ...current, food: back(current.food) } : current));
-      return saved.ok ? undefined : saved.failure.message;
+      if (!saved.ok) return saved.failure.message;
+      const now = getState().profile?.food;
+      if (!now) return FOOD_COPY.allergyNoRecord(opening(what));
+      return holds(now) ? undefined : FOOD_COPY.allergyNoRoom(opening(what));
     },
   });
 
@@ -147,7 +165,11 @@ export function FoodScreen() {
             onChange={allergies => {
               const gone = (food.allergies ?? []).filter(a => !allergies.includes(a));
               void edit(current => current && { ...current, allergies }).then(ok => {
-                if (ok) for (const id of gone) offerBack(allergenName(id), f => ({ ...f, allergies: ALLERGEN_IDS.filter(a => a === id || f.allergies?.includes(a)) }));
+                if (ok) {
+                  for (const id of gone) {
+                    offerBack(allergenName(id), f => ({ ...f, allergies: ALLERGEN_IDS.filter(a => a === id || f.allergies?.includes(a)) }), f => f.allergies?.includes(id) === true);
+                  }
+                }
               });
             }}
           />
@@ -176,8 +198,9 @@ export function FoodScreen() {
               if (left.length === 0) delete next.customAllergies;
               return next;
             }).then(ok => {
-              // Back in its place, unless it's been added again meanwhile.
-              if (ok) offerBack(item, f => (f.customAllergies?.includes(item) ? f : { ...f, customAllergies: [...(f.customAllergies ?? []).slice(0, Math.max(0, at)), item, ...(f.customAllergies ?? []).slice(Math.max(0, at))] }));
+              // Back in its place, as adding it would be: never twice, never past the limit.
+              const same = (a: string) => a.toLocaleLowerCase() === item.toLocaleLowerCase();
+              if (ok) offerBack(item, f => ({ ...f, customAllergies: putBack(f.customAllergies ?? [], item, at) }), f => (f.customAllergies ?? []).some(same));
             });
           }}
         />
@@ -274,7 +297,12 @@ export function FoodScreen() {
             keeps(food) ? FOOD_COPY.clearKeepsPattern : undefined,
           ].filter(Boolean).join(' ')}
           confirm={FOOD_COPY.clearConfirm}
-          onConfirm={() => void edit(cleared).then(ok => { if (ok) setClearing(false); })}
+          // Clearing is another edit: an allergy Undo standing ends with it, as §20.4 rule 6 has it (H7F-01).
+          onConfirm={() => void edit(cleared).then(ok => {
+            if (!ok) return;
+            endFoodUndos('/me/food');
+            setClearing(false);
+          })}
           {...(problem ? { error: problem } : {})}
         />
       )}

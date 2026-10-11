@@ -150,6 +150,48 @@ describe('removing an allergy offers Undo, until you leave Me → Food (K7R-01; 
     await undo(h, 'Brinjal removed from your allergies');
     expect(store.getState().profile?.food?.customAllergies).toEqual(['chaach', 'brinjal']);
   });
+  it('never says one is back once Clear has taken the food record, and Clear ends it (H7F-01; board D207)', async () => {
+    const h = await screen({ pattern: 'vegetarian', avoid: [], allergies: ['peanut'] });
+    await h.click(h.all().find(n => n.props.role === 'checkbox' && textOf(n.children) === 'Peanuts')!);
+    const offered = toasts.shown.find(t => t.text === 'Peanut removed from your allergies')!;
+    await h.click(h.button('Clear food preferences', { exact: true }));
+    await h.click(h.button('Clear food choices', { exact: true }));
+    expect(store.getState().profile?.food).toBeUndefined();
+    expect(toasts.dismissed).toContain(offered.id);
+    // Tapped all the same (in another copy of the app, say): it says why, and nothing claims it's back.
+    await undo(h, 'Peanut removed from your allergies');
+    const said = toasts.shown.map(t => t.text);
+    expect(said).not.toContain('Peanut is back in your allergies');
+    expect(said.some(t => /^That didn’t save\. Peanut wasn’t put back: your food choices were cleared/.test(t))).toBe(true);
+    expect(store.getState().profile?.food).toBeUndefined();
+  });
+  it('puts your own words back as adding them does: never past 30, never twice in another case (H7F-04)', async () => {
+    const thirty = Array.from({ length: 30 }, (_, i) => `word ${i + 1}`);
+    const h = await screen({ pattern: 'vegetarian', avoid: [], customAllergies: thirty });
+    await h.click(h.button('Remove word 3'));
+    await h.change(h.field('Something else'), { value: 'kumquat' });
+    const form = h.all().find(n => n.type === 'form')!;
+    await (form.props.onSubmit as (e: { preventDefault(): void }) => Promise<void> | void)({ preventDefault() {} });
+    await h.settle();
+    expect(store.getState().profile?.food?.customAllergies).toHaveLength(30);
+    await undo(h, 'Word 3 removed from your allergies');
+    expect(store.getState().profile?.food?.customAllergies).toHaveLength(30);
+    expect(store.getState().profile?.food?.customAllergies).not.toContain('word 3');
+    const said = toasts.shown.map(t => t.text);
+    expect(said).not.toContain('Word 3 is back in your allergies');
+    expect(said.some(t => /^That didn’t save\. Word 3 wasn’t put back: your own words already hold 30/.test(t))).toBe(true);
+  });
+  it('says one typed in again in another case is back, without a second', async () => {
+    const h = await screen({ pattern: 'vegetarian', avoid: [], customAllergies: ['brinjal', 'chaach'] });
+    await h.click(h.button('Remove brinjal'));
+    await h.change(h.field('Something else'), { value: 'Brinjal' });
+    const form = h.all().find(n => n.type === 'form')!;
+    await (form.props.onSubmit as (e: { preventDefault(): void }) => Promise<void> | void)({ preventDefault() {} });
+    await h.settle();
+    await undo(h, 'Brinjal removed from your allergies');
+    expect(store.getState().profile?.food?.customAllergies).toEqual(['chaach', 'Brinjal']);
+    expect(toasts.shown.map(t => t.text)).toContain('Brinjal is back in your allergies');
+  });
   it('never for adding one, and ends once you leave the screen', async () => {
     const h = await screen({ pattern: 'vegetarian', avoid: [], allergies: ['peanut'] });
     await h.click(h.all().find(n => n.props.role === 'checkbox' && textOf(n.children) === 'Milk')!);

@@ -149,6 +149,9 @@ export const FOOD_COPY = {
   // Removing an allergy in Me → Food offers Undo (K7R-01; board D201).
   allergyRemoved: (what: string) => `${what} removed from your allergies`,
   allergyBack: (what: string) => `${what} is back in your allergies`,
+  // Never said to be back unless it is (H7F-01, H7F-04; board D207).
+  allergyNoRecord: (what: string) => `${what} wasn’t put back: your food choices were cleared. Choose what you eat, then add it again.`,
+  allergyNoRoom: (what: string) => `${what} wasn’t put back: your own words already hold 30, the most there can be. Remove one, then Undo again.`,
   unknownWord: 'We don’t know this word, so check every meal yourself',
   avoidFooter: 'Foods you don’t eat, in your own words. Meal ideas leave them out.',
   targetGroup: 'Daily target from your care team (optional)',
