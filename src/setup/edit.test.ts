@@ -309,3 +309,24 @@ describe('the readings an edit makes (H5-14)', () => {
     expect(editMeasurements({ chapters: ['health'], opened: a, answers: { ...a, weightKg: 69 }, skipped: [] }, NOW)).toEqual([]);
   });
 });
+
+describe('raw answers another copy saved meanwhile (H5-13)', () => {
+  it('an unrelated edit keeps them: only what the edit changed is written onto the answers as they are', () => {
+    const data = finished(withC({ heart: 'yes' }, { fluidLimit: 'no', clearance: 'none', dizzy: 'no' }));
+    // Copy A opens About you; copy B then changes heart disease from Yes to Not sure, which the engine reads the same.
+    const a = opened(data);
+    const b = opened(data);
+    const bState = editorState(editorOpens('health', data.profile), { ...b, conditions: { ...b.conditions, heart: 'unsure' } }, b, CTX);
+    const byB = editedRecord(data, editOf(bState, b), TODAY, CTX);
+    expect(byB.settings.setup?.answers?.conditions?.heart).toBe('unsure');
+    // Copy B also left the weekly goal unanswered in Your movement.
+    const bMove = editorState(editorOpens('movement', byB.profile), { ...b, weeklyGoal: undefined }, b, CTX);
+    const byB2 = editedRecord(byB, editOf(bMove, b), TODAY, CTX);
+    expect(byB2.settings.setup?.answers?.skippedPages).toContain('movement.goal');
+    // Copy A saves a name.
+    const after = editedRecord(byB2, { chapters: ['about'], opened: a, answers: { ...a, name: 'Kai' }, skipped: [] }, TODAY, CTX);
+    expect(after.settings.setup?.answers?.name).toBe('Kai');
+    expect(after.settings.setup?.answers?.conditions?.heart).toBe('unsure');
+    expect(after.settings.setup?.answers?.skippedPages).toContain('movement.goal');
+  });
+});

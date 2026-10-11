@@ -17,6 +17,7 @@ import { sameValue } from '@/store/transfer';
 import type { ObservationInput } from '@/health/observation';
 import { measurementsFrom, profileFrom, settingsFrom } from './assemble';
 import { factsOf } from './facts';
+import { mergeAnswers } from './merge';
 import { REVIEW_ALSO, SAFETY_CHAPTERS, chapterOf, commitPage, pageDef, pageDone, pageInvalid, pathFor, type Ctx } from './graph';
 import { setupStateOf } from './state';
 
@@ -163,9 +164,12 @@ export function editedRecord(data: AppData, edit: ChapterEdit, today: string, ct
   const setup = setupStateOf(data.settings, data.profile);
   const left = new Set(edit.skipped.map(chapterOf));
   const skipped = CHAPTER_IDS.filter(c => (edit.chapters.includes(c) ? left.has(c) : setup.skipped.includes(c)));
-  const skippedPages = [...(edit.answers.skippedPages ?? []).filter(p => !edit.chapters.includes(chapterOf(p) as ChapterId)), ...edit.skipped];
+  // Only what this edit changed, onto setup's answers as they are now: another copy's answers and skipped pages stay (H5-13).
+  const latest = setup.answers;
+  const changed = latest ? mergeAnswers(latest, edit.opened, edit.answers) : edit.answers;
+  const skippedPages = [...((latest ?? edit.answers).skippedPages ?? []).filter(p => !edit.chapters.includes(chapterOf(p) as ChapterId)), ...edit.skipped];
   const joins = edit.chapters.includes('movement') && edit.answers.programme === 'join' && edit.answers.join !== undefined && !isEnrolled(data.settings, data.profile);
-  const answers: SetupAnswers = { ...edit.answers, skippedPages, ...(joins ? { programme: 'joined' as const } : {}) };
+  const answers: SetupAnswers = { ...changed, skippedPages, ...(joins ? { programme: 'joined' as const } : {}) };
   // A page shown from another chapter (a review's "What would you most like to do?") saves what it sets there too:
   // only what changed is written, so the rest of that chapter stays as it is.
   const owns = [...new Set([...edit.chapters, ...(edit.also ?? []).map(id => chapterOf(id) as ChapterId)])];
