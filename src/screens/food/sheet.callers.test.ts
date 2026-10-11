@@ -13,9 +13,30 @@ import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, textOf, type Host, type HostNode } from '@/test/host';
 import type { MealRecord } from '@/food/types';
 
+/** The router's blocker, as the sheet registers it: a test drives a Back through it (H7-19). */
+const nav = vi.hoisted(() => ({
+  shouldBlock: undefined as undefined | ((a: { currentLocation: { pathname: string; search: string }; nextLocation: { pathname: string; search: string }; historyAction: string }) => boolean),
+  state: 'unblocked' as 'unblocked' | 'blocked' | 'proceeding',
+  proceeded: 0,
+  resets: 0,
+  redraw: new Set<() => void>(),
+}));
 vi.mock('react-router-dom', async () => {
-  const { createElement: h } = await import('react');
+  const { createElement: h, useEffect, useReducer } = await import('react');
   return {
+    useBlocker: (shouldBlock: typeof nav.shouldBlock | boolean) => {
+      nav.shouldBlock = typeof shouldBlock === 'function' ? shouldBlock : () => shouldBlock === true;
+      const [, redraw] = useReducer((x: number) => x + 1, 0);
+      useEffect(() => {
+        nav.redraw.add(redraw);
+        return () => void nav.redraw.delete(redraw);
+      }, []);
+      return {
+        state: nav.state,
+        proceed: () => { nav.proceeded += 1; nav.state = 'proceeding'; },
+        reset: () => { nav.resets += 1; nav.state = 'unblocked'; nav.redraw.forEach(r => r()); },
+      };
+    },
     useNavigate: () => () => {},
     useLocation: () => ({ pathname: '/hub/food/log', search: '', state: null, key: 'k0' }),
     Link: ({ children }: { children?: unknown }) => h('a', null, children as never),
@@ -66,13 +87,15 @@ const person = (food: Partial<FoodPreferences>): UserProfile =>
   createDefaultProfile({ birthYear: 1970, weightKg: 70, food: { pattern: 'vegetarian', avoid: [], level: 'estimates', hardBefore: 'no', ...food } });
 
 let host: Host | undefined;
+let fake: ReturnType<typeof fakeIndexedDB>;
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(NOW);
   local.clear();
   toasts.length = 0;
   store.resetForTests();
-  await store.start({ factory: fakeIndexedDB(), broadcast: null });
+  fake = fakeIndexedDB();
+  await store.start({ factory: fake, broadcast: null });
 });
 afterEach(() => {
   host?.unmount();
@@ -229,5 +252,82 @@ describe('a food’s portion page, weighed (H7-12)', () => {
     await h.click(h.button('Add to meal', { exact: true }));
     expect(saved).toEqual([]);
     expect(h.text()).toContain('That figure can’t be right');
+  });
+});
+
+describe('browser Back with the sheet open (H7-19)', () => {
+  /** A Back, as the browser makes one: the router asks the sheet's blocker first. */
+  const back = async (h: Host) => {
+    const blocked = nav.shouldBlock?.({ currentLocation: { pathname: '/hub/food/log', search: '' }, nextLocation: { pathname: '/hub/food', search: '' }, historyAction: 'POP' }) ?? false;
+    nav.state = blocked ? 'blocked' : 'unblocked';
+    nav.redraw.forEach(r => r());
+    await h.settle();
+    return blocked;
+  };
+  beforeEach(() => {
+    nav.state = 'unblocked';
+    nav.proceeded = 0;
+    nav.resets = 0;
+  });
+
+  it('lets a Back through from a sheet with nothing in it', async () => {
+    const h = await open({});
+    expect(await back(h)).toBe(false);
+  });
+  it('asks “Discard this meal?” first with something in the tray, as Close does', async () => {
+    const h = await open({});
+    await h.click(h.button(/^Add Roti \(whole-wheat\)/));
+    expect(await back(h)).toBe(true);
+    expect(h.text()).toContain('Discard this meal?');
+    await h.click(h.button('Keep editing', { exact: true }));
+    expect(nav.resets).toBe(1);
+    expect(item(h, 'Roti (whole-wheat)')).toContain('1 roti');
+    await back(h);
+    await h.click(h.button('Discard', { exact: true }));
+    expect(nav.proceeded).toBe(1);
+  });
+  it('holds a Back while the meal saves, and goes once it’s stored', async () => {
+    const h = await open({});
+    await h.click(h.button(/^Add Roti \(whole-wheat\)/));
+    fake.control.hold();
+    await h.click(h.button('Save meal', { exact: true }));
+    expect(await back(h)).toBe(true);
+    expect(h.text()).not.toContain('Discard this meal?');
+    expect(nav.proceeded).toBe(0);
+    fake.control.release();
+    await h.settle();
+    expect(mealsIn(store.getState().records)).toHaveLength(1);
+    expect(nav.proceeded).toBe(1);
+  });
+  it('holds a Back while a meal opened unchanged is deleted, and goes once it’s gone', async () => {
+    const at = '2026-10-08T13:10:00.000+05:30';
+    const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti (whole-wheat)', unit: 'piece', count: 2, gramsPerPortion: 40 } as const;
+    expect((await food.saveMeal({ id: 'meal-1', at, day: '2026-10-08', meal: 'lunch', items: [roti], level: 'estimates', loggedAt: at, edits: [] })).ok).toBe(true);
+    const h = await open({}, { edit: 'meal-1' });
+    fake.control.hold();
+    await h.click(h.button('Delete meal', { exact: true }));
+    expect(await back(h)).toBe(true);
+    fake.control.release();
+    await h.settle();
+    expect(mealsIn(store.getState().records)).toEqual([]);
+    expect(nav.proceeded).toBe(1);
+  });
+  it('stays, with the tray and the reason, when the save it waited for is refused', async () => {
+    // A full disk, found as the write commits: after the Back.
+    store.resetForTests();
+    fake = fakeIndexedDB({ quotaStore: 'meals', quota: 'commit' });
+    await store.start({ factory: fake, broadcast: null });
+    const h = await open({});
+    await h.click(h.button(/^Add Roti \(whole-wheat\)/));
+    fake.control.setQuota(0);
+    fake.control.hold();
+    await h.click(h.button('Save meal', { exact: true }));
+    await back(h);
+    fake.control.release();
+    await h.settle();
+    expect(nav.proceeded).toBe(0);
+    expect(nav.resets).toBe(1);
+    expect(h.text()).toContain('That didn’t save.');
+    expect(item(h, 'Roti (whole-wheat)')).toContain('1 roti');
   });
 });

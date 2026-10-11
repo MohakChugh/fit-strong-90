@@ -14,9 +14,30 @@ import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, textOf, type Host, type HostNode } from '@/test/host';
 
 const router = vi.hoisted(() => ({ pathname: '/hub/food', search: '', navigate: vi.fn() }));
+/** The router's blocker, as the sheet registers it: a test drives a Back through it (H7-19). */
+const nav = vi.hoisted(() => ({
+  shouldBlock: undefined as undefined | ((a: { currentLocation: { pathname: string; search: string }; nextLocation: { pathname: string; search: string }; historyAction: string }) => boolean),
+  state: 'unblocked' as 'unblocked' | 'blocked' | 'proceeding',
+  proceeded: 0,
+  resets: 0,
+  redraw: new Set<() => void>(),
+}));
 vi.mock('react-router-dom', async () => {
-  const { createElement: h } = await import('react');
+  const { createElement: h, useEffect, useReducer } = await import('react');
   return {
+    useBlocker: (shouldBlock: typeof nav.shouldBlock | boolean) => {
+      nav.shouldBlock = typeof shouldBlock === 'function' ? shouldBlock : () => shouldBlock === true;
+      const [, redraw] = useReducer((x: number) => x + 1, 0);
+      useEffect(() => {
+        nav.redraw.add(redraw);
+        return () => void nav.redraw.delete(redraw);
+      }, []);
+      return {
+        state: nav.state,
+        proceed: () => { nav.proceeded += 1; nav.state = 'proceeding'; },
+        reset: () => { nav.resets += 1; nav.state = 'unblocked'; nav.redraw.forEach(r => r()); },
+      };
+    },
     useNavigate: () => router.navigate,
     useLocation: () => ({ pathname: router.pathname, search: router.search, state: null, key: 'k0' }),
     useParams: () => ({}),

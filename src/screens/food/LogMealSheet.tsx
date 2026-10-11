@@ -6,7 +6,8 @@
  * never nest, so a food's portion, your own food and Quick add are pages in
  * place of the tray.
  */
-import { useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useBlocker } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Group, Row } from '@/components/hig/List';
 import { cameFrom } from '@/components/hig/navigation';
@@ -121,10 +122,30 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
     // "Added ✓" for a second (M15).
     window.setTimeout(() => setAdded(a => (a === food.id ? undefined : a)), 1000);
   };
+  // Browser or system Back goes through the same guards as Close (H7-19): with a draft it asks first, and
+  // while saving it waits, going once the save lands and staying, draft and reason kept, if it's refused.
+  // The sheet's own leaving isn't held.
+  const leaving = useRef(false);
+  const blocker = useBlocker(({ currentLocation, nextLocation }) =>
+    !leaving.current && (saving || dirty) && (nextLocation.pathname !== currentLocation.pathname || nextLocation.search !== currentLocation.search));
+  // The blocker as it is now, for a handler that awaited a save.
+  const latest = useRef(blocker);
+  useEffect(() => {
+    latest.current = blocker;
+  });
+  if (blocker.state === 'blocked' && !saving && page.kind !== 'discard') setPage({ kind: 'discard' });
+  const leave = () => {
+    leaving.current = true;
+    if (latest.current.state === 'blocked') latest.current.proceed();
+    else onClose();
+  };
+  const stay = () => {
+    if (latest.current.state === 'blocked') latest.current.reset();
+  };
   const close = () => {
     if (saving) return;
     if (dirty && page.kind !== 'discard') setPage({ kind: 'discard' });
-    else onClose();
+    else leave();
   };
 
   const save = async () => {
@@ -152,13 +173,14 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
     busy.current = false;
     setSaving(false);
     if (!result.ok) {
+      stay();
       setError(result.failure.code === 'conflict' ? result.failure.message : `${FOOD_COPY.didNotSave} ${result.failure.message}`);
       return;
     }
     // A save is an unrelated change: any Undo still standing ends (B-04).
     endFoodUndos();
     toast(editing ? FOOD_COPY.updated(SLOT_LABEL[slot]) : FOOD_COPY.saved(SLOT_LABEL[slot]), { style: TOAST_STYLE });
-    onClose();
+    leave();
   };
 
   const remove = async () => {
@@ -169,6 +191,7 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
     busy.current = false;
     setSaving(false);
     if (!result.ok) {
+      stay();
       setError(`${FOOD_COPY.didNotSave} ${result.failure.message}`);
       return;
     }
@@ -183,7 +206,7 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
         return back.ok ? undefined : back.failure.message;
       },
     });
-    onClose();
+    leave();
   };
 
   const portionFood = page.kind === 'portion' ? foodById(page.foodId) : undefined;
@@ -195,8 +218,8 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
         <div className="flex flex-col gap-3">
           <p className="px-1 text-[length:var(--text-body)] font-semibold">{FOOD_COPY.discardTitle}</p>
           <Hint>{FOOD_COPY.discardDetail}</Hint>
-          <PrimaryButton onClick={() => setPage({ kind: 'tray' })}>{FOOD_COPY.keepEditing}</PrimaryButton>
-          <SecondaryButton tone="stop" onClick={onClose}>{FOOD_COPY.discard}</SecondaryButton>
+          <PrimaryButton onClick={() => { stay(); setPage({ kind: 'tray' }); }}>{FOOD_COPY.keepEditing}</PrimaryButton>
+          <SecondaryButton tone="stop" onClick={leave}>{FOOD_COPY.discard}</SecondaryButton>
         </div>
       )}
 
