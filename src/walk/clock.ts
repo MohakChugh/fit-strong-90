@@ -17,7 +17,7 @@
 import { toDateString } from '@/lib/utils';
 import type { Meal } from '@/types/habits';
 import type { GpsRun } from './gps';
-import { dayAt, offsetAt } from './time';
+import { dayAt, nextMidnightAt, offsetAt } from './time';
 
 export type WalkKind = 'walk' | 'afterMeal';
 
@@ -397,13 +397,18 @@ export function splitAtMidnight(walk: Walk, now: number): Walk {
   for (;;) {
     const open = next.status === 'running' ? openSegment(next) : undefined;
     if (!open) return next;
-    const boundary = nextMidnight(open.start);
+    // Midnight in the offset the segment was recorded in: a change of zone seen later starts its
+    // own segment, from then, so it never moves earlier minutes to another day (H6R-12, board D180).
+    const boundary = nextMidnightAt(open.start, open.offsetMin);
     if (boundary > now) return next;
     // Time accrued past midnight belongs to the new day's segment.
     const reached = open.accruedMs + Math.max(0, boundary - open.accruedAt);
     const excess = Math.min(reached, Math.max(0, open.accruedAt - boundary));
     const before: Segment = { ...open, end: boundary, endedBy: 'midnight', accruedMs: reached - excess, accruedAt: boundary };
-    const after: Segment = { ...emptySegment(boundary), accruedMs: excess, accruedAt: Math.max(boundary, open.accruedAt) };
+    const after: Segment = {
+      ...emptySegment(boundary), offsetMin: open.offsetMin, day: dayAt(boundary, open.offsetMin),
+      accruedMs: excess, accruedAt: Math.max(boundary, open.accruedAt),
+    };
     next = { ...next, segments: [...next.segments.slice(0, -1), before, after] };
   }
 }

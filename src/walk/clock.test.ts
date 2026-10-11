@@ -343,4 +343,28 @@ describe('a change of time zone mid-walk (H6-10)', () => {
     zone.mockReturnValue(-390);
     expect(startWalk('abc-123', PLAN, START).segments[0]).toMatchObject({ day: '2026-10-09', offsetMin: 390 });
   });
+
+  it('finds midnight in the offset the segment was recorded in, and starts the new offset only at the change (H6R-12)', () => {
+    // 9:30 pm in Paris in winter (UTC+1); at 10:30 pm the phone is set to UTC+3, where it is already half past midnight.
+    zone.mockReturnValue(-60);
+    const start = Date.UTC(2026, 10, 1, 20, 30);
+    let w = accrueOpen(startWalk('abc-123', PLAN, start), 3_600_000, start + 3_600_000);
+    zone.mockReturnValue(-180);
+    // As the live walk does: midnight first, then the offset.
+    w = splitAtOffsetChange(splitAtMidnight(w, start + 3_600_000), start + 3_600_000);
+    expect(w.segments.map(x => [x.endedBy, x.day, x.offsetMin, x.accruedMs])).toEqual([
+      ['timeZone', '2026-11-01', 60, 3_600_000],
+      [undefined, '2026-11-02', 180, 0],
+    ]);
+    // A walk through its own midnight before a change is seen, here to New York, keeps its offset and its day across midnight.
+    zone.mockReturnValue(-60);
+    let night = accrueOpen(startWalk('abc-124', PLAN, Date.UTC(2026, 10, 1, 22, 50)), 1_200_000, Date.UTC(2026, 10, 1, 23, 10));
+    zone.mockReturnValue(300);
+    night = splitAtMidnight(night, Date.UTC(2026, 10, 1, 23, 10));
+    expect(night.segments.map(x => [x.endedBy, x.day, x.offsetMin, x.accruedMs])).toEqual([
+      ['midnight', '2026-11-01', 60, 600_000],
+      [undefined, '2026-11-02', 60, 600_000],
+    ]);
+  });
+
 });
