@@ -33,7 +33,6 @@ export const FOOD_COPY = {
   howEstimates: 'How estimates work',
   roughCarbs: 'Carb figures are rough estimates. Follow your care team’s plan.',
   attribution: 'Ingredient values: USDA FoodData Central (public domain).',
-  privacy: 'Your records are stored on this phone.',
   // Your usual meals
   usualTitle: 'Your usual meals',
   noUsual: 'No usual meals yet. When you log a meal, turn on “Save as a usual meal”.',

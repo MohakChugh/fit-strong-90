@@ -205,4 +205,12 @@ describe('usual meals for the latest meal not yet logged (K7-07; board D139)', (
   });
 });
 
+describe('the hub’s privacy line (K7-16)', () => {
+  it('is B-24’s, for this device, as Me says it', async () => {
+    const h = await hub({});
+    expect(h.text()).toContain('Your records are stored on this device. Backups and calendar files leave only when you share them.');
+    expect(h.text()).not.toContain('this phone');
+  });
+});
+
 export { choices };

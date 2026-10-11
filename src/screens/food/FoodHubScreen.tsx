@@ -28,6 +28,8 @@ import { HubFrame, HubSection } from '@/screens/hub/HubFrame';
 import { useClock } from '@/screens/today/clock';
 import { formatDayRelative } from '@/screens/track/format';
 import { useToday } from '@/screens/track/useToday';
+import { deviceNoun, readInstallEnv } from '@/screens/welcome/install';
+import { privacyLine } from '@/screens/you/summaries';
 import { useStore } from '@/store/useStore';
 import { LevelSheet } from './LevelSheet';
 import { LogMealSheet } from './LogMealSheet';
@@ -54,6 +56,7 @@ export default function FoodHubScreen() {
   const { now } = useClock();
   const hour12 = prefersHour12();
   const [choosing, setChoosing] = useState(false);
+  const [device] = useState(() => deviceNoun(readInstallEnv()));
   // "Log a meal" with logging off asks the level first, and that sheet owns the flow until its choice is
   // stored: the profile shown changes the moment it's chosen, before it's written (H7-18).
   const [askingLevel, setAskingLevel] = useState(false);
@@ -150,7 +153,8 @@ export default function FoodHubScreen() {
       )}
 
       {numbers.show && <ClaimGroup header={FOOD_COPY.howEstimates} claims={notes} ctx={ctx} />}
-      <p className="px-4 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">{FOOD_COPY.attribution} {FOOD_COPY.privacy}</p>
+      {/* B-24's privacy sentence, for this device, as Me says it (K7-16). */}
+      <p className="px-4 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">{FOOD_COPY.attribution} {privacyLine(device)}</p>
 
       {/* A new meal waits for logging to be on; a logged meal stays editable and deletable whatever the level (A-22). */}
       {logging && (asking
