@@ -68,6 +68,8 @@ export const cases = [{
       await t.check(asked.length === 0, `the walk asked again: ${asked.join(' | ')}`);
       await page.waitForURL(/#\/walk\/live/, { timeout: 10000 });
       await t.ready();
+      // Kept in the tab once the live screen has started it: under load, a moment after the screen is in.
+      await page.waitForFunction(key => !!sessionStorage.getItem(key), walk.WALK_KEY, { timeout: 10000 }).catch(() => {});
       const live = await walk.stored(page);
       await t.check(live && live.plan.gps === true && live.plan.keepRoute === undefined, `the walk does not follow the answer given: ${JSON.stringify(live?.plan)}`);
       await t.checkpoint('walk-after-recheck');

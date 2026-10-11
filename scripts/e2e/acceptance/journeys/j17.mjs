@@ -155,7 +155,8 @@ function walkCase(variant) {
   return {
     name: `walk partial save then ${variant}`,
     async run(t) {
-      const page = await openApp(t, { seed: persona('P01'), route: '/home' });
+      // The walk counts its minutes on the monotonic clock, run with the frozen wall clock (H6-09).
+      const page = await openApp(t, { seed: persona('P01'), route: '/home', sensors: { monotonic: 'wall' } });
       t.allowConsole(MARK);
       const main = page.getByRole('main');
       let walk;

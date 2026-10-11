@@ -53,6 +53,8 @@ export const cases = [{
       await t.check(!hashes.some(h => h.startsWith('#/hub/')), `the walk passed through ${hashes.join(' → ')}: K-32 has no hub step`);
       const unlock = (await walk.played(page)).find(p => p.src.startsWith('data:audio/wav'));
       await t.check(unlock?.during === 'click', `audio was not unlocked inside the Start tap (B-01): ${JSON.stringify(unlock)}`);
+      // The walk is kept in the tab once the live screen has started it: under load, a moment after the screen is in.
+      await page.waitForFunction(key => !!sessionStorage.getItem(key), walk.WALK_KEY, { timeout: 10000 }).catch(() => {});
       const live = await walk.stored(page);
       await t.check(live?.plan.kind === 'afterMeal' && live.plan.meal?.which === 'lunch' && live.plan.meal.startedAt === LUNCH && live.plan.meal.basis === 'had',
         `the walk does not carry lunch had at 1:10 pm: ${JSON.stringify(live?.plan)}`);
