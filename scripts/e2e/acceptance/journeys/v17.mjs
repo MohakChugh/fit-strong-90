@@ -125,7 +125,8 @@ export const cases = [
         await setup.tick(main, 'Not sure: Diabetes', false);
         await t.setPageFaults(null);
         await ui.tap(ui.button(main, 'Try again'));
-        await ui.heading(page, 'High blood pressure');
+        const landed = await ui.heading(page, 'High blood pressure');
+        await t.check(landed === 'High blood pressure', `Try again went to “${landed}”`);
         const draft = docs(await t.checkpoint('corrected-try-again')).settings?.setup?.draft;
         await t.check(draft?.at === 'health.bp' && draft?.answers?.conditions?.diabetes === 'no' && draft?.answers?.conditions?.bp === 'yes',
           `Try again stored ${JSON.stringify(draft)}`);
@@ -140,7 +141,9 @@ export const cases = [
       await t.step(2, 'Take back “Not sure” about diabetes; Continue without saving', async () => {
         await setup.tick(main, 'Not sure: Diabetes', false);
         await ui.tap(ui.button(main, 'Continue without saving'));
-        await ui.heading(page, 'High blood pressure');
+        // The corrected page's next page, not the refused one's ("Which type of diabetes?").
+        const landed = await ui.heading(page, 'High blood pressure');
+        await t.check(landed === 'High blood pressure', `Continue without saving went to “${landed}”`);
         await t.checkpoint('corrected-continue-unsaved');
         // Back on the conditions, the answer kept is the corrected one.
         await ui.tap(ui.button(main, 'Back'));
