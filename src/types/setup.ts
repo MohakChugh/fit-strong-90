@@ -19,7 +19,7 @@ export const PAGE_IDS = [
   'medicines.regular', 'medicines.which', 'medicines.lows', 'medicines.ketones', 'medicines.standing', 'medicines.monitors',
   'backFeet.where', 'backFeet.side', 'backFeet.history',
   'movement.focus', 'movement.goal', 'movement.programme',
-  'food.pattern', 'food.logging',
+  'food.pattern', 'food.allergies', 'food.logging',
   'day.reminders', 'day.meals', 'day.voice',
   'review',
 ] as const;

@@ -14,23 +14,23 @@ describe('setup’s pages (journey §1.2, §6.2; B-06)', () => {
     expect(CHAPTER_IDS).toHaveLength(8);
   });
 
-  it('the minimal path is 15 pages, within 20, Welcome and Review counted', () => {
+  it('the minimal path is 16 pages, within 20, Welcome and Review counted', () => {
     const path = pathFor(MINIMAL);
     expect(path).toEqual([
       'welcome.start', 'about.name', 'about.figure', 'about.body', 'health.conditions', 'medicines.regular', 'medicines.monitors',
-      'movement.focus', 'movement.goal', 'movement.programme', 'food.pattern', 'food.logging', 'day.reminders', 'day.voice', 'review',
+      'movement.focus', 'movement.goal', 'movement.programme', 'food.pattern', 'food.allergies', 'food.logging', 'day.reminders', 'day.voice', 'review',
     ]);
     expect(path.length).toBeLessThanOrEqual(20);
   });
 
-  it('the complex path is 26 pages, within 30; the Join flow is not among them (L-01)', () => {
-    expect(pathFor(COMPLEX)).toHaveLength(26);
-    expect(pathFor({ ...COMPLEX, programme: 'join', join: JOIN })).toHaveLength(26);
+  it('the complex path is 27 pages, within 30; the Join flow is not among them (L-01)', () => {
+    expect(pathFor(COMPLEX)).toHaveLength(27);
+    expect(pathFor({ ...COMPLEX, programme: 'join', join: JOIN })).toHaveLength(27);
   });
 
   it('no answers make setup longer than 29 pages', () => {
     expect(pathFor(EVERYTHING)).toEqual([...PAGE_IDS]);
-    expect(PAGE_IDS).toHaveLength(29);
+    expect(PAGE_IDS).toHaveLength(30);
   });
 
   it('every fixture is a whole run: nothing on its path is left to answer', () => {
@@ -89,11 +89,19 @@ describe('setup’s pages (journey §1.2, §6.2; B-06)', () => {
     const food = (customAllergies: string[]): SetupAnswers => ({ pattern: 'vegetarian', allergies: [], customAllergies });
     const page = pathFor(MINIMAL).find(id => pageDef(id).sets.includes('customAllergies'))!;
     expect(pageDone(page, food(Array.from({ length: 30 }, (_, i) => `${i}`.padEnd(60, 'x'))), CTX)).toBe(true);
-    expect(pageInvalid(page, food(Array.from({ length: 31 }, (_, i) => `food ${i}`)), CTX)).toBe(true);
-    expect(pageInvalid(page, food(['x'.repeat(61)]), CTX)).toBe(true);
+    // A page that is never skipped holds them by not being answered (K5-08).
+    expect(pageDef(page).skippable).toBe(false);
+    expect(pageDone(page, food(Array.from({ length: 31 }, (_, i) => `food ${i}`)), CTX)).toBe(false);
+    expect(pageDone(page, food(['x'.repeat(61)]), CTX)).toBe(false);
   });
 
   it('stores estimates only once the screening question is answered (K-22, board D82)', () => {
+    // Allergies are hard filters (§11.5): their own page, never skipped, "No food allergies" one tap (K5-08; board D150).
+    expect([pageDef('food.allergies').skippable, pageDef('food.pattern').skippable, pageDef('food.logging').skippable]).toEqual([false, true, true]);
+    expect(pageDone('food.allergies', {}, CTX)).toBe(false);
+    expect(pageDone('food.allergies', { allergies: [] }, CTX)).toBe(true);
+    expect(pageDone('food.allergies', { allergies: [], customAllergies: ['x'.repeat(61)] }, CTX)).toBe(false);
+    expect(pageDone('food.pattern', { pattern: 'vegan' }, CTX)).toBe(true);
     expect(pageDone('food.logging', { foodLevel: 'estimates' }, CTX)).toBe(false);
     expect(pageDone('food.logging', { foodLevel: 'estimates', hardBefore: 'preferNot' }, CTX)).toBe(true);
     expect(pageDone('food.logging', { foodLevel: 'meals' }, CTX)).toBe(true);
@@ -109,7 +117,7 @@ describe('every conditional page can be reached, and none is always on (B-06)', 
     'medicines.ketones': GLIFLOZIN_NO_DIABETES, 'medicines.standing': UNSURE, 'medicines.monitors': MINIMAL,
     'backFeet.where': COMPLEX, 'backFeet.side': COMPLEX, 'backFeet.history': FOOT_WOUND,
     'movement.focus': MINIMAL, 'movement.goal': MINIMAL, 'movement.programme': MINIMAL,
-    'food.pattern': MINIMAL, 'food.logging': MINIMAL,
+    'food.pattern': MINIMAL, 'food.allergies': MINIMAL, 'food.logging': MINIMAL,
     'day.reminders': MINIMAL, 'day.meals': COMPLEX, 'day.voice': MINIMAL, 'review': MINIMAL,
   };
   for (const [id, a] of Object.entries(REACH) as [PageId, SetupAnswers][]) {
@@ -206,7 +214,7 @@ describe('moving through setup', () => {
     expect(capsuleOf('about.name', MINIMAL).label).toBe('About you · 2 of 8');
     expect(capsuleOf('day.voice', MINIMAL).label).toBe('Your day and coach · 8 of 8');
     expect(capsuleOf('review', MINIMAL)).toEqual({ label: 'Review', fraction: 1 });
-    expect(capsuleOf('health.conditions', MINIMAL).fraction).toBeCloseTo(5 / 15);
+    expect(capsuleOf('health.conditions', MINIMAL).fraction).toBeCloseTo(5 / 16);
   });
 
   it('lives at /setup/:chapter/:page, with page 1 at /setup (§19.2)', () => {

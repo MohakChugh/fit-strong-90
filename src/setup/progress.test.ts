@@ -40,6 +40,12 @@ describe('setupProgress, from setup’s state (journey §6.6, §16; board D79)',
     expect(setupProgress({ profile: answered, settings: finished(MINIMAL) }, ctx)).toEqual([]);
   });
 
+  it('names allergies left unanswered on their own page, from setup’s answers (K5-08)', () => {
+    const { allergies: _a, ...noAllergies } = MINIMAL;
+    void _a;
+    expect(rows({ ...answered, food: { pattern: 'vegetarian', avoid: [], level: 'ideas' } }, finished(noAllergies, ['food']))).toEqual([['food', 'Food allergies', 'skipped']]);
+  });
+
   it('keeps Your food open while allergies are unanswered, a backup’s unreadable list included (H5-18)', () => {
     const noFood = { ...answered, food: undefined };
     expect(rows(noFood, finished(MINIMAL))).toEqual([['food', 'Food allergies', 'skipped']]);

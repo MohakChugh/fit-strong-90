@@ -3,7 +3,7 @@ import type { PageView } from '../controls';
 import { AboutBody, AboutFigure, AboutName } from './about';
 import { BackFeetHistory, BackFeetSide, BackFeetWhere } from './backFeet';
 import { DayMeals, DayReminders, DayVoice } from './day';
-import { FoodHowYouEat, FoodLogging } from './food';
+import { FoodAllergies, FoodHowYouEat, FoodLogging } from './food';
 import { HealthBp, HealthConditions, HealthDiabetes, HealthEyes, HealthFeet, HealthFluid, HealthLimits } from './health';
 import { MedicinesKetones, MedicinesLows, MedicinesMonitors, MedicinesRegular, MedicinesStanding, MedicinesWhich } from './medicines';
 import { MovementFocus, MovementGoal, MovementProgramme } from './movement';
@@ -51,8 +51,9 @@ export const MOVEMENT_VIEWS: Record<'movement.focus' | 'movement.goal' | 'moveme
 };
 
 /** Your food's views: the contract Plan 7 consumes (board D82). */
-export const FOOD_VIEWS: Record<'food.pattern' | 'food.logging', PageView> = {
+export const FOOD_VIEWS: Record<'food.pattern' | 'food.allergies' | 'food.logging', PageView> = {
   'food.pattern': FoodHowYouEat,
+  'food.allergies': FoodAllergies,
   'food.logging': FoodLogging,
 };
 

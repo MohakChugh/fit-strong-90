@@ -337,7 +337,7 @@ export interface ChapterSection {
 }
 
 /** The allergies as the person gave them: the chips' names, then their own words (board D82). */
-function allergiesLine(food: FoodPreferences | undefined): string {
+function allergiesLine(food: Pick<FoodPreferences, 'allergies' | 'customAllergies'> | undefined): string {
   const given = [...(food?.allergies ?? []).map(allergyName), ...(food?.customAllergies ?? [])];
   if (given.length > 0) return given.join(', ');
   // An empty list is the answer "No food allergies"; no list was never asked.
@@ -423,7 +423,8 @@ export function chapterSections(profile: UserProfile, settings: UserSettings, to
   const food = profile.food;
   const foodRows: SummaryRow[] = [
     { label: 'What you eat', value: food ? FOOD_PATTERN[food.pattern] : 'Not chosen' },
-    { label: 'Allergies', value: allergiesLine(food) },
+    // Allergies, asked whatever the pattern, wait in setup's own answers with it (K5-08, D167).
+    { label: 'Allergies', value: allergiesLine(food ?? answersOf(setupStateOf(settings, profile))) },
     // A level chosen after the pattern was skipped waits in setup's own answers, until the pattern is answered (H5-20, D164).
     { label: 'Logging what you eat', value: LEVEL[food?.level ?? answersOf(setupStateOf(settings, profile)).foodLevel ?? 'ideas'] },
   ];

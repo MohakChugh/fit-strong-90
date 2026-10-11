@@ -10,13 +10,22 @@ import { Ask, Missing, TextInput, type PageProps } from '../controls';
 
 const PATTERNS: Pattern[] = ['vegetarian', 'eggetarian', 'nonVegetarian', 'vegan', 'jain'];
 
-/**
- * How the person eats, and their allergies (journey §6.2 ch. 7; board D82):
- * the chips store canonical ids in `allergies`, "Something else" the
- * person's own words in `customAllergies`, and "No food allergies" an empty
- * list. The two are one answer: given either way, `allergies` is set.
- */
+/** How the person eats (journey §6.2 ch. 7; board D82): a preference, so it may be skipped. */
 export function FoodHowYouEat({ a, set, tried }: PageProps) {
+  return (
+    <Ask label="How do you eat?" tried={tried} value={a.pattern} onChange={pattern => set({ pattern })}
+      options={PATTERNS.map(p => ({ value: p, label: PATTERN_LABEL[p], detail: PATTERN_DETAIL[p] }))} />
+  );
+}
+
+/**
+ * Their allergies, a page of its own that is never skipped: meal ideas leave
+ * these out (§11.5; K5-08, board D150). The chips store canonical ids in
+ * `allergies`, "Something else" the person's own words in
+ * `customAllergies`, and "No food allergies" an empty list. The two are one
+ * answer: given either way, `allergies` is set.
+ */
+export function FoodAllergies({ a, set, tried }: PageProps) {
   const chips = a.allergies ?? [];
   const [other, setOther] = useState(() => (a.customAllergies ?? []).join(', '));
   const write = (ids: AllergenId[], typed: string) => {
@@ -27,8 +36,6 @@ export function FoodHowYouEat({ a, set, tried }: PageProps) {
   const none = a.allergies !== undefined && a.allergies.length === 0 && !(a.customAllergies?.length);
   return (
     <>
-      <Ask label="How do you eat?" tried={tried} value={a.pattern} onChange={pattern => set({ pattern })}
-        options={PATTERNS.map(p => ({ value: p, label: PATTERN_LABEL[p], detail: PATTERN_DETAIL[p] }))} />
       <Group header="Allergies" footer="Meal ideas leave out anything with these. A food you’ve already eaten can still be logged.">
         <CheckRows label="Allergies" options={ALLERGY_CHIPS} value={chips} onChange={ids => write(ids, other)} />
         <TextInput label="Something else you’re allergic to (optional)" text={other} placeholder="For example: brinjal, kiwi"

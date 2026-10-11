@@ -125,8 +125,9 @@ const PAGES = {
   },
   'Your weekly goal': (s, a) => choose(s, 'Your weekly goal', a.goal),
   'Join the 12-week strength programme?': (s, a) => choose(s, 'Join the 12-week strength programme?', a.programme),
-  'How do you eat?': async (s, a) => {
-    await choose(s, 'How do you eat?', a.pattern);
+  'How do you eat?': (s, a) => choose(s, 'How do you eat?', a.pattern),
+  // A page of its own, never skipped (K5-08).
+  'Any food allergies?': async (s, a) => {
     if (a.allergies === 'none') await tick(s, 'No food allergies');
     else for (const x of a.allergies ?? []) await tick(s, x);
   },

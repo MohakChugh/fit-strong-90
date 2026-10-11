@@ -26,6 +26,7 @@ export const PAGE_TITLE: Record<PageId, string> = {
   'movement.goal': 'Your weekly goal',
   'movement.programme': 'Join the 12-week strength programme?',
   'food.pattern': 'How do you eat?',
+  'food.allergies': 'Any food allergies?',
   'food.logging': 'Would you like to log what you eat?',
   'day.reminders': 'Reminders',
   'day.meals': 'When do you usually finish your meals?',

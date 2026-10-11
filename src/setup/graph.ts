@@ -110,11 +110,12 @@ export const PAGES: readonly PageDef[] = [
   { id: 'movement.goal', when: always, sets: ['weeklyGoal'], skippable: true, done: a => a.weeklyGoal !== undefined },
   { id: 'movement.programme', when: always, sets: ['programme', 'join'], skippable: false,
     done: a => a.programme === 'notNow' || a.programme === 'joined' || (a.programme === 'join' && a.join !== undefined) },
-  // The chips' ids and the person's own words are one question: answered once either is, or "No food allergies" is (`allergies: []`).
-  { id: 'food.pattern', when: always, sets: ['pattern', 'allergies', 'customAllergies'], skippable: true,
-    done: a => a.pattern !== undefined && a.allergies !== undefined && ownAllergiesProblem(a.customAllergies) === null,
-    // More allergies of their own, or longer, than a backup holds (H5-18).
-    invalid: a => ownAllergiesProblem(a.customAllergies) !== null },
+  { id: 'food.pattern', when: always, sets: ['pattern'], skippable: true, done: a => a.pattern !== undefined },
+  // Allergies are hard filters (§11.5): their own page, never skipped (K5-08; board D150). The chips' ids and the person's
+  // own words are one question: answered once either is, or "No food allergies" is (`allergies: []`), and within what a
+  // backup holds (H5-18).
+  { id: 'food.allergies', when: always, sets: ['allergies', 'customAllergies'], skippable: false,
+    done: a => a.allergies !== undefined && ownAllergiesProblem(a.customAllergies) === null },
   // Estimates are stored only once "Has food or weight ever been hard for you?" is answered (K-22), and the answer is kept (board D82).
   { id: 'food.logging', when: always, sets: ['foodLevel', 'hardBefore'], skippable: true,
     done: a => a.foodLevel !== undefined && (a.foodLevel !== 'estimates' || a.hardBefore !== undefined) },

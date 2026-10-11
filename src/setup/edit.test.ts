@@ -297,6 +297,18 @@ describe('food answers after a skipped eating pattern (H5-20; board D164)', () =
     expect(after.profile?.food).toMatchObject({ pattern: 'vegetarian', level: 'meals', hardBefore: 'yes' });
     expect(logging(after)).toBe('Meals only, no numbers');
   });
+
+  it('allergies, asked whatever the pattern, wait with them and are read back (K5-08; board D167)', async () => {
+    const { chapterSections } = await import('@/screens/you/summaries');
+    const skipped: SetupAnswers = { ...MINIMAL, pattern: undefined, allergies: ['peanut'], customAllergies: ['brinjal'], skippedPages: ['food.pattern'] };
+    const data = finished(skipped);
+    expect(data.profile?.food).toBeUndefined();
+    const allergies = (d: AppData) => chapterSections(d.profile!, d.settings, TODAY).find(s => s.chapter === 'food')!.rows.find(r => r.label === 'Allergies')!.value;
+    expect(allergies(data)).toBe('Peanuts, brinjal');
+    const a = opened(data);
+    const after = editedRecord(data, editOf(editorState(editorOpens('food', data.profile), { ...a, pattern: 'vegan' }, a, CTX), a), TODAY, CTX);
+    expect(after.profile?.food).toMatchObject({ pattern: 'vegan', allergies: ['peanut'], customAllergies: ['brinjal'] });
+  });
 });
 
 describe('the readings an edit makes (H5-14)', () => {
@@ -345,7 +357,7 @@ describe('a shown page half answered holds Save, with the reason at it (K5-15; b
   });
 
   it('an answer taken away: allergies unticked would store them unknown', () => {
-    expect(blocking('food', { ...a, allergies: undefined })).toContain('food.pattern');
+    expect(blocking('food', { ...a, allergies: undefined })).toContain('food.allergies');
   });
 
   it('a preference page left as it opened still waits under Finish setting up', () => {

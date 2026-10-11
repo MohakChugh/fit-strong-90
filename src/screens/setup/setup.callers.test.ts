@@ -247,3 +247,21 @@ describe('the hold while setup is unfinished (§6.1; K5-07)', () => {
     expect(host.text()).toContain('"none"');
   });
 });
+
+describe('allergies in setup (K5-08; board D150)', () => {
+  it('have their own page with no Skip for now; “No food allergies” is one tap, then Next', async () => {
+    const { PageFrame } = await import('./PageFrame');
+    const { FoodAllergies } = await import('./pages/food');
+    host = render(createElement(PageFrame, { id: 'food.allergies', View: FoodAllergies }));
+    await host.settle();
+    expect(host.buttons('Skip for now')).toHaveLength(0);
+    await host.click(host.button('Next', { exact: true }));
+    await host.settle();
+    expect(saves).toHaveLength(0);
+    expect(host.text()).toContain('Tick your allergies, or “No food allergies”.');
+    await host.click(host.button('No food allergies', { exact: true }));
+    await host.click(host.button('Next', { exact: true }));
+    await host.settle();
+    expect((saves[0] as [string, { allergies?: unknown }])[1].allergies).toEqual([]);
+  });
+});
