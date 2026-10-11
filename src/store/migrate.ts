@@ -324,8 +324,9 @@ function snapshotsChange(records: Records): Change | null {
  * with equal carb ends given no carb estimate (H7F-03, D207): every meal, earlier
  * version and usual meal in one transaction, planned again against what is stored if another copy wrote
  * meanwhile. Schema 6 stays: the rows themselves say what's left to do, so there is nothing else to mark,
- * and a start with none writes nothing. A device that can't write it now keeps its rows, and tries again
- * next start. The snapshot it leaves the store holding.
+ * and a start with none writes nothing. A device that can't write it now keeps its rows as they are, and
+ * tries again next start; meanwhile they're read as they'll be stored, so nothing leaves history for the
+ * session (H7R-01). The snapshot it leaves the store holding.
  */
 export async function giveSnapshots(db: Db, known: Snapshot): Promise<Snapshot> {
   if (snapshotsChange(known.records) === null) return known;
@@ -333,5 +334,8 @@ export async function giveSnapshots(db: Db, known: Snapshot): Promise<Snapshot> 
     const change = snapshotsChange(base.records);
     return change ? { change } : null;
   });
-  return committed.ok ? committed.value.next : known;
+  if (committed.ok) return committed.value.next;
+  const base = committed.refreshed ?? known;
+  const change = snapshotsChange(base.records);
+  return change ? { ...base, records: prepare(base, change).next.records } : base;
 }

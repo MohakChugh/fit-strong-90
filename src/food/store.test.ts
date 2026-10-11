@@ -305,11 +305,20 @@ describe('own foods logged before snapshots (H7R-01; board D146)', () => {
     await store.start({ factory: fake, broadcast: null });
     expect(store.getState().status).toBe('ready');
     expect((await stored(fake)).records.meals).toEqual(PRE_SNAPSHOT.meals);
+    // Read all the same while it can't be written (H7R-01): every meal and the usual meal, as they'll be stored.
+    expect(mealsIn(store.getState().records)).toHaveLength(5);
+    expect(savedMealsIn(store.getState().records)).toHaveLength(1);
+    expect(mealsIn(store.getState().records).find(m => m.id === 'meal-snack')?.items).toEqual([{ kind: 'custom', customId: 'food-laddoo', name: 'Besan laddoo', count: 1.5 }]);
+    // A save meanwhile writes its own meal only; the rest are written once a start can.
+    expect((await food.saveMeal(meal('meal-new'))).ok).toBe(true);
+    expect((await stored(fake)).records.meals.find(r => r.id === 'meal-lunch')).toEqual(PRE_SNAPSHOT.meals.find(r => r.id === 'meal-lunch'));
+    expect(mealsIn(store.getState().records)).toHaveLength(6);
     refuse = false;
     store.resetForTests();
     await store.start({ factory: fake, broadcast: null });
-    expect(mealsIn(store.getState().records)).toHaveLength(5);
+    expect(mealsIn(store.getState().records)).toHaveLength(6);
     expect(savedMealsIn(store.getState().records)).toHaveLength(1);
+    expect((await stored(fake)).records.meals.find(r => r.id === 'meal-lunch')?.items).toEqual(mealsIn(store.getState().records).find(m => m.id === 'meal-lunch')?.items);
   });
 
   it('keeps a meal held with equal carb ends from before D149, the item with no carb estimate and all else as it was (H7F-03; board D207)', async () => {
