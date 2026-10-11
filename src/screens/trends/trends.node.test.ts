@@ -50,3 +50,11 @@ describe('Labs show when the latest was measured (H3-05)', () => {
     expect(read('CategoryTrend.tsx')).toContain('<TrendHeadlines headline={view.headline} change={view.change} />');
   });
 });
+
+describe('Your week keeps the goal its own week had, whichever week it is (H3-14, B-16)', () => {
+  it('reads it for the chosen week, not from the 8 rings on screen', () => {
+    const trends = read('TrendsScreen.tsx');
+    expect(trends).toContain('const goal = weeklyGoalOn(state.settings, week);');
+    expect(trends).not.toContain('rings.find(r => r.week === week)?.goal');
+  });
+});

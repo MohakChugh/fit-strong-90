@@ -21,6 +21,7 @@ import { displayPrefs } from '@/screens/track/logKinds';
 import { addDays, mondayOf } from '@/screens/track/periods';
 import { recordPath } from '@/screens/track/timeline';
 import { useToday } from '@/screens/track/useToday';
+import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
 import { RouteThumb } from '@/screens/walk/RouteThumb';
 import { setContentState, useStore } from '@/store/useStore';
 import type { RouteRecord } from '@/walk/routeRecord';
@@ -75,7 +76,8 @@ export default function TrendsScreen() {
 
   const held = useHeld();
   const pause = briefPause({ status: statusOn(state.settings.statusPeriods, today), urgent: urgent !== undefined, held });
-  const goal = rings.find(r => r.week === week)?.goal;
+  // The chosen week's own goal (B-16), as each ring has, though the address can choose a week before the 8 rings (H3-14).
+  const goal = weeklyGoalOn(state.settings, week);
   const pending = week === thisWeek ? pendingGoalText(state.settings, today) : undefined;
   const choose = (next: string) => {
     markInPlace();
