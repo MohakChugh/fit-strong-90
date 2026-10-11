@@ -45,6 +45,8 @@ export interface MoveOpts {
   state?: NavState;
   from?: PageId;
   opened?: SetupAnswers;
+  /** The record the page was opened for (`StoreState.epoch`): a store for one since replaced is refused (H5R-09). */
+  generation?: number;
 }
 
 export interface Move {
@@ -70,11 +72,11 @@ export interface Recovery {
 
 /** `mover`, with each move carrying its navigation's state ("from Review", "Welcome back") to where it lands, and the page it leaves. */
 function movesWithState(
-  save: (to: PageId, answers: SetupAnswers, from?: PageId, opened?: SetupAnswers) => Promise<SaveOutcome>,
+  save: (to: PageId, answers: SetupAnswers, from?: PageId, opened?: SetupAnswers, generation?: number) => Promise<SaveOutcome>,
   on: { moved: (to: PageId, state: NavState) => void; failed: () => void },
 ): (to: PageId, answers: SetupAnswers, opts?: MoveOpts) => void {
   let pending: MoveOpts = {};
-  const move = mover((to, answers) => save(to, answers, pending.from, pending.opened), { moved: to => on.moved(to, pending.state), failed: () => on.failed() });
+  const move = mover((to, answers) => save(to, answers, pending.from, pending.opened, pending.generation), { moved: to => on.moved(to, pending.state), failed: () => on.failed() });
   return (to, answers, opts = {}) => {
     pending = opts;
     void move(to, answers);

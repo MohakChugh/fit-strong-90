@@ -466,3 +466,40 @@ describe('a save from Me the device refused, in Profile & health (board D168)', 
     expect(host.text()).not.toContain('didn’t save on this phone');
   });
 });
+
+describe('a screen opened for a record another copy has since replaced (H5R-09, K5R-03)', () => {
+  const replaceElsewhere = async () => {
+    const { openDb } = await import('@/store/db');
+    const { commitChange } = await import('@/store/snapshot');
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { reset: true, schemaVersion: 6 } }))).ok).toBe(true);
+    tab.close();
+  };
+
+  it('a setup page’s Next stores nothing into the new record', async () => {
+    const { PageFrame } = await import('./PageFrame');
+    const { AboutName } = await import('./pages/about');
+    host = render(createElement(PageFrame, { id: 'about.name', View: AboutName }));
+    await host.settle();
+    await host.change(host.field('Name (optional)'), { value: 'Old' });
+    await replaceElsewhere();
+    await host.click(host.button('Next', { exact: true }));
+    await host.settle();
+    expect((await store.reload()).ok).toBe(true);
+    expect(store.getState().settings.setup?.draft).toBeUndefined();
+    expect(router.navigate).not.toHaveBeenCalledWith('/setup/about/figure', undefined);
+  });
+
+  it('Me’s Save stores nothing into the new record', async () => {
+    expect((await store.update(d => completedSetup(d, MINIMAL, NOW, CTX))).ok).toBe(true);
+    host = render(createElement(ChapterEditor, { chapter: 'about' }));
+    await host.settle();
+    await host.change(host.field('Name (optional)'), { value: 'Old' });
+    await replaceElsewhere();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('That did not save.');
+    expect((await store.reload()).ok).toBe(true);
+    expect(store.getState().profile).toBeUndefined();
+  });
+});

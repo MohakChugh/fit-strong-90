@@ -35,6 +35,8 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
   const [outcome, setOutcome] = useState<{ tone: 'status' | 'error'; lines: string[] }>();
   // A save the device refused: Save tries it again, or it's not kept (board D168).
   const [refused, setRefused] = useState<number>();
+  // The record this editor was opened for: a save for it, once another copy has replaced it, is refused (H5R-09).
+  const [generation] = useState(() => getState().epoch);
   const a: SetupAnswers = { ...opened, ...edits };
   const state = editorState(opens, a, opened, ctx);
   const { pages, blocking } = state;
@@ -58,7 +60,7 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
     // only once stored, held until it is (H5-08; D168). With nothing to store to, it isn't stored at all (K5R-05).
     const changes = profileChanges(getState().profile, editedProfile(getState(), edit, today, ctx));
     const { saved, id } = await saveClinicalEdit(changes, () => update(d => editedRecord(d, edit, today, ctx), {
-      hold: true, needsStorage: 'This phone isn’t storing data right now, so these answers aren’t saved.', addObservations: editMeasurements(edit, now),
+      hold: true, needsStorage: 'This phone isn’t storing data right now, so these answers aren’t saved.', addObservations: editMeasurements(edit, now), generation,
     }), refused);
     setBusy(false);
     if (!saved.ok) {

@@ -4,6 +4,7 @@ import { TypeIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
 import { lookAroundFirst } from '@/setup/draft';
+import { getState } from '@/store/useStore';
 import { resumeAt } from '@/setup/graph';
 import { InstallSteps } from '@/screens/welcome/InstallSteps';
 import { deviceNoun, installContext, installLine, readInstallEnv } from '@/screens/welcome/install';
@@ -31,19 +32,21 @@ export function WelcomePage() {
   });
   const [sheet, setSheet] = useState<'display' | 'install'>();
   const [problem, setProblem] = useState<string>();
+  // The record Welcome was opened for: a store for it, once another copy has replaced it, is refused (H5R-09).
+  const [generation] = useState(() => getState().epoch);
   const line = installLine(context, device);
 
   // A draft carries on where it stopped, with "Welcome back" (a backup restored here, V-J11); otherwise the first question.
   // Planned from what setup holds now, again after a refused store (H5-02).
   const start = (unsaved = false) => {
     const go = unsaved ? move.goUnsaved : move.go;
-    if (at && at !== 'welcome.start') go(resumeAt(answers, at, ctx), answers, { state: { welcomeBack: true } });
-    else go('about.name', answers);
+    if (at && at !== 'welcome.start') go(resumeAt(answers, at, ctx), answers, { state: { welcomeBack: true }, generation });
+    else go('about.name', answers, { generation });
   };
   const recovery: Recovery = { failed: move.failed, retry: () => start(), continueUnsaved: () => start(true) };
 
   const lookAround = async () => {
-    const refused = await lookAroundFirst();
+    const refused = await lookAroundFirst(generation);
     if (refused) setProblem(refused);
     else navigate('/home', { replace: true });
   };

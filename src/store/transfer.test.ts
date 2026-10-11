@@ -75,7 +75,8 @@ async function dump(db: Db) {
   return {
     observations: unstamped(await db.getAll<{ id: string; seq?: number }>('observations')).sort(byId),
     sessions: (await db.getAll<{ id: string }>('sessions')).sort(byId),
-    settings: (await db.getAll<{ key: string }>('settings')).filter(row => row.key !== 'revision').sort(byKey),
+    // The device's own bookkeeping: how many writes, and how many times the whole record was replaced here (H5R-09).
+    settings: (await db.getAll<{ key: string }>('settings')).filter(row => row.key !== 'revision' && row.key !== 'generation').sort(byKey),
     content: (await db.getAll<{ key: string }>('content-state')).sort(byKey),
   };
 }

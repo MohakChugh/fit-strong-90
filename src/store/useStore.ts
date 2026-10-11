@@ -118,10 +118,11 @@ export interface StoreState {
    */
   revision: number;
   /**
-   * Moves on when the whole record is replaced in this copy: a backup
-   * restored with Replace, or everything deleted. What a screen kept for the
+   * The record's generation (`Snapshot.generation`): moves on when the whole
+   * record is replaced, by a backup restored with Replace or everything
+   * deleted, here or in another copy of the app. What a screen kept for the
    * record before (setup's answers on a page, say) belonged to that record,
-   * and is dropped when this moves (H5-07).
+   * and is dropped when this moves (H5-07, H5R-09).
    */
   epoch: number;
 }
@@ -178,8 +179,6 @@ let channel: BroadcastLike | undefined;
 let detachVisibility: (() => void) | undefined;
 /** Bumped by `resetForTests`, so a commit still in flight from an earlier test cannot touch the next one. */
 let generation = 0;
-/** `StoreState.epoch`: moves on when the whole record is replaced (H5-07). */
-let epoch = 0;
 
 interface Planned<T> {
   /** `null`: nothing to do, and nothing is written. */
@@ -239,7 +238,7 @@ function toState(s: Snapshot): StoreState {
     saving: jobs.some(j => j.kind === 'mutation'),
     installed,
     revision: committed.revision,
-    epoch,
+    epoch: s.generation,
   };
 }
 
@@ -656,7 +655,6 @@ export function resetForTests(): void {
   migration = undefined;
   persisted = false;
   installed = undefined;
-  epoch = 0;
   listeners.clear();
   state = toState(view);
 }
@@ -1269,7 +1267,6 @@ export function clearAll(): Promise<StoreResult> {
     needsStorage: 'This app cannot reach this device’s storage right now, so it cannot delete what is kept there. Close the app, open it again, and try again.',
     plan: () => ({ change: { reset: true, schemaVersion: SCHEMA_VERSION }, result: () => undefined }),
     after: () => {
-      epoch += 1;
       try {
         resetData();
         return undefined;
@@ -1479,7 +1476,16 @@ export interface UpdateOptions {
    * finished in another tab, say) adds none of them (H5-09).
    */
   addObservationsWhen?: (before: AppData, after: AppData) => boolean;
+  /**
+   * Planned for this record (`StoreState.epoch` when it was asked for): once
+   * a backup has replaced it or everything was deleted, here or in another
+   * copy, the write is refused, inside its transaction (H5R-09).
+   */
+  generation?: number;
 }
+
+/** A write planned for a record that has since been replaced (H5R-09). */
+export const REPLACED = 'This was for a record that has since been replaced on this device, by a restored backup or by deleting everything, so it wasn’t saved.';
 
 export function update(updater: (previous: AppData) => AppData, options: UpdateOptions = {}): Promise<StoreResult> {
   const now = nowAt();
@@ -1488,6 +1494,7 @@ export function update(updater: (previous: AppData) => AppData, options: UpdateO
     ...(options.hold ? { hold: true } : {}),
     ...(options.needsStorage ? { needsStorage: options.needsStorage } : {}),
     plan: base => {
+      if (options.generation !== undefined && base.generation !== options.generation) throw new StoreFailure('conflict', REPLACED);
       const before = appDataOf(base);
       // A copy: an updater that edits in place — the old `localStorage` habit —
       // cannot reach into live state, and the edit still shows as a difference.
@@ -1660,11 +1667,6 @@ export function importRecord(raw: unknown, mode: ImportMode, options: ImportOpti
     plan: base => {
       const planned = planImport(raw, mode, base, options);
       return { change: planned.change, result: () => planned.report };
-    },
-    // Replace makes this the backup's record: what screens kept for the one before is that record's (H5-07).
-    after: () => {
-      if (mode === 'replace') epoch += 1;
-      return undefined;
     },
   });
 }

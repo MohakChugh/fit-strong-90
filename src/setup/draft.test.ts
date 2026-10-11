@@ -342,3 +342,52 @@ describe('a page’s answers, kept as typed while it’s open (§6.1; H5-16, K5-
     expect(stored()).toEqual({ at: 'about.name', answers: { figure: 'female' } });
   });
 });
+
+describe('a setup write planned for a record another copy has since replaced (H5R-09, K5R-03; board D191)', () => {
+  const replaceElsewhere = async (fake: ReturnType<typeof fakeIndexedDB>) => {
+    const { openDb } = await import('@/store/db');
+    const { commitChange } = await import('@/store/snapshot');
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { reset: true, schemaVersion: 6, settings: { replace: { ...fresh().settings, setup: { stage: 'open', draft: { at: 'about.figure', answers: { figure: 'female' } } } } } } }))).ok).toBe(true);
+    tab.close();
+  };
+
+  it('a Next is refused inside its transaction, and nothing of the old record’s page reaches the new one', async () => {
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake });
+    const generation = store.getState().epoch;
+    await replaceElsewhere(fake);
+    expect(await saveDraft('health.conditions', { conditions: { diabetes: 'no' } }, 'about.name', {}, generation)).toBe('failed');
+    // Refused for that, this copy takes the new record by itself, so its screens move on.
+    for (let i = 0; i < 50 && store.getState().epoch === generation; i++) await new Promise(r => setTimeout(r, 5));
+    expect(store.getState().epoch).toBe(generation + 1);
+    expect(store.getState().settings.setup?.draft).toEqual({ at: 'about.figure', answers: { figure: 'female' } });
+  });
+
+  it('finishing onto a record with no draft at all is refused too', async () => {
+    const { openDb } = await import('@/store/db');
+    const { commitChange } = await import('@/store/snapshot');
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake });
+    const generation = store.getState().epoch;
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { reset: true, schemaVersion: 6 } }))).ok).toBe(true);
+    tab.close();
+    expect((await finishSetup(MINIMAL, CTX, NOW, generation)).kind).toBe('failed');
+    expect((await store.reload()).ok).toBe(true);
+    expect(store.getState().profile).toBeUndefined();
+  });
+
+  it('so are Back’s and Close’s, Look around first’s and finishing’s', async () => {
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake });
+    const generation = store.getState().epoch;
+    rememberEdits('about.name', { name: 'Old' });
+    await replaceElsewhere(fake);
+    await flushEdits('about.name', 'welcome.start', generation);
+    expect(await lookAroundFirst(generation)).toBeDefined();
+    expect((await finishSetup(MINIMAL, CTX, NOW, generation)).kind).toBe('failed');
+    expect((await store.reload()).ok).toBe(true);
+    expect(store.getState().settings.setup).toMatchObject({ stage: 'open', draft: { at: 'about.figure', answers: { figure: 'female' } } });
+  });
+});

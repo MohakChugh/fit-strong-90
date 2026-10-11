@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { markBack } from '@/components/hig/navigation';
 import { autosaveEdits, flushEdits, flushPending, pageEdits, rememberEdits } from '@/setup/draft';
+import { getState } from '@/store/useStore';
 import { backFromReview, capsuleOf, hrefOf, nextMove, pageDef, pageInvalid, prevPage, skipMove, type PlannedMove } from '@/setup/graph';
 import { PlainButton, PrimaryButton } from '@/screens/you/controls';
 import type { PageId, SetupAnswers } from '@/types/setup';
@@ -28,6 +29,8 @@ export function PageFrame({ id, View }: { id: PageId; View: PageView }) {
   const move = useMove();
   const ctx = useCtx();
   const [edits, setEdits] = useState<Partial<SetupAnswers>>(() => pageEdits(id));
+  // The record this page was opened for: a store for it, once another copy has replaced it, is refused (H5R-09).
+  const [generation] = useState(() => getState().epoch);
   const [tried, setTried] = useState(false);
   // The move the last store was for: Try again makes it again.
   const [last, setLast] = useState<'next' | 'skip'>('next');
@@ -69,20 +72,20 @@ export function PageFrame({ id, View }: { id: PageId; View: PageView }) {
         return;
       }
     }
-    (unsaved ? move.goUnsaved : move.go)(planned.to, planned.answers, { ...(carry ? { state: carry } : {}), from: id, opened: answers });
+    (unsaved ? move.goUnsaved : move.go)(planned.to, planned.answers, { ...(carry ? { state: carry } : {}), from: id, opened: answers, generation });
   };
   const recovery: Recovery = { failed: move.failed, retry: () => attempt(last), continueUnsaved: () => attempt(last, true) };
 
   const back = () => {
     const prev = fromReview ? backFromReview(a, id) : prevPage(a, id);
     // Reopened later, setup resumes on the page Back went to, with this one's answers as typed (H5-16).
-    void flushEdits(id, prev ?? 'welcome.start');
+    void flushEdits(id, prev ?? 'welcome.start', generation);
     markBack();
     navigate(prev && prev !== 'welcome.start' ? hrefOf(prev) : '/setup', { replace: true, state: { back: true, ...carry } });
   };
 
   return (
-    <SetupShell title={PAGE_TITLE[id]} capsule={capsuleOf(id, answers)} onBack={back} onClose={() => void flushEdits(id, id)} recovery={recovery}>
+    <SetupShell title={PAGE_TITLE[id]} capsule={capsuleOf(id, answers)} onBack={back} onClose={() => void flushEdits(id, id, generation)} recovery={recovery}>
       <View a={a} set={set} tried={tried} ctx={ctx} mode="setup" />
       <div className="mt-auto flex flex-col gap-2 pt-2">
         <PrimaryButton className="min-h-[3.75rem]" onClick={() => attempt('next')}>Next</PrimaryButton>

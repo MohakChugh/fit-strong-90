@@ -403,6 +403,8 @@ export const DOC_KEYS = [
   'focusOverrides',
   /** Moves on every write; how a second open copy learns it is out of date. */
   'revision',
+  /** Moves on when the whole record is replaced or deleted (H5R-09). */
+  'generation',
 ] as const;
 
 export type DocKey = (typeof DOC_KEYS)[number];

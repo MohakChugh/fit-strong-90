@@ -147,7 +147,7 @@ export function resetSetupSession(): void {
  * it's forgotten there (K5-05). `opened`: what the page opened with, so only
  * its own changes are written (`withDraft`, H5-12).
  */
-export async function saveDraft(to: PageId, answers: SetupAnswers, from?: PageId, opened?: SetupAnswers): Promise<SaveOutcome> {
+export async function saveDraft(to: PageId, answers: SetupAnswers, from?: PageId, opened?: SetupAnswers, generation?: number): Promise<SaveOutcome> {
   // A change still waiting to be kept would put back what this move stores (H5-16).
   if (from !== undefined) cancelAutosave(from);
   let outcome: SaveOutcome;
@@ -155,7 +155,7 @@ export async function saveDraft(to: PageId, answers: SetupAnswers, from?: PageId
     keepInSession(to, answers);
     outcome = 'session';
   } else {
-    outcome = outcomeOf(await update(d => withDraft(d, to, answers, opened, from)), getState().status);
+    outcome = outcomeOf(await update(d => withDraft(d, to, answers, opened, from), { ...(generation !== undefined ? { generation } : {}) }), getState().status);
     if (outcome === 'session') continueWithoutSaving(to, answers);
   }
   if (from !== undefined && outcome !== 'failed') forgetEdits(from);
@@ -185,7 +185,7 @@ function enterUnsaved(answers: SetupAnswers): FinishOutcome {
  * not finished, and Review says so (H5-09). Either way, the readings it would
  * have added aren't.
  */
-export async function finishSetup(answers: SetupAnswers, ctx: Ctx, now: string = nowAt()): Promise<FinishOutcome> {
+export async function finishSetup(answers: SetupAnswers, ctx: Ctx, now: string = nowAt(), generation?: number): Promise<FinishOutcome> {
   if (current().unsaved) return enterUnsaved(answers);
   const state = getState();
   const hasSteps = state.observations.some(o => o.kind === 'steps');
@@ -195,6 +195,7 @@ export async function finishSetup(answers: SetupAnswers, ctx: Ctx, now: string =
     needsStorage: 'This phone isn’t storing data, so setup is not finished: it carries on without saving.',
     addObservations: measurementsFrom(answers, state.profile, now),
     addObservationsWhen: (before, after) => !done(before) && done(after),
+    ...(generation !== undefined ? { generation } : {}),
   });
   if (saved.ok) {
     if (!done(getState())) {
@@ -213,8 +214,8 @@ export async function finishSetup(answers: SetupAnswers, ctx: Ctx, now: string =
  * said (D-04). The answers so far wait in the draft; what the pages held is
  * forgotten (K5-05). Returns what to say when it's refused.
  */
-export async function lookAroundFirst(): Promise<string | undefined> {
-  const saved = await update(lookedAround, { hold: true });
+export async function lookAroundFirst(generation?: number): Promise<string | undefined> {
+  const saved = await update(lookedAround, { hold: true, ...(generation !== undefined ? { generation } : {}) });
   if (!saved.ok && getState().status !== 'unavailable') return `That did not save. ${saved.failure.message}`;
   clearHeld();
   return undefined;
@@ -287,7 +288,7 @@ export function autosaveEdits(id: PageId, held: Partial<SetupAnswers>, delayMs =
 export function flushPending(id: PageId): Promise<void> {
   const change = waiting.get(id);
   cancelAutosave(id);
-  return change && change.epoch === getState().epoch ? flushEdits(id, id) : Promise.resolve();
+  return change && change.epoch === getState().epoch ? flushEdits(id, id, change.epoch) : Promise.resolve();
 }
 
 /**
@@ -295,14 +296,14 @@ export function flushPending(id: PageId): Promise<void> {
  * or the page itself on Close (H5-16). Without saving, the session keeps the
  * page to resume on, and its pages' answers are this session's already.
  */
-export async function flushEdits(id: PageId, at: PageId): Promise<void> {
+export async function flushEdits(id: PageId, at: PageId, generation?: number): Promise<void> {
   cancelAutosave(id);
   if (current().unsaved) {
     keepInSession(at, current().answers);
     return;
   }
   const held = pageEdits(id);
-  await update(d => withPageEdits(d, at, id, held));
+  await update(d => withPageEdits(d, at, id, held), { ...(generation !== undefined ? { generation } : {}) });
 }
 
 export function resetSetupSessionForTests(): void {
