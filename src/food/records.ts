@@ -217,9 +217,12 @@ export function corrected(meal: MealRecord, next: Pick<MealRecord, 'at' | 'meal'
   };
 }
 
-/** A deleted record brought back by Undo, under a fresh id (B-05). The original's deletion record stays. */
-export function restored<T extends { id: string }>(record: T, id: string): T & { restoredFrom: string } {
-  return { ...record, id, restoredFrom: record.id };
+/**
+ * A deleted record brought back by Undo, under a fresh id (B-05). The original's deletion record stays.
+ * A copy brought back again names the same original, so every copy of a record names it (board D147).
+ */
+export function restored<T extends { id: string; restoredFrom?: string }>(record: T, id: string): T & { restoredFrom: string } {
+  return { ...record, id, restoredFrom: record.restoredFrom ?? record.id };
 }
 
 /** A food record as the store's registry types it. */

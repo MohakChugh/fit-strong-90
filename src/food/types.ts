@@ -138,7 +138,7 @@ export interface MealRecord {
   editedAt?: string;
   /** Earlier versions, oldest first (A-22). */
   edits: MealEdit[];
-  /** Brought back by Undo: the deleted record's id (B-05). */
+  /** Brought back by Undo: the id of the record it first came back from (B-05; board D147). */
   restoredFrom?: string;
 }
 
