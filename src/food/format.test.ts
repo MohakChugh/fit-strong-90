@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FoodItem, CustomItem, Food } from './types';
 import { totalsOf } from './estimate';
-import { careTeamLine, carbsText, foodRowDetail, foodTileLine, itemEstimate, itemsLine, kcalText, mealRowDetail, totalsLines } from './format';
+import { careTeamLine, carbsRangeText, carbsText, foodRowDetail, foodTileLine, itemEstimate, itemsLine, kcalText, mealRowDetail, totalsLines } from './format';
 
 const shown = { show: true, ranges: false } as const;
 const ranged = { show: true, ranges: true } as const;
@@ -14,17 +14,36 @@ describe('kcalText and carbsText (journey §11.4)', () => {
     expect(kcalText(204)).toBe('200 kcal');
     expect(kcalText(1455)).toBe('1,460 kcal');
     expect(kcalText(4)).toBe('under 10 kcal');
-    expect(carbsText({ carbsG: 43.2 }, false)).toBe('45 g carbs');
-    expect(carbsText({ carbsG: 7.6 }, false)).toBe('8 g carbs');
-    expect(carbsText({ carbsG: 0.4 }, false)).toBe('under 1 g carbs');
+    expect(carbsText(43.2)).toBe('45 g carbs');
+    expect(carbsText(7.6)).toBe('8 g carbs');
+    expect(carbsText(0.4)).toBe('under 1 g carbs');
   });
   it('shows carbs as a range that never narrows the estimate (K-22)', () => {
-    expect(carbsText({ carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57 }, true)).toBe('about 30–60 g carbs');
-    expect(carbsText({ carbsG: 4, carbsLowG: 3.1, carbsHighG: 5.3 }, true)).toBe('about 3–6 g carbs');
-    expect(carbsText({ carbsG: 30 }, true)).toBe('about 30 g carbs');
-    expect(carbsText({ carbsG: 0.4, carbsLowG: 0.3, carbsHighG: 0.5 }, true)).toBe('under 1 g carbs');
+    expect(carbsRangeText({ low: 31.1, high: 57 })).toBe('about 30–60 g carbs');
+    expect(carbsRangeText({ low: 3.1, high: 5.3 })).toBe('about 3–6 g carbs');
+    expect(carbsRangeText({ low: 0.3, high: 0.5 })).toBe('under 1 g carbs');
     // 33.8 would round up to 35, inside the estimate's own range: the low end goes down instead.
-    expect(carbsText({ carbsG: 40, carbsLowG: 33.8, carbsHighG: 46.2 }, true)).toBe('about 30–50 g carbs');
+    expect(carbsRangeText({ low: 33.8, high: 46.2 })).toBe('about 30–50 g carbs');
+  });
+});
+
+describe('your own food’s carbs, with ranges on (H7-05, K7-05; board D132)', () => {
+  const mine = { ...bhel, kcal: 300, carbsG: 40 };
+  it('read as your own figure, never as a range', () => {
+    expect(itemEstimate({ ...bhel, carbsG: 30 }, ranged)).toBe('Estimated 30 g carbs, your own figure · no calorie estimate');
+    expect(itemEstimate({ ...bhel, carbsG: 42.5 }, ranged)).toBe('Estimated 43 g carbs, your own figure · no calorie estimate');
+    expect(itemEstimate(mine, shown)).toBe('Estimated 300 kcal · 40 g carbs');
+  });
+  it('stay out of the closed range, named apart', () => {
+    expect(totalsLines(totalsOf([roti, mine]), ranged).estimate).toBe('Estimated 500 kcal · about 30–60 g carbs in logged foods, plus 40 g from foods you entered yourself');
+    expect(totalsLines(totalsOf([roti, { ...bhel, carbsG: 40 }]), ranged).estimate).toBe('Estimated 200 kcal · about 30–60 g carbs in logged foods, plus 40 g from foods you entered yourself');
+    expect(totalsLines(totalsOf([mine]), ranged).estimate).toBe('Estimated 300 kcal in logged foods, plus 40 g carbs from foods you entered yourself');
+    expect(totalsLines(totalsOf([{ ...bhel, carbsG: 40 }, { ...bhel, name: 'Thepla', carbsG: 25 }]), ranged))
+      .toEqual({ estimate: '65 g carbs from foods you entered yourself', missing: '2 items have no calorie estimate' });
+  });
+  it('add into one figure with ranges off', () => {
+    expect(totalsLines(totalsOf([roti, mine]), shown).estimate).toBe('Estimated 500 kcal · 85 g carbs in logged foods');
+    expect(totalsLines(totalsOf([{ ...bhel, carbsG: 40 }]), shown).estimate).toBe('Estimated 40 g carbs in logged foods');
   });
 });
 
