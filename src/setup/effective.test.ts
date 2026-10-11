@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { AppData } from '@/types';
 import type { Mode } from '@/types/checkin';
 import type { HealthProfile, UserProfile } from '@/types/profile';
@@ -6,11 +6,12 @@ import type { SetupAnswers } from '@/types/setup';
 import { deriveHealth, glucoseStartMin, profileGaps } from '@/engine/health';
 import { permission } from '@/engine/permission';
 import { createDefaultProfile } from '@/profile/defaults';
+import { StoreFailure } from '@/store/db';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import { deviceClinical, walkInput, walkRefusal } from '@/walk/gate';
 import { lookedAround } from './assemble';
 import type { SetupSession } from './draft';
-import { gateProfile, stricterHealth, stricterPain } from './effective';
+import { gateProfile, resetPendingEditsForTests, saveClinicalEdit, stricterHealth, stricterPain } from './effective';
 import { NO_CONDITIONS } from './fixtures';
 
 const NOW = new Date('2026-10-10T09:00:00+05:30');
@@ -152,5 +153,29 @@ describe('two profiles as one, never looser than either (H5-05, H5-08)', () => {
     const reopened = { ...answered, medicinesReviewed: false };
     expect(stricterHealth(answered, reopened).medicinesReviewed).toBe(false);
     expect(stricterHealth(reopened, answered).medicinesReviewed).toBe(false);
+  });
+});
+
+describe('a refused clinical edit, between saves (H5-08; board D162)', () => {
+  const refused = () => Promise.resolve({ ok: false as const, failure: new StoreFailure('quotaExceeded', 'Storage is full') });
+  const stored = () => Promise.resolve({ ok: true as const, value: undefined });
+  const record = { profile: REVIEWED, settings: { ...fresh().settings, onboardingComplete: true } };
+  const WOUNDED = { ...REVIEWED, health: { ...REVIEWED.health, footStatus: 'current_wound_or_active_charcot' as const } };
+  beforeEach(() => resetPendingEditsForTests());
+
+  it('keeps its stricter answers through another chapter’s save, and lets them go with a stored save of its own chapters', async () => {
+    expect((await saveClinicalEdit(['health'], WOUNDED, refused)).ok).toBe(false);
+    expect(gateProfile(record, NOW, NONE).health.footStatus).toBe('current_wound_or_active_charcot');
+    expect((await saveClinicalEdit(['about'], { ...REVIEWED, name: 'Kai' }, stored)).ok).toBe(true);
+    expect(gateProfile(record, NOW, NONE).health.footStatus).toBe('current_wound_or_active_charcot');
+    // The person's own answer, stored, is the release.
+    expect((await saveClinicalEdit(['health'], REVIEWED, stored)).ok).toBe(true);
+    expect(gateProfile(record, NOW, NONE).health.footStatus).toBe('healthy');
+  });
+
+  it('a pending review’s save covers the chapters it holds', async () => {
+    await saveClinicalEdit(['health'], WOUNDED, refused);
+    await saveClinicalEdit(['health', 'medicines', 'backFeet'], REVIEWED, stored);
+    expect(gateProfile(record, NOW, NONE).health.footStatus).toBe('healthy');
   });
 });

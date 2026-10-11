@@ -133,13 +133,18 @@ function changedSettings(opened: Partial<UserSettings>, saved: Partial<UserSetti
   return out as Partial<UserSettings>;
 }
 
-export function editedRecord(data: AppData, edit: ChapterEdit, today: string, ctx: Ctx): AppData {
+/** The profile an edit stores onto the record as it is now: what the edit changed, and nothing else (scan D-03). */
+export function editedProfile(data: Pick<AppData, 'profile' | 'settings'>, edit: ChapterEdit, today: string, ctx: Ctx): UserProfile {
   const base = data.profile ?? createDefaultProfile({ weightKg: data.settings.currentWeight || 0, needsHealthReview: true });
   const was = profileFrom(edit.opened, base, today, ctx, edit.chapters);
   const saved = profileFrom(edit.answers, base, today, ctx, edit.chapters);
   // The review flags change as any answer does, only when this edit changed them: a save vouches for the answers it
   // showed, never for ones another copy saved meanwhile, such as diabetes added without its medicines (H-DATA, D-03).
-  const profile = withProfileChanges(base, profileChanges(was, saved));
+  return withProfileChanges(base, profileChanges(was, saved));
+}
+
+export function editedRecord(data: AppData, edit: ChapterEdit, today: string, ctx: Ctx): AppData {
+  const profile = editedProfile(data, edit, today, ctx);
 
   const setup = setupStateOf(data.settings, data.profile);
   const left = new Set(edit.skipped.map(chapterOf));

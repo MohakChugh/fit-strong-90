@@ -13,9 +13,12 @@
  */
 import type { UserSettings } from '@/types';
 import type { HealthProfile, MedicineAnswer, PainArea, PainProfile, UserProfile } from '@/types/profile';
+import type { ChapterId } from '@/types/setup';
 import { glucoseStartMin } from '@/engine/health';
 import { toDateString } from '@/lib/utils';
 import { createDefaultProfile } from '@/profile/defaults';
+import type { StoreResult } from '@/store/db';
+import { getState } from '@/store/useStore';
 import { compact, healthFrom, painFrom } from './assemble';
 import { getSetupSession, type SetupSession } from './draft';
 import { answersOf, setupStateOf } from './state';
@@ -134,6 +137,55 @@ export function stricterProfile(stored: UserProfile, next: UserProfile): UserPro
   };
 }
 
+// ---- A clinical edit on its way to being stored (H5-08; board D162) ----------
+
+/** Each chapter edit not yet stored, by the chapters it owns: the profile it would store. */
+const editing = new Map<string, UserProfile>();
+let editingEpoch = 0;
+let editingVersion = 0;
+const editingListeners = new Set<() => void>();
+/** Edits of a record a backup has since replaced are that record's (H5-07). */
+const edits = () => {
+  if (editingEpoch !== getState().epoch) {
+    editing.clear();
+    editingEpoch = getState().epoch;
+  }
+  return editing;
+};
+const editsChanged = () => {
+  editingVersion += 1;
+  for (const listener of [...editingListeners]) listener();
+};
+export const subscribePendingEdits = (listener: () => void): (() => void) => {
+  editingListeners.add(listener);
+  return () => void editingListeners.delete(listener);
+};
+export const pendingEditsVersion = (): number => editingVersion;
+
+/**
+ * Store a chapter edit (Me → Profile & health). Its stricter answers count
+ * for every gate from the tap; what it releases waits until `write`, which
+ * must be held until stored, is. If the write is refused, those answers keep
+ * counting until a save of the same chapters is stored: the person said them,
+ * and a refusal doesn't unsay them (§4.5).
+ */
+export async function saveClinicalEdit(chapters: readonly ChapterId[], planned: UserProfile, write: () => Promise<StoreResult>): Promise<StoreResult> {
+  const key = [...chapters].sort().join(',');
+  edits().set(key, planned);
+  editsChanged();
+  const saved = await write();
+  if (saved.ok) {
+    for (const k of [...edits().keys()]) if (k.split(',').every(c => chapters.includes(c as ChapterId))) edits().delete(k);
+    editsChanged();
+  }
+  return saved;
+}
+
+export function resetPendingEditsForTests(): void {
+  editing.clear();
+  editingEpoch = 0;
+}
+
 export interface GateInput {
   profile?: UserProfile;
   settings: Pick<UserSettings, 'setup' | 'onboardingComplete' | 'habits' | 'currentWeight'>;
@@ -142,13 +194,18 @@ export interface GateInput {
 /**
  * The profile every gate reads: the record's, or with nothing stored the
  * default with its gap (as v1 read it). While setup is unfinished, the gap,
- * and the draft's answers wherever they're stricter than the record's.
+ * and the draft's answers wherever they're stricter than the record's. Then
+ * any chapter edit on its way, wherever it's stricter (H5-08).
  */
 export function gateProfile(state: GateInput, now: Date = new Date(), session: SetupSession = getSetupSession()): UserProfile {
   const stored = state.profile ?? createDefaultProfile({ weightKg: state.settings.currentWeight || 0, needsHealthReview: true });
   const setup = setupStateOf(state.settings, state.profile);
-  if (setup.stage === 'done' && !session.entered) return stored;
-  const answers = session.unsaved ? session.answers : answersOf(setup);
-  const drafted: UserProfile = { ...stored, health: healthFrom(answers, stored.health, toDateString(now)), pain: painFrom(answers, stored.pain) };
-  return { ...stricterProfile(stored, drafted), needsHealthReview: true };
+  let out = stored;
+  if (setup.stage !== 'done' || session.entered) {
+    const answers = session.unsaved ? session.answers : answersOf(setup);
+    const drafted: UserProfile = { ...stored, health: healthFrom(answers, stored.health, toDateString(now)), pain: painFrom(answers, stored.pain) };
+    out = { ...stricterProfile(stored, drafted), needsHealthReview: true };
+  }
+  for (const planned of edits().values()) out = stricterProfile(out, planned);
+  return out;
 }

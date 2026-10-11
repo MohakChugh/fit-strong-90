@@ -12,7 +12,7 @@ import { DISPOSITION_ORDER } from '@/types/checkin';
 import type { DayFocus, SessionPlan } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import { useSetupSession } from '@/setup/draft';
-import { gateProfile } from '@/setup/effective';
+import { gateProfile, pendingEditsVersion, subscribePendingEdits } from '@/setup/effective';
 import { buildSessionPlan } from '@/engine/session';
 import { swapOptions } from '@/session/manual';
 import { toDateString, todayString } from '@/lib/utils';
@@ -67,10 +67,13 @@ export function planFor(data: AppData, profile: UserProfile, date: string): Sess
 export function useGuided(date: string = todayString()) {
   const [data, update] = useAppData();
   const session = useSetupSession();
-  // The one profile every gate reads: while setup is unfinished, its gap and any stricter answer it has disclosed (H5-05).
+  const editing = useSyncExternalStore(subscribePendingEdits, pendingEditsVersion, pendingEditsVersion);
+  // The one profile every gate reads: while setup is unfinished, its gap and any stricter answer it has disclosed (H5-05);
+  // a chapter edit on its way, wherever it is stricter (H5-08).
   const profile: UserProfile = useMemo(
     () => gateProfile({ profile: data.profile, settings: data.settings }, new Date(), session),
-    [data.profile, data.settings, session],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data.profile, data.settings, session, editing],
   );
   // Answers the device has not stored yet count everywhere, for every day,
   // the moment they are given (round 3 B04).

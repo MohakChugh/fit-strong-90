@@ -28,7 +28,7 @@ import { arrivalGate, liveGate, startGate } from '@/session/gate';
 import { answeredCheckIn, profileOnlyReadiness } from '@/engine/readiness';
 import { effectiveCheckIns, pendingCheckInsVersion, subscribePendingCheckIns } from '@/components/checkin/pending';
 import { getSetupSession } from '@/setup/draft';
-import { gateProfile } from '@/setup/effective';
+import { gateProfile, pendingEditsVersion } from '@/setup/effective';
 import { toDateString } from '@/lib/utils';
 import { getState, subscribe, type StoreState } from '@/store/useStore';
 import type { WalkIntent } from './live';
@@ -163,7 +163,7 @@ export function deviceGate(
   // Keyed on the state itself, not the parts read today: the store hands out a
   // new state only when something changed, so whatever the gate comes to read
   // from it is covered, and a quiet walk asks the cache.
-  let memo: { state: unknown; pending: number; session: unknown; day: string; clinical: Clinical } | undefined;
+  let memo: { state: unknown; pending: number; session: unknown; editing: number; day: string; clinical: Clinical } | undefined;
   return (intent, clockChangedAt) => {
     const at = now();
     const state = read();
@@ -171,9 +171,10 @@ export function deviceGate(
     const pending = pendingCheckInsVersion();
     // Setup's answers kept this session only count too (`gateProfile`).
     const session = getSetupSession();
-    if (!memo || memo.state !== state || memo.pending !== pending || memo.session !== session || memo.day !== day) {
+    const editing = pendingEditsVersion();
+    if (!memo || memo.state !== state || memo.pending !== pending || memo.session !== session || memo.editing !== editing || memo.day !== day) {
       const all = deviceClinical(state);
-      memo = { state, pending, session, day, clinical: { profile: all.profile, checkIns: reachableHistory(all.checkIns, day, all.profile) } };
+      memo = { state, pending, session, editing, day, clinical: { profile: all.profile, checkIns: reachableHistory(all.checkIns, day, all.profile) } };
     }
     return walkRefusal(walkInput(memo.clinical, at, clockChangedAt), intent) === undefined;
   };

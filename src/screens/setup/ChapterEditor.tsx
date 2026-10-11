@@ -3,7 +3,8 @@ import { Screen } from '@/components/hig/Screen';
 import { dayOf, nowAt } from '@/health/observation';
 import { measurementsFrom } from '@/setup/assemble';
 import { whatChanges } from '@/setup/changes';
-import { editOf, editedRecord, editorOpens, editorState } from '@/setup/edit';
+import { editOf, editedProfile, editedRecord, editorOpens, editorState } from '@/setup/edit';
+import { saveClinicalEdit } from '@/setup/effective';
 import { CHAPTER_TITLE, chapterOf } from '@/setup/graph';
 import { answersToEdit } from '@/setup/prefill';
 import { setupStateOf } from '@/setup/state';
@@ -51,7 +52,9 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
     setBusy(true);
     const now = nowAt();
     const edit = editOf(state, opened);
-    const saved = await update(d => editedRecord(d, edit, today, ctx), { addObservations: measurementsFrom(committed, profile, now) });
+    // Stricter answers count for every gate from this tap; what the edit releases waits for the write, held until stored (H5-08).
+    const saved = await saveClinicalEdit(edit.chapters, editedProfile(getState(), edit, today, ctx),
+      () => update(d => editedRecord(d, edit, today, ctx), { hold: true, addObservations: measurementsFrom(committed, profile, now) }));
     setBusy(false);
     if (!saved.ok) {
       setOutcome({ tone: 'error', lines: [`That did not save. ${saved.failure.message}`] });
