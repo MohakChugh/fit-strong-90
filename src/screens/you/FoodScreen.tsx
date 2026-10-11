@@ -1,5 +1,4 @@
 import { useId, useState, type FormEvent } from 'react';
-import { XIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { ALLERGENS } from '@/food/allergens';
@@ -278,13 +277,14 @@ function WordList({ header, footer, inputId, inputLabel, placeholder, items, onA
           label={item}
           className="py-1"
           accessory={
+            // "Remove" in words, at 48 px, the word named for VoiceOver (§20.4 rules 1, 2; board D141).
             <button
               type="button"
               aria-label={`Remove ${item}`}
               onClick={() => onRemove(item)}
-              className="press-feedback -mr-2 flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground"
+              className="press-feedback -mr-2 flex min-h-12 min-w-12 shrink-0 items-center justify-center rounded-full px-3 text-[length:var(--text-body)] font-medium text-stop"
             >
-              <XIcon className="size-5" aria-hidden />
+              Remove
             </button>
           }
         />
@@ -301,9 +301,9 @@ function WordList({ header, footer, inputId, inputLabel, placeholder, items, onA
             autoComplete="off"
             placeholder={placeholder}
             onChange={e => setTyped(e.target.value)}
-            className="min-h-11 min-w-0 flex-1 bg-transparent text-[length:var(--text-body)] outline-none placeholder:text-muted-foreground"
+            className="min-h-12 min-w-0 flex-1 bg-transparent text-[length:var(--text-body)] outline-none placeholder:text-muted-foreground"
           />
-          <button type="submit" disabled={!typed.trim()} className="press-feedback min-h-11 shrink-0 px-2 text-[length:var(--text-body)] font-semibold text-tint disabled:opacity-40">
+          <button type="submit" disabled={!typed.trim()} className="press-feedback min-h-12 min-w-12 shrink-0 px-3 text-[length:var(--text-body)] font-semibold text-tint disabled:opacity-40">
             Add
           </button>
         </form>

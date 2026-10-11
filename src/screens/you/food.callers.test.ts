@@ -9,7 +9,7 @@ import { createElement } from 'react';
 import type { FoodPreferences } from '@/types/profile';
 import { createDefaultProfile } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
-import { render, type Host } from '@/test/host';
+import { render, textOf, type Host } from '@/test/host';
 
 vi.mock('react-router-dom', async () => {
   const { createElement: h } = await import('react');
@@ -20,6 +20,7 @@ vi.mock('react-router-dom', async () => {
     Navigate: () => null,
   };
 });
+vi.mock('sonner', () => ({ toast: Object.assign(() => {}, { dismiss: () => {} }) }));
 vi.mock('@/components/hig/Screen', async () => {
   const { createElement: h } = await import('react');
   return { Screen: ({ title, children }: { title: string; children?: unknown }) => h('main', null, h('h1', null, title), children as never) };
@@ -43,6 +44,8 @@ Object.assign(globalThis, {
 
 const store = await import('@/store/useStore');
 const { FoodScreen } = await import('./FoodScreen');
+const { default: UsualMealsScreen } = await import('@/screens/food/UsualMealsScreen');
+const food = await import('@/food/store');
 
 let host: Host | undefined;
 beforeEach(async () => {
@@ -93,5 +96,32 @@ describe('“Clear food preferences” (K7-03; board D137)', () => {
     expect(h.text()).not.toContain('Your allergies stay');
     await h.click(h.button('Clear food choices', { exact: true }));
     expect(store.getState().profile?.food).toBeUndefined();
+  });
+});
+
+describe('removing a word, with a visible “Remove” (H7-17, K7-09; board D141)', () => {
+  it('labels each allergy and food left out “Remove”, its name kept for VoiceOver, at 48 px', async () => {
+    const h = await screen({ pattern: 'vegetarian', avoid: ['mushroom'], customAllergies: ['brinjal'] });
+    const removes = h.all().filter(n => n.type === 'button' && textOf(n.children) === 'Remove');
+    expect(removes.map(n => n.props['aria-label'])).toEqual(['Remove brinjal', 'Remove mushroom']);
+    for (const n of removes) expect(String(n.props.className).split(' ')).toEqual(expect.arrayContaining(['min-h-12', 'min-w-12']));
+    await h.click(removes[0]);
+    expect(store.getState().profile?.food?.customAllergies).toBeUndefined();
+  });
+});
+
+describe('removing a usual meal, with a visible “Remove” (H7-17, K7-09; board D141)', () => {
+  it('labels it “Remove”, its name kept for VoiceOver, at 48 px, and removes it at once', async () => {
+    const at = '2026-10-07T13:00:00.000+05:30';
+    const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti (whole-wheat)', unit: 'piece', count: 2, gramsPerPortion: 40 } as const;
+    await store.update(prev => ({ ...prev, profile: createDefaultProfile({ birthYear: 1970, weightKg: 70, food: { pattern: 'vegetarian', avoid: [], level: 'meals' } }) }));
+    expect((await food.saveMeal({ id: 'meal-1', at, day: '2026-10-07', meal: 'lunch', items: [roti], level: 'meals', loggedAt: at, edits: [] }, { usual: { id: 'usual-1', name: 'Weekday lunch', meal: 'lunch', items: [roti], savedAt: at, updatedAt: at } })).ok).toBe(true);
+    host = render(createElement(UsualMealsScreen));
+    await host.settle();
+    const remove = host.all().find(n => n.type === 'button' && textOf(n.children) === 'Remove');
+    expect(remove?.props['aria-label']).toBe('Remove Weekday lunch');
+    expect(String(remove?.props.className).split(' ')).toEqual(expect.arrayContaining(['min-h-12', 'min-w-12']));
+    await host.click(remove!);
+    expect(store.getState().records.savedMeals).toEqual([]);
   });
 });
