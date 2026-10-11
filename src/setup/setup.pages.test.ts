@@ -14,23 +14,39 @@ describe('setup’s pages (journey §1.2, §6.2; B-06)', () => {
     expect(CHAPTER_IDS).toHaveLength(8);
   });
 
-  it('the minimal path is 16 pages, within 20, Welcome and Review counted', () => {
+  it('the minimal path is 19 pages, within 20, Welcome and Review counted', () => {
     const path = pathFor(MINIMAL);
     expect(path).toEqual([
       'welcome.start', 'about.name', 'about.figure', 'about.body', 'health.conditions', 'medicines.regular', 'medicines.monitors',
-      'movement.focus', 'movement.goal', 'movement.programme', 'food.pattern', 'food.allergies', 'food.logging', 'day.reminders', 'day.voice', 'review',
+      'movement.focus', 'movement.goal', 'movement.programme', 'food.pattern', 'food.allergies', 'food.logging',
+      'day.water', 'day.sitting', 'day.walks', 'day.quiet', 'day.voice', 'review',
     ]);
     expect(path.length).toBeLessThanOrEqual(20);
   });
 
-  it('the complex path is 27 pages, within 30; the Join flow is not among them (L-01)', () => {
-    expect(pathFor(COMPLEX)).toHaveLength(27);
-    expect(pathFor({ ...COMPLEX, programme: 'join', join: JOIN })).toHaveLength(27);
+  it('the complex path is 30 pages, within 30; the Join flow is not among them (L-01)', () => {
+    expect(pathFor(COMPLEX)).toHaveLength(30);
+    expect(pathFor({ ...COMPLEX, programme: 'join', join: JOIN })).toHaveLength(30);
   });
 
-  it('no answers make setup longer than 29 pages', () => {
+  it('no answers make setup longer than 33 pages', () => {
     expect(pathFor(EVERYTHING)).toEqual([...PAGE_IDS]);
-    expect(PAGE_IDS).toHaveLength(30);
+    expect(PAGE_IDS).toHaveLength(33);
+  });
+
+  it('Your day asks a page at a time, each skippable: water, sitting breaks, after-meal walks, quiet hours (K5-12; board D154)', () => {
+    const day = ['day.water', 'day.sitting', 'day.walks', 'day.quiet'] as const;
+    expect(day.map(id => [pageDef(id).skippable, pageDef(id).sets])).toEqual([
+      [true, ['water', 'fluidLimit']], [true, ['sitting']], [true, ['mealWalk', 'mealFinish']], [true, ['quiet', 'delivery']],
+    ]);
+    const water = { on: true, glassMl: 250, everyMinutes: 120, from: '09:00', to: '21:00' };
+    expect([pageDone('day.water', { water }, CTX), pageDone('day.water', { water, fluidLimit: 'no' }, CTX)]).toEqual([false, true]);
+    expect(pageDone('day.water', { water: { ...water, to: '09:00' }, fluidLimit: 'no' }, CTX)).toBe(false);
+    expect(pageDone('day.sitting', { sitting: { on: true, everyMinutes: 60, from: '10:00', to: '10:00' } }, CTX)).toBe(false);
+    expect([pageDone('day.walks', { mealWalk: { on: true, meals: [] } }, CTX), pageDone('day.walks', { mealWalk: { on: true, meals: ['lunch'] } }, CTX)]).toEqual([false, true]);
+    expect(pageDone('day.quiet', {}, CTX)).toBe(true);
+    // After-meal walks aren't offered while a foot needs weight kept off it, so neither is their page.
+    expect(pathFor(FOOT_WOUND)).not.toContain('day.walks');
   });
 
   it('every fixture is a whole run: nothing on its path is left to answer', () => {
@@ -118,7 +134,7 @@ describe('every conditional page can be reached, and none is always on (B-06)', 
     'backFeet.where': COMPLEX, 'backFeet.side': COMPLEX, 'backFeet.history': FOOT_WOUND,
     'movement.focus': MINIMAL, 'movement.goal': MINIMAL, 'movement.programme': MINIMAL,
     'food.pattern': MINIMAL, 'food.allergies': MINIMAL, 'food.logging': MINIMAL,
-    'day.reminders': MINIMAL, 'day.meals': COMPLEX, 'day.voice': MINIMAL, 'review': MINIMAL,
+    'day.water': MINIMAL, 'day.sitting': MINIMAL, 'day.walks': MINIMAL, 'day.meals': COMPLEX, 'day.quiet': MINIMAL, 'day.voice': MINIMAL, 'review': MINIMAL,
   };
   for (const [id, a] of Object.entries(REACH) as [PageId, SetupAnswers][]) {
     it(`${id} is reached`, () => expect(pathFor(a)).toContain(id));
@@ -185,7 +201,7 @@ describe('moving through setup', () => {
   });
 
   it('a page that stops applying still knows the page after it', () => {
-    expect(nextPage(MINIMAL, 'day.meals')).toBe('day.voice');
+    expect(nextPage(MINIMAL, 'day.meals')).toBe('day.quiet');
   });
 
   it('from Review, Edit walks its own chapter, then any page the change made necessary, then back to Review', () => {
@@ -214,7 +230,7 @@ describe('moving through setup', () => {
     expect(capsuleOf('about.name', MINIMAL).label).toBe('About you · 2 of 8');
     expect(capsuleOf('day.voice', MINIMAL).label).toBe('Your day and coach · 8 of 8');
     expect(capsuleOf('review', MINIMAL)).toEqual({ label: 'Review', fraction: 1 });
-    expect(capsuleOf('health.conditions', MINIMAL).fraction).toBeCloseTo(5 / 16);
+    expect(capsuleOf('health.conditions', MINIMAL).fraction).toBeCloseTo(5 / 19);
   });
 
   it('lives at /setup/:chapter/:page, with page 1 at /setup (§19.2)', () => {

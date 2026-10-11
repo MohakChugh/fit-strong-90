@@ -28,8 +28,11 @@ export const PAGE_TITLE: Record<PageId, string> = {
   'food.pattern': 'How do you eat?',
   'food.allergies': 'Any food allergies?',
   'food.logging': 'Would you like to log what you eat?',
-  'day.reminders': 'Reminders',
+  'day.water': 'Water reminders',
+  'day.sitting': 'Sitting breaks',
+  'day.walks': 'After-meal walks',
   'day.meals': 'When do you usually finish your meals?',
+  'day.quiet': 'Quiet hours',
   'day.voice': 'Your voice coach',
   'review': 'Here’s what we’ll do for you',
 };

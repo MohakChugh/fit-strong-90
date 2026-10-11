@@ -104,7 +104,9 @@ const ANSWER_SPEC: Spec = {
   water: shape({ on: bool, glassMl: num(1, 5000), everyMinutes: num(1, 1440), from: clock, to: clock }, ['on', 'glassMl', 'everyMinutes', 'from', 'to']),
   sitting: habitWindow, mealWalk: shape({ on: bool, meals: listOf(oneOf(...MEALS)) }, ['on', 'meals']),
   mealFinish: recordOf(oneOf(...MEALS), clock), quiet: x => x === 'none' || shape({ from: clock, to: clock }, ['from', 'to'])(x),
-  delivery: oneOf('app', 'calendar'), voice: VOICE, skippedPages: listOf(oneOf(...PAGE_IDS)),
+  delivery: oneOf('app', 'calendar'), voice: VOICE,
+  // `day.reminders` was Your day's one page until it was split (K5-12): a backup from before keeps its skipped pages.
+  skippedPages: listOf(oneOf(...PAGE_IDS, 'day.reminders')),
 };
 
 /** Setup's state, field by field (Review Focus 5): a draft at a page this build lacks loses only its page, never its answers. */

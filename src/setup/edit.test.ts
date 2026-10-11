@@ -351,8 +351,8 @@ describe('a shown page half answered holds Save, with the reason at it (K5-15; b
     editorState(editorOpens(chapter, data.profile), answers, from, CTX).blocking;
 
   it('water turned on with no fluid answer, or after-meal walks with no meal', () => {
-    expect(blocking('day', { ...a, water })).toContain('day.reminders');
-    expect(blocking('day', { ...a, mealWalk: { on: true, meals: [] } })).toContain('day.reminders');
+    expect(blocking('day', { ...a, water })).toEqual(['day.water']);
+    expect(blocking('day', { ...a, mealWalk: { on: true, meals: [] } })).toContain('day.walks');
     expect(blocking('day', { ...a, water, fluidLimit: 'no' })).toEqual([]);
   });
 

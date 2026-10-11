@@ -2,7 +2,7 @@ import type { PageId } from '@/types/setup';
 import type { PageView } from '../controls';
 import { AboutBody, AboutFigure, AboutName } from './about';
 import { BackFeetHistory, BackFeetSide, BackFeetWhere } from './backFeet';
-import { DayMeals, DayReminders, DayVoice } from './day';
+import { DayMeals, DayQuiet, DaySitting, DayVoice, DayWalks, DayWater } from './day';
 import { FoodAllergies, FoodHowYouEat, FoodLogging } from './food';
 import { HealthBp, HealthConditions, HealthDiabetes, HealthEyes, HealthFeet, HealthFluid, HealthLimits } from './health';
 import { MedicinesKetones, MedicinesLows, MedicinesMonitors, MedicinesRegular, MedicinesStanding, MedicinesWhich } from './medicines';
@@ -58,9 +58,12 @@ export const FOOD_VIEWS: Record<'food.pattern' | 'food.allergies' | 'food.loggin
 };
 
 /** Your day and coach's views (journey §6.2 ch. 8). */
-export const DAY_VIEWS: Record<'day.reminders' | 'day.meals' | 'day.voice', PageView> = {
-  'day.reminders': DayReminders,
+export const DAY_VIEWS: Record<'day.water' | 'day.sitting' | 'day.walks' | 'day.meals' | 'day.quiet' | 'day.voice', PageView> = {
+  'day.water': DayWater,
+  'day.sitting': DaySitting,
+  'day.walks': DayWalks,
   'day.meals': DayMeals,
+  'day.quiet': DayQuiet,
   'day.voice': DayVoice,
 };
 

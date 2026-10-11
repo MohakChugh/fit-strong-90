@@ -119,10 +119,16 @@ export const PAGES: readonly PageDef[] = [
   // Estimates are stored only once "Has food or weight ever been hard for you?" is answered (K-22), and the answer is kept (board D82).
   { id: 'food.logging', when: always, sets: ['foodLevel', 'hardBefore'], skippable: true,
     done: a => a.foodLevel !== undefined && (a.foodLevel !== 'estimates' || a.hardBefore !== undefined) },
-  { id: 'day.reminders', when: always, sets: ['water', 'sitting', 'mealWalk', 'mealFinish', 'quiet', 'delivery', 'fluidLimit'], skippable: true,
-    done: a => okWindow(a.water) && okWindow(a.sitting) && (!a.water?.on || a.fluidLimit !== undefined) && (!a.mealWalk?.on || a.mealWalk.meals.length > 0) },
+  // Your day's reminders, a page each, every one skippable (K5-12; board D154). Water asks the fluid limit too (§6.3).
+  { id: 'day.water', when: always, sets: ['water', 'fluidLimit'], skippable: true,
+    done: a => okWindow(a.water) && (!a.water?.on || a.fluidLimit !== undefined) },
+  { id: 'day.sitting', when: always, sets: ['sitting'], skippable: true, done: a => okWindow(a.sitting) },
+  // Not offered while a foot needs weight kept off it.
+  { id: 'day.walks', when: (_a, f) => !f.footHeld, sets: ['mealWalk', 'mealFinish'], skippable: true,
+    done: a => !a.mealWalk?.on || a.mealWalk.meals.length > 0 },
   { id: 'day.meals', when: (a, f) => a.mealWalk?.on === true && !f.footHeld, sets: ['mealFinish'], skippable: false,
     done: a => mealProblem(a.mealWalk?.meals ?? [], a.mealFinish ?? {}) === undefined },
+  { id: 'day.quiet', when: always, sets: ['quiet', 'delivery'], skippable: true, done: always },
   { id: 'day.voice', when: always, sets: ['voice'], skippable: false, done: always },
   { id: 'review', when: always, sets: [], skippable: false, done: always },
 ];

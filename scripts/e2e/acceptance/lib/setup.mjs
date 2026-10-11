@@ -135,7 +135,11 @@ const PAGES = {
     await choose(s, 'Would you like to log what you eat?', a.level);
     await choose(s, 'Has food or weight ever been hard for you?', a.screen);
   },
-  Reminders: async () => {},
+  // Your day, a page at a time (K5-12): the journeys leave each reminder as it is.
+  'Water reminders': async () => {},
+  'Sitting breaks': async () => {},
+  'After-meal walks': async () => {},
+  'Quiet hours': async () => {},
   'When do you usually finish your meals?': async () => {},
   'Your voice coach': (s, a) => choose(s, 'Voice coach', a.voice),
 };

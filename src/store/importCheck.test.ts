@@ -173,6 +173,13 @@ describe('setup in a backup file, read field by field (journey §18.1; D-08; Rev
     expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: ['nowhere'] } } })).unreadableFields).toEqual(['settings.setup.skipped']);
   });
 
+  it('keeps the skipped pages of a backup from before Your day was split into a page each (K5-12)', () => {
+    const answers = { skippedPages: ['day.reminders', 'movement.goal'] };
+    expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: ['day', 'movement'], answers } } })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: [], answers: { skippedPages: ['day.somewhere'] } } } })).unreadableFields)
+      .toEqual(['settings.setup.answers.skippedPages']);
+  });
+
   it('keeps answers a newer build added, as it keeps unknown fields', () => {
     expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: [], answers: { someNewQuestion: 'x' } } } })).unreadableFields).toEqual([]);
   });

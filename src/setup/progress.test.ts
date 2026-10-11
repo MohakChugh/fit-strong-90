@@ -40,6 +40,11 @@ describe('setupProgress, from setup’s state (journey §6.6, §16; board D79)',
     expect(setupProgress({ profile: answered, settings: finished(MINIMAL) }, ctx)).toEqual([]);
   });
 
+  it('names each of Your day’s pages skipped (K5-12)', () => {
+    const skipped = { ...MINIMAL, skippedPages: ['day.water', 'day.sitting', 'day.walks', 'day.quiet'] as SetupAnswers['skippedPages'] };
+    expect(rows(answered, finished(skipped, ['day']))).toEqual([['day', 'Water reminders, Sitting breaks, After-meal walks, Quiet hours', 'skipped']]);
+  });
+
   it('names allergies left unanswered on their own page, from setup’s answers (K5-08)', () => {
     const { allergies: _a, ...noAllergies } = MINIMAL;
     void _a;

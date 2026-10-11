@@ -20,7 +20,7 @@ export const PAGE_IDS = [
   'backFeet.where', 'backFeet.side', 'backFeet.history',
   'movement.focus', 'movement.goal', 'movement.programme',
   'food.pattern', 'food.allergies', 'food.logging',
-  'day.reminders', 'day.meals', 'day.voice',
+  'day.water', 'day.sitting', 'day.walks', 'day.meals', 'day.quiet', 'day.voice',
   'review',
 ] as const;
 export type PageId = (typeof PAGE_IDS)[number];

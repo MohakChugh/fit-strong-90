@@ -42,7 +42,8 @@ const NEW_SINCE_V1: Partial<Record<ChapterId, string>> = { about: 'What to call 
 /** What a page that may be left asks, for its row. */
 const PAGE_TOPIC: Partial<Record<PageId, string>> = {
   'about.name': 'What to call you', 'about.figure': 'Body for the exercise demos', 'movement.goal': 'Your weekly goal',
-  'food.pattern': 'What you eat', 'food.allergies': 'Food allergies', 'food.logging': 'Logging what you eat', 'day.reminders': 'Reminders', 'day.meals': 'Your usual meal times',
+  'food.pattern': 'What you eat', 'food.allergies': 'Food allergies', 'food.logging': 'Logging what you eat', 'day.water': 'Water reminders', 'day.sitting': 'Sitting breaks',
+  'day.walks': 'After-meal walks', 'day.meals': 'Your usual meal times', 'day.quiet': 'Quiet hours',
 };
 
 const open = (chapter: ChapterId, why: OpenChapter['why'], detail: string, href = chapterHref(chapter)): OpenChapter =>
