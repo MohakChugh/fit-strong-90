@@ -1281,3 +1281,28 @@ Left for later, not in this round's findings:
 Production build: `npm run build` succeeds, and the CSP's `img-src` is `'self' data: blob: https://tile.openstreetmap.org` (written HTML-escaped in `dist/index.html`).
 
 **Acceptance.** The first full run (1012 cases) passed 1007. The five failures were the journeys, not the app: J17's partial-save walk counted 2.02 minutes, its monotonic clock keeping real time while the journey froze the wall clock (H6-09), and V02 small-dark read the walk's tab copy a moment before the live screen stored it, under load. `ee5d9f6` runs J17's walk on the wall-following clock and has V02 and V19 wait for the stored walk; no assertion was changed or removed. **The final full run, on `ee5d9f6`: 1012 cases, 1012 passed, 0 failed, in 63.5 min**, J10, J11, V02, V16, V19, V20, V33 and V34 included in all four projects. Its screen sweep (not failures): offline `net::ERR_FAILED` console lines in J20 and V16, as expected; Browse's More menu exposing no level-1 heading or main landmark (VJ12, Plan 4's); and the 20 × 20 px checkboxes inside 44 px rows on the stop questions in `/session` and `/walk/live` (J13, J16), as before.
+
+### 2026-10-11 — [claude] v2 integration: Plan 6's Tasks 14–19 and the walk review fixes merged into feat/v2-journey
+
+`feat/v2-p6b` (28 commits from `0305bc5`, at `6da4c94`) merged into `feat/v2-journey` at `91dd82c` as `f5dab1c`. Seven files conflicted. Each kept both sides' intent, and the merge commit says how, file by file. What a reader of either plan should know:
+- **Counts-free hides the walk summary's "Add your birth year" row too** (KH-13; B-11, D101): its `fix` takes the gate Plan 7 gave the energy row. Plan 7's guard (`boundaries.node.test.ts`) checks whole files, so it passes either way. `summary.callers.test.ts` now holds the row: no link counts-free, the link for the same walk with estimates. The ungated version fails it.
+- **The Walk hub** keeps the integrated branch's pending-walk card (H2-01) and gains Plan 6's Routes and Map pictures rows (Task 14).
+- **J10** takes Plan 6's "Back to Home" step (M12: Done goes back through history). The integrated branch's other J10 fixes stay.
+- **Backups and imports cover Plan 7's stores.** The import that keeps this device's incidents (H6-03, P8-02) and the H4-02 manifest read every v2 store the same way. A backup's manifest counts meals, usual meals and own foods, and each merges by its own rule.
+- `179239d` and `831e0c9`'s hunks are in the tree once: Plan 6's `6c50d52` and `af3a2fc` are the same hunks.
+
+**Gates:** `tsc -b --force` and lint clean. Vitest: 250 files, 6,454 tests, Plan 7's counts-free guard and Plan 6's tests included.
+
+**Acceptance** (port 49831, through the lock, load average 14–21): **1,156 cases. 1,151 passed, 1 failed and 4 pending, in 77.5 min.**
+- J11 (16) now passes with Plan 6 Task 15's harness. Since the first integration it had stopped at the first walk's route question. J10 (4) passes with its "Back to Home" step. V02, V16, V19, V20, V33 and V34 pass in all four projects, as does every other plan's journey.
+- V-J31 (4) is pending on Food's trend, as agreed.
+- One case timed out at step 2 in small-dark: M02's "H2-01: in Normal, Return to walk asks the gate at the tap" (`waitForURL(/walk/live)`, 10 s). Alone, M02 passed 36/36. The walk in this case was left open the day before. The live screen finishes it as stale the moment it arrives (`attach` → `returnToWalk`, away more than 3 h) and moves to the summary, so the step passes only if its wait starts first. That code path is the same on `91dd82c`.
+- Plan 3's uncommitted journeys (V07, V24, V26 and V27) aren't in the tree, so they didn't run.
+- The screen sweep found the same as earlier runs:
+  - offline `net::ERR_FAILED` lines (J20, V16);
+  - Browse's More menu with no level-1 heading or main landmark (VJ12);
+  - the 20 px stop checkboxes in `/session` and `/walk/live` (J13, J16);
+  - the check-in's ketone choices at 41–42 × 44 px at 320 px (V-J18), as in Plan 5's runs.
+
+Left for later:
+- **The Walk hub offers "Return to walk" for a walk that will only be finished.** `peekWalk` reads any unfinished walk as in progress. After more than 3 h away (`STALE_AFTER_MS`), the live screen ends the walk at once, after the check-in and "Carry on walking": "This walk was left open, so it was finished at 9:02 am". Offering "Review and save" for such a walk is a decision for H2-01's owner. It would also make M02's step 2 deterministic.
