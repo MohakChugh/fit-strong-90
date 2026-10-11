@@ -1351,6 +1351,8 @@ describe('B-19: a change to the phone’s clock, asked of the real gate (H6-02)'
   const DAY = '2026-10-08';
   const day = (over: Partial<DailyCheckIn> = {}): DailyCheckIn => ({ date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over });
   const reading = (h: number, m: number, value = 140) => ({ glucose: { value, unit: 'mg/dL' as const, measuredAt: at(h, m).toISOString(), source: 'meter' as const } });
+  /** One acquired since the device's first change, as the screen that took it stamps it (H6R-03, board D186). */
+  const since = (h: number, m: number, value: number) => ({ glucose: { ...reading(h, m, value).glucose, gen: 1 } });
 
   /** The device: stored check-ins and settings, the production gate over them, the clock changes it keeps, and a check-in save. */
   function device(who: UserProfile, first: DailyCheckIn) {
@@ -1392,8 +1394,8 @@ describe('B-19: a change to the phone’s clock, asked of the real gate (H6-02)'
     expect(live.getSnapshot()!.walk.status).toBe('paused');
     expect(live.getSnapshot()!.blocked).toBe('live');
     expect(live.getSnapshot()!.observedMs).toBe(5 * 60_000 + 1000);
-    // A reading taken since the change, by the clock as it is now, answers it.
-    await d.save(day(reading(20, 6, 130)));
+    // A reading taken since the change, by the clock as it is now, answers it: stamped as the check-in stamps one typed in then.
+    await d.save(day(since(20, 6, 130)));
     expect(live.getSnapshot()!.blocked).toBeNull();
     live.resume();
     expect(live.getSnapshot()!.walk.status).toBe('running');
@@ -1430,8 +1432,8 @@ describe('B-19: a change to the phone’s clock, asked of the real gate (H6-02)'
     const next = { id: 'mgh3k2x2-2b3c4d5e', plan: PLAN };
     expect(createLiveWalk(d.w.ports).attach(next)).toBe('none');
     expect(walkRefusal(walkInput(deviceClinical({ profile: onInsulin, ...d.store }), new Date(d.w.now)), 'start')?.reasons).toContain(PERMISSION_TEXT.clockChanged);
-    // A reading taken since: stamped with the device's new clock generation as it is saved.
-    await d.save(day(reading(19, 8, 130)));
+    // A reading taken since: stamped with the device's new clock generation as it is typed in.
+    await d.save(day(since(19, 8, 130)));
     expect(d.store.checkIns.find(c => c.date === DAY)?.glucose?.gen).toBe(1);
     expect(createLiveWalk(d.w.ports).attach(next)).toBe('created');
   });

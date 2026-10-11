@@ -4,6 +4,7 @@
  * in Me → Data. This phone's own answers, never switched on by an import (B-26).
  */
 import type { UserSettings } from '@/types';
+import type { GlucoseEntry } from '@/types/checkin';
 import type { ObservationInput } from '@/health/observation';
 import type { WalkPlan } from './clock';
 
@@ -16,21 +17,27 @@ export function walkSettings(s: Pick<UserSettings, 'walk'>): WalkSettings {
 }
 
 /**
- * B-19: this phone's clock changed during a walk. Its generation moves on, so
- * every reading taken here from now carries the new one, and the days either
- * side of the change are those whose earlier readings can't be timed (board
- * D174).
+ * B-19: this phone's clock changed. Its generation moves on, so every reading
+ * acquired here from now carries the new one, and the days either side of the
+ * change are those whose earlier readings can't be timed (board D174, D186).
  */
 export function withClockChange(walk: WalkSettings, days: readonly string[]): WalkSettings {
   return { ...walk, clock: { generation: (walk.clock?.generation ?? 0) + 1, days: [...new Set(days)].sort() } };
 }
 
-/** The clock generation readings taken here now carry (`gen`): 0 until a walk sees the clock change. */
+/** This phone's clock generation, the count of changes to its clock it has kept: 0 until it sees one. */
 export const clockGeneration = (s: Pick<UserSettings, 'walk'> | undefined): number => s?.walk?.clock?.generation ?? 0;
 
-/** A glucose reading recorded here now, in this phone's clock generation; anything else, as it is. */
-export function takenHere(input: ObservationInput, generation: number): ObservationInput {
-  return input.kind === 'glucose' && input.gen === undefined && generation > 0 ? { ...input, gen: generation } : input;
+/**
+ * B-19: a glucose reading as it is acquired, by the screen that takes it,
+ * stamped with the clock generation it is acquired in (`gen`), and only
+ * then: a new one, typed into an empty box or saved for the first time.
+ * One already stamped, retimed or corrected, keeps its own; one acquired
+ * before any change carries none, as does one from a file (H6R-03, board
+ * D186). Never stamped as it is stored, which a retry can do after a change.
+ */
+export function acquiredIn<T extends GlucoseEntry | ObservationInput>(reading: T, generation: number): T {
+  return generation > 0 && reading.gen === undefined ? { ...reading, gen: generation } : reading;
 }
 
 export type PreflightPage = 'keepRoute' | 'mapPictures' | 'stepCard';

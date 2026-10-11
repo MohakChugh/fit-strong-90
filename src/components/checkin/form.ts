@@ -75,6 +75,15 @@ export interface CheckInForm {
   /** When the reading in `glucose` was taken; `null` stamps it at save. */
   glucoseAt: string | null;
   glucoseDisplay: 'HI' | 'LO' | null;
+  /**
+   * B-19: the clock generation the reading in the box was acquired in. A
+   * saved reading's own while it is the one in the box, so a number corrected
+   * or retimed there is still that measurement; the generation then, when a
+   * number is typed into the empty box or a meter's HI or LO is chosen, which
+   * is a new reading, the same number or not (H6F-06, H6R-03, board D186).
+   * `null`, or absent, while the box has held no reading.
+   */
+  glucoseGen?: number | null;
   source: GlucoseSource | null;
   /** `null` until chosen. */
   trend: GlucoseTrend | null;
@@ -117,7 +126,7 @@ const defaultSource = (p: UserProfile): GlucoseSource | null =>
 export function emptyForm(profile: UserProfile): CheckInForm {
   return {
     emergency: null, back: { ...NO_BACK }, news: [],
-    glucose: '', unit: profile.health.glucoseUnit, unitConfirmed: false, glucoseAt: null, glucoseDisplay: null, source: defaultSource(profile),
+    glucose: '', unit: profile.health.glucoseUnit, unitConfirmed: false, glucoseAt: null, glucoseDisplay: null, glucoseGen: null, source: defaultSource(profile),
     trend: null, rapid: false, bloodKetones: '', urineKetones: null,
     bp: { s1: '', d1: '', s2: '', d2: '' }, bpSymptoms: false, lowRecovered: false, resolutions: [], sleep: null, energy: null, answered: {},
   };
@@ -199,6 +208,7 @@ export function formFromRecord(record: DailyCheckIn, profile?: UserProfile): Che
     unitConfirmed: g?.unitConfirmed === true,
     glucoseAt: useDisplay ? shown?.measuredAt ?? null : g?.measuredAt ?? null,
     glucoseDisplay: useDisplay && shown ? shown.display : null,
+    glucoseGen: (useDisplay ? shown : g) ? ((useDisplay ? shown : g)!.gen ?? 0) : null,
     source: (useDisplay ? shown?.source : g?.source) ?? null,
     trend: g?.trend ?? null,
     rapid: g?.rapidInsulinLast2h === true,
@@ -493,22 +503,25 @@ function appendUnique<T>(list: T[], items: T[], same: (a: T, b: T) => boolean): 
   return out;
 }
 
-function glucoseFromForm(form: CheckInForm, profile: UserProfile, previous: DailyCheckIn | undefined, stamp: string, v: Visible, timeChosen: boolean) {
+function glucoseFromForm(form: CheckInForm, profile: UserProfile, previous: DailyCheckIn | undefined, stamp: string, v: Visible) {
   const prev = previous?.glucose;
   const prevShown = previous?.glucoseDisplay;
   const at = form.glucoseAt;
-  // The saved reading given another time, what it says unchanged: that
-  // reading retimed, not a new one. It keeps its clock generation, so it is
-  // never read as taken since a change to the clock (B-19, H6R-03).
-  const retimed = (e: GlucoseEntry | undefined) => (timeChosen && e ? { gen: e.gen ?? 0 } : {});
+  // B-19: the generation the reading in the box was acquired in. Corrected
+  // or retimed in its box, a saved reading keeps its own, whatever it now
+  // says; typed into a cleared box it is a new one, acquired then, the same
+  // number or not (H6F-06, H6R-03, board D186).
+  const acquired = form.glucoseGen ? { gen: form.glucoseGen } : {};
+  /** The box still holds this saved reading as it was acquired, not one typed in afresh. */
+  const asAcquired = (e: GlucoseEntry | undefined) => !!e && (form.glucoseGen ?? e.gen ?? 0) === (e.gen ?? 0);
   if (form.glucoseDisplay) {
-    if (prevShown && prevShown.display === form.glucoseDisplay && (prevShown.measuredAt ?? null) === at) return { glucoseDisplay: prevShown };
+    if (prevShown && asAcquired(prevShown) && prevShown.display === form.glucoseDisplay && (prevShown.measuredAt ?? null) === at) return { glucoseDisplay: prevShown };
     const source = form.source ?? defaultSource(profile);
     // In this phone's offset, written out: HI and LO are kept here and nowhere else, so their clock is too (H3-01).
     const ms = Date.parse(at ?? stamp);
     const reading: GlucoseDisplayReading = {
       display: form.glucoseDisplay, measuredAt: Number.isFinite(ms) ? measuredStamp(new Date(ms)) : at ?? stamp, ...(source ? { source } : {}),
-      ...retimed(prevShown?.display === form.glucoseDisplay ? prevShown : undefined),
+      ...acquired,
     };
     return { glucoseDisplay: reading };
   }
@@ -518,13 +531,13 @@ function glucoseFromForm(form: CheckInForm, profile: UserProfile, previous: Dail
   const sanity = formSanity(form);
   if (!submitsGlucose(sanity)) return {};
   // The saved reading, resubmitted untouched.
-  if (sameGlucose(prev, value, form.unit, at, form.unitConfirmed)) return { glucose: prev };
+  if (asAcquired(prev) && sameGlucose(prev, value, form.unit, at, form.unitConfirmed)) return { glucose: prev };
   // The same reading with its unit confirmed: one measurement, not a new one.
-  if (prev && form.unitConfirmed && sameGlucose(prev, value, form.unit, at)) {
+  if (prev && asAcquired(prev) && form.unitConfirmed && sameGlucose(prev, value, form.unit, at)) {
     return { glucose: { ...prev, unitConfirmed: true }, corrected: prev };
   }
   // "I meant mmol/L" on an ambiguous low: the same reading with its unit fixed.
-  if (prev && prev.unit === 'mg/dL' && form.unit === 'mmol/L' && prev.value === value
+  if (prev && asAcquired(prev) && prev.unit === 'mg/dL' && form.unit === 'mmol/L' && prev.value === value
     && glucoseSanity(prev.value, prev.unit) === 'ambiguousLow' && (prev.measuredAt ?? null) === at) {
     return { glucose: { ...prev, unit: 'mmol/L' as const }, corrected: prev };
   }
@@ -535,7 +548,7 @@ function glucoseFromForm(form: CheckInForm, profile: UserProfile, previous: Dail
     ...(source ? { source } : {}),
     ...(v.glucoseTrend && form.trend ? { trend: form.trend } : {}),
     ...(v.rapidInsulin && form.rapid ? { rapidInsulinLast2h: true } : {}),
-    ...retimed(prev && prev.value === value && prev.unit === form.unit ? prev : undefined),
+    ...acquired,
   };
   return { glucose: reading };
 }
@@ -557,11 +570,7 @@ function ketonesFromForm(form: CheckInForm, kind: 'blood' | 'urine', previous: D
 
 export function buildCheckIn(
   form: CheckInForm,
-  ctx: {
-    date: string; profile: UserProfile; now: Date; previous?: DailyCheckIn;
-    /** The person chose when the glucose reading was taken, rather than it being timed as typed. */
-    timeChosen?: boolean;
-  },
+  ctx: { date: string; profile: UserProfile; now: Date; previous?: DailyCheckIn },
 ): DailyCheckIn {
   const { profile, previous, now } = ctx;
   const stamp = now.toISOString();
@@ -609,7 +618,7 @@ export function buildCheckIn(
   let glucoseDisplay = previous?.glucoseDisplay;
   let glucoseEarlier = previous?.glucoseEarlier ?? [];
   if (v.glucose) {
-    const next = glucoseFromForm(form, profile, previous, stamp, v, ctx.timeChosen === true);
+    const next = glucoseFromForm(form, profile, previous, stamp, v);
     glucose = next.glucose;
     glucoseDisplay = next.glucoseDisplay;
     const kept: GlucoseEntry[] = [glucose, glucoseDisplay].filter((x): x is GlucoseEntry => !!x);

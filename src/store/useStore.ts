@@ -57,7 +57,7 @@ import {
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
 import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult } from './db';
 import { parseJournalEntry, withJournalled, type JournalEntry } from '@/walk/journal';
-import { clockGeneration, routeErased, takenHere, walkSettings, withClockChange, withErase, type WalkSettings } from '@/walk/consent';
+import { clockGeneration, routeErased, walkSettings, withClockChange, withErase, type WalkSettings } from '@/walk/consent';
 import { routeRecord, type RouteRecord } from '@/walk/routeRecord';
 import type { WalkInput } from '@/walk/record';
 import { SCHEMA_VERSION, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
@@ -737,8 +737,7 @@ export function addObservation(input: ObservationInput): Promise<StoreResult<Obs
   const fixed: ObservationInput = { ...input, id: input.id ?? freshId(), at: input.at ?? nowAt() };
   return enqueue<Observation>({
     plan: base => {
-      // In this phone's clock generation as the transaction finds it (B-19, board D174).
-      const record = newObservation(takenHere(fixed, clockGeneration(base.settings)));
+      const record = newObservation(fixed);
       if (findObservation(base, record.id)) {
         throw new StoreFailure('conflict', 'A record with that id is already on this device. Correct it rather than adding it again.');
       }
@@ -774,7 +773,7 @@ export function addObservations(inputs: readonly ObservationInput[]): Promise<St
       const invalid: FailureDetail[] = [];
       fixed.forEach((input, index) => {
         try {
-          records.push(newObservation(takenHere(input, clockGeneration(base.settings))));
+          records.push(newObservation(input));
         } catch (error) {
           invalid.push({ index, id: input.id, reason: error instanceof Error ? error.message : String(error) });
         }
@@ -1342,6 +1341,15 @@ export function eraseRoutes(): Promise<StoreResult> {
       };
     },
   });
+}
+
+/**
+ * B-19: the clock generation a glucose reading acquired now is stamped with
+ * (`acquiredIn`), by the screen that takes it, as the device has kept its
+ * changes to the clock (H6R-03, board D186).
+ */
+export function acquisitionStamp(): number {
+  return clockGeneration(state.settings);
 }
 
 /**

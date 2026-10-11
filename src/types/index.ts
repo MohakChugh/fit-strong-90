@@ -235,11 +235,12 @@ export interface UserSettings {
      */
     erased?: { generation: number; walks: string[] };
     /**
-     * B-19: changes to this phone's clock seen during a walk. `generation`
-     * counts them, and readings taken here carry it (`gen`). Until one of the
-     * latest generation is taken, a reading from before the change on `days`
-     * can't be timed, and every movement gate holds someone who can go low.
-     * This phone's own: an import never brings it (board D174).
+     * B-19: changes to this phone's clock, seen by a walk or the page.
+     * `generation` counts them, and a reading acquired here carries the count
+     * it was acquired in (`gen`). Until the current reading is one of the
+     * latest generation, a reading from before the change on `days` can't be
+     * timed, and every movement gate holds someone who can go low. This
+     * phone's own: an import never brings it (board D174, D186).
      */
     clock?: ClockHold;
   };

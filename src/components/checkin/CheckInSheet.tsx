@@ -21,6 +21,7 @@ import { Sheet } from '@/components/hig/Sheet';
 import { Group, Row } from '@/components/hig/List';
 import { TARGET } from '@/components/hig/targets';
 import { cn } from '@/lib/utils';
+import { acquisitionStamp } from '@/store/useStore';
 import { CannotSwallow, OutcomeBanner } from './OutcomeBanner';
 import { CheckRow, NumberBox, PainScale, Segmented, Toggle, Wrap } from './parts';
 import { BACK_LABEL, EMERGENCY_LABEL, LOW_NEWS, NEWS_LABEL, URINE_LABEL, defaultStartLabel } from './copy';
@@ -260,7 +261,7 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
   const save = async (f: CheckInForm, show?: 'outcome') => {
     const n = ++seq.current;
     const at = new Date();
-    const answers = buildCheckIn(f, { date, profile, now: at, ...(record ? { previous: record } : {}), timeChosen: timeSet });
+    const answers = buildCheckIn(f, { date, profile, now: at, ...(record ? { previous: record } : {}) });
     typedAt.current = null;
     setNow(at);
     // Counted the moment they are given, before storage replies (B02).
@@ -290,9 +291,16 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
   // clearing the box, or a save, starts the next reading afresh.
   const typedAt = useRef<string | null>(null);
   const takenNow = () => (typedAt.current ??= new Date().toISOString());
+  // B-19: typed into an empty box, a new reading, stamped with the clock
+  // generation it is acquired in. Edited in its box, a reading stays the one
+  // it was, whatever it now says (H6F-06, H6R-03, board D186).
+  const fresh = () => ({ glucoseGen: acquisitionStamp() });
   const setGlucose = (text: string) => {
     if (!text.trim()) typedAt.current = null;
-    update({ glucose: text, glucoseDisplay: null, unitConfirmed: false, ...(timeSet ? {} : { glucoseAt: text.trim() ? takenNow() : null }) });
+    update({
+      glucose: text, glucoseDisplay: null, unitConfirmed: false, ...(timeSet ? {} : { glucoseAt: text.trim() ? takenNow() : null }),
+      ...(!form.glucose.trim() ? fresh() : {}),
+    });
   };
   const setGlucoseTime = (hm: string) => {
     if (!hm) { setTimeSet(false); update({ glucoseAt: null }); return; }
@@ -472,7 +480,7 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
                 <div className="flex flex-col gap-2 px-4 py-3">
                   <span className="text-[length:var(--text-body)]">What the meter shows</span>
                   <Segmented<'none' | 'HI' | 'LO'> label="What the meter shows" value={form.glucoseDisplay ?? 'none'}
-                    onChange={x => update(x === 'none' ? { glucoseDisplay: null } : { glucoseDisplay: x, glucose: '', ...(timeSet ? {} : { glucoseAt: takenNow() }) })}
+                    onChange={x => update(x === 'none' ? { glucoseDisplay: null } : { glucoseDisplay: x, glucose: '', ...fresh(), ...(timeSet ? {} : { glucoseAt: takenNow() }) })}
                     options={[{ value: 'none', label: 'A number' }, { value: 'HI', label: 'HI' }, { value: 'LO', label: 'LO' }]} />
                 </div>
               ) : (

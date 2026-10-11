@@ -198,7 +198,8 @@ describe('a change the page saw, held by the device until a reading taken since 
     // The same reading saved again releases nothing; one taken since does.
     await saveCheckInRecord(day({ glucose: reading(9, 0) }), { profile: onInsulin, update: store.update });
     expect(held()).toBe(true);
-    await saveCheckInRecord(day({ glucose: reading(9, 12, 128) }), { profile: onInsulin, update: store.update });
+    // Stamped as the check-in stamps a reading typed in now (H6R-03, board D186).
+    await saveCheckInRecord(day({ glucose: { ...reading(9, 12, 128), gen: store.acquisitionStamp() } }), { profile: onInsulin, update: store.update });
     expect(held()).toBe(false);
   });
 });

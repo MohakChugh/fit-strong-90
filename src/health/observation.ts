@@ -110,8 +110,9 @@ export interface Observation {
   timeUnknown?: true;
   /**
    * B-19, a glucose reading only: this device's clock generation when it was
-   * taken here (`settings.walk.clock`), kept through corrections. Absent:
-   * generation 0, or taken elsewhere (an import drops it).
+   * acquired here (`settings.walk.clock`), stamped by the screen that took it
+   * and kept through corrections; the store adds none (H6R-03, board D186).
+   * Absent: generation 0, or taken elsewhere (an import drops it).
    */
   gen?: number;
 }
@@ -299,7 +300,7 @@ export interface ObservationInput {
   coverageMs?: number;
   /** The time in `at` is a stand-in for a date-only record. */
   timeUnknown?: boolean;
-  /** B-19: the clock generation it was taken in (`Observation.gen`). */
+  /** B-19: the clock generation it was acquired in (`Observation.gen`), stamped by the screen that took it (`acquiredIn`). */
   gen?: number;
 }
 

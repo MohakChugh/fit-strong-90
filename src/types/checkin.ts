@@ -119,11 +119,13 @@ export interface GlucoseReading {
    */
   unitConfirmed?: boolean;
   /**
-   * B-19: this device's clock generation when the reading was taken here
-   * (`settings.walk.clock`). One from before a change to the phone's clock
-   * has an earlier one, so it is never read as taken since: corrected or
-   * retimed, it keeps its own. Absent: generation 0, or taken elsewhere (an
-   * import drops it).
+   * B-19: this device's clock generation when the reading was acquired here
+   * (`settings.walk.clock`), stamped by the screen that took it: typed into
+   * an empty box, or saved for the first time. One from before a change to
+   * the phone's clock has an earlier one, so it is never read as acquired
+   * since: corrected or retimed, it keeps its own. Never an order: readings
+   * are ordered by their time alone (H6F-05, H6R-03, board D186). Absent:
+   * generation 0, or taken elsewhere (an import drops it).
    */
   gen?: number;
 }
@@ -134,11 +136,13 @@ export interface GlucoseDisplayReading {
   measuredAt?: string;
   source?: GlucoseSource;
   /**
-   * B-19: this device's clock generation when the reading was taken here
-   * (`settings.walk.clock`). One from before a change to the phone's clock
-   * has an earlier one, so it is never read as taken since: corrected or
-   * retimed, it keeps its own. Absent: generation 0, or taken elsewhere (an
-   * import drops it).
+   * B-19: this device's clock generation when the reading was acquired here
+   * (`settings.walk.clock`), stamped by the screen that took it: typed into
+   * an empty box, or saved for the first time. One from before a change to
+   * the phone's clock has an earlier one, so it is never read as acquired
+   * since: corrected or retimed, it keeps its own. Never an order: readings
+   * are ordered by their time alone (H6F-05, H6R-03, board D186). Absent:
+   * generation 0, or taken elsewhere (an import drops it).
    */
   gen?: number;
 }
@@ -147,7 +151,7 @@ export type GlucoseEntry = GlucoseReading | GlucoseDisplayReading;
 
 /** B-19: the changes to this phone's clock its walks have seen (`settings.walk.clock`, board D174). */
 export interface ClockHold {
-  /** How many there have been. A glucose reading taken here carries the count it was taken in (`gen`). */
+  /** How many there have been. A glucose reading acquired here carries the count it was acquired in (`gen`). */
   generation: number;
   /** The days either side of the latest change: a reading on one of them from an earlier generation can't be timed. */
   days: string[];

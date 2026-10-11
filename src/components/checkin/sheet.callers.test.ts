@@ -1559,7 +1559,22 @@ describe('after a change to the phone’s clock, through the sheet (B-19, H6R-02
   const reading = { value: 140, unit: 'mg/dL' as const, measuredAt: at(2026, 10, 9, 9, 0).toISOString(), source: 'meter' as const };
   const said = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: reading } satisfies DailyCheckIn;
 
-  it('offers no start on the reading from before; retimed it is still that reading; a new one taken here lets the walk go', async () => {
+  it('a reading typed before the change and saved after it is from before: it releases nothing (H6R-03, board D186)', async () => {
+    clock(9, 5);
+    await seed(p);
+    await openSheet('walk');
+    await none();
+    await typeGlucose('128');
+    // The change is seen while the sheet is open, the reading already typed.
+    await store.markClockChange([DAY]);
+    await h().settle();
+    await seePlan();
+    expect(stored()?.glucose).toMatchObject({ value: 128 });
+    expect(stored()?.glucose?.gen ?? 0).toBe(0);
+    expect(startOffered()).toBe(false);
+  });
+
+  it('asks for a new reading, naming the one from before; the same number measured again and typed in, with the time it was measured, lets the walk go (H6F-06, board D186)', async () => {
     clock(9, 5);
     await seed(p, [said]);
     await store.markClockChange([DAY]);
@@ -1568,20 +1583,56 @@ describe('after a change to the phone’s clock, through the sheet (B-19, H6R-02
     expect(h().text()).toContain('Right now, any of these?');
     expect(startOffered()).toBe(false);
     await none();
-    await seePlan();
-    expect(h().text()).toContain(PERMISSION_TEXT.clockChanged);
-    expect(startOffered()).toBe(false);
-    // The 09:00 reading moved to 09:04, as the person reads the clock now.
-    await changeAnswers();
+    // So the box starts empty, and says which reading it was.
+    expect(h().field('Glucose reading').props.value).toBe('');
+    expect(h().text()).toContain('Last reading: 140 mg/dL');
+    // Measured again: the same 140, given the time it was taken by the clock as it is now.
+    await typeGlucose('140');
     await h().change(h().field('Time measured'), { value: '09:04' });
     await seePlan();
-    expect(stored()?.glucose).toMatchObject({ value: 140, gen: 0 });
-    expect(startOffered()).toBe(false);
-    // A new reading, typed now.
-    await changeAnswers();
-    await typeGlucose('128');
+    expect(stored()?.glucose).toMatchObject({ value: 140, measuredAt: at(2026, 10, 9, 9, 4).toISOString(), gen: 1 });
+    expect(startOffered()).toBe(true);
+  });
+
+  it('a meter’s HI or LO chosen since the change is a reading acquired since (H6R-03, board D186)', async () => {
+    clock(9, 5);
+    await seed(p, [said]);
+    await store.markClockChange([DAY]);
+    await openSheet('walk');
+    await none();
+    await h().click(h().button('Meter shows HI or LO?'));
+    await h().click(h().button('HI', { exact: true }));
     await seePlan();
-    expect(stored()?.glucose).toMatchObject({ value: 128, gen: 1 });
+    expect(stored()?.glucoseDisplay).toMatchObject({ display: 'HI', gen: 1 });
+  });
+
+  it('a reading from before, corrected or retimed in its box but never cleared, is still that reading; cleared and typed again, it is a new one (H6F-06, board D186)', async () => {
+    clock(9, 5);
+    await seed(p, [said]);
+    await openSheet('walk');
+    await changeAnswers();
+    // The change is seen while the sheet is open, its box still holding the 09:00 reading.
+    await store.markClockChange([DAY]);
+    await h().settle();
+    await typeGlucose('138');
+    await seePlan();
+    expect(stored()?.glucose).toMatchObject({ value: 138 });
+    expect(stored()?.glucose?.gen ?? 0).toBe(0);
+    expect(startOffered()).toBe(false);
+    // Given the time it reads now, a few minutes on.
+    clock(9, 8);
+    await changeAnswers();
+    await h().change(h().field('Time measured'), { value: '09:07' });
+    await seePlan();
+    expect(stored()?.glucose).toMatchObject({ value: 138, measuredAt: at(2026, 10, 9, 9, 7).toISOString() });
+    expect(stored()?.glucose?.gen ?? 0).toBe(0);
+    expect(startOffered()).toBe(false);
+    // Cleared, then the reading measured now typed in.
+    await changeAnswers();
+    await typeGlucose('');
+    await typeGlucose('138');
+    await seePlan();
+    expect(stored()?.glucose).toMatchObject({ value: 138, gen: 1 });
     expect(startOffered()).toBe(true);
   });
 });

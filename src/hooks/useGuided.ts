@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import {
-  effectiveCheckIns, pendingCheckInsVersion, reportSymptoms as reportInto, resetPendingCheckInsForTests, saveCheckInRecord,
+  acquiredReport, effectiveCheckIns, pendingCheckInsVersion, reportSymptoms as reportInto, resetPendingCheckInsForTests, saveCheckInRecord,
   subscribePendingCheckIns, unstoredCheckIn, type SymptomReport,
 } from '@/components/checkin/pending';
 import { useAppData } from '@/hooks/useLocalStorage';
-import { useStore } from '@/store/useStore';
+import { acquisitionStamp, useStore } from '@/store/useStore';
 import { evaluateCheckIn } from '@/engine/readiness';
 import type { AppData } from '@/types';
 import type { CheckInRecord, DailyCheckIn } from '@/types/checkin';
@@ -106,9 +106,11 @@ export function useGuided(date: string = todayString()) {
    * said on, the same way from every screen (`reportSymptoms`). The day comes
    * from the moment of the report, not from this screen's last render: a
    * session left open across midnight files 00:05 on the new day (scan M-01).
+   * A reading in it is taken as it is given, so it carries the clock
+   * generation of that moment (B-19, H6R-03, board D186).
    */
   const reportSymptoms = useCallback(
-    (report: SymptomReport, at: Date = new Date()) => reportInto(report, { profile, update, date: toDateString(at) }, at),
+    (report: SymptomReport, at: Date = new Date()) => reportInto(acquiredReport(report, acquisitionStamp()), { profile, update, date: toDateString(at) }, at),
     [profile, update],
   );
 

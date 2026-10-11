@@ -6,7 +6,7 @@ import { PERMISSION_TEXT, type Permission, type PermissionInput } from '@/engine
 import { toDateString } from '@/lib/utils';
 import { resetPendingCheckInsForTests, saveCheckInRecord } from '@/components/checkin/pending';
 import { allowsMovement, clinicalGate, deviceClinical, deviceGate, heldBy, STATUS_HOLD, statusRefusal, storeStartPermission, walkInput, walkRefusal, watchClinical } from './gate';
-import { clockGeneration, takenHere, UNASKED, withClockChange } from './consent';
+import { acquiredIn, clockGeneration, UNASKED, withClockChange } from './consent';
 import { STOP_UNANSWERED } from '@/engine/readiness';
 import type { WalkIntent } from './live';
 
@@ -298,13 +298,11 @@ describe('the device’s clock changes (B-19, board D174)', () => {
     expect(walkRefusal(walkInput({ profile: onInsulin, checkIns: [day] }, new Date('2026-10-09T19:40:00+05:30')), 'restart')?.reasons).toContain(PERMISSION_TEXT.clockChanged);
   });
 
-  it('stamps a glucose reading recorded here now with this phone’s generation, and nothing else', () => {
+  it('stamps a reading as it is acquired with this phone’s generation; one already stamped keeps its own, and none before any change (H6R-03, board D186)', () => {
     const glucose = { kind: 'glucose' as const, value: 120, unit: 'mg/dL', scope: 'pointInTime' as const, source: 'manual' as const };
-    expect(takenHere(glucose, 0)).toBe(glucose);
-    expect(takenHere(glucose, 2)).toEqual({ ...glucose, gen: 2 });
-    expect(takenHere({ ...glucose, gen: 1 }, 2)).toEqual({ ...glucose, gen: 1 });
-    const steps = { kind: 'steps' as const, value: 900, scope: 'dayTotal' as const, source: 'manual' as const };
-    expect(takenHere(steps, 2)).toBe(steps);
+    expect(acquiredIn(glucose, 0)).toBe(glucose);
+    expect(acquiredIn(glucose, 2)).toEqual({ ...glucose, gen: 2 });
+    expect(acquiredIn({ ...glucose, gen: 1 }, 2)).toEqual({ ...glucose, gen: 1 });
   });
 });
 
