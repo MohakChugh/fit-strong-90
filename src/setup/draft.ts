@@ -9,8 +9,8 @@ import type { AppData } from '@/types';
 import type { PageId, SetupAnswers } from '@/types/setup';
 import { nowAt } from '@/health/observation';
 import type { StoreResult } from '@/store/db';
-import { getState, update } from '@/store/useStore';
-import { completedSetup, measurementsFrom } from './assemble';
+import { getState, subscribe, update } from '@/store/useStore';
+import { completedSetup, lookedAround, measurementsFrom } from './assemble';
 import type { Ctx } from './graph';
 import { setupStateOf } from './state';
 
@@ -60,25 +60,44 @@ export interface SetupSession {
 
 const EMPTY: SetupSession = { unsaved: false, entered: false, answers: {} };
 let session: SetupSession = EMPTY;
+/**
+ * The record the session belongs to (`StoreState.epoch`). Once a backup
+ * replaces it, or everything is deleted, the session reads as empty: another
+ * record's answers never show over the new one's (H5-07).
+ */
+let sessionEpoch = 0;
 const listeners = new Set<() => void>();
+const current = (): SetupSession => (sessionEpoch === getState().epoch ? session : EMPTY);
 const publish = (next: SetupSession) => {
   session = next;
+  sessionEpoch = getState().epoch;
   for (const listener of [...listeners]) listener();
 };
 
 export function useSetupSession(): SetupSession {
-  return useSyncExternalStore(listener => { listeners.add(listener); return () => listeners.delete(listener); }, () => session);
+  return useSyncExternalStore(listener => {
+    listeners.add(listener);
+    // The record's epoch moves on in the store, so that's listened to as well.
+    const stop = subscribe(listener);
+    return () => { listeners.delete(listener); stop(); };
+  }, current);
 }
-export const getSetupSession = (): SetupSession => session;
+export const getSetupSession = (): SetupSession => current();
 
 export function continueWithoutSaving(at: PageId, answers: SetupAnswers): void {
-  publish({ ...session, unsaved: true, at, answers });
+  publish({ ...current(), unsaved: true, at, answers });
 }
 export function keepInSession(at: PageId, answers: SetupAnswers): void {
-  publish({ ...session, at, answers });
+  publish({ ...current(), at, answers });
 }
 export function enterWithoutSaving(): void {
-  publish({ ...session, entered: true });
+  publish({ ...current(), entered: true });
+}
+
+/** Setup's session and what its pages held, forgotten once setup is finished (K5-05). */
+export function resetSetupSession(): void {
+  edits.clear();
+  publish(EMPTY);
 }
 
 /**
@@ -86,15 +105,19 @@ export function enterWithoutSaving(): void {
  * goes on without saving (B-07). Storage refused from the start, or gone
  * since, is the same as a draft that won't save: setup goes on in its
  * explicit unsaved mode, so its warning shows and its answers live here
- * (H5-06).
+ * (H5-06). Once stored or kept, what the page `from` held is the draft's, so
+ * it's forgotten there (K5-05).
  */
-export async function saveDraft(to: PageId, answers: SetupAnswers): Promise<SaveOutcome> {
-  if (session.unsaved) {
+export async function saveDraft(to: PageId, answers: SetupAnswers, from?: PageId): Promise<SaveOutcome> {
+  let outcome: SaveOutcome;
+  if (current().unsaved) {
     keepInSession(to, answers);
-    return 'session';
+    outcome = 'session';
+  } else {
+    outcome = outcomeOf(await update(d => withDraft(d, to, answers)), getState().status);
+    if (outcome === 'session') continueWithoutSaving(to, answers);
   }
-  const outcome = outcomeOf(await update(d => withDraft(d, to, answers)), getState().status);
-  if (outcome === 'session') continueWithoutSaving(to, answers);
+  if (from !== undefined && outcome !== 'failed') forgetEdits(from);
   return outcome;
 }
 
@@ -102,7 +125,7 @@ export type FinishOutcome = { kind: 'home' } | { kind: 'failed'; message: string
 
 /** Setup ends without saving (B-07): the app opens for this session only, with the answers here and nothing completed. */
 function enterUnsaved(answers: SetupAnswers): FinishOutcome {
-  if (!session.unsaved) continueWithoutSaving('review', answers);
+  if (!current().unsaved) continueWithoutSaving('review', answers);
   enterWithoutSaving();
   return { kind: 'home' };
 }
@@ -117,7 +140,7 @@ function enterUnsaved(answers: SetupAnswers): FinishOutcome {
  * H5-06). Storage going while it's written refuses it the same way.
  */
 export async function finishSetup(answers: SetupAnswers, ctx: Ctx, now: string = nowAt()): Promise<FinishOutcome> {
-  if (session.unsaved) return enterUnsaved(answers);
+  if (current().unsaved) return enterUnsaved(answers);
   const state = getState();
   const hasSteps = state.observations.some(o => o.kind === 'steps');
   const saved = await update(d => completedSetup(d, answers, now, { ...ctx, hasSteps }), {
@@ -125,19 +148,53 @@ export async function finishSetup(answers: SetupAnswers, ctx: Ctx, now: string =
     needsStorage: 'This phone isn’t storing data, so setup is not finished: it carries on without saving.',
     addObservations: measurementsFrom(answers, state.profile, now),
   });
-  if (saved.ok) return { kind: 'home' };
+  if (saved.ok) {
+    resetSetupSession();
+    return { kind: 'home' };
+  }
   if (saved.failure.code === 'unavailable') return enterUnsaved(answers);
   return { kind: 'failed', message: `That did not save. ${saved.failure.message}` };
 }
 
-/** What each page held when it was left, for this session: Back never loses answers (§6.1). */
+/**
+ * "Look around first" (journey §6.4): Home now, with every movement held,
+ * held until stored, since a refusal must leave the person here, where it is
+ * said (D-04). The answers so far wait in the draft; what the pages held is
+ * forgotten (K5-05). Returns what to say when it's refused.
+ */
+export async function lookAroundFirst(): Promise<string | undefined> {
+  const saved = await update(lookedAround, { hold: true });
+  if (!saved.ok && getState().status !== 'unavailable') return `That did not save. ${saved.failure.message}`;
+  edits.clear();
+  return undefined;
+}
+
+/**
+ * What each page held when it was left, for this session and this record:
+ * Back never loses answers (§6.1), and a record restored over it never shows
+ * them (H5-07).
+ */
 const edits = new Map<PageId, Partial<SetupAnswers>>();
-export const pageEdits = (id: PageId): Partial<SetupAnswers> => edits.get(id) ?? {};
+let editsEpoch = 0;
+const heldNow = () => {
+  if (editsEpoch !== getState().epoch) {
+    edits.clear();
+    editsEpoch = getState().epoch;
+  }
+  return edits;
+};
+export const pageEdits = (id: PageId): Partial<SetupAnswers> => heldNow().get(id) ?? {};
 export function rememberEdits(id: PageId, next: Partial<SetupAnswers>): void {
-  edits.set(id, next);
+  heldNow().set(id, next);
+}
+/** A page's answers stored: the draft has them, so a change made elsewhere since is never drawn under them (K5-05). */
+export function forgetEdits(id: PageId): void {
+  heldNow().delete(id);
 }
 
 export function resetSetupSessionForTests(): void {
   session = EMPTY;
+  sessionEpoch = 0;
   edits.clear();
+  editsEpoch = 0;
 }

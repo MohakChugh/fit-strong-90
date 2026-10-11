@@ -117,6 +117,13 @@ export interface StoreState {
    * this device.
    */
   revision: number;
+  /**
+   * Moves on when the whole record is replaced in this copy: a backup
+   * restored with Replace, or everything deleted. What a screen kept for the
+   * record before (setup's answers on a page, say) belonged to that record,
+   * and is dropped when this moves (H5-07).
+   */
+  epoch: number;
 }
 
 // ============================================================================
@@ -171,6 +178,8 @@ let channel: BroadcastLike | undefined;
 let detachVisibility: (() => void) | undefined;
 /** Bumped by `resetForTests`, so a commit still in flight from an earlier test cannot touch the next one. */
 let generation = 0;
+/** `StoreState.epoch`: moves on when the whole record is replaced (H5-07). */
+let epoch = 0;
 
 interface Planned<T> {
   /** `null`: nothing to do, and nothing is written. */
@@ -230,6 +239,7 @@ function toState(s: Snapshot): StoreState {
     saving: jobs.some(j => j.kind === 'mutation'),
     installed,
     revision: committed.revision,
+    epoch,
   };
 }
 
@@ -646,6 +656,7 @@ export function resetForTests(): void {
   migration = undefined;
   persisted = false;
   installed = undefined;
+  epoch = 0;
   listeners.clear();
   state = toState(view);
 }
@@ -1258,6 +1269,7 @@ export function clearAll(): Promise<StoreResult> {
     needsStorage: 'This app cannot reach this device’s storage right now, so it cannot delete what is kept there. Close the app, open it again, and try again.',
     plan: () => ({ change: { reset: true, schemaVersion: SCHEMA_VERSION }, result: () => undefined }),
     after: () => {
+      epoch += 1;
       try {
         resetData();
         return undefined;
@@ -1641,6 +1653,11 @@ export function importRecord(raw: unknown, mode: ImportMode, options: ImportOpti
     plan: base => {
       const planned = planImport(raw, mode, base, options);
       return { change: planned.change, result: () => planned.report };
+    },
+    // Replace makes this the backup's record: what screens kept for the one before is that record's (H5-07).
+    after: () => {
+      if (mode === 'replace') epoch += 1;
+      return undefined;
     },
   });
 }

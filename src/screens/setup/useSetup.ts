@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
-import { continueWithoutSaving, mover, saveDraft, useSetupSession, type SaveOutcome } from '@/setup/draft';
+import { continueWithoutSaving, forgetEdits, mover, saveDraft, useSetupSession, type SaveOutcome } from '@/setup/draft';
 import { hrefOf, type Ctx } from '@/setup/graph';
 import { prefillAnswers } from '@/setup/prefill';
 import { setupStateOf } from '@/setup/state';
@@ -28,10 +28,10 @@ export function useSetupAnswers(): { answers: SetupAnswers; at: PageId | undefin
 type NavState = Record<string, unknown> | undefined;
 
 export interface Move {
-  /** Store the draft, then go to `to` (M22). `state` goes with the navigation. */
-  go: (to: PageId, answers: SetupAnswers, state?: NavState) => void;
+  /** Store the draft, then go to `to` (M22). `state` goes with the navigation; `from`, the page left, has its edits in the draft then (K5-05). */
+  go: (to: PageId, answers: SetupAnswers, state?: NavState, from?: PageId) => void;
   /** B-07: go to `to` without saving, keeping `answers` in this session only. */
-  goUnsaved: (to: PageId, answers: SetupAnswers, state?: NavState) => void;
+  goUnsaved: (to: PageId, answers: SetupAnswers, state?: NavState, from?: PageId) => void;
   /** The last store was refused: the page stays, with its answers (§6.1). */
   failed: boolean;
 }
@@ -48,15 +48,17 @@ export interface Recovery {
   continueUnsaved: () => void;
 }
 
-/** `mover`, with each move carrying its navigation's state ("from Review", "Welcome back") to where it lands. */
+/** `mover`, with each move carrying its navigation's state ("from Review", "Welcome back") to where it lands, and the page it leaves. */
 function movesWithState(
-  save: (to: PageId, answers: SetupAnswers) => Promise<SaveOutcome>,
+  save: (to: PageId, answers: SetupAnswers, from?: PageId) => Promise<SaveOutcome>,
   on: { moved: (to: PageId, state: NavState) => void; failed: () => void },
-): (to: PageId, answers: SetupAnswers, state: NavState) => void {
+): (to: PageId, answers: SetupAnswers, state?: NavState, from?: PageId) => void {
   let pending: NavState;
-  const move = mover(save, { moved: to => on.moved(to, pending), failed: () => on.failed() });
-  return (to, answers, state) => {
+  let leaving: PageId | undefined;
+  const move = mover((to, answers) => save(to, answers, leaving), { moved: to => on.moved(to, pending), failed: () => on.failed() });
+  return (to, answers, state, from) => {
     pending = state;
+    leaving = from;
     void move(to, answers);
   };
 }
@@ -75,8 +77,9 @@ export function useMove(): Move {
   return {
     go: run,
     failed,
-    goUnsaved: (to, answers, state) => {
+    goUnsaved: (to, answers, state, from) => {
       continueWithoutSaving(to, answers);
+      if (from) forgetEdits(from);
       setFailed(false);
       navigate(hrefOf(to), state ? { state } : undefined);
     },

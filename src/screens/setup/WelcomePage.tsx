@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { TypeIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
-import { getState, update } from '@/store/useStore';
-import { lookedAround } from '@/setup/assemble';
+import { lookAroundFirst } from '@/setup/draft';
 import { resumeAt } from '@/setup/graph';
 import { InstallSteps } from '@/screens/welcome/InstallSteps';
 import { deviceNoun, installContext, installLine, readInstallEnv } from '@/screens/welcome/install';
@@ -44,10 +43,9 @@ export function WelcomePage() {
   const recovery: Recovery = { failed: move.failed, retry: () => start(), continueUnsaved: () => start(true) };
 
   const lookAround = async () => {
-    // Held until stored: it opens Home, and a refusal must leave the person here, where it is said (D-04).
-    const saved = await update(lookedAround, { hold: true });
-    if (saved.ok || getState().status === 'unavailable') navigate('/home', { replace: true });
-    else setProblem(`That did not save. ${saved.failure.message}`);
+    const refused = await lookAroundFirst();
+    if (refused) setProblem(refused);
+    else navigate('/home', { replace: true });
   };
 
   return (

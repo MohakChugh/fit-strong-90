@@ -17,7 +17,7 @@ globalThis.localStorage = {
 
 const store = await import('@/store/useStore');
 const {
-  continueWithoutSaving, enterWithoutSaving, finishSetup, getSetupSession, keepInSession, mover, outcomeOf, pageEdits, rememberEdits,
+  continueWithoutSaving, enterWithoutSaving, finishSetup, getSetupSession, keepInSession, lookAroundFirst, mover, outcomeOf, pageEdits, rememberEdits,
   resetSetupSessionForTests, saveDraft, withDraft,
 } = await import('./draft');
 const { MINIMAL } = await import('./fixtures');
@@ -129,6 +129,62 @@ describe('without saving (B-07)', () => {
     const result = await store.update(d => ({ ...d, settings: { ...d.settings, onboardingComplete: true } }), { hold: true, needsStorage: 'Not stored' });
     expect(result.ok ? undefined : result.failure.code).toBe('unavailable');
     expect(store.getState().settings.onboardingComplete).not.toBe(true);
+  });
+
+  it('a successful Next forgets what its page held, since the draft has it now; a refused one keeps it (K5-05)', async () => {
+    let refuse = false;
+    await store.start({ factory: fakeIndexedDB({ failWrite: (s, v) => (refuse && s === 'settings' && v.key === 'settings' ? new DOMException('Disk is full', 'QuotaExceededError') : undefined) }) });
+    rememberEdits('about.name', { name: 'As' });
+    refuse = true;
+    expect(await saveDraft('about.figure', { name: 'Asha' }, 'about.name')).toBe('failed');
+    expect(pageEdits('about.name')).toEqual({ name: 'As' });
+    refuse = false;
+    expect(await saveDraft('about.figure', { name: 'Asha' }, 'about.name')).toBe('saved');
+    expect(pageEdits('about.name')).toEqual({});
+  });
+
+  it('a backup restored with Replace starts setup afresh: no page held, nothing unsaved, from the record before (H5-07, K5-05)', async () => {
+    const { TRANSFER_FORMAT } = await import('@/store/transfer');
+    await store.start({ factory: fakeIndexedDB() });
+    // The previous setup: "No" to diabetes on the page, and answers kept unsaved.
+    rememberEdits('health.conditions', { conditions: { diabetes: 'no' } });
+    continueWithoutSaving('health.bp', { conditions: { diabetes: 'no', bp: 'yes' } });
+    const backup = {
+      format: TRANSFER_FORMAT, version: 1, exportedAt: '2026-10-08T19:00:00.000+05:30', schemaVersion: 5,
+      settings: { setup: { stage: 'open', draft: { at: 'health.diabetes', answers: { conditions: { diabetes: 'yes' } } } } },
+      observations: [], sessions: [], checkIns: [], personalRecords: [], bodyMetrics: [], focusOverrides: {}, contentState: [],
+    };
+    expect((await store.importRecord(backup, 'replace')).ok).toBe(true);
+    expect(getSetupSession()).toMatchObject({ unsaved: false, entered: false, answers: {} });
+    expect(pageEdits('health.conditions')).toEqual({});
+    expect(store.getState().settings.setup?.draft?.answers?.conditions?.diabetes).toBe('yes');
+  });
+
+  it('a merge keeps this device’s settings, so setup’s session is kept too', async () => {
+    const { TRANSFER_FORMAT } = await import('@/store/transfer');
+    await store.start({ factory: fakeIndexedDB() });
+    continueWithoutSaving('health.bp', { conditions: { bp: 'yes' } });
+    const file = {
+      format: TRANSFER_FORMAT, version: 1, exportedAt: '2026-10-08T19:00:00.000+05:30', schemaVersion: 5, settings: {},
+      observations: [], sessions: [], checkIns: [], personalRecords: [], bodyMetrics: [], focusOverrides: {}, contentState: [],
+    };
+    expect((await store.importRecord(file, 'merge')).ok).toBe(true);
+    expect(getSetupSession().unsaved).toBe(true);
+  });
+
+  it('Look around first forgets what the pages held; the answers wait in the draft (K5-05)', async () => {
+    await store.start({ factory: fakeIndexedDB() });
+    rememberEdits('about.name', { name: 'As' });
+    expect(await lookAroundFirst()).toBeUndefined();
+    expect(pageEdits('about.name')).toEqual({});
+    expect(store.getState().settings.setup?.stage).toBe('lookAround');
+  });
+
+  it('finishing setup forgets its session and what its pages held (K5-05)', async () => {
+    await store.start({ factory: fakeIndexedDB() });
+    rememberEdits('about.name', { name: 'Someone else' });
+    expect(await finishSetup(MINIMAL, CTX, NOW)).toEqual({ kind: 'home' });
+    expect(pageEdits('about.name')).toEqual({});
   });
 
   it('remembers what a page held, so Back never loses it (§6.1)', () => {
