@@ -179,6 +179,14 @@ describe('how each allergy in your own words is read (K7R-02; board D180)', () =
     expect(textOf(note.children)).toBe('chaach: Read as milk. kumquat: We don’t know this word, so check every meal yourself.');
     expect(String(note.props.className)).toContain('text-caution');
   });
+  it('gives setup’s allergy and leave-out fields 48 px (K7R-08; §20.4 rule 1)', async () => {
+    const { FoodPicker } = await import('@/screens/guide/FoodPicker');
+    host = render(createElement(FoodPicker, { open: true, onOpenChange() {}, canSave: true }));
+    await host.settle();
+    for (const label of ['Something else', 'Leave out (optional)']) {
+      expect(String(host.field(label).props.className).split(' '), label).toContain('h-12');
+    }
+  });
 });
 
 describe('removing a word, with a visible “Remove” (H7-17, K7-09; board D141)', () => {

@@ -100,7 +100,7 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
           placeholder={FOOD_COPY.somethingElsePlaceholder}
           autoComplete="off"
           aria-describedby={read ? `${allergyHelp} ${allergyNote}` : allergyHelp}
-          className="h-11 rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50"
+          className="h-12 rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50"
         />
         <p id={allergyHelp} className="px-4 pt-2 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
           {FOOD_COPY.allergiesFooter}
@@ -136,7 +136,7 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
           placeholder="For example: peanuts, mushrooms"
           autoComplete="off"
           aria-describedby={unmatched ? `${avoidHelp} ${avoidNote}` : avoidHelp}
-          className="h-11 rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50"
+          className="h-12 rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50"
         />
         <p id={avoidHelp} className="px-4 pt-2 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
           {AVOID_HELP}
