@@ -30,16 +30,19 @@ export function carbsText(carbsG: number): string {
   return carbsG < 1 ? 'under 1 g carbs' : `${fmt(to(carbsG, carbStep(carbsG), 'round'))} g carbs`;
 }
 
-/** "about 30–60 g carbs" (K-22): the low end rounded down and the high end up, so it never narrows the estimate. */
-export function carbsRangeText(c: { low: number; high: number }): string {
+/**
+ * "about 30–60 g carbs" (K-22): the low end rounded down and the high end up, so it never narrows the
+ * estimate, and two ends that differ never meet. Equal ends of 1 g or more are a single figure, not a
+ * range, so they're nothing here (board D149, H7-05).
+ */
+export function carbsRangeText(c: { low: number; high: number }): string | undefined {
   if (c.high < 1) return 'under 1 g carbs';
-  const low = to(c.low, carbStep(c.low), 'floor');
-  const high = to(c.high, carbStep(c.high), 'ceil');
-  return low === high ? `about ${fmt(low)} g carbs` : `about ${fmt(low)}–${fmt(high)} g carbs`;
+  if (!(c.low < c.high)) return undefined;
+  return `about ${fmt(to(c.low, carbStep(c.low), 'floor'))}–${fmt(to(c.high, carbStep(c.high), 'ceil'))} g carbs`;
 }
 
 /** An item's carbs: a range with ranges on, except the person's own figure, which is never one (board D132). */
-function itemCarbsText(c: ItemCarbs, ranges: boolean): string {
+function itemCarbsText(c: ItemCarbs, ranges: boolean): string | undefined {
   if (!ranges) return carbsText(c.g);
   return c.own ? `${fmt(Math.round(c.g))} g carbs, your own figure` : carbsRangeText(c);
 }
@@ -47,9 +50,10 @@ function itemCarbsText(c: ItemCarbs, ranges: boolean): string {
 /** One item's estimate in the tray, or nothing when numbers aren't shown. */
 export function itemEstimate(item: MealItem, view: NumbersView): string | undefined {
   if (!view.show) return undefined;
-  const carbs = itemCarbs(item);
+  const c = itemCarbs(item);
+  const carbs = c && itemCarbsText(c, view.ranges);
   if (item.kcal === undefined && !carbs) return 'No estimate';
-  const known = [item.kcal !== undefined ? kcalText(item.kcal) : undefined, carbs ? itemCarbsText(carbs, view.ranges) : undefined].filter(Boolean);
+  const known = [item.kcal !== undefined ? kcalText(item.kcal) : undefined, carbs].filter(Boolean);
   const gap = item.kcal === undefined ? ' · no calorie estimate' : !carbs ? ' · no carb estimate' : '';
   return `Estimated ${known.join(' · ')}${gap}`;
 }

@@ -27,6 +27,30 @@ describe('kcalText and carbsText (journey §11.4)', () => {
   });
 });
 
+describe('a carb range with equal ends (H7-05; board D149)', () => {
+  const flat: FoodItem = { ...roti, carbsG: 40, carbsLowG: 40, carbsHighG: 40 };
+  it('is a single figure, never shown as one: the item has no carb estimate, and the total says so', () => {
+    expect(carbsRangeText({ low: 40, high: 40 })).toBeUndefined();
+    expect(carbsRangeText({ low: 7, high: 7 })).toBeUndefined();
+    expect(itemEstimate(flat, ranged)).toBe('Estimated 200 kcal · no carb estimate');
+    expect(itemEstimate(flat, shown)).toBe('Estimated 200 kcal · no carb estimate');
+    expect(totalsLines(totalsOf([flat]), ranged)).toEqual({ estimate: 'Estimated 200 kcal in logged foods', missing: '1 item has no carb estimate' });
+    expect(totalsLines(totalsOf([flat, roti]), ranged).estimate).toBe('Estimated 410 kcal · about 30–60 g carbs in logged foods');
+  });
+  it('reads “under 1 g” for a tiny portion, and a total of them with no width has no single figure either', () => {
+    const tiny: FoodItem = { ...roti, count: 1, gramsPerPortion: 1, weighed: true, kcal: 3, carbsG: 0.1, carbsLowG: 0.1, carbsHighG: 0.1 };
+    expect(carbsRangeText({ low: 0.4, high: 0.4 })).toBe('under 1 g carbs');
+    expect(itemEstimate(tiny, ranged)).toBe('Estimated under 10 kcal · under 1 g carbs');
+    expect(totalsLines(totalsOf(Array<FoodItem>(10).fill(tiny)), ranged).estimate).toBe('Estimated 30 kcal in logged foods');
+  });
+  it('still reads a real range, however narrow, as one', () => {
+    expect(carbsRangeText({ low: 39.9, high: 40 })).toBe('about 35–40 g carbs');
+    expect(carbsRangeText({ low: 40, high: 40.1 })).toBe('about 40–45 g carbs');
+    expect(carbsRangeText({ low: 7, high: 7.1 })).toBe('about 7–8 g carbs');
+    expect(carbsRangeText({ low: 9.5, high: 10 })).toBe('about 9–10 g carbs');
+  });
+});
+
 describe('your own food’s carbs, with ranges on (H7-05, K7-05; board D132)', () => {
   const mine = { ...bhel, kcal: 300, carbsG: 40 };
   it('read as your own figure, never as a range', () => {

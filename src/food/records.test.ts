@@ -43,6 +43,24 @@ describe('a meal record (journey §18.2, B-12)', () => {
     expect(itemProblem({ ...bare, carbsLowG: 30, carbsHighG: 50 })).toMatch(/carb range/);
     expect(itemProblem({ ...bare, carbsG: 40, carbsLowG: 50, carbsHighG: 60 })).toMatch(/carb range/);
     expect(itemProblem({ ...bare, carbsG: 40, carbsLowG: 30, carbsHighG: 50 })).toBeUndefined();
+    // Equal ends of 1 g or more are a single figure, never a range (board D149); a tiny weighed portion's may meet.
+    expect(itemProblem({ ...bare, carbsG: 40, carbsLowG: 40, carbsHighG: 40 })).toMatch(/carb range/);
+    expect(itemProblem({ ...bare, carbsG: 1, carbsLowG: 1, carbsHighG: 1 })).toMatch(/carb range/);
+    expect(itemProblem({ ...bare, carbsG: 0.1, carbsLowG: 0.1, carbsHighG: 0.1 })).toBeUndefined();
+  });
+  it('never meets an item the app works out: each food, at each count and each weighed gram, has a real range (board D149)', async () => {
+    const { FOODS } = await import('./data');
+    const { foodItem } = await import('./estimate');
+    const { UNITS } = await import('./units');
+    const flat: string[] = [];
+    const check = (what: string, i: { carbsLowG?: number; carbsHighG?: number }) => {
+      if (!(i.carbsLowG! < i.carbsHighG! || i.carbsHighG! < 1)) flat.push(`${what}: ${i.carbsLowG}–${i.carbsHighG}`);
+    };
+    for (const f of FOODS) {
+      for (let c = UNITS[f.portion.unit].step; c <= 20; c += UNITS[f.portion.unit].step) check(`${f.id} ×${c}`, foodItem(f, c));
+      for (let g = 1; g <= 2000; g += 1) check(`${f.id} ${g} g`, foodItem(f, f.portion.count, g, true));
+    }
+    expect(flat).toEqual([]);
   });
   it('refuses a backup whose meal holds half a carb range, before anything is written (H7-06)', () => {
     const doc = {

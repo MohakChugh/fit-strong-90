@@ -49,6 +49,8 @@ export function itemProblem(x: unknown): string | undefined {
       if (given === 3 && !((carbsLowG as number) <= (carbsG as number) && (carbsG as number) <= (carbsHighG as number))) {
         return `${name}: a carb range that doesn’t hold its estimate`;
       }
+      // Equal ends of 1 g or more are a single figure, which the app never works out (board D149, H7-05).
+      if (given === 3 && carbsLowG === carbsHighG && (carbsHighG as number) >= 1) return `${name}: a carb range that is a single figure`;
       return undefined;
     }
     case 'custom': {

@@ -69,14 +69,16 @@ export function refreshItem(item: MealItem, food: Food | undefined): MealItem {
  * An item's carbs as they may be shown (B-12, board D132): a table food's
  * with its range, the person's own food's as they gave it, with no range.
  * A table food's figure without its range is unknown: a range is never made
- * from a single figure.
+ * from a single figure, and equal ends of 1 g or more are one (board D149).
  */
 export type ItemCarbs = { g: number; own: false; low: number; high: number } | { g: number; own: true };
 
 export function itemCarbs(item: MealItem): ItemCarbs | undefined {
   if (item.carbsG === undefined) return undefined;
   if (item.kind === 'custom') return { g: item.carbsG, own: true };
-  if (item.kind === 'food' && item.carbsLowG !== undefined && item.carbsHighG !== undefined) return { g: item.carbsG, own: false, low: item.carbsLowG, high: item.carbsHighG };
+  if (item.kind === 'food' && item.carbsLowG !== undefined && item.carbsHighG !== undefined && (item.carbsLowG < item.carbsHighG || item.carbsHighG < 1)) {
+    return { g: item.carbsG, own: false, low: item.carbsLowG, high: item.carbsHighG };
+  }
   return undefined;
 }
 
