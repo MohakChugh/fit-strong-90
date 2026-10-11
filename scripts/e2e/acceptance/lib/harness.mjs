@@ -39,6 +39,7 @@ export class Case {
     this.console = [];
     this.requests = [];
     this.allowed = [];
+    this.consented = [];
     this.shots = 0;
     this.time = NOW;
     this.aborted = undefined;
@@ -184,6 +185,14 @@ export class Case {
   /** A console error the fault itself causes, exempted by its exact marker only. */
   allowConsole(pattern) { this.allowed.push(pattern); }
 
+  /**
+   * Requests off the device that the person consented to, which the end of
+   * the case doesn't count as leaving it: only Plan 6's map pictures, once
+   * this phone said Yes to them (B-23, D91). Answered locally by the journey,
+   * so the suite never depends on the network.
+   */
+  allowRequests(pattern) { this.consented.push(pattern); }
+
   // ---------------------------------------------------------------- reading state
 
   async db(page = this.page) {
@@ -317,7 +326,8 @@ export class Case {
     const allowed = text => this.allowed.some(p => (p instanceof RegExp ? p.test(text) : text.includes(p)));
     const stray = this.console.filter(c => !allowed(c.text));
     for (const c of stray) this.sweep.push({ check: 'console', detail: c.text.slice(0, 300), step: c.at, checkpoint: '(any)', route: '' });
-    const offOrigin = this.requests.filter(r => !r.url.startsWith(this.origin) && !/^(data|blob|about|chrome-extension):/.test(r.url));
+    const consented = url => this.consented.some(p => (p instanceof RegExp ? p.test(url) : url.startsWith(p)));
+    const offOrigin = this.requests.filter(r => !r.url.startsWith(this.origin) && !/^(data|blob|about|chrome-extension):/.test(r.url) && !consented(r.url));
     for (const r of offOrigin) this.failures.push({ journey: this.journey, case: this.name, project: this.project.id, step: r.at, message: `request left the device: ${r.method} ${r.url}`, input: '', visible: '', dbDiff: '' });
     await this.context?.close().catch(() => {});
     return {
