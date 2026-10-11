@@ -5,7 +5,10 @@ import { bpContext, newObservation, type Observation } from '@/health/observatio
 import { weekdayOf } from '@/health/status';
 import { DEFAULT_PREFS } from '@/screens/track/format';
 import { addDays } from '@/screens/track/periods';
-import { TRENDS } from './metrics';
+import { buildSessionPlan } from '@/engine/session';
+import { createDefaultProfile } from '@/profile/defaults';
+import { startWorkout, toSession, workoutReducer } from '@/screens/workout/model';
+import { TRENDS, hasData } from './metrics';
 import { dailyView, labsView, latestLab, readingCount, readingsView, trendContext, trendRow, trendSections, type TrendRowView } from './model';
 import { windowOf } from './periods';
 import type { DayContext } from './stats';
@@ -845,5 +848,22 @@ describe('Trends’ rows, at most 5 to a region (H3-22, KT-12, B-08)', () => {
     expect(of(['glucose', 'bp', 'back', 'weight', 'water'])).toEqual([['Check', ['glucose', 'bp', 'back', 'weight', 'water']]]);
     expect(of(['steps'])).toEqual([['Move', ['steps']]]);
     expect(of([])).toEqual([]);
+  });
+});
+
+describe('a workout logged by hand counts in the Workout trend (KT-10, J§12.3)', () => {
+  it('stored as the log screen stores it (an unguided session), its entered minutes on its own day', () => {
+    // Monday 5 October's Lower A, logged at /hub/workout/log: one set at 9 am, finished at 10 with 40 active minutes entered.
+    const plan = buildSessionPlan({ profile: createDefaultProfile({ weightKg: 80 }), date: '2026-10-05', startDate: '2026-09-28', sessions: [] });
+    const nine = Date.parse('2026-10-05T09:00:00+05:30');
+    const logged = toSession([
+      { type: 'log' as const, key: 'lowerA.main', reps: 10, weightKg: 20, now: nine },
+      { type: 'finish' as const, now: nine + 3_600_000, notes: '', activeMinutes: 40 },
+    ].reduce(workoutReducer, startWorkout(plan, { id: 'logged-1', defaultRest: 90 })));
+    expect([logged.guided, logged.date, logged.durationSeconds]).toEqual([undefined, '2026-10-05', 2400]);
+    expect(hasData('workout', data([], [logged]))).toBe(true);
+    const view = dailyView({ def: TRENDS.workout, window: windowOf('week', TODAY), data: data([], [logged]), prefs, ctx: ctx() });
+    expect(view.headline).toMatchObject({ statistic: 'Total', value: '40', unit: 'min' });
+    expect(view.chart.slots[0].text).toBe('Monday, 5 October: 40 min. Last week: 0 min.');
   });
 });
