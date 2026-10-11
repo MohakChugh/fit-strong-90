@@ -433,7 +433,8 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
             )}
 
             {/* Why it didn't save reads in the scroll, brought into view, so a long reason never covers the tray (K7R-06). */}
-            {error && <div ref={errorAt}><ErrorText>{error}</ErrorText></div>}
+            {/* Its scroll margins keep it clear of the held Save (about 5.5rem at any text size) and the sheet's top. */}
+            {error && <div ref={errorAt} className="scroll-mb-24 scroll-mt-4"><ErrorText>{error}</ErrorText></div>}
             {/* Only Save stays in view, however long the list above it (board D139, B-10's three taps); Delete follows it. */}
             <div className="sticky bottom-0 z-10 -mx-[min(1rem,20px)] flex flex-col gap-3 border-t border-separator bg-grouped-bg px-[min(1rem,20px)] pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
               <PrimaryButton onClick={() => void save()} disabled={saving || items.length === 0 || future || (editing !== undefined && !dirty)}>
