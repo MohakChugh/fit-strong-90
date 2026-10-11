@@ -162,11 +162,14 @@ export function niceDomain(
   const floorAtZero = low >= 0;
   const ceilingAtZero = !floorAtZero && high <= 0;
 
-  if (low === high) {
-    // A single reading still needs an axis. Give it room either side.
-    const room = low === 0 ? 1 : Math.abs(low) * 0.1;
-    low -= room;
-    high += room;
+  // A single reading still needs an axis. So does a flat series whose average
+  // is a hair off it in floating point (three 6.6s average 6.599999999999999):
+  // a span that small is no span, or the axis would be 1e-16 tall.
+  if (high - low <= Math.max(Math.abs(low), Math.abs(high)) * 1e-12) {
+    const centre = (low + high) / 2;
+    const room = centre === 0 ? 1 : Math.abs(centre) * 0.1;
+    low = centre - room;
+    high = centre + room;
   }
 
   const room = (high - low) * clamp(pad, 0, 1);
