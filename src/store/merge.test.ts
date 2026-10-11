@@ -1030,10 +1030,20 @@ describe('a meal deleted and brought back on another device, merged (B-05; board
     const both = { ...file, records: { ...file.records, meals: [lunch, r] }, settings: { ...file.settings, deleted: undefined } };
     expect(await merged(a, both)).toEqual({ restoredHere: 1, restoredKept: 0 });
     expect(a.meals()).toEqual([r]);
-    // On a device with neither, the copy stands in for the original it equals.
+    // On a device with neither, the copy stands in for the original it equals, and the original's deletion is
+    // remembered, so the same file merged again brings it in no more (H7-11).
     const c = await phone();
     expect(await merged(c, both)).toEqual({ restoredHere: 0, restoredKept: 0 });
     expect(c.meals()).toEqual([r]);
+    expect(c.store.getState().settings.deleted?.records?.meals).toEqual(['meal-1']);
+    await merged(c, both);
+    expect(c.meals()).toEqual([r]);
+    // A device that took the copy alone before this, with no deletion to go by: the original isn't brought in beside it.
+    const took = await phone();
+    expect((await took.store.writeRecords({ put: { meals: [r as unknown as Record<string, unknown>] } })).ok).toBe(true);
+    await merged(took, both);
+    expect(took.meals()).toEqual([r]);
+    expect(took.store.getState().settings.deleted?.records?.meals).toEqual(['meal-1']);
     // And when the file's original is a later correction, that one is kept, and the copy left out.
     const later = { ...lunch, meal: 'dinner' as const, editedAt: '2026-10-08T16:00:00.000+05:30', edits: [{ replacedAt: '2026-10-08T16:00:00.000+05:30', at: AT, meal: 'lunch' as const, items: [roti] }] };
     const d = await phone();

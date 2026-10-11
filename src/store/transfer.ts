@@ -882,6 +882,13 @@ function settleRestores(
     if (here.has(k)) { removes.push(k); count.here += 1; }
     puts.delete(k);
   };
+  // A file's own original its copy equals isn't brought in, and its deletion is remembered, as a restore
+  // remembers it, so the same file merged again brings it in no more (H7-11).
+  const forgetOriginals = (line: readonly string[], r: StoredRecord) => {
+    for (const k of line.slice(1)) {
+      if (!here.has(k) && puts.has(k) && sameButRestore(store, puts.get(k)!, r)) { puts.delete(k); removes.push(k); }
+    }
+  };
   for (const r of taken) {
     if (typeof r.restoredFrom !== 'string') continue;
     const key = recordKey(store, r);
@@ -890,9 +897,10 @@ function settleRestores(
     const cameFrom = (k: string) => line.includes(k) && sameButRestore(store, now(k), r);
     if (here.has(key)) {
       for (const k of others) if (cameFrom(k)) drop(k);
+      forgetOriginals(line, r);
     } else if (others.every(cameFrom)) {
       others.forEach(drop);
-      for (const k of line.slice(1)) if (!here.has(k) && puts.has(k) && sameButRestore(store, puts.get(k)!, r)) puts.delete(k);
+      forgetOriginals(line, r);
       hold(key, r);
     } else {
       puts.delete(key);
