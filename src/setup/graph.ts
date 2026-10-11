@@ -75,7 +75,8 @@ export const PAGES: readonly PageDef[] = [
       && (a.bpPermission === undefined || (inRange(a.bpPermission.sys, 90, 250) && inRange(a.bpPermission.dia, 50, 150))) },
   { id: 'medicines.regular', when: always, sets: ['regular'], skippable: false, done: a => a.regular !== undefined },
   { id: 'medicines.which', when: (_a, f) => f.medicines, sets: ['classes', 'metforminSince'], skippable: false,
-    done: (a, _f, ctx) => checklistDone(a.classes, MEDICINE_CLASSES) && metforminYearProblem(a.metforminSince ?? '', ctx.thisYear) === null },
+    // The year only while its question shows, metformin ticked: a hidden one never holds Next (H5-27).
+    done: (a, _f, ctx) => checklistDone(a.classes, MEDICINE_CLASSES) && (a.classes?.metformin !== 'yes' || metforminYearProblem(a.metforminSince ?? '', ctx.thisYear) === null) },
   { id: 'medicines.lows', when: (a, f) => f.diabetic && (f.insulin || has(a.classes?.lowsTablet)),
     sets: ['insulinHow', 'lowsRisk', 'glucoseStartMin', 'glucoseStartUnit'], skippable: false,
     done: (a, f) => (!f.insulin || a.insulinHow !== undefined) && a.lowsRisk !== undefined && glucoseOk(a) },
@@ -148,7 +149,12 @@ export function pageInvalid(id: PageId, a: SetupAnswers, ctx: Ctx): boolean {
 /** What a page stores: a checklist's unticked rows are No once it's answered (B-08). */
 export function commitPage(id: PageId, a: SetupAnswers): SetupAnswers {
   if (id === 'health.conditions' && a.conditions && checklistDone(a.conditions, CONDITION_IDS)) return { ...a, conditions: fill(a.conditions, CONDITION_IDS) };
-  if (id === 'medicines.which' && a.classes && checklistDone(a.classes, MEDICINE_CLASSES)) return { ...a, classes: fill(a.classes, MEDICINE_CLASSES) };
+  if (id === 'medicines.which' && a.classes && checklistDone(a.classes, MEDICINE_CLASSES)) {
+    const stored: SetupAnswers = { ...a, classes: fill(a.classes, MEDICINE_CLASSES) };
+    // A year typed for metformin, then unticked, goes with it (H5-27).
+    if (stored.classes?.metformin !== 'yes') delete stored.metforminSince;
+    return stored;
+  }
   return a;
 }
 

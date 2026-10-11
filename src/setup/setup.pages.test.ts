@@ -59,6 +59,14 @@ describe('setup’s pages (journey §1.2, §6.2; B-06)', () => {
     expect(pageDone('health.eyes', { eyeTreatment: 'no' }, CTX)).toBe(false);
   });
 
+  it('checks the metformin year only while metformin is ticked, and drops an unfinished one when it isn’t (H5-27)', () => {
+    const hidden: SetupAnswers = { classes: { insulin: 'yes', metformin: 'no' }, metforminSince: '201' };
+    expect(pageDone('medicines.which', hidden, CTX)).toBe(true);
+    expect(commitPage('medicines.which', hidden).metforminSince).toBeUndefined();
+    expect(pageDone('medicines.which', { classes: { metformin: 'yes' }, metforminSince: '201' }, CTX)).toBe(false);
+    expect(commitPage('medicines.which', { classes: { metformin: 'yes' }, metforminSince: '2019' }).metforminSince).toBe('2019');
+  });
+
   it('stores estimates only once the screening question is answered (K-22, board D82)', () => {
     expect(pageDone('food.logging', { foodLevel: 'estimates' }, CTX)).toBe(false);
     expect(pageDone('food.logging', { foodLevel: 'estimates', hardBefore: 'preferNot' }, CTX)).toBe(true);
