@@ -1303,7 +1303,7 @@ Branch `feat/v2-p6c`, from `feat/v2-journey` at `f5dab1c`. Each fix began with a
 | D182 | **"Erase all routes" asks twice**, in Delete everything's pattern, at the large detent: the first step says new walks still keep their route while Keep walk routes is on; Data says "All routes erased." once stored | H6R-15, K6R-04, K6R-11; §20.4 rule 6 |
 | D183 | **Both first-walk consent answers carry the same weight**: two secondary buttons, for routes and for map pictures | K6R-06; §24 |
 | D184 | **A walk away longer than the live screen carries one on** (`STALE_AFTER_MS`, 3 h, one `leftOpen` threshold for both) gets "A walk was left open" and Review and save on the Walk hub, never Return to walk; Review and save ends it left open, as the live screen would. M02's gate case now carries a walk on just past midnight (under 3 h), and expects Review and save the next morning | integrator item; H2-01 |
-| D185 | **The page watches the phone's clock too**, walking or not (`clockWatch`, started with the store): each minute in view and on hiding it compares the device clock with `performance.now()`, and a disagreement past 120 s marks the change through D174, once. Coming back into view only a clock set back counts: an iPhone's monotonic clock stands still while it sleeps, so a clock set forward then can't be told from a locked phone, and a forward change only makes readings look older | P8S-02; B-19 |
+| D185 | **The page watches the phone's clock too**, walking or not (`clockWatch`, started with the store): each minute in view and on hiding it compares the device clock with `performance.now()`, and a disagreement past 120 s marks the change through D174, once. Coming back into view only a clock set back counts: an iPhone's monotonic clock stands still while it sleeps, so a clock set forward then can't be told from a locked phone, and a forward change only makes readings look older. In view, a look judges only up to two and a half minutes since the last one: over a longer span the check didn't run (timers held up, or the acceptance harness's frozen wall clock beside a real-time `performance.now()`) | P8S-02; B-19 |
 
 | Finding | Fix | Commit |
 | --- | --- | --- |
@@ -1331,7 +1331,7 @@ Branch `feat/v2-p6c`, from `feat/v2-journey` at `f5dab1c`. Each fix began with a
 | H6R-15, K6R-04, K6R-11 | D182 | `f071d5d`, `f4949b5` |
 | K6R-05 | "Erasing also clears the route of a walk not yet saved. The walk stays." | `7e094b8` |
 | K6R-09 | Data waits for a walk answer to save, and says "That change wasn't saved" with the reason | `3889ae4` |
-| P8S-02 | D185 | `6e94b68` |
+| P8S-02 | D185 | `6e94b68`, `bb4ef27` |
 | H6R-13 | No change: the Data switches are 51 × 48 px at 100% and 102 × 96 at 200% (`Toggle` since `e334e91`), so the Row's own height no longer matters | — |
 
 Checked in headless Chromium at 428 px and 320 px/200% (screenshots in `/tmp/fit-checks/shots-p6b/r2-*`): "Say what happened" on the surface, the Walk hub's card and the check-in row; the stop questions' chips 48 px tall at 100%; both erase steps, focus on the second question, "All routes erased."; equal consent buttons; the left-open card. No console errors. Seen, not changed (as before this round): at 320 px/200% the shared surface's headline breaks "exercise" mid-word.
