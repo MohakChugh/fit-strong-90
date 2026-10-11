@@ -374,3 +374,40 @@ describe('tap targets (§20.4.1; H5-22; board D159)', () => {
     shown.unmount();
   });
 });
+
+describe('radio groups by keyboard (WAI-ARIA radio group; H5-23; board D160)', () => {
+  it('one tab stop, on the chosen option or else the first; the arrow keys move to an option and choose it, wrapping', async () => {
+    const { useState } = await import('react');
+    const { ChoiceRows, Segmented } = await import('@/screens/you/controls');
+    const options = [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }, { value: 'c', label: 'C' }];
+    for (const Group of [ChoiceRows, Segmented] as const) {
+      const Stateful = () => {
+        const [value, setValue] = useState<string>();
+        return createElement(Group as typeof ChoiceRows<string>, { label: 'Q', options, value, onChange: setValue });
+      };
+      const shown = render(createElement(Stateful));
+      const radios = () => shown.all().filter(n => n.props.role === 'radio');
+      const focused: number[] = [];
+      const press = async (index: number, key: string) => {
+        const siblings = radios().map((_, i) => ({ focus: () => focused.push(i) }));
+        await (radios()[index].props.onKeyDown as (e: unknown) => unknown)({ key, preventDefault() {}, currentTarget: { parentElement: { children: siblings } } });
+        await shown.settle();
+      };
+      const state = () => radios().map(n => [n.props.tabIndex, n.props['aria-checked']]);
+      expect(state()).toEqual([[0, false], [-1, false], [-1, false]]);
+      await press(0, 'ArrowDown');
+      expect(state()).toEqual([[-1, false], [0, true], [-1, false]]);
+      await press(1, 'ArrowRight');
+      await press(2, 'ArrowDown');
+      expect(state()).toEqual([[0, true], [-1, false], [-1, false]]);
+      await press(0, 'ArrowUp');
+      await press(2, 'ArrowLeft');
+      expect(state()).toEqual([[-1, false], [0, true], [-1, false]]);
+      expect(focused).toEqual([1, 2, 0, 2, 1]);
+      // Any other key is the button's own.
+      await press(1, 'Tab');
+      expect(focused).toHaveLength(5);
+      shown.unmount();
+    }
+  });
+});

@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, KeyboardEvent, ReactNode } from 'react';
 import { Switch as SwitchPrimitive } from '@base-ui/react/switch';
 import { CheckIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -85,6 +85,30 @@ export interface Choice<T extends string> {
   detail?: string;
 }
 
+const STEP: Record<string, number> = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+
+/**
+ * A radio group's keyboard, as WAI-ARIA's radio group pattern has it (H5-23;
+ * board D160): one tab stop, on the chosen option or else the first, and the
+ * arrow keys move to the next or previous option, wrapping, and choose it.
+ * Enter and Space are each button's own.
+ */
+function radioKeys<T extends string>(options: readonly { value: T }[], value: T | undefined, onChange: (value: T) => void) {
+  const chosen = options.findIndex(o => o.value === value);
+  const stop = chosen >= 0 ? chosen : 0;
+  return (i: number) => ({
+    tabIndex: i === stop ? 0 : -1,
+    onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
+      const step = STEP[e.key];
+      if (step === undefined) return;
+      e.preventDefault();
+      const next = (i + step + options.length) % options.length;
+      onChange(options[next].value);
+      (e.currentTarget.parentElement?.children[next] as HTMLElement | undefined)?.focus();
+    },
+  });
+}
+
 /**
  * One choice of several, as iOS lists them: a row each, a checkmark on the
  * one chosen. Meant to sit inside a `Group`.
@@ -96,9 +120,10 @@ export function ChoiceRows<T extends string>({ label, options, value, onChange }
   value: T | undefined;
   onChange: (value: T) => void;
 }) {
+  const keys = radioKeys(options, value, onChange);
   return (
     <div role="radiogroup" aria-label={label} className="[&>*+*]:border-t [&>*+*]:border-separator">
-      {options.map(option => {
+      {options.map((option, i) => {
         const on = option.value === value;
         return (
           <button
@@ -106,6 +131,7 @@ export function ChoiceRows<T extends string>({ label, options, value, onChange }
             type="button"
             role="radio"
             aria-checked={on}
+            {...keys(i)}
             onClick={() => onChange(option.value)}
             className="press-feedback flex min-h-[3.25rem] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors active:bg-muted/60"
           >
@@ -160,9 +186,10 @@ export function Segmented<T extends string>({ label, options, value, onChange }:
   value: T | undefined;
   onChange: (value: T) => void;
 }) {
+  const keys = radioKeys(options, value, onChange);
   return (
     <div role="radiogroup" aria-label={label} className="grid grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] gap-1 rounded-xl bg-muted/70 p-1">
-      {options.map(option => {
+      {options.map((option, i) => {
         const on = option.value === value;
         return (
           <button
@@ -170,6 +197,7 @@ export function Segmented<T extends string>({ label, options, value, onChange }:
             type="button"
             role="radio"
             aria-checked={on}
+            {...keys(i)}
             onClick={() => onChange(option.value)}
             className={cn(
               'numeric min-h-12 rounded-lg px-2 text-[length:var(--text-subhead)] font-medium transition-colors',
