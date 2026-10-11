@@ -6,7 +6,12 @@
  * it comes back; a disagreement past the walk's own threshold
  * (`CLOCK_JUMP_MS`) is a change to the clock, marked as a walk marks one
  * (`markClockChange`): every gate then holds someone who can go low until a
- * reading taken since. The walk keeps its own detection too.
+ * reading acquired since. The walk keeps its own detection too; the store
+ * tells the two looks at one change apart from two changes by what each saw
+ * (H6F-04), and holds a change from the moment it is handed on until it is
+ * stored, so nothing the watch looks at next can lose it (H6F-02, board
+ * D188). The watch looks on from where the clocks stood at its last look,
+ * which is what lets it see a clock put back while a marker still waits.
  *
  * Across a time out of view, only a clock set back counts: an iPhone's
  * monotonic clock stands still while it sleeps, so one set forward then can't

@@ -4,7 +4,7 @@
  * in Me → Data. This phone's own answers, never switched on by an import (B-26).
  */
 import type { UserSettings } from '@/types';
-import type { GlucoseEntry } from '@/types/checkin';
+import type { ClockHold, GlucoseEntry } from '@/types/checkin';
 import type { ObservationInput } from '@/health/observation';
 import type { WalkPlan } from './clock';
 
@@ -23,6 +23,17 @@ export function walkSettings(s: Pick<UserSettings, 'walk'>): WalkSettings {
  */
 export function withClockChange(walk: WalkSettings, days: readonly string[]): WalkSettings {
   return { ...walk, clock: { generation: (walk.clock?.generation ?? 0) + 1, days: [...new Set(days)].sort() } };
+}
+
+/**
+ * B-19: the hold with changes to the clock seen here and not yet stored
+ * (H6F-02, board D188): on their days too, and of a generation past every
+ * one kept, so no reading, all of them stamped by what is kept, releases it
+ * until they are stored.
+ */
+export function withPendingClock(stored: ClockHold | undefined, pending: readonly (readonly string[])[]): ClockHold | undefined {
+  if (pending.length === 0) return stored;
+  return { generation: (stored?.generation ?? 0) + 1, days: [...new Set([...(stored?.days ?? []), ...pending.flat()])].sort() };
 }
 
 /** This phone's clock generation, the count of changes to its clock it has kept: 0 until it sees one. */

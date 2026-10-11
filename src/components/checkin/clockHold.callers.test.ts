@@ -24,12 +24,14 @@ globalThis.localStorage = {
 } as Storage;
 
 const store = await import('@/store/useStore');
-const { effectiveCheckIns, reportSymptoms, resetPendingCheckInsForTests, saveCheckInRecord } = await import('./pending');
+const { reportSymptoms, resetPendingCheckInsForTests, saveCheckInRecord } = await import('./pending');
 const { useGuided } = await import('@/hooks/useGuided');
 const { acquiredIn } = await import('@/walk/consent');
 const { buildCheckIn, formFromRecord } = await import('./form');
 const { evaluateCheckIn } = await import('@/engine/readiness');
 const { permission, PERMISSION_TEXT } = await import('@/engine/permission');
+const { deviceClinical } = await import('@/walk/gate');
+const { CLOCK_RETRY_MS } = store;
 
 const onInsulin = createDefaultProfile({
   health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', glucoseUnit: 'mg/dL', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
@@ -39,6 +41,8 @@ const at = (h: number, m = 0) => new Date(2026, 9, 9, h, m, 0);
 const reading = (h: number, m: number, value = 140) => ({ value, unit: 'mg/dL' as const, measuredAt: at(h, m).toISOString(), source: 'meter' as const });
 const day = (over: Partial<DailyCheckIn> = {}): DailyCheckIn => ({ date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over });
 
+/** Whether the device refuses to store its settings, the clock's marker among them. */
+let refuseSettings = false;
 let fake = fakeIndexedDB();
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -46,7 +50,8 @@ beforeEach(async () => {
   local.clear();
   store.resetForTests();
   resetPendingCheckInsForTests();
-  fake = fakeIndexedDB();
+  refuseSettings = false;
+  fake = fakeIndexedDB({ failWrite: (name, row) => (refuseSettings && name === 'settings' && row.key === 'settings' ? new DOMException('Full', 'QuotaExceededError') : undefined) });
   await store.start({ factory: fake, broadcast: null });
   const first = day({ glucose: reading(9, 0) });
   await store.update(prev => ({ ...prev, profile: onInsulin, checkIns: [{ ...first, readiness: evaluateCheckIn(onInsulin, first) }] }));
@@ -55,10 +60,9 @@ afterEach(() => vi.useRealTimers());
 
 const deps = { profile: onInsulin, update: store.update };
 const today = () => store.getState().checkIns.find(c => c.date === DAY)!;
-/** Every movement, asked of what the device holds now, as every gate asks. */
+/** Every movement, asked of what the device holds now, as every gate asks (`deviceClinical`). */
 const held = () => {
-  const s = store.getState();
-  const all = effectiveCheckIns(s.checkIns, onInsulin, s.observations, s.settings.walk?.clock);
+  const all = [...deviceClinical(store.getState()).checkIns];
   return (['guided', 'stretch', 'walk'] as const).map(mode =>
     permission({ profile: onInsulin, checkIn: all.find(c => c.date === DAY), recent: all, now: new Date() }, mode).reasons.includes(PERMISSION_TEXT.clockChanged));
 };
@@ -153,6 +157,80 @@ describe('a change to the phone’s clock, held by the device until a reading ta
     ]);
     expect(both.ok && both.value.map(o => o.gen)).toEqual([1, undefined, undefined]);
     expect(held()).toEqual(NONE);
+  });
+
+  it('holds every movement from the moment a change is seen, through a refused write, as the hubs and Home read it too (H6F-02, board D188)', async () => {
+    const seen: { checkIn?: DailyCheckIn; checkIns?: DailyCheckIn[] } = {};
+    const Harness = () => {
+      const g = useGuided();
+      useEffect(() => { seen.checkIn = g.checkIn; seen.checkIns = g.checkIns; });
+      return null;
+    };
+    const host = render(createElement(Harness));
+    await host.settle();
+    /** As the hubs and Home ask it, through `useGuided`. */
+    const shown = () => permission({ profile: onInsulin, checkIn: seen.checkIn as never, recent: seen.checkIns, now: new Date() }, 'walk').reasons.includes(PERMISSION_TEXT.clockChanged);
+    expect(shown()).toBe(false);
+    refuseSettings = true;
+    void store.markClockChange([DAY]);
+    // Held at once, before any write replies, and still once the write is refused: nothing rolls it back.
+    expect(held()).toEqual(ALL);
+    // Never shown as stored before it is: a reading acquired now is stamped by what is kept.
+    expect(store.getState().settings.walk?.clock).toBeUndefined();
+    expect(store.acquisitionStamp()).toBe(0);
+    await host.settle();
+    expect(store.getState().settings.walk?.clock).toBeUndefined();
+    expect(held()).toEqual(ALL);
+    expect(shown()).toBe(true);
+    host.unmount();
+  });
+
+  it('writes a refused marker again until it is stored; nothing acquired meanwhile releases it (H6F-02, board D188)', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(at(9, 10));
+    refuseSettings = true;
+    const marked = store.markClockChange([DAY]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.getState().settings.walk?.clock).toBeUndefined();
+    // A reading acquired while the change waits to be kept is of the generation kept so far: it releases nothing.
+    await saveCheckInRecord(day({ glucose: acquiredIn(reading(9, 12, 126), store.acquisitionStamp()) }), deps);
+    expect(today().glucose?.gen).toBeUndefined();
+    expect(held()).toEqual(ALL);
+    // Still refused at the first retry; kept at a later one.
+    await vi.advanceTimersByTimeAsync(CLOCK_RETRY_MS);
+    expect(store.getState().settings.walk?.clock).toBeUndefined();
+    expect(held()).toEqual(ALL);
+    refuseSettings = false;
+    await vi.advanceTimersByTimeAsync(CLOCK_RETRY_MS);
+    expect((await marked).ok).toBe(true);
+    // Stored, it holds as the device's own, and nothing else is waiting.
+    expect(store.getState().settings.walk?.clock).toEqual({ generation: 1, days: [DAY] });
+    expect(store.getState().clockHold).toEqual({ generation: 1, days: [DAY] });
+    expect(held()).toEqual(ALL);
+    // Only a reading acquired since then lets go.
+    await saveCheckInRecord(day({ glucose: acquiredIn(reading(9, 13, 124), store.acquisitionStamp()) }), deps);
+    expect(held()).toEqual(NONE);
+  });
+
+  it('with nowhere to store anything, holds a change for the session, as everything is, and writes it once (H6F-02)', async () => {
+    store.resetForTests();
+    await store.start({ factory: undefined, broadcast: null });
+    const result = await store.markClockChange([DAY]);
+    expect(result.ok).toBe(false);
+    expect(store.getState().settings.walk?.clock).toEqual({ generation: 1, days: [DAY] });
+    expect(store.getState().clockHold).toEqual({ generation: 1, days: [DAY] });
+  });
+
+  it('writes nothing into a store started afresh, as a test starts one (H6F-02)', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    refuseSettings = true;
+    void store.markClockChange([DAY]);
+    await vi.advanceTimersByTimeAsync(0);
+    store.resetForTests();
+    refuseSettings = false;
+    await store.start({ factory: fakeIndexedDB(), broadcast: null });
+    await vi.advanceTimersByTimeAsync(CLOCK_RETRY_MS * 2);
+    expect(store.getState().settings.walk?.clock).toBeUndefined();
   });
 
   it('each change moves the generation on, against the settings the write finds, and keeps this phone’s other walk answers', async () => {

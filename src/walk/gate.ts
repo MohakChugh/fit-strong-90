@@ -70,11 +70,11 @@ export function walkInput(clinical: Clinical, now: Date): PermissionInput {
  * `useGuided`: a device part-way through onboarding is asked about, and held
  * for its health questions, never assumed fine.
  */
-export function deviceClinical(state: Pick<StoreState, 'profile' | 'checkIns' | 'settings'> & { observations?: StoreState['observations'] }): Clinical {
+export function deviceClinical(state: Pick<StoreState, 'profile' | 'checkIns' | 'settings'> & Partial<Pick<StoreState, 'observations' | 'clockHold'>>): Clinical {
   const profile = state.profile ?? createDefaultProfile({ weightKg: state.settings.currentWeight || 0, needsHealthReview: true });
   // Track's glucose and blood pressure readings count as the check-in's do (scan X2-01), and the
-  // changes to this phone's clock its walks have seen hold every gate (B-19, board D174).
-  return { profile, checkIns: effectiveCheckIns(state.checkIns, profile, state.observations ?? [], state.settings.walk?.clock) };
+  // changes to this phone's clock hold every gate, from the moment one is seen (B-19, board D174, D188).
+  return { profile, checkIns: effectiveCheckIns(state.checkIns, profile, state.observations ?? [], state.clockHold ?? state.settings.walk?.clock) };
 }
 
 export { STATUS_HOLD } from './readout';

@@ -34,7 +34,7 @@
 import { useSyncExternalStore } from 'react';
 import { CURRENT_VERSION, migrateData, resetData } from '@/services/storage';
 import type { AppData, BodyMetric, PersonalRecord, UserSettings, WorkoutSession } from '@/types';
-import type { CheckInRecord } from '@/types/checkin';
+import type { CheckInRecord, ClockHold } from '@/types/checkin';
 import type { DayFocus } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import {
@@ -58,7 +58,7 @@ import { pairBloodPressure, type BpReading } from '@/health/aggregate';
 import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult } from './db';
 import { parseJournalEntry, withJournalled, type JournalEntry } from '@/walk/journal';
 import { sameClockChange, type ClockSeen } from '@/walk/clock';
-import { clockGeneration, routeErased, walkSettings, withClockChange, withErase, type WalkSettings } from '@/walk/consent';
+import { clockGeneration, routeErased, walkSettings, withClockChange, withErase, withPendingClock, type WalkSettings } from '@/walk/consent';
 import { routeRecord, type RouteRecord } from '@/walk/routeRecord';
 import type { WalkInput } from '@/walk/record';
 import { SCHEMA_VERSION, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
@@ -110,6 +110,13 @@ export interface StoreState {
   saving: boolean;
   /** Running as an installed web app; `undefined` when the browser cannot say. */
   installed?: boolean;
+  /**
+   * B-19: the clock hold every gate reads (`settings.walk.clock`), with any
+   * change seen here that the device has not stored yet: held from the
+   * moment it is seen, and released by nothing until it is (H6F-02, board
+   * D188). A reading is stamped by what is stored (`acquisitionStamp`).
+   */
+  clockHold?: ClockHold;
   /**
    * The revision of what is stored, as far as this copy knows. It moves with
    * every commit of anything — a reading, a backdated session, a profile or
@@ -173,6 +180,8 @@ let channel: BroadcastLike | undefined;
 let detachVisibility: (() => void) | undefined;
 /** Bumped by `resetForTests`, so a commit still in flight from an earlier test cannot touch the next one. */
 let generation = 0;
+/** B-19: the days of each change to the clock seen here and not yet stored, held meanwhile (`markClockChange`, H6F-02). */
+let clockPending: (readonly string[])[] = [];
 
 interface Planned<T> {
   /** `null`: nothing to do, and nothing is written. */
@@ -234,6 +243,7 @@ function toState(s: Snapshot): StoreState {
     persisted,
     saving: jobs.some(j => j.kind === 'mutation'),
     installed,
+    clockHold: withPendingClock(settingsOf(s.settings).walk?.clock, clockPending),
     revision: committed.revision,
   };
 }
@@ -654,6 +664,7 @@ export function resetForTests(): void {
   installed = undefined;
   listeners.clear();
   clockSeen = [];
+  clockPending = [];
   state = toState(view);
 }
 
@@ -1356,6 +1367,8 @@ export function acquisitionStamp(): number {
 
 /** B-19: the changes to the clock this page has marked, each by the observation that saw it (H6F-04). */
 let clockSeen: { seen: ClockSeen; marked: Promise<StoreResult> }[] = [];
+/** B-19: how soon a refused clock marker is written again (H6F-02). */
+export const CLOCK_RETRY_MS = 5_000;
 
 /**
  * B-19: a walk or the page saw this phone's clock change. The device's clock
@@ -1365,13 +1378,35 @@ let clockSeen: { seen: ClockSeen; marked: Promise<StoreResult> }[] = [];
  * next start included (H6R-02, board D174). A change this page has already
  * marked, seen again by its own observation (`seen`), is not marked twice:
  * a walk and the page watching the same moment (H6F-04, board D187).
+ *
+ * Held from the moment it is seen (`clockHold`), never shown as stored
+ * before it is, and written again until it is: a refused write takes
+ * nothing back, and nothing acquired meanwhile is stamped with a generation
+ * the device hasn't kept (H6F-02, board D188). Resolves once stored; with
+ * nowhere to store at all, once held for this session as everything is.
  */
 export function markClockChange(days: readonly string[], seen?: ClockSeen): Promise<StoreResult> {
   const known = seen && clockSeen.find(c => sameClockChange(c.seen, seen));
   if (known) return known.marked;
-  const marked = enqueue<void>({
-    plan: base => ({ change: { settings: { patch: { walk: withClockChange(walkSettings(base.settings ?? {}), days) } } }, result: () => undefined }),
-  });
+  // Shown by the write's own publish, and by every one until it is stored.
+  const mine = generation;
+  const waiting = [...days];
+  clockPending = [...clockPending, waiting];
+  const write = async (): Promise<StoreResult> => {
+    const result = await enqueue<void>({
+      hold: true,
+      plan: base => ({ change: { settings: { patch: { walk: withClockChange(walkSettings(base.settings ?? {}), days) } } }, result: () => undefined }),
+    });
+    if (!result.ok && db) {
+      await new Promise(resolve => setTimeout(resolve, CLOCK_RETRY_MS));
+      // A test's reset ends it: nothing from an earlier test writes into the next.
+      return mine === generation ? write() : result;
+    }
+    clockPending = clockPending.filter(d => d !== waiting);
+    publish();
+    return result;
+  };
+  const marked = write();
   if (seen) clockSeen.push({ seen, marked });
   return marked;
 }

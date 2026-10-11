@@ -73,9 +73,8 @@ export function useGuided(date: string = todayString()) {
   // the moment they are given (round 3 B04).
   const pending = useSyncExternalStore(subscribePendingCheckIns, pendingCheckInsVersion, pendingCheckInsVersion);
   // Readings logged in Track reach every gate as the check-in's own do (scan X2-01),
-  // and so do the changes to this phone's clock its walks have seen (B-19, board D174).
-  const { observations } = useStore();
-  const clock = data.settings.walk?.clock;
+  // and so do the changes to this phone's clock, from the moment one is seen (B-19, board D174, D188).
+  const { observations, clockHold: clock } = useStore();
   const checkIns = useMemo(
     () => effectiveCheckIns(data.checkIns ?? [], profile, observations, clock),
     // eslint-disable-next-line react-hooks/exhaustive-deps

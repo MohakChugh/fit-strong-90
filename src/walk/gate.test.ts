@@ -6,7 +6,7 @@ import { PERMISSION_TEXT, type Permission, type PermissionInput } from '@/engine
 import { toDateString } from '@/lib/utils';
 import { resetPendingCheckInsForTests, saveCheckInRecord } from '@/components/checkin/pending';
 import { allowsMovement, clinicalGate, deviceClinical, deviceGate, heldBy, STATUS_HOLD, statusRefusal, storeStartPermission, walkInput, walkRefusal, watchClinical } from './gate';
-import { acquiredIn, clockGeneration, UNASKED, withClockChange } from './consent';
+import { acquiredIn, clockGeneration, UNASKED, withClockChange, withPendingClock } from './consent';
 import { STOP_UNANSWERED } from '@/engine/readiness';
 import type { WalkIntent } from './live';
 
@@ -296,6 +296,14 @@ describe('the device’s clock changes (B-19, board D174)', () => {
     const between = { value: 130, unit: 'mg/dL' as const, measuredAt: minutesBefore(NOW, 2), gen: 1 };
     const day = { ...checkIn({ date: '2026-10-09', glucose: between }), clockHold: twice.clock };
     expect(walkRefusal(walkInput({ profile: onInsulin, checkIns: [day] }, new Date('2026-10-09T19:40:00+05:30')), 'restart')?.reasons).toContain(PERMISSION_TEXT.clockChanged);
+  });
+
+  it('holds a change seen and not yet stored on its days too, of a generation past every one kept (H6F-02, board D188)', () => {
+    expect(withPendingClock(undefined, [])).toBeUndefined();
+    const kept = { generation: 2, days: [TODAY] };
+    expect(withPendingClock(kept, [])).toBe(kept);
+    expect(withPendingClock({ generation: 2, days: ['2026-10-05'] }, [['2026-10-09', TODAY], ['2026-10-01']])).toEqual({ generation: 3, days: ['2026-10-01', '2026-10-05', '2026-10-09', TODAY].sort() });
+    expect(withPendingClock(undefined, [[TODAY]])).toEqual({ generation: 1, days: [TODAY] });
   });
 
   it('stamps a reading as it is acquired with this phone’s generation; one already stamped keeps its own, and none before any change (H6R-03, board D186)', () => {
