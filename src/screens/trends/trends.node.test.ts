@@ -97,3 +97,29 @@ describe('the list reflows when its columns have no room (H3-17, journey §20.4 
     expect(three).toContain('Nothing recorded in this period.');
   });
 });
+
+describe('Pain against loading can be read by touch, keys and a list (H3-16, B-15, journey §20.4 rule 3)', () => {
+  const chart = read('../track/BackLegChart.tsx');
+
+  it('the whole plot is one slider: a tap or drag chooses a day, and the arrow keys, Home, End and Escape do too', () => {
+    const slider = chart.slice(chart.indexOf('role="slider"'), chart.indexOf('<svg width={width}'));
+    expect(slider).toContain('aria-valuetext={chosen === undefined ? \'Nothing chosen\' : said(chosen)}');
+    expect(slider).toContain('onKeyDown={keys}');
+    expect(slider).toMatch(/onPointerDown=\{e => \{ e\.currentTarget\.setPointerCapture\(e\.pointerId\); pick\(e\); \}\}/);
+    expect(slider).toContain('touch-pan-y touch-pinch-zoom');
+    expect(chart).toContain('const next = stepValue(e.key, now, max);');
+    expect(chart).toContain('const i = slotAt(e.clientX - e.currentTarget.getBoundingClientRect().left, { left: L.gutter, width: plot }, days);');
+  });
+
+  it('says the chosen day above the plot, where nothing can be pressed, and outlines it', () => {
+    const above = chart.slice(chart.indexOf('{/* The chosen day in words'), chart.indexOf('<div ref={frame}'));
+    expect(above).toContain('said(chosen)');
+    expect(above).not.toMatch(/<(Link|button|a)\b/);
+    expect(chart).toMatch(/\{chosen !== undefined && \(\s*<rect[\s\S]*?fill="none" style=\{\{ stroke: 'var\(--foreground\)' \}\} strokeWidth=\{2\}/);
+  });
+
+  it('has a visible Show as list, which opens the day-by-day list in place of the hidden table', () => {
+    expect(chart).toMatch(/aria-expanded=\{listOpen\}[\s\S]*?\{listOpen \? 'Hide list' : 'Show as list'\}/);
+    expect(chart).toContain('{drawable && !listOpen ? (');
+  });
+});
