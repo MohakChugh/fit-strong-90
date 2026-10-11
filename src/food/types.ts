@@ -94,8 +94,20 @@ export interface FoodItem extends ItemBase {
   carbsHighG?: number;
 }
 
-/** `count` portions of one of the person's own foods. */
-export interface CustomItem extends ItemBase { kind: 'custom'; customId: string; count: number }
+/**
+ * `count` portions of one of the person's own foods, with a snapshot of the
+ * food as it was when logged (board D134, H7-09): what one portion is, what
+ * one held (absent is unknown), and which version of the food that was (its
+ * `updatedAt`). The item reads and scales on its own, whatever the food is now.
+ */
+export interface CustomItem extends ItemBase {
+  kind: 'custom';
+  customId: string;
+  count: number;
+  per: { qty: number; unit: string };
+  basis: { kcal?: number; carbsG?: number };
+  version: string;
+}
 
 /** "About how much?" with no food named: a plate size, with kcal only if the person gave a number. Never carbs. */
 export interface QuickItem extends ItemBase { kind: 'quick'; size: 'small' | 'normal' | 'large' }

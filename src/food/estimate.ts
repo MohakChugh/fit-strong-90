@@ -33,11 +33,17 @@ export function foodItem(food: Food, count = food.portion.count, gramsPerPortion
   };
 }
 
+/** An item of the person's own food: `count` portions of it as it is now, with that snapshot kept (board D134). */
 export function customItem(custom: CustomFood, count = 1): CustomItem {
+  const basis = { ...(custom.kcal !== undefined ? { kcal: custom.kcal } : {}), ...(custom.carbsG !== undefined ? { carbsG: custom.carbsG } : {}) };
+  return { kind: 'custom', customId: custom.id, name: custom.name, count, per: { ...custom.per }, basis, version: custom.updatedAt, ...ownFigures(basis, count) };
+}
+
+/** What `count` portions hold, from what one held: unknown stays unknown, never 0 (A-17). */
+export function ownFigures(basis: CustomItem['basis'], count: number): Pick<CustomItem, 'kcal' | 'carbsG'> {
   return {
-    kind: 'custom', customId: custom.id, name: custom.name, count,
-    ...(custom.kcal !== undefined ? { kcal: Math.round(custom.kcal * count) } : {}),
-    ...(custom.carbsG !== undefined ? { carbsG: r1(custom.carbsG * count) } : {}),
+    ...(basis.kcal !== undefined ? { kcal: Math.round(basis.kcal * count) } : {}),
+    ...(basis.carbsG !== undefined ? { carbsG: r1(basis.carbsG * count) } : {}),
   };
 }
 

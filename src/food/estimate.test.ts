@@ -27,10 +27,11 @@ describe('items', () => {
     expect(foodItem(dal)).toEqual({ kind: 'food', foodId: 'toor-dal', rev: 2, name: 'Toor dal', unit: 'katori', count: 1, gramsPerPortion: 150, kcal: 141, carbsG: 19.6, carbsLowG: 14.1, carbsHighG: 25.9 });
   });
   it('leave a custom food’s unknown values unknown, never 0 (A-17)', () => {
-    expect(customItem(bhel)).toEqual({ kind: 'custom', customId: 'c1', name: 'Bhel puri', count: 1 });
-    expect(customItem({ ...bhel, kcal: 300 }, 2)).toEqual({ kind: 'custom', customId: 'c1', name: 'Bhel puri', count: 2, kcal: 600 });
+    const snapshot = { per: { qty: 1, unit: 'plate' }, version: bhel.updatedAt };
+    expect(customItem(bhel)).toEqual({ kind: 'custom', customId: 'c1', name: 'Bhel puri', count: 1, ...snapshot, basis: {} });
+    expect(customItem({ ...bhel, kcal: 300 }, 2)).toEqual({ kind: 'custom', customId: 'c1', name: 'Bhel puri', count: 2, ...snapshot, basis: { kcal: 300 }, kcal: 600 });
     expect(quickItem('normal')).toEqual({ kind: 'quick', size: 'normal', name: 'Normal plate' });
-    expect(customItem({ ...bhel, carbsG: 45.5 }, 2)).toEqual({ kind: 'custom', customId: 'c1', name: 'Bhel puri', count: 2, carbsG: 91 });
+    expect(customItem({ ...bhel, carbsG: 45.5 }, 2)).toEqual({ kind: 'custom', customId: 'c1', name: 'Bhel puri', count: 2, ...snapshot, basis: { carbsG: 45.5 }, carbsG: 91 });
     expect(quickItem('large', 612.4)).toEqual({ kind: 'quick', size: 'large', name: 'Large plate', kcal: 612 });
   });
   it('start at the food’s standard portion: two idlis, at their own grams', () => {

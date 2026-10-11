@@ -7,7 +7,7 @@ const shown = { show: true, ranges: false } as const;
 const ranged = { show: true, ranges: true } as const;
 const hidden = { show: false } as const;
 const roti: FoodItem = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57 };
-const bhel: CustomItem = { kind: 'custom', customId: 'c1', name: 'Bhel puri', count: 1 };
+const bhel: CustomItem = { kind: 'custom', customId: 'c1', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: {}, version: '2026-10-08T09:00:00.000+05:30' };
 
 describe('kcalText and carbsText (journey §11.4)', () => {
   it('rounds kcal to 10, and carbs to the gram under 10 and to 5 above', () => {

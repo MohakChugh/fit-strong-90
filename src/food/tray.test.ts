@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { foodItem } from './estimate';
+import { customItem, foodItem } from './estimate';
 import { addFood, step, slotAt, weighed, withCount, type Lookup } from './tray';
-import type { Food, FoodItem } from './types';
+import type { CustomFood, Food, FoodItem } from './types';
 
 const roti = { id: 'roti', rev: 2, name: 'Roti', portion: { unit: 'piece', grams: 40, count: 1, noun: ['roti', 'rotis'] }, per100g: { kcal: 255, carbsG: 54, carbsLowG: 48.6, carbsHighG: 59.4 } } as Food;
 const idli = { id: 'idli', rev: 1, name: 'Idli', portion: { unit: 'piece', grams: 40, count: 2, noun: ['idli', 'idlis'] }, per100g: { kcal: 144, carbsG: 30, carbsLowG: 27, carbsHighG: 33 } } as Food;
@@ -37,12 +37,13 @@ describe('the meal tray (journey §11.3, B-08)', () => {
 });
 
 describe('the tray’s other rules (mutation-checked)', () => {
-  const bhel = { id: 'food-1', name: 'Bhel puri', per: { qty: 1, unit: 'plate' }, kcal: 300, createdAt: '2026-10-08T09:00:00.000+05:30', updatedAt: '2026-10-08T09:00:00.000+05:30' };
+  const bhel: CustomFood = { id: 'food-1', name: 'Bhel puri', per: { qty: 1, unit: 'plate' }, kcal: 300, createdAt: '2026-10-08T09:00:00.000+05:30', updatedAt: '2026-10-08T09:00:00.000+05:30' };
   const withBhel: Lookup = { food: look.food, custom: id => (id === 'food-1' ? bhel : undefined) };
-  it('steps the person’s own food by half a portion, from what they said it holds', () => {
-    expect(step({ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, kcal: 300 }, 1, withBhel)).toEqual({ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1.5, kcal: 450 });
-    // Gone from the person's foods: its own figures are scaled.
-    expect(withCount({ kind: 'custom', customId: 'food-9', name: 'Kachori', count: 1, kcal: 200, carbsG: 25 }, 2, look)).toEqual({ kind: 'custom', customId: 'food-9', name: 'Kachori', count: 2, kcal: 400, carbsG: 50 });
+  it('steps the person’s own food by half a portion, from what it was logged as holding', () => {
+    expect(step(customItem(bhel), 1, withBhel)).toEqual({ ...customItem(bhel), count: 1.5, kcal: 450 });
+    // Gone from the person's foods: its own snapshot is scaled all the same.
+    const kachori = customItem({ ...bhel, id: 'food-9', name: 'Kachori', kcal: 200, carbsG: 25 });
+    expect(withCount(kachori, 2, look)).toEqual({ ...kachori, count: 2, kcal: 400, carbsG: 50 });
   });
   it('leaves a quick add as it is, and keeps a weighed portion weighed when its recipe moved on', () => {
     const quick = { kind: 'quick', size: 'normal', name: 'Normal plate' } as const;
@@ -59,9 +60,20 @@ describe('the tray’s other rules (mutation-checked)', () => {
     // Stepped on the recipe as it is now, a weighed portion keeps its weight and stays weighed.
     expect(step(weighed(foodItem(roti), 35, roti), 1, look)).toEqual(foodItem(roti, 2, 35, true));
   });
-  it('works an own food out again from what the person says it holds now', () => {
-    const now: Lookup = { food: look.food, custom: id => (id === 'food-1' ? { ...bhel, kcal: 320 } : undefined) };
-    expect(step({ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, kcal: 300 }, 1, now)).toMatchObject({ count: 1.5, kcal: 480 });
+  it('keeps a snapshot of your own food: one portion, what it holds, and which version (H7-09; board D134)', () => {
+    expect(customItem({ ...bhel, carbsG: 40 })).toEqual({
+      kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: { kcal: 300, carbsG: 40 }, version: bhel.updatedAt, kcal: 300, carbsG: 40,
+    });
+    expect(customItem({ ...bhel, kcal: undefined })).toEqual({ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: {}, version: bhel.updatedAt });
+    // The version is when the food was last changed.
+    expect(customItem({ ...bhel, updatedAt: '2026-10-08T10:00:00.000+05:30' }).version).toBe('2026-10-08T10:00:00.000+05:30');
+  });
+  it('scales that snapshot, never a newer version of the food: more is never less (H7-09; board D134)', () => {
+    // Logged as one plate, 300 kcal; since redefined (a merge) as 100 g, 150 kcal.
+    const now: Lookup = { food: look.food, custom: id => (id === 'food-1' ? { ...bhel, per: { qty: 100, unit: 'g' }, kcal: 150, updatedAt: '2026-10-09T09:00:00.000+05:30' } : undefined) };
+    const logged = customItem(bhel);
+    expect(step(logged, 1, now)).toEqual({ ...logged, count: 1.5, kcal: 450 });
+    expect(withCount(logged, 2, now)).toEqual({ ...logged, count: 2, kcal: 600 });
   });
   it('turns from one meal to the next at 04:00, 11:00, 15:30 and 19:00', () => {
     expect([3 * 60 + 59, 4 * 60, 10 * 60 + 59, 11 * 60, 15 * 60 + 29, 15 * 60 + 30, 18 * 60 + 59, 19 * 60].map(slotAt))

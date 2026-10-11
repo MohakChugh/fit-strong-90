@@ -6,7 +6,7 @@ const roti: FoodItem = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', uni
 const meal = (id: string, at: string, items: MealRecord['items'] = [roti]): MealRecord => ({ id, at, day: at.slice(0, 10), meal: 'lunch', items, level: 'estimates', loggedAt: at, edits: [] });
 const MEALS = [
   meal('b', '2026-10-08T20:00:00.000+05:30'),
-  meal('a', '2026-10-08T08:30:00.000+05:30', [roti, { kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1 }]),
+  meal('a', '2026-10-08T08:30:00.000+05:30', [roti, { kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: {}, version: '2026-10-08T09:00:00.000+05:30' }]),
   meal('c', '2026-10-06T13:00:00.000+05:30'),
 ];
 const shown = { show: true, ranges: false } as const;
@@ -40,7 +40,7 @@ describe('meals by day (journey §11.2)', () => {
 describe('meals by day: the other rules (mutation-checked)', () => {
   it('gives an empty day no totals, a day of unknowns no figure, and a kcal-only day no carbs', () => {
     expect(weekFood(MEALS, '2026-10-08', shown)[0]).toEqual({ day: '2026-10-05', meals: 0 });
-    const unknown = meal('u', '2026-10-09T13:00:00.000+05:30', [{ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1 }]);
+    const unknown = meal('u', '2026-10-09T13:00:00.000+05:30', [{ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: {}, version: '2026-10-08T09:00:00.000+05:30' }]);
     expect(dayLine(weekFood([unknown], '2026-10-09', shown).find(d => d.day === '2026-10-09')!)).toBe('1 meal');
     const plate = meal('p', '2026-10-09T13:00:00.000+05:30', [{ kind: 'quick', size: 'normal', name: 'Normal plate', kcal: 500 }]);
     expect(dailyNutrition([plate], '2026-10-09', '2026-10-09', shown)).toEqual([{ day: '2026-10-09', meals: 1, missing: 1, kcal: 500 }]);

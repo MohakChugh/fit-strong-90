@@ -3,8 +3,8 @@
  * a weighed portion, and which meal a time of day suggests. Pure; the sheet
  * holds the items and hands in the foods it knows.
  */
-import { customItem, foodItem } from './estimate';
-import type { CustomFood, CustomItem, Food, FoodItem, MealItem, Slot } from './types';
+import { foodItem, ownFigures } from './estimate';
+import type { CustomFood, Food, FoodItem, MealItem, Slot } from './types';
 import { UNITS } from './units';
 
 export const MAX_COUNT = 20;
@@ -21,12 +21,11 @@ export function stepOf(item: MealItem): number {
   return item.kind === 'food' ? UNITS[item.unit].step : 0.5;
 }
 
-/** An item's own figures for another count, on the recipe it was logged with (B-12). */
-function scaled(item: FoodItem | CustomItem, count: number): FoodItem | CustomItem {
+/** A table food's own figures for another count, on the recipe it was logged with (B-12). */
+function scaled(item: FoodItem, count: number): FoodItem {
   const f = count / item.count;
   const kcal = item.kcal === undefined ? {} : { kcal: Math.round(item.kcal * f) };
   const carbs = item.carbsG === undefined ? {} : { carbsG: r1(item.carbsG * f) };
-  if (item.kind === 'custom') return { kind: 'custom', customId: item.customId, name: item.name, count, ...kcal, ...carbs };
   return {
     kind: 'food', foodId: item.foodId, rev: item.rev, name: item.name, unit: item.unit, count, gramsPerPortion: item.gramsPerPortion,
     ...(item.weighed ? { weighed: true as const } : {}), ...kcal, ...carbs,
@@ -36,9 +35,11 @@ function scaled(item: FoodItem | CustomItem, count: number): FoodItem | CustomIt
 }
 
 /**
- * The item at another count, from one step to 20. Worked out again from the
- * table when it still has the recipe revision the item used; otherwise the
- * item's own figures are scaled, so it stays on that revision (B-12).
+ * The item at another count, from one step to 20. A table food is worked out
+ * again from the table when it still has the recipe revision the item used;
+ * otherwise its own figures are scaled, so it stays on that revision (B-12).
+ * The person's own food scales its own snapshot, never a newer version of
+ * the food (board D134, H7-09).
  */
 export function withCount(item: MealItem, count: number, look: Lookup): MealItem {
   if (item.kind === 'quick') return item;
@@ -47,8 +48,9 @@ export function withCount(item: MealItem, count: number, look: Lookup): MealItem
     const food = look.food(item.foodId);
     return food && food.rev === item.rev ? foodItem(food, c, item.gramsPerPortion, item.weighed === true) : scaled(item, c);
   }
-  const custom = look.custom(item.customId);
-  return custom ? customItem(custom, c) : scaled(item, c);
+  const { kcal, carbsG, ...rest } = item;
+  void kcal; void carbsG;
+  return { ...rest, count: c, ...ownFigures(item.basis, c) };
 }
 
 /** "Less" or "More": one step. */

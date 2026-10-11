@@ -110,10 +110,8 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
   };
   const portionOf = (item: MealItem) => {
     if (item.kind === 'quick') return item.name;
-    if (item.kind === 'custom') {
-      const custom = look.custom(item.customId);
-      return custom ? `${countText(item.count)} × ${custom.per.qty} ${custom.per.unit}` : countText(item.count);
-    }
+    // As it was logged, whatever the food is now (board D134).
+    if (item.kind === 'custom') return `${countText(item.count)} × ${item.per.qty} ${item.per.unit}`;
     return portionText({ unit: item.unit, noun: foodById(item.foodId)?.portion.noun }, item.count, item.gramsPerPortion);
   };
 

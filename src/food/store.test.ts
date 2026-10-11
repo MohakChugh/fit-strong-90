@@ -43,7 +43,7 @@ describe('saving a meal (journey §11.3, §4.5)', () => {
   it('saves a new usual meal and the person’s own foods with it, in one change', async () => {
     await booted();
     const own: CustomFood = { id: 'food-1', name: 'Bhel puri', per: { qty: 1, unit: 'plate' }, createdAt: AT, updatedAt: AT };
-    const usual: SavedMeal = { id: 'usual-1', name: 'Bhel and roti', meal: 'lunch', items: [roti, { kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1 }], savedAt: AT, updatedAt: AT };
+    const usual: SavedMeal = { id: 'usual-1', name: 'Bhel and roti', meal: 'lunch', items: [roti, { kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: {}, version: AT }], savedAt: AT, updatedAt: AT };
     const m = meal('meal-1', { items: usual.items });
     expect((await food.saveMeal(m, { usual, customFoods: [own] })).ok).toBe(true);
     const records = store.getState().records;

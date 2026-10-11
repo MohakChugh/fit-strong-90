@@ -155,3 +155,21 @@ describe('a correction made against a meal that changed underneath it (H7-08; bo
     expect(toasts).toEqual([]);
   });
 });
+
+describe('your own food in a logged meal, after it was redefined (H7-09; board D134)', () => {
+  it('reads and steps as it was logged: one plate, 300 kcal, and 1½ plates is 450 kcal', async () => {
+    const T1 = '2026-10-07T09:00:00.000+05:30';
+    const v1 = { id: 'food-1', name: 'Bhel puri', per: { qty: 1, unit: 'plate' }, kcal: 300, createdAt: T1, updatedAt: T1 };
+    const at = '2026-10-08T13:10:00.000+05:30';
+    const logged = { kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: { kcal: 300 }, version: T1, kcal: 300 } as const;
+    expect((await food.saveMeal({ id: 'meal-1', at, day: '2026-10-08', meal: 'lunch', items: [logged], level: 'estimates', loggedAt: at, edits: [] }, { customFoods: [v1] })).ok).toBe(true);
+    // A newer definition under the same id, merged in from another phone.
+    const v2 = { ...v1, per: { qty: 100, unit: 'g' }, kcal: 150, updatedAt: '2026-10-08T12:00:00.000+05:30' };
+    expect((await store.writeRecords({ put: { customFoods: [v2] } })).ok).toBe(true);
+    const h = await open({}, { edit: 'meal-1' });
+    expect(item(h, 'Bhel puri')).toContain('1 × 1 plate · Estimated 300 kcal');
+    const row = h.all().find(n => n.props['data-item'] === 'Bhel puri')!;
+    await h.click(allIn(row).find(n => n.type === 'button' && textOf(n.children).includes('More'))!);
+    expect(item(h, 'Bhel puri')).toContain('1½ × 1 plate · Estimated 450 kcal');
+  });
+});
