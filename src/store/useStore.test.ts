@@ -1142,23 +1142,33 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
     expect(ofWalk().length).toBeGreaterThan(0);
     const left = await store.readWalkJournals();
     expect(left.ok && left.value.map(e => [e.id, e.route])).toEqual([['mgh3k2x2-2b3c4d5e', undefined]]);
-    expect(store.getState().settings.walk?.routesErasedAt).toEqual(expect.any(Number));
+    expect(store.getState().settings.walk?.erased).toEqual({ generation: 1, walks: [WALK, 'mgh3k2x2-2b3c4d5e'].sort() });
     expect(JSON.stringify({ state: store.getState(), journals: left.ok ? left.value : [] })).not.toMatch(/12\.97|77\.59/);
   });
 
-  it('never keeps a route of a walk that started before the erase, whichever screen saves it (B-05)', async () => {
+  it('never keeps a route of a walk that started before the erase, whichever screen saves it, whatever the clock says (B-05, K6R-12)', async () => {
     await booted();
     await keepsRoutes();
     await store.eraseRoutes();
-    const erasedAt = store.getState().settings.walk!.routesErasedAt!;
-    const route = { ...ROUTE, startedAt: isoAt(erasedAt - 60_000, 330) };
-    expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route })).ok).toBe(true);
+    // Begun before the erase, in the generation before it; its route timed later than any clock could say.
+    const route = { ...ROUTE, startedAt: isoAt(Date.now() + 86_400_000, 330) };
+    expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route, routeGen: 0 })).ok).toBe(true);
     expect(ofWalk().length).toBeGreaterThan(0);
     expect(store.getState().records.routes).toEqual([]);
     // Nor from the journal, read in the save.
     await store.putWalkJournal(journalEntry(another(), T + 3_660_000, [LINE]));
-    expect((await store.saveWalk({ walkId: 'mgh3k2x2-2b3c4d5e', observations: walkObservations(finishWalk(another(), T + 3_700_000, 'finish')), routeStartedAt: isoAt(erasedAt - 30_000, 330) })).ok).toBe(true);
+    expect((await store.saveWalk({ walkId: 'mgh3k2x2-2b3c4d5e', observations: walkObservations(finishWalk(another(), T + 3_700_000, 'finish')), routeStartedAt: ROUTE.startedAt, routeGen: 0 })).ok).toBe(true);
     expect(store.getState().records.routes).toEqual([]);
+  });
+
+  it('keeps the route of a walk begun since the erase, though the clock was ahead when it erased (K6R-12)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.eraseRoutes();
+    // The walk began after the erase, in its generation; its clock reads a day earlier than the erase's.
+    const since = { ...ROUTE, startedAt: isoAt(Date.now() - 86_400_000, 330) };
+    expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: since, routeGen: 1 })).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([since]);
   });
 
   it('keeps erased routes erased through a backup made before, merged or replaced (B-05, H6-07)', async () => {
@@ -1173,19 +1183,35 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
       expect((await store.importRecord(file, mode)).ok).toBe(true);
       expect(store.getState().records.routes).toEqual([]);
     }
-    expect(store.getState().settings.walk?.routesErasedAt).toEqual(expect.any(Number));
+    expect(store.getState().settings.walk?.erased).toEqual({ generation: 1, walks: [WALK] });
   });
 
-  it('changes one walk answer at a time, against what is stored: another tab’s answer stays (H6R-07)', async () => {
+  it('keeps a route deleted before the erase erased too, so a Replace from a backup holding it brings nothing back (H6R-08)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    const exported = await store.exportRecord({ include: ['routes'] });
+    if (!exported.ok) return expect.unreachable('export failed');
+    const file = await decode(exported.value.bytes);
+    // The walk's route deleted on its own, then every route erased: the backup's settings know neither.
+    await store.removeRecords('routes', [WALK]);
+    await store.eraseRoutes();
+    expect(store.getState().settings.walk?.erased?.walks).toEqual([WALK]);
+    expect((await store.importRecord(file, 'replace')).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+    expect(store.getState().settings.walk?.erased).toEqual({ generation: 1, walks: [WALK] });
+  });
+
+  it('changes one walk answer at a time, against what is stored: another tab’s erase and answers stay (H6R-07)', async () => {
     const fake = await booted();
     await store.setSettings({ walk: { saveRoutes: true, map: 'unasked' } });
     const tab = await openDb(fake);
-    expect((await commitChange(tab, undefined, () => ({ change: { settings: { patch: { walk: { saveRoutes: false, map: 'unasked', stepCardSeen: true } } } } }))).ok).toBe(true);
+    expect((await commitChange(tab, undefined, () => ({ change: { settings: { patch: { walk: { saveRoutes: false, map: 'unasked', erased: { generation: 1, walks: [WALK] } } } } } }))).ok).toBe(true);
     tab.close();
-    // This tab still shows Yes, and answers the map question.
+    // This tab still shows Yes and no erase, and answers the map question.
     expect(store.getState().settings.walk).toEqual({ saveRoutes: true, map: 'unasked' });
     expect((await store.setWalkSettings({ map: 'on' })).ok).toBe(true);
-    expect(store.getState().settings.walk).toEqual({ saveRoutes: false, map: 'on', stepCardSeen: true });
+    expect(store.getState().settings.walk).toEqual({ saveRoutes: false, map: 'on', erased: { generation: 1, walks: [WALK] } });
   });
 
   it('reads back only the checkpoints it can trust', async () => {

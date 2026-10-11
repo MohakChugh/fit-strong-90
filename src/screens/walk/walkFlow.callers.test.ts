@@ -1,7 +1,8 @@
 /**
  * The first walk's questions, answered while another tab changes this
  * phone's walk settings (H6R-07, board D176): each answer is written on its
- * own, against what is stored then, so the other tab's answers stay. Driven through the real `useWalkFlow` and `PreflightSheet`, the real
+ * own, against what is stored then, so the other tab's erase and answers
+ * stay. Driven through the real `useWalkFlow` and `PreflightSheet`, the real
  * store over a fake IndexedDB and another tab's write straight to it.
  */
 
@@ -59,14 +60,14 @@ function Probe() {
 }
 
 describe('the first walk’s questions, answered one at a time against what is stored (H6R-07)', () => {
-  it('writes only the answer given: another tab’s map answer, made while the question was open, stays', async () => {
+  it('writes only the answer given: another tab’s map answer and erase, made while the question was open, stay', async () => {
     host = render(h(Probe));
     await host.settle();
     await host.click(host.button('Start walk', { exact: true }));
     expect(host.text()).toContain(CONSENT.keepRoute.title);
-    // Meanwhile another tab answers the map question; this one hasn't heard.
+    // Meanwhile another tab answers the map question and erases every route; this one hasn't heard.
     const tab = await openDb(fake);
-    const theirs = { saveRoutes: 'unasked' as const, map: 'off' as const };
+    const theirs = { saveRoutes: 'unasked' as const, map: 'off' as const, erased: { generation: 1, walks: ['mgh3k2x1-0a0a0a0a'] } };
     expect((await commitChange(tab, undefined, () => ({ change: { settings: { patch: { walk: theirs } } } }))).ok).toBe(true);
     tab.close();
     await host.click(host.button(CONSENT.keepRoute.yes, { exact: true }));

@@ -84,14 +84,14 @@ describe('“Erase all routes”, heard by this tab’s live walk (B-05)', () =>
     const live = liveWalk();
     expect(live.attach({ id: 'mgh3k2x1-9z8y7x6w', plan: { kind: 'walk', gps: true, steps: false, keepRoute: true } })).toBe('created');
     // The store arrives holding an erase from long ago: no news to a walk begun since.
-    state.value = { ...was, settings: { ...was.settings, walk: { saveRoutes: true, map: 'off', routesErasedAt: 1 } } };
+    state.value = { ...was, settings: { ...was.settings, walk: { saveRoutes: true, map: 'off', erased: { generation: 1, walks: [] } } } };
     heard();
     expect(live.getSnapshot()!.walk.plan.keepRoute).toBe(true);
     // Another walk's copy in this page, with its route.
     const line = { start: 1, end: 2, coords: [[1, 1], [1, 1.0001]] as [number, number][], ms: [0, 1] };
     await journalPort().checkpoint({ ...cachedJournal('mgh3k2x1-9z8y7x6w')!, id: 'mgh3k2x1-0a0a0a0a', walk: { ...cachedJournal('mgh3k2x1-9z8y7x6w')!.walk, id: 'mgh3k2x1-0a0a0a0a' }, route: [line] });
     // Then an erase, here or in another tab.
-    state.value = { ...was, settings: { ...was.settings, walk: { saveRoutes: true, map: 'off', routesErasedAt: Date.now() } } };
+    state.value = { ...was, settings: { ...was.settings, walk: { saveRoutes: true, map: 'off', erased: { generation: 2, walks: [] } } } };
     heard();
     expect(live.getSnapshot()!.walk.plan.keepRoute).toBe(false);
     expect(cachedJournal('mgh3k2x1-9z8y7x6w')?.route).toBeUndefined();

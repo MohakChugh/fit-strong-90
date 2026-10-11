@@ -146,7 +146,8 @@ const SETTINGS_SPEC: Spec = {
   display: shape({ reduceMotion: bool, reduceTransparency: bool, textScale: x => isTextScale(x) }),
   // Read, but never taken as this phone's answers: an import keeps this device's own (B-26, `withDeviceConsent`).
   walk: shape({
-    saveRoutes: oneOf(true, false, 'unasked'), map: oneOf('on', 'off', 'unasked'), stepCardSeen: bool, routesErasedAt: num(0, 8.64e15),
+    saveRoutes: oneOf(true, false, 'unasked'), map: oneOf('on', 'off', 'unasked'), stepCardSeen: bool,
+    erased: shape({ generation: num(0, Number.MAX_SAFE_INTEGER), walks: listOf(text) }, ['generation', 'walks']),
     clock: shape({ generation: num(0, Number.MAX_SAFE_INTEGER), days: listOf(day) }, ['generation', 'days']),
   }, ['saveRoutes', 'map']),
   // List by list: one that cannot be read must not take the others with it,

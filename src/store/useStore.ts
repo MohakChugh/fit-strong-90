@@ -57,7 +57,7 @@ import {
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
 import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult } from './db';
 import { parseJournalEntry, type JournalEntry } from '@/walk/journal';
-import { clockGeneration, takenHere, walkSettings, withClockChange, type WalkSettings } from '@/walk/consent';
+import { clockGeneration, routeErased, takenHere, walkSettings, withClockChange, withErase, type WalkSettings } from '@/walk/consent';
 import { routeRecord, type RouteRecord } from '@/walk/routeRecord';
 import type { WalkInput } from '@/walk/record';
 import { SCHEMA_VERSION, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
@@ -1243,6 +1243,8 @@ export interface SaveWalkInput {
    * journal is retired with the save.
    */
   routeStartedAt?: string;
+  /** The erase generation the walk began in (`WalkPlan.routeGen`): an "Erase all routes" since, and no route is kept (B-05). */
+  routeGen?: number;
 }
 
 /** The route a walk's journal entry holds, as the routes store keeps it, or nothing. */
@@ -1267,9 +1269,9 @@ export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
       const records = fixed.filter(o => !held.has(o.id)).map(o => newObservation(o));
       // The screen's route, or the journal's, read in this transaction.
       const given = input.route ?? (fromJournal && read ? journalRoute(read.journal[input.walkId], input.walkId, input.routeStartedAt!) : undefined);
-      // Never a route of a walk that began before the last "Erase all routes", whichever screen saves it (B-05).
-      const erasedAt = base.settings?.walk?.routesErasedAt;
-      const erased = given !== undefined && erasedAt !== undefined && !(Date.parse(given.startedAt) > erasedAt);
+      // Never a route of a walk an "Erase all routes" erased, whichever screen saves it: by this
+      // phone's own count of erases and the walk's id, never its clock (B-05, K6R-12, board D176).
+      const erased = given !== undefined && routeErased(base.settings?.walk, input.walkId, { ...(input.routeGen !== undefined ? { routeGen: input.routeGen } : {}) });
       let route: StoredRecord | undefined;
       // Kept only on this phone's yes, as it is when the walk is saved, whatever the walk was given (H6-04).
       if (given && !erased && base.settings?.walk?.saveRoutes === true) {
@@ -1293,15 +1295,15 @@ export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
  * B-05: every route on this device erased for good, in one transaction: the
  * saved routes (remembered as deleted, so no merge brings them back), the
  * route in every walk journal, read and rewritten inside the same
- * transaction so no checkpoint slips between, and, through
- * `routesErasedAt`, which every tab's live walk watches, the route a walk is
- * recording now. From then on no route of a walk that began before it is
- * kept, by a save or an import. The walks stay. Deletion records hold ids
- * only in this build (D-06); Plan 8 clears its payloads here when it adds
- * them (D93).
+ * transaction so no checkpoint slips between, and, through this phone's
+ * count of erases (`settings.walk.erased`), which every tab's live walk
+ * watches, the route a walk is recording now. From then on no route of a
+ * walk that began before it is kept, by a save, a checkpoint or an import:
+ * by that count and the routes' walk ids, never the clock (H6R-08, K6R-12,
+ * board D176). The walks stay. Deletion records hold ids only in this build
+ * (D-06); Plan 8 clears its payloads here when it adds them (D93).
  */
 export function eraseRoutes(): Promise<StoreResult> {
-  const at = Date.now();
   return enqueue<void>({
     journal: 'all',
     plan: (base, read) => {
@@ -1309,12 +1311,14 @@ export function eraseRoutes(): Promise<StoreResult> {
       const stripped = Object.values(read?.journal ?? {})
         .filter((e): e is { id: string; route?: unknown } => typeof e === 'object' && e !== null && 'route' in e && typeof (e as { id?: unknown }).id === 'string')
         .map(({ route: _erased, ...rest }) => { void _erased; return rest; });
-      const walk = base.settings?.walk ?? { saveRoutes: 'unasked' as const, map: 'unasked' as const };
+      // Every route by name, saved, deleted before or journalled, and the count of erases moved on (H6R-08).
+      const journals = Object.values(read?.journal ?? {}).flatMap(e => (typeof e === 'object' && e !== null && typeof (e as { id?: unknown }).id === 'string' ? [(e as { id: string }).id] : []));
+      const walk = withErase(walkSettings(base.settings ?? {}), [...keys, ...journals, ...(base.settings?.deleted?.records?.routes ?? [])]);
       return {
         change: {
           ...(keys.length > 0 ? { records: { routes: { remove: keys } } } : {}),
           ...(stripped.length > 0 ? { journal: { put: stripped } } : {}),
-          settings: { patch: { walk: { ...walk, routesErasedAt: Math.max(at, walk.routesErasedAt ?? 0) } } },
+          settings: { patch: { walk } },
         },
         result: () => undefined,
       };

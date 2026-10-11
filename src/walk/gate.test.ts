@@ -292,7 +292,7 @@ describe('the device’s clock changes (B-19, board D174)', () => {
     const twice = withClockChange(once, ['2026-10-09']);
     expect(twice.clock).toEqual({ generation: 2, days: ['2026-10-09'] });
     // The consents and markers stay as they were.
-    expect(withClockChange({ saveRoutes: true, map: 'off', routesErasedAt: 5 }, [TODAY])).toMatchObject({ saveRoutes: true, map: 'off', routesErasedAt: 5 });
+    expect(withClockChange({ saveRoutes: true, map: 'off', erased: { generation: 1, walks: ['x'] } }, [TODAY])).toMatchObject({ saveRoutes: true, map: 'off', erased: { generation: 1, walks: ['x'] } });
     const between = { value: 130, unit: 'mg/dL' as const, measuredAt: minutesBefore(NOW, 2), gen: 1 };
     const day = { ...checkIn({ date: '2026-10-09', glucose: between }), clockHold: twice.clock };
     expect(walkRefusal(walkInput({ profile: onInsulin, checkIns: [day] }, new Date('2026-10-09T19:40:00+05:30')), 'restart')?.reasons).toContain(PERMISSION_TEXT.clockChanged);

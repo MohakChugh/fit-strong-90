@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONSENT, UNASKED, answered, answerOf, consentSummary, preflightPages, routeNote, walkSettings, withConsent } from './consent';
+import { CONSENT, UNASKED, answered, answerOf, consentSummary, preflightPages, routeErased, routeNote, walkSettings, withConsent, withErase } from './consent';
 
 const GPS = { gps: true, steps: false };
 
@@ -61,12 +61,29 @@ describe('what this phone keeps, as the Walk hub and Me say it (journey §9.1)',
   });
 });
 
-describe('one answer at a time (H6R-07, board D176)', () => {
+describe('one answer at a time, and erasure by count and walk, never the clock (H6R-07, H6R-08, K6R-12, board D176)', () => {
   it('writes only the setting an answer changes', () => {
     expect(answerOf({ page: 'keepRoute', keep: false })).toEqual({ saveRoutes: false });
     expect(answerOf({ page: 'mapPictures', show: true })).toEqual({ map: 'on' });
     expect(answerOf({ page: 'stepCard' })).toEqual({ stepCardSeen: true });
-    expect(answered({ saveRoutes: true, map: 'unasked', stepCardSeen: true }, { page: 'mapPictures', show: false }))
-      .toEqual({ saveRoutes: true, map: 'off', stepCardSeen: true });
+    expect(answered({ saveRoutes: true, map: 'unasked', erased: { generation: 2, walks: ['w'] } }, { page: 'mapPictures', show: false }))
+      .toEqual({ saveRoutes: true, map: 'off', erased: { generation: 2, walks: ['w'] } });
+  });
+
+  it('starts a kept route in the erase generation it begins in, and only a kept one', () => {
+    const erased = { saveRoutes: true as const, map: 'off' as const, erased: { generation: 3, walks: [] } };
+    expect(withConsent({ kind: 'walk', gps: true, steps: false }, erased)).toMatchObject({ keepRoute: true, routeGen: 3 });
+    expect(withConsent({ kind: 'walk', gps: true, steps: false, keepRoute: true, routeGen: 3 }, { ...erased, saveRoutes: false }).routeGen).toBeUndefined();
+    expect(withConsent({ kind: 'walk', gps: true, steps: false }, { saveRoutes: true, map: 'off' }).routeGen).toBe(0);
+  });
+
+  it('erases a route begun before the latest erase, or named by one, and keeps one begun since', () => {
+    const once = withErase({ saveRoutes: true, map: 'off' }, ['walk-b', 'walk-a', 'walk-a']);
+    expect(once.erased).toEqual({ generation: 1, walks: ['walk-a', 'walk-b'] });
+    expect(withErase(once, ['walk-c']).erased).toEqual({ generation: 2, walks: ['walk-a', 'walk-b', 'walk-c'] });
+    expect(routeErased(once, 'walk-z', {})).toBe(true);
+    expect(routeErased(once, 'walk-z', { routeGen: 1 })).toBe(false);
+    expect(routeErased(once, 'walk-a', { routeGen: 1 })).toBe(true);
+    expect(routeErased({ saveRoutes: true, map: 'off' }, 'walk-z', {})).toBe(false);
   });
 });

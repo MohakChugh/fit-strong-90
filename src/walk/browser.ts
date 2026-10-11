@@ -12,7 +12,7 @@ import { getState, markClockChange, subscribe } from '@/store/useStore';
 import { createWakeLockPort } from './wakeLock';
 import { sessionWalkStorage } from './persist';
 import { forgetCachedRoutes, journalPort } from './journalPort';
-import { walkSettings } from './consent';
+import { erasedGeneration, walkSettings } from './consent';
 
 type MotionPermission = 'granted' | 'denied';
 
@@ -183,15 +183,15 @@ export function liveWalk(): LiveWalk {
   if (shared) return shared;
   const live = createLiveWalk(browserPorts());
   shared = live;
-  /** The last erase this tab knows of; `null` until the store has been read. */
-  let erased: number | undefined | null = null;
+  /** The count of erases this tab knows of; `null` until the store has been read. */
+  let erased: number | null = null;
   const heard = () => {
     const state = getState();
     if (state.status === 'loading') return;
-    const at = state.settings.walk?.routesErasedAt;
-    if (erased === null) { erased = at; return; }
-    if (at === undefined || at === erased) return;
-    erased = at;
+    const count = erasedGeneration(state.settings.walk);
+    if (erased === null) { erased = count; return; }
+    if (count === erased) return;
+    erased = count;
     forgetCachedRoutes();
     live.forgetRoute();
   };

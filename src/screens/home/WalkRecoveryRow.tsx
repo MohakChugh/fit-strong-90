@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getState, readWalkJournals, retireWalkJournals, saveWalk, useStore } from '@/store/useStore';
+import { erasedGeneration } from '@/walk/consent';
 import { walkEnergy } from '@/walk/energy';
 import type { JournalEntry } from '@/walk/journal';
 import { peekWalk } from '@/walk/persist';
@@ -21,7 +22,7 @@ const clockNow = () => Date.now();
 export function WalkRecoveryRow() {
   const { observations, settings, saving: storing } = useStore();
   // B-05: an erase, here or in another tab, strips the journals' routes: read them again.
-  const erasedAt = settings.walk?.routesErasedAt;
+  const erased = erasedGeneration(settings.walk);
   const [checkedAt, setCheckedAt] = useState(clockNow);
   // Bumped after a save or a discard, so the journals are read again even within the same moment.
   const [reads, setReads] = useState(0);
@@ -37,7 +38,7 @@ export function WalkRecoveryRow() {
     let current = true;
     void readWalkJournals().then(r => { if (current) setEntries(r.ok ? r.value : []); });
     return () => { current = false; };
-  }, [checkedAt, reads, erasedAt]);
+  }, [checkedAt, reads, erased]);
 
   /** Look again, now: after a save or a discard. */
   const recheck = () => {

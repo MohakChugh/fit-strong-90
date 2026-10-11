@@ -59,11 +59,29 @@ export function answered(walk: WalkSettings, a: PreflightAnswer): WalkSettings {
   return { ...walk, ...answerOf(a) };
 }
 
-/** The plan as it finally starts: the route kept only on this phone's yes, and only with location (§9.1). */
+/** How many times "Erase all routes" has run on this phone (B-05). */
+export const erasedGeneration = (walk: WalkSettings | undefined): number => walk?.erased?.generation ?? 0;
+
+/**
+ * B-05: this walk's route is erased for good: an "Erase all routes" ran since
+ * the walk began, by this phone's own count, never its clock, or erased this
+ * walk's route by name (H6R-08, K6R-12, board D176).
+ */
+export function routeErased(walk: WalkSettings | undefined, walkId: string, plan: Pick<WalkPlan, 'routeGen'>): boolean {
+  return (plan.routeGen ?? 0) !== erasedGeneration(walk) || (walk?.erased?.walks.includes(walkId) ?? false);
+}
+
+/** "Erase all routes": the count moves on, and these walks' routes are erased by name, as well as every earlier erase's. */
+export function withErase(walk: WalkSettings, walks: readonly string[]): WalkSettings {
+  return { ...walk, erased: { generation: erasedGeneration(walk) + 1, walks: [...new Set([...(walk.erased?.walks ?? []), ...walks])].sort() } };
+}
+
+/** The plan as it finally starts: the route kept only on this phone's yes, and only with location (§9.1), in the erase generation it begins in. */
 export function withConsent(plan: WalkPlan, walk: WalkSettings): WalkPlan {
-  const { keepRoute: _asked, ...rest } = plan;
+  const { keepRoute: _asked, routeGen: _then, ...rest } = plan;
   void _asked;
-  return { ...rest, ...(plan.gps && walk.saveRoutes === true ? { keepRoute: true } : {}) };
+  void _then;
+  return { ...rest, ...(plan.gps && walk.saveRoutes === true ? { keepRoute: true, routeGen: erasedGeneration(walk) } : {}) };
 }
 
 /** This phone's two walk choices in words, for the Walk hub and Me → Data. */

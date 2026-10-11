@@ -41,6 +41,8 @@ export interface WalkPlan {
   steps: boolean;
   /** The person keeps routes on this phone (§9.1): the route is journalled while walking and saved with the walk. */
   keepRoute?: boolean;
+  /** B-05: the erase generation it began in (`settings.walk.erased`), with `keepRoute`: an "Erase all routes" since, and the route is kept no more. */
+  routeGen?: number;
   /** Motion access was turned down at the start (B-01): steps aren't counted, and the walk says so. */
   stepsDenied?: boolean;
   /** Where Done returns to. */

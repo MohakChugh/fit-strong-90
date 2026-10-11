@@ -225,8 +225,15 @@ export interface UserSettings {
     map: 'on' | 'off' | 'unasked';
     /** The one-time card on how steps are counted has been shown (K-29, B-24). */
     stepCardSeen?: boolean;
-    /** When "Erase all routes" last ran on this phone (B-05): no route of a walk started before it is kept. */
-    routesErasedAt?: number;
+    /**
+     * B-05: "Erase all routes" on this phone. `generation` counts the erases,
+     * and a walk keeps its route only if it began since the latest
+     * (`WalkPlan.routeGen`), whatever the clock says; `walks` are the walks
+     * whose routes it erased, by id, so no file brings one back. This
+     * phone's own: an import or a Replace never changes it (H6R-08, K6R-12,
+     * board D176).
+     */
+    erased?: { generation: number; walks: string[] };
     /**
      * B-19: changes to this phone's clock seen during a walk. `generation`
      * counts them, and readings taken here carry it (`gen`). Until one of the

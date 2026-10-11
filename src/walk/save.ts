@@ -20,5 +20,7 @@ export function walkSave(walk: Walk, extra: { route?: readonly RouteLine[]; ener
     ...(route ? { route } : {}),
     // Without the lines in hand, the save reads them from the journal in its own transaction (H6-06).
     ...(walk.plan.keepRoute && !route ? { routeStartedAt: startedAt } : {}),
+    // The erase generation it began in: an "Erase all routes" since, and the save keeps no route (B-05).
+    ...(walk.plan.keepRoute ? { routeGen: walk.plan.routeGen ?? 0 } : {}),
   };
 }

@@ -799,10 +799,10 @@ describe('v2 record stores in a backup (Plan 6 Task 1)', () => {
     });
   }
 
-  it('keeps erased routes erased: a file’s route from before this phone’s erase is left out, and the preview counts it (B-05)', () => {
-    const erasedAt = Date.parse('2026-10-08T10:00:00.000+05:30');
-    const erased = prepare(emptySnapshot(), { settings: { patch: { walk: { saveRoutes: true, map: 'off', routesErasedAt: erasedAt } } } }).next;
-    const before = route('walk-aaaa');
+  it('keeps erased routes erased: a file’s route this phone’s erase erased is left out, by its walk, and the preview counts it (B-05, H6R-08)', () => {
+    const erased = prepare(emptySnapshot(), { settings: { patch: { walk: { saveRoutes: true, map: 'off', erased: { generation: 1, walks: ['walk-aaaa'] } } } } }).next;
+    // Its clock says it began after any erase: the phone's clock was set back before it erased (H6R-08).
+    const before = { ...route('walk-aaaa'), startedAt: '2030-01-01T12:00:00.000+05:30' };
     const after = { ...route('walk-bbbb'), startedAt: '2026-10-08T11:00:00.000+05:30' };
     const both = withRoutes(before, after);
     expect(previewImport(both, erased)).toMatchObject({ ok: true, records: { routes: 2 }, refusedStores: [], refusedRecords: { routes: 1 } });

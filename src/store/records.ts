@@ -46,11 +46,9 @@ export const RECORD_RULES: Record<RecordStore, RecordRule> = {
     // Only a phone whose person said Yes to keeping routes takes them from a file: not asked
     // yet is not a yes, and a new phone asks on its first walk with location (§9.1, B-26, H6-05).
     accepts: device => device?.walk?.saveRoutes === true,
-    // Erased for good (B-05): no route of a walk that began before the last "Erase all routes" comes back from a file.
-    keeps: (device, record) => {
-      const at = device?.walk?.routesErasedAt;
-      return at === undefined || Date.parse(String(record.startedAt)) > at;
-    },
+    // Erased for good (B-05): no route an "Erase all routes" erased comes back from a file, by its
+    // walk's id, never by when the phone's clock said it began (H6R-08, board D176).
+    keeps: (device, record) => !(device?.walk?.erased?.walks.includes(String(record.walkId)) ?? false),
   },
   // Plan 7's food records (journey §18.2; board D104): each read whole, and merged by the copy changed last.
   meals: { keyPath: 'id', label: { one: 'meal', many: 'meals' }, limit: 200_000, backup: 'always', problem: mealProblem, newer: newerMeal },

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '@/store/useStore';
+import { erasedGeneration } from '@/walk/consent';
 import { cachedJournal, journalPort } from '@/walk/journalPort';
 import type { RouteLine, RouteRecord } from '@/walk/routeRecord';
 
@@ -30,8 +31,8 @@ export function useWalkRoute(walkId: string, kept: boolean): WalkRoute {
   const { records, settings } = useStore();
   const saved = records.routes.find(r => r.walkId === walkId) as RouteRecord | undefined;
   // B-05: an erase while this is open, in any tab, takes the lines already read with it.
-  const erasedAt = settings.walk?.routesErasedAt;
-  const [erasedAtOpen] = useState(erasedAt);
+  const erased = erasedGeneration(settings.walk);
+  const [erasedOpen] = useState(erased);
   const [read, setRead] = useState<WalkRoute | undefined>(() => {
     const here = cachedJournal(walkId);
     return here ? { state: 'ready', ...(here.route ? { lines: here.route } : {}) } : undefined;
@@ -47,6 +48,6 @@ export function useWalkRoute(walkId: string, kept: boolean): WalkRoute {
   }, [walkId, kept, saved, read]);
   if (saved) return { state: 'ready', lines: saved.segments };
   if (!kept) return NONE;
-  if (erasedAt !== erasedAtOpen) return ERASED;
+  if (erased !== erasedOpen) return ERASED;
   return read ?? LOADING;
 }
