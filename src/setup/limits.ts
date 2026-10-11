@@ -4,6 +4,17 @@
  * (store/importCheck.ts), so nothing setup stores is refused on restore.
  */
 export const NAME_MAX = 60;
+/**
+ * The numbers setup's pages have people type, by their key in `draft.raw`:
+ * the answer's name, or with a part, as `heightCm.ft` (board D169).
+ */
+export const RAW_KEYS = [
+  'birthYear', 'heightCm', 'heightCm.ft', 'heightCm.inch', 'weightKg', 'waistCm',
+  'bpStopSystolic', 'bpPermission.sys', 'bpPermission.dia', 'hba1cPercent', 'glucoseStartMin', 'metforminSince',
+] as const;
+export type RawKey = typeof RAW_KEYS[number];
+/** A number as typed: its field takes no more. */
+export const TYPED_MAX = 12;
 /** Allergies in the person's own words (B-13). */
 export const OWN_ALLERGIES_MAX = 30;
 export const OWN_ALLERGY_LENGTH_MAX = 60;

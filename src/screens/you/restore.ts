@@ -23,8 +23,10 @@ export function restoreLocked(stage: { kind: string }): boolean {
 export function replaceErases(state: RecordState & { profile?: UserProfile; settings: UserSettings }): string | undefined {
   const counts = recordCounts(state);
   const held = counts.readings + counts.sessions + counts.checkIns + counts.bodyMetrics + counts.personalRecords;
-  const answers = answersOf(setupStateOf(state.settings, state.profile));
-  const given = Object.entries(answers).some(([k, v]) => k !== 'metric' && k !== 'skippedPages' && v !== undefined);
+  const setup = setupStateOf(state.settings, state.profile);
+  // A number typed and not yet an answer is one too (H5R-17).
+  const given = Object.entries(answersOf(setup)).some(([k, v]) => k !== 'metric' && k !== 'skippedPages' && v !== undefined)
+    || Object.keys(setup.draft?.raw ?? {}).length > 0;
   const parts = [
     held > 0 ? `the ${countsSentence(counts)}` : undefined,
     state.profile ? 'your profile and settings' : given ? 'your setup answers so far' : undefined,

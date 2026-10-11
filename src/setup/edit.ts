@@ -19,7 +19,7 @@ import { measurementsFrom, profileFrom, settingsFrom } from './assemble';
 import { factsOf } from './facts';
 import { StoreFailure } from '@/store/db';
 import { mergeAnswersWithConflicts } from './merge';
-import { REVIEW_ALSO, SAFETY_CHAPTERS, chapterOf, commitPage, pageDef, pageDone, pageInvalid, pathFor, type Ctx } from './graph';
+import { REVIEW_ALSO, SAFETY_CHAPTERS, chapterOf, commitPage, pageDef, pageDone, pageInvalid, pathFor, rawInvalid, type Ctx } from './graph';
 import { setupStateOf } from './state';
 
 export interface ChapterEdit {
@@ -96,17 +96,20 @@ export interface EditorState {
   blocking: PageId[];
 }
 
-export function editorState(opens: Pick<Opens, 'asked' | 'also'>, a: SetupAnswers, opened: SetupAnswers, ctx: Ctx): EditorState {
+/** `raw`: numbers as typed (`PageProps.raw`). */
+export function editorState(opens: Pick<Opens, 'asked' | 'also'>, a: SetupAnswers, opened: SetupAnswers, ctx: Ctx, raw: Readonly<Record<string, string>> = {}): EditorState {
   const chapters = editChapters(opens.asked, a, opened);
   const pages = editPath(chapters, a, opened, ctx, opens.also);
   const committed = pages.reduce((x, id) => commitPage(id, x), a);
   const left = pages.filter(id => !pageDone(id, committed, ctx));
   // A safety page left; a preference page holding an answer that can't be stored (H5-15); or one this edit changed
-  // and left half answered, such as water on with no fluid answer, which would be stored off unsaid (K5-15).
+  // and left half answered, such as water on with no fluid answer, which would be stored off unsaid (K5-15). Any page
+  // with a number typed that isn't an answer yet (H5R-15).
   const changed = (id: PageId) => pageDef(id).sets.some(k => !sameValue(committed[k], opened[k]));
+  const holds = (id: PageId) => left.includes(id) && (!pageDef(id).skippable || pageInvalid(id, committed, ctx) || changed(id));
   return {
     chapters, also: opens.also, pages, committed, left,
-    blocking: left.filter(id => !pageDef(id).skippable || pageInvalid(id, committed, ctx) || changed(id)),
+    blocking: pages.filter(id => holds(id) || rawInvalid(id, committed, raw)),
   };
 }
 

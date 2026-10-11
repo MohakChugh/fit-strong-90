@@ -7,9 +7,14 @@
  */
 import { weightFieldText } from '@/components/profile/wizardSteps';
 import { LB_PER_KG } from '@/lib/utils';
+import type { RawKey } from './limits';
 
 export const CM_PER_INCH = 2.54;
 const tenth = (n: number) => Math.round(n * 10) / 10;
+
+/** A number's text: as typed while the draft keeps it (`draft.raw`), else its answer's (H5R-15). */
+export const textOf = (raw: Readonly<Record<string, string>>, key: RawKey, answer: number | string | undefined): string =>
+  raw[key] ?? (answer === undefined ? '' : String(answer));
 
 /** A number as typed: nothing for an empty field; NaN for one that isn't a number yet. */
 export function numberFrom(text: string): number | undefined {

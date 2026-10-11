@@ -31,6 +31,11 @@ describe('what Replace erases, so it is asked twice whenever something would go 
     expect(replaceErases(draft({ metric: true, name: 'Kai' }))).toBe('your setup answers so far');
   });
 
+  it('a number typed that isn’t an answer yet is one of them (H5R-17)', () => {
+    const typed = { ...empty, settings: { ...settings, setup: { stage: 'open' as const, draft: { at: 'about.name' as const, answers: { metric: true }, raw: { birthYear: '195' } } } } };
+    expect(replaceErases(typed)).toBe('your setup answers so far');
+  });
+
   it('the profile and settings, and the records', () => {
     expect(replaceErases({ ...empty, profile: createDefaultProfile() })).toBe('your profile and settings');
     expect(replaceErases({ ...empty, sessions: [{}, {}], profile: createDefaultProfile() })).toBe('the 2 sessions and your profile and settings');

@@ -1,18 +1,27 @@
-import { useId, useState, type ComponentType, type ReactNode } from 'react';
+import { useId, type ComponentType, type ReactNode } from 'react';
 import { CheckIcon } from 'lucide-react';
 import { Group } from '@/components/hig/List';
 import { ChoiceRows, type Choice } from '@/screens/you/controls';
 import { cn } from '@/lib/utils';
 import type { Ctx } from '@/setup/graph';
-import { numberFrom } from '@/setup/units';
+import { TYPED_MAX } from '@/setup/limits';
 import type { SetupAnswers, Tri } from '@/types/setup';
+
+/** Numbers as typed, by their key (`RAW_KEYS`). */
+export type Typed = Readonly<Record<string, string>>;
 
 /** What every page view is given: the paged first run and Me's chapter editor draw the same views (board D75). */
 export interface PageProps {
   /** The answers so far, this page's changes included. */
   a: SetupAnswers;
-  /** Change this page's answers. Stored only by Next or Save. */
-  set: (patch: Partial<SetupAnswers>) => void;
+  /** Numbers as typed (`draft.raw`; H5R-15). */
+  raw: Typed;
+  /**
+   * Change this page's answers, and the numbers as typed: an answer only once
+   * its text gives a valid one, a text emptied taken away. Setup keeps each
+   * change in the draft shortly after it's made; Me's only at Save.
+   */
+  set: (patch: Partial<SetupAnswers>, typed?: Readonly<Record<string, string | undefined>>) => void;
   /** Next or Save was pressed with this page unanswered: say what's missing. */
   tried: boolean;
   ctx: Ctx;
@@ -101,7 +110,7 @@ export function TriChecklist<K extends string>({ label, rows, value, onChange, a
 }
 
 /** A text field with its label beside it; at large text the field goes under the label (D-10). */
-export function TextInput({ label, text, onText, inputMode = 'text', placeholder, autoComplete = 'off', hint }: {
+export function TextInput({ label, text, onText, inputMode = 'text', placeholder, autoComplete = 'off', hint, maxLength }: {
   label: string;
   text: string;
   onText: (text: string) => void;
@@ -109,6 +118,7 @@ export function TextInput({ label, text, onText, inputMode = 'text', placeholder
   placeholder?: string;
   autoComplete?: string;
   hint?: string;
+  maxLength?: number;
 }) {
   const id = useId();
   const hintId = useId();
@@ -116,7 +126,7 @@ export function TextInput({ label, text, onText, inputMode = 'text', placeholder
     <div className="flex flex-col">
       <div className="flex min-h-[3.25rem] flex-wrap items-center gap-x-3 gap-y-1 px-4 py-1.5">
         <label htmlFor={id} className="min-w-0 flex-1 basis-40 text-[length:var(--text-body)] leading-snug">{label}</label>
-        <input id={id} value={text} inputMode={inputMode} placeholder={placeholder} autoComplete={autoComplete}
+        <input id={id} value={text} inputMode={inputMode} placeholder={placeholder} autoComplete={autoComplete} maxLength={maxLength}
           {...(hint ? { 'aria-describedby': hintId } : {})}
           onChange={e => onText(e.target.value)}
           className="numeric min-h-12 w-full max-w-[12rem] rounded-lg bg-muted/60 px-3 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-3 focus-visible:ring-tint/40" />
@@ -126,18 +136,17 @@ export function TextInput({ label, text, onText, inputMode = 'text', placeholder
   );
 }
 
-/** A number answer, kept as typed: "1", "19" and "195" on the way to "1958" (J02). It's checked at Next or Save. */
-export function NumberAnswer({ label, value, onChange, placeholder, decimals = false, hint }: {
+/** A number, shown as typed: "1", "19" and "195" on the way to "1958" (J02). It's checked at Next or Save. */
+export function NumberAnswer({ label, text, onText, placeholder, decimals = false, hint }: {
   label: string;
-  value: number | undefined;
-  onChange: (n: number | undefined) => void;
+  text: string;
+  onText: (text: string) => void;
   placeholder?: string;
   decimals?: boolean;
   hint?: string;
 }) {
-  const [text, setText] = useState(value === undefined || !Number.isFinite(value) ? '' : String(value));
   return (
-    <TextInput label={label} text={text} inputMode={decimals ? 'decimal' : 'numeric'} placeholder={placeholder} hint={hint}
-      onText={t => { setText(t); onChange(numberFrom(t)); }} />
+    <TextInput label={label} text={text} inputMode={decimals ? 'decimal' : 'numeric'} placeholder={placeholder} hint={hint} maxLength={TYPED_MAX}
+      onText={onText} />
   );
 }

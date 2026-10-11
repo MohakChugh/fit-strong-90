@@ -30,6 +30,8 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
   const opens = editorOpens(chapter, profile);
   const [opened] = useState<SetupAnswers>(() => (profile ? answersToEdit(setupStateOf(settings, profile).answers, profile, settings, today, ctx) : {}));
   const [edits, setEdits] = useState<Partial<SetupAnswers>>({});
+  // Numbers as typed: one is an answer only once it's valid, and Save waits for any that isn't (H5R-15).
+  const [typed, setTyped] = useState<Readonly<Record<string, string>>>({});
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<{ tone: 'status' | 'error'; lines: string[] }>();
@@ -38,13 +40,14 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
   // The record this editor was opened for: a save for it, once another copy has replaced it, is refused (H5R-09).
   const [generation] = useState(() => getState().epoch);
   const a: SetupAnswers = { ...opened, ...edits };
-  const state = editorState(opens, a, opened, ctx);
+  const state = editorState(opens, a, opened, ctx, typed);
   const { pages, blocking } = state;
   const reviewing = opens.reviewing;
 
-  const set = (patch: Partial<SetupAnswers>) => {
+  const set = (patch: Partial<SetupAnswers>, texts: Readonly<Record<string, string | undefined>> = {}) => {
     setOutcome(undefined);
     setEdits(e => ({ ...e, ...patch }));
+    setTyped(t => Object.fromEntries(Object.entries({ ...t, ...texts }).filter((e): e is [string, string] => e[1] !== undefined && e[1] !== '')));
   };
 
   const save = async () => {
@@ -79,6 +82,7 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
     if (refused !== undefined) discardSave(refused);
     setRefused(undefined);
     setEdits({});
+    setTyped({});
     setTried(false);
     setOutcome({ tone: 'status', lines: ['Not kept. Your answers are as they were.'] });
   };
@@ -96,7 +100,7 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
               <p className="px-1 text-[length:var(--text-footnote)] font-semibold uppercase tracking-wide text-muted-foreground">{CHAPTER_TITLE[own]}</p>
             )}
             <h2 id={`edit-${id}`} className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug">{PAGE_TITLE[id]}</h2>
-            <View a={a} set={set} tried={tried} ctx={ctx} mode="edit" />
+            <View a={a} raw={typed} set={set} tried={tried} ctx={ctx} mode="edit" />
           </section>
         );
       })}

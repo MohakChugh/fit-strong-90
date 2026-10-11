@@ -2,9 +2,10 @@ import { Group } from '@/components/hig/List';
 import { Segmented } from '@/screens/you/controls';
 import { metforminYearProblem } from '@/components/profile/wizardSteps';
 import { factsOf } from '@/setup/facts';
-import { pageDone } from '@/setup/graph';
+import { glucoseStartOk, pageDone } from '@/setup/graph';
+import { numberFrom, textOf } from '@/setup/units';
 import { CLASS_ROWS, TRI, YES_NO } from '../choices';
-import { Ask, Missing, NumberAnswer, TextInput, TriChecklist, type PageProps } from '../controls';
+import { Ask, Missing, NumberAnswer, TriChecklist, type PageProps } from '../controls';
 
 export function MedicinesRegular({ a, set, tried }: PageProps) {
   return (
@@ -14,8 +15,10 @@ export function MedicinesRegular({ a, set, tried }: PageProps) {
 }
 
 /** The classes, whatever they're for (A-06, K-05), as one checklist (B-08). */
-export function MedicinesWhich({ a, set, tried, ctx }: PageProps) {
-  const problem = metforminYearProblem(a.metforminSince ?? '', ctx.thisYear);
+export function MedicinesWhich({ a, raw, set, tried, ctx }: PageProps) {
+  const since = textOf(raw, 'metforminSince', a.metforminSince);
+  const problem = metforminYearProblem(since.trim(), ctx.thisYear);
+  const typeSince = (t: string) => set({ metforminSince: metforminYearProblem(t.trim(), ctx.thisYear) === null ? t.trim() : undefined }, { metforminSince: t });
   return (
     <>
       <p className="px-1 text-[length:var(--text-body)] leading-snug">Whatever they’re for. Tick each one you take.</p>
@@ -24,8 +27,7 @@ export function MedicinesWhich({ a, set, tried, ctx }: PageProps) {
       {a.classes?.metformin === 'yes' && (
         <>
           <Group>
-            <TextInput label="Year you started metformin (optional)" inputMode="numeric" placeholder="2019" text={a.metforminSince ?? ''}
-              onText={t => set({ metforminSince: t.trim() })} />
+            <NumberAnswer label="Year you started metformin (optional)" placeholder="2019" text={since} onText={typeSince} />
           </Group>
           <Missing show={tried && problem !== null}>{problem ?? ''}</Missing>
         </>
@@ -34,8 +36,19 @@ export function MedicinesWhich({ a, set, tried, ctx }: PageProps) {
   );
 }
 
-export function MedicinesLows({ a, set, tried, ctx }: PageProps) {
+/** The start figure typed, once it's one exercise can start at in its unit (`glucoseStartOk`). */
+const glucoseFrom = (text: string, unit: 'mg/dL' | 'mmol/L'): number | undefined => {
+  const n = numberFrom(text);
+  return n !== undefined && glucoseStartOk(n, unit) ? n : undefined;
+};
+
+export function MedicinesLows({ a, raw, set, tried, ctx }: PageProps) {
   const answered = a.lowsRisk !== undefined && (!factsOf(a).insulin || a.insulinHow !== undefined);
+  const unit = a.glucoseStartUnit ?? a.glucoseUnit ?? 'mg/dL';
+  const start = textOf(raw, 'glucoseStartMin', a.glucoseStartMin);
+  // An answer only once valid in its unit, so a change of unit checks it again (H5R-15).
+  const typeStart = (t: string) => set({ glucoseStartMin: glucoseFrom(t, unit) }, { glucoseStartMin: t });
+  const startProblem = start.trim() !== '' && glucoseFrom(start, unit) === undefined;
   return (
     <>
       {factsOf(a).insulin && (
@@ -48,13 +61,13 @@ export function MedicinesLows({ a, set, tried, ctx }: PageProps) {
       <Ask label="A severe low in the last 6 months, or do you often not feel lows coming?" header="A severe low in the last 6 months, or do you often not feel lows coming?"
         options={TRI} value={a.lowsRisk} onChange={lowsRisk => set({ lowsRisk })} tried={tried} />
       <Group header="Your care team’s starting glucose (optional)" footer="Only if your care team gave you one. Otherwise the app uses the usual figure for your medicines.">
-        <NumberAnswer label="Lowest glucose to start exercise at" decimals value={a.glucoseStartMin} onChange={glucoseStartMin => set({ glucoseStartMin })} />
+        <NumberAnswer label="Lowest glucose to start exercise at" decimals text={start} onText={typeStart} />
         <div className="px-4 pb-3">
-          <Segmented label="Its unit" value={a.glucoseStartUnit ?? a.glucoseUnit ?? 'mg/dL'} onChange={glucoseStartUnit => set({ glucoseStartUnit })}
+          <Segmented label="Its unit" value={unit} onChange={u => set({ glucoseStartUnit: u, glucoseStartMin: glucoseFrom(start, u) }, { glucoseStartMin: start })}
             options={[{ value: 'mg/dL', label: 'mg/dL' }, { value: 'mmol/L', label: 'mmol/L' }]} />
         </div>
       </Group>
-      <Missing show={tried && answered && !pageDone('medicines.lows', a, ctx)}>
+      <Missing show={tried && (startProblem || (answered && !pageDone('medicines.lows', a, ctx)))}>
         Check the glucose number: 70 to 300 mg/dL, or 3.9 to 17 mmol/L. Below 70 mg/dL (3.9 mmol/L) is a low, so exercise never starts there.
       </Missing>
     </>

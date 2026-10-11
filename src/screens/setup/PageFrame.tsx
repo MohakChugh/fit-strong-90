@@ -1,95 +1,101 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { markBack } from '@/components/hig/navigation';
-import { autosaveEdits, flushEdits, flushPending, pageEdits, rememberEdits } from '@/setup/draft';
+import {
+  CHANGED_ELSEWHERE, changeAnswers, continueUnsaved, flushAnswers, nextFrom, rawWithQueued, skipFrom, useAnswersQueue, waitingOn, withQueued,
+} from '@/setup/draft';
 import { getState } from '@/store/useStore';
-import { backFromReview, capsuleOf, hrefOf, nextMove, pageDef, pageInvalid, prevPage, skipMove, type PlannedMove } from '@/setup/graph';
-import { PlainButton, PrimaryButton } from '@/screens/you/controls';
+import { backFromReview, capsuleOf, hrefOf, nextMove, pageDef, pageInvalid, prevPage, rawInvalid } from '@/setup/graph';
+import { Notice, PlainButton, PrimaryButton } from '@/screens/you/controls';
 import type { PageId, SetupAnswers } from '@/types/setup';
 import type { PageView } from './controls';
 import { SetupShell } from './SetupShell';
 import { PAGE_TITLE } from './titles';
-import { useCtx, useMove, useSetupAnswers, type Recovery } from './useSetup';
+import { useCtx, useSetupAnswers, type Recovery } from './useSetup';
 
 /**
- * A setup page (journey §6.1): its view, then Next, which stores the answers
- * before moving (M22), and "Skip for now" on a preference page only. Back
- * keeps what the page held, for this session (§6.1). Opened from Review's
+ * A setup page (journey §6.1): its view, then Next, and "Skip for now" on a
+ * preference page only. Each change goes into the draft's answers shortly
+ * after it's made, with numbers as typed, so Back, Close and closing the app
+ * lose nothing (board D169). Next stores what's waiting, then the move,
+ * planned from the answers as stored (M22, H5R-11). Opened from Review's
  * Edit, Next walks that chapter and then returns to Review, and so does Back
- * from its first page (K5-14). Each change is kept in the draft as typed
- * shortly after it's made, and Back and Close keep the page to resume on
- * (H5-16, K5-17; board D158). After a refused
- * store, Try again and Continue without saving plan the move again from the
- * page as it is now (H5-02).
+ * from its first page (K5-14). A refused write, a change's or a move's, shows
+ * here with Try again and Continue without saving, each from the page as it
+ * is now (H5-02, H5R-16).
  */
 export function PageFrame({ id, View }: { id: PageId; View: PageView }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { answers } = useSetupAnswers();
-  const move = useMove();
+  const { answers, raw: storedRaw } = useSetupAnswers();
+  const queue = useAnswersQueue();
   const ctx = useCtx();
-  const [edits, setEdits] = useState<Partial<SetupAnswers>>(() => pageEdits(id));
   // The record this page was opened for: a store for it, once another copy has replaced it, is refused (H5R-09).
   const [generation] = useState(() => getState().epoch);
   const [tried, setTried] = useState(false);
-  // The move the last store was for: Try again makes it again.
-  const [last, setLast] = useState<'next' | 'skip'>('next');
-  const a: SetupAnswers = { ...answers, ...edits };
+  // The move a refused store was for: Try again and Continue without saving make it again.
+  const [refusedMove, setRefusedMove] = useState<'next' | 'skip'>();
+  const moving = useRef(false);
+  const a = withQueued(answers);
+  const raw = rawWithQueued(storedRaw);
   const fromReview = (location.state as { fromReview?: boolean } | null)?.fromReview === true;
   const carry = fromReview ? { fromReview: true } : undefined;
 
-  const set = (patch: Partial<SetupAnswers>) => setEdits(e => {
-    const next = { ...e, ...patch };
-    autosaveEdits(id, next);
-    return next;
-  });
-  // A change still waiting is kept as the page is left, or the app goes to the background (H5-16).
+  const set = (patch: Partial<SetupAnswers>, typed: Readonly<Record<string, string | undefined>> = {}) => changeAnswers(a, patch, typed, id);
+  // What's waiting is stored as the page is left, or the app goes to the background (H5-16).
   useEffect(() => {
-    const away = () => { if (document.visibilityState === 'hidden') void flushPending(id); };
+    const away = () => { if (document.visibilityState === 'hidden') void flushAnswers(); };
     document.addEventListener('visibilitychange', away);
     return () => {
       document.removeEventListener('visibilitychange', away);
-      void flushPending(id);
+      void flushAnswers();
     };
-  }, [id]);
+  }, []);
 
-  /** Next or Skip for now, stored then made; or, without saving, kept for this session (B-07). */
-  const attempt = (kind: 'next' | 'skip', unsaved = false) => {
-    setLast(kind);
-    let planned: PlannedMove | undefined;
-    if (kind === 'skip') {
-      // Optional is optional; an answer given that can't be stored isn't: it's fixed or cleared first, and the page says why (K5-04).
-      if (pageInvalid(id, a, ctx)) {
-        setTried(true);
-        return;
-      }
-      rememberEdits(id, {});
-      planned = skipMove(id, answers, ctx, fromReview);
-    } else {
-      planned = nextMove(id, a, ctx, fromReview);
-      if (!planned) {
-        setTried(true);
-        return;
-      }
+  /** Next or Skip for now: stored, then made; or, without saving, kept for this session (B-07). */
+  const attempt = async (kind: 'next' | 'skip') => {
+    if (moving.current) return;
+    // Optional is optional; an answer given that can't be stored isn't: it's fixed or cleared first, and the page says why (K5-04, H5R-15).
+    if (rawInvalid(id, a, raw) || (kind === 'skip' ? pageInvalid(id, a, ctx) : !nextMove(id, a, ctx, fromReview))) {
+      setTried(true);
+      return;
     }
-    (unsaved ? move.goUnsaved : move.go)(planned.to, planned.answers, { ...(carry ? { state: carry } : {}), from: id, opened: answers, generation });
+    moving.current = true;
+    try {
+      const moved = await (kind === 'skip' ? skipFrom : nextFrom)(id, ctx, fromReview, generation);
+      setRefusedMove(moved.outcome === 'failed' ? kind : undefined);
+      if (moved.outcome === 'notDone') setTried(true);
+      // A change made here while the move was stored stays on the page, for another look; Next goes on from it (H5R-11).
+      if (moved.outcome === 'failed' || moved.outcome === 'notDone' || waitingOn(id)) return;
+      navigate(hrefOf(moved.to), carry ? { state: carry } : undefined);
+    } finally {
+      moving.current = false;
+    }
   };
-  const recovery: Recovery = { failed: move.failed, retry: () => attempt(last), continueUnsaved: () => attempt(last, true) };
+  const recovery: Recovery = {
+    failed: refusedMove !== undefined || queue.refused !== undefined,
+    retry: () => void (refusedMove ? attempt(refusedMove) : flushAnswers()),
+    continueUnsaved: () => {
+      continueUnsaved(id, answers, storedRaw);
+      if (refusedMove) void attempt(refusedMove);
+    },
+  };
 
   const back = () => {
     const prev = fromReview ? backFromReview(a, id) : prevPage(a, id);
-    // Reopened later, setup resumes on the page Back went to, with this one's answers as typed (H5-16).
-    void flushEdits(id, prev ?? 'welcome.start', generation);
+    // Reopened later, setup resumes on the page Back went to (H5-16).
+    void flushAnswers(prev ?? 'welcome.start');
     markBack();
     navigate(prev && prev !== 'welcome.start' ? hrefOf(prev) : '/setup', { replace: true, state: { back: true, ...carry } });
   };
 
   return (
-    <SetupShell title={PAGE_TITLE[id]} capsule={capsuleOf(id, answers)} onBack={back} onClose={() => void flushEdits(id, id, generation)} recovery={recovery}>
-      <View a={a} set={set} tried={tried} ctx={ctx} mode="setup" />
+    <SetupShell title={PAGE_TITLE[id]} capsule={capsuleOf(id, a)} onBack={back} onClose={() => flushAnswers(id)} recovery={recovery}>
+      <View a={a} raw={raw} set={set} tried={tried} ctx={ctx} mode="setup" />
       <div className="mt-auto flex flex-col gap-2 pt-2">
-        <PrimaryButton className="min-h-[3.75rem]" onClick={() => attempt('next')}>Next</PrimaryButton>
-        {pageDef(id).skippable && <PlainButton className="min-h-12" onClick={() => attempt('skip')}>Skip for now</PlainButton>}
+        {queue.changedElsewhere && <Notice>{CHANGED_ELSEWHERE}</Notice>}
+        <PrimaryButton className="min-h-[3.75rem]" onClick={() => void attempt('next')}>Next</PrimaryButton>
+        {pageDef(id).skippable && <PlainButton className="min-h-12" onClick={() => void attempt('skip')}>Skip for now</PlainButton>}
       </div>
     </SetupShell>
   );

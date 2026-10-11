@@ -19,12 +19,8 @@ vi.mock('react-router-dom', async () => {
   };
 });
 vi.mock('@/components/hig/navigation', async importOriginal => ({ ...await importOriginal<typeof import('@/components/hig/navigation')>(), cameFrom: () => false }));
-// What each move asks the draft to store, passed through to the real one.
-const saves = vi.hoisted(() => [] as unknown[][]);
-vi.mock('@/setup/draft', async importOriginal => {
-  const real = await importOriginal<typeof import('@/setup/draft')>();
-  return { ...real, saveDraft: (...args: Parameters<typeof real.saveDraft>) => { saves.push(args); return real.saveDraft(...args); } };
-});
+// The app's toasts put their styles in the page as they load; this document has no page.
+vi.mock('sonner', () => ({ toast: Object.assign(() => {}, { success() {}, warning() {}, error() {} }) }));
 
 const local = new Map<string, string>();
 globalThis.localStorage = {
@@ -46,7 +42,8 @@ const { ChapterEditor } = await import('./ChapterEditor');
 const { completedSetup } = await import('@/setup/assemble');
 const { gateProfile, resetPendingEditsForTests } = await import('@/setup/effective');
 const { FOOT_WOUND, MINIMAL } = await import('@/setup/fixtures');
-const { resetSetupSessionForTests } = await import('@/setup/draft');
+const { AUTOSAVE_MS, resetSetupSessionForTests } = await import('@/setup/draft');
+const { withDraft } = await import('@/setup/draft');
 
 const NOW = '2026-10-10T09:00:00.000+05:30';
 const CTX = { thisYear: 2026, hasSteps: false };
@@ -66,7 +63,6 @@ let fake: ReturnType<typeof fakeIndexedDB>;
 beforeEach(async () => {
   router.navigate = vi.fn();
   router.state = null;
-  saves.length = 0;
   local.clear();
   store.resetForTests();
   resetSetupSessionForTests();
@@ -162,19 +158,18 @@ describe('Your medicines in Me', () => {
 });
 
 describe('setup’s pages', () => {
-  it('a Next hands the draft what its page opened with, so only its own changes are stored (H5-12)', async () => {
+  it('a Next stores only what its page changed, onto the draft as it is now: another copy’s answer on the same page stays (H5-12, H5R-14)', async () => {
     const { PageFrame } = await import('./PageFrame');
     const { AboutName } = await import('./pages/about');
     host = render(createElement(PageFrame, { id: 'about.name', View: AboutName }));
     await host.settle();
     await host.change(host.field('Name (optional)'), { value: 'Kai' });
+    // Another copy, the same page: the year.
+    expect((await store.update(d => withDraft(d, 'about.name', { metric: true, birthYear: 1958 }))).ok).toBe(true);
     await host.click(host.button('Next', { exact: true }));
     await host.settle();
-    expect(saves).toHaveLength(1);
-    const [to, answers, from, opened] = saves[0] as [string, { name?: string }, string, { name?: string }];
-    expect([to, answers.name, from]).toEqual(['about.figure', 'Kai', 'about.name']);
-    expect(opened).toBeDefined();
-    expect(opened.name).toBeUndefined();
+    expect(router.navigate).toHaveBeenCalledWith('/setup/about/figure', undefined);
+    expect(store.getState().settings.setup?.draft).toMatchObject({ at: 'about.figure', answers: { name: 'Kai', birthYear: 1958 } });
   });
 
   it('Skip for now never gets past an answer that can’t be stored, such as an underage year; cleared, it skips (K5-04, H5-15)', async () => {
@@ -187,7 +182,7 @@ describe('setup’s pages', () => {
     await host.settle();
     expect(router.navigate).not.toHaveBeenCalled();
     expect(host.text()).toContain('FitStrong is made for adults aged 18 and over.');
-    expect(store.getState().settings.setup?.draft).toBeUndefined();
+    expect(store.getState().settings.setup?.draft?.answers?.skippedPages).toBeUndefined();
     await host.change(host.field('Year you were born (optional)'), { value: '' });
     await host.click(host.button('Skip for now', { exact: true }));
     await host.settle();
@@ -271,12 +266,13 @@ describe('allergies in setup (K5-08; board D150)', () => {
     expect(host.buttons('Skip for now')).toHaveLength(0);
     await host.click(host.button('Next', { exact: true }));
     await host.settle();
-    expect(saves).toHaveLength(0);
+    expect(router.navigate).not.toHaveBeenCalled();
     expect(host.text()).toContain('Tick your allergies, or “No food allergies”.');
     await host.click(host.button('No food allergies', { exact: true }));
     await host.click(host.button('Next', { exact: true }));
     await host.settle();
-    expect((saves[0] as [string, { allergies?: unknown }])[1].allergies).toEqual([]);
+    expect(router.navigate).toHaveBeenCalledWith('/setup/food/logging', undefined);
+    expect(store.getState().settings.setup?.draft?.answers?.allergies).toEqual([]);
   });
 });
 
@@ -293,7 +289,7 @@ describe('plain words first, the term in brackets (K5-13; board D155)', () => {
     const bare = (text: string) => text.replace(/\([^)]*\)/g, '');
     for (const title of Object.values(PAGE_TITLE)) for (const term of terms) expect(bare(title), title).not.toContain(term);
     for (const id of ['health.feet', 'health.limits', 'medicines.lows', 'medicines.ketones', 'backFeet.history'] as const) {
-      const shown = render(createElement(PAGE_VIEWS[id], { a, set: () => {}, tried: false, ctx: { thisYear: 2026 }, mode: 'setup' }));
+      const shown = render(createElement(PAGE_VIEWS[id], { a, raw: {}, set: () => {}, tried: false, ctx: { thisYear: 2026 }, mode: 'setup' }));
       await shown.settle();
       const text = shown.text();
       shown.unmount();
@@ -302,46 +298,178 @@ describe('plain words first, the term in brackets (K5-13; board D155)', () => {
   });
 });
 
-describe('a setup page, kept as typed (§6.1; H5-16, K5-17; board D158)', () => {
+describe('a setup page, its answers kept as they’re given (§6.1; H5-16, K5-17; board D169)', () => {
   const draft = () => store.getState().settings.setup?.draft;
-
-  it('Back keeps what the page holds, and the page it goes to, before any Next', async () => {
+  const SAVE_FAILED = 'Your answers aren’t being saved on this phone.';
+  const page = async (id: 'about.name' | 'about.figure' | 'about.body' | 'medicines.which' | 'health.limits') => {
     const { PageFrame } = await import('./PageFrame');
-    const { AboutName } = await import('./pages/about');
-    host = render(createElement(PageFrame, { id: 'about.name', View: AboutName }));
-    await host.settle();
+    const { PAGE_VIEWS } = await import('./pages');
+    const shown = render(createElement(PageFrame, { id, View: PAGE_VIEWS[id] }));
+    await shown.settle();
+    return shown;
+  };
+  /** The app closed and opened again. */
+  const reopen = async () => {
+    host?.unmount();
+    host = undefined;
+    await new Promise(r => setTimeout(r, 30));
+    expect((await store.reload()).ok).toBe(true);
+    resetSetupSessionForTests();
+  };
+
+  it('Back stores what the page holds, and the page it goes to, before any Next', async () => {
+    host = await page('about.name');
     await host.change(host.field('Year you were born (optional)'), { value: '195' });
     await host.click(host.button('Back', { exact: true }));
     await host.settle();
-    expect(saves).toHaveLength(0);
-    expect(draft()).toMatchObject({ at: 'welcome.start', edits: { 'about.name': { birthYear: 195 } } });
+    expect(draft()).toEqual({ at: 'welcome.start', answers: expect.not.objectContaining({ birthYear: expect.anything() }), raw: { birthYear: '195' } });
   });
 
-  it('Close, after Look around first, keeps the page itself to resume on', async () => {
-    const { PageFrame } = await import('./PageFrame');
-    const { AboutFigure } = await import('./pages/about');
+  it('Close, after Look around first, stores the page itself to resume on, then goes Home', async () => {
     const { lookedAround } = await import('@/setup/assemble');
     expect((await store.update(lookedAround)).ok).toBe(true);
-    host = render(createElement(PageFrame, { id: 'about.figure', View: AboutFigure }));
-    await host.settle();
+    host = await page('about.figure');
     await host.click(radio(host, 'Body for the exercise demos', 'Female'));
     await host.click(host.button('Close', { exact: true }));
     await host.settle();
     expect(router.navigate).toHaveBeenCalledWith('/home');
-    expect(draft()).toMatchObject({ at: 'about.figure', edits: { 'about.figure': { figure: 'female' } } });
+    expect(draft()).toMatchObject({ at: 'about.figure', answers: { figure: 'female' } });
   });
 
-  it('a change still waiting is kept as the page is left', async () => {
-    const { PageFrame } = await import('./PageFrame');
-    const { AboutName } = await import('./pages/about');
-    host = render(createElement(PageFrame, { id: 'about.name', View: AboutName }));
-    await host.settle();
+  it('a change still waiting is stored as the page is left', async () => {
+    host = await page('about.name');
     await host.change(host.field('Name (optional)'), { value: 'Kai' });
-    expect(draft()?.edits).toBeUndefined();
+    expect(draft()).toBeUndefined();
     host.unmount();
     host = undefined;
     await new Promise(r => setTimeout(r, 30));
-    expect(draft()).toMatchObject({ at: 'about.name', edits: { 'about.name': { name: 'Kai' } } });
+    expect(draft()).toMatchObject({ at: 'about.name', answers: { name: 'Kai' } });
+  });
+
+  it('a number shows as typed after the app is closed, and is an answer only once it’s valid: “195” holds Next, “7.” stays “7.” (H5R-15)', async () => {
+    host = await page('about.name');
+    await host.change(host.field('Year you were born (optional)'), { value: '195' });
+    await reopen();
+    host = await page('about.name');
+    expect(host.field('Year you were born (optional)').props.value).toBe('195');
+    expect(draft()?.answers?.birthYear).toBeUndefined();
+    await host.click(host.button('Next', { exact: true }));
+    await host.settle();
+    expect(router.navigate).not.toHaveBeenCalled();
+    expect(host.text()).toContain('Enter the year you were born, from');
+    await host.change(host.field('Year you were born (optional)'), { value: '1958' });
+    await host.click(host.button('Next', { exact: true }));
+    await host.settle();
+    expect(router.navigate).toHaveBeenCalledWith('/setup/about/figure', undefined);
+    expect(draft()?.answers?.birthYear).toBe(1958);
+    // A weight half typed: the answer it gives so far, and the text as typed.
+    host.unmount();
+    host = await page('about.body');
+    // The host gives fields side by side one id, so the weight is found by its own placeholder.
+    const weight = () => host!.all().find(n => n.type === 'input' && n.props.placeholder === '65')!;
+    await host.change(weight(), { value: '70.' });
+    await reopen();
+    host = await page('about.body');
+    expect(weight().props.value).toBe('70.');
+    expect(draft()?.answers?.weightKg).toBe(70);
+  });
+
+  it('a number its unit makes invalid isn’t an answer either: a start figure in mmol/L, then mg/dL (H5R-15)', async () => {
+    const { MedicinesLows } = await import('./pages/medicines');
+    const { PageFrame } = await import('./PageFrame');
+    const lows = { ...MINIMAL, conditions: { ...MINIMAL.conditions!, diabetes: 'yes' as const }, diabetesType: 'type2' as const, regular: 'yes' as const, classes: { insulin: 'yes' as const } };
+    expect((await store.update(d => withDraft(d, 'medicines.lows', lows))).ok).toBe(true);
+    host = render(createElement(PageFrame, { id: 'medicines.lows', View: MedicinesLows }));
+    await host.settle();
+    await host.click(radio(host, 'Its unit', 'mmol/L'));
+    await host.change(host.field('Lowest glucose to start exercise at'), { value: '5.5' });
+    await host.settle();
+    await new Promise(r => setTimeout(r, AUTOSAVE_MS + 50));
+    expect(draft()?.answers).toMatchObject({ glucoseStartMin: 5.5, glucoseStartUnit: 'mmol/L' });
+    await host.click(radio(host, 'Its unit', 'mg/dL'));
+    await new Promise(r => setTimeout(r, AUTOSAVE_MS + 50));
+    expect(draft()?.answers?.glucoseStartMin).toBeUndefined();
+    expect(draft()?.raw).toEqual({ glucoseStartMin: '5.5' });
+  });
+
+  it('a change made while Next is being stored stays on the page, and the next Next goes on from it (H5R-11)', async () => {
+    const { NO_CLASSES } = await import('@/setup/fixtures');
+    // No insulin, then Next, slowly stored.
+    const which = { ...MINIMAL, conditions: { ...MINIMAL.conditions!, diabetes: 'yes' as const }, diabetesType: 'type2' as const, regular: 'yes' as const, classes: { ...NO_CLASSES } };
+    expect((await store.update(d => withDraft(d, 'medicines.which', which))).ok).toBe(true);
+    host = await page('medicines.which');
+    fake.control.hold();
+    await host.click(host.button('Next', { exact: true }));
+    await host.click(host.button(/^Insulin/));
+    fake.control.release();
+    await host.settle();
+    await new Promise(r => setTimeout(r, 30));
+    await host.settle();
+    expect(router.navigate).not.toHaveBeenCalled();
+    await host.click(host.button('Next', { exact: true }));
+    await host.settle();
+    await new Promise(r => setTimeout(r, 30));
+    expect(router.navigate).toHaveBeenCalledWith('/setup/medicines/lows', undefined);
+    expect(draft()?.answers?.classes?.insulin).toBe('yes');
+  });
+
+  it('a change the device refused says so on the page, and Try again stores it (H5R-16)', async () => {
+    host = await page('about.name');
+    fake.control.setWriteError(() => new DOMException('Disk is full', 'QuotaExceededError'));
+    await host.change(host.field('Name (optional)'), { value: 'Kai' });
+    await new Promise(r => setTimeout(r, AUTOSAVE_MS + 50));
+    await host.settle();
+    expect(host.text()).toContain(SAVE_FAILED);
+    expect(host.field('Name (optional)').props.value).toBe('Kai');
+    fake.control.setWriteError(undefined);
+    await host.click(host.button('Try again', { exact: true }));
+    await host.settle();
+    expect(host.text()).not.toContain(SAVE_FAILED);
+    expect(draft()?.answers?.name).toBe('Kai');
+  });
+
+  it('Welcome says so too, for a change from the page Back left (H5R-16)', async () => {
+    const { changeAnswers, flushAnswers } = await import('@/setup/draft');
+    fake.control.setWriteError(() => new DOMException('Disk is full', 'QuotaExceededError'));
+    changeAnswers({}, { name: 'Kai' }, {}, 'about.name');
+    expect(await flushAnswers('welcome.start')).toBe('failed');
+    const { WelcomePage } = await import('./WelcomePage');
+    host = render(createElement(WelcomePage));
+    await host.settle();
+    expect(host.text()).toContain(SAVE_FAILED);
+    fake.control.setWriteError(undefined);
+    await host.click(host.button('Try again', { exact: true }));
+    await host.settle();
+    expect(host.text()).not.toContain(SAVE_FAILED);
+    expect(draft()?.answers?.name).toBe('Kai');
+  });
+
+  it('Close with the change refused stays, and says so (H5R-16)', async () => {
+    const { lookedAround } = await import('@/setup/assemble');
+    expect((await store.update(lookedAround)).ok).toBe(true);
+    host = await page('about.figure');
+    fake.control.setWriteError(() => new DOMException('Disk is full', 'QuotaExceededError'));
+    await host.click(radio(host, 'Body for the exercise demos', 'Female'));
+    await host.click(host.button('Close', { exact: true }));
+    await host.settle();
+    expect(router.navigate).not.toHaveBeenCalledWith('/home');
+    expect(host.text()).toContain(SAVE_FAILED);
+  });
+
+  it('Me’s Save waits for a number typed that isn’t an answer yet (H5R-15)', async () => {
+    expect((await store.update(d => completedSetup(d, MINIMAL, NOW, CTX))).ok).toBe(true);
+    host = render(createElement(ChapterEditor, { chapter: 'about' }));
+    await host.settle();
+    await host.change(host.field('Year you were born (optional)'), { value: '195' });
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('Answer the questions marked above, then Save.');
+    expect(host.text()).toContain('Enter the year you were born, from');
+    expect(store.getState().profile?.birthYear).toBeUndefined();
+    await host.change(host.field('Year you were born (optional)'), { value: '1958' });
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(store.getState().profile?.birthYear).toBe(1958);
   });
 });
 
@@ -365,7 +493,7 @@ describe('tap targets (§20.4.1; H5-22; board D159)', () => {
     const options = [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }];
     const shown = render(createElement('div', null,
       createElement(TextInput, { label: 'Name', text: '', onText: () => {} }),
-      createElement(NumberAnswer, { label: 'Year', value: undefined, onChange: () => {} }),
+      createElement(NumberAnswer, { label: 'Year', text: '', onText: () => {} }),
       createElement(Segmented, { label: 'Units', options, value: 'a', onChange: () => {} }),
       createElement(TimeField, { id: 't', label: 'From', value: '09:00', onChange: () => {} }),
       createElement(PlainButton, null, 'Skip for now'),
@@ -379,7 +507,7 @@ describe('tap targets (§20.4.1; H5-22; board D159)', () => {
 
   it('the body picture only shows what’s chosen: areas are chosen in the labelled list', async () => {
     const { BackFeetWhere } = await import('./pages/backFeet');
-    const shown = render(createElement(BackFeetWhere, { a: { painAreas: ['lowerBack'] }, set: () => {}, tried: false, ctx: { thisYear: 2026 }, mode: 'setup' }));
+    const shown = render(createElement(BackFeetWhere, { a: { painAreas: ['lowerBack'] }, raw: {}, set: () => {}, tried: false, ctx: { thisYear: 2026 }, mode: 'setup' }));
     const picture = shown.all().find(n => n.type === 'svg');
     const inPicture = (n: HostNode): HostNode[] => [n, ...n.children.flatMap(c => (typeof c === 'string' ? [] : inPicture(c)))];
     expect(picture?.props['aria-hidden']).toBe(true);

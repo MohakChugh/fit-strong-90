@@ -38,13 +38,16 @@ export function getField(a: SetupAnswers, field: string): unknown {
   return row === undefined ? value : ((value ?? {}) as Bag)[row];
 }
 
-/** `a` with `field` set to `value`, or taken away when `value` is `undefined`. */
+/**
+ * `a` with `field` set to `value`. An answer cleared stays named, so the
+ * profile clears it too (`profileFrom` reads `'weightKg' in a`); a
+ * checklist's row cleared is taken away, unanswered.
+ */
 export function putField(a: SetupAnswers, field: string, value: unknown): SetupAnswers {
   const [key, row] = field.split('.');
   const out = { ...a } as Bag;
   if (row === undefined) {
-    if (value === undefined) delete out[key];
-    else out[key] = value;
+    out[key] = value;
     return out as SetupAnswers;
   }
   const rows = { ...((out[key] ?? {}) as Bag) };

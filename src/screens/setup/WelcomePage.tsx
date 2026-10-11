@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { TypeIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
-import { lookAroundFirst } from '@/setup/draft';
+import { continueUnsaved, flushAnswers, lookAroundFirst, useAnswersQueue } from '@/setup/draft';
 import { getState } from '@/store/useStore';
 import { resumeAt } from '@/setup/graph';
 import { InstallSteps } from '@/screens/welcome/InstallSteps';
@@ -23,7 +23,8 @@ import { useCtx, useMove, useSetupAnswers, type Recovery } from './useSetup';
  */
 export function WelcomePage() {
   const navigate = useNavigate();
-  const { answers, at } = useSetupAnswers();
+  const { answers, raw, at } = useSetupAnswers();
+  const queue = useAnswersQueue();
   const move = useMove();
   const ctx = useCtx();
   const [{ context, device }] = useState(() => {
@@ -37,13 +38,22 @@ export function WelcomePage() {
   const line = installLine(context, device);
 
   // A draft carries on where it stopped, with "Welcome back" (a backup restored here, V-J11); otherwise the first question.
-  // Planned from what setup holds now, again after a refused store (H5-02).
+  // Planned from what setup holds now, again after a refused store (H5-02). Only the page to go to is stored: the answers
+  // stay as the draft has them (H5-12).
   const start = (unsaved = false) => {
     const go = unsaved ? move.goUnsaved : move.go;
-    if (at && at !== 'welcome.start') go(resumeAt(answers, at, ctx), answers, { state: { welcomeBack: true }, generation });
-    else go('about.name', answers, { generation });
+    if (at && at !== 'welcome.start') go(resumeAt(answers, at, ctx), answers, { state: { welcomeBack: true }, opened: answers, generation });
+    else go('about.name', answers, { opened: answers, generation });
   };
-  const recovery: Recovery = { failed: move.failed, retry: () => start(), continueUnsaved: () => start(true) };
+  // A change from a page left with Back that the device refused shows here too (H5R-16).
+  const recovery: Recovery = {
+    failed: move.failed || queue.refused !== undefined,
+    retry: () => (move.failed ? start() : void flushAnswers()),
+    continueUnsaved: () => {
+      continueUnsaved('welcome.start', answers, raw);
+      if (move.failed) start(true);
+    },
+  };
 
   const lookAround = async () => {
     const refused = await lookAroundFirst(generation);

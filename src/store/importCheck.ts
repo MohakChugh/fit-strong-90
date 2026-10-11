@@ -20,7 +20,7 @@ import { isDay } from '@/health/observation';
 import { isTextScale } from '@/lib/textSize';
 import { ALLERGEN_IDS } from '@/types/profile';
 import { CHAPTER_IDS, CONDITION_IDS, MEDICINE_CLASSES, PAGE_IDS } from '@/types/setup';
-import { NAME_MAX, OWN_ALLERGIES_MAX, OWN_ALLERGY_LENGTH_MAX } from '@/setup/limits';
+import { NAME_MAX, OWN_ALLERGIES_MAX, OWN_ALLERGY_LENGTH_MAX, RAW_KEYS, TYPED_MAX } from '@/setup/limits';
 import { RECORD_STORES } from './records';
 
 type Check = (x: unknown) => boolean;
@@ -112,7 +112,8 @@ const ANSWER_SPEC: Spec = {
 /** Setup's state, field by field (Review Focus 5): a draft at a page this build lacks loses only its page, never its answers. */
 const SETUP_SPEC: Spec = {
   stage: oneOf('open', 'lookAround', 'done'),
-  draft: { at: oneOf(...PAGE_IDS), answers: ANSWER_SPEC },
+  // Numbers as typed (H5R-13, H5-18): only the fields setup has, each as long as its field takes.
+  draft: { at: oneOf(...PAGE_IDS), answers: ANSWER_SPEC, raw: recordOf(oneOf(...RAW_KEYS), x => typeof x === 'string' && x.length <= TYPED_MAX) },
   answers: ANSWER_SPEC,
   completedAt: text,
   skipped: listOf(oneOf(...CHAPTER_IDS)),
@@ -252,9 +253,9 @@ function read(doc: Record<string, unknown>, spec: Spec, path: string): { kept: R
 }
 
 /**
- * Setup's half-typed page answers (`draft.edits`, H5-16) stay on the device
- * they were typed on: never given, they are never restored, so a restore
- * never draws them over its own answers (H5-07).
+ * Pages' answers as an earlier build of this version held them
+ * (`draft.edits`), before they went into the draft's answers as they're
+ * given (board D169): no release stored them, and nothing reads them now.
  */
 function withoutHeld(doc: Record<string, unknown>): Record<string, unknown> {
   const setup = doc.setup;

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { SetupAnswers } from '@/types/setup';
-import { mergeAnswers, mergeAnswersWithConflicts, mergeSkipped } from './merge';
+import { createDefaultProfile } from '@/profile/defaults';
+import { profileFrom } from './assemble';
+import { mergeAnswers, mergeAnswersWithConflicts, mergeSkipped, putField } from './merge';
 
 describe('answers changed in one copy, onto the answers as they are now (H5-12, H5-13; board D165)', () => {
   it('writes only what this copy changed; another copy’s answers stay', () => {
@@ -75,5 +77,14 @@ describe('where both copies changed a safety answer: the stricter, as the engine
 
   it('a preference changed in both: this copy’s, the later', () => {
     expect(both('figure', {}, 'male', 'female')).toEqual({ answers: { figure: 'female' }, conflicts: [] });
+  });
+});
+
+describe('an answer cleared stays named, so the profile clears it too (board D169)', () => {
+  it('a weight cleared clears the stored weight; a checklist row cleared is unanswered', () => {
+    const cleared = putField({ weightKg: 70 }, 'weightKg', undefined);
+    expect('weightKg' in cleared).toBe(true);
+    expect(profileFrom(cleared, createDefaultProfile({ weightKg: 70 }), '2026-10-12', { thisYear: 2026 }).weightKg).toBe(0);
+    expect(putField({ conditions: { feet: 'yes' } }, 'conditions.feet', undefined)).toStrictEqual({ conditions: {} });
   });
 });
