@@ -135,11 +135,14 @@ function Results({ query, results, allergiesKnown }: { query: string; results: S
   // Nothing matches every word: say so, and say what each result does match,
   // rather than passing a partial match off as the answer (Codex content audit F22).
   const partial = onlyPartial(results);
+  // What's shown is what's said: meal ideas held back until allergies are known aren't counted, and are named (H7F-06).
+  const withheld = !allergiesKnown && results.some(r => r.kind === 'meal');
+  const shown = withheld ? results.filter(r => r.kind !== 'meal').length : results.length;
 
   return (
     <>
       <p aria-live="polite" className="sr-only">
-        {results.length === 0 ? 'No results' : `${results.length} ${results.length === 1 ? 'result' : 'results'}`}
+        {`${shown === 0 ? 'No results' : `${shown} ${shown === 1 ? 'result' : 'results'}`}${withheld ? `. ${FOOD_COPY.mealsWithheld}` : ''}`}
       </p>
       {results.length === 0 ? (
         <div className="px-4 py-6 text-center">

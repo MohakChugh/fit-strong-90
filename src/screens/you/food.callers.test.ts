@@ -251,6 +251,19 @@ describe('meal ideas with no food record yet: allergies not known, never none (P
       params.q = '';
     }
   });
+  it('says the count search shows, and that meal ideas wait, never counting the ones it holds back (H7F-06; board D207)', async () => {
+    params.q = 'rice';
+    try {
+      await person();
+      const h = await shown(() => import('@/screens/guide/GuideScreen'));
+      const live = textOf(h.all().find(n => n.props['aria-live'] === 'polite')!.children);
+      const rows = h.all().map(n => n.props.href).filter((to): to is string => typeof to === 'string' && /^\/hub\/learn\/(topic|card)\//.test(to)).length;
+      expect(h.text()).toContain(ASK);
+      expect(live).toBe(`${rows === 0 ? 'No results' : `${rows} ${rows === 1 ? 'result' : 'results'}`}. Meal ideas wait until you tell us about food allergies.`);
+    } finally {
+      params.q = '';
+    }
+  });
   it('on a meal idea’s page: warns from the waiting answer, and asks with none', async () => {
     params.mealId = 'b-poha';
     await person(WAITING);

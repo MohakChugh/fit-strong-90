@@ -17,6 +17,7 @@ export const FOOD_COPY = {
   // With no food record and no allergy answer waiting, allergies aren't known: never "none" (board D205).
   allergiesFirst: 'Tell us about food allergies first',
   allergiesFirstDetail: 'Meal ideas leave out anything you’re allergic to, so we ask before showing any.',
+  mealsWithheld: 'Meal ideas wait until you tell us about food allergies.',
   notChosenYet: 'Not chosen yet',
   notChosenAllergies: 'Not chosen yet — meals for every pattern, without your allergies',
   logWhatYouAte: 'Log what you ate',
