@@ -115,6 +115,20 @@ describe('the page’s own watch on the phone’s clock (P8S-02, board D185)', (
     expect(p.marked).toEqual([]);
   });
 
+  it('judges nothing in view over a span its minute’s check never ran in, as when timers are held up', () => {
+    const p = page();
+    watchClock(p.ports);
+    // Five minutes with no check, the two clocks no longer agreeing (a test's frozen wall clock, a suspended timer).
+    p.pass(5 * 60_000);
+    p.setClock(-4 * 60_000);
+    p.minute();
+    expect(p.marked).toEqual([]);
+    // From there, a change within a minute is judged again.
+    p.setClock(-3_600_000);
+    p.minute();
+    expect(p.marked).toHaveLength(1);
+  });
+
   it('keeps looking from before the record was read, so a change made meanwhile is still seen', () => {
     const p = page();
     p.loading(true);

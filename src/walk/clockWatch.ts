@@ -11,7 +11,10 @@
  * Across a time out of view, only a clock set back counts: an iPhone's
  * monotonic clock stands still while it sleeps, so one set forward then can't
  * be told from a phone that was locked. A clock set forward makes a reading
- * look older, never newer, so nothing is let through by not counting it.
+ * look older, never newer, so nothing is let through by not counting it. In
+ * view, a look judges only the couple of minutes since the one before: over
+ * a longer span the minute's check didn't run, timers held up, and two
+ * clocks that stopped agreeing then can't be told from one that changed.
  */
 import { clockGeneration } from './consent';
 import { CLOCK_JUMP_MS, daysAround } from './clock';
@@ -19,6 +22,8 @@ import { getState, markClockChange } from '@/store/useStore';
 
 /** How often the page looks while it is in view. */
 export const CLOCK_CHECK_MS = 60_000;
+/** The longest span a look in view judges: two and a half of its minutes. */
+const IN_VIEW_SPAN_MS = 2.5 * CLOCK_CHECK_MS;
 
 export interface ClockWatchPorts {
   now(): number;
@@ -43,7 +48,8 @@ export function watchClock(ports: ClockWatchPorts): () => void {
     if (!ports.ready()) return;
     const next = take();
     const drift = (next.wall - last.wall) - (next.mono - last.mono);
-    const changed = backOnly ? drift < -CLOCK_JUMP_MS : Math.abs(drift) > CLOCK_JUMP_MS;
+    const judged = backOnly || next.mono - last.mono <= IN_VIEW_SPAN_MS;
+    const changed = judged && (backOnly ? drift < -CLOCK_JUMP_MS : Math.abs(drift) > CLOCK_JUMP_MS);
     // Once only: a walk recording now may already have marked it.
     if (changed && next.gen === last.gen) ports.changed(daysAround(last.wall, next.wall));
     last = take();
