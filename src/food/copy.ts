@@ -148,6 +148,12 @@ export const FOOD_COPY = {
   reminderOff: 'Off',
   reminderTime: 'At',
   reminderFooter: 'At most once a day, never in quiet hours, and not once that meal is logged. It shows only while FitStrong is open.',
+  clearTitle: 'Clear your food choices?',
+  clearAll: 'This clears what you eat, foods to leave out, region, how you log, and any target or reminder.',
+  clearSome: 'This clears foods to leave out, region, how you log, and any target or reminder.',
+  clearKeepsAllergies: 'Your allergies stay: remove one on its own, above.',
+  clearKeepsPattern: 'What you eat stays too.',
+  clearConfirm: 'Clear food choices',
   // The prompt (journey §7.4)
   promptTitle: (slot: string) => `Add ${slot.toLowerCase()} to Food?`,
   promptDetail: 'Only if you’d like to. It takes a few taps.',

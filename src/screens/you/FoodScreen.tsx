@@ -8,7 +8,7 @@ import { foodLevel, numbersView } from '@/food/level';
 import { promptDefault } from '@/food/prompts';
 import { LevelSheet } from '@/screens/food/LevelSheet';
 import { formatDayShort } from '@/screens/track/format';
-import { NumberField } from '@/screens/track/ui';
+import { ConfirmSheet, NumberField } from '@/screens/track/ui';
 import { useToday } from '@/screens/track/useToday';
 import { useStore } from '@/store/useStore';
 import type { Meal } from '@/types/habits';
@@ -33,6 +33,23 @@ const REMINDER_MEALS: { value: Meal | 'off'; label: string }[] = [
   { value: 'dinner', label: 'Dinner' },
 ];
 
+/**
+ * What "Clear food preferences" leaves (board D137, K7-03): never the
+ * allergies, each removed on its own, nor the answer to "Has food or weight
+ * ever been hard for you?". The record needs an eating pattern, so what the
+ * person eats stays with them. With none of those, the record goes.
+ */
+function cleared(food: FoodPreferences | undefined): FoodPreferences | undefined {
+  if (!food || !keeps(food)) return undefined;
+  return {
+    pattern: food.pattern, avoid: [],
+    ...(food.allergies?.length ? { allergies: food.allergies } : {}),
+    ...(food.customAllergies?.length ? { customAllergies: food.customAllergies } : {}),
+    ...(food.hardBefore ? { hardBefore: food.hardBefore } : {}),
+  };
+}
+const keeps = (food: FoodPreferences) => (food.allergies?.length ?? 0) > 0 || (food.customAllergies?.length ?? 0) > 0 || food.hardBefore !== undefined;
+
 /** A whole number from a field, within bounds; blank is none; `null` can't be right. */
 function whole(text: string, max: number): number | undefined | null {
   if (text.trim() === '') return undefined;
@@ -56,6 +73,7 @@ export function FoodScreen() {
   const ids = { avoid: useId(), allergy: useId(), time: useId() };
   const [problem, setProblem] = useState<string>();
   const [choosing, setChoosing] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [kcal, setKcal] = useState(String(food?.careTeamTargets?.kcal ?? ''));
   const [carbs, setCarbs] = useState(String(food?.careTeamTargets?.carbsG ?? ''));
 
@@ -211,7 +229,22 @@ export function FoodScreen() {
       )}
 
       {problem && <Notice tone="error">{problem}</Notice>}
-      {food && <PlainButton tone="stop" onClick={() => void edit(() => undefined)}>Clear food preferences</PlainButton>}
+      {food && <PlainButton tone="stop" onClick={() => setClearing(true)}>Clear food preferences</PlainButton>}
+      {food && (
+        <ConfirmSheet
+          open={clearing}
+          onOpenChange={setClearing}
+          title={FOOD_COPY.clearTitle}
+          detail={[
+            keeps(food) ? FOOD_COPY.clearSome : FOOD_COPY.clearAll,
+            (food.allergies?.length ?? 0) + (food.customAllergies?.length ?? 0) > 0 ? FOOD_COPY.clearKeepsAllergies : undefined,
+            keeps(food) ? FOOD_COPY.clearKeepsPattern : undefined,
+          ].filter(Boolean).join(' ')}
+          confirm={FOOD_COPY.clearConfirm}
+          onConfirm={() => void edit(cleared).then(ok => { if (ok) setClearing(false); })}
+          {...(problem ? { error: problem } : {})}
+        />
+      )}
       <LevelSheet open={choosing} onOpenChange={setChoosing} />
     </Screen>
   );
