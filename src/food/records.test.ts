@@ -91,6 +91,30 @@ describe('a meal record (journey §18.2, B-12)', () => {
     const old = previewImport(doc(bare));
     expect(old.ok && old.rejected?.meals).toBe(0);
   });
+  it('refuses your own food’s figures when its snapshot can’t give them, as the stepper works them out (H7R-03; board D148)', () => {
+    const own = { kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: { kcal: 300, carbsG: 40 }, version: AT, kcal: 300, carbsG: 40 };
+    expect(itemProblem(own)).toBeUndefined();
+    // Codex's file: 600 kcal and 80 g from one plate of 300 and 40, which More would turn into 450 and 60.
+    expect(itemProblem({ ...own, kcal: 600, carbsG: 80 })).toMatch(/your own food/);
+    expect(itemProblem({ ...own, kcal: 600 })).toMatch(/your own food/);
+    expect(itemProblem({ ...own, carbsG: 80 })).toMatch(/your own food/);
+    // Rounded as `ownFigures` rounds: 1½ × 133 kcal is 200, 1½ × 21.3 g is 32 g.
+    const half = { ...own, count: 1.5, basis: { kcal: 133, carbsG: 21.3 } };
+    expect(itemProblem({ ...half, kcal: 200, carbsG: 32 })).toBeUndefined();
+    expect(itemProblem({ ...half, kcal: 199, carbsG: 32 })).toMatch(/your own food/);
+    expect(itemProblem({ ...half, kcal: 200, carbsG: 31.9 })).toMatch(/your own food/);
+  });
+  it('refuses a backup holding such an item, in a meal, an earlier version of one, or a usual meal (H7R-03)', () => {
+    const bad = { kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: { kcal: 300, carbsG: 40 }, version: AT, kcal: 600, carbsG: 80 };
+    const doc = (records: Record<string, unknown[]>) => JSON.parse(JSON.stringify({
+      format: TRANSFER_FORMAT, version: 1, exportedAt: AT, schemaVersion: 6, observations: [], sessions: [], checkIns: [], personalRecords: [], bodyMetrics: [],
+      focusOverrides: {}, contentState: [], stores: Object.keys(records), records,
+    }));
+    const rejected = (records: Record<string, unknown[]>) => { const p = previewImport(doc(records)); return p.ok ? p.rejected : undefined; };
+    expect(rejected({ meals: [meal({ items: [bad] })] })?.meals).toBe(1);
+    expect(rejected({ meals: [meal({ editedAt: AT, edits: [{ replacedAt: AT, at: AT, meal: 'lunch', items: [bad] }] })] })?.meals).toBe(1);
+    expect(rejected({ savedMeals: [{ id: 'usual-1', name: 'Lunch', items: [bad], savedAt: AT, updatedAt: AT }] })?.savedMeals).toBe(1);
+  });
   it('takes an unknown figure as unknown, never as 0 (A-17)', () => {
     expect(itemProblem({ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: {}, version: AT })).toBeUndefined();
     expect(itemProblem({ kind: 'quick', size: 'normal', name: 'Normal plate' })).toBeUndefined();

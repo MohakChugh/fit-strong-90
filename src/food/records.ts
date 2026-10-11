@@ -11,7 +11,7 @@
 import { isAt } from '@/health/observation';
 import type { Records, StoredRecord } from '@/store/records';
 import { ALLERGEN_IDS } from '@/types/profile';
-import { customItem } from './estimate';
+import { customItem, ownFigures } from './estimate';
 import type { CustomFood, MealEdit, MealRecord, SavedMeal, Slot } from './types';
 import { isUnitId } from './units';
 
@@ -61,7 +61,9 @@ export function itemProblem(x: unknown): string | undefined {
       const basis = x.basis;
       if (!isObject(basis) || !optional(basis.kcal, v => isAmount(v, 5_000)) || !optional(basis.carbsG, v => isAmount(v, 1_000))) return `${name}: what your own food held can’t be read`;
       if (!isAt(x.version)) return `${name}: which version of your own food it was can’t be read`;
-      if ((x.kcal === undefined) !== (basis.kcal === undefined) || (x.carbsG === undefined) !== (basis.carbsG === undefined)) return `${name}: your own food’s figures don’t match what it held`;
+      // Its figures are its snapshot's, at its count, as the stepper works them out (board D148, H7R-03).
+      const figures = ownFigures(basis, x.count);
+      if (x.kcal !== figures.kcal || x.carbsG !== figures.carbsG) return `${name}: your own food’s figures don’t match what it held`;
       return undefined;
     }
     case 'quick':
