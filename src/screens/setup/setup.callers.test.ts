@@ -228,3 +228,22 @@ describe('Review (journey §6.2)', () => {
     expect(host.text()).toContain('Diabetes shows as “Other” because insulin, or a tablet that can cause lows, is ticked or marked “Not sure”.');
   });
 });
+
+describe('the hold while setup is unfinished (§6.1; K5-07)', () => {
+  it('names the safety chapter the draft still asks, with how many questions; nothing once setup is finished', async () => {
+    const { useSafetyLeft } = await import('./useSetup');
+    const { withDraft } = await import('@/setup/draft');
+    const { COMPLEX } = await import('@/setup/fixtures');
+    const { sciaticaSide: _s, worseWith: _w, neuroHistory: _n, ...noBack } = COMPLEX;
+    void [_s, _w, _n];
+    expect((await store.update(d => withDraft(d, 'movement.focus', noBack))).ok).toBe(true);
+    const Probe = () => createElement('p', null, JSON.stringify(useSafetyLeft() ?? 'none'));
+    host = render(createElement(Probe));
+    await host.settle();
+    expect(host.text()).toContain('{"chapter":"your back and feet","ask":"Answer 2 questions about your back and feet"}');
+    // Finished from a draft holding every answer.
+    expect((await store.update(d => completedSetup(withDraft(d, 'review', COMPLEX), COMPLEX, NOW, CTX))).ok).toBe(true);
+    await host.settle();
+    expect(host.text()).toContain('"none"');
+  });
+});

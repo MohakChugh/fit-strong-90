@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
 import { continueWithoutSaving, forgetEdits, mover, saveDraft, useSetupSession, type SaveOutcome } from '@/setup/draft';
-import { hrefOf, type Ctx } from '@/setup/graph';
+import { CHAPTER_TITLE, hrefOf, type Ctx } from '@/setup/graph';
 import { prefillAnswers } from '@/setup/prefill';
+import { askAbout, safetyLeft } from '@/setup/progress';
 import { setupStateOf } from '@/setup/state';
 import type { PageId, SetupAnswers, SetupState } from '@/types/setup';
 
@@ -23,6 +24,18 @@ export function useSetupAnswers(): { answers: SetupAnswers; at: PageId | undefin
   const setup = setupStateOf(settings, profile);
   if (session.unsaved) return { answers: session.answers, at: session.at, setup };
   return { answers: setup.draft?.answers ?? prefillAnswers(settings, profile), at: setup.draft?.at, setup };
+}
+
+/**
+ * While setup is unfinished, the safety chapter movement waits for, as the
+ * tiles and hubs say it: "your back and feet", and "Answer 2 questions about
+ * your back and feet" (§6.1; K5-07).
+ */
+export function useSafetyLeft(): { chapter: string; ask: string } | undefined {
+  const { answers, setup } = useSetupAnswers();
+  const ctx = useCtx();
+  const left = setup.stage !== 'done' ? safetyLeft(answers, ctx) : undefined;
+  return left && { chapter: CHAPTER_TITLE[left.chapter].toLowerCase(), ask: askAbout(left) };
 }
 
 type NavState = Record<string, unknown> | undefined;

@@ -19,6 +19,7 @@ import { prefersHour12 } from '@/lib/time';
 import { normalLine } from '@/screens/home/model';
 import { movementLine } from '@/screens/home/tileLine';
 import { recommendSources, withEffectiveToday } from '@/screens/home/urgent';
+import { useSafetyLeft } from '@/screens/setup/useSetup';
 import { useClock, useWakeAt } from '@/screens/today/clock';
 import { useStore } from '@/store/useStore';
 
@@ -36,7 +37,9 @@ export function useHubGate(mode: Mode) {
   const today = format(now, 'yyyy-MM-dd');
   const status: Status = periodOn(state.settings.statusPeriods, today)?.kind ?? 'normal';
   const enrolled = isEnrolled(state.settings, state.profile);
-  const gaps = profileGaps(guided.profile);
+  // While setup is unfinished, the gap names the safety chapter it still asks (K5-07).
+  const left = useSafetyLeft();
+  const gaps = { ...profileGaps(guided.profile), ...(left ? { ask: left.ask } : {}) };
   const profileGap = gaps.healthUnreviewed || gaps.medicinesUnknown;
   const recommendation = recommend({ ...recommendSources({ now, state, plan: guided.plan, checkIns }), permissions });
   const gate = gateOf(permissions[mode], guided.checkIn, profileGap);
@@ -44,7 +47,7 @@ export function useHubGate(mode: Mode) {
   const recheckAt = guided.checkIn?.readiness.recheckAt;
   const line = movementLine({
     mode, permission: permissions[mode], status, enrolled, normal: normalLine(mode, { recommendation, enrolled, plan: guided.plan }),
-    ...(recheckAt ? { recheckAt } : {}), now, hour12: HOUR12,
+    ...(recheckAt ? { recheckAt } : {}), now, hour12: HOUR12, ...(left ? { gapChapter: left.chapter } : {}),
   });
   return {
     guided, state, now, today, status, enrolled, gaps, gate, line, recommendation, start, sheet, hour12: HOUR12,

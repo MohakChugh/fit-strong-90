@@ -48,6 +48,7 @@ import { useClock, useWakeAt } from '@/screens/today/clock';
 import { ChooserSheet } from '@/screens/today/ChooserSheet';
 import { RecommendationCard } from '@/screens/today/RecommendationCard';
 import { MovePlanBack, StatusSheet } from '@/screens/today/StatusSheet';
+import { useSafetyLeft } from '@/screens/setup/useSetup';
 import { setupStateOf, showsNewHome } from '@/setup/state';
 import {
   SHEET_KEYS,
@@ -297,6 +298,8 @@ export function HomeScreen() {
   // The person's own layout once there is one, and one this build can draw;
   // until then the defaults from their answers (journey §5.1).
   const { fallback, stored } = useHomeLayout();
+  // While setup is unfinished, a gap's tile line names the safety chapter it still asks (K5-07).
+  const left = useSafetyLeft();
   // The defaults are worked out once, at the end of setup or on the first v2
   // launch, and kept: after that a change to the answers never reshuffles the
   // tiles by itself; a newly relevant category is offered in Me (§5.1, Plan 4).
@@ -329,7 +332,7 @@ export function HomeScreen() {
   // The gate as this render asked it, the same answer the card shows; a tap asks it again.
   const lineOf = (mode: Mode, permission = permissions[mode]) => movementLine({
     mode, permission, status, enrolled, normal: normalLine(mode, { recommendation, enrolled, plan: guided.plan }),
-    ...(recheckAt ? { recheckAt } : {}), now, hour12: HOUR12,
+    ...(recheckAt ? { recheckAt } : {}), now, hour12: HOUR12, ...(left ? { gapChapter: left.chapter } : {}),
   });
   // A hold or a stop on the tile's mode: its hub opens on it, so the tap skips the morph (motion rule 2).
   // Asked of the permission, the same answer the hub opens on, not of the line's tone (codex V1-05).

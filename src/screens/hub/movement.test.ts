@@ -67,6 +67,10 @@ describe('movementCard: the hub column of the copy table (journey §7.5)', () =>
     expect(c.state).toBe('gap');
     expect(c.title).toBe('Your diabetes medicines');
     expect(c.primary).toEqual({ kind: 'profile', label: 'Answer the questions about your medicines' });
+    // While setup is unfinished, the chapter it still asks, with a count (§6.1; K5-07).
+    const ask = 'Answer 2 questions about your back and feet';
+    expect(movementCard(input({ permission: p, gate: 'hold', gaps: { healthUnreviewed: true, medicinesUnknown: false, ask }, line: line('Finish setting up · your back and feet', 'caution') })).primary)
+      .toEqual({ kind: 'profile', label: ask });
     expect(kinds(c)).toContain('review');
   });
 

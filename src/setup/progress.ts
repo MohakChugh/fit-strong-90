@@ -10,8 +10,9 @@ import type { StoreResult } from '@/store/db';
 import { update } from '@/store/useStore';
 import type { ChapterId, UserSettings } from '@/types';
 import type { UserProfile } from '@/types/profile';
-import { CHAPTER_IDS, type PageId } from '@/types/setup';
-import { CHAPTER_TITLE, chapterOf, missingPages, type Ctx } from './graph';
+import { CHAPTER_IDS, type PageId, type SetupAnswers } from '@/types/setup';
+import { CHAPTER_TITLE, SAFETY_CHAPTERS, chapterOf, missingPages, type Ctx } from './graph';
+import { prefillAnswers } from './prefill';
 import { setupStateOf } from './state';
 
 export interface OpenChapter {
@@ -47,6 +48,26 @@ const PAGE_TOPIC: Partial<Record<PageId, string>> = {
 const open = (chapter: ChapterId, why: OpenChapter['why'], detail: string, href = chapterHref(chapter)): OpenChapter =>
   ({ chapter, label: CHAPTER_TITLE[chapter], detail, href, why });
 
+/** A safety chapter with questions still to answer, and how many (§6.1). */
+export interface SafetyLeft { chapter: ChapterId; count: number }
+
+/**
+ * While setup is unfinished, the safety chapter movement waits for: the first
+ * in setup's order with a page left, and how many of its pages are (§6.1,
+ * "Answer 2 questions about your back"; K5-07). `undefined` once every safety
+ * question is answered.
+ */
+export function safetyLeft(a: SetupAnswers, ctx: Ctx): SafetyLeft | undefined {
+  const left = missingPages(a, ctx).filter(id => SAFETY_CHAPTERS.some(c => c === chapterOf(id)));
+  if (left.length === 0) return undefined;
+  const chapter = chapterOf(left[0]) as ChapterId;
+  return { chapter, count: left.filter(id => chapterOf(id) === chapter).length };
+}
+
+/** "Answer 2 questions about your back and feet". */
+export const askAbout = ({ chapter, count }: SafetyLeft): string =>
+  `Answer ${count === 1 ? '1 question' : `${count} questions`} about ${CHAPTER_TITLE[chapter].toLowerCase()}`;
+
 /**
  * The chapters left to answer, safety gaps first. A chapter answered "Not
  * now" is left out, unless movement waits for it: a safety gap stays until
@@ -55,14 +76,22 @@ const open = (chapter: ChapterId, why: OpenChapter['why'], detail: string, href 
  * (KH-08, board D80).
  */
 export function setupProgress(
-  { profile, settings }: { profile: UserProfile | undefined; settings: UserSettings },
+  { profile, settings, answers: session }: {
+    profile: UserProfile | undefined;
+    settings: UserSettings;
+    /** Setup's answers when this session holds them, without saving (`useSetupAnswers`); else the draft's. */
+    answers?: SetupAnswers;
+  },
   ctx: Ctx = { thisYear: new Date().getFullYear() },
 ): OpenChapter[] {
   const setup = setupStateOf(settings, profile);
   const declined = setup.declined ?? [];
   const keep = (rows: OpenChapter[]) => rows.filter(c => c.why === 'gap' || !declined.includes(c.chapter));
-  // Unfinished: setup carries on where it stopped (L-20, board D80).
-  if (setup.stage !== 'done' || !profile) return keep([open('health', 'gap', 'Answer the health questions before you move', '/setup')]);
+  // Unfinished: setup carries on where it stopped (L-20, board D80), naming the safety chapter it still asks (K5-07).
+  if (setup.stage !== 'done' || !profile) {
+    const left = safetyLeft(session ?? setup.draft?.answers ?? prefillAnswers(settings, profile), ctx);
+    return keep([left ? open(left.chapter, 'gap', `${askAbout(left)} before you move`, '/setup') : open('health', 'gap', 'Answer the health questions before you move', '/setup')]);
+  }
   const review = reviewNeeded(profile);
   const gaps = review === 'health' ? [open('health', 'gap', REVIEW_LABEL.health)]
     // Without diabetes nothing is held on it (`sglt2Unknown`, engine/health.ts): asked, not required.

@@ -12,6 +12,7 @@ import { answerOffer, useHomeLayout } from '@/screens/home/homeLayout';
 import { addButton } from '@/screens/home/layout';
 import { TileIcon } from '@/screens/home/Tile';
 import { today as todayOf } from '@/screens/track/periods';
+import { useSetupAnswers } from '@/screens/setup/useSetup';
 import { deviceNoun, readInstallEnv } from '@/screens/welcome/install';
 import { finishFooter, finishTitle, notNow, setupProgress, type OpenChapter } from '@/setup/progress';
 import { useStore } from '@/store/useStore';
@@ -43,7 +44,9 @@ export function MeHome() {
   }));
   const day = todayOf(now);
   const { stored, fallback, relevant } = useHomeLayout();
-  const finish = setupProgress({ profile, settings });
+  // Setup's answers as this session holds them, so an unfinished setup names the chapter it still asks (K5-07).
+  const { answers } = useSetupAnswers();
+  const finish = setupProgress({ profile, settings, answers });
   // Only once Home has laid its tiles out: until then its defaults include every relevant one.
   const offers = stored ? newlyRelevant({ relevant, layout: stored, offered: settings.homeOffered ?? [] }) : [];
   const review = reviewNeeded(profile);
