@@ -1315,6 +1315,8 @@ export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
  */
 export function eraseRoutes(): Promise<StoreResult> {
   return enqueue<void>({
+    // Shown only once stored: every tab forgets its routes on seeing it, which a failed erase must not set off (H6R-09).
+    hold: true,
     journal: 'all',
     plan: (base, read) => {
       const keys = base.records.routes.map(r => recordKey('routes', r));

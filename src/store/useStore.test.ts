@@ -1204,6 +1204,28 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
     expect(store.getState().settings.walk?.erased).toEqual({ generation: 1, walks: [WALK] });
   });
 
+  it('shows an erase only once it is stored: one that fails was never published, so nothing listening forgot a route (H6R-09)', async () => {
+    let refuse = false;
+    await booted({ failWrite: (s, v) => (refuse && s === 'settings' && v.key === 'settings' ? new DOMException('Disk is full', 'QuotaExceededError') : undefined) });
+    await keepsRoutes();
+    await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    const seen: unknown[] = [];
+    const stop = store.subscribe(() => seen.push(store.getState().settings.walk?.erased));
+    refuse = true;
+    const erasing = store.eraseRoutes();
+    // Not on screen while it is being written.
+    expect(store.getState().settings.walk?.erased).toBeUndefined();
+    const done = await erasing;
+    stop();
+    expect(done.ok).toBe(false);
+    expect(seen.every(e => e === undefined)).toBe(true);
+    expect(store.getState().records.routes).toEqual([ROUTE]);
+    // Stored, it shows.
+    refuse = false;
+    expect((await store.eraseRoutes()).ok).toBe(true);
+    expect(store.getState().settings.walk?.erased?.generation).toBe(1);
+  });
+
   it('writes no coordinates back from a checkpoint made before another tab erased routes or said No, its own transaction says (H6R-06)', async () => {
     const fake = await booted();
     await keepsRoutes();
