@@ -13,6 +13,7 @@ import { docs } from '../lib/harness.mjs';
 import * as hub from '../lib/hub.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as mv from '../lib/move.mjs';
+import * as setup from '../lib/setup.mjs';
 import { persona } from '../fixtures/personas.mjs';
 import { atSummary, outcome, openApp } from '../lib/safety-c.mjs';
 
@@ -323,32 +324,22 @@ export const cases = [
       await t.step(6, 'Fail the health update from unknown medicines to metformin-only; attempt Start before and after', async () => {
         const first = await startHeld('before');
         await t.check(first.held, `Start is not held while the medicines are unknown: ${first.text.slice(0, 200)}`);
-        await t.goto('/me/profile');
-        await ui.tap(page.getByRole('button', { name: 'Edit health' }));
-        const dialog = page.getByRole('dialog', { name: 'Edit your answers' });
-        await dialog.waitFor();
-        const pick = async (group, answer) => ui.tap(ui.radio(dialog.getByRole('radiogroup', { name: group, exact: true }), answer));
-        await pick('Insulin', 'No insulin');
-        await pick('Sulfonylurea or meglitinide? (e.g. gliclazide, glimepiride)', 'No');
-        await pick('An SGLT2 inhibitor, for diabetes, heart or kidney? (e.g. empagliflozin, dapagliflozin)', 'No');
-        await pick('Metformin?', 'Yes');
-        const since = dialog.getByRole('textbox', { name: /since|year/i });
-        if (await since.count()) await ui.type(since, '2019');
-        await pick('Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?', 'No');
-        for (const g of ['Beta-blocker? (e.g. bisoprolol, metoprolol)', 'Diuretic or water pill?', 'Has your care team told you to limit how much you drink?']) {
-          if (await dialog.getByRole('radiogroup', { name: g, exact: true }).count()) await pick(g, 'No');
-        }
+        const openReview = async () => {
+          await t.goto('/me/profile');
+          await ui.tap(page.getByRole('link', { name: /^Your health answers need a review/ }));
+          await ui.heading(page, 'Your health');
+          await setup.reviewAsP01(page.getByRole('main'));
+        };
+        await openReview();
         await t.setFaults([{ op: 'put', store: 'settings', match: { key: 'profile' }, action: 'quotaDom' }]);
-        const save = ui.button(dialog.getByRole('contentinfo'), 'Save');
-        await t.must(await save.isEnabled(), 'Save stays disabled after every medicine question was answered');
-        await ui.tap(save);
+        await setup.save(t, { expectSaved: false });
         await page.waitForTimeout(1000);
         const fired = await t.faultLog();
         await t.must(fired.some(f => f.store === 'settings'), `the profile write fault never fired: ${JSON.stringify(fired)}`);
         const text = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
         await t.checkpoint('profile-save-failed');
         await t.check(/did not save|not enough space|couldn.t save/i.test(text), `the failed profile update is not shown: ${text.slice(0, 200)}`);
-        await t.check(!/Saved\. Today uses your new answers/.test(text), 'the failed profile update was acknowledged as saved');
+        await t.check(!/Saved\. Home uses your new answers/.test(text), 'the failed profile update was acknowledged as saved');
         const snap = await t.db();
         const health = docs(snap).profile?.health ?? {};
         await t.check(health.medicinesReviewed !== true && health.metformin === undefined, `the uncommitted medicine answers are in the stored profile: ${JSON.stringify({ r: health.medicinesReviewed, m: health.metformin })}`);
@@ -356,20 +347,8 @@ export const cases = [
         await t.check(second.held, `Start was allowed on the uncommitted profile: ${second.text.slice(0, 200)}`);
         // Retry, now that the device can store it.
         await t.setFaults(null);
-        await t.goto('/me/profile');
-        await ui.tap(page.getByRole('button', { name: 'Edit health' }));
-        await dialog.waitFor();
-        await pick('Insulin', 'No insulin');
-        await pick('Sulfonylurea or meglitinide? (e.g. gliclazide, glimepiride)', 'No');
-        await pick('An SGLT2 inhibitor, for diabetes, heart or kidney? (e.g. empagliflozin, dapagliflozin)', 'No');
-        await pick('Metformin?', 'Yes');
-        if (await since.count()) await ui.type(since, '2019');
-        await pick('Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?', 'No');
-        for (const g of ['Beta-blocker? (e.g. bisoprolol, metoprolol)', 'Diuretic or water pill?', 'Has your care team told you to limit how much you drink?']) {
-          if (await dialog.getByRole('radiogroup', { name: g, exact: true }).count()) await pick(g, 'No');
-        }
-        await ui.tap(ui.button(dialog.getByRole('contentinfo'), 'Save'));
-        await page.getByText(/Saved\. Today uses your new answers/).waitFor({ timeout: 15000 });
+        await openReview();
+        await setup.save(t);
         const stored = docs(await t.db()).profile?.health ?? {};
         await t.check(stored.medicinesReviewed === true && stored.metformin === true, `the retried answers are not stored: ${JSON.stringify({ r: stored.medicinesReviewed, m: stored.metformin })}`);
         await t.goto('/home');

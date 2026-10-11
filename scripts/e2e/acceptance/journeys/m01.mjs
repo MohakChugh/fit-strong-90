@@ -19,25 +19,28 @@ const finishSettingUp = {
   async run(t) {
     const page = await t.open({ seed: persona('P02', { patch: { profile: { needsHealthReview: true } } }), route: '/me' });
     const main = page.getByRole('main');
-    await t.step(1, 'Me starts with the chapter to finish, which opens where its answers are', async () => {
-      const group = ui.section(main, 'Finish setting up · 1 short chapter');
-      await t.must(await group.count() === 1, `Me has no “Finish setting up”: ${flat(await main.innerText()).slice(0, 300)}`);
-      const row = ui.row(group, 'Your health', 'link');
-      await t.check(/Your health answers need a review/.test(flat(await row.innerText())), 'the row does not say why');
+    await t.step(1, 'Me starts with the chapters to finish; the review opens its own pages', async () => {
+      const group = ui.section(main, 'Finish setting up · 3 short chapters');
+      await t.must(await group.count() === 1, `Me has no “Finish setting up · 3 short chapters”: ${flat(await main.innerText()).slice(0, 300)}`);
+      const rows = (await group.getByRole('link').allInnerTexts()).map(s => flat(s).trim());
+      await t.check(rows.join(' | ') === 'Your health Your health answers need a review | About you What to call you | Your food Logging what you eat', `the rows are ${rows.join(' | ')}`);
       await t.checkpoint('me-finish');
-      await ui.tap(row);
-      await ui.heading(page, 'Profile & health');
-      await t.check(await main.getByRole('button', { name: /^Your health answers need a review/ }).count() === 1, 'Profile & health offers no review');
+      await ui.tap(ui.row(group, 'Your health', 'link'));
+      await ui.heading(page, 'Your health');
+      await t.check(await main.getByText('Your health answers need a review. Check each answer, then Save.', { exact: true }).count() === 1, 'Your health does not open as the review');
       await ui.tap(ui.back(page, 'Me'));
       await ui.heading(page, 'Me');
     });
-    await t.step(2, 'Not now: the row goes, and stays gone', async () => {
-      await ui.tap(ui.button(main, 'Not now, Your health'));
+    await t.step(2, 'A safety gap has no Not now; Not now on About you: the row goes, and stays gone (KH-08)', async () => {
+      await t.check(await ui.button(main, 'Not now, Your health').count() === 0, 'Your health, a safety gap, offers Not now (KH-08)');
+      const footer = flat(await main.innerText());
+      await t.check(footer.includes('Movement waits for Your health. Not now keeps the others for later, in Profile & health.'), `the footer does not say movement waits for Your health: ${footer.slice(0, 400)}`);
+      await ui.tap(ui.button(main, 'Not now, About you'));
       await page.waitForTimeout(300);
-      await t.check(await ui.section(main, 'Finish setting up · 1 short chapter').count() === 0, 'the row stays after Not now');
+      await t.check(await ui.section(main, 'Finish setting up · 2 short chapters').count() === 1, 'Not now did not take About you away');
       await t.reload();
-      await t.check(await main.getByRole('heading', { name: /^Finish setting up/ }).count() === 0, 'the row came back after a reload');
-      await t.check(JSON.stringify(docs(await t.db()).settings?.setup?.declined) === '["health"]', 'Not now was not stored');
+      await t.check(await ui.section(main, 'Finish setting up · 2 short chapters').count() === 1, 'About you came back after a reload');
+      await t.check(JSON.stringify(docs(await t.db()).settings?.setup?.declined) === '["about"]', 'Not now was not stored');
     });
   },
 };

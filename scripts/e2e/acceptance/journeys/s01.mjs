@@ -11,26 +11,7 @@
 import { persona } from '../fixtures/personas.mjs';
 import * as ui from '../lib/ui.mjs';
 import { statusButton } from '../lib/guide.mjs';
-import { answerWizardP07 } from './j01.mjs';
-
-/** Answer the wizard step on screen with P07's answers and move on (one step per call). */
-async function answerWizardStep(t) {
-  const main = t.page.getByRole('main');
-  const heading = (await main.getByRole('heading', { level: 1 }).innerText()).trim();
-  if (heading === 'Your body') {
-    const areas = main.getByRole('group', { name: 'Pain or past injury' }).getByRole('group', { name: 'Pain or past injury' });
-    if (await ui.checkbox(areas, 'None').getAttribute('aria-checked') !== 'true') await ui.tap(ui.checkbox(areas, 'None'));
-    await ui.tap(ui.button(main, 'Continue'));
-  } else if (heading === 'Your health') {
-    for (const q of await main.getByRole('radiogroup').all()) {
-      const name = await q.getAttribute('aria-label');
-      if (/^An SGLT2|limit how much you drink/.test(name ?? '')) await ui.tap(ui.radio(q, 'No'));
-    }
-    await ui.tap(ui.button(main, 'Continue'));
-  } else {
-    await answerWizardP07(t);
-  }
-}
+import * as setup from '../lib/setup.mjs';
 
 export const id = 'S01';
 export const title = 'Screen sweep over the route inventory';
@@ -187,37 +168,22 @@ async function inventory(t, { textScale } = {}) {
   });
 }
 
-const firstRun = {
-  name: 'first run and empty states',
+/** First run: setup a page at a time, each one checkpointed and swept, then the empty screens. */
+const firstRun = ({ textScale } = {}) => ({
+  name: textScale ? 'first run at 200% text' : 'first run and empty states',
   async run(t) {
-    const page = await t.open({ seed: null, route: '' });
-    const main = page.getByRole('main');
-    await t.step(1, 'Welcome, the questions and keeping the record', async () => {
-      await t.checkpoint('welcome-focus');
-      await ui.tap(ui.button(main, 'Explore first'));
-      await page.waitForTimeout(500);
-      // Each wizard step is a screen of its own: checkpoint it, then answer it as P07 would.
-      for (let i = 0; i < 4 && /^\/setup\/health/.test(await t.route()); i++) {
-        await t.checkpoint(`welcome-health-${(await main.getByRole('heading', { level: 1 }).innerText()).trim().replace(/\W+/g, '-').toLowerCase()}`);
-        const before = (await main.getByRole('heading', { level: 1 }).innerText()).trim();
-        await answerWizardStep(t);
-        await page.waitForTimeout(500);
-        if ((await main.getByRole('heading', { level: 1 }).innerText().catch(() => '')).trim() === before && /^\/setup\/health/.test(await t.route())) break;
-      }
-      for (let i = 0; i < 2 && /^\/setup/.test(await t.route()); i++) {
-        await t.checkpoint(`welcome-${(await t.route()).replace(/\W+/g, '-')}`);
-        const go = main.getByRole('button', { name: /^(Start|Continue in Safari for now)$/ });
-        if (!(await go.count())) break;
-        await ui.tap(go);
-        await page.waitForTimeout(600);
-      }
+    await t.open({ seed: null, route: '', ...(textScale ? { textScale } : {}) });
+    await t.step(1, 'Setup page by page, then Review and Start using', async () => {
+      await setup.throughSetup(t, setup.P07, { checkpoint: true });
+      await t.checkpoint('setup-review');
+      await setup.startUsing(t);
     });
     await t.step(2, 'Empty Home, My Day, Trends and Move for a person with no history', async () => {
       if (!(await t.route()).startsWith('/home')) t.note(`first run ended at ${await t.route()}`);
       for (const r of ['/home', '/day/today', '/trends', '/hub/workout', '/hub/workout/plan']) await visit(t, r, `empty-${r.replace(/\W+/g, '-')}`);
     });
   },
-};
+});
 
 const states = {
   name: 'status, rest and hold states on Today',
@@ -331,6 +297,7 @@ export const cases = [
   keyboard,
   { name: 'inventory at normal text', run: t => inventory(t) },
   { name: 'inventory at 200% text', run: t => inventory(t, { textScale: 2 }) },
-  firstRun,
+  firstRun(),
+  firstRun({ textScale: 2 }),
   states,
 ];

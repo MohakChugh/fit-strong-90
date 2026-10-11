@@ -11,6 +11,7 @@ import { persona } from '../fixtures/personas.mjs';
 import { docs } from '../lib/harness.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as sb from '../lib/safety-b.mjs';
+import * as setup from '../lib/setup.mjs';
 
 export const id = 'J14';
 export const title = 'Ketones independent of glucose';
@@ -72,21 +73,11 @@ async function storedKetones(t, want, glucoseTyped) {
   return { snap, checkIn: c };
 }
 
-/** Me → Profile & health → Edit health, set the answers and save (v1's You button is v2's Me tab). */
-async function editHealth(t, answers) {
-  const page = t.page;
-  await ui.tab(page, 'Me');
-  await ui.tap(ui.row(page.getByRole('main'), 'Profile & health', 'link'));
-  await page.getByRole('heading', { level: 1, name: 'Profile & health', exact: true }).waitFor();
-  await ui.tap(ui.button(page.getByRole('main'), 'Edit health'));
-  const dialog = page.getByRole('dialog', { name: 'Edit your answers' });
-  await dialog.waitFor();
-  for (const [group, choice] of answers) await ui.tap(ui.radio(dialog.getByRole('radiogroup', { name: group, exact: true }), choice));
-  const save = ui.button(dialog, 'Save');
-  await t.must(!(await save.isDisabled()), `Save stays disabled after ${answers.map(a => a.join(': ')).join('; ')}`);
-  await ui.tap(save);
-  await dialog.waitFor({ state: 'hidden' });
-  await page.getByRole('main').getByText(/^Saved\. Today uses your new answers\.$/).waitFor();
+/** Me → Profile & health → Edit {chapter}; answer; Save. */
+async function editChapter(t, chapter, answer) {
+  const main = await setup.openChapter(t, chapter);
+  await answer(main);
+  await setup.save(t);
 }
 
 /** One blood-ketone row: answer, then read every mode. */
@@ -124,7 +115,7 @@ export const cases = [
     async after(t) {
       await t.step(6, 'Reload, change the diabetes diagnosis, try another mode', async () => {
         await t.reload();
-        await editHealth(t, [['Diabetes', 'Type 1']]);
+        await editChapter(t, 'Your health', async m => { await setup.choose(m, 'Which type of diabetes?', 'Type 1'); await setup.choose(m, 'Has a clinician given you any limits or targets?', 'No'); });
         const snap = await t.db();
         await t.check(docs(snap).profile?.health?.diabetes === 'type1', `diagnosis stored as ${docs(snap).profile?.health?.diabetes}`);
         await t.check(sb.checkInOn(snap)?.ketones?.value === 3, `the diagnosis edit changed the reported ketones: ${JSON.stringify(sb.checkInOn(snap)?.ketones)}`);
@@ -150,7 +141,8 @@ export const cases = [
     async run(t) {
       await t.open({ seed: p04k(), route: '/home' });
       await t.step(3, `Switch the profile to urine strips; choose ${category}`, async () => {
-        await editHealth(t, [['Ketone testing', 'Urine strips']]);
+        // v1 asked about a home blood-pressure cuff only with high blood pressure, so P04 is asked it in this chapter (board D79).
+        await editChapter(t, 'Your medicines', async m => { await setup.choose(m, 'Can you test ketones?', 'Urine strips'); await setup.choose(m, 'Home blood-pressure cuff', 'No'); });
         const snap = await t.db();
         await t.check(docs(snap).profile?.health?.ketoneTest === 'urine', `ketone test stored as ${docs(snap).profile?.health?.ketoneTest}`);
         const sheet = await sb.openSheet(t, 'stretch');

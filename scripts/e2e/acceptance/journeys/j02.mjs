@@ -9,6 +9,7 @@ import * as ui from '../lib/ui.mjs';
 import * as data from '../lib/data.mjs';
 import * as move from '../lib/move.mjs';
 import * as player from '../lib/player.mjs';
+import * as setup from '../lib/setup.mjs';
 
 export const id = 'J02';
 export const title = 'Lossless upgrade and one resumable guided session';
@@ -124,41 +125,20 @@ async function assertLegacyLog(t, log) {
   await t.check(log.includes('Retain this exercise note'), 'the exercise note is not shown');
 }
 
-/** Answer the review the way step 3 says: no insulin, SU, SGLT2; metformin since 2019; no prior DKA. */
+/** Me → Profile & health → the review, answered as step 3 says (codex-acceptance J02). */
 async function reviewMedicines(t) {
   const page = t.page;
   await t.goto('/me/profile');
-  const review = page.getByRole('button', { name: /^Your health answers need a review/ });
+  const review = page.getByRole('link', { name: /^Your health answers need a review/ });
   await t.must(await review.count() === 1, 'Profile & health offers no health review');
   await ui.tap(review);
-  const d = page.getByRole('dialog', { name: 'Edit your answers' });
-  await d.waitFor();
-  const group = name => d.getByRole('radiogroup', { name, exact: true });
-  await ui.tap(ui.radio(group('Insulin'), 'No insulin'));
-  await ui.tap(ui.radio(group('Sulfonylurea or meglitinide? (e.g. gliclazide, glimepiride)'), 'No'));
-  await ui.tap(ui.radio(group('An SGLT2 inhibitor, for diabetes, heart or kidney? (e.g. empagliflozin, dapagliflozin)'), 'No'));
-  await ui.tap(ui.radio(group('Metformin?'), 'Yes'));
-  const year = d.getByRole('spinbutton', { name: 'Year you started metformin (optional)', exact: true });
-  await ui.type(year, '2019');
-  if (await year.inputValue() !== '2019') {
-    // Typed a digit at a time, as a phone keyboard does, the year never registers.
-    await t.check(false, `“Year you started metformin” does not accept typing: after keying 2019 it reads “${await year.inputValue()}” (each partial value is rejected and the field resets)`);
-    t.note('workaround: pasted the whole year at once (atomic fill) to carry on');
-    await year.fill('2019');
-  }
-  await ui.tap(ui.radio(group('Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?'), 'No'));
-  // The fixture's own explicit answers, which the review asks again.
-  const extra = [];
-  for (const [name, answer] of [['Beta-blocker? (e.g. bisoprolol, metoprolol)', 'No'], ['Diuretic or water pill?', 'No'], ['Has your care team told you to limit how much you drink?', 'No']]) {
-    const g = group(name);
-    if (await g.count() && !(await g.getByRole('radio', { checked: true }).count())) { await ui.tap(ui.radio(g, answer)); extra.push(`${name} ${answer}`); }
-  }
-  if (extra.length) t.note(`the review also required: ${extra.join('; ')}`);
+  await ui.heading(page, 'Your health');
+  const main = page.getByRole('main');
+  await t.check(await main.getByText('Your health answers need a review. Check each answer, then Save.', { exact: true }).count() === 1,
+    'the review does not open the three safety chapters together');
+  await setup.reviewAsP01(main);
   await t.checkpoint('health-review-answered');
-  const save = ui.button(d, 'Save');
-  await t.must(await save.isEnabled(), `Save stays disabled: ${(await d.getByRole('status').allInnerTexts()).join(' | ')}`);
-  await ui.tap(save);
-  await d.waitFor({ state: 'hidden' });
+  await setup.save(t);
 }
 
 export const cases = [
@@ -177,6 +157,8 @@ export const cases = [
         const card = ui.rightNow(page);
         const why = (await card.innerText()).match(/Why this\?\s*([^\n]+)/);
         await t.check(!!why && /session|training day|plan/i.test(why[1]), `no visible “Why this?” explaining the scheduled session (${why?.[1] ?? 'none'})`);
+        const first = await page.evaluate(() => document.getElementById('right-now')?.nextElementSibling?.getAttribute('aria-label') ?? null);
+        await t.check(first === 'FitStrong has a new Home', `the element after Right now is “${first}”, not the new-Home row (§6.6)`);
         // Home writes its first tile layout once, on the first v2 launch (journey §5.1): the
         // record's baseline is taken after that write, so the reloads below compare like with like.
         const layout = await data.waitDb(t, s => docs(s).settings?.home !== undefined, 'Home never stored its first layout (settings.home)').then(() => true, () => false);

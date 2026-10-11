@@ -139,8 +139,12 @@ async function goalsAndRest(t) {
     await t.check(/^Recorded movement: 5 of 20 minutes this week/.test(trackRing ?? ''), `My Day’s ring reads “${trackRing}”`);
     const snap = await t.db();
     const walk = (snap.observations ?? []).filter(o => o.context?.startsWith('walk:'));
-    const kinds = walk.map(o => `${o.kind}:${o.value}`).sort().join(',');
-    await t.check(kinds === 'movementMinutes:5,walkDuration:5', `the walk stored ${kinds}`);
+    // Its five minutes once; beside them, since Plan 6, the walk's own energy estimate (B-18), which is no movement.
+    const kinds = walk.filter(o => o.kind !== 'activeEnergy').map(o => `${o.kind}:${o.value}`).sort().join(',');
+    await t.check(kinds === 'movementMinutes:5,walkDuration:5', `the walk stored ${walk.map(o => `${o.kind}:${o.value}`).sort().join(',')}`);
+    const energy = walk.filter(o => o.kind === 'activeEnergy');
+    const moved = walk.find(o => o.kind === 'movementMinutes');
+    await t.check(energy.length === 1 && energy[0].value > 0 && energy[0].context === moved?.context, `the walk’s energy estimate: ${JSON.stringify(energy.map(o => [o.value, o.context]))}`);
     await t.check(docs(snap).settings?.weeklyMovementGoalMinutes === 20, `the goal changed to ${docs(snap).settings?.weeklyMovementGoalMinutes}`);
   }, { input: 'goal 20 min/week; a 5-minute timed walk' });
 
