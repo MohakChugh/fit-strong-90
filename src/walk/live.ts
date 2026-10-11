@@ -93,8 +93,12 @@ export interface VisibilityPort {
 export type WalkIntent = 'start' | 'restart' | 'live';
 
 export interface JournalPort {
-  /** Keep this checkpoint (journey §9.4). Resolves whether it was kept. */
-  checkpoint(entry: JournalEntry): Promise<StoreResult>;
+  /**
+   * Keep this checkpoint (journey §9.4). Resolves whether it was kept. With
+   * `keepJournalled`, the route lines the journal already holds stay beside
+   * the checkpoint's (`withJournalled`): this page may not hold them yet.
+   */
+  checkpoint(entry: JournalEntry, options?: { keepJournalled?: boolean }): Promise<StoreResult>;
   /** The latest checkpoint kept for a walk, or nothing when there is none. Rejects when it can't be read: that is not "none" (H6-06). */
   read(id: string): Promise<JournalEntry | undefined>;
 }
@@ -302,16 +306,14 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     draftKept = storeWalk(ports.storage, walk);
     const now = ports.now();
     if (!ports.journal || (checkpoint === 'due' && !checkpointDue(lastCheckpoint, now))) return;
-    if (routeRestore === 'loading') return;
     lastCheckpoint = now;
-    if (routeRestore === 'failed') {
-      // Read again, a checkpoint's interval later; the walk itself is kept in the tab's draft meanwhile.
-      restoreRoute(walk.id);
-      return;
-    }
+    // Read again, a checkpoint's interval later; the walk itself is kept in the tab's draft meanwhile.
+    if (routeRestore === 'failed') restoreRoute(walk.id);
     const keep = walk.plan.keepRoute === true && (ports.keepsRoutes?.() ?? true);
     const entry = journalEntry(walk, now, keep ? allLines() : undefined);
-    void ports.journal.checkpoint(entry).then(result => {
+    // While the route is still being read back, the journal keeps the lines it holds beside what is walked
+    // since, so leaving or finishing now loses neither (H6R-10).
+    void ports.journal.checkpoint(entry, routeRestore === 'none' ? undefined : { keepJournalled: true }).then(result => {
       const full = !result.ok && result.failure.code === 'quotaExceeded';
       if (full === journalFull) return;
       journalFull = full;

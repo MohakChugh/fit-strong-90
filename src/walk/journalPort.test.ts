@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { JournalEntry } from './journal';
 
-const stored = vi.hoisted(() => ({ rows: [] as JournalEntry[], puts: [] as JournalEntry[], unreadable: false }));
+const stored = vi.hoisted(() => ({ rows: [] as JournalEntry[], puts: [] as JournalEntry[], options: [] as unknown[], unreadable: false }));
 vi.mock('@/store/useStore', () => ({
-  putWalkJournal: async (e: JournalEntry) => { stored.puts.push(e); return { ok: true, value: undefined }; },
+  putWalkJournal: async (e: JournalEntry, options?: unknown) => { stored.puts.push(e); stored.options.push(options); return { ok: true, value: undefined }; },
   readWalkJournals: async () => (stored.unreadable ? { ok: false, failure: new Error('unreadable') } : { ok: true, value: stored.rows }),
 }));
 
@@ -40,5 +40,16 @@ describe('the browser’s walk journal (journey §9.4, B-05)', () => {
     await expect(journalPort().read('walk-eeee')).rejects.toThrow('unreadable');
     stored.unreadable = false;
     expect(await journalPort().read('walk-eeee')).toBeUndefined();
+  });
+
+  it('asks the store to keep what the journal holds beside a checkpoint made while the route is read back, and keeps both here (H6R-10)', async () => {
+    const port = journalPort();
+    const later = { ...LINE, start: T + 60_000, end: T + 80_000 };
+    await port.checkpoint(entry('walk-ffff'));
+    await port.checkpoint({ ...entry('walk-ffff'), route: [later] }, { keepJournalled: true });
+    expect(stored.options.at(-1)).toEqual({ keepJournalled: true });
+    expect(cachedJournal('walk-ffff')?.route).toEqual([LINE, later]);
+    await port.checkpoint({ ...entry('walk-ffff'), route: [later] });
+    expect(cachedJournal('walk-ffff')?.route).toEqual([later]);
   });
 });

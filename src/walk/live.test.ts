@@ -15,7 +15,7 @@ import { PERMISSION_TEXT } from '@/engine/permission';
 import { createStepDetector } from './steps';
 import type { Fix } from './gps';
 import { createLiveWalk, MOTION_WAIT_MS, NOTICE_MIN_GAP_MS, type GeoError, type JournalPort, type LivePorts, type WalkIntent } from './live';
-import type { JournalEntry } from './journal';
+import { withJournalled, type JournalEntry } from './journal';
 import { StoreFailure, type StoreResult } from '@/store/db';
 import { clearWalk, loadWalk, type WalkStorage } from './persist';
 import { walkObservations } from './record';
@@ -1733,7 +1733,12 @@ describe('the route and the journal (journey §9.2, §9.4, §18.2)', () => {
     const entries: JournalEntry[] = [];
     let answer: StoreResult = { ok: true, value: undefined };
     const port: JournalPort = {
-      checkpoint: async e => { entries.push(e); return answer; },
+      // As the store keeps them: with `keepJournalled`, the lines already held stay beside the checkpoint's.
+      checkpoint: async (e, options) => {
+        const held = entries.filter(x => x.id === e.id).at(-1)?.route;
+        entries.push(options?.keepJournalled && e.route ? { ...e, route: withJournalled(held, e.route)! } : e);
+        return answer;
+      },
       read: async id => entries.filter(e => e.id === id).at(-1),
     };
     return { port, entries, fail(failure: StoreFailure) { answer = { ok: false, failure }; } };
@@ -1874,6 +1879,35 @@ describe('the route and the journal (journey §9.2, §9.4, §18.2)', () => {
     expect(reads).toBeGreaterThan(1);
     expect(kept.entries.at(-1)!.route!.slice(0, before.length)).toEqual(before);
   });
+
+  for (const ending of ['left', 'finished'] as const) {
+    it(`keeps the section walked since a reload when the walk is ${ending} before its route has been read back (H6R-10)`, async () => {
+      const kept = journal();
+      const w = world();
+      const live = createLiveWalk({ ...w.ports, journal: kept.port });
+      live.attach(KEEP);
+      walkFor(w, 30, 0);
+      live.pause();
+      await flush();
+      const before = kept.entries.at(-1)!.route!;
+      w.kill();
+      // The page comes back; the journal never answers while it is open.
+      const slow: JournalPort = { checkpoint: kept.port.checkpoint, read: () => new Promise(() => {}) };
+      const again = createLiveWalk({ ...w.ports, journal: slow });
+      again.attach();
+      again.resume();
+      const walked = walkFor(w, 20, 100);
+      expect(walked).toBeGreaterThan(100);
+      if (ending === 'finished') again.finish('finish');
+      again.detach();
+      await flush();
+      const last = kept.entries.at(-1)!.route!;
+      // What was journalled before the reload, and the section walked since.
+      expect(last.slice(0, before.length)).toEqual(before);
+      expect(last.length).toBeGreaterThan(before.length);
+      expect(last.at(-1)!.coords.length).toBeGreaterThan(1);
+    });
+  }
 
   it('forgets every point on request, and keeps no route from then on (B-05)', async () => {
     const kept = journal();

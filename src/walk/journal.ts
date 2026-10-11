@@ -34,6 +34,18 @@ export function journalEntry(walk: Walk, at: number, route?: readonly RouteLine[
 
 export const checkpointDue = (last: number | undefined, now: number): boolean => last === undefined || now - last >= CHECKPOINT_MS;
 
+/**
+ * The lines a journal already holds with a checkpoint's, by when each began,
+ * the checkpoint's own where both have one (H6R-10, board D178): for a page
+ * that may not hold every line yet, such as one still reading its route back
+ * after a reload, so nothing journalled is lost to what it writes.
+ */
+export function withJournalled(stored: readonly RouteLine[] | undefined, given: readonly RouteLine[] | undefined): RouteLine[] | undefined {
+  if (!stored?.length) return given ? [...given] : undefined;
+  const mine = new Set((given ?? []).map(l => l.start));
+  return [...stored.filter(l => !mine.has(l.start)), ...(given ?? [])].sort((a, b) => a.start - b.start);
+}
+
 /** A stored checkpoint, or nothing if any part of it can't be trusted. */
 export function parseJournalEntry(raw: unknown): JournalEntry | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;

@@ -56,7 +56,7 @@ import {
 } from '@/health/observation';
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
 import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult } from './db';
-import { parseJournalEntry, type JournalEntry } from '@/walk/journal';
+import { parseJournalEntry, withJournalled, type JournalEntry } from '@/walk/journal';
 import { clockGeneration, routeErased, takenHere, walkSettings, withClockChange, withErase, type WalkSettings } from '@/walk/consent';
 import { routeRecord, type RouteRecord } from '@/walk/routeRecord';
 import type { WalkInput } from '@/walk/record';
@@ -1207,7 +1207,7 @@ export function writeRecords(write: {
  * stored, read in the write's own transaction: a checkpoint from a tab that
  * hasn't heard yet never writes coordinates back (H6R-06, board D176).
  */
-export function putWalkJournal(entry: JournalEntry): Promise<StoreResult> {
+export function putWalkJournal(entry: JournalEntry, options: { keepJournalled?: boolean } = {}): Promise<StoreResult> {
   const handle = db;
   if (!handle) return Promise.resolve({ ok: false, failure: unavailableFailure() });
   return handle.transact(tx => {
@@ -1215,7 +1215,10 @@ export function putWalkJournal(entry: JournalEntry): Promise<StoreResult> {
     tx.get('settings', 'settings', row => {
       const walk = ((row as Doc | undefined)?.value as UserSettings | undefined)?.walk;
       const keeps = walk?.saveRoutes === true && !routeErased(walk, entry.id, entry.walk.plan);
-      tx.put(JOURNAL_STORE, keeps ? entry : (({ route: _gone, ...rest }) => { void _gone; return rest; })(entry));
+      if (!keeps) return tx.put(JOURNAL_STORE, (({ route: _gone, ...rest }) => { void _gone; return rest; })(entry));
+      if (!options.keepJournalled) return tx.put(JOURNAL_STORE, entry);
+      // A page still reading the route back: the lines held stay beside what it walked since (H6R-10).
+      tx.get(JOURNAL_STORE, entry.id, stored => tx.put(JOURNAL_STORE, { ...entry, route: withJournalled(parseJournalEntry(stored)?.route, entry.route)! }));
     });
   });
 }
@@ -1270,15 +1273,18 @@ function journalRoute(raw: unknown, walkId: string, startedAt: string): RouteRec
  */
 export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
   const fixed = input.observations.map(o => ({ ...o, at: o.at ?? nowAt() }));
-  const fromJournal = !input.route && input.routeStartedAt !== undefined;
+  const startedAt = input.route?.startedAt ?? input.routeStartedAt;
   return enqueue<void>({
-    ...(fromJournal ? { journal: [input.walkId] } : {}),
+    ...(startedAt !== undefined ? { journal: [input.walkId] } : {}),
     plan: (base, read) => {
       const wanted = new Set(fixed.map(o => o.id));
       const held = new Set(base.observations.filter(o => wanted.has(o.id)).map(o => o.id));
       const records = fixed.filter(o => !held.has(o.id)).map(o => newObservation(o));
-      // The screen's route, or the journal's, read in this transaction.
-      const given = input.route ?? (fromJournal && read ? journalRoute(read.journal[input.walkId], input.walkId, input.routeStartedAt!) : undefined);
+      // The screen's route with the journal's, read in this transaction: a screen that never read
+      // back the route walked before a reload saves both, as does one that has none (H6-06, H6R-10).
+      const journalled = startedAt !== undefined && read ? journalRoute(read.journal[input.walkId], input.walkId, startedAt) : undefined;
+      const lines = withJournalled(journalled?.segments, input.route?.segments);
+      const given = lines && startedAt !== undefined ? routeRecord(input.walkId, startedAt, lines) : undefined;
       // Never a route of a walk an "Erase all routes" erased, whichever screen saves it: by this
       // phone's own count of erases and the walk's id, never its clock (B-05, K6R-12, board D176).
       const erased = given !== undefined && routeErased(base.settings?.walk, input.walkId, { ...(input.routeGen !== undefined ? { routeGen: input.routeGen } : {}) });

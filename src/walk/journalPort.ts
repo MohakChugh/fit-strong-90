@@ -4,7 +4,7 @@
  * summary finds its route at once, even when nothing can be stored.
  */
 import { putWalkJournal, readWalkJournals } from '@/store/useStore';
-import type { JournalEntry } from './journal';
+import { withJournalled, type JournalEntry } from './journal';
 import type { JournalPort } from './live';
 
 const latest = new Map<string, JournalEntry>();
@@ -24,9 +24,9 @@ export function forgetCachedRoutes(): void {
 
 export function journalPort(): JournalPort {
   return {
-    checkpoint(entry) {
-      latest.set(entry.id, entry);
-      return putWalkJournal(entry);
+    checkpoint(entry, options) {
+      latest.set(entry.id, options?.keepJournalled ? { ...entry, ...(entry.route ? { route: withJournalled(latest.get(entry.id)?.route, entry.route)! } : {}) } : entry);
+      return putWalkJournal(entry, options);
     },
     async read(id) {
       const here = latest.get(id);

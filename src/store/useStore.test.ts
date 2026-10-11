@@ -1261,6 +1261,26 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
     expect(store.getState().settings.walk).toEqual({ saveRoutes: false, map: 'on', erased: { generation: 1, walks: [WALK] } });
   });
 
+  it('keeps what a journal holds beside the section a page walked while still reading it back, and saves both (H6R-10)', async () => {
+    await booted();
+    await keepsRoutes();
+    const later = { start: T + 700_000, end: T + 710_000, coords: [[12.972, 77.591], [12.9725, 77.5912]] as [number, number][], ms: [0, 10_000] };
+    await store.putWalkJournal(journalEntry(walked(), T + 600_000, [LINE]));
+    // After a reload, before the route has been read back: only the section walked since.
+    await store.putWalkJournal(journalEntry(walked(), T + 720_000, [later]), { keepJournalled: true });
+    let left = await store.readWalkJournals();
+    expect(left.ok && left.value[0].route).toEqual([LINE, later]);
+    // A page that holds every line writes them as they are.
+    await store.putWalkJournal(journalEntry(walked(), T + 730_000, [later]));
+    left = await store.readWalkJournals();
+    expect(left.ok && left.value[0].route).toEqual([later]);
+    // The summary of a walk whose screen never read the first section back saves both.
+    await store.putWalkJournal(journalEntry(walked(), T + 740_000, [LINE]));
+    const partial = { ...ROUTE, segments: [later], bbox: [12.972, 77.591, 12.9725, 77.5912] as [number, number, number, number] };
+    expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: partial })).ok).toBe(true);
+    expect(store.getState().records.routes[0]?.segments).toEqual([LINE, later]);
+  });
+
   it('reads back only the checkpoints it can trust', async () => {
     await booted();
     await store.putWalkJournal(journalEntry(walked(), T));
