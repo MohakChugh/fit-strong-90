@@ -20,6 +20,7 @@ import { isDay } from '@/health/observation';
 import { isTextScale } from '@/lib/textSize';
 import { ALLERGEN_IDS } from '@/types/profile';
 import { CHAPTER_IDS, CONDITION_IDS, MEDICINE_CLASSES, PAGE_IDS } from '@/types/setup';
+import { NAME_MAX, OWN_ALLERGIES_MAX, OWN_ALLERGY_LENGTH_MAX } from '@/setup/limits';
 import { RECORD_STORES } from './records';
 
 type Check = (x: unknown) => boolean;
@@ -73,11 +74,13 @@ const VOICE: Check = shape({
 /** Allergies a chip names: the canonical ids (B-13, board D82). */
 const ALLERGIES: Check = listOf(oneOf(...ALLERGEN_IDS));
 /** Allergies in the person's own words (Plan 7, B-13). */
-const CUSTOM_ALLERGIES: Check = x => Array.isArray(x) && x.length <= 30 && x.every(a => typeof a === 'string' && a.trim() !== '' && a.length <= 60);
+const CUSTOM_ALLERGIES: Check = x => Array.isArray(x) && x.length <= OWN_ALLERGIES_MAX && x.every(a => typeof a === 'string' && a.trim() !== '' && a.length <= OWN_ALLERGY_LENGTH_MAX);
+/** A name, as setup takes it (H5-18). */
+const NAME: Check = x => typeof x === 'string' && x.length <= NAME_MAX;
 
 /** Each setup answer a file may hold, by its type (journey §18.1). One that fails is left out by name; unknown ones are kept. */
 const ANSWER_SPEC: Spec = {
-  name: x => typeof x === 'string' && x.length <= 60, birthYear: num(1900, 2100), adult: bool,
+  name: NAME, birthYear: num(1900, 2100), adult: bool,
   figure: oneOf('male', 'female', 'either'), metric: bool, heightCm: num(50, 260), weightKg: num(10, 400), waistCm: num(30, 250),
   conditions: recordOf(oneOf(...CONDITION_IDS), tri), diabetesType: oneOf('type1', 'type2', 'prediabetes', 'other', 'unsure'),
   bpMedicine: tri, kidneyTreatment: tri, fluidLimit: tri, eyeTreatment: tri,
@@ -208,7 +211,7 @@ const PROFILE_SPEC: Spec = {
   voice: VOICE,
   figure: oneOf('male', 'female'),
   needsHealthReview: bool,
-  name: x => typeof x === 'string' && x.length <= 60,
+  name: NAME,
   waistCm: num(0, 300),
   // All or nothing (D-08): an unreadable allergy must not leave the rest standing as "no allergies".
   food: shape({

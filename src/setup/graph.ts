@@ -11,6 +11,7 @@ import { metforminYearProblem } from '@/components/profile/wizardSteps';
 import { DEFAULT_FINISH, mealProblem, windowProblem } from '@/screens/you/habitOptions';
 import type { Meal } from '@/types/habits';
 import { asksAdult, birthYearProblem } from './age';
+import { nameProblem, ownAllergiesProblem } from './limits';
 import { factsOf, has, type Facts } from './facts';
 import { heightProblem, waistProblem, weightProblem } from './units';
 
@@ -63,9 +64,11 @@ const fill = <K extends string>(r: Partial<Record<K, Tri>>, ids: readonly K[]): 
 export const PAGES: readonly PageDef[] = [
   { id: 'welcome.start', when: always, done: always, sets: [], skippable: false },
   { id: 'about.name', when: always, sets: ['name', 'birthYear', 'adult'], skippable: true,
-    done: (a, _f, ctx) => birthYearProblem(a.birthYear, ctx.thisYear) === null && (!asksAdult(a.birthYear, ctx.thisYear) || a.adult === true),
-    // A year typed that isn't one, an underage year, or a borderline year without "Yes" to 18 or over (B-31).
-    invalid: (a, _f, ctx) => birthYearProblem(a.birthYear, ctx.thisYear) !== null || (asksAdult(a.birthYear, ctx.thisYear) && a.adult !== true) },
+    done: (a, _f, ctx) => nameProblem(a.name) === null && birthYearProblem(a.birthYear, ctx.thisYear) === null && (!asksAdult(a.birthYear, ctx.thisYear) || a.adult === true),
+    // A name longer than a backup holds (H5-18), a year typed that isn't one, an underage year, or a borderline year
+    // without "Yes" to 18 or over (B-31).
+    invalid: (a, _f, ctx) => nameProblem(a.name) !== null || birthYearProblem(a.birthYear, ctx.thisYear) !== null
+      || (asksAdult(a.birthYear, ctx.thisYear) && a.adult !== true) },
   { id: 'about.figure', when: always, sets: ['figure'], skippable: true, done: a => a.figure !== undefined },
   { id: 'about.body', when: always, sets: ['metric', 'heightCm', 'weightKg', 'waistCm'], skippable: false,
     done: a => heightProblem(a.heightCm) === null && weightProblem(a.weightKg) === null && waistProblem(a.waistCm) === null },
@@ -109,7 +112,9 @@ export const PAGES: readonly PageDef[] = [
     done: a => a.programme === 'notNow' || a.programme === 'joined' || (a.programme === 'join' && a.join !== undefined) },
   // The chips' ids and the person's own words are one question: answered once either is, or "No food allergies" is (`allergies: []`).
   { id: 'food.pattern', when: always, sets: ['pattern', 'allergies', 'customAllergies'], skippable: true,
-    done: a => a.pattern !== undefined && a.allergies !== undefined },
+    done: a => a.pattern !== undefined && a.allergies !== undefined && ownAllergiesProblem(a.customAllergies) === null,
+    // More allergies of their own, or longer, than a backup holds (H5-18).
+    invalid: a => ownAllergiesProblem(a.customAllergies) !== null },
   // Estimates are stored only once "Has food or weight ever been hard for you?" is answered (K-22), and the answer is kept (board D82).
   { id: 'food.logging', when: always, sets: ['foodLevel', 'hardBefore'], skippable: true,
     done: a => a.foodLevel !== undefined && (a.foodLevel !== 'estimates' || a.hardBefore !== undefined) },

@@ -243,3 +243,13 @@ describe('the food fields Plan 7 adds (journey §18.1, B-13)', () => {
     }
   });
 });
+
+describe('the limits setup and a backup share (H5-18)', () => {
+  it('a backup holds every answer setup takes, and nothing setup refuses', async () => {
+    const { NAME_MAX, OWN_ALLERGIES_MAX, OWN_ALLERGY_LENGTH_MAX } = await import('@/setup/limits');
+    const answers = (a: Record<string, unknown>) => preview(file({ settings: { ...settings, setup: { stage: 'open', draft: { answers: a } } } })).unreadableFields;
+    expect(answers({ name: 'x'.repeat(NAME_MAX), customAllergies: Array.from({ length: OWN_ALLERGIES_MAX }, () => 'y'.repeat(OWN_ALLERGY_LENGTH_MAX)) })).toEqual([]);
+    expect(answers({ name: 'x'.repeat(NAME_MAX + 1) })).toEqual(['settings.setup.draft.answers.name']);
+    expect(answers({ customAllergies: ['y'.repeat(OWN_ALLERGY_LENGTH_MAX + 1)] })).toEqual(['settings.setup.draft.answers.customAllergies']);
+  });
+});

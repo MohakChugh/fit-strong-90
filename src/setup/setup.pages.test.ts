@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CHAPTER_IDS, PAGE_IDS, type PageId, type SetupAnswers } from '@/types/setup';
 import { COMPLEX, EVERYTHING, FOOT_WOUND, GLIFLOZIN_NO_DIABETES, INSULIN_NO_DIABETES, JOIN, MINIMAL, NO_CLASSES, NO_CONDITIONS, UNSURE, withC } from './fixtures';
 import {
-  PAGES, capsuleOf, chapterComplete, commitPage, firstPageOf, guardFor, hrefOf, missingPages, nextFromReview, nextMove, nextPage, pageAt, pageDone, pathFor,
+  PAGES, capsuleOf, chapterComplete, commitPage, firstPageOf, guardFor, hrefOf, missingPages, nextFromReview, nextMove, nextPage, pageAt, pageDef, pageDone, pageInvalid, pathFor,
   prevPage, resumeAt, skipMove, skippedChapters,
 } from './graph';
 
@@ -81,6 +81,16 @@ describe('setup’s pages (journey §1.2, §6.2; B-06)', () => {
     const at = (glucoseStartMin: number, glucoseStartUnit: 'mg/dL' | 'mmol/L') => pageDone('medicines.lows', { ...lows, glucoseStartMin, glucoseStartUnit }, CTX);
     expect([at(65, 'mg/dL'), at(70, 'mg/dL'), at(300, 'mg/dL'), at(301, 'mg/dL')]).toEqual([false, true, true, false]);
     expect([at(3.8, 'mmol/L'), at(3.9, 'mmol/L'), at(17, 'mmol/L')]).toEqual([false, true, true]);
+  });
+
+  it('takes only what a backup can hold: a name of 60 characters, and 30 allergies of your own of 60 each (H5-18)', () => {
+    expect(pageDone('about.name', { name: 'x'.repeat(60) }, CTX)).toBe(true);
+    expect([pageDone('about.name', { name: 'x'.repeat(61) }, CTX), pageInvalid('about.name', { name: 'x'.repeat(61) }, CTX)]).toEqual([false, true]);
+    const food = (customAllergies: string[]): SetupAnswers => ({ pattern: 'vegetarian', allergies: [], customAllergies });
+    const page = pathFor(MINIMAL).find(id => pageDef(id).sets.includes('customAllergies'))!;
+    expect(pageDone(page, food(Array.from({ length: 30 }, (_, i) => `${i}`.padEnd(60, 'x'))), CTX)).toBe(true);
+    expect(pageInvalid(page, food(Array.from({ length: 31 }, (_, i) => `food ${i}`)), CTX)).toBe(true);
+    expect(pageInvalid(page, food(['x'.repeat(61)]), CTX)).toBe(true);
   });
 
   it('stores estimates only once the screening question is answered (K-22, board D82)', () => {

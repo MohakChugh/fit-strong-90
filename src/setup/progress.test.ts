@@ -25,7 +25,7 @@ const v1 = { onboardingComplete: true } as UserSettings;
 const finished = (answers: SetupAnswers, skipped: ChapterId[] = []) =>
   ({ onboardingComplete: true, setup: { stage: 'done', skipped, answers, completedAt: '2026-10-08T09:00:00.000+05:30' } }) as UserSettings;
 /** Every answer given, the questions new since v1 included. */
-const answered = createDefaultProfile({ weightKg: 70, name: 'Asha', food: { pattern: 'vegetarian', avoid: [], level: 'ideas' }, health: { medicinesReviewed: true } });
+const answered = createDefaultProfile({ weightKg: 70, name: 'Asha', food: { pattern: 'vegetarian', avoid: [], level: 'ideas', allergies: [] }, health: { medicinesReviewed: true } });
 const rows = (profile: Parameters<typeof setupProgress>[0]['profile'], s: UserSettings) =>
   setupProgress({ profile, settings: s }, ctx).map(c => [c.chapter, c.detail, c.why]);
 
@@ -38,6 +38,13 @@ beforeEach(async () => {
 describe('setupProgress, from setup’s state (journey §6.6, §16; board D79)', () => {
   it('has nothing open once setup is finished with every chapter answered', () => {
     expect(setupProgress({ profile: answered, settings: finished(MINIMAL) }, ctx)).toEqual([]);
+  });
+
+  it('keeps Your food open while allergies are unanswered, a backup’s unreadable list included (H5-18)', () => {
+    const noFood = { ...answered, food: undefined };
+    expect(rows(noFood, finished(MINIMAL))).toEqual([['food', 'Food allergies', 'skipped']]);
+    const unanswered = { ...answered, food: { pattern: 'vegetarian' as const, avoid: [], level: 'ideas' as const } };
+    expect(rows(unanswered, finished(MINIMAL))).toEqual([['food', 'Food allergies', 'skipped']]);
   });
 
   it('while setup is unfinished, its one row carries on setting up (L-20)', () => {

@@ -76,7 +76,9 @@ export function setupProgress(
     const topics = [...new Set(pages.map(id => PAGE_TOPIC[id]).filter((t): t is string => t !== undefined))];
     return open(c, 'skipped', topics.join(', ') || 'A few questions');
   });
-  return keep([...gaps, ...left]);
+  // Allergies are hard filters (§11.5): unanswered, a backup's unreadable list included, Your food stays open (H5-18).
+  const allergies = profile.food?.allergies === undefined && !left.some(r => r.chapter === 'food') ? [open('food', 'skipped', 'Food allergies')] : [];
+  return keep([...gaps, ...left, ...allergies]);
 }
 
 /** "Finish setting up · 2 short chapters" (journey §6.6). */

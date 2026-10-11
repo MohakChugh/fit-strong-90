@@ -4,6 +4,7 @@ import { PATTERN_DETAIL, PATTERN_LABEL, type Pattern } from '@/content';
 import { parseAvoid } from '@/screens/guide/format';
 import { CheckRows } from '@/screens/you/controls';
 import { ALLERGY_CHIPS } from '@/setup/allergies';
+import { ownAllergiesProblem } from '@/setup/limits';
 import type { AllergenId } from '@/types/profile';
 import { Ask, Missing, TextInput, type PageProps } from '../controls';
 
@@ -37,6 +38,7 @@ export function FoodHowYouEat({ a, set, tried }: PageProps) {
         <CheckRows label="No food allergies" options={[{ value: 'none', label: 'No food allergies' }]} value={none ? ['none'] : []}
           onChange={v => { setOther(''); set({ allergies: v.length > 0 ? [] : undefined, customAllergies: undefined }); }} />
       </Group>
+      <Missing show={tried && ownAllergiesProblem(a.customAllergies) !== null}>{ownAllergiesProblem(a.customAllergies) ?? ''}</Missing>
       <Missing show={tried && a.allergies === undefined}>Tick your allergies, or “No food allergies”.</Missing>
     </>
   );
