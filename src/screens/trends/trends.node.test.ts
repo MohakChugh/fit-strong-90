@@ -123,3 +123,16 @@ describe('Pain against loading can be read by touch, keys and a list (H3-16, B-1
     expect(chart).toContain('{drawable && !listOpen ? (');
   });
 });
+
+describe('the shared choice of segments has 48 px targets (H3-19, journey §20.4 rule 1)', () => {
+  it('each segment is at least 48 px tall, as Trends’ period control is', async () => {
+    const { createElement } = await import('react');
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { Segmented } = await import('@/screens/track/ui');
+    const html = renderToStaticMarkup(createElement(Segmented, { label: 'Which result', options: [{ id: 'a', label: 'HbA1c' }, { id: 'b', label: 'Vitamin B12' }], value: 'a', onChange: () => {} }));
+    const buttons = html.match(/<button[^>]*>/g) ?? [];
+    expect(buttons).toHaveLength(2);
+    for (const b of buttons) expect(b).toMatch(/class="[^"]*\bmin-h-12\b/);
+    expect(html).not.toContain('min-h-11');
+  });
+});
