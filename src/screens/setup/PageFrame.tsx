@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { markBack } from '@/components/hig/navigation';
 import { pageEdits, rememberEdits } from '@/setup/draft';
-import { capsuleOf, hrefOf, nextMove, pageDef, prevPage, skipMove, type PlannedMove } from '@/setup/graph';
+import { capsuleOf, hrefOf, nextMove, pageDef, pageInvalid, prevPage, skipMove, type PlannedMove } from '@/setup/graph';
 import { PlainButton, PrimaryButton } from '@/screens/you/controls';
 import type { PageId, SetupAnswers } from '@/types/setup';
 import type { PageView } from './controls';
@@ -43,6 +43,11 @@ export function PageFrame({ id, View }: { id: PageId; View: PageView }) {
     setLast(kind);
     let planned: PlannedMove | undefined;
     if (kind === 'skip') {
+      // Optional is optional; an answer given that can't be stored isn't: it's fixed or cleared first, and the page says why (K5-04).
+      if (pageInvalid(id, a, ctx)) {
+        setTried(true);
+        return;
+      }
       rememberEdits(id, {});
       planned = skipMove(id, answers, ctx, fromReview);
     } else {

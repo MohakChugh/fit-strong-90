@@ -250,3 +250,19 @@ describe('the record after an edit (journey §16)', () => {
     expect(editedRecord(data, { chapters: ['movement'], opened: a, answers: { ...a, weeklyGoal: 60 }, skipped: [] }, TODAY, CTX).settings.setup?.skipped).toEqual([]);
   });
 });
+
+describe('what Save waits for in Me (H5-15, K5-04)', () => {
+  it('a year that can’t be stored, or "No" to 18 or over, holds Save though the page could be left unanswered', () => {
+    const data = finished(MINIMAL);
+    const a = opened(data);
+    const blocks = (answers: SetupAnswers) => editorState(editorOpens('about', data.profile), { ...a, ...answers }, a, CTX).blocking;
+    expect(blocks({ birthYear: 195 })).toContain('about.name');
+    expect(blocks({ birthYear: 2015 })).toContain('about.name');
+    expect(blocks({ birthYear: 2008, adult: false })).toContain('about.name');
+    expect(blocks({ birthYear: 2008 })).toContain('about.name');
+    // Left empty, it can wait under Finish setting up; a year that can be stored saves.
+    expect(blocks({})).toEqual([]);
+    expect(blocks({ birthYear: 1958 })).toEqual([]);
+    expect(blocks({ birthYear: 2008, adult: true })).toEqual([]);
+  });
+});

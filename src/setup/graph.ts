@@ -25,6 +25,12 @@ export interface PageDef {
   sets: readonly (keyof SetupAnswers)[];
   /** A preference page offers "Skip for now"; a safety page never does (§6.1). */
   skippable: boolean;
+  /**
+   * An answer given that can't be stored as given. Such a page can't be
+   * skipped, nor left by Me's Save, until it's fixed or cleared: an optional
+   * question is optional, an invalid answer to it isn't (H5-15, K5-04).
+   */
+  invalid?: (a: SetupAnswers, f: Facts, ctx: Ctx) => boolean;
 }
 
 const always = () => true;
@@ -47,7 +53,9 @@ const fill = <K extends string>(r: Partial<Record<K, Tri>>, ids: readonly K[]): 
 export const PAGES: readonly PageDef[] = [
   { id: 'welcome.start', when: always, done: always, sets: [], skippable: false },
   { id: 'about.name', when: always, sets: ['name', 'birthYear', 'adult'], skippable: true,
-    done: (a, _f, ctx) => birthYearProblem(a.birthYear, ctx.thisYear) === null && (!asksAdult(a.birthYear, ctx.thisYear) || a.adult === true) },
+    done: (a, _f, ctx) => birthYearProblem(a.birthYear, ctx.thisYear) === null && (!asksAdult(a.birthYear, ctx.thisYear) || a.adult === true),
+    // A year typed that isn't one, an underage year, or a borderline year without "Yes" to 18 or over (B-31).
+    invalid: (a, _f, ctx) => birthYearProblem(a.birthYear, ctx.thisYear) !== null || (asksAdult(a.birthYear, ctx.thisYear) && a.adult !== true) },
   { id: 'about.figure', when: always, sets: ['figure'], skippable: true, done: a => a.figure !== undefined },
   { id: 'about.body', when: always, sets: ['metric', 'heightCm', 'weightKg', 'waistCm'], skippable: false,
     done: a => heightProblem(a.heightCm) === null && weightProblem(a.weightKg) === null && waistProblem(a.waistCm) === null },
@@ -130,6 +138,11 @@ export function pathFor(a: SetupAnswers): PageId[] {
 
 export function pageDone(id: PageId, a: SetupAnswers, ctx: Ctx): boolean {
   return pageDef(id).done(a, factsOf(a), ctx);
+}
+
+/** The page holds an answer that can't be stored as given (`PageDef.invalid`). */
+export function pageInvalid(id: PageId, a: SetupAnswers, ctx: Ctx): boolean {
+  return pageDef(id).invalid?.(a, factsOf(a), ctx) ?? false;
 }
 
 /** What a page stores: a checklist's unticked rows are No once it's answered (B-08). */

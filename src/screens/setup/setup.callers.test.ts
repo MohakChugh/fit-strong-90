@@ -58,6 +58,7 @@ function radio(host: Host, question: string, option: string): HostNode {
 let host: Host | undefined;
 let fake: ReturnType<typeof fakeIndexedDB>;
 beforeEach(async () => {
+  router.navigate = vi.fn();
   local.clear();
   store.resetForTests();
   resetSetupSessionForTests();
@@ -103,5 +104,24 @@ describe('a clinical edit in Me (H5-08; board D162)', () => {
     await host.settle();
     expect(host.text()).toContain('That did not save.');
     expect(footStatus()).toEqual({ stored: 'healthy', gate: 'current_wound_or_active_charcot' });
+  });
+});
+
+describe('setup’s pages', () => {
+  it('Skip for now never gets past an answer that can’t be stored, such as an underage year; cleared, it skips (K5-04, H5-15)', async () => {
+    const { PageFrame } = await import('./PageFrame');
+    const { AboutName } = await import('./pages/about');
+    host = render(createElement(PageFrame, { id: 'about.name', View: AboutName }));
+    await host.settle();
+    await host.change(host.field('Year you were born (optional)'), { value: '2015' });
+    await host.click(host.button('Skip for now', { exact: true }));
+    await host.settle();
+    expect(router.navigate).not.toHaveBeenCalled();
+    expect(host.text()).toContain('FitStrong is made for adults aged 18 and over.');
+    expect(store.getState().settings.setup?.draft).toBeUndefined();
+    await host.change(host.field('Year you were born (optional)'), { value: '' });
+    await host.click(host.button('Skip for now', { exact: true }));
+    await host.settle();
+    expect(router.navigate).toHaveBeenCalledWith('/setup/about/figure', undefined);
   });
 });

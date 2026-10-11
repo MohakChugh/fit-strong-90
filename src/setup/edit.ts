@@ -16,7 +16,7 @@ import { withJoinAnswers } from '@/programme/join';
 import { sameValue } from '@/store/transfer';
 import { profileFrom, settingsFrom } from './assemble';
 import { factsOf } from './facts';
-import { REVIEW_ALSO, SAFETY_CHAPTERS, chapterOf, commitPage, pageDef, pageDone, pathFor, type Ctx } from './graph';
+import { REVIEW_ALSO, SAFETY_CHAPTERS, chapterOf, commitPage, pageDef, pageDone, pageInvalid, pathFor, type Ctx } from './graph';
 import { setupStateOf } from './state';
 
 export interface ChapterEdit {
@@ -98,7 +98,8 @@ export function editorState(opens: Pick<Opens, 'asked' | 'also'>, a: SetupAnswer
   const pages = editPath(chapters, a, opened, ctx, opens.also);
   const committed = pages.reduce((x, id) => commitPage(id, x), a);
   const left = pages.filter(id => !pageDone(id, committed, ctx));
-  return { chapters, also: opens.also, pages, committed, left, blocking: left.filter(id => !pageDef(id).skippable) };
+  // A safety page left, or a preference page holding an answer that can't be stored (H5-15).
+  return { chapters, also: opens.also, pages, committed, left, blocking: left.filter(id => !pageDef(id).skippable || pageInvalid(id, committed, ctx)) };
 }
 
 /** What Save stores, from the editor's state and the answers it opened with. */
