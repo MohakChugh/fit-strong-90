@@ -1,18 +1,19 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
-import { ALLERGENS } from '@/food/allergens';
+import { ALLERGENS, allergenName } from '@/food/allergens';
 import { FOOD_COPY, LEVEL_LABEL } from '@/food/copy';
 import { foodLevel, numbersView } from '@/food/level';
 import { promptDefault } from '@/food/prompts';
 import { LevelSheet } from '@/screens/food/LevelSheet';
+import { offerFoodUndo, useFoodUndoScope } from '@/screens/food/undo';
 import { ownAllergyStatus } from '@/screens/guide/format';
 import { formatDayShort } from '@/screens/track/format';
 import { ConfirmSheet, NumberField } from '@/screens/track/ui';
 import { useToday } from '@/screens/track/useToday';
 import { useStore } from '@/store/useStore';
 import type { Meal } from '@/types/habits';
-import type { AllergenId, FoodPreferences } from '@/types/profile';
+import { ALLERGEN_IDS, type AllergenId, type FoodPreferences } from '@/types/profile';
 import { CheckRows, ChoiceRows, Notice, PlainButton, Segmented, TimeField, type Choice } from './controls';
 import { AVOID_MAX_ITEMS, AVOID_MAX_LENGTH, FOOD_PATTERN, FOOD_REGION, addAvoid } from './summaries';
 import { changeProfile } from './write';
@@ -48,6 +49,9 @@ function cleared(food: FoodPreferences | undefined): FoodPreferences | undefined
     ...(food.hardBefore ? { hardBefore: food.hardBefore } : {}),
   };
 }
+/** "Peanut", "Tree nuts", "Brinjal": the start of a sentence. */
+const opening = (text: string) => text.charAt(0).toLocaleUpperCase() + text.slice(1);
+
 const keeps = (food: FoodPreferences) => (food.allergies?.length ?? 0) > 0 || (food.customAllergies?.length ?? 0) > 0 || food.hardBefore !== undefined;
 
 /** A whole number from a field, within bounds; blank is none; `null` can't be right. */
@@ -76,6 +80,8 @@ export function FoodScreen() {
   const [clearing, setClearing] = useState(false);
   const [kcal, setKcal] = useState(String(food?.careTeamTargets?.kcal ?? ''));
   const [carbs, setCarbs] = useState(String(food?.careTeamTargets?.carbsG ?? ''));
+  // An allergy removed here can be put back until the person leaves (K7R-01; §20.4 rule 6).
+  useFoodUndoScope('/me/food');
 
   /** Each change is worked out from the stored preferences at the moment it is written. */
   const edit = async (change: (food: FoodPreferences | undefined) => FoodPreferences | undefined) => {
@@ -89,6 +95,17 @@ export function FoodScreen() {
     setProblem(saved.ok ? undefined : `That did not save. ${saved.failure.message}`);
     return saved.ok;
   };
+
+  /** Undo for an allergy just removed, as it was: offered at once, standing until the person leaves Me → Food. */
+  const offerBack = (what: string, back: (food: FoodPreferences) => FoodPreferences) => offerFoodUndo({
+    text: FOOD_COPY.allergyRemoved(opening(what)),
+    restored: FOOD_COPY.allergyBack(opening(what)),
+    scope: '/me/food',
+    undo: async () => {
+      const saved = await changeProfile(current => (current.food ? { ...current, food: back(current.food) } : current));
+      return saved.ok ? undefined : saved.failure.message;
+    },
+  });
 
   const saveTarget = () => {
     const k = whole(kcal, 10_000);
@@ -127,7 +144,12 @@ export function FoodScreen() {
             label={FOOD_COPY.allergiesGroup}
             options={ALLERGY_CHOICES}
             value={food.allergies ?? []}
-            onChange={allergies => void edit(current => current && { ...current, allergies })}
+            onChange={allergies => {
+              const gone = (food.allergies ?? []).filter(a => !allergies.includes(a));
+              void edit(current => current && { ...current, allergies }).then(ok => {
+                if (ok) for (const id of gone) offerBack(allergenName(id), f => ({ ...f, allergies: ALLERGEN_IDS.filter(a => a === id || f.allergies?.includes(a)) }));
+              });
+            }}
           />
         </Group>
       )}
@@ -145,13 +167,19 @@ export function FoodScreen() {
             return status && (status.unknown ? <span className="text-caution">{status.text}</span> : status.text);
           }}
           onAdd={entry => edit(current => current && { ...current, customAllergies: addAvoid(current.customAllergies ?? [], entry) })}
-          onRemove={item => void edit(current => {
-            if (!current) return current;
-            const left = (current.customAllergies ?? []).filter(a => a !== item);
-            const next: FoodPreferences = { ...current, customAllergies: left };
-            if (left.length === 0) delete next.customAllergies;
-            return next;
-          })}
+          onRemove={item => {
+            const at = (food.customAllergies ?? []).indexOf(item);
+            void edit(current => {
+              if (!current) return current;
+              const left = (current.customAllergies ?? []).filter(a => a !== item);
+              const next: FoodPreferences = { ...current, customAllergies: left };
+              if (left.length === 0) delete next.customAllergies;
+              return next;
+            }).then(ok => {
+              // Back in its place, unless it's been added again meanwhile.
+              if (ok) offerBack(item, f => (f.customAllergies?.includes(item) ? f : { ...f, customAllergies: [...(f.customAllergies ?? []).slice(0, Math.max(0, at)), item, ...(f.customAllergies ?? []).slice(Math.max(0, at))] }));
+            });
+          }}
         />
       )}
 

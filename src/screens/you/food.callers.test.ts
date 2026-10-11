@@ -22,7 +22,11 @@ vi.mock('react-router-dom', async () => {
     Navigate: () => null,
   };
 });
-vi.mock('sonner', () => ({ toast: Object.assign(() => {}, { dismiss: () => {} }) }));
+/** Every toast raised, with its id and action, and every one dismissed. */
+const toasts = vi.hoisted(() => ({ shown: [] as { text: string; id?: string; action?: { label: string; onClick: (e: { preventDefault(): void }) => void } }[], dismissed: [] as unknown[] }));
+vi.mock('sonner', () => ({
+  toast: Object.assign((text: string, opts: Record<string, unknown> = {}) => void toasts.shown.push({ text, ...opts }), { dismiss: (id?: unknown) => void toasts.dismissed.push(id) }),
+}));
 vi.mock('@/components/hig/Screen', async () => {
   const { createElement: h } = await import('react');
   return { Screen: ({ title, children }: { title: string; children?: unknown }) => h('main', null, h('h1', null, title), children as never) };
@@ -53,6 +57,8 @@ let host: Host | undefined;
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(2026, 9, 8, 13, 20, 0));
+  toasts.shown.length = 0;
+  toasts.dismissed.length = 0;
   local.clear();
   store.resetForTests();
   await store.start({ factory: fakeIndexedDB(), broadcast: null });
@@ -98,6 +104,58 @@ describe('“Clear food preferences” (K7-03; board D137)', () => {
     expect(h.text()).not.toContain('Your allergies stay');
     await h.click(h.button('Clear food choices', { exact: true }));
     expect(store.getState().profile?.food).toBeUndefined();
+  });
+});
+
+describe('removing an allergy offers Undo, until you leave Me → Food (K7R-01; board D181)', () => {
+  const undo = async (h: Host, text: string) => {
+    const t = toasts.shown.find(x => x.text === text);
+    if (!t?.action) throw new Error(`no Undo for “${text}”: ${toasts.shown.map(x => x.text).join(' | ')}`);
+    expect(t.action.label).toBe('Undo');
+    t.action.onClick({ preventDefault() {} });
+    await h.settle();
+    await new Promise(r => setTimeout(r, 0));
+    await h.settle();
+    return t;
+  };
+  it('for a chip: “Peanut removed from your allergies”, and Undo puts it back', async () => {
+    const h = await screen({ pattern: 'vegetarian', avoid: [], allergies: ['peanut', 'milk'] });
+    await h.click(h.all().find(n => n.props.role === 'checkbox' && textOf(n.children) === 'Peanuts')!);
+    expect(store.getState().profile?.food?.allergies).toEqual(['milk']);
+    await undo(h, 'Peanut removed from your allergies');
+    expect(store.getState().profile?.food?.allergies).toEqual(['peanut', 'milk']);
+    expect(toasts.shown.map(t => t.text)).toContain('Peanut is back in your allergies');
+  });
+  it('for your own words, in their place', async () => {
+    const h = await screen({ pattern: 'vegetarian', avoid: [], customAllergies: ['brinjal', 'chaach'] });
+    await h.click(h.button('Remove brinjal'));
+    expect(store.getState().profile?.food?.customAllergies).toEqual(['chaach']);
+    await undo(h, 'Brinjal removed from your allergies');
+    expect(store.getState().profile?.food?.customAllergies).toEqual(['brinjal', 'chaach']);
+  });
+  it('never twice, when the word was typed in again before Undo', async () => {
+    const h = await screen({ pattern: 'vegetarian', avoid: [], customAllergies: ['brinjal', 'chaach'] });
+    await h.click(h.button('Remove brinjal'));
+    await h.change(h.field('Something else'), { value: 'brinjal' });
+    // The allergies' own form, the first on the screen: its Add.
+    const form = h.all().find(n => n.type === 'form')!;
+    await (form.props.onSubmit as (e: { preventDefault(): void }) => Promise<void> | void)({ preventDefault() {} });
+    await h.settle();
+    expect(store.getState().profile?.food?.customAllergies).toEqual(['chaach', 'brinjal']);
+    await undo(h, 'Brinjal removed from your allergies');
+    expect(store.getState().profile?.food?.customAllergies).toEqual(['chaach', 'brinjal']);
+  });
+  it('never for adding one, and ends once you leave the screen', async () => {
+    const h = await screen({ pattern: 'vegetarian', avoid: [], allergies: ['peanut'] });
+    await h.click(h.all().find(n => n.props.role === 'checkbox' && textOf(n.children) === 'Milk')!);
+    expect(toasts.shown).toEqual([]);
+    await h.click(h.all().find(n => n.props.role === 'checkbox' && textOf(n.children) === 'Peanuts')!);
+    const offered = toasts.shown.find(t => t.text === 'Peanut removed from your allergies')!;
+    expect(offered.id).toBeDefined();
+    host?.unmount();
+    host = undefined;
+    await new Promise(r => setTimeout(r, 0));
+    expect(toasts.dismissed).toContain(offered.id);
   });
 });
 

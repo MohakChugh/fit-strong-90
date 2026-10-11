@@ -138,6 +138,9 @@ export const FOOD_COPY = {
   somethingElsePlaceholder: 'For example: brinjal',
   // How an allergy in the person's own words is read (K7R-02; board D180).
   readAs: (allergens: string) => `Read as ${allergens}`,
+  // Removing an allergy in Me → Food offers Undo (K7R-01; board D181).
+  allergyRemoved: (what: string) => `${what} removed from your allergies`,
+  allergyBack: (what: string) => `${what} is back in your allergies`,
   unknownWord: 'We don’t know this word, so check every meal yourself',
   avoidFooter: 'Foods you don’t eat, in your own words. Meal ideas leave them out.',
   targetGroup: 'Daily target from your care team (optional)',
