@@ -6,6 +6,7 @@ import { markBack } from '@/components/hig/navigation';
 import { dayOf, nowAt } from '@/health/observation';
 import { timeOf } from '@/lib/time';
 import { cn } from '@/lib/utils';
+import { measurementsFrom } from '@/setup/assemble';
 import { finishSetup } from '@/setup/draft';
 import { CHAPTER_TITLE, firstPageOf, hrefOf, prevPage } from '@/setup/graph';
 import { ACKNOWLEDGEMENT, clearanceNotes, reviewRecord, reviewThings, whyOtherDiabetes } from '@/setup/review';
@@ -34,7 +35,8 @@ export function ReviewPage() {
   const state = useStore();
   const { answers } = useSetupAnswers();
   const ctx = useCtx();
-  const [today] = useState(() => dayOf(nowAt()));
+  const [now] = useState(nowAt);
+  const today = dayOf(now);
   const [{ context, device }] = useState(() => {
     const env = readInstallEnv();
     return { context: installContext(env), device: deviceNoun(env) };
@@ -49,6 +51,8 @@ export function ReviewPage() {
   const { profile, settings } = reviewRecord(answers, state, today, ctx);
   const things = reviewThings(profile, settings, clock);
   const notes = clearanceNotes(profile);
+  // Each body measure with when it was taken, the readings finishing would add as from now (H5-24).
+  const readings = [...state.observations, ...measurementsFrom(answers, state.profile, now).map(o => ({ ...o, at: now }))];
 
   const back = () => {
     const prev = prevPage(answers, 'review');
@@ -80,7 +84,7 @@ export function ReviewPage() {
           {notes.map(n => <Row key={n} label={n} />)}
         </Group>
       )}
-      {chapterSections(profile, settings, today).map(s => (
+      {chapterSections(profile, settings, today, readings).map(s => (
         <Group key={s.chapter} header={CHAPTER_TITLE[s.chapter]} footer={s.chapter === 'health' ? whyOtherDiabetes(answers) : undefined}>
           {s.rows.map(r => <Row key={r.label} label={r.label} detail={r.value} />)}
           <Row onClick={() => navigate(hrefOf(firstPageOf(s.chapter, answers)), { state: { fromReview: true } })}

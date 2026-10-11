@@ -411,3 +411,25 @@ describe('radio groups by keyboard (WAI-ARIA radio group; H5-23; board D160)', (
     }
   });
 });
+
+describe('body measures on Review and in Profile & health (§4.10, B-24; H5-24)', () => {
+  it('Review dates a measure finishing will store as from now, and one no reading holds as never recorded', async () => {
+    const { ReviewPage } = await import('./ReviewPage');
+    const { withDraft } = await import('@/setup/draft');
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    // An upgrader's v1 height, never dated, and a weight entered now.
+    expect((await store.update(d => ({ ...withDraft(d, 'review', { ...MINIMAL, heightCm: 170, weightKg: 70 }), profile: createDefaultProfile({ heightCm: 170, weightKg: 68, needsHealthReview: true }) }))).ok).toBe(true);
+    host = render(createElement(ReviewPage));
+    await host.settle();
+    expect(host.text()).toMatch(/70 kg, entered \d+ \w+ \d{4} at /);
+    expect(host.text()).toContain('170 cm, date not recorded');
+  });
+
+  it('Profile & health dates each measure from its reading', async () => {
+    const { ProfileHealthScreen } = await import('./ProfileHealthScreen');
+    expect((await store.update(d => completedSetup(d, { ...MINIMAL, weightKg: 70 }, NOW, CTX), { addObservations: [{ kind: 'weight', value: 70, unit: 'kg', scope: 'pointInTime', source: 'manual', at: NOW, context: 'profile' }] })).ok).toBe(true);
+    host = render(createElement(ProfileHealthScreen));
+    await host.settle();
+    expect(host.text()).toMatch(/70 kg, entered \d+ \w+ 2026 at /);
+  });
+});

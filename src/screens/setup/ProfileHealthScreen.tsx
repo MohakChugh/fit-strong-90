@@ -25,7 +25,7 @@ const REVIEW_FOOTER = {
  * a review comes first, as in v1.
  */
 export function ProfileHealthScreen() {
-  const { settings, profile } = useStore();
+  const { settings, profile, observations } = useStore();
   const [today] = useState(() => dayOf(nowAt()));
   const review = reviewNeeded(profile);
   return (
@@ -39,7 +39,8 @@ export function ProfileHealthScreen() {
         </Group>
       )}
       {/* A fluid-limit answer v1 kept in its reminders still reads back, as the water rules read it (reminders/water.ts). */}
-      {profile && chapterSections(withFluidAnswer(profile, settings.habits), settings, today).map(s => (
+      {/* Each body measure with when it was taken (H5-24). */}
+      {profile && chapterSections(withFluidAnswer(profile, settings.habits), settings, today, observations).map(s => (
         <Group key={s.chapter} header={CHAPTER_TITLE[s.chapter]}>
           {s.rows.map(r => <Row key={r.label} label={r.label} detail={r.value} />)}
           <Row as={Link} to={chapterHref(s.chapter)} viewTransition aria-label={`Edit ${CHAPTER_TITLE[s.chapter]}`} label={<span className="text-tint">Edit</span>} />
