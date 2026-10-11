@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { AppData } from '@/types';
 import type { SetupAnswers } from '@/types/setup';
-import { profileGaps, profileRules } from '@/engine/health';
+import { deriveHealth, profileGaps, profileRules } from '@/engine/health';
 import { isEnrolled } from '@/health/recommend';
 import { createDefaultProfile } from '@/profile/defaults';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import { completedSetup, profileFrom } from './assemble';
 import { editChapters, editOf, editPath, editedRecord, editorOpens, editorState } from './edit';
 import { keysOfChapter } from './fields';
-import { COMPLEX, GLIFLOZIN_NO_DIABETES, JOIN, MINIMAL, NO_CONDITIONS } from './fixtures';
+import { COMPLEX, GLIFLOZIN_NO_DIABETES, JOIN, MINIMAL, NO_CLASSES, NO_CONDITIONS } from './fixtures';
 import { SAFETY_CHAPTERS, commitPage, pathFor } from './graph';
 import { answersFromProfile, answersToEdit } from './prefill';
 import { setupStateOf } from './state';
@@ -114,6 +114,27 @@ describe('the record after an edit (journey §16)', () => {
     const refocused = save({ ...a, ...safety, active: 'no', focus: 'move' });
     expect(refocused.after.settings.focus).toBe('move');
     expect(refocused.after.settings.setup?.skipped).toEqual(setupStateOf(data.settings, data.profile).skipped);
+  });
+
+  it('insulin added in Your medicines asks about lows and gives the engine its risk, though the stored answers lack the diabetes chip (H5-01)', () => {
+    // A reviewed record without diabetes, restored with setup answers that lack the conditions.
+    const p = createDefaultProfile({ weightKg: 70, health: { medicinesReviewed: true } });
+    const { conditions: _lost, ...stored } = answersFromProfile(p, fresh().settings);
+    void _lost;
+    const data = fresh();
+    data.profile = p;
+    data.settings = { ...data.settings, onboardingComplete: true, setup: { stage: 'done', skipped: [], answers: stored } };
+    const a = opened(data);
+    const opens = editorOpens('medicines', p);
+    const insulin: SetupAnswers = { ...a, regular: 'yes', classes: { ...NO_CLASSES, insulin: 'yes' }, glucoseMonitor: 'none', bpCuff: false };
+    const asked = editorState(opens, insulin, a, CTX);
+    // The follow-ups are asked, with the clinician limits diabetes brings, and Save waits for them before vouching for the medicines.
+    expect(asked.blocking).toEqual(expect.arrayContaining(['health.limits', 'medicines.lows', 'medicines.ketones']));
+    const answered = editorState(opens, { ...insulin, clearance: 'none', targets: 'no', insulinHow: 'basalOnly', lowsRisk: 'no', priorDka: 'no', ketoneTest: 'none' }, a, CTX);
+    expect(answered.blocking).toEqual([]);
+    const after = editedRecord(data, editOf(answered, a), TODAY, CTX);
+    expect(after.profile?.health.diabetes).toBe('other');
+    expect(deriveHealth(after.profile!.health).hypoRisk).toBe(true);
   });
 
   it('adding diabetes without its medicines never keeps the old review (Review Focus 1)', () => {

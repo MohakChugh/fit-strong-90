@@ -17,6 +17,14 @@ describe('what the answers mean in the engine’s terms (journey §6.3, board D7
     expect(diabetesOf({ conditions: { diabetes: 'yes' }, diabetesType: 'prediabetes', classes: { metformin: 'yes' } })).toBe('prediabetes');
   });
 
+  it('reads insulin or a lows tablet as diabetes that can go low even with no diabetes answer at all (H5-01)', () => {
+    expect(diabetesOf({ classes: { insulin: 'yes' } })).toBe('other');
+    expect(diabetesOf({ conditions: { bp: 'no' }, classes: { lowsTablet: 'unsure' } })).toBe('other');
+    expect(factsOf({ regular: 'yes', classes: { insulin: 'yes' } }).hypoRisk).toBe(true);
+    // Without a medicine that can cause lows, an unanswered chip is still unanswered.
+    expect(diabetesOf({ classes: { metformin: 'yes' } })).toBeUndefined();
+  });
+
   it('counts a "-gliflozin" as a ketone risk, whatever the diagnosis', () => {
     expect(factsOf(GLIFLOZIN_NO_DIABETES).ketoneRisk).toBe(true);
     expect(factsOf(withMeds({ gliflozin: 'unsure' })).ketoneRisk).toBe(true);

@@ -130,6 +130,14 @@ describe('the answers Me edits with (§16)', () => {
     expect(a.classes?.insulin).toBe('unsure');
   });
 
+  it('an answer the stored answers lack keeps what the record says, never nothing (H5-01)', () => {
+    // A reviewed record without diabetes, restored with setup answers that lack the conditions.
+    const none = createDefaultProfile({ weightKg: 70, health: { medicinesReviewed: true } });
+    const { conditions: _lost, ...stored } = answersFromProfile(none, S);
+    void _lost;
+    expect(answersToEdit(stored, none, S, TODAY, CTX).conditions?.diabetes).toBe('no');
+  });
+
   // A type 1 profile still waiting for its review: severe lows, dizziness and ketones below are defaults nobody gave.
   const unreviewed = createDefaultProfile({
     needsHealthReview: true,

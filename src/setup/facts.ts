@@ -13,13 +13,14 @@ export const has = (t: Tri | undefined): boolean => t === 'yes' || t === 'unsure
 /**
  * The diabetes value the engine reads, or `undefined` before the chip is
  * answered. "Not sure", or a type not given yet, is `'other'`. Insulin or a
- * tablet that can cause lows means lows are possible, so with "No" or
- * prediabetes it is `'other'` too (board D78; Review Focus 3).
+ * tablet that can cause lows means lows are possible, so with "No",
+ * prediabetes or no answer at all it is `'other'` too (board D78; Review
+ * Focus 3; H5-01): the lows questions are asked, and the engine checks for lows.
  */
 export function diabetesOf(a: SetupAnswers): HealthProfile['diabetes'] | undefined {
   const chip = a.conditions?.diabetes;
-  if (chip === undefined) return undefined;
   const lowsMedicine = has(a.classes?.insulin) || has(a.classes?.lowsTablet);
+  if (chip === undefined) return lowsMedicine ? 'other' : undefined;
   if (chip === 'no') return lowsMedicine ? 'other' : 'none';
   const t = a.diabetesType;
   const typed = t === 'type1' || t === 'type2' || t === 'prediabetes' || t === 'other' ? t : 'other';

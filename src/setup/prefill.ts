@@ -160,7 +160,9 @@ const read = (o: unknown, path: string): unknown =>
  * by chapter, they still give the record as it is. A chapter whose fields
  * were changed somewhere else since (a fluid limit set in Reminders, say)
  * takes what the record says now. So "Not sure" survives, and an edit made
- * elsewhere is never undone. A pending review asks its questions again.
+ * elsewhere is never undone. An answer the stored ones lack keeps what the
+ * record says (H5-01): a lost diabetes chip must not leave insulin added
+ * later without its lows questions. A pending review asks its questions again.
  */
 export function answersToEdit(stored: SetupAnswers | undefined, p: UserProfile, s: UserSettings, today: string, ctx: Ctx): SetupAnswers {
   const out: SetupAnswers = answersFromProfile(p, s);
@@ -170,7 +172,7 @@ export function answersToEdit(stored: SetupAnswers | undefined, p: UserProfile, 
     const current = { profile: p, settings: s };
     for (const chapter of CHAPTER_IDS) {
       if (!fieldsOfChapter(chapter).every(path => sameValue(read(record, path), read(current, path)))) continue;
-      for (const key of keysOfChapter(chapter)) put(out, key, stored[key]);
+      for (const key of keysOfChapter(chapter)) if (stored[key] !== undefined) put(out, key, stored[key]);
     }
     if (stored.skippedPages) out.skippedPages = [...stored.skippedPages];
   }
