@@ -42,12 +42,17 @@ function deviceStorage(): DayStorage | undefined {
   }
 }
 
+/** The day of the last food prompt this page showed, for a device that won't keep it (H7-21). */
+let shownHere: string | undefined;
+
 /**
  * Whether a food prompt was offered on this local day already: at most one a
  * day, whatever its meal or time, so a time changed after it showed, or a
- * reload, never brings a second (journey §11.5).
+ * reload, never brings a second (journey §11.5). A device that won't keep the
+ * day still never repeats it while the app is open; only a reload there could.
  */
 export function foodPromptOfferedOn(day: string, storage: DayStorage | undefined = deviceStorage()): boolean {
+  if (shownHere === day) return true;
   try {
     return storage?.getItem(FOOD_PROMPT_DAY_KEY) === day;
   } catch {
@@ -55,13 +60,14 @@ export function foodPromptOfferedOn(day: string, storage: DayStorage | undefined
   }
 }
 
-/** Remember the day of a food prompt just shown. Kept as long as this device keeps it. */
+/** Remember the day of a food prompt just shown: on this device as long as it keeps it, and while the app is open. */
 export function noteFoodPromptsShown(due: readonly { habit: string; day: string }[], storage: DayStorage | undefined = deviceStorage()): void {
   const day = due.filter(o => o.habit === 'foodLog').map(o => o.day).sort().at(-1);
   if (day === undefined) return;
+  shownHere = day;
   try {
     storage?.setItem(FOOD_PROMPT_DAY_KEY, day);
   } catch {
-    // Not remembered: at worst one more prompt today, never a lost record.
+    // Not kept by the device: remembered above until the app is closed, never a lost record.
   }
 }

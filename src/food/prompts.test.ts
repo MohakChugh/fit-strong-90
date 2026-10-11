@@ -37,10 +37,12 @@ describe('the day a food prompt was offered (H7-21; board D140)', () => {
     expect(foodPromptOfferedOn('2026-10-09', storage)).toBe(false);
     expect(kept.get(FOOD_PROMPT_DAY_KEY)).toBe('2026-10-08');
   });
-  it('costs nothing worse than one more prompt when the device won’t keep it', () => {
+  it('is remembered while the app is open when the device won’t keep it, so retiming never brings another (H7-21)', () => {
     const refusing = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
-    expect(() => noteFoodPromptsShown([{ habit: 'foodLog', day: '2026-10-08' }], refusing)).not.toThrow();
-    expect(foodPromptOfferedOn('2026-10-08', refusing)).toBe(false);
-    expect(foodPromptOfferedOn('2026-10-08', undefined)).toBe(false);
+    expect(foodPromptOfferedOn('2026-10-11', refusing)).toBe(false);
+    expect(() => noteFoodPromptsShown([{ habit: 'foodLog', day: '2026-10-11' }], refusing)).not.toThrow();
+    expect(foodPromptOfferedOn('2026-10-11', refusing)).toBe(true);
+    expect(foodPromptOfferedOn('2026-10-11', undefined)).toBe(true);
+    expect(foodPromptOfferedOn('2026-10-12', refusing)).toBe(false);
   });
 });
