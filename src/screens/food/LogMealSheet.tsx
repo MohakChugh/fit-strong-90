@@ -54,8 +54,7 @@ type Page =
   | { kind: 'tray' }
   | { kind: 'portion'; foodId: string; index?: number }
   | { kind: 'own'; name: string }
-  | { kind: 'quick' }
-  | { kind: 'discard' };
+  | { kind: 'quick' };
 
 export function LogMealSheet({ request, onClose }: { request: LogRequest; onClose: () => void }) {
   const { profile, records } = useStore();
@@ -86,6 +85,10 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
   const [added, setAdded] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  // "Discard this meal?", asked over the page it was asked from, which stays as it was beneath (H7R-04).
+  const [confirming, setConfirming] = useState(false);
+  // A food's portion, your own food or Quick add, holding what isn't in the tray yet (H7-19).
+  const [pageHolds, setPageHolds] = useState(false);
   // Opened from a usual meal, the tray and Save come first, and finding more food waits for "Add more" (board D139).
   const [adding, setAdding] = useState(!request.usual || draft.items.length === 0);
   const busy = useRef(false);
@@ -97,7 +100,7 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
   const at = whenInput !== undefined ? fromLocalInput(whenInput) : shownAt;
   // Read against the clock that ticks each minute; Save checks again when tapped.
   const future = at !== undefined && Date.parse(at) > clock.getTime();
-  const dirty = JSON.stringify([slot, items]) !== opened || whenInput !== undefined || own.length > 0 || keepUsual;
+  const dirty = JSON.stringify([slot, items]) !== opened || whenInput !== undefined || own.length > 0 || keepUsual || pageHolds;
   const lines = totalsLines(totalsOf(items), numbers);
   const results = useMemo(() => searchFoods(shownQuery, FOODS, [...own, ...customs]), [shownQuery, own, customs]);
   const usual = editing || items.length > 0 ? [] : usualFor(slot, today, meals, saved);
@@ -141,9 +144,9 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
   // asked about again in the render before it does; once it has, the next Back is asked about afresh.
   const [answered, setAnswered] = useState(false);
   if (blocker.state !== 'blocked' && answered) setAnswered(false);
-  if (blocker.state === 'blocked' && !answered && !saving && page.kind !== 'discard') {
+  if (blocker.state === 'blocked' && !answered && !saving && !confirming) {
     setAnswered(true);
-    setPage({ kind: 'discard' });
+    setConfirming(true);
   }
   const leave = () => {
     leaving.current = true;
@@ -158,7 +161,7 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
   };
   const close = () => {
     if (saving) return;
-    if (dirty && page.kind !== 'discard') setPage({ kind: 'discard' });
+    if (dirty && !confirming) setConfirming(true);
     else leave();
   };
 
@@ -228,205 +231,211 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
 
   return (
     <Sheet open onOpenChange={next => { if (!next) close(); }} title={title} detent="large" dismissible={!saving}>
-      {page.kind === 'discard' && (
+      {confirming && (
         <div className="flex flex-col gap-3">
           <p className="px-1 text-[length:var(--text-body)] font-semibold">{FOOD_COPY.discardTitle}</p>
           <Hint>{FOOD_COPY.discardDetail}</Hint>
-          <PrimaryButton onClick={() => { stay(); setPage({ kind: 'tray' }); }}>{FOOD_COPY.keepEditing}</PrimaryButton>
+          <PrimaryButton onClick={() => { stay(); setConfirming(false); }}>{FOOD_COPY.keepEditing}</PrimaryButton>
           <SecondaryButton tone="stop" onClick={leave}>{FOOD_COPY.discard}</SecondaryButton>
         </div>
       )}
 
-      {page.kind === 'portion' && portionFood && (
-        <PortionPage
-          key={`${page.foodId}:${page.index ?? 'new'}`}
-          food={portionFood}
-          {...(page.index !== undefined ? { item: items[page.index] as FoodItem, onRemove: () => { setItems(list => list.filter((_, i) => i !== page.index)); setPage({ kind: 'tray' }); } } : {})}
-          numbers={numbers}
-          allergies={allergies}
-          look={look}
-          onBack={() => setPage({ kind: 'tray' })}
-          onSave={item => {
-            setItems(list => (page.index !== undefined ? list.map((x, i) => (i === page.index ? item : x)) : [...list, item]));
-            setPage({ kind: 'tray' });
-          }}
-        />
-      )}
-
-      {page.kind === 'own' && (
-        <OwnFoodPage
-          name={page.name}
-          numbers={numbers}
-          onBack={() => setPage({ kind: 'tray' })}
-          onAdd={food => {
-            setOwn(list => [...list, food]);
-            setItems(list => [...list, customItem(food)]);
-            setQuery('');
-            setPage({ kind: 'tray' });
-          }}
-        />
-      )}
-
-      {page.kind === 'quick' && (
-        <QuickPage
-          numbers={numbers}
-          onBack={() => setPage({ kind: 'tray' })}
-          onAdd={item => {
-            setItems(list => [...list, item]);
-            setPage({ kind: 'tray' });
-          }}
-        />
-      )}
-
-      {page.kind === 'tray' && (
-        <div className="flex flex-col gap-6">
-          {draft.gone && <Hint>{FOOD_COPY.gone}</Hint>}
-          <Segmented label={FOOD_COPY.meal} options={SLOT_OPTIONS} value={slot} onChange={setSlot} />
-          <TimeRow
-            label={FOOD_COPY.when}
-            value={whenInput}
-            onChange={setWhenInput}
-            {...(shownAt ? { captured: { at: shownAt, label: `${formatDayRelative(shownAt.slice(0, 10), today)}, ${formatClock(shownAt, hour12)}` } } : {})}
+      {/* Kept while it asks, so Keep editing finds the page as it was, typing and all (H7R-04). */}
+      <div hidden={confirming}>
+        {page.kind === 'portion' && portionFood && (
+          <PortionPage
+            key={`${page.foodId}:${page.index ?? 'new'}`}
+            food={portionFood}
+            {...(page.index !== undefined ? { item: items[page.index] as FoodItem, onRemove: () => { setItems(list => list.filter((_, i) => i !== page.index)); setPage({ kind: 'tray' }); } } : {})}
+            numbers={numbers}
+            allergies={allergies}
+            look={look}
+            onDirty={setPageHolds}
+            onBack={() => setPage({ kind: 'tray' })}
+            onSave={item => {
+              setItems(list => (page.index !== undefined ? list.map((x, i) => (i === page.index ? item : x)) : [...list, item]));
+              setPage({ kind: 'tray' });
+            }}
           />
-          {future && <ErrorText>{FOOD_COPY.futureTime}</ErrorText>}
+        )}
 
-          {usual.length > 0 && (
-            <Group header={FOOD_COPY.yourUsual}>
-              {usual.map(u => (
-                <Row
-                  key={u.key}
-                  onClick={() => {
-                    setItems(u.items.map(i => (i.kind === 'food' ? refreshItem(i, foodById(i.foodId)) : i)));
-                    setSlot(u.meal);
-                  }}
-                  label={u.label}
-                  detail={u.detail}
-                />
-              ))}
-            </Group>
-          )}
+        {page.kind === 'own' && (
+          <OwnFoodPage
+            name={page.name}
+            numbers={numbers}
+            onDirty={setPageHolds}
+            onBack={() => setPage({ kind: 'tray' })}
+            onAdd={food => {
+              setOwn(list => [...list, food]);
+              setItems(list => [...list, customItem(food)]);
+              setQuery('');
+              setPage({ kind: 'tray' });
+            }}
+          />
+        )}
 
-          <Group header={FOOD_COPY.yourMeal} footer={[lines.estimate, lines.missing, numbers.show && numbers.ranges ? FOOD_COPY.roughCarbs : undefined].filter(Boolean).join('. ') || undefined}>
-            {items.length === 0 ? (
-              <Row label={FOOD_COPY.nothingAdded} />
-            ) : (
-              items.map((item, i) => {
-                const food = item.kind === 'food' ? foodById(item.foodId) : undefined;
-                return (
-                  <ItemRow
-                    key={`${i}:${item.name}`}
-                    item={item}
-                    portion={portionOf(item)}
-                    numbers={numbers}
-                    {...(itemWarning(item) ? { warning: itemWarning(item) } : {})}
-                    {...(food && item.kind === 'food' ? { onOpen: () => setPage({ kind: 'portion', foodId: food.id, index: i }) } : {})}
-                    onChange={by => setItems(list => list.map((x, j) => (j === i ? step(x, by, look) : x)))}
-                    onRemove={() => setItems(list => list.filter((_, j) => j !== i))}
-                  />
-                );
-              })
-            )}
-          </Group>
+        {page.kind === 'quick' && (
+          <QuickPage
+            numbers={numbers}
+            onDirty={setPageHolds}
+            onBack={() => setPage({ kind: 'tray' })}
+            onAdd={item => {
+              setItems(list => [...list, item]);
+              setPage({ kind: 'tray' });
+            }}
+          />
+        )}
 
-          {!adding ? (
-            <Group>
-              <Row onClick={() => setAdding(true)} label={FOOD_COPY.addMore} chevron />
-            </Group>
-          ) : (
-          <>
-          <div className="flex flex-col">
-            <label htmlFor={ids.search} className={LABEL}>{FOOD_COPY.search}</label>
-            <input
-              id={ids.search}
-              type="search"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder={FOOD_COPY.searchPlaceholder}
-              enterKeyHint="search"
-              autoComplete="off"
-              className={FIELD}
+        {page.kind === 'tray' && (
+          <div className="flex flex-col gap-6">
+            {draft.gone && <Hint>{FOOD_COPY.gone}</Hint>}
+            <Segmented label={FOOD_COPY.meal} options={SLOT_OPTIONS} value={slot} onChange={setSlot} />
+            <TimeRow
+              label={FOOD_COPY.when}
+              value={whenInput}
+              onChange={setWhenInput}
+              {...(shownAt ? { captured: { at: shownAt, label: `${formatDayRelative(shownAt.slice(0, 10), today)}, ${formatClock(shownAt, hour12)}` } } : {})}
             />
-          </div>
+            {future && <ErrorText>{FOOD_COPY.futureTime}</ErrorText>}
 
-          <div {...listProps}>
-            {typed === '' ? (
-              <Group header={FOOD_COPY.common}>
-                {commonFoods(FOODS, slot).map(f => (
-                  <FoodRow
-                    key={f.id}
-                    food={f}
-                    numbers={numbers}
-                    {...(foodWarning(f) ? { warning: foodWarning(f) } : {})}
-                    added={added === f.id}
-                    onOpen={() => setPage({ kind: 'portion', foodId: f.id })}
-                    onAdd={() => add(f)}
-                  />
-                ))}
-              </Group>
-            ) : (
-              <Group header={FOOD_COPY.results} {...(results.foods.length + results.customs.length === 0 ? { footer: FOOD_COPY.noResults(typed) } : {})}>
-                {results.customs.map(c => (
+            {usual.length > 0 && (
+              <Group header={FOOD_COPY.yourUsual}>
+                {usual.map(u => (
                   <Row
-                    key={c.id}
-                    onClick={() => setItems(list => [...list, customItem(c)])}
-                    label={c.name}
-                    detail={[`${c.per.qty} ${c.per.unit}`, customWarning(c)].filter(Boolean).join(' · ')}
-                    accessory={<span className="shrink-0 text-[length:var(--text-body)] font-semibold text-tint">{FOOD_COPY.add}</span>}
+                    key={u.key}
+                    onClick={() => {
+                      setItems(u.items.map(i => (i.kind === 'food' ? refreshItem(i, foodById(i.foodId)) : i)));
+                      setSlot(u.meal);
+                    }}
+                    label={u.label}
+                    detail={u.detail}
                   />
                 ))}
-                {results.foods.map(f => (
-                  <FoodRow
-                    key={f.id}
-                    food={f}
-                    numbers={numbers}
-                    {...(foodWarning(f) ? { warning: foodWarning(f) } : {})}
-                    added={added === f.id}
-                    onOpen={() => setPage({ kind: 'portion', foodId: f.id })}
-                    onAdd={() => add(f)}
-                  />
-                ))}
-                <Row onClick={() => setPage({ kind: 'own', name: typed })} label={FOOD_COPY.ownFood(typed)} chevron />
-                <Row onClick={() => setPage({ kind: 'quick' })} label={FOOD_COPY.quickAdd} chevron />
               </Group>
             )}
-          </div>
-          </>
-          )}
 
-          {!editing && (
-            <Group>
-              <Row label={FOOD_COPY.saveAsUsual} accessory={<Toggle checked={keepUsual} onChange={setKeepUsual} label={FOOD_COPY.saveAsUsual} />} />
-              {keepUsual && (
-                <div className="flex flex-col px-4 py-2">
-                  <label htmlFor={ids.usual} className="pb-1 text-[length:var(--text-subhead)] text-muted-foreground">{FOOD_COPY.usualName}</label>
-                  <input id={ids.usual} value={usualName} maxLength={60} placeholder={itemsLine(items)} onChange={e => setUsualName(e.target.value)} className={FIELD} />
-                </div>
+            <Group header={FOOD_COPY.yourMeal} footer={[lines.estimate, lines.missing, numbers.show && numbers.ranges ? FOOD_COPY.roughCarbs : undefined].filter(Boolean).join('. ') || undefined}>
+              {items.length === 0 ? (
+                <Row label={FOOD_COPY.nothingAdded} />
+              ) : (
+                items.map((item, i) => {
+                  const food = item.kind === 'food' ? foodById(item.foodId) : undefined;
+                  return (
+                    <ItemRow
+                      key={`${i}:${item.name}`}
+                      item={item}
+                      portion={portionOf(item)}
+                      numbers={numbers}
+                      {...(itemWarning(item) ? { warning: itemWarning(item) } : {})}
+                      {...(food && item.kind === 'food' ? { onOpen: () => setPage({ kind: 'portion', foodId: food.id, index: i }) } : {})}
+                      onChange={by => setItems(list => list.map((x, j) => (j === i ? step(x, by, look) : x)))}
+                      onRemove={() => setItems(list => list.filter((_, j) => j !== i))}
+                    />
+                  );
+                })
               )}
             </Group>
-          )}
 
-          {editing && editing.edits.length > 0 && (
-            <Group header={FOOD_COPY.history}>
-              {[...editing.edits].reverse().map(e => (
-                <Row
-                  key={e.replacedAt}
-                  label={FOOD_COPY.historyRow(`${formatDayRelative(e.replacedAt.slice(0, 10), today)}, ${formatClock(e.replacedAt, hour12)}`)}
-                  detail={`${SLOT_LABEL[e.meal]}, ${formatClock(e.at, hour12)} · ${itemsLine(e.items)}`}
-                />
-              ))}
-            </Group>
-          )}
+            {!adding ? (
+              <Group>
+                <Row onClick={() => setAdding(true)} label={FOOD_COPY.addMore} chevron />
+              </Group>
+            ) : (
+            <>
+            <div className="flex flex-col">
+              <label htmlFor={ids.search} className={LABEL}>{FOOD_COPY.search}</label>
+              <input
+                id={ids.search}
+                type="search"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder={FOOD_COPY.searchPlaceholder}
+                enterKeyHint="search"
+                autoComplete="off"
+                className={FIELD}
+              />
+            </div>
 
-          {/* Save stays in view, however long the list above it (board D139, B-10's three taps). */}
-          <div className="sticky bottom-0 z-10 -mx-[min(1rem,20px)] flex flex-col gap-3 border-t border-separator bg-grouped-bg px-[min(1rem,20px)] pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
-            {error && <ErrorText>{error}</ErrorText>}
-            <PrimaryButton onClick={() => void save()} disabled={saving || items.length === 0 || future || (editing !== undefined && !dirty)}>
-              {saving ? FOOD_COPY.saving : FOOD_COPY.save}
-            </PrimaryButton>
-            {editing && <SecondaryButton tone="stop" onClick={() => void remove()} disabled={saving}>{FOOD_COPY.deleteMeal}</SecondaryButton>}
+            <div {...listProps}>
+              {typed === '' ? (
+                <Group header={FOOD_COPY.common}>
+                  {commonFoods(FOODS, slot).map(f => (
+                    <FoodRow
+                      key={f.id}
+                      food={f}
+                      numbers={numbers}
+                      {...(foodWarning(f) ? { warning: foodWarning(f) } : {})}
+                      added={added === f.id}
+                      onOpen={() => setPage({ kind: 'portion', foodId: f.id })}
+                      onAdd={() => add(f)}
+                    />
+                  ))}
+                </Group>
+              ) : (
+                <Group header={FOOD_COPY.results} {...(results.foods.length + results.customs.length === 0 ? { footer: FOOD_COPY.noResults(typed) } : {})}>
+                  {results.customs.map(c => (
+                    <Row
+                      key={c.id}
+                      onClick={() => setItems(list => [...list, customItem(c)])}
+                      label={c.name}
+                      detail={[`${c.per.qty} ${c.per.unit}`, customWarning(c)].filter(Boolean).join(' · ')}
+                      accessory={<span className="shrink-0 text-[length:var(--text-body)] font-semibold text-tint">{FOOD_COPY.add}</span>}
+                    />
+                  ))}
+                  {results.foods.map(f => (
+                    <FoodRow
+                      key={f.id}
+                      food={f}
+                      numbers={numbers}
+                      {...(foodWarning(f) ? { warning: foodWarning(f) } : {})}
+                      added={added === f.id}
+                      onOpen={() => setPage({ kind: 'portion', foodId: f.id })}
+                      onAdd={() => add(f)}
+                    />
+                  ))}
+                  <Row onClick={() => setPage({ kind: 'own', name: typed })} label={FOOD_COPY.ownFood(typed)} chevron />
+                  <Row onClick={() => setPage({ kind: 'quick' })} label={FOOD_COPY.quickAdd} chevron />
+                </Group>
+              )}
+            </div>
+            </>
+            )}
+
+            {!editing && (
+              <Group>
+                <Row label={FOOD_COPY.saveAsUsual} accessory={<Toggle checked={keepUsual} onChange={setKeepUsual} label={FOOD_COPY.saveAsUsual} />} />
+                {keepUsual && (
+                  <div className="flex flex-col px-4 py-2">
+                    <label htmlFor={ids.usual} className="pb-1 text-[length:var(--text-subhead)] text-muted-foreground">{FOOD_COPY.usualName}</label>
+                    <input id={ids.usual} value={usualName} maxLength={60} placeholder={itemsLine(items)} onChange={e => setUsualName(e.target.value)} className={FIELD} />
+                  </div>
+                )}
+              </Group>
+            )}
+
+            {editing && editing.edits.length > 0 && (
+              <Group header={FOOD_COPY.history}>
+                {[...editing.edits].reverse().map(e => (
+                  <Row
+                    key={e.replacedAt}
+                    label={FOOD_COPY.historyRow(`${formatDayRelative(e.replacedAt.slice(0, 10), today)}, ${formatClock(e.replacedAt, hour12)}`)}
+                    detail={`${SLOT_LABEL[e.meal]}, ${formatClock(e.at, hour12)} · ${itemsLine(e.items)}`}
+                  />
+                ))}
+              </Group>
+            )}
+
+            {/* Save stays in view, however long the list above it (board D139, B-10's three taps). */}
+            <div className="sticky bottom-0 z-10 -mx-[min(1rem,20px)] flex flex-col gap-3 border-t border-separator bg-grouped-bg px-[min(1rem,20px)] pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+              {error && <ErrorText>{error}</ErrorText>}
+              <PrimaryButton onClick={() => void save()} disabled={saving || items.length === 0 || future || (editing !== undefined && !dirty)}>
+                {saving ? FOOD_COPY.saving : FOOD_COPY.save}
+              </PrimaryButton>
+              {editing && <SecondaryButton tone="stop" onClick={() => void remove()} disabled={saving}>{FOOD_COPY.deleteMeal}</SecondaryButton>}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </Sheet>
   );
 }

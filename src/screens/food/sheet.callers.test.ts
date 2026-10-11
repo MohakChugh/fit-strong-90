@@ -52,7 +52,10 @@ const toasts = vi.hoisted(() => [] as string[]);
 vi.mock('sonner', () => ({ toast: Object.assign((text: string) => void toasts.push(text), { dismiss: () => {} }) }));
 vi.mock('@/components/hig/Sheet', async () => {
   const { createElement: h } = await import('react');
-  return { Sheet: ({ open, title, children }: { open: boolean; title?: string; children?: unknown }) => (open ? h('div', { role: 'dialog', 'aria-label': title }, children as never) : null) };
+  return {
+    Sheet: ({ open, title, children, onOpenChange }: { open: boolean; title?: string; children?: unknown; onOpenChange?: (open: boolean) => void }) =>
+      (open ? h('div', { role: 'dialog', 'aria-label': title }, h('button', { type: 'button', onClick: () => onOpenChange?.(false) }, 'Close'), children as never) : null),
+  };
 });
 
 // Base UI's switch calls its refs as it renders, which this host can't run: a plain switch stands in.
@@ -351,6 +354,79 @@ describe('browser Back with the sheet open (H7-19)', () => {
     expect(nav.resets).toBe(1);
     expect(h.text()).toContain('That didn’t save.');
     expect(item(h, 'Roti (whole-wheat)')).toContain('1 roti');
+  });
+
+  /** What's on screen: the text outside anything hidden. */
+  const seen = (h: Host) => {
+    const walk = (list: readonly (HostNode | string)[]): string => list.map(c => (typeof c === 'string' ? c : c.props.hidden ? '' : walk(c.children))).join(' ');
+    return walk((h as unknown as { tree: (HostNode | string)[] }).tree);
+  };
+  it('keeps a weight typed on a food’s page while it asks, and Keep editing goes back to that page with it (H7R-04)', async () => {
+    const h = await open({});
+    await h.click(h.button(/^Add Roti \(whole-wheat\)/));
+    const row = h.all().find(n => n.props['data-item'] === 'Roti (whole-wheat)')!;
+    await h.click(allIn(row).find(n => n.type === 'button' && !/More|Less|Remove/.test(textOf(n.children)))!);
+    await h.click(h.button('Weigh yours'));
+    await h.change(h.field('One roti weighs, in grams'), { value: '70' });
+    expect(await back(h)).toBe(true);
+    expect(seen(h)).toContain('Discard this meal?');
+    expect(seen(h)).not.toContain('One roti weighs');
+    await h.click(h.button('Keep editing', { exact: true }));
+    expect(seen(h)).not.toContain('Discard this meal?');
+    expect(h.field('One roti weighs, in grams').props.value).toBe('70');
+    await h.click(h.button('Done', { exact: true }));
+    expect(item(h, 'Roti (whole-wheat)')).toContain('≈ 70 g');
+  });
+  it('asks before a Back takes your own food’s form, with nothing in the tray, and keeps it (H7-19, H7R-04)', async () => {
+    const h = await open({});
+    await h.change(h.field('Search foods'), { value: 'Kheer' });
+    await h.click(h.button('Add “Kheer” as your own food'));
+    await h.change(h.field('kcal in one portion (optional)'), { value: '250' });
+    expect(await back(h)).toBe(true);
+    expect(seen(h)).toContain('Discard this meal?');
+    await h.click(h.button('Keep editing', { exact: true }));
+    expect(h.field('Name').props.value).toBe('Kheer');
+    expect(h.field('kcal in one portion (optional)').props.value).toBe('250');
+  });
+  it('asks before a Back takes a Quick add, and keeps its size and figure (H7-19, H7R-04)', async () => {
+    const h = await open({});
+    await h.change(h.field('Search foods'), { value: 'Thali' });
+    await h.click(h.button('Quick add: about how much?'));
+    await h.click(h.button('Large plate', { exact: true }));
+    await h.change(h.field('Or about how many kcal (optional)'), { value: '650' });
+    expect(await back(h)).toBe(true);
+    await h.click(h.button('Keep editing', { exact: true }));
+    expect(h.field('Or about how many kcal (optional)').props.value).toBe('650');
+    await h.click(h.button('Add to meal', { exact: true }));
+    expect(item(h, 'Large plate')).toContain('650');
+  });
+  it('asks the same over a page when Close is tapped, and Keep editing goes back to it (H7R-04)', async () => {
+    const h = await open({});
+    await h.change(h.field('Search foods'), { value: 'Kheer' });
+    await h.click(h.button('Add “Kheer” as your own food'));
+    await h.change(h.field('kcal in one portion (optional)'), { value: '250' });
+    await h.click(h.button('Close', { exact: true }));
+    expect(seen(h)).toContain('Discard this meal?');
+    await h.click(h.button('Keep editing', { exact: true }));
+    expect(h.field('kcal in one portion (optional)').props.value).toBe('250');
+  });
+  it('asks before a Back takes a weight typed for a food not yet in the tray (H7-19)', async () => {
+    const h = await open({});
+    await h.click(h.button(/^Roti \(whole-wheat\)/));
+    await h.click(h.button('Weigh yours'));
+    await h.change(h.field('One roti weighs, in grams'), { value: '70' });
+    expect(await back(h)).toBe(true);
+    await h.click(h.button('Keep editing', { exact: true }));
+    expect(h.field('One roti weighs, in grams').props.value).toBe('70');
+  });
+  it('lets a Back through from a page opened and left as it was, or left for the tray, with nothing in it', async () => {
+    const h = await open({});
+    await h.change(h.field('Search foods'), { value: 'Kheer' });
+    await h.click(h.button('Add “Kheer” as your own food'));
+    expect(await back(h)).toBe(false);
+    await h.change(h.field('kcal in one portion (optional)'), { value: '250' });
+    await h.click(h.button('Your meal', { exact: true }));
+    expect(await back(h)).toBe(false);
   });
 });
 

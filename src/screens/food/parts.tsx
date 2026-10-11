@@ -4,7 +4,7 @@
  * in place of the tray, because sheets never nest: a food's portion, your own
  * food, and Quick add.
  */
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { ChevronLeftIcon, PlusIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import { ALLERGENS, allergenList, allergyWarning, type Allergies } from '@/food/allergens';
@@ -126,8 +126,19 @@ function BackToMeal({ onBack }: { onBack: () => void }) {
   );
 }
 
+/**
+ * Tells the sheet whether a page holds what the person hasn't added yet, so a Back or Close asks first, and
+ * that it holds nothing once the page goes (H7-19). `onDirty` is the sheet's own setter, so it never changes.
+ */
+function useHolds(holds: boolean, onDirty?: (holds: boolean) => void): void {
+  useEffect(() => {
+    onDirty?.(holds);
+    return () => onDirty?.(false);
+  }, [holds, onDirty]);
+}
+
 /** A food's portion page (journey §11.3, §11.6): its unit with the grams, "Weigh yours", what's in it, and its allergens. */
-export function PortionPage({ food, item, numbers, allergies, look, onBack, onSave, onRemove }: {
+export function PortionPage({ food, item, numbers, allergies, look, onBack, onSave, onRemove, onDirty }: {
   food: Food;
   /** The tray's item, when the food is in the meal already. */
   item?: FoodItem;
@@ -137,10 +148,13 @@ export function PortionPage({ food, item, numbers, allergies, look, onBack, onSa
   onBack: () => void;
   onSave: (item: FoodItem) => void;
   onRemove?: () => void;
+  onDirty?: (holds: boolean) => void;
 }) {
-  const [draft, setDraft] = useState<FoodItem>(() => item ?? foodItem(food));
+  const [opened] = useState<FoodItem>(() => item ?? foodItem(food));
+  const [draft, setDraft] = useState<FoodItem>(opened);
   const [weighing, setWeighing] = useState(draft.weighed === true);
   const [grams, setGrams] = useState(String(draft.gramsPerPortion));
+  useHolds(JSON.stringify(draft) !== JSON.stringify(opened) || grams !== String(draft.gramsPerPortion), onDirty);
   const [problem, setProblem] = useState<string>();
   const unit = UNITS[food.portion.unit];
   const one = food.portion.unit === 'piece' && food.portion.noun ? food.portion.noun[0] : unit.one;
@@ -224,11 +238,12 @@ function figure(text: string, max: number): number | undefined | null {
 }
 
 /** Your own food (journey §11.3): a name and what one portion is, with kcal and carbs only if known, and only with estimates. */
-export function OwnFoodPage({ name: typed, numbers, onBack, onAdd }: {
+export function OwnFoodPage({ name: typed, numbers, onBack, onAdd, onDirty }: {
   name: string;
   numbers: NumbersView;
   onBack: () => void;
   onAdd: (food: CustomFood) => void;
+  onDirty?: (holds: boolean) => void;
 }) {
   const ids = { name: useId(), qty: useId(), unit: useId() };
   const [name, setName] = useState(typed);
@@ -239,6 +254,7 @@ export function OwnFoodPage({ name: typed, numbers, onBack, onAdd }: {
   // Nothing ticked is unknown; "None of these" is an answer (H7-04).
   const [allergens, setAllergens] = useState<(AllergenId | 'none')[]>([]);
   const [problem, setProblem] = useState<string>();
+  useHolds(name !== typed || qty !== '1' || unit !== 'plate' || kcal !== '' || carbs !== '' || allergens.length > 0, onDirty);
   const add = () => {
     const q = Number(qty);
     const k = numbers.show ? figure(kcal, 5000) : undefined;
@@ -298,10 +314,16 @@ export function OwnFoodPage({ name: typed, numbers, onBack, onAdd }: {
 const SIZES: { id: QuickItem['size']; label: string }[] = (['small', 'normal', 'large'] as const).map(id => ({ id, label: QUICK_NAME[id] }));
 
 /** "Quick add: about how much?" (journey §11.3): a plate size, and a kcal figure only with estimates. Never carbs. */
-export function QuickPage({ numbers, onBack, onAdd }: { numbers: NumbersView; onBack: () => void; onAdd: (item: QuickItem) => void }) {
+export function QuickPage({ numbers, onBack, onAdd, onDirty }: {
+  numbers: NumbersView;
+  onBack: () => void;
+  onAdd: (item: QuickItem) => void;
+  onDirty?: (holds: boolean) => void;
+}) {
   const [size, setSize] = useState<QuickItem['size']>('normal');
   const [kcal, setKcal] = useState('');
   const [problem, setProblem] = useState<string>();
+  useHolds(size !== 'normal' || kcal !== '', onDirty);
   const add = () => {
     const k = numbers.show ? figure(kcal, 5000) : undefined;
     if (k === null) setProblem(FOOD_COPY.ownBadFigure);
