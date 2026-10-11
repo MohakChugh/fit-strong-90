@@ -1335,3 +1335,9 @@ Branch `feat/v2-p6c`, from `feat/v2-journey` at `f5dab1c`. Each fix began with a
 | H6R-13 | No change: the Data switches are 51 × 48 px at 100% and 102 × 96 at 200% (`Toggle` since `e334e91`), so the Row's own height no longer matters | — |
 
 Checked in headless Chromium at 428 px and 320 px/200% (screenshots in `/tmp/fit-checks/shots-p6b/r2-*`): "Say what happened" on the surface, the Walk hub's card and the check-in row; the stop questions' chips 48 px tall at 100%; both erase steps, focus on the second question, "All routes erased."; equal consent buttons; the left-open card. No console errors. Seen, not changed (as before this round): at 320 px/200% the shared surface's headline breaks "exercise" mid-word.
+
+Also: V34's step 6 taps both erase confirmations (`8491a1f`), and M02's H2-01 gate case is as in D184.
+
+**Gates** on `8491a1f`: `tsc -b --force` and `eslint .` clean; Vitest 257 files, 6,546 tests, all passed.
+
+**Acceptance** (port 49981, through the lock, on `8491a1f`): **1,156 cases, 1,150 passed, 2 failed and 4 pending, in 71.3 min.** The two failures were V-J11 (large-dark and small-light), each a 30 s boot wait timing out under load; V-J11 alone then passed 8/8. V-J31 (4) is pending on Food's trend, as agreed. Plan 3's uncommitted journeys aren't in the tree. Every walk journey (J10, J11, V02, V16, V19, V20, V33, V34) and M02 passed in all four projects.
