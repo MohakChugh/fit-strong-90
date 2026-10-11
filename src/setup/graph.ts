@@ -80,7 +80,8 @@ export const PAGES: readonly PageDef[] = [
   { id: 'backFeet.where', when: (_a, f) => f.pain, sets: ['painAreas'], skippable: false, done: a => a.painAreas !== undefined },
   { id: 'backFeet.side', when: (_a, f) => f.pain && f.back, sets: ['sciaticaSide', 'worseWith', 'helps'], skippable: false,
     done: a => a.worseWith !== undefined && (!(a.painAreas ?? []).includes('sciatica') || a.sciaticaSide !== undefined) },
-  { id: 'backFeet.history', when: (_a, f) => f.pain || f.feet, sets: ['neuroHistory', 'footRestriction'], skippable: false,
+  // A clinician's foot limit keeps its question while it stands, whatever the foot chip says (H5-03).
+  { id: 'backFeet.history', when: (_a, f) => f.pain || f.feet || f.footLimit, sets: ['neuroHistory', 'footRestriction'], skippable: false,
     done: (a, f) => (!f.pain || a.neuroHistory !== undefined) && (!f.feet || a.footRestriction !== undefined) },
   { id: 'movement.focus', when: always, sets: ['focus', 'active'], skippable: false, done: a => a.focus !== undefined && a.active !== undefined },
   { id: 'movement.goal', when: always, sets: ['weeklyGoal'], skippable: true, done: a => a.weeklyGoal !== undefined },

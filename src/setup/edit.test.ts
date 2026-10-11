@@ -8,7 +8,7 @@ import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import { completedSetup, profileFrom } from './assemble';
 import { editChapters, editOf, editPath, editedRecord, editorOpens, editorState } from './edit';
 import { keysOfChapter } from './fields';
-import { COMPLEX, GLIFLOZIN_NO_DIABETES, JOIN, MINIMAL, NO_CLASSES, NO_CONDITIONS } from './fixtures';
+import { COMPLEX, GLIFLOZIN_NO_DIABETES, JOIN, MINIMAL, NO_CLASSES, NO_CONDITIONS, withC } from './fixtures';
 import { SAFETY_CHAPTERS, commitPage, pathFor } from './graph';
 import { answersFromProfile, answersToEdit } from './prefill';
 import { setupStateOf } from './state';
@@ -38,6 +38,39 @@ describe('foot problems added in Your health (board D79; K-30)', () => {
     expect(editChapters(['health'], feet, MINIMAL)).toEqual(['health', 'backFeet']);
     expect(editChapters(['health'], { ...feet, conditions: { ...NO_CONDITIONS, feet: 'unsure' } }, MINIMAL)).toEqual(['health', 'backFeet']);
     expect(editChapters(['health'], feet, feet)).toEqual(['health']);
+  });
+
+  it('a clinician’s limit outranks the foot chip: unticking feet keeps walks held and asks the limit again (H5-03, K5-02)', () => {
+    const data = finished(withC({ feet: 'yes' }, { feetNumb: 'no', footWound: 'no', footRestriction: 'yes', clearance: 'none', priorDka: 'no' }));
+    expect(data.profile?.health.footStatus).toBe('current_wound_or_active_charcot');
+    const a = opened(data);
+    const opens = editorOpens('health', data.profile);
+    const unticked = editorState(opens, { ...a, conditions: { ...a.conditions, feet: 'no' } }, a, CTX);
+    expect(unticked.chapters).toContain('backFeet');
+    expect(unticked.pages).toContain('backFeet.history');
+    const kept = editedRecord(data, editOf(unticked, a), TODAY, CTX);
+    expect(kept.profile?.health.footStatus).toBe('current_wound_or_active_charcot');
+    expect(profileRules(kept.profile!).modifiers).toContain('FOOT');
+    // Only the limit itself, answered No, releases the hold.
+    const released = editorState(opens, { ...a, conditions: { ...a.conditions, feet: 'no' }, footRestriction: 'no' }, a, CTX);
+    expect(editedRecord(data, editOf(released, a), TODAY, CTX).profile?.health.footStatus).toBe('healthy');
+  });
+
+  it('a record without diabetes keeps its eye treatment and foot wound through a Save of Your health (K5-02)', () => {
+    const data = fresh();
+    data.settings = { ...data.settings, onboardingComplete: true };
+    data.profile = createDefaultProfile({
+      weightKg: 70,
+      health: { medicinesReviewed: true, hypertension: 'treated', retinopathy: 'recent_eye_treatment', footStatus: 'current_wound_or_active_charcot', clearance: 'none' },
+    });
+    const a = opened(data);
+    // Saved as Save stores it, with the one question left answered: a ticked row makes the checklist answered, and its unticked rows No (B-08).
+    const state = editorState(editorOpens('health', data.profile), { ...a, targets: 'no' }, a, CTX);
+    expect(state.blocking).toEqual([]);
+    const after = editedRecord(data, editOf(state, a), TODAY, CTX);
+    expect(after.profile?.health.retinopathy).toBe('recent_eye_treatment');
+    expect(after.profile?.health.footStatus).toBe('current_wound_or_active_charcot');
+    expect(profileRules(after.profile!).outcome).toBe('red');
   });
 
   it('an upgrader with back pain is asked it in the same edit, though the page waited before (journey §16)', () => {

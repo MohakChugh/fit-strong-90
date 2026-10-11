@@ -48,6 +48,12 @@ export interface Facts {
   back: boolean;
   /** Regular medicines, yes or not sure: the classes are asked. */
   medicines: boolean;
+  /**
+   * A clinician's weight-bearing limit, answered Yes. It outranks the foot
+   * chip: walking stays held, and its question asked, until the limit itself
+   * is answered again (H5-03).
+   */
+  footLimit: boolean;
   /** A wound now, or a clinician's weight-bearing limit: walking is held (K-30). */
   footHeld: boolean;
 }
@@ -60,6 +66,7 @@ export function factsOf(a: SetupAnswers): Facts {
   const insulin = diabetes === 'type1' || has(k.insulin);
   const bp = has(c.bp);
   const feet = has(c.feet);
+  const footLimit = a.footRestriction === 'yes';
   return {
     diabetic,
     insulin,
@@ -75,6 +82,7 @@ export function factsOf(a: SetupAnswers): Facts {
     other: has(c.other),
     back: (a.painAreas ?? []).some(x => x === 'lowerBack' || x === 'sciatica'),
     medicines: a.regular === 'yes' || a.regular === 'unsure',
-    footHeld: feet && (a.footWound === 'now' || a.footRestriction === 'yes'),
+    footLimit,
+    footHeld: footLimit || (feet && a.footWound === 'now'),
   };
 }

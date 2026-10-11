@@ -74,6 +74,17 @@ describe('answers v1 already gave (K-57; journey §6.4, §16)', () => {
     expect(pageDone('health.conditions', a, CTX)).toBe(false);
   });
 
+  it('reads back an eye or foot value the record holds, with or without diabetes (K5-02, H5-03)', () => {
+    const eyes = answersFromProfile(createDefaultProfile({ health: { medicinesReviewed: true, retinopathy: 'recent_eye_treatment' } }), S);
+    expect(eyes).toMatchObject({ conditions: { eyes: 'yes' }, eyeTreatment: 'yes' });
+    const moderate = answersFromProfile(createDefaultProfile({ health: { medicinesReviewed: true, retinopathy: 'moderate' } }), S);
+    expect(moderate).toMatchObject({ conditions: { eyes: 'yes' }, eyeTreatment: 'no', eyeDisease: 'moderate' });
+    const wound = answersFromProfile(createDefaultProfile({ health: { medicinesReviewed: true, footStatus: 'current_wound_or_active_charcot' } }), S);
+    expect(wound).toMatchObject({ conditions: { feet: 'yes' }, footWound: 'now' });
+    const numb = answersFromProfile(createDefaultProfile({ health: { medicinesReviewed: true, peripheralNeuropathy: 'unsure' } }), S);
+    expect(numb).toMatchObject({ conditions: { feet: 'unsure' }, feetNumb: 'unsure' });
+  });
+
   it('a migrated, unreviewed profile reads what it kept, but no medicine never answered', () => {
     const migrated = createDefaultProfile({ needsHealthReview: true, health: { diabetes: 'type2' } });
     const a = answersFromProfile(migrated, S);

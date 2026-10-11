@@ -44,6 +44,13 @@ describe('what the answers mean in the engine’s terms (journey §6.3, board D7
     expect(factsOf(withC({ feet: 'yes' }, { footWound: 'past', footRestriction: 'no' })).footHeld).toBe(false);
   });
 
+  it('keeps a clinician’s limit holding walks after the foot chip is taken away (H5-03)', () => {
+    const f = factsOf(withC({ feet: 'no' }, { footWound: 'no', footRestriction: 'yes' }));
+    expect(f.footHeld).toBe(true);
+    expect(f.footLimit).toBe(true);
+    expect(factsOf(withC({ feet: 'no' }, { footWound: 'now', footRestriction: 'no' })).footHeld).toBe(false);
+  });
+
   it('reads type 1 as insulin, and diabetes with a lows tablet as a risk of lows', () => {
     expect(factsOf(withC({ diabetes: 'yes' }, { diabetesType: 'type1' })).insulin).toBe(true);
     expect(factsOf(withC({ diabetes: 'yes' }, { diabetesType: 'type2', regular: 'yes', classes: { ...NO_CLASSES, lowsTablet: 'yes' } })).hypoRisk).toBe(true);

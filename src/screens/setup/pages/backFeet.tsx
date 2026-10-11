@@ -94,7 +94,7 @@ export function BackFeetHistory({ a, set, tried }: PageProps) {
         <Ask label="Has a doctor ever said a nerve in your back or leg was damaged?" header="Has a doctor ever said a nerve in your back or leg was damaged?"
           options={TRI} value={a.neuroHistory} onChange={neuroHistory => set({ neuroHistory })} tried={tried} footer="For example, foot drop after sciatica." />
       )}
-      {f.feet && (
+      {(f.feet || f.footLimit) && (
         <Ask label="Has a clinician told you to keep weight off a foot?" header="Has a clinician told you to keep weight off a foot?" options={YES_NO}
           value={a.footRestriction} onChange={footRestriction => set({ footRestriction })} tried={tried}
           footer="Then walks stay off until they say it’s fine." />

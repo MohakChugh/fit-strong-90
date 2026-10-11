@@ -37,14 +37,16 @@ export interface ChapterEdit {
  * its answers needed again (Review Focus 1), and Your back and feet when it
  * adds foot problems: "Has a clinician told you to keep weight off a foot?"
  * holds walking (K-30), so it's asked in the same edit even where that page
- * was waiting for an upgrader's new questions (board D79).
+ * was waiting for an upgrader's new questions (board D79). Taking foot
+ * problems away while that limit stands asks it too: only it releases the
+ * hold (H5-03).
  */
 export function editChapters(asked: readonly ChapterId[], a: SetupAnswers, opened: SetupAnswers): ChapterId[] {
   const now = factsOf(a);
   const was = factsOf(opened);
   const bp = (f: typeof now) => f.bp || f.heart || f.kidney;
   const medicinesAgain = (now.diabetic && !was.diabetic) || (bp(now) && !bp(was));
-  const feetAgain = now.feet && !was.feet;
+  const feetAgain = (now.feet && !was.feet) || (was.feet && !now.feet && now.footLimit);
   return CHAPTER_IDS.filter(c => asked.includes(c) || (c === 'medicines' && medicinesAgain) || (c === 'backFeet' && feetAgain));
 }
 

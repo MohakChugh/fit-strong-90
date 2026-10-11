@@ -4,8 +4,9 @@
  * (§6.4), and Me's chapters for someone set up in v1 (§16). Only what v1
  * asked: it asked about the eyes and feet only with diabetes, so without it
  * those chips stay unanswered rather than read back as "No" (contract H-DATA,
- * board D79); and a medicine answer counts only when v1 counted it
- * (`answeredOnOpen`).
+ * board D79), unless the record holds a value there: that is read back
+ * whatever the diabetes answer, so a Save never files "No" over it (K5-02).
+ * A medicine answer counts only when v1 counted it (`answeredOnOpen`).
  */
 import type { UserSettings } from '@/types';
 import type { MedicineAnswer, UserProfile } from '@/types/profile';
@@ -36,17 +37,18 @@ export function answersFromProfile(p: UserProfile, s: Kept): SetupAnswers {
   if (p.weightKg > 0) a.weightKg = p.weightKg;
   if (p.waistCm) a.waistCm = p.waistCm;
 
-  // 3. Your health, as v1's health step asked it.
+  // 3. Your health, as v1's health step asked it. Eyes and feet: with diabetes, or a value the record holds (K5-02).
+  const eyesHeld = h.retinopathy !== 'none_or_mild';
+  const feetHeld = h.peripheralNeuropathy !== 'no' || h.footStatus !== 'healthy';
   a.conditions = {
     diabetes: h.diabetes === 'none' ? 'no' : 'yes',
     bp: h.hypertension === 'none' ? 'no' : h.hypertension === 'unsure' ? 'unsure' : 'yes',
     heart: h.heartOrVascularDisease ? 'yes' : 'no',
     kidney: h.kidneyDisease === 'none' ? 'no' : h.kidneyDisease === 'unsure' ? 'unsure' : 'yes',
     pain: p.pain.areas.length > 0 ? 'yes' : 'no',
-    ...(d.diabetic ? {
-      eyes: h.retinopathy === 'none_or_mild' ? 'no' : h.retinopathy === 'unknown' ? 'unsure' : 'yes',
-      feet: h.peripheralNeuropathy === 'no' && h.footStatus === 'healthy' ? 'no'
-        : h.peripheralNeuropathy === 'unsure' && h.footStatus === 'healthy' ? 'unsure' : 'yes',
+    ...(d.diabetic || eyesHeld ? { eyes: !eyesHeld ? 'no' : h.retinopathy === 'unknown' ? 'unsure' : 'yes' } as const : {}),
+    ...(d.diabetic || feetHeld ? {
+      feet: !feetHeld ? 'no' : h.peripheralNeuropathy === 'unsure' && h.footStatus === 'healthy' ? 'unsure' : 'yes',
     } as const : {}),
   };
   if (h.diabetes !== 'none') a.diabetesType = h.diabetes;
@@ -57,7 +59,7 @@ export function answersFromProfile(p: UserProfile, s: Kept): SetupAnswers {
   // An answer v1 kept in its reminders is still the answer (`fluidRestriction`, reminders/water.ts).
   const fluid = fluidRestriction(p, s.habits);
   if (fluid !== undefined) a.fluidLimit = tri(fluid);
-  if (d.diabetic && h.retinopathy !== 'none_or_mild') {
+  if (eyesHeld) {
     a.eyeTreatment = h.retinopathy === 'recent_eye_treatment' ? 'yes' : 'no';
     if (h.retinopathy !== 'recent_eye_treatment') a.eyeDisease = h.retinopathy === 'moderate' ? 'moderate' : h.retinopathy === 'severe_or_proliferative' ? 'severe' : 'unsure';
   }

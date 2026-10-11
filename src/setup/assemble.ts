@@ -66,9 +66,11 @@ export function healthFrom(a: SetupAnswers, base: HealthProfile, today: string):
   if (c.feet !== undefined) {
     next.peripheralNeuropathy = !has(c.feet) || a.feetNumb === 'no' ? 'no' : a.feetNumb === 'yes' ? 'yes' : 'unsure';
     next.footStatus = !has(c.feet) ? 'healthy'
-      : a.footWound === 'now' || a.footRestriction === 'yes' ? 'current_wound_or_active_charcot'
+      : a.footWound === 'now' ? 'current_wound_or_active_charcot'
       : a.footWound === 'past' ? 'past_ulcer_or_charcot' : 'healthy';
   }
+  // A clinician's weight-bearing limit outranks the foot chip: only the limit, answered again, releases it (K-30; H5-03).
+  if (f.footLimit) next.footStatus = 'current_wound_or_active_charcot';
   if (a.clearance !== undefined) next.clearance = a.clearance === 'moderate' || a.clearance === 'vigorous' ? a.clearance : 'none';
   if (a.targets !== undefined || a.glucoseStartMin !== undefined) {
     const targets = a.targets === 'yes';
