@@ -26,13 +26,29 @@ export function stepOf(item: MealItem): number {
 function scaled(item: FoodItem, count: number): FoodItem {
   const f = count / item.count;
   const kcal = item.kcal === undefined ? {} : { kcal: Math.round(item.kcal * f) };
-  const carbs = item.carbsG === undefined ? {} : { carbsG: r1(item.carbsG * f) };
   return {
     kind: 'food', foodId: item.foodId, rev: item.rev, name: item.name, unit: item.unit, count, gramsPerPortion: item.gramsPerPortion,
-    ...(item.weighed ? { weighed: true as const } : {}), ...kcal, ...carbs,
-    ...(item.carbsLowG === undefined ? {} : { carbsLowG: r1(item.carbsLowG * f) }),
-    ...(item.carbsHighG === undefined ? {} : { carbsHighG: r1(item.carbsHighG * f) }),
+    ...(item.weighed ? { weighed: true as const } : {}), ...kcal, ...scaledCarbs(item, f),
   };
+}
+
+/**
+ * Its carb estimate and range at `f` times, together (H7F-02; board D149, D207). Where rounding would meet a
+ * real range's ends, they're rounded outwards instead, so it stays a range and never narrows; ends that were
+ * one figure all along, once they'd reach 1 g, are a single figure, so there's no carb estimate.
+ */
+function scaledCarbs(item: FoodItem, f: number): Pick<FoodItem, 'carbsG' | 'carbsLowG' | 'carbsHighG'> {
+  if (item.carbsG === undefined) return {};
+  const g = r1(item.carbsG * f);
+  if (item.carbsLowG === undefined || item.carbsHighG === undefined) return { carbsG: g };
+  let low = r1(item.carbsLowG * f);
+  let high = r1(item.carbsHighG * f);
+  if (low === high && high >= 1) {
+    low = Math.floor(item.carbsLowG * f * 10 + 1e-9) / 10;
+    high = Math.ceil(item.carbsHighG * f * 10 - 1e-9) / 10;
+    if (low === high) return {};
+  }
+  return { carbsG: g, carbsLowG: low, carbsHighG: high };
 }
 
 /**

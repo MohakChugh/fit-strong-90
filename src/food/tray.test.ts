@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { customItem, foodItem } from './estimate';
+import { itemProblem } from './records';
 import { addFood, moreFits, step, slotAt, weighed, withCount, type Lookup } from './tray';
 import type { CustomFood, Food, FoodItem } from './types';
 
@@ -33,6 +34,31 @@ describe('the meal tray (journey §11.3, B-08)', () => {
     expect(slotAt(17 * 60)).toBe('snack');
     expect(slotAt(21 * 60)).toBe('dinner');
     expect(slotAt(2 * 60)).toBe('dinner');
+  });
+});
+
+describe('a table food on its own figures, at another count (H7F-02; board D149, D207)', () => {
+  // On recipe rev 1, which the table has moved on from: Less scales the item's own figures.
+  const old: FoodItem = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 10, carbsG: 2.35, carbsLowG: 2.32, carbsHighG: 2.38 };
+  it('keeps a real range a range, its ends rounded outwards where rounding would meet them, so Save takes it', () => {
+    const one = step(old, -1, look) as FoodItem;
+    expect(one).toMatchObject({ count: 1, carbsG: 1.2, carbsLowG: 1.1, carbsHighG: 1.2 });
+    expect(itemProblem(one)).toBeUndefined();
+    expect(moreFits(one, look)).toBe(true);
+    // 1.11 to 1.14 would both round to 1.1: down to 1.1 and up to 1.2.
+    expect(step({ ...old, carbsG: 2.25, carbsLowG: 2.22, carbsHighG: 2.28 }, -1, look)).toMatchObject({ carbsG: 1.1, carbsLowG: 1.1, carbsHighG: 1.2 });
+  });
+  it('gives no carb estimate once one figure all along would reach 1 g, so More stays', () => {
+    const tiny: FoodItem = { ...old, count: 1, gramsPerPortion: 1, weighed: true, kcal: 3, carbsG: 0.4, carbsLowG: 0.4, carbsHighG: 0.4 };
+    expect(itemProblem(tiny)).toBeUndefined();
+    const three = withCount(tiny, 3, look) as FoodItem;
+    expect(three).toMatchObject({ count: 3, kcal: 9 });
+    expect(three).not.toHaveProperty('carbsG');
+    expect(three).not.toHaveProperty('carbsLowG');
+    expect(itemProblem(three)).toBeUndefined();
+    expect(moreFits(tiny, look)).toBe(true);
+    // Under 1 g, still a reading.
+    expect(withCount(tiny, 2, look)).toMatchObject({ carbsG: 0.8, carbsLowG: 0.8, carbsHighG: 0.8 });
   });
 });
 
