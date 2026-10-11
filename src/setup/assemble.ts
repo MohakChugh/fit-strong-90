@@ -18,6 +18,7 @@ import { conditionBlock } from '@/reminders/water';
 import { defaultHome, isHomeLayout } from '@/categories';
 import { withJoinAnswers } from '@/programme/join';
 import { withWeeklyGoal } from '@/screens/track/weeklyGoal';
+import { sameValue } from '@/store/transfer';
 import { diabetesOf, factsOf, has } from './facts';
 import { REVIEW_ALSO, SAFETY_CHAPTERS, chapterComplete, pageDone, skippedChapters, type Ctx } from './graph';
 import { setupStateOf } from './state';
@@ -253,9 +254,15 @@ export function measurementsFrom(a: SetupAnswers, before: UserProfile | undefine
   ];
 }
 
-/** "Start using FitStrong": the profile, the settings, completion and Home's first tiles, as one record (§6.2, §5.1). */
+/**
+ * "Start using FitStrong": the profile, the settings, completion and Home's
+ * first tiles, as one record (§6.2, §5.1). Planned inside the write against
+ * what is stored, it changes nothing once another tab has finished setup, or
+ * when the stored draft is no longer the one Review showed (H5-09).
+ */
 export function completedSetup(data: AppData, a: SetupAnswers, now: string, ctx: Ctx & { hasSteps: boolean }): AppData {
   const prior = setupStateOf(data.settings, data.profile);
+  if (prior.stage === 'done' || (prior.draft?.answers !== undefined && !sameValue(prior.draft.answers, a))) return data;
   const today = now.slice(0, 10);
   const profile = profileFrom(a, data.profile, today, ctx);
   const joined = a.programme === 'join' && a.join !== undefined;

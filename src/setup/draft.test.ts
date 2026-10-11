@@ -180,6 +180,33 @@ describe('without saving (B-07)', () => {
     expect(store.getState().settings.setup?.stage).toBe('lookAround');
   });
 
+  it('a finish planned after another tab finished keeps that tab’s record, and adds none of its readings (H5-09)', async () => {
+    const { completedSetup } = await import('./assemble');
+    const { withC } = await import('./fixtures');
+    await store.start({ factory: fakeIndexedDB() });
+    // The other tab finished first, with a foot limit that holds walks.
+    const other = withC({ feet: 'yes' }, { feetNumb: 'no', footWound: 'no', footRestriction: 'yes' });
+    expect((await store.update(d => completedSetup(d, other, NOW, { ...CTX, hasSteps: false }))).ok).toBe(true);
+    expect(await finishSetup({ ...MINIMAL, weightKg: 81 }, CTX, NOW)).toEqual({ kind: 'home' });
+    const s = store.getState();
+    expect(s.profile?.health.footStatus).toBe('current_wound_or_active_charcot');
+    expect(s.settings.setup?.answers?.footRestriction).toBe('yes');
+    expect(s.observations.filter(o => o.kind === 'weight')).toEqual([]);
+  });
+
+  it('a finish of answers changed meanwhile stores nothing, and says why, on Review (H5-09)', async () => {
+    await store.start({ factory: fakeIndexedDB() });
+    expect((await store.update(d => withDraft(d, 'review', MINIMAL))).ok).toBe(true);
+    // Another tab took the answers on: insulin, since Review was drawn.
+    const changed = { ...MINIMAL, regular: 'yes' as const, classes: { insulin: 'yes' as const } };
+    expect((await store.update(d => withDraft(d, 'medicines.lows', changed))).ok).toBe(true);
+    const finished = await finishSetup(MINIMAL, CTX, NOW);
+    expect(finished.kind).toBe('failed');
+    const s = store.getState();
+    expect(setupStateOf(s.settings, s.profile).stage).toBe('open');
+    expect(s.settings.setup?.draft?.answers?.classes?.insulin).toBe('yes');
+  });
+
   it('finishing setup forgets its session and what its pages held (K5-05)', async () => {
     await store.start({ factory: fakeIndexedDB() });
     rememberEdits('about.name', { name: 'Someone else' });

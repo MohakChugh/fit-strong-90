@@ -1473,6 +1473,12 @@ export interface UpdateOptions {
    * times are fixed here, so a re-plan never makes a second record.
    */
   addObservations?: readonly ObservationInput[];
+  /**
+   * The readings are added only when this holds of the change as planned
+   * against what is stored: a write its own updater turns down (setup
+   * finished in another tab, say) adds none of them (H5-09).
+   */
+  addObservationsWhen?: (before: AppData, after: AppData) => boolean;
 }
 
 export function update(updater: (previous: AppData) => AppData, options: UpdateOptions = {}): Promise<StoreResult> {
@@ -1490,7 +1496,8 @@ export function update(updater: (previous: AppData) => AppData, options: UpdateO
       const doomed = new Set((options.removeObservations ?? []).filter(id => findObservation(base, id)));
       // An invalid reading throws here, so the whole write is refused before anything shows.
       // One already stored, from an earlier plan of this same write, isn't added twice.
-      const added = adding.filter(input => !findObservation(base, input.id)).map(input => newObservation(input));
+      const wanted = options.addObservationsWhen?.(before, after) ?? true;
+      const added = wanted ? adding.filter(input => !findObservation(base, input.id)).map(input => newObservation(input)) : [];
       if (doomed.size === 0 && added.length === 0) return { change, result: () => undefined };
       const observations = change?.observations;
       return {

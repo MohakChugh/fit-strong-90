@@ -138,17 +138,27 @@ function enterUnsaved(answers: SetupAnswers): FinishOutcome {
  * the app opens for this session only, and completion is never run, even in
  * this session's memory: its safety gap stays, so every hold applies (B-07;
  * H5-06). Storage going while it's written refuses it the same way.
+ *
+ * Planned against what is stored, it keeps a setup another tab finished
+ * meanwhile, and goes Home to it; answers changed since Review drew them are
+ * not finished, and Review says so (H5-09). Either way, the readings it would
+ * have added aren't.
  */
 export async function finishSetup(answers: SetupAnswers, ctx: Ctx, now: string = nowAt()): Promise<FinishOutcome> {
   if (current().unsaved) return enterUnsaved(answers);
   const state = getState();
   const hasSteps = state.observations.some(o => o.kind === 'steps');
+  const done = (d: Pick<AppData, 'settings' | 'profile'>) => setupStateOf(d.settings, d.profile).stage === 'done';
   const saved = await update(d => completedSetup(d, answers, now, { ...ctx, hasSteps }), {
     hold: true,
     needsStorage: 'This phone isn’t storing data, so setup is not finished: it carries on without saving.',
     addObservations: measurementsFrom(answers, state.profile, now),
+    addObservationsWhen: (before, after) => !done(before) && done(after),
   });
   if (saved.ok) {
+    if (!done(getState())) {
+      return { kind: 'failed', message: 'Your answers changed in another window of FitStrong. Check them here, then start again.' };
+    }
     resetSetupSession();
     return { kind: 'home' };
   }
