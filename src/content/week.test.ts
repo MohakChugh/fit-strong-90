@@ -205,7 +205,16 @@ describe('allergies and the Jain pattern from recipe tags (B-13, board D99, D100
   it('matches a food left out against the meal’s own words, as v1 did, and an allergy against its recipes too (D99)', () => {
     expect(isAvoided(meal('l-rajma-rice'), ['garlic'])).toBe(false);
     expect(ids(food('vegetarian', { customAllergies: ['garlic'] }), 'lunch')).not.toContain('l-rajma-rice');
-    expect(ids(food('vegetarian', { customAllergies: ['garlic'] }), 'lunch')).toContain('l-roti-dal-sabzi');
+    // Poha's recipe has no garlic. (Dal's hing is a blend, which keeps it from every custom allergy: K7-02.)
+    expect(ids(food('vegetarian', { customAllergies: ['garlic'] }), 'breakfast')).toContain('b-poha');
+  });
+  it('keeps a dish with a blend from anyone with a custom allergy, and only them: compounded hing may hold any flour (K7-02)', () => {
+    expect(mealTags(meal('l-roti-dal-sabzi'), 'vegetarian')).toMatchObject({ complete: true, named: false });
+    expect(mealTags(meal('b-poha'), 'vegetarian')).toMatchObject({ complete: true, named: true });
+    expect(ids(food('vegetarian', { customAllergies: ['rice flour'] }), 'lunch')).not.toContain('l-roti-dal-sabzi');
+    expect(ids(food('vegetarian', { customAllergies: ['fenugreek'] }), 'breakfast')).not.toContain('b-idli-sambar');
+    expect(ids(food('vegetarian', { allergies: ['peanut'] }), 'lunch')).toContain('l-roti-dal-sabzi');
+    expect(ids(food('vegetarian', { allergies: ['peanut'] }), 'breakfast')).toContain('b-idli-sambar');
   });
   it('offers a Jain plate only ideas without root vegetables, eggs, fish or meat', () => {
     const jain = food('jain');

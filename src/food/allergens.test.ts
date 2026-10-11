@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ALLERGEN_IDS, type AllergenId } from '@/types/profile';
 import { ALLERGENS, allergenList, allergiesOf, allergyWarning, recommendable, resolveAllergens, type AllergenTags } from './allergens';
 
-const tags = (over: Partial<AllergenTags> = {}): AllergenTags => ({ contains: [], mayContain: [], complete: true, words: [], ...over });
+const tags = (over: Partial<AllergenTags> = {}): AllergenTags => ({ contains: [], mayContain: [], complete: true, named: true, words: [], ...over });
 
 describe('the canonical allergens (B-13, board D99)', () => {
   it('are Plan 5’s ten, each with a chip label and aliases', () => {
@@ -89,6 +89,12 @@ describe('recommendable (B-13)', () => {
   it('with any allergy, leaves out what isn’t fully tagged', () => {
     expect(recommendable(tags({ complete: false }), peanut)).toBe(false);
     expect(recommendable(tags({ complete: false }), brinjal)).toBe(false);
+  });
+  it('with a custom allergy, leaves out what isn’t known by name; a canonical allergy reads the tags (B-13, K7-02)', () => {
+    expect(recommendable(tags({ named: false }), brinjal)).toBe(false);
+    expect(recommendable(tags({ named: false }), allergiesOf({ allergies: ['peanut'], customAllergies: ['brinjal'] }))).toBe(false);
+    expect(recommendable(tags({ named: false }), peanut)).toBe(true);
+    expect(recommendable(tags({ named: false }), allergiesOf({}))).toBe(true);
   });
   it('matches a custom allergy against every word the dish and its ingredients go by', () => {
     expect(recommendable(tags({ words: ['baingan', 'brinjal', 'bharta'] }), brinjal)).toBe(false);

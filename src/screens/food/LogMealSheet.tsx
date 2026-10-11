@@ -97,7 +97,7 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
   const typed = shownQuery.trim();
 
   const foodWarning = (f: Food) => allergyWarning({ ...f.allergens, words: f.words }, allergies);
-  const customWarning = (c: CustomFood) => allergyWarning({ contains: c.allergens ?? [], mayContain: [], complete: true, words: tokens(c.name) }, allergies);
+  const customWarning = (c: CustomFood) => allergyWarning({ contains: c.allergens ?? [], mayContain: [], complete: true, named: false, words: tokens(c.name) }, allergies);
   const itemWarning = (item: MealItem) => {
     if (item.kind === 'food') {
       const food = foodById(item.foodId);

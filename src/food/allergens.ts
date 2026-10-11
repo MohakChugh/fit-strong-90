@@ -112,8 +112,14 @@ export function allergiesOf(food: Pick<FoodPreferences, 'allergies' | 'customAll
 export interface AllergenTags {
   contains: readonly AllergenId[];
   mayContain: readonly AllergenId[];
-  /** Every part of it is tagged; a blend of unknown make-up isn't. */
+  /** Every part's canonical allergens are tagged: a part whose make-up isn't established isn't. */
   complete: boolean;
+  /**
+   * Every part is known by name, so a custom allergy can be matched against
+   * `words` (B-13: "only dishes whose ingredients are all tagged"). A blend,
+   * such as compounded hing, isn't: its allergens are tagged, its flours aren't named (K7-02).
+   */
+  named: boolean;
   words: readonly string[];
 }
 
@@ -122,6 +128,7 @@ export function recommendable(tags: AllergenTags, allergies: Allergies): boolean
   if (allergies.known.length === 0 && allergies.custom.length === 0) return true;
   if (!tags.complete) return false;
   if (allergies.known.some(id => tags.contains.includes(id) || tags.mayContain.includes(id))) return false;
+  if (allergies.custom.length > 0 && !tags.named) return false;
   const words = new Set(tags.words);
   return !allergies.custom.some(entry => entry.every(w => words.has(w)));
 }

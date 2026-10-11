@@ -52,9 +52,12 @@ describe('the food table (journey §11.6)', () => {
     expect(food('roti').allergens.contains).toEqual(['wheat']);
     expect(food('poha').allergens.contains).toEqual(expect.arrayContaining(['peanut', 'mustard']));
     expect(food('sambar').allergens.mayContain).toContain('wheat');
-    expect(food('rice').allergens).toEqual({ contains: [], mayContain: [], complete: true });
+    expect(food('rice').allergens).toEqual({ contains: [], mayContain: [], complete: true, named: true });
     expect(food('coconut-chutney').words).toContain('coconut');
     expect(FOOD_DATA.foods.every(f => f.allergens.complete)).toBe(true);
+    // Compounded hing is a blend: the dishes with it can't be matched against a custom allergy's words (K7-02).
+    expect(FOOD_DATA.foods.filter(f => !f.allergens.named).map(f => f.id)).toEqual(['toor-dal', 'sambar']);
+    expect(INGREDIENTS.filter(i => i.blend).map(i => i.key)).toEqual(['hing']);
   });
   it('derives eating patterns: no meat for vegetarians, no dairy for vegans, no root vegetables for Jain (D100)', () => {
     expect(food('chicken-curry').patterns).toEqual(['nonVegetarian']);

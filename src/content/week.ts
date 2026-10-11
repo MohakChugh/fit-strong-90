@@ -35,6 +35,7 @@ interface Part {
   contains: readonly AllergenId[];
   mayContain: readonly AllergenId[];
   complete: boolean;
+  named: boolean;
 }
 
 const dishPart = (f: Food): Part => ({ patterns: f.patterns, words: f.words, ...f.allergens });
@@ -48,7 +49,7 @@ function partsOf(mapped: ComponentFoods): (Part | undefined)[] {
     }),
     ...(mapped.also ?? []).map(key => {
       const i = ingredientByKey(key);
-      return i && { patterns: i.patterns, words: i.words, contains: i.contains, mayContain: i.mayContain, complete: !i.blend };
+      return i && { patterns: i.patterns, words: i.words, contains: i.contains, mayContain: i.mayContain, complete: true, named: !i.blend };
     }),
   ];
 }
@@ -78,26 +79,28 @@ export function mealTags(meal: MealTemplate, pattern?: Pattern): AllergenTags {
   const may = new Set<AllergenId>();
   const words = ownWords(meal, pattern);
   let complete = true;
+  let named = true;
   for (const c of componentsFor(meal, pattern)) {
     const mapped = dishesOf(meal, c);
     if (!mapped) {
-      complete = false;
+      complete = named = false;
       continue;
     }
     for (const a of mapped.mayContain ?? []) may.add(a);
-    if (mapped.unknown) complete = false;
+    if (mapped.unknown) complete = named = false;
     for (const part of partsOf(mapped)) {
       if (!part) {
-        complete = false;
+        complete = named = false;
         continue;
       }
       for (const a of part.contains) contains.add(a);
       for (const a of part.mayContain) may.add(a);
       if (!part.complete) complete = false;
+      if (!part.named) named = false;
       for (const w of part.words) words.add(w);
     }
   }
-  return { contains: [...contains], mayContain: [...may].filter(a => !contains.has(a)), complete, words: [...words] };
+  return { contains: [...contains], mayContain: [...may].filter(a => !contains.has(a)), complete, named, words: [...words] };
 }
 
 /**

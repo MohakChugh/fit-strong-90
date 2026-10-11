@@ -9,8 +9,8 @@
  * - Carbs are FDC's "Carbohydrate, by difference": total, fibre included.
  * - The carb range adds each ingredient's own variance as an interval. A
  *   portion's variance is added when it's eaten (estimate.ts).
- * - Allergens are the union of the ingredients' tags. A dish with a blend of
- *   unknown make-up isn't fully tagged (B-13).
+ * - Allergens are the union of the ingredients' tags, each tagged by us. A
+ *   dish with a blend isn't known by name, so it isn't `named` (B-13).
  * - Seasonings at 2 g a serving or less have no FDC record and add nothing.
  */
 import type { Pattern, Slot } from '@/content/schema';
@@ -31,7 +31,11 @@ export interface Ingredient {
   proxy?: string;
   contains: readonly AllergenId[];
   mayContain: readonly AllergenId[];
-  /** A blend of unknown make-up: a dish with one isn't fully tagged. */
+  /**
+   * A blend whose make-up isn't known by name (compounded hing): its allergens
+   * are tagged, but a dish with one can't be matched against a custom
+   * allergy's words, so it isn't `named` (B-13, K7-02).
+   */
   blend?: true;
   animal?: 'dairy' | 'egg' | 'fish' | 'meat' | 'honey';
   /** A root vegetable or bulb, which Jain cooking leaves out (D100). */
@@ -181,7 +185,8 @@ function buildFood(r: Recipe, byKey: ReadonlyMap<string, Ingredient>, byDescript
   return {
     id: r.id, rev: r.rev, name: r.name, aliases: r.aliases, shelf: r.shelf, slots: r.slots, portion: r.portion,
     per100g: { kcal: per(kcal, 1), carbsG: per(carbs, 2), carbsLowG: per(low, 2), carbsHighG: per(high, 2) },
-    allergens: { contains, mayContain, complete: used.every(i => !i.blend) },
+    // Every ingredient carries our tags, so every dish is complete; a blend leaves it unnamed (K7-02).
+    allergens: { contains, mayContain, complete: true, named: used.every(i => !i.blend) },
     patterns: patternsOf(used),
     words,
     recipe: { note: r.note, hash: hashOf(r), ingredients: rows },

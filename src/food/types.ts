@@ -41,7 +41,8 @@ export interface Food {
   portion: Portion;
   /** Per 100 g of the dish as served. Carbs are total carbohydrate (D95); the range is the ingredients' own variance (D97). */
   per100g: { kcal: number; carbsG: number; carbsLowG: number; carbsHighG: number };
-  allergens: { contains: AllergenId[]; mayContain: AllergenId[]; complete: boolean };
+  /** `complete`: every ingredient's allergens are tagged. `named`: no blend in it, so a custom allergy can be matched (K7-02). */
+  allergens: { contains: AllergenId[]; mayContain: AllergenId[]; complete: boolean; named: boolean };
   patterns: Pattern[];
   /** Every word its name, aliases and ingredients go by, folded: what a custom allergy is matched against (B-13). */
   words: string[];

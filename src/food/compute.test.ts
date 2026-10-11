@@ -49,18 +49,19 @@ describe('buildFoodData (journey §11.6, B-12)', () => {
     expect(proxied.recipe.ingredients[1]).toEqual({ key: 'oil', name: 'oil', grams: 5, fdcId: 2, proxy: 'Stands in for an oil FDC lacks.' });
   });
   it('tags allergens from the ingredients, “may contain” apart from “contains”', () => {
-    expect(build([paratha]).foods[0].allergens).toEqual({ contains: ['wheat'], mayContain: [], complete: true });
+    expect(build([paratha]).foods[0].allergens).toEqual({ contains: ['wheat'], mayContain: [], complete: true, named: true });
     const dal: Recipe = { ...paratha, id: 'dal', ingredients: [['oil', 5], ['hing', 0.1], ['water', 55]] };
-    expect(build([dal]).foods[0].allergens).toEqual({ contains: [], mayContain: ['wheat'], complete: true });
+    expect(build([dal]).foods[0].allergens).toEqual({ contains: [], mayContain: ['wheat'], complete: true, named: true });
     // In Plan 5's order, once each, and never "may contain" what it contains.
     const rai = ing({ key: 'rai', contains: ['mustard'] });
     const maida = ing({ key: 'maida', fdc: 'Flour', contains: ['wheat'] });
     const tadka: Recipe = { ...paratha, id: 'tadka', ingredients: [['rai', 0.5], ['hing', 0.1], ['flour', 40], ['maida', 5]] };
-    expect(build([tadka], [...INGREDIENTS, rai, maida]).foods[0].allergens).toEqual({ contains: ['wheat', 'mustard'], mayContain: [], complete: true });
+    expect(build([tadka], [...INGREDIENTS, rai, maida]).foods[0].allergens).toEqual({ contains: ['wheat', 'mustard'], mayContain: [], complete: true, named: true });
   });
-  it('isn’t fully tagged with a blend in it (B-13)', () => {
-    const masala = ing({ key: 'masala', blend: true });
-    expect(build([{ ...paratha, ingredients: [['flour', 40], ['masala', 1]] }], [...INGREDIENTS, masala]).foods[0].allergens.complete).toBe(false);
+  it('isn’t known by name with a blend in it, though its allergens are tagged (B-13, K7-02)', () => {
+    const masala = ing({ key: 'masala', blend: true, mayContain: ['mustard'] });
+    expect(build([{ ...paratha, ingredients: [['flour', 40], ['masala', 1]] }], [...INGREDIENTS, masala]).foods[0].allergens)
+      .toEqual({ contains: ['wheat'], mayContain: ['mustard'], complete: true, named: false });
   });
   it('lists every word the dish and its ingredients go by, for custom allergies', () => {
     expect(build([paratha]).foods[0].words).toEqual(expect.arrayContaining(['paratha', 'parantha', 'wheat', 'flour', 'atta']));
