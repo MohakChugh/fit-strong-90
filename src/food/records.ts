@@ -154,6 +154,8 @@ export const newerByUpdate = byLatest(['updatedAt']);
  */
 export function upgradedItem(x: unknown, foodOf: (id: string) => CustomFood | undefined): unknown {
   if (!isObject(x) || !preSnapshot(x) || !isText(x.customId) || !isCount(x.count)) return x;
+  // A figure that can't be read is never made unknown: the item stays as it is, and is refused (H7F-05; D207).
+  if (!optional(x.kcal, v => isAmount(v, 10_000)) || !optional(x.carbsG, v => isAmount(v, 2_000))) return x;
   const food = foodOf(x.customId);
   const now = food && customItem(food, x.count);
   if (now && now.kcal === x.kcal && now.carbsG === x.carbsG) return { ...x, per: now.per, basis: now.basis, version: now.version };

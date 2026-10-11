@@ -204,6 +204,19 @@ describe('an own-food item logged before snapshots (H7R-01; board D146)', () => 
     expect(upgradedItem({ ...old, carbsG: undefined }, foods(lemon))).toEqual(bare);
     expect(itemProblem(bare)).toBeUndefined();
   });
+  it('never makes a figure that can’t be read into an unknown one: such an item stays as it is, and is refused (H7F-05; board D207)', () => {
+    for (const bad of [{ kcal: -1 }, { kcal: 20_000 }, { kcal: '300' }, { carbsG: -2 }, { carbsG: 3_000 }, { carbsG: Number.NaN }]) {
+      const item = { kind: 'custom', customId: 'gone', name: 'Lunch', count: 1, ...bad };
+      expect(upgradedItem(item, foods()), JSON.stringify(bad)).toBe(item);
+      expect(itemProblem(upgradedItem(item, foods())), JSON.stringify(bad)).toMatch(/Lunch/);
+    }
+    const doc = JSON.parse(JSON.stringify({
+      format: TRANSFER_FORMAT, version: 1, exportedAt: AT, schemaVersion: 6, observations: [], sessions: [], checkIns: [], personalRecords: [], bodyMetrics: [],
+      focusOverrides: {}, contentState: [], stores: ['meals'], records: { meals: [meal({ items: [{ kind: 'custom', customId: 'gone', name: 'Lunch', count: 1, kcal: -1 }] })] },
+    }));
+    const preview = previewImport(doc);
+    expect(preview.ok && preview.rejected?.meals).toBe(1);
+  });
   it('leaves every other item as it is: a snapshot, part of one, a table food, a quick add', () => {
     const items = [
       { ...old, per: { qty: 1, unit: 'plate' }, basis: { kcal: 333, carbsG: 52.5 }, version: AT },
