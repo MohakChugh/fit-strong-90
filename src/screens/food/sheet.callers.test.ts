@@ -173,3 +173,19 @@ describe('your own food in a logged meal, after it was redefined (H7-09; board D
     expect(item(h, 'Bhel puri')).toContain('1½ × 1 plate · Estimated 450 kcal');
   });
 });
+
+describe('your own food in a meal whose food is gone (H7-10; board D134)', () => {
+  it('reads its portion from its snapshot, and warns from its name, with what isn’t known', async () => {
+    const at = '2026-10-08T13:10:00.000+05:30';
+    const snap = { per: { qty: 1, unit: 'katori' }, basis: {}, version: at } as const;
+    const items = [
+      { kind: 'custom', customId: 'food-gone', name: 'Peanut chutney', count: 1, ...snap },
+      { kind: 'custom', customId: 'food-gone-2', name: 'Bhel puri', count: 1, ...snap },
+    ] as const;
+    expect((await food.saveMeal({ id: 'meal-1', at, day: '2026-10-08', meal: 'lunch', items: [...items], level: 'estimates', loggedAt: at, edits: [] })).ok).toBe(true);
+    const h = await open({ allergies: ['peanut'] }, { edit: 'meal-1' });
+    expect(item(h, 'Peanut chutney')).toContain('1 × 1 katori');
+    expect(item(h, 'Peanut chutney')).toContain('May contain peanut, which you listed as an allergy');
+    expect(item(h, 'Bhel puri')).toContain('What’s in it isn’t known. Check it for peanut.');
+  });
+});

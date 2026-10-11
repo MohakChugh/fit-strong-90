@@ -47,8 +47,17 @@ export function itemProblem(x: unknown): string | undefined {
       }
       return undefined;
     }
-    case 'custom':
-      return isText(x.customId) && isCount(x.count) ? undefined : `${name}: an impossible portion of your own food`;
+    case 'custom': {
+      if (!isText(x.customId) || !isCount(x.count)) return `${name}: an impossible portion of your own food`;
+      // Its snapshot, so it reads on its own whether or not the food is still here (board D134, H7-10).
+      const per = x.per;
+      if (!isObject(per) || !(typeof per.qty === 'number' && per.qty > 0 && per.qty <= 10_000) || !isText(per.unit, 20)) return `${name}: what one portion of your own food was can’t be read`;
+      const basis = x.basis;
+      if (!isObject(basis) || !optional(basis.kcal, v => isAmount(v, 5_000)) || !optional(basis.carbsG, v => isAmount(v, 1_000))) return `${name}: what your own food held can’t be read`;
+      if (!isAt(x.version)) return `${name}: which version of your own food it was can’t be read`;
+      if ((x.kcal === undefined) !== (basis.kcal === undefined) || (x.carbsG === undefined) !== (basis.carbsG === undefined)) return `${name}: your own food’s figures don’t match what it held`;
+      return undefined;
+    }
     case 'quick':
       if (x.size !== 'small' && x.size !== 'normal' && x.size !== 'large') return `${name}: a quick add needs its size`;
       return x.carbsG === undefined ? undefined : `${name}: a quick add never has carbs`;

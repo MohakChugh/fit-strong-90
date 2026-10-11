@@ -52,8 +52,38 @@ describe('a meal record (journey §18.2, B-12)', () => {
     expect(preview.ok && preview.rejected?.meals).toBe(1);
     expect(() => planImport(JSON.parse(JSON.stringify(doc)), 'merge', emptySnapshot())).toThrow(/could not be read, so nothing was changed/);
   });
+  it('requires your own food’s snapshot, so the item reads on its own; its food may be gone (H7-10; board D134)', () => {
+    const own = { kind: 'custom', customId: 'food-gone', name: 'Bhel puri', count: 1.5, per: { qty: 1, unit: 'plate' }, basis: { kcal: 300 }, version: AT, kcal: 450 };
+    expect(itemProblem(own)).toBeUndefined();
+    expect(itemProblem({ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1 })).toMatch(/your own food/);
+    const { per, basis, version, ...bare } = own;
+    void per; void basis; void version;
+    expect(itemProblem({ ...bare, basis: { kcal: 300 }, version: AT })).toMatch(/your own food/);
+    expect(itemProblem({ ...own, per: { qty: 0, unit: 'plate' } })).toMatch(/your own food/);
+    expect(itemProblem({ ...own, per: { qty: 1, unit: '' } })).toMatch(/your own food/);
+    expect(itemProblem({ ...own, version: 'yesterday' })).toMatch(/your own food/);
+    expect(itemProblem({ ...own, basis: { kcal: -1 } })).toMatch(/your own food/);
+    expect(itemProblem({ ...own, basis: 'a plate' })).toMatch(/your own food/);
+    // Its figures and its basis agree: one without the other can't be read.
+    expect(itemProblem({ ...own, basis: {} })).toMatch(/your own food/);
+    expect(itemProblem({ ...own, kcal: undefined })).toMatch(/your own food/);
+    expect(itemProblem({ ...own, carbsG: 40 })).toMatch(/your own food/);
+  });
+  it('takes a backup whose meal names an own food it doesn’t hold, read from the item’s snapshot, and refuses one without (H7-10)', () => {
+    const doc = (item: Record<string, unknown>) => JSON.parse(JSON.stringify({
+      format: TRANSFER_FORMAT, version: 1, exportedAt: AT, schemaVersion: 6, observations: [], sessions: [], checkIns: [], personalRecords: [], bodyMetrics: [],
+      focusOverrides: {}, contentState: [], stores: ['meals', 'customFoods'], records: { meals: [meal({ items: [item] })], customFoods: [] },
+    }));
+    const snapshot = { kind: 'custom', customId: 'missing', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: {}, version: AT };
+    const ok = previewImport(doc(snapshot));
+    expect(ok.ok && ok.rejected?.meals).toBe(0);
+    const { per, basis, version, ...bare } = snapshot;
+    void per; void basis; void version;
+    const refused = previewImport(doc(bare));
+    expect(refused.ok && refused.rejected?.meals).toBe(1);
+  });
   it('takes an unknown figure as unknown, never as 0 (A-17)', () => {
-    expect(itemProblem({ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1 })).toBeUndefined();
+    expect(itemProblem({ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: {}, version: AT })).toBeUndefined();
     expect(itemProblem({ kind: 'quick', size: 'normal', name: 'Normal plate' })).toBeUndefined();
   });
 });

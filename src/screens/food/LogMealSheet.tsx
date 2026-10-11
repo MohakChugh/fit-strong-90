@@ -105,8 +105,8 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
       const food = foodById(item.foodId);
       return food ? foodWarning(food) : undefined;
     }
-    const custom = item.kind === 'custom' ? look.custom(item.customId) : undefined;
-    return custom ? customWarning(custom) : undefined;
+    // Your own food as it is now, or, when it's gone, its name alone with nothing known of it (H7-10).
+    return item.kind === 'custom' ? allergyWarning(ownFoodTags({ name: item.name, allergens: look.custom(item.customId)?.allergens }), allergies) : undefined;
   };
   const portionOf = (item: MealItem) => {
     if (item.kind === 'quick') return item.name;
