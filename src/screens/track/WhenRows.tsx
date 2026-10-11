@@ -14,7 +14,8 @@ import { formatDayRelative } from './format';
 import { today } from './periods';
 import { useToday } from './useToday';
 
-const INPUT = 'numeric min-h-11 min-w-0 rounded-lg bg-grouped-bg px-2 text-right text-[length:var(--text-body)] text-foreground';
+// 48 px, as §20.4 rule 1 asks of every target (board D141, K7-08).
+const INPUT = 'numeric min-h-12 min-w-0 rounded-lg bg-grouped-bg px-2 text-right text-[length:var(--text-body)] text-foreground';
 
 /**
  * A clock time, as a `datetime-local` value, or undefined for "now" — or for

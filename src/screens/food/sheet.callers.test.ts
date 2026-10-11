@@ -607,6 +607,11 @@ describe('an open time picker on a past day’s meal (H7R-05, K7-12)', () => {
     await h.click(h.button('Save meal', { exact: true }));
     expect(mealsIn(store.getState().records).map(m => m.at)).toEqual(['2026-10-05T20:30:00.000+05:30']);
   });
+  it('is 48 px tall, as every target in the sheet (K7-08’s partial; board D141)', async () => {
+    const h = await open({}, { day: '2026-10-05', meal: 'breakfast' });
+    await h.click(h.button(/^When/));
+    expect(String(h.field('When').props.className).split(' ')).toContain('min-h-12');
+  });
   it('keeps a time the person set, whatever the meal', async () => {
     const h = await open({}, { day: '2026-10-05', meal: 'breakfast' });
     await h.click(h.button(/^Add Roti \(whole-wheat\)/));

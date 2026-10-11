@@ -283,6 +283,10 @@ describe('removing a usual meal, with a visible “Remove” (H7-17, K7-09; boar
     const remove = host.all().find(n => n.type === 'button' && textOf(n.children) === 'Remove');
     expect(remove?.props['aria-label']).toBe('Remove Weekday lunch');
     expect(String(remove?.props.className).split(' ')).toEqual(expect.arrayContaining(['min-h-12', 'min-w-12']));
+    // 12 px from its row however narrow, when it goes below it (K7-08's partial; board D141).
+    const row = host.all().find(n => String(n.props.className ?? '').includes('@max-[22rem]:flex-col'))!;
+    expect(String(row.props.className).split(' ')).toContain('@max-[22rem]:gap-3');
+    expect(String(row.props.className)).not.toContain('gap-0');
     await host.click(remove!);
     expect(store.getState().records.savedMeals).toEqual([]);
   });
