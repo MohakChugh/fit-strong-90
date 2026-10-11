@@ -1281,3 +1281,57 @@ Left for later, not in this round's findings:
 Production build: `npm run build` succeeds, and the CSP's `img-src` is `'self' data: blob: https://tile.openstreetmap.org` (written HTML-escaped in `dist/index.html`).
 
 **Acceptance.** The first full run (1012 cases) passed 1007. The five failures were the journeys, not the app: J17's partial-save walk counted 2.02 minutes, its monotonic clock keeping real time while the journey froze the wall clock (H6-09), and V02 small-dark read the walk's tab copy a moment before the live screen stored it, under load. `ee5d9f6` runs J17's walk on the wall-following clock and has V02 and V19 wait for the stored walk; no assertion was changed or removed. **The final full run, on `ee5d9f6`: 1012 cases, 1012 passed, 0 failed, in 63.5 min**, J10, J11, V02, V16, V19, V20, V33 and V34 included in all four projects. Its screen sweep (not failures): offline `net::ERR_FAILED` console lines in J20 and V16, as expected; Browse's More menu exposing no level-1 heading or main landmark (VJ12, Plan 4's); and the 20 × 20 px checkboxes inside 44 px rows on the stop questions in `/session` and `/walk/live` (J13, J16), as before.
+
+### 2026-10-12 — [claude] Plan 6, round 2: Codex's H6R and Kiro's K6R findings, and P8S-02
+
+Branch `feat/v2-p6c`, from `feat/v2-journey` at `f5dab1c`. Each fix began with a test that failed on the code the finding named; each new rule's mutants fail a test (survivors were equivalent, and the code was simplified instead). Gates at every commit: `tsc -b --force`, `eslint .`, `vitest run --maxWorkers=3`.
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| D170 | **An unanswered stop is a durable incident.** "I need to stop" saves `stopped`; until the stop's own questions answer it (`news:stopped@<day>`, recorded as an answer with history), it holds every movement, on its day and carried to every day after, and the engine reads its day from any later one. A later check-in answers nothing; a stop said again reopens it | H6R-01, K6R-13; J§4.4 |
+| D171 | **An unanswered stop outranks Away, Unwell and a flare-up** in `heldBy`: emergency and today first, then the stop, then the status | K6R-02; J§4.2, §7.5 |
+| D172 | **"I feel low" stays in view for anyone who can go low under every hold but an emergency**, and is the stop questions' first choice for them, answering the stop through the low flow | K6R-01 |
+| D173 | **"Say what happened" on the shared safety surface, every movement hub and the check-in**, in those words, opening the walk's own stop questions (one StopSheet above the routes). The check-in shows the stop as a sentence with that button, never a box to untick, and None of these keeps it. A sheet closes before the questions open | K6R-03; B-02 |
+| D174 | **The clock-change hold is the device's** (`settings.walk.clock`: a generation count and the days either side of the latest change), not the walk's: it reaches every gate (attached to every effective record, `clockHold`, never stored) and outlasts Finish. Readings carry the generation they were taken in (`gen`), stamped inside their write; one resubmitted, retimed in the check-in (time chosen, number unchanged) or corrected in Track keeps its own, and an import drops the file's. Only a current reading of the latest generation releases it, and readings are ordered by generation first, then time. Supersedes D88's walk-level list of untimed readings | H6R-02, H6R-03; B-19, J§4.6 |
+| D175 | **An import keeps this device's standing for each mode and each answer.** The days it keeps are chosen by any mode's refusal too (a foot sore refuses only walking), not the day's overall rank; and beside the file's copy of a kept day, the file's raw reports of anything the device knows for that day (news, foot problems, back red flags) are dropped, so the device's answer or untick decides | H6R-04, H6R-05; H6-03, P8-02 |
+| D176 | **Route privacy is checked inside every write, by count and identity.** Each journal checkpoint reads this phone's consent and erase record in its own transaction and drops the route if either says so. Walk answers are written field by field against the stored settings (`setWalkSettings`). "Erase all routes" moves this phone's erase count on (`settings.walk.erased`) and names every route it erased by walk id (saved, journalled, deleted before); a walk keeps its route only if it began in the latest count (`WalkPlan.routeGen`), and a file's route only if no erase named it. Never by the wall clock; an import or a Replace never changes it. Supersedes D93's `routesErasedAt` | H6R-06, H6R-07, H6R-08, K6R-12; B-05 |
+| D177 | **An erase is shown only once stored** (`hold`): a failed erase never reaches a tab, a cache or a live walk | H6R-09 |
+| D178 | **While a route is read back after a reload, checkpoints keep the journal's lines beside the new ones** (`keepJournalled`, merged by when each line began, in the store's transaction), and a save always merges the journal's lines with the screen's. Leaving or finishing then loses neither. Supersedes D89's "journals nothing until read back" | H6R-10; H6-06 |
+| D179 | **The stop questions wait for each answer to save**, keep a refused answer as given, and offer Try again in the sheet | H6R-11; J§4.5, B-03 |
+| D180 | **A segment's midnight comes from its own persisted offset**, and the segment after midnight keeps it; a new offset starts only at the change, in its own segment | H6R-12; H6-10 |
+| D181 | **Done pops only to the walk's own origin**; with another screen behind the summary, the origin takes its place | H6R-14; M12 |
+| D182 | **"Erase all routes" asks twice**, in Delete everything's pattern, at the large detent: the first step says new walks still keep their route while Keep walk routes is on; Data says "All routes erased." once stored | H6R-15, K6R-04, K6R-11; §20.4 rule 6 |
+| D183 | **Both first-walk consent answers carry the same weight**: two secondary buttons, for routes and for map pictures | K6R-06; §24 |
+| D184 | **A walk away longer than the live screen carries one on** (`STALE_AFTER_MS`, 3 h, one `leftOpen` threshold for both) gets "A walk was left open" and Review and save on the Walk hub, never Return to walk; Review and save ends it left open, as the live screen would. M02's gate case now carries a walk on just past midnight (under 3 h), and expects Review and save the next morning | integrator item; H2-01 |
+| D185 | **The page watches the phone's clock too**, walking or not (`clockWatch`, started with the store): each minute in view and on hiding it compares the device clock with `performance.now()`, and a disagreement past 120 s marks the change through D174, once. Coming back into view only a clock set back counts: an iPhone's monotonic clock stands still while it sleeps, so a clock set forward then can't be told from a locked phone, and a forward change only makes readings look older | P8S-02; B-19 |
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| H6R-01, K6R-13 | D170 | `38d6cca` |
+| K6R-02 | D171 | `dedc090` |
+| K6R-01 | D172 | `31a7ba5` |
+| H6R-11 | D179 | `1a05806` |
+| K6R-03 | D173 | `c485f63` |
+| Integrator (stale walk) | D184; M02 waits for the summary | `5425372`, `0758e22` |
+| H6R-02, H6R-03 | D174 | `88c24de` |
+| H6R-04 | D175, by mode | `0682317` |
+| H6R-05 | D175, standing | `c391a46` |
+| H6R-07 | D176, field by field | `c395f91` |
+| H6R-08, K6R-12 | D176, count and identity | `15572c8` |
+| H6R-06 | D176, inside each checkpoint | `4fb3f25` |
+| H6R-09 | D177 | `6e21365` |
+| H6R-10 | D178 | `2a8a471` |
+| H6R-12 | D180 | `55548e1` |
+| H6R-14 | D181 | `c946f4c` |
+| K6R-14 | The live walk checkpoints at once when Keep walk routes is turned off | `b6f3f52` |
+| K6R-08 | "Only used with kept routes" for an unasked map on a phone that keeps none | `b9d5b14` |
+| K6R-06 | D183 | `0e857f4` |
+| K6R-07 | Stop questions' chips and rows `TARGET.tap`, chips `TARGET.gap` apart; a hold's one action `TARGET.primary` | `4deeec3` |
+| K6R-10 | Both route notes say how to take the file's routes, singular or plural; Replace counts this phone's routes once | `583be19` |
+| H6R-15, K6R-04, K6R-11 | D182 | `f071d5d`, `f4949b5` |
+| K6R-05 | "Erasing also clears the route of a walk not yet saved. The walk stays." | `7e094b8` |
+| K6R-09 | Data waits for a walk answer to save, and says "That change wasn't saved" with the reason | `3889ae4` |
+| P8S-02 | D185 | `6e94b68` |
+| H6R-13 | No change: the Data switches are 51 × 48 px at 100% and 102 × 96 at 200% (`Toggle` since `e334e91`), so the Row's own height no longer matters | — |
+
+Checked in headless Chromium at 428 px and 320 px/200% (screenshots in `/tmp/fit-checks/shots-p6b/r2-*`): "Say what happened" on the surface, the Walk hub's card and the check-in row; the stop questions' chips 48 px tall at 100%; both erase steps, focus on the second question, "All routes erased."; equal consent buttons; the left-open card. No console errors. Seen, not changed (as before this round): at 320 px/200% the shared surface's headline breaks "exercise" mid-word.
