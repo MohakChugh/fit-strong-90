@@ -948,3 +948,66 @@ Runs, port 50021:
   - J11's 16 failures all stop at Plan 6's first-walk question, "Keep a record of your route on this phone?", which Plan 6 Task 15 answers in the harness.
   - VJ12's pick-mode case failed in all four projects at step 3. Task 15 had made "+ Add"'s body lazy, and it wasn't in yet when the sheet showed. Edit Home now loads it as it opens, so the sheet opens with its rows (Plan 7's result, below).
 - VJ12, S01 and J20 ran again after that fix: see Plan 7's result, below.
+
+### 2026-10-11 — [claude] v2 Plan 7 (Food): result
+
+- Food is a hub with three levels: meal ideas only (the default), meals with no numbers (counts-free), and meals with estimates. Turning logging on happens in place, on the hub. Estimates come only after "Has food or weight ever been hard for you?", and the answer is kept as `food.hardBefore`.
+- A meal is logged in the "Log a meal" sheet. A usual meal takes three taps. "Lunch saved" shows only once the meal is stored. Undo stays until the person leaves the screen, at most two deep. Corrections keep their earlier versions.
+- Estimates come from 42 Indian dishes, worked out at build time from FDC SR Legacy ingredients and our own recipes. "Estimated" is before every figure, and carbs show as ranges where K-22 asks.
+- Counts-free shows no calorie, carb or movement-energy figure anywhere, old records included. That covers walk summaries, a walk's own screen, and My Day's reading for an estimate whose walk is gone (B-11, D101).
+- Allergies are hard exclusions from every meal idea. Logging a food that contains one still works, and warns.
+- The food table stays off the first screen. Edit Home loads "+ Add"'s Browse in pick mode as it opens, so the sheet still opens with its rows.
+
+**Reviews.** Codex and Kiro (Task 17 Steps 1–2) were not run, on the coordinator's instruction; the coordinator runs them. A separate Claude agent reviewed the code read-only, against the plan's rules, and found three things:
+
+| Finding | Outcome | Test |
+| --- | --- | --- |
+| Undo on a deleted meal or usual meal could store it twice. A second tap while the first restore saved, or as the toast left, wrote another copy under another fresh id (B-05) | Accepted. `src/screens/food/undo.ts` writes one restore at a time, and none once the record is back | `undo.test.ts`, "stores the record back once…" |
+| A food's portion page showed carbs as a range without "Carb figures are rough estimates. Follow your care team’s plan." (K-22) | Accepted. `PortionPage` now says it under the estimate, as the tray's footer does | `parts.test.ts` |
+| With ranges on, an own food's carbs (a figure the person typed) add up as one figure. A meal of own foods only reads "about 40 g carbs", not a range (J§11.4) | Declined for now. The plan's own test pins this (`format.test.ts`). A range would need a variance for a typed figure, which D97 doesn't define, and choosing one is a new decision that needs a number from the coordinator | — |
+
+**Food data.** The extract (`scripts/food/fdc-ingredients.json`) holds 46 SR Legacy records, taken on 2026-10-11 from the file in the source record above. Four of the plan's descriptions weren't SR Legacy's exact wording. They were corrected from `extract-fdc.ts`'s closest matches:
+- "Wheat flour, whole-grain" became "Wheat flour, whole-grain (Includes foods for USDA's Food Distribution Program)".
+- "Mung beans, mature seeds, sprouted, boiled, drained, without salt" became "Mung beans, mature seeds, sprouted, cooked, boiled, drained, without salt".
+- "Cheese, queso fresco" became "Cheese, fresh, queso fresco".
+- "Chicken, broilers or fryers, thigh, meat only, raw" became "Chicken, broilers or fryers, dark meat, thigh, meat only, raw".
+
+Every dish's standard portion is within 5% of its reviewed expectation (`scripts/food/expected.ts`); the test allows 20%.
+
+Where the tasks differ from the plan's text, and why:
+- **Task 2:** Steps 1, 6 and 8 were already done by Plan 5 (D82), and Step 7 passed as expected.
+- **Task 3:** a custom allergy that names an allergen inside a longer phrase counts as that allergen and also as its own words. "Coconut milk" reads as milk and stays "coconut milk", so the coconut allergy isn't lost.
+- **Task 5:**
+  - The app's credit is FDC's own citation, with the extraction date (see the source record).
+  - `tsconfig.app.json` reads JSON modules.
+  - The content schema has a `dataset` kind for the FDC source.
+  - The estimates claim starts "This app works out…", so the content checker's safety rule passes.
+- **Task 7:** the food picker bounds custom allergies as an import does (`parseAllergies`).
+- **Tasks 10 and 14:** "Added ✓" carries its own tick, with no second icon. A screen's Undo outlives React StrictMode's at-once remount, so returning to Today's log keeps it.
+- **Task 15:**
+  - The chain that put the food table on the first screen ran Home → Edit Home → `@/content` → `content/week.ts` → `@/food/data`. "+ Add"'s body (`src/screens/home/PickBody.tsx`) is now loaded apart.
+  - Edit Home starts that load as it opens. The sheet then renders the loaded body in the frame it opens, chosen once per opening. Until it has loaded, the sheet waits for it. Plain `lazy()` left the sheet empty for a moment, and VJ12's pick-mode case counted its rows then (Task 16's full run).
+  - The walk screens ask `countsFree()` where each figure is drawn.
+  - My Day passes `countsFree` to the timeline, which leaves out an energy reading whose walk is gone.
+  - `track/format.ts` and `track/metrics.ts` are words-only, with the callers that gate them named.
+  - `countsFree.callers.test.ts` drives the real screens over the real store.
+
+Merge notes:
+- **With `feat/v2-p6b`,** `src/screens/walk/WalkSummary.tsx` conflicts on one line: this branch's `rows` against Plan 6b's added `fix`. Keep both, and give `fix` the same gate, `const fix = countsFree(profile) ? undefined : energyFix(energy.estimate);`, since its row asks for an energy estimate.
+  - `src/screens/you/summaries.test.ts`, `src/store/useStore.ts` and `src/store/useStore.test.ts` also conflict, by `git merge-tree`.
+  - `RecordDetails.tsx` merges cleanly.
+- **Trends (Plan 3)** keeps `/trends/food` on the hub. A Food series reads `dailyNutrition(meals, from, to, numbersView(profile))`. With ranges on, carbs need their range, not `carbsG`: `totalsOf` has `carbsLowG` and `carbsHighG`. A walk-energy series must ask `countsFree()` too.
+
+Left for later:
+- The Codex and Kiro reviews, which the coordinator runs.
+- Food's trend (Plan 3).
+- Browse's food results (Plan 8): `searchFoods()`, `foodRowDetail()` and `logHref({ food })` are ready.
+- Recently deleted (Plan 8).
+- A range for own foods' carbs, if the coordinator gives it a decision.
+
+Runs, port 50021:
+- The unit gates pass: 216 test files, 5,846 tests.
+- After the pick-sheet fix, VJ12, S01 and J20 gave 60 of 60 in 6.6 min.
+- With the full run above, every journey passes in all four projects, with two exceptions:
+  - J11 stops at Plan 6's first-walk question.
+  - V-J31 is pending on Food's trend.

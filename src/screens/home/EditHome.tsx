@@ -7,7 +7,7 @@
  * (journey §20.4 rule 3), so the handle is a picture of an affordance, hidden
  * from assistive technology like a sheet's grabber.
  */
-import { lazy, Suspense, useId, useRef, useState, type PointerEvent } from 'react';
+import { lazy, Suspense, useEffect, useId, useRef, useState, type ComponentProps, type PointerEvent } from 'react';
 import { GripVerticalIcon, PlusIcon } from 'lucide-react';
 import { GROUPS, MAX_PER_GROUP, categoryById, type CategoryId, type GroupId } from '@/categories';
 import { MOTION, springLinear } from '@/design/motion';
@@ -17,11 +17,15 @@ import type { HomeLayout } from '@/types';
 import type { HomeEditor } from './editor';
 import { addButton, groupFull, hiddenTiles } from './layout';
 import { EditButton } from './EditButton';
+import type { PickBody as Picker } from './PickBody';
 import { TileIcon } from './Tile';
 
-// Browse in pick mode, loaded when "+ Add" first opens: it brings the content
-// library and the food table, which stay off the first screen (Plan 7).
-const PickBody = lazy(() => import('./PickBody').then(m => ({ default: m.PickBody })));
+// "+ Add"'s body is Browse in pick mode, which brings the content library and
+// the food table: they stay off the first screen (Plan 7). Edit Home starts
+// loading it as it opens, so the sheet opens with its rows.
+let loadedPicker: typeof Picker | undefined;
+const loadPicker = () => import('./PickBody').then(m => (loadedPicker = m.PickBody));
+const LazyPicker = lazy(() => loadPicker().then(PickBody => ({ default: PickBody })));
 
 /** The others make room for a dragged tile with `spring-quick` (M17); the dragged one follows the finger 1:1. */
 const MAKE_ROOM = `transform ${MOTION.springQuick.cssMs}ms ${springLinear(0)}`;
@@ -30,6 +34,8 @@ export function EditTiles({ layout, editor }: { layout: HomeLayout; editor: Home
   const titleId = useId();
   const groups = GROUPS.filter(g => layout.order[g.id].length > 0);
   const hidden = hiddenTiles(layout);
+  // Ready before "+ Add" is tapped. A load that fails here is tried again as the sheet opens.
+  useEffect(() => { void loadPicker().catch(() => {}); }, []);
   return (
     <section aria-labelledby={titleId} className="flex flex-col gap-4">
       <div className="flex flex-col gap-1 px-1">
@@ -264,7 +270,13 @@ export function PickSheet({ open, onOpenChange, layout, onAdd }: {
       // Opened from its address (`#/browse?pick=1`), nothing opened it: focus goes to "+ Add", pick mode's own way in (B-03).
       returnFocus={() => document.querySelector<HTMLElement>('[data-control="add"]')}
     >
-      {open && <Suspense fallback={null}><PickBody layout={layout} onAdd={onAdd} onDone={() => onOpenChange(false)} /></Suspense>}
+      {open && <Suspense fallback={null}><PickerOnce layout={layout} onAdd={onAdd} onDone={() => onOpenChange(false)} /></Suspense>}
     </Sheet>
   );
+}
+
+/** The loaded body, or the lazy one while it loads: chosen once per opening, so it never remounts while the sheet is open. */
+function PickerOnce(props: ComponentProps<typeof Picker>) {
+  const [Body] = useState(() => loadedPicker ?? LazyPicker);
+  return <Body {...props} />;
 }

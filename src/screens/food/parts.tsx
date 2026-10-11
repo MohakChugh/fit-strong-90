@@ -158,6 +158,8 @@ export function PortionPage({ food, item, numbers, allergies, look, onBack, onSa
             moreDisabled={draft.count >= MAX_COUNT}
           />
           {estimate && <p className="text-center text-[length:var(--text-subhead)] text-muted-foreground">{estimate}</p>}
+          {/* The tray's footer says it there; this page stands in for the tray (K-22). */}
+          {estimate && numbers.show && numbers.ranges && <p className="text-center text-[length:var(--text-footnote)] text-muted-foreground">{FOOD_COPY.roughCarbs}</p>}
           {warning && <p className="text-[length:var(--text-subhead)] text-caution">{warning}</p>}
         </div>
       </Group>

@@ -51,6 +51,23 @@ describe('Undo for a food delete (B-04, B-05)', () => {
     await vi.waitFor(() => expect(shown.map(s => s.text)).toContain('Lunch deleted back'));
     expect(dismissed).toEqual([keyOf('Lunch deleted')]);
   });
+  it('stores the record back once, however often Undo is tapped while it saves or as the toast leaves', async () => {
+    let finish!: (problem: string | undefined) => void;
+    const undo = vi.fn(() => new Promise<string | undefined>(resolve => { finish = resolve; }));
+    offer('Lunch deleted', '/hub/food', undo);
+    const event = { preventDefault: vi.fn() };
+    // A shaky double tap: the second lands while the first is being written.
+    shown[0].options!.action!.onClick(event);
+    shown[0].options!.action!.onClick(event);
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(event.preventDefault).toHaveBeenCalledTimes(2);
+    finish(undefined);
+    await vi.waitFor(() => expect(shown.map(s => s.text)).toContain('Lunch deleted back'));
+    // The toast is on its way out, and still takes a tap.
+    shown[0].options!.action!.onClick(event);
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(shown.filter(s => s.text === 'Lunch deleted back')).toHaveLength(1);
+  });
   it('ends a screen’s Undo when the screen is left, not when it remounts at once (React StrictMode)', () => {
     vi.useFakeTimers();
     try {

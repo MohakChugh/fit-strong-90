@@ -38,6 +38,9 @@ export function offerFoodUndo({ text, restored, scope, undo }: {
     toast.dismiss(oldest.key);
     offers = rest;
   }
+  // One write at a time, and none once it's back: each restore takes a fresh id,
+  // so a second tap while the first saves, or as the toast leaves, would store it twice.
+  let state: 'ready' | 'saving' | 'back' = 'ready';
   toast(text, {
     id: key, duration: Infinity, style: TOAST_STYLE, actionButtonStyle: UNDO_STYLE,
     action: {
@@ -45,11 +48,15 @@ export function offerFoodUndo({ text, restored, scope, undo }: {
       onClick: event => {
         // The toast stays until the record is stored back (as Edit Home's Undo does).
         event.preventDefault();
+        if (state !== 'ready') return;
+        state = 'saving';
         void undo().then(problem => {
           if (problem) {
+            state = 'ready';
             toast(`${FOOD_COPY.didNotSave} ${problem}`, { style: TOAST_STYLE });
             return;
           }
+          state = 'back';
           forget(key);
           toast.dismiss(key);
           toast(restored, { style: TOAST_STYLE });
