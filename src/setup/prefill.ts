@@ -134,15 +134,19 @@ export function answersFromProfile(p: UserProfile, s: Kept): SetupAnswers {
 }
 
 /**
- * What setup starts from when nothing was drafted: what the record already
- * says (K-57, §6.4). An unreviewed profile's health, medicine and pain values
- * may be defaults nobody gave, so setup asks those again (contract H-DATA).
+ * An unreviewed profile's health, medicine and pain values may be defaults
+ * nobody gave, so they're asked again, never shown as answers (contract
+ * H-DATA). The same rule for setup and for Me's review (H5-10, K5-01).
  */
-export function prefillAnswers(settings: Kept, profile: UserProfile | undefined): SetupAnswers {
-  if (!profile) return { metric: settings.useMetric, ...(settings.focus ? { focus: settings.focus } : {}) };
-  const out = answersFromProfile(profile, settings);
+function withoutUnreviewed(out: SetupAnswers, profile: UserProfile): SetupAnswers {
   if (profile.needsHealthReview) for (const c of SAFETY_CHAPTERS) for (const k of keysOfChapter(c)) delete out[k];
   return out;
+}
+
+/** What setup starts from when nothing was drafted: what the record already says (K-57, §6.4), less what an unreviewed profile can't vouch for. */
+export function prefillAnswers(settings: Kept, profile: UserProfile | undefined): SetupAnswers {
+  if (!profile) return { metric: settings.useMetric, ...(settings.focus ? { focus: settings.focus } : {}) };
+  return withoutUnreviewed(answersFromProfile(profile, settings), profile);
 }
 
 const read = (o: unknown, path: string): unknown =>
@@ -153,7 +157,7 @@ const read = (o: unknown, path: string): unknown =>
  * by chapter, they still give the record as it is. A chapter whose fields
  * were changed somewhere else since (a fluid limit set in Reminders, say)
  * takes what the record says now. So "Not sure" survives, and an edit made
- * elsewhere is never undone.
+ * elsewhere is never undone. A pending review asks its questions again.
  */
 export function answersToEdit(stored: SetupAnswers | undefined, p: UserProfile, s: UserSettings, today: string, ctx: Ctx): SetupAnswers {
   const out: SetupAnswers = answersFromProfile(p, s);
@@ -167,6 +171,7 @@ export function answersToEdit(stored: SetupAnswers | undefined, p: UserProfile, 
     }
     if (stored.skippedPages) out.skippedPages = [...stored.skippedPages];
   }
+  withoutUnreviewed(out, p);
   // Membership has one definition (D35): this answer always says what's true now.
   if (isEnrolled(s, p)) out.programme = 'joined';
   else if (out.programme === 'joined') delete out.programme;

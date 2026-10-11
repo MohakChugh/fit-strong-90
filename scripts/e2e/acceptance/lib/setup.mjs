@@ -207,12 +207,32 @@ export async function save(t, { expectSaved = true } = {}) {
   if (expectSaved) await main.getByText('Saved. Home uses your new answers.', { exact: true }).waitFor({ timeout: 15000 });
 }
 
-/** P01's review (codex-acceptance J02 step 3): what the variant left unanswered, in the review editor. */
+/**
+ * P01's review (codex-acceptance J02 step 3), in the review editor. A pending
+ * review asks every safety question again, with nothing the record holds shown
+ * as an answer (H5-10, K5-01), so each is answered as P01 would: type 2
+ * diabetes, treated high blood pressure, and back pain with sciatica on the
+ * left; metformin since 2019 and nothing else; no prior DKA.
+ */
 export async function reviewAsP01(main) {
+  await tick(main, 'Diabetes');
+  await tick(main, 'High blood pressure');
+  await tick(main, 'Back pain, sciatica or other pain');
+  await choose(main, 'Which type of diabetes?', 'Type 2');
+  await choose(main, 'Do you take medicine for high blood pressure?', 'Yes');
+  await choose(main, 'Has a clinician cleared you to exercise?', 'Yes, for vigorous exercise');
   await choose(main, 'Has a clinician given you any limits or targets?', 'No');
   await choose(main, 'Do you take any regular medicines?', 'Yes');
   await tick(main, 'Metformin');
   await fill(main, 'Year you started metformin (optional)', '2019');
   await choose(main, 'Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?', 'No');
+  await choose(main, 'Do you get dizzy when you stand up?', 'No');
+  await choose(main, 'Glucose meter or sensor', 'A glucose meter (finger-prick)');
+  await choose(main, 'Glucose unit', 'mg/dL');
+  await choose(main, 'Home blood-pressure cuff', 'Yes');
+  await tick(main, 'Lower back');
+  await tick(main, 'Sciatica (pain down the leg)');
+  await choose(main, 'Which leg?', 'Left leg');
+  await choose(main, 'What makes it worse?', 'Sitting or bending forward');
   await choose(main, 'Has a doctor ever said a nerve in your back or leg was damaged?', 'No');
 }

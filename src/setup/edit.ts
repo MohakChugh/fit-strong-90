@@ -6,6 +6,7 @@
  * is then, so another open copy's answers stay (scan D-03).
  */
 import type { AppData, UserSettings } from '@/types';
+import type { UserProfile } from '@/types/profile';
 import type { ChapterId, PageId, SetupAnswers } from '@/types/setup';
 import { CHAPTER_IDS } from '@/types/setup';
 import { profileChanges, withProfileChanges } from '@/components/profile/wizardSteps';
@@ -15,7 +16,7 @@ import { withJoinAnswers } from '@/programme/join';
 import { sameValue } from '@/store/transfer';
 import { profileFrom, settingsFrom } from './assemble';
 import { factsOf } from './facts';
-import { chapterOf, pageDone, pathFor, type Ctx } from './graph';
+import { SAFETY_CHAPTERS, chapterOf, commitPage, pageDef, pageDone, pathFor, type Ctx } from './graph';
 import { setupStateOf } from './state';
 
 export interface ChapterEdit {
@@ -56,6 +57,31 @@ export function editPath(chapters: readonly ChapterId[], a: SetupAnswers, opened
     && (chapters.includes(chapterOf(id) as ChapterId) || (!pageDone(id, a, ctx) && !waiting.has(id))));
   // Your back and feet has no page without a pain or foot answer: the question that brings them is shown instead.
   return path.length === 0 && chapters.includes('backFeet') ? ['health.conditions'] : path;
+}
+
+/** The chapters Me opens for one: while a health review is pending, the three safety chapters together, since only all three answered clear it. */
+export function askedChapters(chapter: ChapterId, profile: UserProfile | undefined): readonly ChapterId[] {
+  return profile?.needsHealthReview === true && SAFETY_CHAPTERS.includes(chapter) ? SAFETY_CHAPTERS : [chapter];
+}
+
+/** Me's chapter editor as its answers stand (journey §16): what it shows, what Save would store, and what Save waits for. */
+export interface EditorState {
+  chapters: ChapterId[];
+  pages: PageId[];
+  /** What Save stores: each shown page as `commitPage` keeps it. */
+  committed: SetupAnswers;
+  /** Shown pages left unanswered. A preference page among them stays under Finish setting up. */
+  left: PageId[];
+  /** The pages Save waits for. */
+  blocking: PageId[];
+}
+
+export function editorState(asked: readonly ChapterId[], a: SetupAnswers, opened: SetupAnswers, ctx: Ctx): EditorState {
+  const chapters = editChapters(asked, a, opened);
+  const pages = editPath(chapters, a, opened, ctx);
+  const committed = pages.reduce((x, id) => commitPage(id, x), a);
+  const left = pages.filter(id => !pageDone(id, committed, ctx));
+  return { chapters, pages, committed, left, blocking: left.filter(id => !pageDef(id).skippable) };
 }
 
 type Bag = Record<string, unknown>;

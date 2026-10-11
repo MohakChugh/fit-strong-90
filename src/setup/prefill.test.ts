@@ -3,13 +3,17 @@ import type { AppData, UserSettings } from '@/types';
 import { createDefaultProfile } from '@/profile/defaults';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import { profileFrom } from './assemble';
+import { editedRecord, editorState } from './edit';
+import { keysOfChapter } from './fields';
 import { UNSURE } from './fixtures';
-import { pageDone } from './graph';
+import { SAFETY_CHAPTERS, pageDone } from './graph';
 import { answersFromProfile, answersToEdit, prefillAnswers } from './prefill';
 
 const TODAY = '2026-10-10';
 const CTX = { thisYear: 2026 };
 const S: UserSettings = { ...migrateData({ version: CURRENT_VERSION } as AppData).settings, useMetric: true, startDate: '2026-09-24', focus: 'strength' };
+const recordOf = (profile: AppData['profile'], settings: UserSettings = S): AppData =>
+  ({ ...migrateData({ version: CURRENT_VERSION } as AppData), profile, settings: { ...settings, onboardingComplete: true } });
 
 /** P01 of codex-acceptance.md, as v1 stored it. */
 const P01 = createDefaultProfile({
@@ -115,6 +119,29 @@ describe('the answers Me edits with (§16)', () => {
     expect(a.fluidLimit).toBe('yes');
     expect(a.conditions?.diabetes).toBe('yes');
     expect(a.classes?.insulin).toBe('unsure');
+  });
+
+  // A type 1 profile still waiting for its review: severe lows, dizziness and ketones below are defaults nobody gave.
+  const unreviewed = createDefaultProfile({
+    needsHealthReview: true,
+    health: { diabetes: 'type1', insulin: 'injections_or_pump', medicinesReviewed: true, priorDkaOrInsulinDeficiency: false, clinicianTargets: { hba1cPercent: 7 } },
+  });
+
+  it('a pending review opens with none of its health, medicine or pain values as answers (H5-10, K5-01; H-DATA)', () => {
+    for (const stored of [undefined, answersFromProfile(unreviewed, S)]) {
+      const a = answersToEdit(stored, unreviewed, S, TODAY, CTX);
+      for (const c of SAFETY_CHAPTERS) for (const k of keysOfChapter(c)) expect(a[k], `${k}, stored ${stored ? 'answers' : 'none'}`).toBeUndefined();
+    }
+  });
+
+  it('a pending review is never cleared by a Save that answered only what the old editor asked (H5-10, K5-01)', () => {
+    const opened = answersToEdit(undefined, unreviewed, S, TODAY, CTX);
+    // The home cuff was all the old editor left unanswered here.
+    const state = editorState(SAFETY_CHAPTERS, { ...opened, bpCuff: false }, opened, CTX);
+    expect(state.blocking).toContain('health.conditions');
+    const after = editedRecord(recordOf(unreviewed), { chapters: state.chapters, opened, answers: state.committed, skipped: state.left }, TODAY, CTX);
+    // Cleared, it would vouch for the default "no severe lows", which starts a type 1 at 90 instead of 145 mg/dL.
+    expect(after.profile?.needsHealthReview).toBe(true);
   });
 
   it('says what’s true of the programme now (D35)', () => {

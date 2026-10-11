@@ -274,7 +274,22 @@ export const cases = [
       }, { input: 'needsHealthReview, medicinesReviewed absent; glucose 110 mg/dL now; weight 78 kg for 7 October 20:00' });
 
       await t.step(6, 'Review medicines: Not sure for insulin; save and reload', async () => {
-        await editMedicines(t, async m => { await setup.choose(m, 'Has a clinician given you any limits or targets?', 'No'); await setup.choose(m, 'Do you take any regular medicines?', 'Yes'); await setup.tick(m, 'Not sure: Insulin'); await setup.choose(m, 'How do you take insulin?', 'Not sure'); await setup.choose(m, 'A severe low in the last 6 months, or do you often not feel lows coming?', 'No'); await setup.choose(m, 'Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?', 'No'); await setup.choose(m, 'Home blood-pressure cuff', 'No'); });
+        // A pending review asks every safety question again, with nothing the record holds shown as an answer (H5-10): P04's own answers.
+        await editMedicines(t, async m => {
+          await setup.tick(m, 'Diabetes');
+          await setup.choose(m, 'Which type of diabetes?', 'Type 2');
+          await setup.choose(m, 'Has a clinician cleared you to exercise?', 'Yes, for vigorous exercise');
+          await setup.choose(m, 'Has a clinician given you any limits or targets?', 'No');
+          await setup.choose(m, 'Do you take any regular medicines?', 'Yes');
+          await setup.tick(m, 'Not sure: Insulin');
+          await setup.choose(m, 'How do you take insulin?', 'Not sure');
+          await setup.choose(m, 'A severe low in the last 6 months, or do you often not feel lows coming?', 'No');
+          await setup.choose(m, 'Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?', 'No');
+          await setup.choose(m, 'Do you get dizzy when you stand up?', 'No');
+          await setup.choose(m, 'Glucose meter or sensor', 'A glucose meter (finger-prick)');
+          await setup.choose(m, 'Glucose unit', 'mg/dL');
+          await setup.choose(m, 'Home blood-pressure cuff', 'No');
+        });
         await t.reload();
         await openProfile(t);
         const text = await profileText(t);

@@ -3,8 +3,8 @@ import { Screen } from '@/components/hig/Screen';
 import { dayOf, nowAt } from '@/health/observation';
 import { measurementsFrom } from '@/setup/assemble';
 import { whatChanges } from '@/setup/changes';
-import { editChapters, editPath, editedRecord } from '@/setup/edit';
-import { CHAPTER_TITLE, SAFETY_CHAPTERS, chapterOf, commitPage, pageDef, pageDone } from '@/setup/graph';
+import { askedChapters, editedRecord, editorState } from '@/setup/edit';
+import { CHAPTER_TITLE, SAFETY_CHAPTERS, chapterOf } from '@/setup/graph';
 import { answersToEdit } from '@/setup/prefill';
 import { setupStateOf } from '@/setup/state';
 import { Notice, PrimaryButton } from '@/screens/you/controls';
@@ -26,18 +26,14 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
   const ctx = useCtx();
   const [today] = useState(() => dayOf(nowAt()));
   const reviewing = profile?.needsHealthReview === true && SAFETY_CHAPTERS.includes(chapter);
-  const asked: readonly ChapterId[] = reviewing ? SAFETY_CHAPTERS : [chapter];
+  const asked = askedChapters(chapter, profile);
   const [opened] = useState<SetupAnswers>(() => (profile ? answersToEdit(setupStateOf(settings, profile).answers, profile, settings, today, ctx) : {}));
   const [edits, setEdits] = useState<Partial<SetupAnswers>>({});
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<{ tone: 'status' | 'error'; lines: string[] }>();
   const a: SetupAnswers = { ...opened, ...edits };
-  const chapters = editChapters(asked, a, opened);
-  const pages = editPath(chapters, a, opened, ctx);
-  const committed = pages.reduce((x, id) => commitPage(id, x), a);
-  const left = pages.filter(id => !pageDone(id, committed, ctx));
-  const blocking = left.filter(id => !pageDef(id).skippable);
+  const { chapters, pages, committed, left, blocking } = editorState(asked, a, opened, ctx);
 
   const set = (patch: Partial<SetupAnswers>) => {
     setOutcome(undefined);

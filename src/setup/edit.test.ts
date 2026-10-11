@@ -7,6 +7,7 @@ import { createDefaultProfile } from '@/profile/defaults';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import { completedSetup, profileFrom } from './assemble';
 import { editChapters, editPath, editedRecord } from './edit';
+import { keysOfChapter } from './fields';
 import { COMPLEX, GLIFLOZIN_NO_DIABETES, JOIN, MINIMAL, NO_CONDITIONS } from './fixtures';
 import { SAFETY_CHAPTERS, commitPage, pathFor } from './graph';
 import { answersFromProfile, answersToEdit } from './prefill';
@@ -75,12 +76,14 @@ describe('the record after an edit (journey §16)', () => {
     expect({ ...after.profile, weightKg: 68 }).toEqual(latest.profile);
   });
 
-  it('saving the three safety chapters clears a pending review (H-DATA)', () => {
+  it('saving the three safety chapters, each answered, clears a pending review (H-DATA)', () => {
     const data = fresh();
     data.settings = { ...data.settings, onboardingComplete: true };
     data.profile = { ...profileFrom(COMPLEX, undefined, TODAY, CTX), needsHealthReview: true };
     const a = opened(data);
-    const answers = pathFor({ ...a, targets: 'no' }).reduce<SetupAnswers>((x, id) => commitPage(id, x), { ...a, targets: 'no' });
+    // The review asks every safety question again (H5-10): here the person answers them as COMPLEX did.
+    const given: SetupAnswers = { ...a, ...Object.fromEntries(SAFETY_CHAPTERS.flatMap(keysOfChapter).map(k => [k, COMPLEX[k]])) };
+    const answers = pathFor(given).reduce<SetupAnswers>((x, id) => commitPage(id, x), given);
     const after = editedRecord(data, { chapters: SAFETY_CHAPTERS, opened: a, answers, skipped: [] }, TODAY, CTX);
     expect(after.profile?.needsHealthReview).toBe(false);
   });
