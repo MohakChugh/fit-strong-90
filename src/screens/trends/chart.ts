@@ -2,9 +2,10 @@
  * The chart's model (journey §12.2, §20.2; B-15): what `TrendChart` draws,
  * decided by a trend's model and never by the chart, which computes no
  * statistic. A slot is one place along the axis (a day, a week or a month);
- * a series is bars, points or ranges over the slots. Food's kcal and carbs
- * (Plan 7) are one more bars series of this same model: nothing here knows
- * the metric.
+ * a series is bars, points or ranges over the slots. Food's energy and carb
+ * estimates (Plan 7), once Food has a trend, are one more bars series of this
+ * same model, drawn only outside counts-free (B-11): nothing here knows the
+ * metric, and nothing here shows a figure.
  */
 import { niceDomain, niceTicks, type LinearDomain } from '@/components/hig/scale';
 import type { DayRange } from '@/health/aggregate';

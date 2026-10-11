@@ -45,6 +45,8 @@ npm run dev
 ```bash
 node scripts/character/build.mjs --sex=male        # 3D coach from CC0 MakeHuman assets → public/models/
 npx tsx --tsconfig tsconfig.app.json scripts/voice/catalog.ts   # every line the coach can say
+npx tsx --tsconfig tsconfig.app.json scripts/food/extract-fdc.ts /tmp/fdc/<SR Legacy JSON>   # FDC values the recipes use → scripts/food/fdc-ingredients.json
+npx tsx --tsconfig tsconfig.app.json scripts/food/build.ts                                  # the food table → src/data/food/foods.json
 sh scripts/voice/render-all.sh                      # Kokoro-82M voice packs → public/voice/
 npm test                                            # engine, voice, motion and data tests
 npm run e2e -- --viewports=320x568,390x844          # full journey with screenshots (needs npm run dev)

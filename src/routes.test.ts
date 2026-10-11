@@ -86,7 +86,7 @@ describe('the route table’s redirects keep the query and the state (journey §
     expect((await land({ pathname: '/hub/workout/log/old', search: '?date=2026-10-05' }, true)).at(-1)).toBe('/hub/workout/log?date=2026-10-05');
   });
 
-  it('Food’s trend address goes to the Food hub with its query and state until Plan 7 builds it; anything deeper has moved (D74)', async () => {
+  it('Food’s trend address goes to the Food hub with its query and state until Food has a trend; anything deeper has moved (D74)', async () => {
     const food = await landInTrends({ pathname: '/trends/food', search: '?from=bookmark', state: { path: '/home', label: 'Home' } });
     expect(food.places.at(-1)).toBe('/hub/food?from=bookmark');
     expect(food.states.at(-1)).toEqual({ path: '/home', label: 'Home' });

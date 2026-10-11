@@ -9,7 +9,9 @@
 import { useEffect, useId, useRef, useState, type Ref } from 'react';
 import { flushSync } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeftIcon, DumbbellIcon } from 'lucide-react';
+import { ChevronLeftIcon, DumbbellIcon, UtensilsIcon } from 'lucide-react';
+import { logsMeals } from '@/food/level';
+import { logHref } from '@/food/links';
 import { Sheet } from '@/components/hig/Sheet';
 import { Group, Row } from '@/components/hig/List';
 import { entryFor, summariseDay } from '@/health/aggregate';
@@ -139,6 +141,18 @@ export function QuickLog({ open, onOpenChange, initial, onSaved, prefs, day }: {
               // and bring the person straight back. Leaving My Day closes it.
               onClick={() => navigate(pastDay ? `/hub/workout/log?date=${pastDay}` : '/hub/workout/log', { viewTransition: true })}
             />
+            {logsMeals(profile?.food) && (
+              <Row
+                as="button"
+                type="button"
+                icon={<UtensilsIcon aria-hidden />}
+                label="Meal"
+                detail={pastDay ? `Log a meal for ${formatDayShort(pastDay, current)}` : 'What you ate, in Food'}
+                chevron
+                // As Workout: only a navigation. "Log a meal" opens over the Food hub, and closing it comes back here.
+                onClick={() => navigate(logHref(pastDay ? { day: pastDay } : {}), { viewTransition: true })}
+              />
+            )}
           </Group>
         </>
       )}

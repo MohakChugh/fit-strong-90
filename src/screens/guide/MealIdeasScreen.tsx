@@ -7,6 +7,7 @@ import {
   DISCLAIMER, idsShown, MEAL_INTRO, mealsFor, resolveGroups, SLOT_NOTES, SLOTS, unmatchedAvoid,
   type GuideContext, type ShownClaim,
 } from '@/content';
+import { FOOD_COPY } from '@/food/copy';
 import type { FoodPreferences } from '@/types/profile';
 import { FoodPicker } from './FoodPicker';
 import { foodSummary, unmatchedNote } from './format';
@@ -27,7 +28,7 @@ export default function MealIdeasScreen() {
   const shown = idsShown([intro, ...slotNotes]);
 
   return (
-    <Screen title="Meal ideas" back={{ to: '/guide', label: 'Guide' }}>
+    <Screen title="Meal ideas" back={{ to: '/hub/food', label: 'Food' }}>
       <Lead>Familiar Indian meals to adapt, laid out with the plate method. Examples, not a diet to follow.</Lead>
 
       <Group footer={unmatchedNote(unmatchedAvoid(food?.avoid, food?.pattern))}>
@@ -39,7 +40,8 @@ export default function MealIdeasScreen() {
         />
         <Row
           as={Link}
-          to="/guide/meals/week"
+          to="/hub/food/week"
+          state={{ from: 'ideas' }}
           viewTransition
           icon={<CalendarDaysIcon aria-hidden />}
           label="Sample week"
@@ -73,13 +75,13 @@ function SlotGroup({ slot, food, notes, ctx }: {
     <>
       <Group header={slot.title}>
         {meals.length === 0 ? (
-          <Row label="Nothing left" detail="Every idea here has a food you chose to leave out." />
+          <Row label={FOOD_COPY.noIdeas} detail={FOOD_COPY.noIdeasDetail} />
         ) : (
           meals.map(m => (
             <Row
               key={m.id}
               as={Link}
-              to={`/guide/meals/${m.id}`}
+              to={`/hub/food/ideas/${m.id}`}
               viewTransition
               label={m.name}
               detail={mealDetail(m, food?.pattern)}

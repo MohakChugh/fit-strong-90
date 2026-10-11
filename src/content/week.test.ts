@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { FoodPreferences } from '@/types/profile';
 import { MEALS } from './meals';
 import type { Pattern, Slot } from './schema';
-import { ALLERGEN_TERMS, JAIN_LEAVES_OUT, leaveOut, withPicked } from './allergens';
-import { componentsFor, isAvoided, mealsFor, sampleWeek, WEEKDAYS } from './week';
+import { JAIN_LEAVES_OUT, withPicked } from './allergens';
+import { componentsFor, isAvoided, mealAllowed, mealsFor, mealTags, sampleWeek, suits, WEEKDAYS } from './week';
 
 const PATTERNS: Pattern[] = ['vegetarian', 'eggetarian', 'nonVegetarian', 'vegan'];
 const SLOTS: Slot[] = ['breakfast', 'lunch', 'snack', 'dinner'];
@@ -128,17 +128,6 @@ describe('the sample week', () => {
 describe('setup’s food answers in meal ideas (board D82)', () => {
   const ids = (f: FoodPreferences, slot?: Slot) => mealsFor(f, slot).map(m => m.id);
 
-  it('adds the typed foods, the allergens’ words and Jain’s rule, in that order', () => {
-    const out = leaveOut(food('jain', { avoid: ['mushrooms'], allergies: ['peanut'], customAllergies: ['brinjal'] }));
-    expect(out.slice(0, 2)).toEqual(['mushrooms', 'brinjal']);
-    expect(out.slice(2, 2 + ALLERGEN_TERMS.peanut.length)).toEqual([...ALLERGEN_TERMS.peanut]);
-    expect(out.slice(-JAIN_LEAVES_OUT.length)).toEqual([...JAIN_LEAVES_OUT]);
-    expect(leaveOut(food('vegetarian'))).toEqual([]);
-    expect(leaveOut(undefined)).toEqual([]);
-    // Own words that name a canonical allergen leave out its words too.
-    expect(leaveOut(food('vegetarian', { customAllergies: ['Groundnuts'] }))).toEqual(['Groundnuts', ...ALLERGEN_TERMS.peanut]);
-  });
-
   it('hides the ideas that name an allergen setup stored: peanut, milk and egg', () => {
     expect(ids(food('vegetarian', { allergies: ['peanut'] }), 'breakfast')).not.toContain('b-poha');
     expect(ids(food('vegetarian', { allergies: ['peanut'] }), 'breakfast')).toContain('b-idli-sambar');
@@ -180,5 +169,63 @@ describe('setup’s food answers in meal ideas (board D82)', () => {
     expect(withPicked(stored, { pattern: 'jain', avoid: ['mushrooms'], region: 'any' }))
       .toEqual({ pattern: 'jain', avoid: ['mushrooms'], allergies: ['peanut'], customAllergies: ['brinjal'], level: 'estimates', hardBefore: 'no' });
     expect(withPicked(undefined, { pattern: 'vegan', avoid: [], region: 'south' })).toEqual({ pattern: 'vegan', avoid: [], region: 'south' });
+  });
+});
+
+describe('allergies and the Jain pattern from recipe tags (B-13, board D99, D100)', () => {
+  const ids = (f: FoodPreferences, slot?: Slot) => mealsFor(f, slot).map(m => m.id);
+  it('leaves out every idea with an allergen, or one that may contain it', () => {
+    expect(ids(food('vegetarian', { allergies: ['peanut'] }), 'breakfast')).not.toContain('b-poha');
+    expect(ids(food('vegetarian', { allergies: ['peanut'] }), 'breakfast')).toContain('b-idli-sambar');
+    // "A few seeds or nuts" may carry them.
+    expect(ids(food('vegetarian', { allergies: ['peanut'] }), 'snack')).not.toContain('s-salad-seeds');
+    expect(ids(food('vegetarian', { allergies: ['wheat'] }), 'lunch')).not.toContain('l-roti-dal-sabzi');
+    // Sambar's hing may contain wheat, and "gluten" in the person's own words is wheat.
+    expect(ids(food('vegetarian', { allergies: ['wheat'] }), 'breakfast')).not.toContain('b-idli-sambar');
+    expect(ids(food('vegetarian', { customAllergies: ['gluten'] }), 'breakfast')).not.toContain('b-idli-sambar');
+    expect(ids(food('vegetarian', { allergies: ['milk'] }), 'lunch')).not.toContain('l-roti-dal-sabzi');
+  });
+  it('keeps a custom allergy’s word out, through the dishes’ own ingredients (Review Focus 2)', () => {
+    expect(ids(food('vegetarian', { customAllergies: ['drumstick'] }), 'breakfast')).not.toContain('b-idli-sambar');
+    expect(ids(food('vegetarian', { customAllergies: ['drumstick'] }), 'breakfast')).toContain('b-poha');
+    // Coconut isn't canonical (D99): it's matched by word, here in the chutney's coconut.
+    expect(ids(food('vegetarian', { customAllergies: ['coconut'] }), 'breakfast')).not.toContain('b-idli-sambar');
+  });
+  it('matches a food left out against the meal’s own words, as v1 did, and an allergy against its recipes too (D99)', () => {
+    expect(isAvoided(meal('l-rajma-rice'), ['garlic'])).toBe(false);
+    expect(ids(food('vegetarian', { customAllergies: ['garlic'] }), 'lunch')).not.toContain('l-rajma-rice');
+    expect(ids(food('vegetarian', { customAllergies: ['garlic'] }), 'lunch')).toContain('l-roti-dal-sabzi');
+  });
+  it('offers a Jain plate only ideas without root vegetables, eggs, fish or meat', () => {
+    const jain = food('jain');
+    expect(ids(jain, 'breakfast')).toEqual(['b-dalia']);
+    expect(ids(jain, 'lunch')).toEqual(['l-roti-dal-sabzi']);
+    expect(ids(jain, 'snack')).toEqual(['s-roasted-chana', 's-fruit', 's-chaas']);
+    expect(ids(jain, 'dinner')).toEqual(['d-khichdi', 'd-millet-roti-dal', 'd-dal-bhat']);
+    // Kanda poha is onion poha; sambar and the palak paneer recipe have onion.
+    expect(suits(meal('b-poha'), 'jain')).toBe(false);
+    expect(suits(meal('b-idli-sambar'), 'jain')).toBe(false);
+    expect(suits(meal('l-palak-paneer'), 'jain')).toBe(false);
+  });
+  it('tags an idea from its dishes, never listing as “may contain” what it contains', () => {
+    expect(mealTags(meal('l-roti-dal-sabzi'), 'vegetarian')).toMatchObject({ contains: expect.arrayContaining(['milk', 'wheat']), mayContain: [], complete: true });
+    expect(mealTags(meal('l-roti-dal-sabzi'), 'vegetarian').contains).toHaveLength(2);
+  });
+  it('keeps out, for anyone with an allergy, an idea with a part the map doesn’t know', () => {
+    const base = meal('l-roti-dal-sabzi');
+    const unknown = { ...base, components: [...base.components, { ...base.components[0], name: 'Something new' }] };
+    expect(mealTags(unknown, 'vegetarian').complete).toBe(false);
+    expect(mealAllowed(unknown, food('vegetarian', { allergies: ['soy'] }))).toBe(false);
+    expect(mealAllowed(unknown, food('vegetarian'))).toBe(true);
+  });
+  it('takes the picker’s allergies when it gives them: an empty list is “none”, and emptied own words go', () => {
+    const stored: FoodPreferences = { pattern: 'vegetarian', avoid: [], allergies: ['peanut'], customAllergies: ['brinjal'], level: 'meals' };
+    expect(withPicked(stored, { pattern: 'vegetarian', avoid: [], region: 'any', allergies: ['milk'], customAllergies: ['drumstick'] }))
+      .toEqual({ pattern: 'vegetarian', avoid: [], allergies: ['milk'], customAllergies: ['drumstick'], level: 'meals' });
+    expect(withPicked(stored, { pattern: 'vegetarian', avoid: [], region: 'any', allergies: [], customAllergies: [] }))
+      .toEqual({ pattern: 'vegetarian', avoid: [], allergies: [], level: 'meals' });
+  });
+  it('fills a Jain sample week from those ideas', () => {
+    for (const day of sampleWeek(food('jain'))) expect(Object.keys(day.meals).sort()).toEqual(['breakfast', 'dinner', 'lunch', 'snack']);
   });
 });

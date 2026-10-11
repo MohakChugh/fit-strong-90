@@ -1,7 +1,9 @@
 import { Navigate, useLocation, useParams } from 'react-router-dom';
-import { Group } from '@/components/hig/List';
+import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
-import { componentsFor, DISCLAIMER, getMeal, idsShown, isAvoided, leaveOut, resolveGroups, SLOTS, suits } from '@/content';
+import { componentsFor, DISCLAIMER, getMeal, idsShown, mealAllowed, mealTags, resolveGroups, SLOTS } from '@/content';
+import { allergenList } from '@/food/allergens';
+import { FOOD_COPY } from '@/food/copy';
 import { REGION_LABEL } from './format';
 import { componentDetail, measureClaimIds } from './mealText';
 import { ClaimGroup, Lead, Reviewed, SourcesGroup } from './parts';
@@ -19,17 +21,20 @@ export default function MealDetailScreen() {
   const { state } = useLocation();
   const { ctx, food } = useGuide();
   const meal = getMeal(mealId);
-  if (!meal) return <Navigate to="/guide/meals" replace />;
+  if (!meal) return <Navigate to="/hub/food/ideas" replace />;
 
   const from = (state as { from?: string } | null)?.from;
   const back = from === 'search'
-    ? { to: '/guide', label: 'Guide' }
+    ? { to: '/hub/learn', label: 'Learn' }
     : from === 'week'
-      ? { to: '/guide/meals/week', label: 'Sample week' }
-      : { to: '/guide/meals', label: 'Meal ideas' };
+      ? { to: '/hub/food/week', label: 'Sample week' }
+      : from === 'hub'
+        ? { to: '/hub/food', label: 'Food' }
+        : { to: '/hub/food/ideas', label: 'Meal ideas' };
 
   const pattern = food?.pattern;
   const parts = componentsFor(meal, pattern);
+  const tags = mealTags(meal, pattern);
   // One pass over the screen: each claim and caution once, in reading order.
   const groups = resolveGroups(
     [meal.claimIds, measureClaimIds(meal, pattern, meal.claimIds), meal.swaps, [...meal.salt, ...meal.sugar], OWN_PORTIONS],
@@ -45,7 +50,7 @@ export default function MealDetailScreen() {
       <Lead>
         {slot}
         {where ? ` · ${where}` : ''}
-        {food && (!suits(meal, food.pattern) || isAvoided(meal, leaveOut(food), food.pattern)) ? ' · Outside the food choices you gave' : ''}
+        {food && !mealAllowed(meal, food) ? ' · Outside the food choices you gave' : ''}
       </Lead>
 
       <Group header="On the plate" footer={DISCLAIMER}>
@@ -55,6 +60,13 @@ export default function MealDetailScreen() {
             <p className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{componentDetail(c)}</p>
           </div>
         ))}
+      </Group>
+
+      <Group header="Allergens in our recipes" footer={FOOD_COPY.recipeNote}>
+        <Row
+          label={tags.contains.length > 0 ? FOOD_COPY.contains(allergenList(tags.contains)) : FOOD_COPY.noTaggedAllergens}
+          {...(tags.mayContain.length > 0 ? { detail: FOOD_COPY.mayContain(allergenList(tags.mayContain)) } : {})}
+        />
       </Group>
 
       <ClaimGroup header="How it’s built" claims={built} ctx={ctx} />

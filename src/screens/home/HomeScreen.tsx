@@ -26,6 +26,10 @@ import { useGuided } from '@/hooks/useGuided';
 import { useAppData } from '@/hooks/useLocalStorage';
 import { checkedIn, type Mode } from '@/engine/permission';
 import { dueItems } from '@/health/cadence';
+import { mealsOn } from '@/food/days';
+import { foodTileLine } from '@/food/format';
+import { foodLevel } from '@/food/level';
+import { mealsIn } from '@/food/records';
 import {
   HREF, freezeKey, isEnrolled, nextBoundary, recommend, resumeHref, savedRun, smallHours, trainedOn,
   type RecommendInput, type Recommendation, type RecommendationAction,
@@ -349,6 +353,8 @@ export function HomeScreen() {
   const tile = (id: CategoryId): TileState => {
     const { mode } = categoryById(id);
     const dot = dueWords(id, { due, status, stopped });
+    // Never a figure on Home: ideas, or how many meals today (journey §7.2, B-11).
+    if (id === 'food') return { line: foodTileLine(foodLevel(profile?.food), mealsOn(mealsIn(state.records), today).length), held: false, ...(dot ? { due: dot } : {}) };
     if (!mode) return { line: readingLine(id, { ...(glucose ? { glucose } : {}), ...(pressure ? { pressure } : {}), last }), held: false, ...(dot ? { due: dot } : {}) };
     return { line: lineOf(mode), held: opensOnHold(permissions[mode]), ...(dot ? { due: dot } : {}) };
   };

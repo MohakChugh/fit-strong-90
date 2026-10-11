@@ -333,3 +333,12 @@ describe('chapterSections: Profile & health by chapter (journey §16; Plan 5)', 
     expect(whole({ ...MINIMAL, delivery: 'calendar', voice: { muted: true } }).day).toMatchObject({ 'Reminders come': 'As a calendar file', 'Voice coach': 'Off' });
   });
 });
+
+describe('the Food row on Me (Plan 7)', () => {
+  it('names allergies and the logging level, after what the person eats', () => {
+    expect(foodLine({ pattern: 'jain', avoid: [], allergies: ['peanut'], customAllergies: ['brinjal'], level: 'meals' })).toBe('Jain · allergic to peanut and brinjal · meals only, no numbers');
+    expect(foodLine({ pattern: 'vegetarian', avoid: ['mushrooms'], level: 'estimates' })).toBe('Vegetarian · leaves out mushrooms · meals with estimates');
+    expect(foodLine({ pattern: 'vegan', avoid: [], level: 'ideas' })).toBe('Vegan');
+    expect(foodLine({ pattern: 'vegetarian', avoid: ['mushrooms'], allergies: ['milk'] })).toBe('Vegetarian · allergic to milk · leaves out mushrooms');
+  });
+});

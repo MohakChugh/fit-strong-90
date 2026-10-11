@@ -61,7 +61,7 @@ import type { RouteRecord } from '@/walk/routeRecord';
 import type { WalkInput } from '@/walk/record';
 import { SCHEMA_VERSION, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
 import { liftBodyMetric, liftCheckIn, liftSessionPain } from './project';
-import { RECORD_RULES, recordKey, recordProblem, type RecordStore, type Records, type StoredRecord } from './records';
+import { RECORD_RULES, RECORD_STORES, recordKey, recordProblem, type RecordStore, type Records, type StoredRecord } from './records';
 import { commitChange, emptySnapshot, prepare, readSnapshot, type Change, type Prepared, type Snapshot } from './snapshot';
 import {
   encode,
@@ -710,7 +710,7 @@ let lastId = 0;
 let withinId = 0;
 
 /** An id made once, at the call, so a re-planned mutation keeps the id it was shown with. */
-function freshId(prefix = ''): string {
+export function freshId(prefix = ''): string {
   const now = Date.now();
   if (now === lastId) withinId += 1;
   else { lastId = now; withinId = 0; }
@@ -1143,6 +1143,35 @@ export function removeRecords(store: RecordStore, keys: readonly string[]): Prom
     plan: base => {
       const present = base.records[store].map(r => recordKey(store, r)).filter(k => wanted.has(k));
       return { change: present.length ? { records: { [store]: { remove: present } } as Change['records'] } : null, result: () => undefined };
+    },
+  });
+}
+
+/**
+ * Records in several stores as one change (Plan 7): a meal saved with a new
+ * usual meal and the person's own foods. Every put is checked first, and one
+ * refusal writes nothing. Keys no longer stored are passed over.
+ */
+export function writeRecords(write: {
+  put?: Partial<Record<RecordStore, readonly StoredRecord[]>>;
+  remove?: Partial<Record<RecordStore, readonly string[]>>;
+}): Promise<StoreResult> {
+  return enqueue<void>({
+    plan: base => {
+      const refused: FailureDetail[] = [];
+      const records: NonNullable<Change['records']> = {};
+      for (const store of RECORD_STORES) {
+        const put = write.put?.[store] ?? [];
+        put.forEach((r, index) => {
+          const problem = recordProblem(store, r);
+          if (problem) refused.push({ index, ...(recordKey(store, r) ? { id: recordKey(store, r) } : {}), reason: `${RECORD_RULES[store].label.one} ${index + 1}: ${problem}` });
+        });
+        const wanted = new Set(write.remove?.[store] ?? []);
+        const remove = base.records[store].map(r => recordKey(store, r)).filter(k => wanted.has(k));
+        if (put.length > 0 || remove.length > 0) records[store] = { ...(put.length > 0 ? { put: [...put] } : {}), ...(remove.length > 0 ? { remove } : {}) };
+      }
+      if (refused.length > 0) throw new StoreFailure('invalid', `Nothing was saved. ${refused.map(d => d.reason).join('; ')}`, undefined, refused);
+      return { change: Object.keys(records).length > 0 ? { records } : null, result: () => undefined };
     },
   });
 }

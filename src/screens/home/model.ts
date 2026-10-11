@@ -81,7 +81,6 @@ export function normalLine(mode: Mode, { recommendation: r, enrolled, plan }: {
  * 2's hubs take this over, and invites one when there has been none.
  */
 export function readingLine(id: CategoryId, latest: { glucose?: Reading; pressure?: Reading; last?: Partial<Record<CategoryId, TileLine>> }): TileLine {
-  if (id === 'food') return { text: 'Meal ideas for you', tone: 'normal' };
   if (id === 'learn') return { text: 'For you', tone: 'normal' };
   const last = latest.last?.[id];
   if (id === 'glucose' || id === 'bp') {

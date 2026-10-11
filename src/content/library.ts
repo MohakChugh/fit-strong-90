@@ -1,7 +1,7 @@
 import { CARDS } from './cards';
 import { CLAIMS } from './claims';
 import { HABITS } from './habits';
-import { MEAL_INTRO, MEALS, MEASURES, SLOT_NOTES } from './meals';
+import { FOOD_DATA_NOTES, MEAL_INTRO, MEALS, MEASURES, SLOT_NOTES } from './meals';
 import type { Claim, FurtherReading, GuidanceCard, MealTemplate, Source, Topic, TopicId } from './schema';
 import { FURTHER_READING, SOURCES } from './sources';
 import { TOPICS } from './topics';
@@ -58,7 +58,7 @@ export function claimIdsOfMeal(meal: MealTemplate): string[] {
 
 /** Claims shown on the Meal ideas screen itself. */
 export function claimIdsOfMealIdeas(): string[] {
-  return withEverythingItCarries([...MEAL_INTRO, ...Object.values(SLOT_NOTES).flat()]);
+  return withEverythingItCarries([...MEAL_INTRO, ...Object.values(SLOT_NOTES).flat(), ...FOOD_DATA_NOTES]);
 }
 
 /**

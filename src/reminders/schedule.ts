@@ -10,6 +10,7 @@
  * `.ics` generator in `ics.ts`.
  */
 
+import { foodPromptTime } from '@/food/prompts';
 import type { HabitSettings, Meal } from '@/types/habits';
 import type { UserProfile } from '@/types/profile';
 import type { Status } from '@/health/status';
@@ -29,6 +30,11 @@ import { habitOffered } from './advice';
 export type HabitId = 'water' | 'sittingBreak' | 'mealWalk';
 
 export const HABITS: readonly HabitId[] = ['water', 'sittingBreak', 'mealWalk'];
+
+/** An in-app reminder's kind: a habit the person chose, or the food prompt, which no calendar file holds (board D103). */
+export type ReminderKind = HabitId | 'foodLog';
+
+const KINDS: readonly ReminderKind[] = [...HABITS, 'foodLog'];
 
 export const MEALS: readonly Meal[] = ['breakfast', 'lunch', 'dinner'];
 
@@ -58,8 +64,16 @@ export interface DailyTime {
   meal?: Meal;
 }
 
+/** One time of day an in-app reminder may show: the habits' (`dailyTimes`) and the food prompt's. */
+export interface InAppTime {
+  habit: ReminderKind;
+  /** Minutes after local midnight, 0–1439. */
+  minute: number;
+  meal?: Meal;
+}
+
 /** One reminder on one day. */
-export interface Occurrence extends DailyTime {
+export interface Occurrence extends InAppTime {
   /** Unique to this habit, meal, day and time. */
   id: string;
   day: string;
@@ -78,6 +92,8 @@ export interface ReminderContext {
    * that day's water reminders. `undefined` means not known, which never ends them.
    */
   waterOn?: (day: string) => number | undefined;
+  /** Whether that meal is logged on a day: its food prompt then doesn't show (journey §11.5). */
+  mealLogged?: (day: string, meal: Meal) => boolean;
 }
 
 function validEvery(value: unknown): value is number {
@@ -152,12 +168,24 @@ export function dailyTimes(habits: HabitSettings | undefined, profile: UserProfi
     .sort((a, b) => a.minute - b.minute || HABITS.indexOf(a.habit) - HABITS.indexOf(b.habit));
 }
 
+/**
+ * The in-app reminders' times: the habits', then the food prompt's, minus
+ * quiet hours. A calendar file reads `dailyTimes` alone, so the food prompt
+ * is never in one (board D103).
+ */
+export function inAppTimes(context: Pick<ReminderContext, 'habits' | 'profile'>): InAppTime[] {
+  const times: InAppTime[] = dailyTimes(context.habits, context.profile);
+  const food = foodPromptTime(context.profile);
+  if (food && !isQuiet(food.minute, context.habits?.quietHours)) times.push(food);
+  return times.sort((a, b) => a.minute - b.minute || KINDS.indexOf(a.habit) - KINDS.indexOf(b.habit));
+}
+
 /** What identifies "the same reminder" across days: a newer one replaces an older one. */
-export function reminderKey(time: DailyTime): string {
+export function reminderKey(time: InAppTime): string {
   return time.meal ? `${time.habit}:${time.meal}` : time.habit;
 }
 
-function occurrence(time: DailyTime, day: string): Occurrence {
+function occurrence(time: InAppTime, day: string): Occurrence {
   return { ...time, day, id: `${reminderKey(time)}@${day}T${formatClock(time.minute)}` };
 }
 
@@ -175,10 +203,12 @@ function waterGoalMet(context: ReminderContext, day: string): boolean {
 }
 
 /** The in-app reminders one local day holds, in time order. */
-export function occurrencesOn(day: string, context: ReminderContext, times = dailyTimes(context.habits, context.profile)): Occurrence[] {
+export function occurrencesOn(day: string, context: ReminderContext, times: readonly InAppTime[] = inAppTimes(context)): Occurrence[] {
   if (!canShow(context, day)) return [];
   const met = waterGoalMet(context, day);
-  return times.filter(t => !(met && t.habit === 'water')).map(t => occurrence(t, day));
+  return times
+    .filter(t => !(met && t.habit === 'water') && !(t.habit === 'foodLog' && t.meal !== undefined && context.mealLogged?.(day, t.meal)))
+    .map(t => occurrence(t, day));
 }
 
 /**
@@ -193,8 +223,9 @@ export function stillDue(o: Occurrence, now: WallTime, context: ReminderContext)
   if (o.day !== now.day || !canShow(context, now.day)) return false;
   if (isQuiet(now.minute, context.habits?.quietHours)) return false;
   if (o.habit === 'water' && waterGoalMet(context, now.day)) return false;
-  // `dailyTimes` holds only habits that are on and allowed, and meals still chosen.
-  return dailyTimes(context.habits, context.profile).some(t => t.habit === o.habit && t.meal === o.meal);
+  if (o.habit === 'foodLog' && o.meal !== undefined && context.mealLogged?.(now.day, o.meal)) return false;
+  // `inAppTimes` holds only habits that are on and allowed, meals still chosen, and a food prompt still wanted.
+  return inAppTimes(context).some(t => t.habit === o.habit && t.meal === o.meal);
 }
 
 /** How far back `dueBetween` looks. Anything older is never shown anyway. */
@@ -207,7 +238,7 @@ const LOOKBACK_DAYS = 2;
  */
 export function dueBetween(after: WallTime, upTo: WallTime, context: ReminderContext): Occurrence[] {
   if (compareWall(upTo, after) <= 0) return [];
-  const times = dailyTimes(context.habits, context.profile);
+  const times = inAppTimes(context);
   if (times.length === 0) return [];
 
   const floor = { day: addDays(upTo.day, -LOOKBACK_DAYS), minute: upTo.minute };
@@ -229,7 +260,7 @@ export function dueBetween(after: WallTime, upTo: WallTime, context: ReminderCon
  * that ends tonight; anything further, the loop finds when it looks again.
  */
 export function nextAfter(after: WallTime, context: ReminderContext, horizonDays = 2): Occurrence | undefined {
-  const times = dailyTimes(context.habits, context.profile);
+  const times = inAppTimes(context);
   if (times.length === 0) return undefined;
   for (let i = 0; i <= horizonDays; i++) {
     const day = addDays(after.day, i);

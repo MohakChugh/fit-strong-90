@@ -1,5 +1,6 @@
 import type { FoodPreferences } from '@/types/profile';
 import { PATTERN_LABEL, unmatchedAvoid, type SearchResult } from '@/content';
+import { allergenName } from '@/food/allergens';
 
 /** "2026-10-08" → "8 October 2026", read as a local calendar date. */
 export function longDate(iso: string): string {
@@ -22,6 +23,8 @@ export const REGION_LABEL: Record<NonNullable<FoodPreferences['region']>, string
 export function foodSummary(food: FoodPreferences): string {
   const parts = [PATTERN_LABEL[food.pattern]];
   if (food.region && food.region !== 'mixed') parts.push(REGION_LABEL[food.region]);
+  const allergies = [...(food.allergies ?? []).map(allergenName), ...(food.customAllergies ?? [])];
+  if (allergies.length > 0) parts.push(`allergic to ${allergies.join(', ')}`);
   const unmatched = new Set(unmatchedAvoid(food.avoid, food.pattern));
   const left = food.avoid.filter(a => !unmatched.has(a));
   if (left.length > 0) parts.push(`no ${left.join(', ')}`);
@@ -31,6 +34,24 @@ export function foodSummary(food: FoodPreferences): string {
 /** The comma-separated "leave out" field, as the list the profile stores. */
 export function parseAvoid(text: string): string[] {
   return [...new Set(text.split(/[,;\n]/).map(s => s.trim()).filter(Boolean))];
+}
+
+/** How many allergies in the person's own words a profile holds, and how long each may be: what an import reads back (`store/importCheck.ts`). */
+const OWN_ALLERGIES_MAX = 30;
+const OWN_ALLERGY_MAX_LENGTH = 60;
+
+/**
+ * The "Something else" allergy field, as the list the profile stores: no
+ * repeats, case aside, and within the import check's bounds, so a backup
+ * holding it always reads back rather than losing the food answers whole.
+ */
+export function parseAllergies(text: string): string[] {
+  const out: string[] = [];
+  for (const entry of parseAvoid(text)) {
+    const e = entry.replace(/\s+/g, ' ').slice(0, OWN_ALLERGY_MAX_LENGTH).trim();
+    if (e && out.length < OWN_ALLERGIES_MAX && !out.some(x => x.toLocaleLowerCase() === e.toLocaleLowerCase())) out.push(e);
+  }
+  return out;
 }
 
 /**

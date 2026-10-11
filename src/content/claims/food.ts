@@ -290,4 +290,9 @@ export const FOOD_CLAIMS: Claim[] = [
   claim('meal-fruit-katori',
     'In the same sample day, a serving of fruit is half a medium katori.',
     [['nin-dgi-2024', 'Annexure II, suggested diet for sedentary adults (p. 120)']]),
+  // The food estimates' basis (Plan 7, board D95 to D98): the app's own method, so it says "this app" (checkSafety).
+  claim('fd-estimates-basis',
+    'This app works out calorie and carbohydrate estimates from USDA FoodData Central values for each ingredient of its own home-style recipes, cooked with about a teaspoon of sunflower oil a serving. Carbs here are total carbohydrate, fibre included. Your own cooking and portions will differ, so every figure is an estimate.',
+    [['usda-fdc', 'SR Legacy ingredient records, by FDC ID, as each recipe lists them']],
+    { policy: true }),
 ];

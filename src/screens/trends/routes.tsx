@@ -1,7 +1,7 @@
 /**
  * The Trends tab (journey §12): its root, each category's trend at `:id`,
- * and a past workout at `workout/:id`, the address it already had. Food's
- * trend is Plan 7's: until then its address opens the Food hub (D74).
+ * and a past workout at `workout/:id`, the address it already had. Food has
+ * no trend yet: its address opens the Food hub until it has one (D74).
  * Anything else is an address that has moved (§19.3).
  */
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';

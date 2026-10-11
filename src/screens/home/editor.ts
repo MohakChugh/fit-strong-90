@@ -5,9 +5,10 @@
  * for Hide, the long-press that opens a tile's menu, and the reorder
  * animation. The operations themselves are `./layout`'s, and pure.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type TouchEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent, type TouchEvent } from 'react';
 import { toast } from 'sonner';
 import { MAX_PER_GROUP, categoryById, isHomeLayout, type CategoryId } from '@/categories';
+import { TOAST_STYLE, UNDO_STYLE } from '@/components/hig/toast';
 import { MOTION, springLinear } from '@/design/motion';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { setSettings, update } from '@/store/useStore';
@@ -165,13 +166,6 @@ function endUndos(undos: { current: Undo[] }, counted?: (n: number) => void): vo
   undos.current = [];
   counted?.(0);
 }
-
-/** Toasts are solid and read at the body size; Undo is a 48 px target (journey §20.4 rules 1 and 12). */
-const TOAST_STYLE: CSSProperties = { fontSize: 'var(--text-body)' };
-const UNDO_STYLE: CSSProperties = {
-  height: 'auto', minHeight: '3rem', minWidth: '3rem', paddingInline: '1rem', borderRadius: '9999px',
-  fontSize: 'var(--text-body)', fontWeight: 600, background: 'var(--tint)', color: 'var(--on-tint)',
-};
 
 export function useHomeEditor({ fallback, still, urgent }: {
   /** The layout drawn while none is stored: the defaults from the person's answers. */

@@ -23,8 +23,8 @@ describe('the v2 record stores', () => {
     expect(recordProblem('routes', route('walk-aaaa'))).toBeUndefined();
   });
 
-  it('refuse food records until Plan 7 gives them their rules', () => {
-    expect(recordProblem('meals', { id: 'm1' })).toMatch(/cannot read meals yet/);
+  it('refuse a food record they can’t read, saying why (Plan 7)', () => {
+    expect(recordProblem('meals', { id: 'm1' })).toMatch(/when it was eaten/);
   });
 
   it('take a file’s routes only onto a phone that has not said No (Review Focus 4)', () => {

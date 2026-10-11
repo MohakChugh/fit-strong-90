@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { mealsIn } from '@/food/records';
 import { useStore } from '@/store/useStore';
 import { statusOn } from '@/health/status';
 import { cn } from '@/lib/utils';
@@ -8,7 +9,7 @@ import { UrgentContext } from '@/screens/home/urgent';
 import { offeredNow, prunePending, usePending, showReminders } from './pending';
 import { ReminderBanner } from './ReminderBanner';
 import { startReminders, type Runner } from './runner';
-import { dailyTimes, stillDue, type ReminderContext } from './schedule';
+import { inAppTimes, stillDue, type ReminderContext } from './schedule';
 import { msToNextMinute, wallTimeOf, type WallTime } from './time';
 import { waterRecorded } from './water';
 import { habitPrecautions } from './advice';
@@ -24,7 +25,7 @@ const PAST_THE_MINUTE_MS = 25;
  * Today sets, which quiets every prompt on a day that is not Normal.
  */
 export function ReminderHost() {
-  const { status: storage, settings, profile, observations } = useStore();
+  const { status: storage, settings, profile, observations, records } = useStore();
   const habits = settings.habits;
   const periods = settings.statusPeriods;
   const pending = usePending();
@@ -50,7 +51,8 @@ export function ReminderHost() {
     profile,
     status: day => statusOn(periods, day),
     waterOn: day => waterRecorded(day, observations),
-  }), [habits, profile, periods, observations]);
+    mealLogged: (day, meal) => mealsIn(records).some(m => m.day === day && m.meal === meal),
+  }), [habits, profile, periods, observations, records]);
   // Read fresh by the runner on every check, so a glass logged a moment ago
   // counts towards the goal without restarting anything.
   const context = useRef(current);
@@ -123,7 +125,7 @@ export function ReminderHost() {
   // A changed schedule or Status starts the count again from now, so turning
   // a habit on, or coming back to Normal, never replays a reminder from the past.
   const schedule = useMemo(
-    () => JSON.stringify([periods ?? [], habits?.inApp, dailyTimes(habits, profile)]),
+    () => JSON.stringify([periods ?? [], habits?.inApp, inAppTimes({ habits, profile })]),
     [periods, habits, profile],
   );
   useEffect(() => {

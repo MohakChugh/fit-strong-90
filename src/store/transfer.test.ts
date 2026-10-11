@@ -803,7 +803,7 @@ describe('v2 record stores in a backup (Plan 6 Task 1)', () => {
     expect(prepare(mine, planImport(file({ settings: theirs }), 'merge', mine).change).next.settings?.walk).toEqual({ saveRoutes: false, map: 'off' });
   });
 
-  it('refuses food records until Plan 7 can read them', () => {
+  it('refuses a food record it can’t read', () => {
     expect(previewImport(file({ stores: ['meals'], records: { meals: [{ id: 'm1' }] } }))).toMatchObject({ ok: true, rejected: { meals: 1 } });
   });
 });

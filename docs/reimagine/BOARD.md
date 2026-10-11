@@ -997,3 +997,123 @@ Where the build differs from the plan's text, and why (each is in its commit too
 Known, not changed here:
 - Profile & health reads a "Not sure" back as the engine stores it: "Diabetes: Other", "Heart or circulation: Yes". The editor shows "Not sure" ticked. A read-back in the person's own words would need the answers passed to `chapterSections`.
 - Me's `FinishRow` (Task 7) shows "Not now" only off a gap row: one line the FinishRow/OfferRow fix branch needs to keep.
+
+### 2026-10-11 — [claude] v2 Plan 7 (Food): where the food data comes from, and the decisions behind it
+
+**Source record** (journey §11.6: written before the food step is built)
+
+| | |
+| --- | --- |
+| Source | USDA FoodData Central (FDC), the SR Legacy dataset, used as ingredients only |
+| Version | SR Legacy, April 2018 release. It's final (FDC no longer updates it), so its values can't change under us. The downloaded file's name and the extraction date are written into `scripts/food/fdc-ingredients.json` (`source.file`, `source.extractedOn`) |
+| Licence | Public domain under CC0 1.0 Universal. FDC: "USDA FoodData Central data are in the public domain and they are not copyrighted. They are published under CC0 1.0 Universal" |
+| Credit, as FDC asks | U.S. Department of Agriculture, Agricultural Research Service, Beltsville Human Nutrition Research Center. FoodData Central. [Internet]. [cited (the extraction date)]. Available from https://fdc.nal.usda.gov/ |
+| Where it shows | Learn → Sources, under "Food data"; the Food hub's footer and "How estimates work"; each food's "What's in it", with its FDC ids |
+| Our recipes | Written by us in `scripts/food/recipes.ts`: home-style, with sunflower oil and gram amounts per serving. The table they make is `src/data/food/foods.json` |
+| Not used (D45) | INDB (no data licence), IFCT 2017 (no electronic product without NIN's written permission), Open Food Facts (ODbL share-alike, and "not for medical purposes"). No number is copied from any of them |
+
+**Read at the source on 2026-10-11** (Plan 7 Task 1 Step 4):
+- The home page's "Licensing" section has the CC0 statement as quoted above. It goes on: "No permission is needed for their use, but we request that users list FoodData Central as the source of the data". Its suggested citation is the Credit row's, with "[cited (enter date)]". The plan's shorter credit was the feasibility research's own wording (§2.2), so the app uses FDC's citation, with the extraction date as the cited date.
+- The "Download Data" page lists SR Legacy as "04/2018" and says: "SR Legacy is the final release of the Standard Reference data type. These data will not be updated."
+- The file: `FoodData_Central_sr_legacy_food_json_2018-04.zip`, downloaded on 2026-10-11 from https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_sr_legacy_food_json_2018-04.zip (13,456,312 bytes, SHA-256 `0fe8ae486a2c8eb42cb96413f058deb51863a46c8fb8eeb4b1fb45006dd338ef`). It holds one file, `FoodData_Central_sr_legacy_food_json_2018-04.json` (210,758,826 bytes, SHA-256 `70d4235ae3a2bdf48a7b9eaa1286a83fa67b6f3270436c9ce8b008213f500129`). The download stays outside the repository; only the extract is committed.
+
+**Decisions.** Plan 7's are D95 to D104, the numbers set aside for it.
+
+| # | Decision | Why |
+| --- | --- | --- |
+| D95 | Carbs are FDC's "Carbohydrate, by difference" (nutrient 205): total carbohydrate, fibre included, labelled "carbs". Energy is FDC's kcal (208), never kJ | It's the figure on Indian (FSSAI) and US labels, and one definition is used everywhere |
+| D96 | Seasonings used at 2 g a serving or less (salt, hing, spices, ginger, garlic, chillies, curry leaves) have no FDC record and add nothing. They still carry allergen and diet tags | Their energy is a few kcal; their allergens matter |
+| D97 | Carb ranges (B-12). Each ingredient varies ±10% (grains, pulses, dairy, eggs), ±20% (vegetables, fruit, coconut, tamarind) or not at all (oil, ghee, sugar, meat, fish). Each unit adds its portion variance: ±20% for a piece or a katori, ±25% for a plate, tablespoon or handful, ±15% for a glass or cup. A weighed portion adds none. Ranges add as intervals. A meal's range sums its known items, and unknown items are listed apart. `scripts/food/expected.ts` is the reviewed expectation for each dish, and a test fails any dish more than 20% away from it | B-12 asks for a defined method, reviewed |
+| D98 | Portions are our own gram table (`src/food/units.ts` and each recipe), always shown with the grams. The person can weigh their own | No source defines a katori (feasibility research §2.3) |
+| D99 | Allergens use Plan 5's canonical ids: peanut, tree nuts, milk, egg, wheat, soy, sesame, fish, shellfish and mustard. Each has aliases in English, Hindi and Hinglish (`src/food/allergens.ts`). "Gluten" reads as wheat, because our recipes use no barley, rye or oats. Coconut isn't a tree nut and isn't canonical, so a coconut allergy is a custom one. A custom allergy is anything else the person names; it's matched by word against every ingredient. Recipes assume sunflower oil, and compounded hing "may contain wheat". With any allergy, only fully tagged dishes are recommended. Logging never hides a food: it says "Contains peanut, which you listed as an allergy". A food the person leaves out (`avoid`) is still matched against a meal idea's own words, as in v1; only allergies reach into the recipes | B-13; setup stores these ids (Plan 5); v1's audit R04 stays true, as a compound such as "coconut milk" names no meal |
+| D100 | Jain means no meat, fish, eggs or honey, and no root vegetables or bulbs (onion, garlic, potato, carrot, radish, beetroot, ginger). This is the app's convention, said in the picker; "Foods to leave out" covers anything else | Setup chapter 7 lists Jain, and v1's templates weren't written for it |
+| D101 | Counts-free is the "Meals only, no numbers" level. It shows no calorie or carb figure and no energy figure from movement anywhere, old records and walk summaries included. It has no food prompts and no targets (B-11). Estimate snapshots are still stored with each item, and never shown in counts-free | Switching to estimates later shows old meals' estimates. B-11 governs what is shown |
+| D102 | The answer to "Has food or weight ever been hard for you?" is kept where Plan 5 keeps it, `food.hardBefore`, on this phone only. It's asked when estimates are chosen and no answer is kept. "Yes" or "Prefer not to say" recommends "Meals only, no numbers" each time estimates are chosen, and estimates stay one tap away | K-22; one copy of the answer, as setup keeps it |
+| D103 | The food prompt is opt-in, in Me → Food: one meal, at one time, with estimates only, in the app only. It's never in a calendar file, which can't know what was logged | J§11.5's caps, B-11 and A-73 |
+| D104 | Each logged item keeps its name, recipe revision, unit, grams and estimate snapshot (B-12), so history reads the same when the table changes. Undo restores a deleted meal under a fresh id, with `restoredFrom`; the deletion record stays (B-05) | J§18.2, B-05 |
+
+Task 1's checks found every name Plans 2, 4, 5 and 6 left under the name this plan expects, so there are no name pairs to record.
+
+### 2026-10-11 — [claude] v2 Plan 7 (Food): acceptance
+
+| Journey | What it proves | Result |
+| --- | --- | --- |
+| V-J03 | A usual lunch in three taps; "Lunch saved" only once stored; no figure counts-free; a refused write keeps the tray | Passed in all four projects |
+| V-J28 | Logging turned on from the hub, in place; estimates only after the screening question, with the answer kept as `food.hardBefore` | Passed in all four projects, once `food.openHub` waits for the hub to load (below) |
+| V-J29 | A peanut allergy keeps poha out of the ideas and warns when it's logged; your own food with no values stays unknown; the partial total | Passed in all four projects |
+| V-J30 | Four taps for an adjusted usual lunch, five for the first-time path; a double tap saves one meal | Passed in all four projects |
+| V-J31 | A meal from 10 days ago corrected with its history, no reading or check-in changed, the urgent low still urgent. Pending: Food's trend | Passed in all four projects, with its one pending item |
+
+Where Task 16 differs from the plan's text, and why:
+- **`food.openHub` waits for the hub's content, past its skeleton** (`ui.LOADING`), as `hub.openHub` does. The hub's skeleton has the title "Food" too. Without the wait, V-J28 counted "Lunch · ideas for you" while the skeleton still showed, found no ideas, and failed in all four projects.
+- **Two test-only changes from `feat/v2-journey` are cherry-picked here**, so the full run tests Plan 7 against the integrated journeys. They are 179239d (VJ12's "Water" row, J07's walk energy record, J10's Done going to the Walk hub) and the VJ06 change in 831e0c9 (History is read once the hub is in). 831e0c9's board entry stays on `feat/v2-journey`.
+
+Runs, port 50021:
+- The five journeys first gave 24 passed, 8 failed and 4 pending. The 8 were V-J28 step 1 (above); the 4 were V-J31's Food trend.
+- The full suite ran 1024 cases in 66.4 min: 1000 passed, 4 were pending (V-J31's Food trend) and 20 failed.
+  - J11's 16 failures all stop at Plan 6's first-walk question, "Keep a record of your route on this phone?", which Plan 6 Task 15 answers in the harness.
+  - VJ12's pick-mode case failed in all four projects at step 3. Task 15 had made "+ Add"'s body lazy, and it wasn't in yet when the sheet showed. Edit Home now loads it as it opens, so the sheet opens with its rows (Plan 7's result, below).
+- VJ12, S01 and J20 ran again after that fix: see Plan 7's result, below.
+
+### 2026-10-11 — [claude] v2 Plan 7 (Food): result
+
+- Food is a hub with three levels: meal ideas only (the default), meals with no numbers (counts-free), and meals with estimates. Turning logging on happens in place, on the hub. Estimates come only after "Has food or weight ever been hard for you?", and the answer is kept as `food.hardBefore`.
+- A meal is logged in the "Log a meal" sheet. A usual meal takes three taps. "Lunch saved" shows only once the meal is stored. Undo stays until the person leaves the screen, at most two deep. Corrections keep their earlier versions.
+- Estimates come from 42 Indian dishes, worked out at build time from FDC SR Legacy ingredients and our own recipes. "Estimated" is before every figure, and carbs show as ranges where K-22 asks.
+- Counts-free shows no calorie, carb or movement-energy figure anywhere, old records included. That covers walk summaries, a walk's own screen, and My Day's reading for an estimate whose walk is gone (B-11, D101).
+- Allergies are hard exclusions from every meal idea. Logging a food that contains one still works, and warns.
+- The food table stays off the first screen. Edit Home loads "+ Add"'s Browse in pick mode as it opens, so the sheet still opens with its rows.
+
+**Reviews.** Codex and Kiro (Task 17 Steps 1–2) were not run, on the coordinator's instruction; the coordinator runs them. A separate Claude agent reviewed the code read-only, against the plan's rules, and found three things:
+
+| Finding | Outcome | Test |
+| --- | --- | --- |
+| Undo on a deleted meal or usual meal could store it twice. A second tap while the first restore saved, or as the toast left, wrote another copy under another fresh id (B-05) | Accepted. `src/screens/food/undo.ts` writes one restore at a time, and none once the record is back | `undo.test.ts`, "stores the record back once…" |
+| A food's portion page showed carbs as a range without "Carb figures are rough estimates. Follow your care team’s plan." (K-22) | Accepted. `PortionPage` now says it under the estimate, as the tray's footer does | `parts.test.ts` |
+| With ranges on, an own food's carbs (a figure the person typed) add up as one figure. A meal of own foods only reads "about 40 g carbs", not a range (J§11.4) | Declined for now. The plan's own test pins this (`format.test.ts`). A range would need a variance for a typed figure, which D97 doesn't define, and choosing one is a new decision that needs a number from the coordinator | — |
+
+**Food data.** The extract (`scripts/food/fdc-ingredients.json`) holds 46 SR Legacy records, taken on 2026-10-11 from the file in the source record above. Four of the plan's descriptions weren't SR Legacy's exact wording. They were corrected from `extract-fdc.ts`'s closest matches:
+- "Wheat flour, whole-grain" became "Wheat flour, whole-grain (Includes foods for USDA's Food Distribution Program)".
+- "Mung beans, mature seeds, sprouted, boiled, drained, without salt" became "Mung beans, mature seeds, sprouted, cooked, boiled, drained, without salt".
+- "Cheese, queso fresco" became "Cheese, fresh, queso fresco".
+- "Chicken, broilers or fryers, thigh, meat only, raw" became "Chicken, broilers or fryers, dark meat, thigh, meat only, raw".
+
+Every dish's standard portion is within 5% of its reviewed expectation (`scripts/food/expected.ts`); the test allows 20%.
+
+Where the tasks differ from the plan's text, and why:
+- **Task 2:** Steps 1, 6 and 8 were already done by Plan 5 (D82), and Step 7 passed as expected.
+- **Task 3:** a custom allergy that names an allergen inside a longer phrase counts as that allergen and also as its own words. "Coconut milk" reads as milk and stays "coconut milk", so the coconut allergy isn't lost.
+- **Task 5:**
+  - The app's credit is FDC's own citation, with the extraction date (see the source record).
+  - `tsconfig.app.json` reads JSON modules.
+  - The content schema has a `dataset` kind for the FDC source.
+  - The estimates claim starts "This app works out…", so the content checker's safety rule passes.
+- **Task 7:** the food picker bounds custom allergies as an import does (`parseAllergies`).
+- **Tasks 10 and 14:** "Added ✓" carries its own tick, with no second icon. A screen's Undo outlives React StrictMode's at-once remount, so returning to Today's log keeps it.
+- **Task 15:**
+  - The chain that put the food table on the first screen ran Home → Edit Home → `@/content` → `content/week.ts` → `@/food/data`. "+ Add"'s body (`src/screens/home/PickBody.tsx`) is now loaded apart.
+  - Edit Home starts that load as it opens. The sheet then renders the loaded body in the frame it opens, chosen once per opening. Until it has loaded, the sheet waits for it. Plain `lazy()` left the sheet empty for a moment, and VJ12's pick-mode case counted its rows then (Task 16's full run).
+  - The walk screens ask `countsFree()` where each figure is drawn.
+  - My Day passes `countsFree` to the timeline, which leaves out an energy reading whose walk is gone.
+  - `track/format.ts` and `track/metrics.ts` are words-only, with the callers that gate them named.
+  - `countsFree.callers.test.ts` drives the real screens over the real store.
+
+Merge notes:
+- **With `feat/v2-p6b`,** `src/screens/walk/WalkSummary.tsx` conflicts on one line: this branch's `rows` against Plan 6b's added `fix`. Keep both, and give `fix` the same gate, `const fix = countsFree(profile) ? undefined : energyFix(energy.estimate);`, since its row asks for an energy estimate.
+  - `src/screens/you/summaries.test.ts`, `src/store/useStore.ts` and `src/store/useStore.test.ts` also conflict, by `git merge-tree`.
+  - `RecordDetails.tsx` merges cleanly.
+- **Trends (Plan 3)** keeps `/trends/food` on the hub. A Food series reads `dailyNutrition(meals, from, to, numbersView(profile))`. With ranges on, carbs need their range, not `carbsG`: `totalsOf` has `carbsLowG` and `carbsHighG`. A walk-energy series must ask `countsFree()` too.
+
+Left for later:
+- The Codex and Kiro reviews, which the coordinator runs.
+- Food's trend (Plan 3).
+- Browse's food results (Plan 8): `searchFoods()`, `foodRowDetail()` and `logHref({ food })` are ready.
+- Recently deleted (Plan 8).
+- A range for own foods' carbs, if the coordinator gives it a decision.
+
+Runs, port 50021:
+- The unit gates pass: 216 test files, 5,846 tests.
+- After the pick-sheet fix, VJ12, S01 and J20 gave 60 of 60 in 6.6 min.
+- With the full run above, every journey passes in all four projects, with two exceptions:
+  - J11 stops at Plan 6's first-walk question.
+  - V-J31 is pending on Food's trend.
