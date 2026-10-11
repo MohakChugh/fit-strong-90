@@ -259,6 +259,9 @@ function PreviewBody({ preview, note, place, device, heldHere, onMerge, onReplac
           // D-06: a merge never brings back what was deleted here since.
           !replaceOnly && (preview.deletedHere ?? 0) > 0
             && `${plural(preview.deletedHere ?? 0, 'record')} in it ${preview.deletedHere === 1 ? 'was' : 'were'} deleted on this ${device} since. Merging leaves ${preview.deletedHere === 1 ? 'it' : 'them'} deleted.`,
+          // D136: a record restored on the other device is the one held here, under a fresh id.
+          !replaceOnly && (preview.restoredHere ?? 0) > 0
+            && `${plural(preview.restoredHere ?? 0, 'record')} on this ${device} ${preview.restoredHere === 1 ? 'was' : 'were'} deleted and brought back on the device the file came from. Merging keeps the brought-back ${preview.restoredHere === 1 ? 'copy' : 'copies'} in ${preview.restoredHere === 1 ? 'its' : 'their'} place, once.`,
         ].filter(Boolean).join(' ') || undefined}
       >
         {lines.length > 0

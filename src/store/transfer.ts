@@ -812,6 +812,8 @@ interface MergePlan {
   conflicts: CollectionCounts;
   /** Records in the file that were deleted on this device, and stay deleted. */
   deletedHere: number;
+  /** Records here the file holds restored under a fresh id: each takes its deletion record, and the restored copy is kept (D136). */
+  restoredHere: number;
   replacedObservations: number;
   counts: {
     observations: number; sessions: number; checkIns: number; personalRecords: number; bodyMetrics: number; contentState: number;
@@ -913,16 +915,26 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
 
   // v2 record stores: by key, as sessions are, with each store's own `newer` and `accepts` (Plan 6 Task 1).
   const recordPuts: Partial<Record<RecordStore, StoredRecord[]>> = {};
+  const recordRemoves: Partial<Record<RecordStore, string[]>> = {};
+  let restoredHere = 0;
   for (const store of file.stores ?? []) {
     if (!takes(store, base.settings)) continue;
     const rule = RECORD_RULES[store];
     const here = new Map((base.records?.[store] ?? []).map(r => [recordKey(store, r), r]));
     const goneKeys = new Set(base.settings?.deleted?.records?.[store] ?? []);
     const puts: StoredRecord[] = [];
+    const removes: string[] = [];
     for (const r of file.records?.[store] ?? []) {
       const key = recordKey(store, r);
       const held = here.get(key);
       if (!held && goneKeys.has(key)) { deletedHere += 1; continue; }
+      // A record restored elsewhere under a fresh id, from one held here, is that one record (B-05, D136):
+      // the original here takes its deletion record, and the restored copy is kept, so it counts once.
+      const from = typeof r.restoredFrom === 'string' ? r.restoredFrom : undefined;
+      if (from !== undefined && from !== key && here.has(from) && !removes.includes(from)) {
+        removes.push(from);
+        restoredHere += 1;
+      }
       if (!held) { puts.push(r); continue; }
       if (sameValue(held, r)) continue;
       const verdict = rule.newer?.(held, r) ?? 0;
@@ -930,6 +942,7 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
       if (verdict > 0 || (verdict === 0 && takeFile)) puts.push(r);
     }
     if (puts.length > 0) recordPuts[store] = puts;
+    if (removes.length > 0) recordRemoves[store] = removes;
   }
   // The file's deletions of records this device doesn't hold, for every store, included in the file or not.
   const learnedRecords: Partial<Record<RecordStore, string[]>> = {};
@@ -1067,7 +1080,13 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
     ...(metricDates.length > 0 ? { bodyMetrics: [...bodyMetrics].sort((a, b) => b.date.localeCompare(a.date)) } : {}),
     ...(overridesChanged ? { focusOverrides } : {}),
     ...(Object.keys(contentPuts).length > 0 ? { content: { put: contentPuts } } : {}),
-    ...(Object.keys(recordPuts).length > 0 ? { records: Object.fromEntries(Object.entries(recordPuts).map(([s, put]) => [s, { put }])) } : {}),
+    ...(Object.keys(recordPuts).length + Object.keys(recordRemoves).length > 0
+      ? {
+        records: Object.fromEntries(RECORD_STORES.filter(s => recordPuts[s] || recordRemoves[s]).map(s => [s, {
+          ...(recordPuts[s] ? { put: recordPuts[s] } : {}), ...(recordRemoves[s] ? { remove: recordRemoves[s] } : {}),
+        }])),
+      }
+      : {}),
     // A device with no settings or profile yet is being set up from this file,
     // its walk consents asked afresh (B-26).
     ...(base.settings === undefined && file.settings !== undefined
@@ -1080,6 +1099,7 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
     change,
     conflicts,
     deletedHere,
+    restoredHere,
     replacedObservations,
     counts: {
       observations: observationPuts.length + derived.length,
@@ -1132,6 +1152,8 @@ export interface ImportPreview {
   legacy?: boolean;
   /** Records in the file deleted on this device since, which a merge leaves deleted (D-06). Always set by `previewImport`. */
   deletedHere?: number;
+  /** Records here the file holds restored elsewhere under a fresh id: a merge keeps the restored copy in their place (D136). Always set by `previewImport`. */
+  restoredHere?: number;
   /** Settings and profile fields that cannot be read, and are left out, by name (D-08). Always set by `previewImport`. */
   unreadableFields?: string[];
   /** The v2 record stores in the file, and how many records of each. Always set by `previewImport`. */
@@ -1203,6 +1225,7 @@ export function previewImport(raw: unknown, existing: Iterable<string> | ImportB
     rejected,
     conflicts: merge.conflicts,
     deletedHere: merge.deletedHere,
+    restoredHere: merge.restoredHere,
     unreadableFields,
     legacy,
     records,

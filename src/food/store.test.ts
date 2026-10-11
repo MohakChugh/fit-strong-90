@@ -187,6 +187,28 @@ describe('meals in backups (journey §18.3)', () => {
     expect(mealsIn(store.getState().records)).toEqual([m]);
   });
 
+  it('reads a restore made on another device as the same meal: the original here takes its deletion, the copy counts once (H7-11; board D136)', async () => {
+    await booted();
+    const m = meal('meal-1');
+    await food.saveMeal(m);
+    const exported = await store.exportRecord();
+    if (!exported.ok) throw exported.failure;
+    // On the other device: deleted, restored under a fresh id with its deletion record kept, then backed up.
+    const doc = (await decode(exported.value.bytes)) as { records: { meals: unknown[] }; settings: { deleted?: unknown } };
+    const back = { ...m, id: 'meal-2', restoredFrom: 'meal-1' };
+    // And one restored there from a meal this phone never had: just a meal.
+    const other = { ...m, id: 'meal-3', restoredFrom: 'meal-9' };
+    const file = { ...doc, records: { ...doc.records, meals: [back, other] }, settings: { ...doc.settings, deleted: { records: { meals: ['meal-1', 'meal-9'] } } } };
+    const preview = store.previewRecord(file);
+    expect(preview.ok && preview.restoredHere).toBe(1);
+    expect((await store.importRecord(file, 'merge')).ok).toBe(true);
+    expect(mealsIn(store.getState().records)).toEqual([back, other]);
+    expect(store.getState().settings.deleted?.records?.meals).toEqual(['meal-1', 'meal-9']);
+    // Merged again: nothing changes, and nothing comes back.
+    expect((await store.importRecord(file, 'merge')).ok).toBe(true);
+    expect(mealsIn(store.getState().records)).toEqual([back, other]);
+  });
+
   it('refuses a file holding a meal it can’t read, unless the person allows it', async () => {
     await booted();
     await food.saveMeal(meal('meal-1'));
