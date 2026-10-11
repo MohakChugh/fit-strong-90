@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { WorkoutSession } from '@/types';
 import type { CheckInRecord } from '@/types/checkin';
 import { bpContext, newObservation, type Observation } from '@/health/observation';
@@ -221,5 +221,36 @@ describe('Your week in brief (B-20, L-18)', () => {
     expect(withSeen(['2026-09-28', '2026-10-05'], '2026-09-28')).toEqual(['2026-10-05', '2026-09-28']);
     const many = Array.from({ length: 8 }, (_, i) => `2026-08-${String(3 + i * 7).padStart(2, '0')}`);
     expect(withSeen(many, '2026-10-05')).toHaveLength(8);
+  });
+});
+
+describe('an open Home offers the brief from Monday 04:00 (KT-11, B-20)', () => {
+  it('wakes at its next time boundary, 04:00, before the minute’s tick, and says the brief from then', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-12T03:59:30+05:30'));
+    const { createElement } = await import('react');
+    const { render } = await import('@/test/host');
+    const { useClock, useWakeAt } = await import('@/screens/today/clock');
+    const { nextBoundary } = await import('@/health/recommend');
+    // As HomeScreen is wired: the clock, a wake at its next boundary, and the brief worked out from the clock's now.
+    function Brief() {
+      const { now } = useClock();
+      useWakeAt(nextBoundary(now, {}));
+      return createElement('p', null, weekBriefFor({ now, seen: [], hasFacts: true })?.week ?? 'none');
+    }
+    const h = render(createElement(Brief));
+    try {
+      // The host's settle waits on timers, which are fake here: flush it by hand.
+      await vi.advanceTimersByTimeAsync(0);
+      h.flush();
+      expect(h.text()).toBe('none');
+      // 31 seconds on: the boundary's wake has come; the minute's tick, a minute from the first render, hasn't.
+      await vi.advanceTimersByTimeAsync(31_000);
+      h.flush();
+      expect(h.text()).toBe('2026-10-05');
+    } finally {
+      h.unmount();
+      vi.useRealTimers();
+    }
   });
 });
