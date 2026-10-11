@@ -104,14 +104,16 @@ export interface FoodItem extends ItemBase {
  * food as it was when logged (board D134, H7-09): what one portion is, what
  * one held (absent is unknown), and which version of the food that was (its
  * `updatedAt`). The item reads and scales on its own, whatever the food is now.
+ * One logged before snapshots, with no food left to give it one, has none of
+ * the three and no figure: it reads by its name, "No estimate" (board D146).
  */
 export interface CustomItem extends ItemBase {
   kind: 'custom';
   customId: string;
   count: number;
-  per: { qty: number; unit: string };
-  basis: { kcal?: number; carbsG?: number };
-  version: string;
+  per?: { qty: number; unit: string };
+  basis?: { kcal?: number; carbsG?: number };
+  version?: string;
 }
 
 /** "About how much?" with no food named: a plate size, with kcal only if the person gave a number. Never carbs. */

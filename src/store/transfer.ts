@@ -36,6 +36,8 @@ import { StoreFailure, toFailure, type Db, type StoreResult } from './db';
 import { SCHEMA_VERSION, projectV4 } from './migrate';
 import { withReadingRemoved, type CheckInReading } from '@/components/checkin/pending';
 import { evaluateDays } from '@/engine/readiness';
+import { customFoodsIn, withSnapshots } from '@/food/records';
+import type { CustomFood } from '@/food/types';
 import { readProfile, readSettings } from './importCheck';
 import { checkInEventId, liftBodyMetric, liftSessionPain, readingKey } from './project';
 import { commitChange, keptCheckIn, keptSession, readSnapshot, type Change, type Snapshot } from './snapshot';
@@ -403,7 +405,7 @@ function fromLegacyBackup(raw: Record<string, unknown>): TransferDoc | undefined
 
 type ParseResult = { ok: true; parsed: Parsed } | { ok: false; reason: string };
 
-function parse(raw: unknown): ParseResult {
+function parse(raw: unknown, foodsHere: readonly CustomFood[] = []): ParseResult {
   if (!isRecord(raw)) return { ok: false, reason: 'That file is not a health record export.' };
 
   let legacy = false;
@@ -528,6 +530,11 @@ function parse(raw: unknown): ParseResult {
       return true;
     });
   };
+
+  // Own-food items logged before snapshots are given one first, as this device's were (board D146, H7R-01):
+  // from the file's own food, else this device's.
+  const give = withSnapshots([...customFoodsIn({ customFoods: (recordLists.customFoods ?? []).filter(r => recordProblem('customFoods', r) === undefined) as StoredRecord[] }), ...foodsHere]);
+  for (const store of ['meals', 'savedMeals'] as const) recordLists[store] = recordLists[store]?.map(give);
 
   // Each record whole, by its store's own rule, and one per key, as every other collection.
   const records: Partial<Record<RecordStore, StoredRecord[]>> = {};
@@ -1180,7 +1187,7 @@ function isIdList(x: unknown): x is Iterable<string> {
  * learn how much is already here and what a merge would conflict with.
  */
 export function previewImport(raw: unknown, existing: Iterable<string> | ImportBase = []): ImportPreview | ImportProblem {
-  const result = parse(raw);
+  const result = parse(raw, isIdList(existing) ? [] : customFoodsIn({ customFoods: existing.records?.customFoods ?? [] }));
   if (!result.ok) return { ok: false, reason: result.reason };
   const { file, rejected, legacy, unreadableFields } = result.parsed;
 
@@ -1265,7 +1272,7 @@ export interface ImportPlan {
  * written.
  */
 export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, options: ImportOptions = {}): ImportPlan {
-  const result = parse(raw);
+  const result = parse(raw, customFoodsIn(base.records));
   if (!result.ok) throw new StoreFailure('invalid', result.reason);
   const { file, rejected, unreadableFields } = result.parsed;
 

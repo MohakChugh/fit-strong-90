@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { openDb } from '@/store/db';
 import { fakeIndexedDB } from '@/store/fakeIdb';
+import { commitChange, readSnapshot } from '@/store/snapshot';
 import { decode } from '@/store/transfer';
 import type { CustomFood, MealRecord, SavedMeal } from './types';
 
@@ -219,5 +221,122 @@ describe('meals in backups (journey §18.3)', () => {
     expect((await store.importRecord(bad, 'merge')).ok).toBe(false);
     expect((await store.importRecord(bad, 'merge', { allowRejected: true })).ok).toBe(true);
     expect(mealsIn(store.getState().records).map(x => x.id)).toEqual(['meal-1']);
+  });
+});
+
+/**
+ * Rows as a device on 610d832 (Plan 7 before own-food snapshots) holds them, written there by that build's own
+ * saveMeal, saveCorrection and stepper (H7R-01): lemon rice logged once and as a usual meal of two, sprouts stepped to
+ * 1½, kheer (no figures) only in a breakfast's earlier version, and laddoo, whose own food has since gone.
+ */
+const PRE_SNAPSHOT = {
+  meals: [
+    { id: 'meal-breakfast', at: '2026-10-06T08:30:00.000+05:30', day: '2026-10-06', meal: 'breakfast', items: [{ kind: 'food', foodId: 'roti', rev: 1, name: 'Roti (whole-wheat)', unit: 'piece', count: 1, gramsPerPortion: 40, kcal: 102, carbsG: 21.6, carbsLowG: 15.6, carbsHighG: 28.5 }], level: 'meals', loggedAt: '2026-10-06T08:30:00.000+05:30', edits: [{ replacedAt: '2026-10-06T09:00:00.000+05:30', at: '2026-10-06T08:30:00.000+05:30', meal: 'breakfast', items: [{ kind: 'custom', customId: 'food-kheer', name: 'Kheer', count: 2 }] }], editedAt: '2026-10-06T09:00:00.000+05:30' },
+    { id: 'meal-dinner', at: '2026-10-05T20:30:00.000+05:30', day: '2026-10-05', meal: 'dinner', items: [{ kind: 'custom', customId: 'food-sprouts', name: 'Sprout salad', count: 1.5, kcal: 212 }], level: 'estimates', loggedAt: '2026-10-05T20:30:00.000+05:30', edits: [] },
+    { id: 'meal-lunch', at: '2026-10-05T13:10:00.000+05:30', day: '2026-10-05', meal: 'lunch', items: [{ kind: 'custom', customId: 'food-lemon', name: 'Lemon rice', count: 1, kcal: 333, carbsG: 52.5 }, { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti (whole-wheat)', unit: 'piece', count: 1, gramsPerPortion: 40, kcal: 102, carbsG: 21.6, carbsLowG: 15.6, carbsHighG: 28.5 }], level: 'estimates', loggedAt: '2026-10-05T13:10:00.000+05:30', edits: [] },
+    { id: 'meal-lunch-2', at: '2026-10-07T13:00:00.000+05:30', day: '2026-10-07', meal: 'lunch', items: [{ kind: 'custom', customId: 'food-lemon', name: 'Lemon rice', count: 2, kcal: 666, carbsG: 105 }, { kind: 'custom', customId: 'food-kheer', name: 'Kheer', count: 1 }], level: 'estimates', loggedAt: '2026-10-07T13:00:00.000+05:30', edits: [] },
+    { id: 'meal-snack', at: '2026-10-06T16:45:00.000+05:30', day: '2026-10-06', meal: 'snack', items: [{ kind: 'custom', customId: 'food-laddoo', name: 'Besan laddoo', count: 1.5, kcal: 281, carbsG: 32 }], level: 'estimates', loggedAt: '2026-10-06T16:45:00.000+05:30', edits: [] },
+  ],
+  savedMeals: [
+    { id: 'usual-1', name: 'Sunday lunch', meal: 'lunch', items: [{ kind: 'custom', customId: 'food-lemon', name: 'Lemon rice', count: 2, kcal: 666, carbsG: 105 }, { kind: 'custom', customId: 'food-kheer', name: 'Kheer', count: 1 }], savedAt: '2026-10-05T13:10:00.000+05:30', updatedAt: '2026-10-05T13:10:00.000+05:30' },
+  ],
+  customFoods: [
+    { id: 'food-kheer', name: 'Kheer', per: { qty: 1, unit: 'katori' }, createdAt: '2026-10-05T13:10:00.000+05:30', updatedAt: '2026-10-05T13:10:00.000+05:30' },
+    { id: 'food-lemon', name: 'Lemon rice', per: { qty: 1, unit: 'plate' }, kcal: 333, carbsG: 52.5, allergens: ['peanut'], createdAt: '2026-10-05T13:10:00.000+05:30', updatedAt: '2026-10-05T13:10:00.000+05:30' },
+    { id: 'food-sprouts', name: 'Sprout salad', per: { qty: 1, unit: 'bowl' }, kcal: 141, createdAt: '2026-10-05T13:10:00.000+05:30', updatedAt: '2026-10-05T13:10:00.000+05:30' },
+  ],
+};
+
+describe('own foods logged before snapshots (H7R-01; board D146)', () => {
+  const T = '2026-10-05T13:10:00.000+05:30';
+  const plate = { per: { qty: 1, unit: 'plate' }, basis: { kcal: 333, carbsG: 52.5 }, version: T };
+  const katori = { per: { qty: 1, unit: 'katori' }, basis: {}, version: T };
+  /** The pre-snapshot rows, put straight into the database as that build left them. */
+  async function preSnapshotPhone(fake: ReturnType<typeof fakeIndexedDB>) {
+    await store.start({ factory: fake, broadcast: null });
+    const tab = await openDb(fake);
+    const put = await commitChange(tab, undefined, () => ({
+      change: { records: { meals: { put: PRE_SNAPSHOT.meals }, savedMeals: { put: PRE_SNAPSHOT.savedMeals }, customFoods: { put: PRE_SNAPSHOT.customFoods } } },
+    }));
+    tab.close();
+    expect(put.ok).toBe(true);
+    store.resetForTests();
+  }
+  const stored = async (fake: ReturnType<typeof fakeIndexedDB>) => {
+    const db = await openDb(fake);
+    const snap = await readSnapshot(db);
+    db.close();
+    return snap;
+  };
+
+  it('keeps every meal and usual meal, each item given its snapshot from its own food, once', async () => {
+    const fake = fakeIndexedDB();
+    await preSnapshotPhone(fake);
+    await store.start({ factory: fake, broadcast: null });
+    const records = store.getState().records;
+    const meals = mealsIn(records);
+    expect(meals.map(m => m.id)).toEqual(['meal-breakfast', 'meal-dinner', 'meal-lunch', 'meal-lunch-2', 'meal-snack']);
+    const byId = (id: string) => meals.find(m => m.id === id)!;
+    expect(byId('meal-lunch').items[0]).toEqual({ kind: 'custom', customId: 'food-lemon', name: 'Lemon rice', count: 1, kcal: 333, carbsG: 52.5, ...plate });
+    expect(byId('meal-lunch').items[1]).toEqual(PRE_SNAPSHOT.meals[2].items[1]);
+    expect(byId('meal-dinner').items).toEqual([{ kind: 'custom', customId: 'food-sprouts', name: 'Sprout salad', count: 1.5, kcal: 212, per: { qty: 1, unit: 'bowl' }, basis: { kcal: 141 }, version: T }]);
+    // Only in an earlier version, and with no figures: given its snapshot all the same.
+    expect(byId('meal-breakfast').edits[0].items).toEqual([{ kind: 'custom', customId: 'food-kheer', name: 'Kheer', count: 2, ...katori }]);
+    // Its own food gone: kept by its name and count, with nothing known of it ("No estimate"), never dropped.
+    expect(byId('meal-snack').items).toEqual([{ kind: 'custom', customId: 'food-laddoo', name: 'Besan laddoo', count: 1.5 }]);
+    expect(savedMealsIn(records).map(u => u.items)).toEqual([[
+      { kind: 'custom', customId: 'food-lemon', name: 'Lemon rice', count: 2, kcal: 666, carbsG: 105, ...plate },
+      { kind: 'custom', customId: 'food-kheer', name: 'Kheer', count: 1, ...katori },
+    ]]);
+    // Written, not just read so: what's stored is what's shown, and the next start writes nothing.
+    expect((await stored(fake)).records).toEqual(records);
+    const revision = store.getState().revision;
+    store.resetForTests();
+    await store.start({ factory: fake, broadcast: null });
+    expect(store.getState().revision).toBe(revision);
+    expect(mealsIn(store.getState().records)).toEqual(meals);
+  });
+
+  it('writes them in one transaction: refused part-way, every row stays as it was, and the next start does it', async () => {
+    let refuse = false;
+    const fake = fakeIndexedDB({ failWrite: (s: string) => (refuse && s === 'savedMeals' ? new DOMException('The operation failed.', 'QuotaExceededError') : undefined) });
+    await preSnapshotPhone(fake);
+    refuse = true;
+    await store.start({ factory: fake, broadcast: null });
+    expect(store.getState().status).toBe('ready');
+    expect((await stored(fake)).records.meals).toEqual(PRE_SNAPSHOT.meals);
+    refuse = false;
+    store.resetForTests();
+    await store.start({ factory: fake, broadcast: null });
+    expect(mealsIn(store.getState().records)).toHaveLength(5);
+    expect(savedMealsIn(store.getState().records)).toHaveLength(1);
+  });
+
+  it('takes a backup made before snapshots whole, each item given its snapshot from the file’s own food, else this phone’s', async () => {
+    await booted();
+    const file = (stores: string[]) => ({
+      format: 'fit-strong-health-record', version: 1, exportedAt: T, schemaVersion: 6, observations: [], sessions: [], checkIns: [], personalRecords: [], bodyMetrics: [],
+      focusOverrides: {}, contentState: [], stores,
+      records: Object.fromEntries(stores.map(s => [s, PRE_SNAPSHOT[s as keyof typeof PRE_SNAPSHOT]])),
+    });
+    const whole = file(['meals', 'savedMeals', 'customFoods']);
+    const preview = store.previewRecord(whole);
+    expect(preview.ok && preview.rejected).toMatchObject({ meals: 0, savedMeals: 0, customFoods: 0 });
+    expect((await store.importRecord(whole, 'merge')).ok).toBe(true);
+    const lunch = mealsIn(store.getState().records).find(m => m.id === 'meal-lunch')!;
+    expect(lunch.items[0]).toEqual({ kind: 'custom', customId: 'food-lemon', name: 'Lemon rice', count: 1, kcal: 333, carbsG: 52.5, ...plate });
+    expect(mealsIn(store.getState().records).find(m => m.id === 'meal-snack')!.items).toEqual([{ kind: 'custom', customId: 'food-laddoo', name: 'Besan laddoo', count: 1.5 }]);
+    // Merged again, nothing differs: the file's rows read as this phone's now are.
+    const again = store.previewRecord(whole);
+    expect(again.ok && again.conflicts).toMatchObject({ meals: 0, savedMeals: 0, customFoods: 0 });
+
+    // Meals alone, on a phone that holds the foods: from this phone's.
+    store.resetForTests();
+    local.clear();
+    await booted();
+    expect((await store.writeRecords({ put: { customFoods: PRE_SNAPSHOT.customFoods } })).ok).toBe(true);
+    const mealsOnly = file(['meals']);
+    expect((await store.importRecord(mealsOnly, 'merge')).ok).toBe(true);
+    expect(mealsIn(store.getState().records).find(m => m.id === 'meal-dinner')!.items[0]).toMatchObject({ per: { qty: 1, unit: 'bowl' }, basis: { kcal: 141 }, kcal: 212 });
   });
 });

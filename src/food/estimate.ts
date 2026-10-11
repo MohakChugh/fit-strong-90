@@ -40,7 +40,7 @@ export function customItem(custom: CustomFood, count = 1): CustomItem {
 }
 
 /** What `count` portions hold, from what one held: unknown stays unknown, never 0 (A-17). */
-export function ownFigures(basis: CustomItem['basis'], count: number): Pick<CustomItem, 'kcal' | 'carbsG'> {
+export function ownFigures(basis: NonNullable<CustomItem['basis']>, count: number): Pick<CustomItem, 'kcal' | 'carbsG'> {
   return {
     ...(basis.kcal !== undefined ? { kcal: Math.round(basis.kcal * count) } : {}),
     ...(basis.carbsG !== undefined ? { carbsG: r1(basis.carbsG * count) } : {}),

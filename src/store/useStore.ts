@@ -59,7 +59,7 @@ import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, typ
 import { parseJournalEntry, type JournalEntry } from '@/walk/journal';
 import type { RouteRecord } from '@/walk/routeRecord';
 import type { WalkInput } from '@/walk/record';
-import { SCHEMA_VERSION, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
+import { SCHEMA_VERSION, giveSnapshots, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
 import { liftBodyMetric, liftCheckIn, liftSessionPain } from './project';
 import { RECORD_RULES, RECORD_STORES, recordKey, recordProblem, type RecordStore, type Records, type StoredRecord } from './records';
 import { commitChange, emptySnapshot, prepare, readSnapshot, type Change, type Prepared, type Snapshot } from './snapshot';
@@ -549,6 +549,9 @@ async function boot(options: StartOptions): Promise<void> {
     if (!stopped()) enterMemory(toFailure(error, 'readFailed'));
     return;
   }
+  if (stopped()) { handle.close(); return; }
+  // Own foods logged before snapshots, given theirs once (board D146, H7R-01).
+  snap = await giveSnapshots(handle, snap);
   if (stopped()) { handle.close(); return; }
 
   db = handle;

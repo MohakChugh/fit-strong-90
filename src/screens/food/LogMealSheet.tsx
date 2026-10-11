@@ -115,8 +115,8 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
   };
   const portionOf = (item: MealItem) => {
     if (item.kind === 'quick') return item.name;
-    // As it was logged, whatever the food is now (board D134).
-    if (item.kind === 'custom') return `${countText(item.count)} × ${item.per.qty} ${item.per.unit}`;
+    // As it was logged, whatever the food is now (board D134); logged before snapshots, its food gone, in portions (D146).
+    if (item.kind === 'custom') return item.per ? `${countText(item.count)} × ${item.per.qty} ${item.per.unit}` : `${countText(item.count)} ${item.count > 1 ? 'portions' : 'portion'}`;
     return portionText({ unit: item.unit, noun: foodById(item.foodId)?.portion.noun }, item.count, item.gramsPerPortion);
   };
 

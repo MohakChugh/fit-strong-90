@@ -39,7 +39,7 @@ function scaled(item: FoodItem, count: number): FoodItem {
  * again from the table when it still has the recipe revision the item used;
  * otherwise its own figures are scaled, so it stays on that revision (B-12).
  * The person's own food scales its own snapshot, never a newer version of
- * the food (board D134, H7-09).
+ * the food (board D134, H7-09); with none, nothing is known at any count (D146).
  */
 export function withCount(item: MealItem, count: number, look: Lookup): MealItem {
   if (item.kind === 'quick') return item;
@@ -50,7 +50,7 @@ export function withCount(item: MealItem, count: number, look: Lookup): MealItem
   }
   const { kcal, carbsG, ...rest } = item;
   void kcal; void carbsG;
-  return { ...rest, count: c, ...ownFigures(item.basis, c) };
+  return { ...rest, count: c, ...(item.basis ? ownFigures(item.basis, c) : {}) };
 }
 
 /** "Less" or "More": one step. */

@@ -5,6 +5,7 @@ import { planImport, previewImport, TRANSFER_FORMAT } from '@/store/transfer';
 import type { CustomFood, MealEdit, MealRecord, SavedMeal } from './types';
 import {
   corrected, customFoodProblem, itemProblem, mealProblem, mealsIn, newerByUpdate, newerMeal, restored, savedMealProblem, stored,
+  upgradedItem, withSnapshots,
 } from './records';
 
 const AT = '2026-10-08T13:10:00.000+05:30';
@@ -55,7 +56,10 @@ describe('a meal record (journey §18.2, B-12)', () => {
   it('requires your own food’s snapshot, so the item reads on its own; its food may be gone (H7-10; board D134)', () => {
     const own = { kind: 'custom', customId: 'food-gone', name: 'Bhel puri', count: 1.5, per: { qty: 1, unit: 'plate' }, basis: { kcal: 300 }, version: AT, kcal: 450 };
     expect(itemProblem(own)).toBeUndefined();
-    expect(itemProblem({ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1 })).toMatch(/your own food/);
+    // Logged before snapshots, with no food to give it one (board D146): its name and count, and no figure without what it held.
+    expect(itemProblem({ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1 })).toBeUndefined();
+    expect(itemProblem({ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, kcal: 300 })).toMatch(/your own food/);
+    expect(itemProblem({ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, carbsG: 40 })).toMatch(/your own food/);
     const { per, basis, version, ...bare } = own;
     void per; void basis; void version;
     expect(itemProblem({ ...bare, basis: { kcal: 300 }, version: AT })).toMatch(/your own food/);
@@ -69,7 +73,7 @@ describe('a meal record (journey §18.2, B-12)', () => {
     expect(itemProblem({ ...own, kcal: undefined })).toMatch(/your own food/);
     expect(itemProblem({ ...own, carbsG: 40 })).toMatch(/your own food/);
   });
-  it('takes a backup whose meal names an own food it doesn’t hold, read from the item’s snapshot, and refuses one without (H7-10)', () => {
+  it('takes a backup whose meal names an own food it doesn’t hold, read from the item’s snapshot, and refuses part of one (H7-10, D146)', () => {
     const doc = (item: Record<string, unknown>) => JSON.parse(JSON.stringify({
       format: TRANSFER_FORMAT, version: 1, exportedAt: AT, schemaVersion: 6, observations: [], sessions: [], checkIns: [], personalRecords: [], bodyMetrics: [],
       focusOverrides: {}, contentState: [], stores: ['meals', 'customFoods'], records: { meals: [meal({ items: [item] })], customFoods: [] },
@@ -77,10 +81,15 @@ describe('a meal record (journey §18.2, B-12)', () => {
     const snapshot = { kind: 'custom', customId: 'missing', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: {}, version: AT };
     const ok = previewImport(doc(snapshot));
     expect(ok.ok && ok.rejected?.meals).toBe(0);
-    const { per, basis, version, ...bare } = snapshot;
-    void per; void basis; void version;
-    const refused = previewImport(doc(bare));
+    const { per, ...partial } = snapshot;
+    void per;
+    const refused = previewImport(doc(partial));
     expect(refused.ok && refused.rejected?.meals).toBe(1);
+    // With no snapshot at all, it was logged before them: read by its name (board D146).
+    const { basis, version, ...bare } = partial;
+    void basis; void version;
+    const old = previewImport(doc(bare));
+    expect(old.ok && old.rejected?.meals).toBe(0);
   });
   it('takes an unknown figure as unknown, never as 0 (A-17)', () => {
     expect(itemProblem({ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: {}, version: AT })).toBeUndefined();
@@ -129,6 +138,56 @@ describe('corrections and restores (A-22, B-05)', () => {
   });
   it('restore under a fresh id, naming the one it came from', () => {
     expect(restored(base, 'meal-2')).toMatchObject({ id: 'meal-2', restoredFrom: 'meal-1', items: base.items });
+  });
+});
+
+describe('an own-food item logged before snapshots (H7R-01; board D146)', () => {
+  const lemon: CustomFood = { id: 'food-lemon', name: 'Lemon rice', per: { qty: 1, unit: 'plate' }, kcal: 333, carbsG: 52.5, createdAt: AT, updatedAt: AT };
+  const old = { kind: 'custom', customId: 'food-lemon', name: 'Lemon rice', count: 1.5, kcal: 500, carbsG: 78.8 };
+  const foods = (...list: CustomFood[]) => (id: string) => list.find(f => f.id === id);
+
+  it('takes its snapshot from its food when that food still gives the figures it was logged with, keeping its own name', () => {
+    const renamed = { ...lemon, name: 'Lemon rice (home)' };
+    expect(upgradedItem(old, foods(renamed))).toEqual({ ...old, per: { qty: 1, unit: 'plate' }, basis: { kcal: 333, carbsG: 52.5 }, version: AT });
+    expect(itemProblem(upgradedItem(old, foods(lemon)))).toBeUndefined();
+    const kheer = { kind: 'custom', customId: 'food-kheer', name: 'Kheer', count: 2 };
+    expect(upgradedItem(kheer, foods({ id: 'food-kheer', name: 'Kheer', per: { qty: 1, unit: 'katori' }, createdAt: AT, updatedAt: AT })))
+      .toEqual({ ...kheer, per: { qty: 1, unit: 'katori' }, basis: {}, version: AT });
+  });
+  it('keeps its name and count and no figure when its food is gone, or gives other figures (another version)', () => {
+    const bare = { kind: 'custom', customId: 'food-lemon', name: 'Lemon rice', count: 1.5 };
+    expect(upgradedItem(old, foods())).toEqual(bare);
+    expect(upgradedItem(old, foods({ ...lemon, kcal: 300 }))).toEqual(bare);
+    expect(upgradedItem(old, foods({ ...lemon, carbsG: 50 }))).toEqual(bare);
+    expect(upgradedItem({ ...old, carbsG: undefined }, foods(lemon))).toEqual(bare);
+    expect(itemProblem(bare)).toBeUndefined();
+  });
+  it('leaves every other item as it is: a snapshot, part of one, a table food, a quick add', () => {
+    const items = [
+      { ...old, per: { qty: 1, unit: 'plate' }, basis: { kcal: 333, carbsG: 52.5 }, version: AT },
+      { ...old, basis: {} },
+      { ...old, per: { qty: 1, unit: 'plate' } },
+      { ...old, version: AT },
+      { ...old, count: 0.3 },
+      { ...old, customId: '' },
+      roti,
+      { kind: 'quick', size: 'small', name: 'Small plate' },
+    ];
+    for (const item of items) expect(upgradedItem(item, foods(lemon))).toBe(item);
+  });
+  it('gives a meal’s items and every earlier version’s theirs, from the first food of an id, and leaves a row with none alone', () => {
+    const give = withSnapshots([{ ...lemon, kcal: 999 }, lemon]);
+    const m = meal({ items: [old, roti], edits: [{ replacedAt: AT, at: AT, meal: 'lunch', items: [roti] }, { replacedAt: AT, at: AT, meal: 'lunch', items: [{ ...old, kcal: 1499 }] }], editedAt: AT }) as unknown as MealRecord;
+    const out = give(m) as MealRecord;
+    expect(out.items).toEqual([{ kind: 'custom', customId: 'food-lemon', name: 'Lemon rice', count: 1.5 }, roti]);
+    expect(out.edits[0]).toBe(m.edits[0]);
+    expect(out.edits[1].items[0]).toMatchObject({ basis: { kcal: 999, carbsG: 52.5 }, kcal: 1499 });
+    expect(mealProblem(stored(out))).toBeUndefined();
+    const plain = meal();
+    expect(give(plain)).toBe(plain);
+    const usual = { id: 'usual-1', name: 'Lunch', items: [old], savedAt: AT, updatedAt: AT };
+    expect((withSnapshots([lemon])(usual) as SavedMeal).items[0]).toMatchObject({ basis: { kcal: 333, carbsG: 52.5 } });
+    expect(give('not a row')).toBe('not a row');
   });
 });
 

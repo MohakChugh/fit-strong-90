@@ -216,6 +216,20 @@ describe('your own food in a meal whose food is gone (H7-10; board D134)', () =>
     expect(item(h, 'Peanut chutney')).toContain('May contain peanut, which you listed as an allergy');
     expect(item(h, 'Bhel puri')).toContain('What’s in it isn’t known. Check it for peanut.');
   });
+  it('reads one logged before snapshots by its name, in portions and with no estimate, at any count (board D146)', async () => {
+    const at = '2026-10-06T16:45:00.000+05:30';
+    const old = { kind: 'custom', customId: 'food-laddoo', name: 'Besan laddoo', count: 1.5 } as const;
+    expect((await food.saveMeal({ id: 'meal-1', at, day: '2026-10-06', meal: 'snack', items: [old], level: 'estimates', loggedAt: at, edits: [] })).ok).toBe(true);
+    const h = await open({}, { edit: 'meal-1' });
+    expect(item(h, 'Besan laddoo')).toContain('1½ portions · No estimate');
+    const row = h.all().find(n => n.props['data-item'] === 'Besan laddoo')!;
+    await h.click(allIn(row).find(n => n.type === 'button' && textOf(n.children).includes('More'))!);
+    expect(item(h, 'Besan laddoo')).toContain('2 portions · No estimate');
+    await h.click(allIn(h.all().find(n => n.props['data-item'] === 'Besan laddoo')!).find(n => n.type === 'button' && textOf(n.children).includes('Less'))!);
+    await h.click(allIn(h.all().find(n => n.props['data-item'] === 'Besan laddoo')!).find(n => n.type === 'button' && textOf(n.children).includes('Less'))!);
+    await h.click(allIn(h.all().find(n => n.props['data-item'] === 'Besan laddoo')!).find(n => n.type === 'button' && textOf(n.children).includes('Less'))!);
+    expect(item(h, 'Besan laddoo')).toContain('½ portion · No estimate');
+  });
 });
 
 const { PortionPage } = await import('./parts');

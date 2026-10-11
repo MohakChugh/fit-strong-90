@@ -11,6 +11,7 @@
 import { isAt } from '@/health/observation';
 import type { Records, StoredRecord } from '@/store/records';
 import { ALLERGEN_IDS } from '@/types/profile';
+import { customItem } from './estimate';
 import type { CustomFood, MealEdit, MealRecord, SavedMeal, Slot } from './types';
 import { isUnitId } from './units';
 
@@ -24,6 +25,9 @@ const isAmount = (x: unknown, max: number): x is number => typeof x === 'number'
 /** A count the stepper can reach: halves, from ½ to 20. */
 const isCount = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x) && x > 0 && x <= 20 && Number.isInteger(x * 2);
 const optional = (x: unknown, check: (v: unknown) => boolean) => x === undefined || check(x);
+
+/** An own-food item logged before snapshots (board D146, H7R-01): none of `per`, `basis` and `version`. */
+const preSnapshot = (x: Record<string, unknown>) => x.kind === 'custom' && x.per === undefined && x.basis === undefined && x.version === undefined;
 
 /** Why a logged item can't be read, or nothing. */
 export function itemProblem(x: unknown): string | undefined {
@@ -49,6 +53,8 @@ export function itemProblem(x: unknown): string | undefined {
     }
     case 'custom': {
       if (!isText(x.customId) || !isCount(x.count)) return `${name}: an impossible portion of your own food`;
+      // Logged before snapshots, with no food left to give it one (board D146, H7R-01): its name, with nothing known.
+      if (preSnapshot(x)) return x.kcal === undefined && x.carbsG === undefined ? undefined : `${name}: your own food’s figures can’t be read without what it held`;
       // Its snapshot, so it reads on its own whether or not the food is still here (board D134, H7-10).
       const per = x.per;
       if (!isObject(per) || !(typeof per.qty === 'number' && per.qty > 0 && per.qty <= 10_000) || !isText(per.unit, 20)) return `${name}: what one portion of your own food was can’t be read`;
@@ -136,6 +142,47 @@ const byLatest = (keys: readonly string[]) => (here: StoredRecord, file: StoredR
 export const newerMeal = byLatest(['editedAt', 'loggedAt']);
 /** The copy changed last: a usual meal, or the person's own food. */
 export const newerByUpdate = byLatest(['updatedAt']);
+
+/**
+ * An own-food item logged before snapshots, given one (board D146, H7R-01): from its food as held now, when
+ * that food still gives the figures the item was logged with. Otherwise its food is gone, or isn't the version
+ * it was logged from, so it keeps its name and count and holds no figure: "No estimate". Any other item is itself.
+ */
+export function upgradedItem(x: unknown, foodOf: (id: string) => CustomFood | undefined): unknown {
+  if (!isObject(x) || !preSnapshot(x) || !isText(x.customId) || !isCount(x.count)) return x;
+  const food = foodOf(x.customId);
+  const now = food && customItem(food, x.count);
+  if (now && now.kcal === x.kcal && now.carbsG === x.carbsG) return { ...x, per: now.per, basis: now.basis, version: now.version };
+  if (x.kcal === undefined && x.carbsG === undefined) return x;
+  const { kcal, carbsG, ...known } = x;
+  void kcal; void carbsG;
+  return known;
+}
+
+/**
+ * A meal (every earlier version too) or a usual meal with its items as `upgradedItem` makes them, from these
+ * foods, the first of an id winning: the same row when nothing in it changes.
+ */
+export function withSnapshots(foods: readonly CustomFood[]): (row: unknown) => unknown {
+  const byId = new Map<string, CustomFood>();
+  for (const f of foods) if (!byId.has(f.id)) byId.set(f.id, f);
+  const foodOf = (id: string) => byId.get(id);
+  const items = (list: unknown) => {
+    if (!Array.isArray(list)) return list;
+    const next = list.map(i => upgradedItem(i, foodOf));
+    return next.some((v, i) => v !== list[i]) ? next : list;
+  };
+  return row => {
+    if (!isObject(row)) return row;
+    const its = items(row.items);
+    const edits = Array.isArray(row.edits) ? row.edits.map(e => {
+      const next = isObject(e) ? items(e.items) : undefined;
+      return isObject(e) && next !== e.items ? { ...e, items: next } : e;
+    }) : row.edits;
+    const editsChanged = Array.isArray(row.edits) && (edits as unknown[]).some((e, i) => e !== (row.edits as unknown[])[i]);
+    return its === row.items && !editsChanged ? row : { ...row, items: its, ...(editsChanged ? { edits } : {}) };
+  };
+}
 
 const readable = new WeakMap<readonly StoredRecord[], readonly StoredRecord[]>();
 
