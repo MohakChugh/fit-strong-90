@@ -271,6 +271,24 @@ describe('Resume asks the status first, as the hubs’ Continue does (H2-01, jou
   });
 });
 
+describe('an unanswered stop while Away, Unwell or in a flare-up (K6R-02)', () => {
+  it('offers "Say what happened" first, not "Change status"', async () => {
+    const p = createDefaultProfile({ health: { ...known, diabetes: 'none' } });
+    const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4 };
+    await store.update(prev => ({ ...prev, profile: p, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
+    router.params = startedParams();
+    host = render(createElement(LiveWalkScreen));
+    await host.settle();
+    await h().click(h().button('I need to stop'));
+    await h().click(h().button('Close', { exact: true }));
+    await store.setSettings({ statusPeriods: [{ kind: 'unwell', from: DAY }] });
+    await h().settle();
+    expect(h().text()).toMatch(/You stopped and haven’t said what happened yet/);
+    expect(h().buttons('Say what happened', { exact: true })).toHaveLength(1);
+    expect(h().buttons('Change status', { exact: true })).toHaveLength(0);
+  });
+});
+
 describe('the walking time while paused (M13)', () => {
   it('dims the time and leaves its label at full contrast', async () => {
     const p = createDefaultProfile({ health: { ...known, diabetes: 'none' } });

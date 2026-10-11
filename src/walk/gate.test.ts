@@ -6,7 +6,7 @@ import { PERMISSION_TEXT, type Permission, type PermissionInput } from '@/engine
 import { toDateString } from '@/lib/utils';
 import { resetPendingCheckInsForTests, saveCheckInRecord } from '@/components/checkin/pending';
 import { allowsMovement, clinicalGate, deviceClinical, deviceGate, heldBy, readingIds, STATUS_HOLD, statusRefusal, storeStartPermission, untimedOf, walkInput, walkRefusal, watchClinical } from './gate';
-import { glucoseReadingId } from '@/engine/readiness';
+import { glucoseReadingId, STOP_UNANSWERED } from '@/engine/readiness';
 import type { WalkIntent } from './live';
 
 /** The store's own change notifications, so a test can fire them. */
@@ -319,5 +319,14 @@ describe('carrying a walk on asks the status first, as the hubs’ Continue does
     expect(heldBy(hold, undefined)).toBe(hold);
     expect(heldBy(undefined, status)).toBe(status);
     expect(heldBy(undefined, undefined)).toBeUndefined();
+  });
+
+  it('shows an unanswered stop before the status too, so "Say what happened" is never hidden by Away, Unwell or a flare-up (K6R-02)', () => {
+    const status = statusRefusal('unwell', 'restart')!;
+    const stopped: Permission = { mode: 'walk', allowed: false, disposition: 'hold', reasons: [STOP_UNANSWERED.reason], release: STOP_UNANSWERED.release, restrictions: [], needsCheckIn: false };
+    expect(heldBy(stopped, status)).toBe(stopped);
+    // Among other reasons too.
+    const both = { ...stopped, reasons: ['Check in first.', STOP_UNANSWERED.reason] };
+    expect(heldBy(both, status)).toBe(both);
   });
 });

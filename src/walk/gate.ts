@@ -25,7 +25,7 @@ import type { Permission, PermissionInput } from '@/engine/permission';
 import type { CheckInRecord } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { arrivalGate, liveGate, startGate } from '@/session/gate';
-import { glucoseReadingId, withLogged } from '@/engine/readiness';
+import { glucoseReadingId, STOP_UNANSWERED, withLogged } from '@/engine/readiness';
 import { reachableHistory } from '@/engine/reach';
 import { effectiveCheckIns, pendingCheckInsVersion, subscribePendingCheckIns } from '@/components/checkin/pending';
 import { createDefaultProfile } from '@/profile/defaults';
@@ -119,9 +119,14 @@ export function statusRefusal(status: Status, intent: WalkIntent): Permission | 
   return { mode: 'walk', allowed: false, disposition: 'hold', reasons: [reason], release: STATUS_HOLD.release, restrictions: [], needsCheckIn: false };
 }
 
-/** The hold a walk shows: a stop first, then the status, then any other hold, as the hubs order them (§4.2). */
+/**
+ * The hold a walk shows: a stop first, then the status, then any other hold,
+ * as the hubs order them (§4.2). An unanswered "I need to stop" is a stop
+ * too, so its "Say what happened" is never hidden behind Change status
+ * (K6R-02, board D171).
+ */
 export function heldBy(clinical: Permission | undefined, status: Permission | undefined): Permission | undefined {
-  if (clinical && (clinical.disposition === 'emergency' || clinical.disposition === 'today')) return clinical;
+  if (clinical && (clinical.disposition === 'emergency' || clinical.disposition === 'today' || clinical.reasons.includes(STOP_UNANSWERED.reason))) return clinical;
   return status ?? clinical;
 }
 
