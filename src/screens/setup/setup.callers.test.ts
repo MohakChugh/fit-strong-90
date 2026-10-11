@@ -21,6 +21,9 @@ vi.mock('react-router-dom', async () => {
 vi.mock('@/components/hig/navigation', async importOriginal => ({ ...await importOriginal<typeof import('@/components/hig/navigation')>(), cameFrom: () => false }));
 // The app's toasts put their styles in the page as they load; this document has no page.
 vi.mock('sonner', () => ({ toast: Object.assign(() => {}, { success() {}, warning() {}, error() {} }) }));
+// Base UI's slider and switch call their handlers as they render, which this host can't run; neither is tested here.
+vi.mock('@/components/ui/slider', () => ({ Slider: () => null }));
+vi.mock('@/screens/you/controls', async importOriginal => ({ ...await importOriginal<typeof import('@/screens/you/controls')>(), Toggle: () => null }));
 
 const local = new Map<string, string>();
 globalThis.localStorage = {
@@ -564,7 +567,7 @@ describe('radio groups by keyboard (WAI-ARIA radio group; H5-23; board D160)', (
       const focused: number[] = [];
       const press = async (index: number, key: string) => {
         const siblings = radios().map((_, i) => ({ focus: () => focused.push(i) }));
-        await (radios()[index].props.onKeyDown as (e: unknown) => unknown)({ key, preventDefault() {}, currentTarget: { parentElement: { children: siblings } } });
+        await (radios()[index].props.onKeyDown as (e: unknown) => unknown)({ key, preventDefault() {}, currentTarget: { closest: () => ({ querySelectorAll: () => siblings }) } });
         await shown.settle();
       };
       const state = () => radios().map(n => [n.props.tabIndex, n.props['aria-checked']]);
@@ -583,6 +586,35 @@ describe('radio groups by keyboard (WAI-ARIA radio group; H5-23; board D160)', (
       expect(focused).toHaveLength(5);
       shown.unmount();
     }
+  });
+
+  it('and so do the Voices card’s, in setup’s Voice page: the voices, each with its Preview beside it, and how much the coach explains (H5-23)', async () => {
+    const { useState } = await import('react');
+    const { VoiceSettingsCard } = await import('@/components/profile/VoiceSettingsCard');
+    type Voice = Parameters<typeof VoiceSettingsCard>[0]['voice'];
+    const Stateful = () => {
+      const [voice, setVoice] = useState<Voice>({ rate: 1, verbosity: 'auto', mode: 'coach', muted: false, checked: true });
+      return createElement(VoiceSettingsCard, { voice, onChange: patch => setVoice(v => ({ ...v, ...patch })) });
+    };
+    const shown = render(createElement(Stateful));
+    await shown.settle();
+    for (const name of ['Voice', 'How much the coach explains']) {
+      const group = shown.all().find(n => n.props.role === 'radiogroup' && n.props['aria-label'] === name)!;
+      const radios = () => all(shown.all().filter(n => n === shown.all().find(m => m.props.role === 'radiogroup' && m.props['aria-label'] === name))).filter(n => n.props.role === 'radio');
+      expect(group, name).toBeDefined();
+      const focused: number[] = [];
+      const stops = () => radios().map(n => n.props.tabIndex);
+      expect(stops().filter(t => t === 0), name).toHaveLength(1);
+      const before = radios().findIndex(n => n.props['aria-checked'] === true);
+      const siblings = radios().map((_, i) => ({ focus: () => focused.push(i) }));
+      await (radios()[before].props.onKeyDown as (e: unknown) => unknown)({ key: 'ArrowDown', preventDefault() {}, currentTarget: { closest: () => ({ querySelectorAll: () => siblings }) } });
+      await shown.settle();
+      const after = (before + 1) % radios().length;
+      expect(radios()[after].props['aria-checked'], name).toBe(true);
+      expect(radios()[after].props.tabIndex, name).toBe(0);
+      expect(focused, name).toEqual([after]);
+    }
+    shown.unmount();
   });
 });
 

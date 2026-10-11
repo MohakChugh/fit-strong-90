@@ -191,7 +191,7 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
             <p className="px-1 text-[length:var(--text-body)] leading-snug">
               This deletes {erases ?? 'what is here'} on this {device}, and keeps only what is in the file{(total(stage.preview.rejected) || stage.preview.unreadableObservations) > 0 ? ', leaving out the records in it that cannot be read' : ''}. It cannot be undone.
             </p>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               <button
                 type="button"
                 onClick={() => void apply(stage.raw, stage.preview, 'replace')}
@@ -281,7 +281,7 @@ function PreviewBody({ preview, note, place, device, erases, onMerge, onReplace 
       {preview.isEmpty ? (
         <Notice tone="error">This backup is empty, so restoring it would add nothing.</Notice>
       ) : replaceOnly ? (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           <PrimaryButton onClick={onReplace}>Restore</PrimaryButton>
           <p className="px-4 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
             This {device} will hold exactly what the backup holds, settings and profile included.
@@ -305,7 +305,7 @@ function PreviewBody({ preview, note, place, device, erases, onMerge, onReplace 
               />
             </Group>
           )}
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
             <PrimaryButton onClick={() => onMerge(policy)}>Merge into this {device}</PrimaryButton>
             <p className="px-4 pb-2 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
               Keeps everything here and adds what is in the file. Where a record has been changed, the newer copy is kept. Your settings and profile here stay as they are.
@@ -313,7 +313,7 @@ function PreviewBody({ preview, note, place, device, erases, onMerge, onReplace 
             <button
               type="button"
               onClick={onReplace}
-              className="press-feedback min-h-11 w-full rounded-xl px-4 text-[length:var(--text-body)] font-medium text-stop"
+              className="press-feedback min-h-12 w-full rounded-xl px-4 text-[length:var(--text-body)] font-medium text-stop"
             >
               {erases ? 'Replace everything here' : 'Replace with this backup'}
             </button>
