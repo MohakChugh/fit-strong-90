@@ -157,7 +157,7 @@ function BackupBody({ device }: { device: string }) {
 export function EraseRoutesSheet({ open, onOpenChange, device, onErased }: SheetProps & { onErased: () => void }) {
   const [busy, setBusy] = useState(false);
   return (
-    <Sheet open={open} onOpenChange={next => { if (!busy) onOpenChange(next); }} dismissible={!busy} title="Erase all routes" detent="medium">
+    <Sheet open={open} onOpenChange={next => { if (!busy) onOpenChange(next); }} dismissible={!busy} title="Erase all routes" detent="large">
       {open && <EraseRoutesBody device={device} busy={busy} setBusy={setBusy} close={() => onOpenChange(false)} onErased={onErased} />}
     </Sheet>
   );
