@@ -17,7 +17,7 @@
 import { toDateString } from '@/lib/utils';
 import type { Meal } from '@/types/habits';
 import type { GpsRun } from './gps';
-import { offsetAt } from './time';
+import { dayAt, offsetAt } from './time';
 
 export type WalkKind = 'walk' | 'afterMeal';
 
@@ -51,9 +51,11 @@ export interface WalkPlan {
  * Why a segment closed. `midnight` is not a stop: a walk being watched at
  * midnight carries straight on in a new segment, so each segment belongs to
  * one local day and its time, distance and steps are credited to that day
- * (re-audit F17).
+ * (re-audit F17). Nor is `timeZone`: the phone's offset changed, travelling
+ * or at a daylight-saving change, so each segment also keeps one offset
+ * (H6-10).
  */
-export type SegmentEnd = 'paused' | 'hidden' | 'left' | 'interrupted' | 'midnight' | 'clockChange' | 'finished';
+export type SegmentEnd = 'paused' | 'hidden' | 'left' | 'interrupted' | 'midnight' | 'clockChange' | 'timeZone' | 'finished';
 
 export interface Segment {
   /** Epoch ms. */
@@ -131,6 +133,12 @@ export interface Walk {
   pain?: { back?: PainAnswer; leg?: PainAnswer };
   /** B-19: when this walk saw the phone's clock change. A restart then asks for a fresh reading. */
   clockChangedAt?: number;
+  /**
+   * B-19: the glucose readings the device knew at each change, by identity
+   * (`glucoseReadingId`): timed by the clock as it was, so none of them can
+   * say how old it is now. Only a reading taken since counts.
+   */
+  untimedReadings?: string[];
 }
 
 /**
@@ -155,18 +163,20 @@ export const CLOCK_JUMP_MS = 120_000;
 export interface Clocks { wall: number; mono: number }
 
 /**
- * One accrual step (B-19): the device clock's step while the two clocks agree,
- * or the monotonic step when they don't — and then the clock was changed.
+ * One accrual step (B-19, H6-09): always the monotonic step, which only time
+ * passing moves. The device clock's step only tells whether the clock was
+ * changed: by more than two minutes against the monotonic one, it was. A
+ * smaller change, however often, adds and takes away nothing.
  */
 export function stepOf(from: Clocks, to: Clocks): { ms: number; jumped: boolean } {
   const wall = to.wall - from.wall;
   const mono = to.mono - from.mono;
-  if (Math.abs(wall - mono) > CLOCK_JUMP_MS) return { ms: Math.max(0, mono), jumped: true };
-  return { ms: Math.max(0, wall), jumped: false };
+  return { ms: Math.max(0, mono), jumped: Math.abs(wall - mono) > CLOCK_JUMP_MS };
 }
 
 function emptySegment(start: number): Segment {
-  return { start, gps: [], steps: 0, motion: false, accruedMs: 0, accruedAt: start, day: toDateString(new Date(start)), offsetMin: offsetAt(start) };
+  const offsetMin = offsetAt(start);
+  return { start, gps: [], steps: 0, motion: false, accruedMs: 0, accruedAt: start, day: dayAt(start, offsetMin), offsetMin };
 }
 
 /** The first local midnight after `t`. `setHours(24)` keeps it right across a clock change. */
@@ -399,14 +409,39 @@ export function accrueOpen(walk: Walk, ms: number, wall: number): Walk {
  * the clock it was recorded by, with `ms` (the monotonic step) counted; the
  * next opens at the new time. No gap: the walk was watched throughout.
  *
- * The walk keeps the latest change: a reading stamped between two changes was
+ * The walk keeps the latest change, and every reading the device knew at any
+ * change (`readings`, by identity): a reading stamped between two changes was
  * timed by a clock that moved again, so only one taken since the last can be
  * trusted for its age.
  */
-export function splitAtClockChange(walk: Walk, wall: number, ms: number): Walk {
+export function splitAtClockChange(walk: Walk, wall: number, ms: number, readings: readonly string[] = []): Walk {
   const open = walk.status === 'running' ? openSegment(walk) : undefined;
   if (!open) return walk;
   const end = open.accruedAt + ms;
   const before: Segment = { ...open, end: Math.max(open.start, end), endedBy: 'clockChange', accruedMs: open.accruedMs + ms, accruedAt: end };
-  return { ...walk, clockChangedAt: wall, segments: [...walk.segments.slice(0, -1), before, emptySegment(wall)] };
+  const untimedReadings = [...new Set([...(walk.untimedReadings ?? []), ...readings])];
+  return { ...walk, clockChangedAt: wall, untimedReadings, segments: [...walk.segments.slice(0, -1), before, emptySegment(wall)] };
+}
+
+/**
+ * The phone's offset from UTC changed (H6-10): it travelled to another time
+ * zone, or daylight saving began or ended. Its clock didn't jump, so B-19's
+ * check never sees this. The open segment, accrued to `now` by the caller,
+ * closes at `now` in the offset it was recorded in; the next opens at `now`
+ * in the new offset, with that zone's day. No gap: the walk was watched
+ * throughout.
+ */
+export function splitAtOffsetChange(walk: Walk, now: number): Walk {
+  // Only a walk recording has a segment open: a pause, a gap or the finish closed it.
+  const open = openSegment(walk);
+  if (!open || offsetAt(now) === open.offsetMin) return walk;
+  // A clock set back a little as well never closes a segment before it began.
+  const before: Segment = { ...open, end: Math.max(open.start, now), endedBy: 'timeZone' };
+  return { ...walk, segments: [...walk.segments.slice(0, -1), before, emptySegment(now)] };
+}
+
+/** The local days on either side of these instants: where the readings a clock change leaves untimed are kept (B-19). */
+export function daysAround(...instants: number[]): string[] {
+  const DAY = 86_400_000;
+  return [...new Set(instants.flatMap(t => [t - DAY, t, t + DAY].map(x => toDateString(new Date(x)))))].sort();
 }

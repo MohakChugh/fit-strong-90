@@ -38,8 +38,9 @@ let host: Host | undefined;
 /** Write transactions the database has been asked for. */
 let writes = 0;
 
-/** Eighteen minutes recorded with its route kept, then the app went away. */
+/** Eighteen minutes recorded with its route kept, on a phone that said yes to keeping routes (H6-04), then the app went away. */
 async function lost() {
+  await store.setSettings({ walk: { saveRoutes: true, map: 'off' } });
   const walk = accrueOpen(startWalk(ID, { kind: 'walk', gps: true, steps: false, keepRoute: true }, START), 18 * MIN, START + 18 * MIN);
   await store.putWalkJournal(journalEntry(walk, START + 18 * MIN, [LINE]));
 }
@@ -112,6 +113,19 @@ describe('Home’s recovery row (journey §9.4, V-J34)', () => {
     expect(left.ok && left.value.map(e => e.id)).toEqual([ID]);
   });
 
+  it('puts Save and Discard side by side, and one above the other where the row is narrow (KH-18)', async () => {
+    await lost();
+    const h = (host = render(createElement(WalkRecoveryRow)));
+    await h.settle();
+    const classes = (n: { props: Record<string, unknown> }) => String(n.props.className ?? '').split(/\s+/);
+    const parentOf = (child: unknown) => h.all().find(n => n.children.includes(child as never))!;
+    const row = parentOf(h.button('Save', { exact: true }));
+    expect(row.children).toContain(h.button('Discard', { exact: true }));
+    // Narrower than 20rem, at the row's own text size: stacked, never squeezed side by side.
+    expect(classes(row)).toEqual(expect.arrayContaining(['grid', 'grid-cols-2', '@max-[20rem]:grid-cols-1', 'gap-3']));
+    expect(classes(parentOf(row))).toContain('@container');
+  });
+
   it('discards on request, keeping nothing of the walk', async () => {
     await lost();
     const h = (host = render(createElement(WalkRecoveryRow)));
@@ -141,5 +155,19 @@ describe('Home’s recovery row (journey §9.4, V-J34)', () => {
     const h = (host = render(createElement(WalkRecoveryRow)));
     await h.settle();
     expect(h.text()).not.toContain('was interrupted');
+  });
+});
+
+describe('Home’s recovery row after “Erase all routes” (B-05)', () => {
+  it('saves the walk without the route the erase took, whichever copy of the journal it had read', async () => {
+    await lost();
+    const h = (host = render(createElement(WalkRecoveryRow)));
+    await h.settle();
+    expect((await store.eraseRoutes()).ok).toBe(true);
+    await h.settle();
+    tap(h, 'Save');
+    await h.settle();
+    expect(ofWalk().length).toBeGreaterThan(0);
+    expect(store.getState().records.routes).toEqual([]);
   });
 });

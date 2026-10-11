@@ -107,9 +107,37 @@ export function reviewNeeded(profile: UserProfile | undefined): 'health' | 'medi
   return undefined;
 }
 
-/** B-24's privacy sentence, for this device. Plan 6 adds the one about map pictures when they arrive. */
+/**
+ * What a restore does with routes, said before anything changes (journey
+ * §18.3, B-26, Review Focus 4, H6-05): how many of the file's routes are left
+ * out and why, and on a phone not asked yet, how it takes them.
+ */
+export function routeNotes(preview: Pick<ImportPreview, 'records' | 'refusedStores' | 'replaceRemoves'> & Pick<ImportPreview, 'refusedRecords'>, saveRoutes: boolean | 'unasked' = false): string[] {
+  const inFile = preview.records?.routes ?? 0;
+  const here = preview.replaceRemoves?.routes ?? 0;
+  const refused = inFile > 0 && preview.refusedStores?.includes('routes') === true;
+  const erased = refused ? 0 : preview.refusedRecords?.routes ?? 0;
+  const notes: string[] = [];
+  // B-05: erased for good, whatever a backup made before holds.
+  if (erased > 0) notes.push(`${erased === inFile ? `The file’s ${plural(erased, 'route')}` : `${plural(erased, 'route')} in the file`} ${erased === 1 ? 'is' : 'are'} from before you erased routes on this phone, so ${erased === 1 ? 'it stays' : 'they stay'} erased.`);
+  if (refused) {
+    notes.push(saveRoutes === 'unasked'
+      ? `The file’s ${plural(inFile, 'route')} won’t be added, because this phone hasn’t been asked yet whether to keep routes. To add them, turn on Keep walk routes in Me → Data, then restore the file again.`
+      : `The file’s ${plural(inFile, 'route')} won’t be added, because this phone doesn’t keep routes.`);
+  }
+  if (here > 0 && inFile === 0) notes.push(`Replacing removes this phone’s ${plural(here, 'route')}, which the file doesn’t hold.`);
+  else if (here > 0 && refused) notes.push(`Replacing removes this phone’s ${plural(here, 'route')} too.`);
+  return notes;
+}
+
+/** What Replace keeps of this device, said before anything changes (journey §4.6, H6-03). */
+export function keepsOpenLine(device: string): string {
+  return `Today’s safety answers on this ${device} stay, with the readings they depend on: a backup never clears them.`;
+}
+
+/** B-24's privacy sentence for this device, with map pictures since Plan 6. */
 export function privacyLine(device: string): string {
-  return `Your records are stored on this ${device}. Backups and calendar files leave only when you share them.`;
+  return `Your records are stored on this ${device}. Optional map pictures share the area shown and your internet address with OpenStreetMap. Backups and calendar files leave only when you share them.`;
 }
 
 const perDay = (n: number) => (n === 1 ? 'Once a day' : `${n} a day`);
@@ -258,6 +286,8 @@ export interface RecordCounts {
   checkIns: number;
   bodyMetrics: number;
   personalRecords: number;
+  /** Kept walk routes (Plan 6). */
+  routes?: number;
 }
 
 export function recordCounts(state: {
@@ -266,6 +296,7 @@ export function recordCounts(state: {
   checkIns: readonly unknown[];
   bodyMetrics: readonly unknown[];
   personalRecords: readonly unknown[];
+  records?: { routes: readonly unknown[] };
 }): RecordCounts {
   return {
     readings: state.observations.filter(o => !isBpKind(o.kind)).length + pairBloodPressure(state.observations).length,
@@ -273,6 +304,7 @@ export function recordCounts(state: {
     checkIns: state.checkIns.length,
     bodyMetrics: state.bodyMetrics.length,
     personalRecords: state.personalRecords.length,
+    routes: state.records?.routes.length ?? 0,
   };
 }
 
@@ -284,6 +316,7 @@ export function countsSentence(counts: RecordCounts): string {
     counts.checkIns > 0 && plural(counts.checkIns, 'check-in'),
     counts.bodyMetrics > 0 && plural(counts.bodyMetrics, 'body measurement'),
     counts.personalRecords > 0 && plural(counts.personalRecords, 'personal record'),
+    (counts.routes ?? 0) > 0 && plural(counts.routes ?? 0, 'route'),
   ].filter((x): x is string => Boolean(x));
   return parts.length > 0 ? listOf(parts) : 'nothing yet';
 }

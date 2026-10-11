@@ -19,7 +19,9 @@ const clockNow = () => Date.now();
  * one transaction, once however often it's tapped.
  */
 export function WalkRecoveryRow() {
-  const { observations, saving: storing } = useStore();
+  const { observations, settings, saving: storing } = useStore();
+  // B-05: an erase, here or in another tab, strips the journals' routes: read them again.
+  const erasedAt = settings.walk?.routesErasedAt;
   const [checkedAt, setCheckedAt] = useState(clockNow);
   // Bumped after a save or a discard, so the journals are read again even within the same moment.
   const [reads, setReads] = useState(0);
@@ -35,7 +37,7 @@ export function WalkRecoveryRow() {
     let current = true;
     void readWalkJournals().then(r => { if (current) setEntries(r.ok ? r.value : []); });
     return () => { current = false; };
-  }, [checkedAt, reads]);
+  }, [checkedAt, reads, erasedAt]);
 
   /** Look again, now: after a save or a discard. */
   const recheck = () => {
@@ -95,7 +97,7 @@ export function WalkRecoveryRow() {
   return (
     <div aria-live="polite" className="flex flex-col gap-3">
       {plan.offer.map(r => (
-        <section key={r.entry.id} className="flex flex-col gap-3 rounded-xl bg-grouped-card p-4">
+        <section key={r.entry.id} className="@container flex flex-col gap-3 rounded-xl bg-grouped-card p-4">
           {confirming === r.entry.id ? (
             <>
               <p className={TEXT}>Discard this walk? It can’t be brought back.</p>
@@ -106,7 +108,8 @@ export function WalkRecoveryRow() {
             <>
               <p className={TEXT}>{recoveryText(r, checkedAt)}</p>
               <p className="text-[length:var(--text-footnote)] text-muted-foreground">Nothing is in your record until you save it.</p>
-              <div className="grid grid-cols-2 gap-3">
+              {/* One above the other where the row is narrow at its text size (KH-18). */}
+              <div className="grid grid-cols-2 gap-3 @max-[20rem]:grid-cols-1">
                 <PrimaryButton onClick={() => void save(r)}>Save</PrimaryButton>
                 <SecondaryButton onClick={() => setConfirming(r.entry.id)}>Discard</SecondaryButton>
               </div>

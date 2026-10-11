@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { cn } from '@/lib/utils';
+import { TARGET } from '@/components/hig/targets';
+import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
 import { clearAllAndRestart, exportRecord, getState, useStore } from '@/store/useStore';
 import { deliver, deliveryMethod } from '@/store/transfer';
 import { showBadge } from '@/reminders/badge';
 import { clearReminders } from '@/reminders/pending';
-import { Notice, PlainButton, PrimaryButton } from './controls';
+import { Notice, PlainButton, PrimaryButton, Toggle } from './controls';
 import { settingsKey } from './backupFile';
 import { backupLine, backupState, fileSize } from './dataStatus';
-import { countsSentence, recordCounts } from './summaries';
+import { countsSentence, plural, recordCounts } from './summaries';
 import { recordExport } from './write';
 
 interface SheetProps {
@@ -52,11 +55,14 @@ interface Prepared {
 function BackupBody({ device }: { device: string }) {
   const state = useStore();
   const settings = useMemo(() => settingsKey(state.settings), [state.settings]);
+  // Routes go into a backup only when the person includes them (journey §18.3).
+  const [withRoutes, setWithRoutes] = useState(false);
+  const routes = state.records.routes.length;
   // Everything a backup holds. The store replaces a collection whenever it
   // changes, so a new version means the prepared file no longer matches.
   const version = useMemo(
-    () => [state.observations, state.sessions, state.checkIns, state.personalRecords, state.bodyMetrics, state.focusOverrides, state.contentState, state.records, state.profile, settings],
-    [state.observations, state.sessions, state.checkIns, state.personalRecords, state.bodyMetrics, state.focusOverrides, state.contentState, state.records, state.profile, settings],
+    () => [state.observations, state.sessions, state.checkIns, state.personalRecords, state.bodyMetrics, state.focusOverrides, state.contentState, state.records, state.profile, settings, withRoutes],
+    [state.observations, state.sessions, state.checkIns, state.personalRecords, state.bodyMetrics, state.focusOverrides, state.contentState, state.records, state.profile, settings, withRoutes],
   );
   const [prepared, setPrepared] = useState<Prepared>();
   // Whether the prepared file has left the app: a new one has not, yet.
@@ -65,7 +71,7 @@ function BackupBody({ device }: { device: string }) {
 
   useEffect(() => {
     let current = true;
-    void exportRecord().then(made => {
+    void exportRecord(withRoutes ? { include: ['routes'] } : {}).then(made => {
       if (!current) return;
       if (!made.ok) {
         setOutcome({ tone: 'error', text: `The backup could not be made. ${made.failure.message}` });
@@ -77,7 +83,7 @@ function BackupBody({ device }: { device: string }) {
       setOutcome(previous => (previous?.tone === 'error' ? undefined : previous));
     });
     return () => { current = false; };
-  }, [version]);
+  }, [version, withRoutes]);
 
   // Only a file of the record as it is now can be handed over.
   const ready = prepared?.version === version ? prepared : undefined;
@@ -107,11 +113,20 @@ function BackupBody({ device }: { device: string }) {
   return (
     <>
       <p className="px-1 text-[length:var(--text-body)] leading-snug">
-        One file with your whole record: {countsSentence(recordCounts(state))}, your profile and health answers, and your settings. Restore it on this {device} or a new one.
+        One file with your whole record: {countsSentence({ ...recordCounts(state), routes: withRoutes ? routes : 0 })}, your profile and health answers, and your settings. Restore it on this {device} or a new one.
       </p>
       <p className="px-1 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
         The file is not encrypted. Anyone who has it can read your health record, so keep it somewhere private and think twice before sending it to anyone.
       </p>
+      {routes > 0 && (
+        <Group footer="A backup with routes shows where you walked to anyone who has the file.">
+          <Row
+            label="Include your routes"
+            detail={plural(routes, 'route')}
+            accessory={<Toggle label="Include your routes" checked={withRoutes} onChange={setWithRoutes} />}
+          />
+        </Group>
+      )}
       <div className="flex flex-col gap-2">
         <PrimaryButton disabled={!ready} onClick={() => { if (ready) void hand(ready); }}>
           {!file ? 'Preparing the file…' : deliveryMethod(file) === 'share' ? 'Save or share' : 'Download'}
@@ -175,7 +190,7 @@ function DeleteBody({ device, close }: { device: string; close: () => void }) {
           <button
             type="button"
             onClick={() => setStep('confirm')}
-            className="press-feedback min-h-[3.25rem] w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white"
+            className={cn('press-feedback w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white', TARGET.primary)}
           >
             Delete everything
           </button>
@@ -196,7 +211,7 @@ function DeleteBody({ device, close }: { device: string; close: () => void }) {
           type="button"
           disabled={busy}
           onClick={() => void erase()}
-          className="press-feedback min-h-[3.25rem] w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white disabled:opacity-60"
+          className={cn('press-feedback w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white disabled:opacity-60', TARGET.primary)}
         >
           {busy ? 'Erasing…' : 'Erase all'}
         </button>

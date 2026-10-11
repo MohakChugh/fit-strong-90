@@ -462,6 +462,16 @@ const DAY_ENDING = {
 type DayEnding = keyof typeof DAY_ENDING;
 export const endsTheDay = (n: NewsItem): n is DayEnding => Object.hasOwn(DAY_ENDING, n);
 
+/**
+ * "I need to stop" said during movement, with nothing said since about what
+ * happened (journey §4.4): saved at the tap, it holds every movement until it
+ * is answered. Closing the guidance answers nothing.
+ */
+export const STOP_UNANSWERED = {
+  reason: 'You stopped and haven’t said what happened yet. Say what happened before you move again.',
+  release: 'Say what happened, or change today’s answers once you’re ready to move again.',
+} as const;
+
 /** Those said earlier on the record's day and unticked since. Vomiting ends the day only with diabetes; without, it is a rest until it settles. */
 const newsSaidEarlier = (c: DailyCheckIn, d: DerivedHealth): DayEnding[] =>
   [...new Set(Array.isArray(c.newsEarlier) ? c.newsEarlier : [])].filter(endsTheDay).filter(n => !c.news.includes(n) && (n !== 'vomiting' || d.diabetic));
@@ -473,6 +483,9 @@ function newsRules(p: UserProfile, c: DailyCheckIn, d: DerivedHealth, recorded: 
   const has = (n: NewsItem) => c.news.includes(n) || earlier.includes(n);
   const limit = fluidLimit(p.health);
 
+  if (has('stopped')) {
+    out.push({ outcome: 'red', disposition: 'hold', release: STOP_UNANSWERED.release, reason: R('stopped', STOP_UNANSWERED.reason, 'red', 'hold') });
+  }
   if (has('unwell')) {
     out.push({
       outcome: 'red', disposition: 'hold', release: 'Rest today. If you feel well again later, change today’s answers.',
@@ -1524,6 +1537,28 @@ const flagsEarlierIn = (c: DailyCheckIn): Flag[] => (Array.isArray(c.flagsEarlie
 const flagsOf = (c: DailyCheckIn): Flag[] => [...new Set([...flagsIn(c), ...flagsEarlierIn(c)])];
 
 const flagId = (flag: Flag, day: string) => `flag:${flag}@${day}`;
+
+/**
+ * Every name the engine can give what one record holds (§4.6, P8-02): its
+ * glucose readings, Track's included, its ketones, its blood pressure whole
+ * and in halves, its news and its red flags, by the ids answers use. What an
+ * import must leave this device's answers alone about: a reading's identity
+ * is its time and value, so the same reading under another record id is
+ * still the same one.
+ */
+export function readingIdsIn(record: DailyCheckIn): string[] {
+  const c = withLogged(record);
+  const day = c.date;
+  const ids = [
+    ...[...(c.glucoseEarlier ?? []), c.glucose, c.glucoseDisplay].filter((e): e is GlucoseEntry => !!e).map(e => glucoseReadingId(e, day)),
+    ...[...(c.ketonesEarlier ?? []), ...(c.ketones ? [c.ketones] : [])].map(k => ketoneReadingId(k, day)),
+    ...([...(c.bpEarlier ?? []), ...(c.bpReadings ?? []), ...(c.bp ? [c.bp] : [])] as BpReading[]).map(r => bpReadingId(r, day)),
+    ...(c.bpPartial ?? []).map(r => bpPartialId(r, day)),
+    ...[...c.news, ...(Array.isArray(c.newsEarlier) ? c.newsEarlier : [])].map(n => newsReadingId(day, n)),
+    ...flagsOf(c).map(f => flagId(f, day)),
+  ];
+  return [...new Set(ids)];
+}
 
 /**
  * An item said again today after an answer released it — a red flag, a foot

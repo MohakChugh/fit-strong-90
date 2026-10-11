@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { toDateString } from '@/lib/utils';
 import {
   accrueOpen,
   addGapTime,
   CLOCK_JUMP_MS,
+  daysAround,
   finishWalk,
   heartbeat,
   leaveWalk,
@@ -17,6 +18,7 @@ import {
   returnToWalk,
   splitAtClockChange,
   splitAtMidnight,
+  splitAtOffsetChange,
   STALE_AFTER_MS,
   startWalk,
   stepOf,
@@ -202,10 +204,13 @@ describe('the open segment', () => {
 });
 
 describe('time under a changed clock (B-19)', () => {
-  it('takes the device clock’s step while the two clocks agree, even with the device clock frozen between steps', () => {
+  it('counts the monotonic step, never the device clock’s, while the two agree (H6-09)', () => {
     expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(1), mono: 1000 })).toEqual({ ms: 1000, jumped: false });
-    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(60), mono: 1000 })).toEqual({ ms: 60_000, jumped: false });
-    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(0), mono: 900 })).toEqual({ ms: 0, jumped: false });
+    // The device clock moved on a minute in a second: too little to be a change to the clock, and no walking either.
+    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(60), mono: 1000 })).toEqual({ ms: 1000, jumped: false });
+    // Or it stood still, or went back a little: the time walked still counts.
+    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(0), mono: 900 })).toEqual({ ms: 900, jumped: false });
+    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(-90), mono: 1000 })).toEqual({ ms: 1000, jumped: false });
   });
 
   it('takes the monotonic step, and says the clock changed, when they disagree by more than two minutes', () => {
@@ -213,7 +218,25 @@ describe('time under a changed clock (B-19)', () => {
     expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(-3600), mono: 1000 })).toEqual({ ms: 1000, jumped: true });
     expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(3600), mono: 1000 })).toEqual({ ms: 1000, jumped: true });
     // Exactly two minutes apart still agree.
-    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(121), mono: 1000 })).toEqual({ ms: 121_000, jumped: false });
+    expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(121), mono: 1000 })).toEqual({ ms: 1000, jumped: false });
+    // A monotonic clock never runs back; if one seems to, nothing is counted.
+    expect(stepOf({ wall: s(0), mono: 5000 }, { wall: s(1), mono: 4000 })).toEqual({ ms: 0, jumped: false });
+  });
+
+  it('keeps every reading the device knew at each change, by identity (H6-02)', () => {
+    let w = splitAtClockChange(accrueOpen(walkFor(), 60_000, s(60)), s(3600), 1000, ['g:a']);
+    expect(w.untimedReadings).toEqual(['g:a']);
+    // A reading taken between two changes was timed by a clock that moved again.
+    w = splitAtClockChange(accrueOpen(w, 60_000, s(3660)), s(7200), 1000, ['g:a', 'g:b']);
+    expect(w.untimedReadings).toEqual(['g:a', 'g:b']);
+    w = splitAtClockChange(accrueOpen(w, 60_000, s(7260)), s(9000), 1000);
+    expect(w.untimedReadings).toEqual(['g:a', 'g:b']);
+  });
+
+  it('looks for those readings on the days either side of both clocks', () => {
+    const noon = new Date(2026, 9, 8, 12).getTime();
+    expect(daysAround(noon)).toEqual(['2026-10-07', '2026-10-08', '2026-10-09']);
+    expect(daysAround(noon, noon - 3 * 86_400_000)).toEqual(['2026-10-04', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09']);
   });
 
   it('keeps the latest change, so only a reading taken since it is timed', () => {
@@ -252,5 +275,50 @@ describe('time under a changed clock (B-19)', () => {
     w = splitAtMidnight(w, mid + 30_000);
     expect(w.segments.map(x => x.accruedMs)).toEqual([60_000, 30_000]);
     expect(w.segments[1].day).not.toBe(w.segments[0].day);
+  });
+});
+
+describe('a change of time zone mid-walk (H6-10)', () => {
+  // The phone's zone, as `getTimezoneOffset` reports it: minutes west of UTC.
+  let zone: MockInstance<() => number>;
+  beforeEach(() => { zone = vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(-330); });
+  afterEach(() => zone.mockRestore());
+  // 11:50 pm on the 8th in India (+05:30).
+  const START = Date.UTC(2026, 9, 8, 18, 20);
+
+  it('closes the segment in the offset it was recorded in, and opens the next in the new one, with that zone’s day', () => {
+    let w = startWalk('abc-123', PLAN, START);
+    expect([w.segments[0].day, w.segments[0].offsetMin]).toEqual(['2026-10-08', 330]);
+    w = accrueOpen(w, 300_000, START + 300_000);
+    expect(splitAtOffsetChange(w, START + 300_000)).toBe(w);
+    // Five minutes on, the phone is an hour east (+06:30): five to one in the morning, on the 9th.
+    zone.mockReturnValue(-390);
+    w = splitAtOffsetChange(w, START + 300_000);
+    expect(w.segments.map(x => [x.endedBy, x.day, x.offsetMin, x.accruedMs])).toEqual([
+      ['timeZone', '2026-10-08', 330, 300_000],
+      [undefined, '2026-10-09', 390, 0],
+    ]);
+    expect([w.segments[0].end, w.segments[1].start, w.segments[1].accruedAt]).toEqual([START + 300_000, START + 300_000, START + 300_000]);
+    // Nothing went unwatched, and the clock itself never jumped.
+    expect(w.gaps).toEqual([]);
+    expect(w.clockChangedAt).toBeUndefined();
+  });
+
+  it('splits only a walk that is recording', () => {
+    const paused = pauseWalk(accrueOpen(startWalk('abc-123', PLAN, START), 60_000, START + 60_000), START + 60_000);
+    zone.mockReturnValue(-240);
+    expect(splitAtOffsetChange(paused, START + 120_000)).toBe(paused);
+  });
+
+  it('never closes a segment before it began, when the clock was set back a little as well', () => {
+    const w = startWalk('abc-123', PLAN, START);
+    zone.mockReturnValue(-390);
+    const split = splitAtOffsetChange(w, START - 30_000);
+    expect(split.segments[0]).toMatchObject({ start: START, end: START, endedBy: 'timeZone' });
+  });
+
+  it('dates a segment by its own offset, so its day and its records agree', () => {
+    zone.mockReturnValue(-390);
+    expect(startWalk('abc-123', PLAN, START).segments[0]).toMatchObject({ day: '2026-10-09', offsetMin: 390 });
   });
 });

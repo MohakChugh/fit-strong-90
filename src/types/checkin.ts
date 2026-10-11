@@ -88,7 +88,13 @@ export type NewsItem =
   | 'hotSwollenFoot'
   | 'steroid'
   | 'hot'
-  | 'unusualFatigue';
+  | 'unusualFatigue'
+  /**
+   * "I need to stop" was tapped during movement, and what happened is not
+   * said yet (journey §4.4). Saved at the tap, it holds every movement until
+   * it is answered: a stop answer, or today's answers changed.
+   */
+  | 'stopped';
 
 export type SymptomReach = 'back' | 'buttock' | 'thigh' | 'belowKnee' | 'foot';
 

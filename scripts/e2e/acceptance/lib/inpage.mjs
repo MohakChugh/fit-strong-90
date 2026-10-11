@@ -121,12 +121,23 @@ export function faultInit() {
  * Permission and sensor requests, counted (J01 step 1, J10 step 2), with a
  * geolocation that the test drives: `grant` | `deny` | `prompt-deny`.
  * Positions are stamped with the page's (frozen, test-driven) clock.
+ *
+ * `monotonic: 'wall'` runs `performance.now` with the wall clock, as a phone's
+ * two clocks run together: the harness freezes `Date` and moves it with
+ * `t.advance`, while the page's own monotonic clock keeps real time. A walk
+ * counts its time on the monotonic clock (B-19, H6-09), so a walk journey
+ * asks for this, and its walk then lasts exactly the time it advanced. The
+ * default keeps real time, which the 3D demos animate on.
  */
-export function sensorInit({ geo = 'deny' } = {}) {
+export function sensorInit({ geo = 'deny', motion = 'absent', monotonic = 'real' } = {}) {
   if (window.__acc?.sensorsInstalled) return;
   const acc = (window.__acc = window.__acc || {});
   acc.sensorsInstalled = true;
-  const calls = (acc.calls = { geolocation: 0, permissionsQuery: [], notification: 0, motion: 0, wakeLock: 0 });
+  if (monotonic === 'wall') {
+    const base = performance.now() - Date.now();
+    performance.now = () => Date.now() + base;
+  }
+  const calls = (acc.calls = { geolocation: 0, permissionsQuery: [], notification: 0, motion: 0, wakeLock: 0, motionRequests: [], play: [] });
   const g = (acc.geo = { mode: geo, watchers: new Map(), nextId: 1, last: undefined });
   const denied = () => ({ code: 1, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3, message: 'User denied Geolocation' });
   const position = p => ({
@@ -186,6 +197,40 @@ export function sensorInit({ geo = 'deny' } = {}) {
   EventTarget.prototype.addEventListener = function (type, ...rest) {
     if (this === window && (type === 'devicemotion' || type === 'deviceorientation')) calls.motion += 1;
     return add.call(this, type, ...rest);
+  };
+  // Motion as iOS has it (journey §9.1, B-01): a permission asked for from a tap, and samples the test sends.
+  const m = (acc.motion = { mode: motion, clock: undefined });
+  if (motion !== 'absent' && typeof DeviceMotionEvent !== 'undefined') {
+    DeviceMotionEvent.requestPermission = () => {
+      calls.motionRequests.push(window.event?.type ?? null);
+      return Promise.resolve(m.mode === 'grant' ? 'granted' : 'denied');
+    };
+  }
+  /**
+   * `seconds` of walking at `stepHz` steps a second, as the phone's sensor
+   * reports it (src/walk/steps.test.ts's gait), sent at once. Each sample
+   * carries its own time on a clock that only this moves, because the step
+   * detector reads `timeStamp`, not the moment it's sent.
+   */
+  acc.emitGait = ({ seconds = 10, stepHz = 2, amplitude = 2.5, hz = 50 } = {}) => {
+    m.clock ??= performance.now();
+    let sent = 0;
+    for (let i = 0; i < seconds * hz; i++) {
+      const s = i / hz;
+      const z = 9.80665 + amplitude * Math.sin(2 * Math.PI * stepHz * s) + 0.4 * amplitude * Math.sin(2 * Math.PI * 2 * stepHz * s + 0.7);
+      const e = new DeviceMotionEvent('devicemotion', { accelerationIncludingGravity: { x: 0, y: 0, z }, interval: 1000 / hz });
+      Object.defineProperty(e, 'timeStamp', { value: m.clock + s * 1000 });
+      window.dispatchEvent(e);
+      sent++;
+    }
+    m.clock += seconds * 1000;
+    return sent;
+  };
+  // Every play() of an <audio>, with the event it ran inside: a tap's own handler shows as "click" (B-01, A-53).
+  const play = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function (...args) {
+    calls.play.push({ src: String(this.src).slice(0, 160), during: window.event?.type ?? null });
+    return play.apply(this, args);
   };
 }
 

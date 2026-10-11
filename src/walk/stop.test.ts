@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BACK_LABEL, EMERGENCY_LABEL, NEWS_LABEL } from '@/components/checkin/copy';
-import { LEG_QUESTIONS, legReport, onChoice, REACH_LABEL, STOP_CHOICES, stopReport, type LegAnswers } from './stop';
+import { answering, LEG_QUESTIONS, legReport, needToStop, NO_LEG, onChoice, REACH_LABEL, STOP_CHOICES, STOPPED, stopAnswer, stopReport, type LegAnswers } from './stop';
 
 const none: LegAnswers = { weakness: false, fast: false, bothLegs: false, saddle: false, bladderBowel: false };
 
@@ -80,5 +80,27 @@ describe('the movement that brought leg symptoms on (scan X2-09)', () => {
   it('is left out for the day when named: on a walk, walking itself', () => {
     expect(legReport({ ...none, spread: true }, 'thigh', 'brisk-walking')).toEqual({ provoked: ['brisk-walking'], back: { spreadToday: true } });
     expect(legReport(none, undefined)).not.toHaveProperty('provoked');
+  });
+});
+
+describe('"I need to stop" on a walk (journey §4.4, H6-01)', () => {
+  it('saves the stop at the tap, after recording stops', async () => {
+    const order: string[] = [];
+    const live = { pause: () => void order.push('pause') };
+    await needToStop(live, async r => {
+      order.push(`report ${JSON.stringify(r)}`);
+      return { record: { date: '2026-10-09', urgentSymptoms: false, news: [], readiness: {} } as never, stored: true };
+    });
+    expect(order).toEqual(['pause', `report ${JSON.stringify(STOPPED)}`]);
+    expect(STOPPED).toEqual({ news: ['stopped'] });
+  });
+
+  it('answers the stop with every answer, and with a rest says only that', () => {
+    expect(stopAnswer('rest', false)).toEqual({ report: { newsGone: ['stopped'] }, next: 'close' });
+    expect(stopAnswer('chest', false)).toEqual({ report: { emergency: ['chest'], newsGone: ['stopped'] }, next: 'close' });
+    expect(stopAnswer('dizzy', true)).toEqual({ report: { news: ['dizzy'], newsGone: ['stopped'] }, next: 'dizzy' });
+    // Leg symptoms have their own questions; their save answers the stop.
+    expect(stopAnswer('leg', false)).toEqual({ next: 'leg' });
+    expect(answering(legReport({ ...NO_LEG, weakness: true }, undefined, 'brisk-walking')).newsGone).toEqual(['stopped']);
   });
 });

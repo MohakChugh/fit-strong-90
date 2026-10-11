@@ -259,6 +259,64 @@ describe('a sheet that will not close yet (review C2-07)', () => {
     expect(t.panel.style.transform).toBe('');
   });
 
+  it('sizes every destructive confirmation as a main target, 60 px at least (§20.4 rule 1, H4-08)', () => {
+    const expected: Record<string, number> = {
+      'src/screens/you/DataSheets.tsx': 2, 'src/screens/you/RestoreFlow.tsx': 1, 'src/screens/you/DataScreen.tsx': 1, 'src/screens/you/ProgrammeGroup.tsx': 1,
+    };
+    for (const [file, count] of Object.entries(expected)) {
+      const buttons = read(file).split('\n').filter(line => line.includes('bg-stop-fill'));
+      expect(buttons, file).toHaveLength(count);
+      for (const line of buttons) {
+        expect(line, file).toContain('TARGET.primary');
+        expect(line, file).not.toContain('min-h-[3.25rem]');
+      }
+    }
+    expect(read('src/components/hig/targets.ts')).toMatch(/primary: 'min-h-\[60px\]'/);
+  });
+
+  it('sizes every live walk control as a target, 48 px at least and 12 px apart, and the walk’s main buttons 60 px (§20.4 rule 1, H6-11, KH-10)', () => {
+    const live = read('src/screens/walk/LiveWalkScreen.tsx');
+    // Nothing tappable on the live walk under 48 px: Tailwind's 44 px and smaller are gone.
+    expect(live).not.toMatch(/min-h-(?:8|9|10|11)\b/);
+    const lines = live.split('\n');
+    /** The class line of the control whose label is `label`: the nearest line above it that opens one. */
+    const control = (label: string) => {
+      const at = lines.findIndex(l => l.trim() === label);
+      expect(at, label).toBeGreaterThan(0);
+      return lines.slice(0, at).reverse().find(l => /<button|<a /.test(l)) ?? '';
+    };
+    for (const label of ['Check in', 'Turn the voice on', 'Health questions', 'Allow motion and count steps', 'Say what happened', 'Done']) {
+      expect(control(label), label).toMatch(/TARGET\.(tap|primary)/);
+    }
+    // The stop row and the gap notice's choices are main targets, side by side or stacked 12 px apart.
+    for (const label of ['I need to stop', 'I feel low', 'Continue walking', 'Finish']) expect(control(label), label).toMatch(/TARGET\.primary/);
+    const grids = lines.filter(l => l.includes("'grid grid-cols-1"));
+    expect(grids).toHaveLength(2);
+    for (const grid of grids) expect(grid).toContain('TARGET.gap');
+    // The walk's own primary and secondary buttons: main targets, from the one size.
+    const parts = read('src/screens/walk/parts.tsx');
+    expect(parts.match(/TARGET\.primary/g)).toHaveLength(2);
+    expect(parts).not.toMatch(/min-h-14/);
+  });
+
+  it('Me → Data changes both walk answers, erases every route in one call, and has no placeholder left (Task 14, H6-07, KH-07)', () => {
+    const data = read('src/screens/you/DataScreen.tsx');
+    expect(data).toMatch(/<Toggle label="Keep walk routes" checked=\{walk\.saveRoutes === true\} onChange=\{on => void setSettings\(\{ walk: \{ \.\.\.walk, saveRoutes: on \} \}\)\} \/>/);
+    expect(data).toMatch(/<Toggle label="Map pictures under routes" checked=\{walk\.map === 'on'\} onChange=\{on => void setSettings\(\{ walk: \{ \.\.\.walk, map: on \? 'on' : 'off' \} \}\)\} \/>/);
+    expect(data).toMatch(/const done = await eraseRoutes\(\);/);
+    expect(data).not.toMatch(/Not in this version yet|Plan 6 replaces this group/);
+    expect(read('src/screens/you/DataSheets.tsx')).toMatch(/exportRecord\(withRoutes \? \{ include: \['routes'\] \} : \{\}\)/);
+    const hub = read('src/screens/hub/WalkHub.tsx');
+    expect(hub).toMatch(/<Row as=\{Link\} to="\/me\/data" viewTransition label="Routes" value=\{consentSummary\(walkSettings\(state\.settings\)\)\.routes\} chevron \/>/);
+    expect(hub).toMatch(/<Row as=\{Link\} to="\/me\/data" viewTransition label="Map pictures" value=\{consentSummary\(walkSettings\(state\.settings\)\)\.map\} chevron \/>/);
+  });
+
+  it('the restore preview says what happens to routes on this phone’s own answer, before anything changes (H6-05, B-26)', () => {
+    const flow = read('src/screens/you/RestoreFlow.tsx');
+    expect(flow).toMatch(/saveRoutes=\{walkSettings\(state\.settings\)\.saveRoutes\}/);
+    expect(flow).toMatch(/\{routeNotes\(preview, saveRoutes\)\.map\(n => <Notice key=\{n\}>\{n\}<\/Notice>\)\}/);
+  });
+
   it('is told so by the sheets that refuse while they save', () => {
     expect(read('src/screens/you/RestoreFlow.tsx')).toMatch(/<Sheet open=\{open\} dismissible=\{!locked\}/);
     expect(read('src/screens/workout/sheets.tsx')).toMatch(/<Sheet open=\{open\} dismissible=\{!saving\}/);

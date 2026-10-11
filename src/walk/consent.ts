@@ -42,6 +42,15 @@ export function withConsent(plan: WalkPlan, walk: WalkSettings): WalkPlan {
   return { ...rest, ...(plan.gps && walk.saveRoutes === true ? { keepRoute: true } : {}) };
 }
 
+/** This phone's two walk choices in words, for the Walk hub and Me → Data. */
+export function consentSummary(walk: WalkSettings): { routes: string; map: string } {
+  const unasked = 'Asked on your first walk with location';
+  return {
+    routes: walk.saveRoutes === 'unasked' ? unasked : walk.saveRoutes ? 'Kept on this phone' : 'Not kept',
+    map: walk.map === 'unasked' ? unasked : walk.map === 'on' ? 'On' : 'Off',
+  };
+}
+
 /** Under the "Measure distance and pace" switch. */
 export function routeNote(walk: WalkSettings): string {
   if (walk.saveRoutes === true) return 'Uses GPS. Your route is kept on this phone.';

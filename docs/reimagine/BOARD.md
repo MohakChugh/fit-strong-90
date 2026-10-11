@@ -1216,3 +1216,68 @@ Headless Chromium against this worktree's dev server (`npx vite --port 5390 --st
 - The add sheet's unit switches (`UnitSwitch`, "Glucose unit", "HbA1c unit") are 44 px; rule 1 asks 48.
 - The engine asks for ketones at glucose of 250 mg/dL **or more** (`atLeast`), but `displayBoundaries` holds only Trends' "above 250" (`le`). A reading of 249.6 still shows as "250 mg/dL" anywhere, where the ketone rule does not apply.
 - `BackLegChart` (track) now reads `slotAt` and `stepValue` from `screens/trends/chart.ts`; they could move to `components/hig/scale.ts` beside the other chart helpers.
+
+### 2026-10-11 — [claude] Plan 6 (Walk): decisions, and the device checks before release
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| D86 | Every start to `/walk/live` goes through `useStartMovement`'s walk path: the first walk's questions (keep routes; map pictures, only while routes are kept; the step card, only when counting steps), then B-01's sequence in the tap that finally starts the walk. Each answer is stored as it's given, so a start the gate refuses keeps them and asks nothing twice. The live screen starts only the latest walk that flow started, and only once (`walk/started.ts`): an address is a choice, never authorisation, so a link, a bookmark or a step back through history goes to the Walk hub with its meal. Each tap is one attempt: Close, another screen or the screen going away gives it up, its audio is dropped and it never navigates; Start answers again once an attempt is over | J§9.1, B-01, A-51, K-09, K-29; V-J19; H6-04, H6-08, KH-12, KH-14 |
+| D87 | B-09's walk is recorded as after the meal "had at" the stated time: tagged `afterMeal`, with no `mealStartedAt`; the summary says "Had at", the note "which you had at" | Plan 2's D50 left it to this plan; B-09 |
+| D88 | A segment's time accrues from the monotonic clock alone. The device clock disagreeing with it by more than 120 s in one step is a change to the clock: the segment closes as `clockChange`, and every reading the device knew then is untimed, by identity, for every question the walk asks, carrying on included. A change of the phone's offset (another zone, daylight saving) moves no clock: the segment closes as `timeZone` and the next opens in the new offset and day. The acceptance suite runs a walk journey's monotonic clock with its frozen wall clock (`sensors.monotonic: 'wall'`), moves recording time at most 60 s at a time, and cues have 65 s of grace for it | B-19, A-75; H6-02, H6-09, H6-10; V-J41 is Plan 8's journey |
+| D89 | The walk journal is IndexedDB `walkJournal`, outside the record (no revision, no backup, no other tab). It's written at every change and every 15 s, with the route only when routes are kept, and retired in the save's own transaction. A walk restored after a reload journals nothing until its route has been read back, and a save with no route in hand reads the journal's inside its own transaction. Home offers a walk whose journal has been quiet for 2 minutes and isn't held by this tab's draft | J§9.4, A-55, A-57; V-J34; H6-06 |
+| D90 | A route is one line per GPS run, never joined across a gap or a dropout. It's kept only on this phone's "Yes" as it is now, whatever an address or a walk's plan says; at most 1,000 lines and 20,000 points; never in `sessionStorage`; in a backup only with "Include your routes". A file's routes come in only on a phone that said Yes, never one from before "Erase all routes", and the preview says how many are left out and why. An import never switches either consent on | B-17, A-48, J§18.3, B-26; H6-04, H6-05, KH-12 |
+| D91 | Map pictures are our own static map: OpenStreetMap's standard tiles for the current view only (at most 9 at 400×300), as plain `<img>`s with the browser's caching and the page's Referer (`strict-origin-when-cross-origin`). The CSP adds `https://tile.openstreetmap.org` to `img-src` and nothing else. None are requested during a live walk, offline, while hidden, or in the history, whose thumbnails are our own SVG. The credit is a visible link under the map, 48 px tall | J§9.5, J§22, B-23, M14; KH-10 |
+| D92 | Energy is (MET − 1) × kg × hours, from the 2024 Adult Compendium for those certainly 19 to 59 this year (D85 for 60 and over). Time without a usable speed counts at 17152 (2.8). It's rounded to the nearest 10, with no figure under 5 kcal or for a speed of 5 mph and over. The weight is the last reading on or before the walk, else the profile's. It's saved as an `activeEnergy` observation whose note says what it used; with no birth year the summary links to Me → Profile & health, at About you | J§12.4, B-16, B-17, B-18, B-31; KH-13 |
+| D93 | "Erase all routes" is one transaction: the routes store emptied with its keys remembered (D-06), every journal rewritten without its route, and `routesErasedAt` set. Every tab's live walk, journal cache and open summary watches that and forgets its route, and neither the store nor an import ever keeps a route that began before it. Deletion records hold ids only today; **Plan 8 must clear route coordinates from its deletion payloads in this same operation** | B-05; H6-07, KH-03, KH-04, KH-05, KH-07 |
+| D94 | Cues are five recorded single sentences at 10, 20, 30, 45 and 60 minutes of recorded time, said within 65 s of the minute. They play through one audio element that the start tap unlocks. There's no device-voice fallback, and a cue stops on pause, a hold, Finish, leaving, mute, a call or headphones out, and is never resumed | J§9.2, A-72, B-01 |
+
+Rechecks and deferrals from the review of this plan:
+- KH-06 rechecked independently on 2026-10-10: values match the source page.
+- KH-09 is deferred to Plan 7 Task 15.
+
+**Checks only an iPhone can do** (before release; record the results here, with the phone and iOS version):
+1. **Motion permission, every cold launch:** the prompt appears from the tap that finally starts the walk (the hub's Start, the check-in's Start, or the step card's), not before the step card. "Don't Allow" gives a walk that says "Steps not counted". Closing the step card while the prompt is up starts nothing afterwards.
+2. **Steps** over 200 counted steps, each within ±10%: a slow gait (about 1.5 steps a second); with a walking stick; and with the phone in the hand, a trouser pocket, a shirt pocket and on a lanyard. A limping gait counts both legs.
+3. **Audio:** the 10-minute cue plays after the start tap. A call, or headphones pulled out mid-cue, stops it, and it doesn't resume. After a reload mid-walk, "Turn the voice on" unlocks it.
+4. **Wake Lock,** in Safari and installed: the screen stays on through a 15-minute walk. When it's refused or released, "Keep this screen on to keep tracking." shows.
+5. **Map pictures on the deployed site:** each tile request carries the site's Referer and returns 200. The credit link opens OpenStreetMap's copyright page.
+6. **A screen lock mid-walk:** "Recording paused while the app was away" on return, and a separate line and segment.
+7. **A clock change mid-walk** (Settings → General → Date & Time, time set by hand): the recorded time stays right, and carrying on asks for a fresh reading. **A time-zone change** (Set Automatically off, another city): the time stays right, a new segment starts in the new zone, and nothing is held for it.
+
+### 2026-10-11 — [claude] Plan 6: the review findings fixed, Tasks 14 to 18, and the full run
+
+Branch `feat/v2-p6b`, from `feat/v2-journey` at `0305bc5`. Every fix below began with a test that failed on the code the finding named, and each new rule's mutants fail a test. Gates at every commit: `tsc -b --force`, `eslint .`, `vitest run`.
+
+| Finding | What a person met | Fix | Commit |
+| --- | --- | --- | --- |
+| H6-01 | Closing "I need to stop" without an answer, Resume carried on | The stop is saved at the tap (`stopped`) and holds until something answers it; every stop answer and the leg questions answer it | `7c10fc0` |
+| H6-02 | After a clock change, a reading from before it could pass as fresh | The readings the device knew at the change are held by identity, in every question the walk asks | `db8733e` |
+| H6-03, P8-02 | Replace, or a take-file Merge, from an older healthy backup cleared an open stop; both could reopen an answered 600 mg/dL | In all three modes the device's incidents, open or answered, keep the records their standing depends on, read as every gate reads them; the file's answers about anything the device holds are left out of every day; the engine decides | `ac7979e`, `c4c3fea`, `e81d296` |
+| H6-04, KH-12 | A link or a step back through history could start a walk, or keep a route | Only the latest walk the start flow started, taken once; the route only on this phone's Yes as it is now | `70e4630`, `fce9664` |
+| H6-05 | A file's routes came onto a phone that said No | Routes come in only on a Yes, never from before an erase; the preview says how many are left out and why | `c8dc5ff` |
+| H6-06 | A reload could journal over the only copy of a kept route | Nothing is journalled until the route is read back; loading, unreadable and none are told apart; the save reads the journal's route in its own transaction | `43da571` |
+| H6-07, KH-03, KH-04, KH-05, KH-07 (Task 14) | No way to change the walk consents, erase routes for good, or keep routes out of a backup | Me → Data's Walks and maps: both consents, "Erase all routes" in one transaction across routes, journals, caches, live walks and tabs, and "Include your routes" | `138bc27` |
+| H6-08, KH-14 | A start given up while iOS asked could still navigate later; Start could look dead after a start that came back | Each tap is one attempt: Close, another screen or unmount gives it up and drops its audio; Start answers again once an attempt is over | `fce9664` |
+| H6-09 | Small changes to the phone's clock added or took away walking time | Time accrues from the monotonic clock alone; the device clock only says it changed | `52e8245` |
+| H6-10 | A time-zone change left the open segment in the old offset and day | The offset is checked on its own; the segment closes as `timeZone`, the next opens in the new zone's day | `8857401` |
+| H6-11, KH-10 | Route and live walk controls 44 px tall, 8 px apart | 48 × 48 px at least, 12 px apart, from one shared size; main targets 60 px; large text reflows | `f6a8992` |
+| H4-02 | "Check a backup" couldn't tell a file missing parts of what it held | Backups carry a manifest; Check says whole, incomplete or can't tell | `97beb96` |
+| H4-08 | Destructive confirmations under 60 px | The shared main-target size | `e18ccc6` |
+| H2-01, live half | Resume carried a walk on while Unwell, Away or in a flare-up | Carrying on asks the status first, as the hubs' Continue does; the hold says why and offers Change status | `05fac64` |
+| KH-13 | "Add your birth year" led nowhere useful | It links to Me → Profile & health, at About you | `2644490` |
+| KH-18 | Save and Discard squeezed side by side on a small phone | Stacked below 20rem at the row's own text size | `4bab262` |
+| M12 (integrator) | After a save, the Walk hub's Back said "Your walk" and bounced | Done goes back through history, as the session player does; with nothing behind it, the origin in place | `e617b6a`, checked in J10 and J11 |
+| Sweep | "Walking time" at 2.36:1 while paused | Only the figure dims | `cb348d3` |
+
+Also: `feat/v2-journey`'s `179239d` and `831e0c9` cherry-picked (acceptance files only) as `6c50d52` and `af3a2fc`; Task 15 in `d7255b2` (J10 and J11, J10 with the M12 check), Task 16 in `9be6960` (V02, V19, V20), Task 17 in `9c73b78` (V33, V34, V16), Task 18's entry above in `8286e27`, and the import incident view's caching in `e81d296`.
+
+The acceptance harness: `sensors.monotonic: 'wall'` runs a walk journey's monotonic clock with its frozen wall clock (H6-09), `t.allowRequests` exempts only the map pictures a journey's person said Yes to (B-23), and after an offline reload V16 sets offline again, since Playwright's reloaded page otherwise reads `navigator.onLine` as true.
+
+Left for later, not in this round's findings:
+- StopSheet, the low-reading guidance and the walk's SelectRow still have 44 px controls (never under 44, but not 48).
+- At 200% text on a 320 px phone the live walk's half-width "Pause" button overflows with its icon (as before this round).
+- Codex and Kiro's reviews of this round are the user's to run.
+
+Production build: `npm run build` succeeds, and the CSP's `img-src` is `'self' data: blob: https://tile.openstreetmap.org` (written HTML-escaped in `dist/index.html`).
+
+**Acceptance.** The first full run (1012 cases) passed 1007. The five failures were the journeys, not the app: J17's partial-save walk counted 2.02 minutes, its monotonic clock keeping real time while the journey froze the wall clock (H6-09), and V02 small-dark read the walk's tab copy a moment before the live screen stored it, under load. `ee5d9f6` runs J17's walk on the wall-following clock and has V02 and V19 wait for the stored walk; no assertion was changed or removed. **The final full run, on `ee5d9f6`: 1012 cases, 1012 passed, 0 failed, in 63.5 min**, J10, J11, V02, V16, V19, V20, V33 and V34 included in all four projects. Its screen sweep (not failures): offline `net::ERR_FAILED` console lines in J20 and V16, as expected; Browse's More menu exposing no level-1 heading or main landmark (VJ12, Plan 4's); and the 20 × 20 px checkboxes inside 44 px rows on the stop questions in `/session` and `/walk/live` (J13, J16), as before.

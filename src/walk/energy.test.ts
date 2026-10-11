@@ -3,6 +3,8 @@ import { newObservation } from '@/health/observation';
 import { finishWalk, startWalk, updateOpenSegment } from './clock';
 import {
   ADULT_WALKING, MPH_PER_MPS, OLDER_ADULT_WALKING, ageBand, energyText, estimateEnergy, roundKcal, walkEnergy, walkingMet, weightAt,
+  BIRTH_YEAR_HREF,
+  energyFix,
 } from './energy';
 
 const at3mph = (ms: number) => ({ ms, metres: (3 / MPH_PER_MPS) * (ms / 1000) });
@@ -172,5 +174,14 @@ describe('60 and over (B-18, Task 6)', () => {
     expect(OLDER_ADULT_WALKING?.noDistance).toEqual({ fromMph: 2.0, met: 3.8, code: '1715360' });
     expect(walkingMet(5, OLDER_ADULT_WALKING!.bands)).toBeUndefined();
     expect(walkingMet(4.99, OLDER_ADULT_WALKING!.bands)?.met).toBe(9.0);
+  });
+});
+
+describe('the way to an estimate that couldn’t be made (KH-13)', () => {
+  it('sends a missing birth year to Me → Profile & health, at About you, and nothing else anywhere', () => {
+    expect(energyFix({ kind: 'none', reason: 'unknownAge' })).toEqual({ label: 'Add your birth year', to: '/me/profile?chapter=about' });
+    expect(BIRTH_YEAR_HREF).toBe('/me/profile?chapter=about');
+    for (const reason of ['noWeight', 'young', 'olderUnconfirmed', 'tooFast', 'tooShort'] as const) expect(energyFix({ kind: 'none', reason })).toBeUndefined();
+    expect(energyFix({ kind: 'about', kcal: 30, rounded: 30, coveredMs: 0, uncoveredMs: 600_000, kg: 70 })).toBeUndefined();
   });
 });

@@ -709,7 +709,10 @@ describe('F25 — every failure must come back as a result', () => {
       if (!collected.ok) return expect.unreachable('collect failed');
       const encoded = await encode(collected.value);
       expect(encoded.gzip).toBe(false);
-      expect(await decode(encoded.bytes)).toEqual(collected.value);
+      // Every field back, beside the manifest the file carries (H4-02).
+      const { manifest, ...back } = await decode(encoded.bytes) as { manifest?: unknown };
+      expect(back).toEqual(collected.value);
+      expect(manifest).toMatchObject({ version: 1 });
       db.close();
     } finally {
       globalThis.CompressionStream = real;

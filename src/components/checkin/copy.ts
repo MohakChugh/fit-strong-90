@@ -40,6 +40,7 @@ export const NEWS_LABEL: Record<NewsItem, string> = {
   steroid: 'Steroid tablets or an injection in the last 3 days',
   hot: 'Hot or humid today',
   unusualFatigue: 'Unusually tired or breathless with everyday things',
+  stopped: 'Needed to stop, and haven’t said what happened yet',
 };
 
 /** The three "low" answers are one fact at three strengths: choosing one clears the others. */

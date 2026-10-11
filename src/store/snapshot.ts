@@ -478,6 +478,16 @@ export type CommitResult =
   | { ok: true; value: Committed }
   | { ok: false; failure: StoreFailure; refreshed?: Snapshot };
 
+/** What a commit read inside its own transaction besides the record: walk journal entries, by walk id (H6-06). */
+export interface TxRead {
+  journal: Record<string, unknown>;
+}
+
+export interface CommitOptions {
+  /** Walk journal entries to read inside the transaction and hand to `resolve`, by key, or every one. */
+  journal?: readonly string[] | 'all';
+}
+
 /**
  * Plan a change against what is really stored, and store it, in one
  * transaction.
@@ -490,17 +500,39 @@ export type CommitResult =
 export function commitChange(
   db: Db,
   known: Snapshot | undefined,
-  resolve: (base: Snapshot, refreshed: boolean) => Resolution | null,
+  resolve: (base: Snapshot, refreshed: boolean, read: TxRead) => Resolution | null,
+  options: CommitOptions = {},
 ): Promise<CommitResult> {
   let committed: Committed | undefined;
   let refreshedBase: Snapshot | undefined;
 
   return db.transact(tx => {
+    /** The journal entries asked for, read in this transaction, before anything is planned. */
+    const withJournal = (then: (read: TxRead) => void) => {
+      const journal: Record<string, unknown> = {};
+      if (options.journal === 'all') {
+        tx.getAll(JOURNAL_STORE, rows => {
+          for (const row of rows) if (isRecord(row) && typeof row.id === 'string') journal[row.id] = row;
+          then({ journal });
+        });
+        return;
+      }
+      const keys = [...new Set(options.journal ?? [])];
+      if (keys.length === 0) { then({ journal }); return; }
+      let left = keys.length;
+      for (const key of keys) {
+        tx.get(JOURNAL_STORE, key, value => {
+          if (value !== undefined) journal[key] = value;
+          left -= 1;
+          if (left === 0) then({ journal });
+        });
+      }
+    };
     tx.get('settings', 'revision', row => {
       const stored = Number(isRecord(row) ? row.value : 0);
       const revision = Number.isSafeInteger(stored) && stored >= 0 ? stored : 0;
-      const proceed = (base: Snapshot, refreshed: boolean) => {
-        const resolution = resolve(base, refreshed);
+      const proceed = (base: Snapshot, refreshed: boolean, read: TxRead) => {
+        const resolution = resolve(base, refreshed, read);
         if (resolution === null) {
           committed = { base, next: base, refreshed, resolution: null };
           return;
@@ -515,7 +547,7 @@ export function commitChange(
       };
 
       if (known && known.revision === revision) {
-        proceed(known, false);
+        withJournal(read => proceed(known, false, read));
         return;
       }
       readAllIn(tx, rows => {
@@ -523,7 +555,7 @@ export function commitChange(
         // contents decide, not the absent counter.
         const base = { ...fromRows(rows), revision };
         refreshedBase = base;
-        proceed(base, true);
+        withJournal(read => proceed(base, true, read));
       });
     });
   }).then(result => (result.ok

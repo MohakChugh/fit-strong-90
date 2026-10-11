@@ -304,3 +304,14 @@ describe('a meter’s HI or LO keeps the clock it was measured on (H3-01, J§4.1
     }
   });
 });
+
+describe('a stop said during movement, in the check-in (journey §4.4, H6-01)', () => {
+  it('is never asked, and shows while it stands, so today’s answers can change it', () => {
+    expect(visibleQuestions(plain, emptyForm(plain)).news).not.toContain('stopped');
+    expect(visibleQuestions(diabetic, emptyForm(diabetic)).news).not.toContain('stopped');
+    const said = formFromRecord(record(plain, { ...base, news: ['stopped'] }), plain);
+    expect(visibleQuestions(plain, said).news[0]).toBe('stopped');
+    // Kept by a save that leaves it as it is.
+    expect(build(said, plain).news).toContain('stopped');
+  });
+});

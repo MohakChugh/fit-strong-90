@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { CheckIcon, ChevronsUpDownIcon } from 'lucide-react';
+import { TARGET } from '@/components/hig/targets';
 import { cn } from '@/lib/utils';
 
 /**
@@ -178,7 +179,8 @@ export function PrimaryButton({ children, onClick, disabled, className }: {
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'press-feedback flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint transition-opacity disabled:opacity-50',
+        'press-feedback flex w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint transition-opacity disabled:opacity-50',
+        TARGET.primary,
         className,
       )}
     >
@@ -200,7 +202,8 @@ export function SecondaryButton({ children, onClick, disabled, className }: {
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'press-feedback flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] font-semibold text-tint transition-opacity disabled:opacity-50',
+        'press-feedback flex w-full items-center justify-center gap-2 rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] font-semibold text-tint transition-opacity disabled:opacity-50',
+        TARGET.primary,
         className,
       )}
     >

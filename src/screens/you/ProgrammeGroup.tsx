@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { cn } from '@/lib/utils';
+import { TARGET } from '@/components/hig/targets';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
 import { JoinFlow } from '@/programme/JoinFlow';
@@ -95,7 +97,7 @@ export function ProgrammeGroup() {
             type="button"
             disabled={busy}
             onClick={() => void leave()}
-            className="press-feedback min-h-[3.25rem] w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white disabled:opacity-60"
+            className={cn('press-feedback w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white disabled:opacity-60', TARGET.primary)}
           >
             {busy ? 'Leaving…' : 'Leave the programme'}
           </button>

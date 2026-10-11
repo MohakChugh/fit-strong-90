@@ -10,6 +10,7 @@ import { decode } from './transfer';
 import { finishWalk, startWalk } from '@/walk/clock';
 import { journalEntry, type JournalEntry } from '@/walk/journal';
 import { walkObservations } from '@/walk/record';
+import { isoAt } from '@/walk/time';
 
 const local = new Map<string, string>();
 globalThis.localStorage = {
@@ -897,7 +898,7 @@ describe('the v2 record stores (Plan 6 Task 1)', () => {
     expect(doc.records.routes).toHaveLength(1);
   });
 
-  it('brings routes back from a backup that includes them, onto a new phone', async () => {
+  it('brings routes back from a backup that includes them onto a new phone once it says Yes, and asks first (H6-05, B-26)', async () => {
     await booted();
     await store.putRecords('routes', [route('walk-aaaa'), route('walk-bbbb')]);
     const exported = await store.exportRecord({ include: ['routes'] });
@@ -905,8 +906,15 @@ describe('the v2 record stores (Plan 6 Task 1)', () => {
     const file = await decode(exported.value.bytes);
     store.resetForTests();
     const phone = await booted();
+    // A new phone hasn't been asked: the file's routes are left out, and the preview says so.
+    expect(store.previewRecord(file)).toMatchObject({ ok: true, records: { routes: 2 }, refusedStores: ['routes'] });
     const restored = await store.importRecord(file, 'replace');
-    expect(restored.ok && restored.value.records).toEqual({ routes: 2, meals: 0, savedMeals: 0, customFoods: 0 });
+    expect(restored.ok && restored.value.records).toEqual({ meals: 0, savedMeals: 0, customFoods: 0 });
+    expect(store.getState().records.routes).toEqual([]);
+    expect(store.getState().settings.walk?.saveRoutes ?? 'unasked').toBe('unasked');
+    // Once this phone says Yes, the same file brings them back.
+    await store.setSettings({ walk: { saveRoutes: true, map: 'off' } });
+    expect((await store.importRecord(file, 'merge')).ok).toBe(true);
     expect(store.getState().records.routes).toEqual([route('walk-aaaa'), route('walk-bbbb')]);
     // Stored, not only shown.
     store.resetForTests();
@@ -1057,9 +1065,12 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
   const ROUTE = { walkId: WALK, version: 1 as const, startedAt: '2026-10-08T09:00:00.000+05:30', segments: [LINE], bbox: [12.97, 77.59, 12.971, 77.5905] as [number, number, number, number] };
   const walked = () => finishWalk(startWalk(WALK, { kind: 'walk', gps: true, steps: false, keepRoute: true }, T), T + 600_000, 'finish');
   const ofWalk = () => store.getState().observations.filter(o => o.context === `walk:${WALK}`);
+  /** This phone said yes to keeping routes: the only way one is kept (H6-04). */
+  const keepsRoutes = () => store.setSettings({ walk: { saveRoutes: true, map: 'off' } });
 
   it('writes the records and the route, and retires the journal, together and once', async () => {
     await booted();
+    await keepsRoutes();
     expect((await store.putWalkJournal(journalEntry(walked(), T + 600_000))).ok).toBe(true);
     const input = { walkId: WALK, observations: walkObservations(walked()), route: ROUTE };
     expect((await store.saveWalk(input)).ok).toBe(true);
@@ -1075,6 +1086,7 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
 
   it('leaves everything as it was when the save fails: no records, no route, the journal kept (V-J34)', async () => {
     await booted({ quotaAfter: 0, quotaStore: 'routes' });
+    await keepsRoutes();
     await store.putWalkJournal(journalEntry(walked(), T));
     const result = await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
     expect(!result.ok && result.failure.code).toBe('quotaExceeded');
@@ -1082,6 +1094,86 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
     expect(store.getState().records.routes).toEqual([]);
     const left = await store.readWalkJournals();
     expect(left.ok && left.value.map(e => e.id)).toEqual([WALK]);
+  });
+
+  for (const consent of [undefined, 'unasked', false] as const) {
+    it(`keeps no route on a phone whose consent is ${String(consent ?? 'missing')}, whatever the walk was given (H6-04)`, async () => {
+      await booted();
+      if (consent !== undefined) await store.setSettings({ walk: { saveRoutes: consent, map: 'off' } });
+      await store.putWalkJournal(journalEntry(walked(), T + 600_000, [LINE]));
+      expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE })).ok).toBe(true);
+      expect(ofWalk().length).toBeGreaterThan(0);
+      expect(store.getState().records.routes).toEqual([]);
+      const left = await store.readWalkJournals();
+      expect(left.ok && left.value).toEqual([]);
+    });
+  }
+
+  it('takes the route from the walk’s journal inside the save, when the screen has none yet, and only then retires it (H6-06)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.putWalkJournal(journalEntry(walked(), T + 600_000, [LINE]));
+    const saved = await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), routeStartedAt: ROUTE.startedAt });
+    expect(saved.ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([ROUTE]);
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value).toEqual([]);
+  });
+
+  it('keeps a route given by the screen over the journal’s, and saves a walk whose journal holds none (H6-06)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.putWalkJournal(journalEntry(walked(), T + 600_000));
+    expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), routeStartedAt: ROUTE.startedAt })).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+    expect(ofWalk().length).toBeGreaterThan(0);
+  });
+
+  const another = () => startWalk('mgh3k2x2-2b3c4d5e', { kind: 'walk', gps: true, steps: false, keepRoute: true }, T + 3_600_000);
+
+  it('erases every route for good, keeps the walks, and leaves no coordinate anywhere (B-05)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    await store.putWalkJournal(journalEntry(another(), T + 3_660_000, [LINE]));
+    expect((await store.eraseRoutes()).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+    expect(store.getState().settings.deleted?.records?.routes).toEqual([WALK]);
+    expect(ofWalk().length).toBeGreaterThan(0);
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value.map(e => [e.id, e.route])).toEqual([['mgh3k2x2-2b3c4d5e', undefined]]);
+    expect(store.getState().settings.walk?.routesErasedAt).toEqual(expect.any(Number));
+    expect(JSON.stringify({ state: store.getState(), journals: left.ok ? left.value : [] })).not.toMatch(/12\.97|77\.59/);
+  });
+
+  it('never keeps a route of a walk that started before the erase, whichever screen saves it (B-05)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.eraseRoutes();
+    const erasedAt = store.getState().settings.walk!.routesErasedAt!;
+    const route = { ...ROUTE, startedAt: isoAt(erasedAt - 60_000, 330) };
+    expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route })).ok).toBe(true);
+    expect(ofWalk().length).toBeGreaterThan(0);
+    expect(store.getState().records.routes).toEqual([]);
+    // Nor from the journal, read in the save.
+    await store.putWalkJournal(journalEntry(another(), T + 3_660_000, [LINE]));
+    expect((await store.saveWalk({ walkId: 'mgh3k2x2-2b3c4d5e', observations: walkObservations(finishWalk(another(), T + 3_700_000, 'finish')), routeStartedAt: isoAt(erasedAt - 30_000, 330) })).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+  });
+
+  it('keeps erased routes erased through a backup made before, merged or replaced (B-05, H6-07)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    const exported = await store.exportRecord({ include: ['routes'] });
+    if (!exported.ok) return expect.unreachable('export failed');
+    const file = await decode(exported.value.bytes);
+    await store.eraseRoutes();
+    for (const mode of ['merge', 'replace'] as const) {
+      expect((await store.importRecord(file, mode)).ok).toBe(true);
+      expect(store.getState().records.routes).toEqual([]);
+    }
+    expect(store.getState().settings.walk?.routesErasedAt).toEqual(expect.any(Number));
   });
 
   it('reads back only the checkpoints it can trust', async () => {
@@ -1094,7 +1186,9 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
 
   it('removes a walk, its route and its journal together', async () => {
     await booted();
+    await keepsRoutes();
     await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    expect(store.getState().records.routes.map(r => r.walkId)).toEqual([WALK]);
     await store.putWalkJournal(journalEntry(walked(), T));
     expect((await store.removeWalk(WALK, ofWalk().map(o => o.id))).ok).toBe(true);
     expect(ofWalk()).toEqual([]);
@@ -1143,5 +1237,60 @@ describe('update with readings (journey §18.1: weight and height are dated read
     const [id] = shown[0];
     await store.update(previous => previous, { addObservations: [{ id, kind: 'waist', value: 95, unit: 'cm', scope: 'pointInTime', source: 'manual' }] });
     expect(waists().map(o => o.value)).toEqual([90]);
+  });
+});
+
+describe('Replace from a backup keeps this device’s open incidents (journey §4.6, H6-03)', () => {
+  it('leaves a low recorded after the backup holding the walk, through the store and the device’s own gate', async () => {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const { evaluateCheckIn } = await import('@/engine/readiness');
+    const { storeStartPermission } = await import('@/walk/gate');
+    const { toTransferDoc } = await import('./transfer');
+    const { emptySnapshot } = await import('./snapshot');
+    await booted();
+    const profile = createDefaultProfile({
+      weightKg: 72,
+      health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
+    });
+    const now = new Date();
+    const date = dayOf(nowAt());
+    const minutesAgo = (m: number) => new Date(now.getTime() - m * 60_000).toISOString();
+    const day = (glucose: { value: number; measuredAt: string }[]) => {
+      const c = {
+        date, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7' as const, energy: 4 as const,
+        glucose: { ...glucose.at(-1)!, unit: 'mg/dL' as const, source: 'meter' as const },
+        ...(glucose.length > 1 ? { glucoseEarlier: glucose.slice(0, -1).map(g => ({ ...g, unit: 'mg/dL' as const, source: 'meter' as const })) } : {}),
+      };
+      return { ...c, readiness: evaluateCheckIn(profile, c) };
+    };
+    // The backup: a normal reading 12 minutes ago. Then, on this phone, a low 5 minutes ago.
+    const backup = toTransferDoc({ ...emptySnapshot(), profile, checkIns: [day([{ value: 110, measuredAt: minutesAgo(12) }])] });
+    await store.update(prev => ({ ...prev, profile, checkIns: [day([{ value: 110, measuredAt: minutesAgo(12) }, { value: 60, measuredAt: minutesAgo(5) }])] }));
+    expect(storeStartPermission(now).allowed).toBe(false);
+    expect(store.previewRecord(backup)).toMatchObject({ ok: true, keepsOpen: true });
+
+    expect((await store.importRecord(backup, 'replace')).ok).toBe(true);
+    const held = storeStartPermission(new Date());
+    expect(held.allowed).toBe(false);
+    expect(store.getState().checkIns.find(c => c.date === date)?.glucose?.value).toBe(60);
+  });
+});
+
+describe('checking a backup reads it back whole (B-25, H4-02)', () => {
+  it('finds the app’s own export whole, and the same file missing its sessions not whole, though it keeps the latest date', async () => {
+    const { checkOutcome } = await import('@/screens/you/dataStatus');
+    await booted();
+    await store.putSession(session);
+    await store.addObservation({ kind: 'glucose', value: 110, scope: 'pointInTime', source: 'manual' });
+    const exported = await store.exportRecord();
+    if (!exported.ok) return expect.unreachable('export failed');
+    const raw = await decode(exported.value.bytes) as Record<string, unknown>;
+    const preview = store.previewRecord(raw);
+    if (!preview.ok) return expect.unreachable(preview.reason);
+    expect(checkOutcome(preview, exported.value.exportedAt)).toBe('latest');
+    const cut = store.previewRecord({ ...raw, sessions: [] });
+    if (!cut.ok) return expect.unreachable(cut.reason);
+    expect(cut.exportedAt).toBe(exported.value.exportedAt);
+    expect(checkOutcome(cut, exported.value.exportedAt)).toBe('incomplete');
   });
 });

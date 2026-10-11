@@ -28,6 +28,8 @@ import {
   previewLines,
   recordCounts,
   reviewNeeded,
+  keepsOpenLine,
+  routeNotes,
 } from './summaries';
 
 const owner = createDefaultProfile({
@@ -202,7 +204,7 @@ describe('the record', () => {
       newObservation({ kind: 'glucose', value: 110, scope: 'pointInTime', source: 'manual', at }),
     ];
     const counts = recordCounts({ observations, sessions: [{}, {}], checkIns: [{}], bodyMetrics: [], personalRecords: [] });
-    expect(counts).toEqual({ readings: 2, sessions: 2, checkIns: 1, bodyMetrics: 0, personalRecords: 0 });
+    expect(counts).toEqual({ readings: 2, sessions: 2, checkIns: 1, bodyMetrics: 0, personalRecords: 0, routes: 0 });
     expect(countsSentence(counts)).toBe('2 readings, 2 sessions and 1 check-in');
     expect(countsSentence({ readings: 0, sessions: 0, checkIns: 0, bodyMetrics: 0, personalRecords: 0 })).toBe('nothing yet');
   });
@@ -236,8 +238,16 @@ describe('habit lines, with an open foot wound (content re-check R03)', () => {
 });
 
 describe('privacyLine (B-24)', () => {
-  it('says where the records are, and when anything leaves', () => {
-    expect(privacyLine('iPhone')).toBe('Your records are stored on this iPhone. Backups and calendar files leave only when you share them.');
+  it('says the standard privacy copy in full: where the records are, what map pictures share, and when anything leaves', () => {
+    expect(privacyLine('iPhone')).toBe('Your records are stored on this iPhone. Optional map pictures share the area shown and your internet address with OpenStreetMap. Backups and calendar files leave only when you share them.');
+  });
+});
+
+describe('routes in the record’s counts (Plan 6 Task 14)', () => {
+  it('counts routes with the record', () => {
+    expect(countsSentence({ readings: 2, sessions: 0, checkIns: 0, bodyMetrics: 0, personalRecords: 0, routes: 1 })).toBe('2 readings and 1 route');
+    expect(recordCounts({ observations: [], sessions: [], checkIns: [], bodyMetrics: [], personalRecords: [], records: { routes: [{}, {}] } }).routes).toBe(2);
+    expect(recordCounts({ observations: [], sessions: [], checkIns: [], bodyMetrics: [], personalRecords: [] }).routes).toBe(0);
   });
 });
 
@@ -340,5 +350,48 @@ describe('the Food row on Me (Plan 7)', () => {
     expect(foodLine({ pattern: 'vegetarian', avoid: ['mushrooms'], level: 'estimates' })).toBe('Vegetarian · leaves out mushrooms · meals with estimates');
     expect(foodLine({ pattern: 'vegan', avoid: [], level: 'ideas' })).toBe('Vegan');
     expect(foodLine({ pattern: 'vegetarian', avoid: ['mushrooms'], allergies: ['milk'] })).toBe('Vegetarian · allergic to milk · leaves out mushrooms');
+  });
+});
+
+describe('what Replace keeps (journey §4.6, H6-03)', () => {
+  it('says today’s safety answers stay, before anything changes', () => {
+    expect(keepsOpenLine('iPhone')).toBe('Today’s safety answers on this iPhone stay, with the readings they depend on: a backup never clears them.');
+  });
+});
+
+describe('routes in a restore (journey §18.3, B-26, Review Focus 4, H6-05)', () => {
+  it('says before anything happens that a phone that keeps no routes won’t take the file’s', () => {
+    expect(routeNotes({ records: { routes: 3 }, refusedStores: ['routes'], replaceRemoves: {} })).toEqual(['The file’s 3 routes won’t be added, because this phone doesn’t keep routes.']);
+    expect(routeNotes({ records: { routes: 3 }, refusedStores: ['routes'], replaceRemoves: {} }, false)).toEqual(['The file’s 3 routes won’t be added, because this phone doesn’t keep routes.']);
+  });
+
+  it('says how a phone not asked yet takes them: it asks, and the file can be restored again', () => {
+    expect(routeNotes({ records: { routes: 1 }, refusedStores: ['routes'], replaceRemoves: {} }, 'unasked')).toEqual([
+      'The file’s 1 route won’t be added, because this phone hasn’t been asked yet whether to keep routes. To add them, turn on Keep walk routes in Me → Data, then restore the file again.',
+    ]);
+  });
+
+  it('says that replacing from a file without routes removes this phone’s', () => {
+    expect(routeNotes({ records: {}, refusedStores: [], replaceRemoves: { routes: 2 } })).toEqual(['Replacing removes this phone’s 2 routes, which the file doesn’t hold.']);
+  });
+
+  it('says nothing when the file’s routes are simply added', () => {
+    expect(routeNotes({ records: { routes: 1 }, refusedStores: [], replaceRemoves: {} }, true)).toEqual([]);
+  });
+
+  it('says the file’s routes from before an erase stay erased (B-05)', () => {
+    expect(routeNotes({ records: { routes: 2 }, refusedStores: [], refusedRecords: { routes: 2 }, replaceRemoves: {} }, true)).toEqual([
+      'The file’s 2 routes are from before you erased routes on this phone, so they stay erased.',
+    ]);
+    expect(routeNotes({ records: { routes: 3 }, refusedStores: [], refusedRecords: { routes: 1 }, replaceRemoves: {} }, true)).toEqual([
+      '1 route in the file is from before you erased routes on this phone, so it stays erased.',
+    ]);
+  });
+
+  it('says this phone’s routes go too when the file’s are refused', () => {
+    expect(routeNotes({ records: { routes: 3 }, refusedStores: ['routes'], replaceRemoves: { routes: 2 } })).toEqual([
+      'The file’s 3 routes won’t be added, because this phone doesn’t keep routes.',
+      'Replacing removes this phone’s 2 routes too.',
+    ]);
   });
 });

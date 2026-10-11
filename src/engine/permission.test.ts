@@ -3,7 +3,7 @@ import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import type { DailyCheckIn, Mode } from '@/types/checkin';
 
 import { permission, resumePermission, PERMISSION_TEXT, FRESH_MINUTES } from './permission';
-import { evaluateCheckIn, profileOnlyReadiness } from './readiness';
+import { evaluateCheckIn, glucoseReadingId, profileOnlyReadiness, STOP_UNANSWERED } from './readiness';
 import { bpMedicinesUnknown, deriveHealth, glucoseStartMin, profileGaps } from './health';
 
 const DATE = '2026-10-09';
@@ -289,5 +289,51 @@ describe('a mode the profile alone rules out does not wait on a check-in', () =>
       expect(ask(foot, undefined, mode), mode).toMatchObject({ allowed: false, needsCheckIn: true });
       expect(ask(foot, ci(), mode).allowed, mode).toBe(true);
     }
+  });
+});
+
+describe('"I need to stop" with nothing said since (journey §4.4, H6-01)', () => {
+  it('holds every movement, start and carrying on alike, until it is answered', () => {
+    for (const mode of ['guided', 'stretch', 'walk'] as const) {
+      const held = ask(none, ci({ news: ['stopped'] }), mode);
+      expect(held).toMatchObject({ allowed: false, disposition: 'hold', needsCheckIn: false });
+      expect(held.reasons).toContain(STOP_UNANSWERED.reason);
+      expect(held.release).toBe(STOP_UNANSWERED.release);
+      const profile = createDefaultProfile(none);
+      const c = ci({ news: ['stopped'] });
+      // Movement under way stops for it too: a stop is not paperwork.
+      expect(resumePermission({ profile, checkIn: { ...c, readiness: evaluateCheckIn(profile, c) }, now: NOW }, mode).allowed).toBe(false);
+    }
+  });
+
+  it('is answered by what is said next, and then only what that says decides', () => {
+    expect(ask(none, ci()).allowed).toBe(true);
+    const dizzy = ask(none, ci({ news: ['dizzy'] }), 'walk');
+    expect(dizzy.allowed).toBe(false);
+    expect(dizzy.reasons).not.toContain(STOP_UNANSWERED.reason);
+  });
+});
+
+describe('B-19: a change to the phone’s clock, by reading identity (H6-02)', () => {
+  const g = (minutes: number, value = 140) => ({ value, unit: 'mg/dL' as const, measuredAt: at(minutes) });
+  const askAfter = (c: DailyCheckIn | undefined, untimed: ReadonlySet<string>, live = false) => {
+    const profile = createDefaultProfile(insulin);
+    const input = { profile, ...(c ? { checkIn: { ...c, readiness: evaluateCheckIn(profile, c) } } : {}), now: NOW, untimed };
+    return live ? resumePermission(input, 'walk') : permission(input, 'walk');
+  };
+
+  it('holds a reading the change left untimed, start and carrying on, and lets one taken since go', () => {
+    const before = new Set([glucoseReadingId(g(10), DATE)]);
+    for (const live of [false, true]) {
+      expect(askAfter(ci({ glucose: g(10) }), before, live).reasons).toContain(PERMISSION_TEXT.clockChanged);
+      expect(askAfter(ci({ glucose: g(2, 130), glucoseEarlier: [g(10)] }), before, live).allowed).toBe(true);
+    }
+  });
+
+  it('releases nothing on a reading the device has not stored yet (N-01)', () => {
+    const before = new Set([glucoseReadingId(g(10), DATE)]);
+    const stored = ci({ glucose: g(10) });
+    const effective = { ...ci({ glucose: g(2, 130), glucoseEarlier: [g(10)] }), durable: stored };
+    expect(askAfter(effective, before).reasons).toContain(PERMISSION_TEXT.clockChanged);
   });
 });

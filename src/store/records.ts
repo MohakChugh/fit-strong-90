@@ -31,6 +31,8 @@ export interface RecordRule {
   newer?(here: StoredRecord, file: StoredRecord): number;
   /** Whether this device takes the store's records from a file at all. Absent: always. */
   accepts?(device: UserSettings | undefined): boolean;
+  /** Whether this device takes one record from a file, the store taken. Absent: every one. */
+  keeps?(device: UserSettings | undefined, record: StoredRecord): boolean;
 }
 
 export const RECORD_RULES: Record<RecordStore, RecordRule> = {
@@ -41,8 +43,14 @@ export const RECORD_RULES: Record<RecordStore, RecordRule> = {
     backup: 'optIn',
     problem: routeProblem,
     // Saved routes never change; two different copies are a conflict, and this phone's is kept.
-    // A phone whose person said No to keeping routes never takes them from a file (§9.1, Review Focus 4).
-    accepts: device => device?.walk?.saveRoutes !== false,
+    // Only a phone whose person said Yes to keeping routes takes them from a file: not asked
+    // yet is not a yes, and a new phone asks on its first walk with location (§9.1, B-26, H6-05).
+    accepts: device => device?.walk?.saveRoutes === true,
+    // Erased for good (B-05): no route of a walk that began before the last "Erase all routes" comes back from a file.
+    keeps: (device, record) => {
+      const at = device?.walk?.routesErasedAt;
+      return at === undefined || Date.parse(String(record.startedAt)) > at;
+    },
   },
   // Plan 7's food records (journey §18.2; board D104): each read whole, and merged by the copy changed last.
   meals: { keyPath: 'id', label: { one: 'meal', many: 'meals' }, limit: 200_000, backup: 'always', problem: mealProblem, newer: newerMeal },

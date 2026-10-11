@@ -34,8 +34,11 @@ import {
 } from '@/health/observation';
 import { StoreFailure, toFailure, type Db, type StoreResult } from './db';
 import { SCHEMA_VERSION, projectV4 } from './migrate';
-import { withReadingRemoved, type CheckInReading } from '@/components/checkin/pending';
-import { evaluateDays } from '@/engine/readiness';
+import { loggedReadings, neverLooser, withoutAnswersAbout, withReadingRemoved, type CheckInReading } from '@/components/checkin/pending';
+import { evaluateCheckIn, evaluateDays, profileOnlyReadiness, readingIdsIn } from '@/engine/readiness';
+import { reachableHistory } from '@/engine/reach';
+import { DISPOSITION_ORDER } from '@/types/checkin';
+import { toDateString } from '@/lib/utils';
 import { readProfile, readSettings } from './importCheck';
 import { checkInEventId, liftBodyMetric, liftSessionPain, readingKey } from './project';
 import { commitChange, keptCheckIn, keptSession, readSnapshot, type Change, type Snapshot } from './snapshot';
@@ -82,6 +85,55 @@ export interface TransferDoc {
   stores?: RecordStore[];
   /** Their rows, by store: only the stores in `stores`. */
   records?: Partial<Record<RecordStore, StoredRecord[]>>;
+  /** What the file holds, written with it, so a check can tell a whole file from part of one (B-25, H4-02). */
+  manifest?: Manifest;
+}
+
+/**
+ * What a backup file held when it was written (B-25, H4-02): how many of each
+ * collection, whether it had settings and a profile, and a digest of the rest
+ * of its text. A file that has lost any of it, or changed, no longer matches,
+ * whatever date it still carries.
+ */
+export interface Manifest {
+  version: 1;
+  counts: Record<string, number>;
+  settings: boolean;
+  profile: boolean;
+  digest: string;
+}
+
+/** How many of each collection a file holds, as its own fields say: a missing one is none. */
+function countsOf(r: Record<string, unknown>): Record<string, number> {
+  const len = (x: unknown) => (Array.isArray(x) ? x.length : 0);
+  const records = isRecord(r.records) ? r.records : {};
+  return {
+    observations: len(r.observations), sessions: len(r.sessions), checkIns: len(r.checkIns),
+    personalRecords: len(r.personalRecords), bodyMetrics: len(r.bodyMetrics),
+    focusOverrides: isRecord(r.focusOverrides) ? Object.keys(r.focusOverrides).length : 0,
+    contentState: len(r.contentState),
+    ...Object.fromEntries((Array.isArray(r.stores) ? r.stores : []).map(store => [`records.${String(store)}`, len(records[String(store)])])),
+  };
+}
+
+/** The manifest for a file's text without one. */
+function manifestOf(body: Record<string, unknown>, text: string): Manifest {
+  return { version: 1, counts: countsOf(body), settings: body.settings !== undefined, profile: body.profile !== undefined, digest: digest(text) };
+}
+
+/**
+ * Whether a file read back is the whole of what was written (H4-02): `whole`
+ * when the rest of its text still has its manifest's digest, `partial` when
+ * anything is missing or changed, `unknown` when it holds no manifest to go
+ * by (a file from before backups carried one, or the previous app's). The
+ * counts are there for a reader; the digest covers every one of them.
+ */
+export function wholeness(raw: unknown): 'whole' | 'partial' | 'unknown' {
+  if (!isRecord(raw) || !isRecord(raw.manifest)) return 'unknown';
+  const { manifest, ...rest } = raw;
+  const m = manifest as Partial<Manifest>;
+  if (m.version !== 1 || typeof m.digest !== 'string') return 'partial';
+  return digest(JSON.stringify(rest)) === m.digest ? 'whole' : 'partial';
 }
 
 /**
@@ -179,7 +231,12 @@ export interface EncodedTransfer {
  * export that does not happen is not (F25).
  */
 export async function encode(record: TransferDoc): Promise<EncodedTransfer> {
-  const json = new TextEncoder().encode(JSON.stringify(record));
+  // The file says what it holds (H4-02): the text, then its manifest as the last field, one stringify of the record.
+  const { manifest: _old, ...body } = record;
+  void _old;
+  const text = JSON.stringify(body);
+  const manifest = manifestOf(body as Record<string, unknown>, text);
+  const json = new TextEncoder().encode(`${text.slice(0, -1)},"manifest":${JSON.stringify(manifest)}}`);
   const day = typeof record.exportedAt === 'string' ? record.exportedAt.slice(0, 10) : nowAt().slice(0, 10);
   const stem = `${TRANSFER_FORMAT}-${day}`;
   const plain = (): EncodedTransfer => ({ bytes: json, gzip: false, name: `${stem}.json`, type: 'application/json' });
@@ -805,6 +862,76 @@ export interface ImportOptions {
    * half-replaces a good record.
    */
   allowRejected?: boolean;
+  /** The moment of the import, for which of this device's records hold an incident open (H6-03). Defaults to now. */
+  now?: Date;
+}
+
+/** This device's records an import keeps (H6-03, P8-02): its incidents, open or answered, and what their standing depends on. */
+export interface OpenIncidents {
+  /** The days' own records, as this device holds them. */
+  checkIns: CheckInRecord[];
+  /** Those days' readings: Track's, and the ones lifted from the records. */
+  observations: Observation[];
+  /**
+   * Every reading, report and flag this device's records hold, and every one
+   * its answers name, by the engine's ids — a reading's time and value, so
+   * the same reading under another record id is the same one. A file's
+   * answers about these settle and reopen nothing.
+   */
+  known: Set<string>;
+}
+
+const holds = (r: { disposition?: string }) => DISPOSITION_ORDER.indexOf((r.disposition ?? 'reassure') as never) >= DISPOSITION_ORDER.indexOf('hold');
+
+/**
+ * This device's incidents (journey §4.6, H6-03, P8-02): whether its own
+ * record holds movement today at hold or worse — an unresolved low, a stop, a
+ * red flag, an emergency answer — asked of the engine as every gate asks it,
+ * with Track's readings; or still has serious readings, or answers about
+ * them, that decide today. If so, every record their standing depends on: the
+ * days the engine reads today (`reachableHistory`), with their readings. An
+ * import keeps them, so an older backup's normal reading never releases an
+ * open one, and its copy of a day without the answer never reopens an
+ * answered one. A day that held only on its own day, and holds nothing now,
+ * is not kept. `known` names everything this device holds, for the file's
+ * answers to leave alone.
+ */
+export function openIncidents(base: Pick<Snapshot, 'checkIns' | 'observations' | 'profile' | 'settings'>, now: Date = new Date()): OpenIncidents {
+  const profile = base.profile ?? createDefaultProfile({ weightKg: base.settings?.currentWeight || 0, needsHealthReview: true });
+  const today = toDateString(now);
+  const logged = loggedReadings(base.observations);
+  const stored = new Map(base.checkIns.map(c => [c.date, c]));
+  // The days as every gate reads them (`effectiveCheckIns`): each record with
+  // Track's readings, and a day with only Track's readings as a record of its
+  // own — a low logged in Track is a low, today or carried from an earlier day.
+  // A record with nothing logged is the stored one itself, so the engine's
+  // per-record answers are worked out once, not at every import (C2-05).
+  const view: DailyCheckIn[] = [...new Set([...stored.keys(), ...logged.keys()])].sort().flatMap((date): DailyCheckIn[] => {
+    const mine = stored.get(date);
+    const readings = logged.get(date);
+    if (!readings) return mine ? [mine] : [];
+    const plain: DailyCheckIn = mine ? answersOf(mine) : { date, urgentSymptoms: false, news: [], readingsOnly: true };
+    return [{ ...plain, logged: readings }];
+  });
+  const reach = reachableHistory(view as CheckInRecord[], today, profile);
+  const own = reach.find(c => c.date === today);
+  const earlier = reach.filter(c => c.date < today);
+  const r = own ? evaluateCheckIn(profile, answersOf(own), earlier, now) : profileOnlyReadiness(profile, { date: today, recent: reach, now });
+  const known = new Set<string>();
+  for (const c of view) {
+    for (const id of readingIdsIn(c)) known.add(id);
+    for (const a of c.resolutions ?? []) for (const id of a.readings) known.add(id);
+  }
+  // An answer about a reading decides its standing as much as the reading does (P8-02).
+  if (!holds(r) && (r.episodes?.length ?? 0) === 0 && !reach.some(c => c.resolutions?.length)) return { checkIns: [], observations: [], known };
+  // Track-only days are in the view, so in `reach` whenever they can count.
+  const days = new Set(reach.map(c => c.date));
+  return {
+    checkIns: reach.flatMap(c => stored.get(c.date) ?? []),
+    observations: base.observations.filter(o => days.has(o.day) && o.scope === 'pointInTime'
+      && (checkInDayOf(o) === o.day || o.kind === 'glucose' || o.kind === 'bloodPressureSystolic' || o.kind === 'bloodPressureDiastolic')),
+    known,
+  };
 }
 
 interface MergePlan {
@@ -822,6 +949,9 @@ interface MergePlan {
 
 /** Whether this device takes a store's records from a file at all (`RecordRule.accepts`). */
 const takes = (store: RecordStore, device: UserSettings | undefined): boolean => RECORD_RULES[store].accepts?.(device) ?? true;
+/** The file's records of a store this device takes that it keeps, one by one (`RecordRule.keeps`): an erased route stays erased (B-05). */
+const kept = (store: RecordStore, device: UserSettings | undefined, records: readonly StoredRecord[]): StoredRecord[] =>
+  records.filter(r => RECORD_RULES[store].keeps?.(device, r) ?? true);
 
 /**
  * How a merge reconciles the file with the device.
@@ -842,9 +972,14 @@ const takes = (store: RecordStore, device: UserSettings | undefined): boolean =>
  *   `newer`, or are a conflict. A store this device won't take (`accepts`) is
  *   left out whole.
  */
-function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy): MergePlan {
+function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy, now: Date = new Date()): MergePlan {
   const conflicts = zero();
   const takeFile = policy === 'takeFile';
+  // This device's incidents, open or answered, and what they depend on: no
+  // merge settles or reopens one, whichever copy it takes (§4.6, P8-02).
+  const open = openIncidents({ checkIns: base.checkIns ?? [], observations: base.observations ?? [], profile: base.profile, settings: base.settings }, now);
+  const incidentReadings = new Set(open.observations.map(o => o.id));
+  const incidentDays = new Set(open.checkIns.map(c => c.date));
 
   const hereObs = new Map((base.observations ?? []).map(o => [o.id, o]));
   // What was deleted here stays deleted: the file may be older than the deletion (D-06).
@@ -878,6 +1013,8 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
     if (!here) { observationPuts.push(o); continue; }
     // Commit order is each device's own: compare what was said, not when it was stored.
     if (sameValue(stripSeq(here), stripSeq(o))) continue;
+    // A reading an incident here depends on stays as this device holds it: a file's correction never releases one.
+    if (incidentReadings.has(o.id)) { conflicts.observations += 1; continue; }
     const theirs = statedAt(o);
     const ours = statedAt(here);
     if (theirs > ours || (theirs === ours && takeFile)) {
@@ -919,7 +1056,7 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
     const here = new Map((base.records?.[store] ?? []).map(r => [recordKey(store, r), r]));
     const goneKeys = new Set(base.settings?.deleted?.records?.[store] ?? []);
     const puts: StoredRecord[] = [];
-    for (const r of file.records?.[store] ?? []) {
+    for (const r of kept(store, base.settings, file.records?.[store] ?? [])) {
       const key = recordKey(store, r);
       const held = here.get(key);
       if (!held && goneKeys.has(key)) { deletedHere += 1; continue; }
@@ -965,7 +1102,8 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
   let checkInsChanged = false;
   const cleaned = new Set<CheckInRecord>();
   for (const given of file.checkIns) {
-    const c = withoutDeleted(given);
+    // Its answers about what this device holds settle and reopen nothing here (P8-02).
+    const c = withoutAnswersAbout(withoutDeleted(given), open.known);
     if (c !== given) cleaned.add(c);
     const here = byDate.get(c.date);
     // Two records that say the same are one, whatever readiness each was
@@ -975,6 +1113,14 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy):
     if (here) {
       conflicts.checkIns += 1;
       if (!takeFile) continue;
+      // A day an incident here depends on is this device's, with whatever the file adds to it, never less (H6-03).
+      if (incidentDays.has(c.date)) {
+        const both = { ...neverLooser(answersOf(here), answersOf(c), open.known), readiness: here.readiness } as CheckInRecord;
+        cleaned.add(both);
+        byDate.set(c.date, both);
+        checkInsChanged = true;
+        continue;
+      }
     }
     byDate.set(c.date, c);
     checkInsChanged = true;
@@ -1138,8 +1284,14 @@ export interface ImportPreview {
   records?: Partial<Record<RecordStore, number>>;
   /** Stores in the file this device won't take (`RecordRule.accepts`): a merge or replace leaves them out. */
   refusedStores?: RecordStore[];
+  /** Records of a store this device takes that it still leaves out one by one (`RecordRule.keeps`), by store: routes erased here (B-05). */
+  refusedRecords?: Partial<Record<RecordStore, number>>;
   /** This device's v2 records, by store, that Replace removes (it leaves only the file's). */
   replaceRemoves?: Partial<Record<RecordStore, number>>;
+  /** Replace keeps this device's open safety records and the readings they depend on (H6-03): say so before it happens. */
+  keepsOpen?: boolean;
+  /** Whether the file is the whole of what was written, by its manifest (H4-02). Always set by `previewImport`. */
+  complete?: 'whole' | 'partial' | 'unknown';
 }
 
 export interface ImportProblem {
@@ -1184,7 +1336,12 @@ export function previewImport(raw: unknown, existing: Iterable<string> | ImportB
   // v2 record stores: what the file holds, what this device won't take, and what Replace would remove here (Review Focus 4).
   const records = Object.fromEntries((file.stores ?? []).map(s => [s, file.records?.[s]?.length ?? 0])) as Partial<Record<RecordStore, number>>;
   const refusedStores = (file.stores ?? []).filter(s => (records[s] ?? 0) > 0 && !takes(s, base.settings));
+  const refusedRecords = Object.fromEntries((file.stores ?? [])
+    .filter(s => takes(s, base.settings))
+    .map(s => [s, (file.records?.[s]?.length ?? 0) - kept(s, base.settings, file.records?.[s] ?? []).length])
+    .filter(([, n]) => (n as number) > 0)) as Partial<Record<RecordStore, number>>;
   const replaceRemoves = Object.fromEntries(RECORD_STORES.map(s => [s, base.records?.[s]?.length ?? 0]).filter(([, n]) => (n as number) > 0)) as Partial<Record<RecordStore, number>>;
+  const open = openIncidents({ checkIns: base.checkIns ?? [], observations: base.observations ?? [], profile: base.profile, settings: base.settings });
 
   return {
     ok: true,
@@ -1207,7 +1364,10 @@ export function previewImport(raw: unknown, existing: Iterable<string> | ImportB
     legacy,
     records,
     refusedStores,
+    refusedRecords,
     replaceRemoves,
+    keepsOpen: open.checkIns.length + open.observations.length > 0,
+    complete: wholeness(raw),
   };
 }
 
@@ -1260,9 +1420,15 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
     // older backup still brings back what was deleted after it was made.
     const held = new Set(file.observations.map(readingKey));
     const gone = new Set((file.settings?.deleted?.readings ?? []).filter(key => !held.has(key)));
+    // This device's incidents, open or answered, stay with what their standing
+    // depends on, and nothing in the file settles or reopens them (§4.6,
+    // H6-03, P8-02): each such day is this device's record, with whatever the
+    // file adds to it, never less; and the file's answers about anything this
+    // device holds are left out, whichever day they are in.
+    const open = openIncidents(base, options.now);
     const cleaned = new Set<CheckInRecord>();
     const pruned = file.checkIns.map(c => {
-      const kept = withoutReadings(c, gone);
+      const kept = withoutAnswersAbout(withoutReadings(c, gone), open.known);
       if (kept !== c) cleaned.add(kept);
       return kept;
     });
@@ -1270,20 +1436,39 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
     const taken = (file.stores ?? []).filter(s => takes(s, base.settings));
     // This device's own walk consents, never the file's (B-26).
     const settings = withDeviceConsent(file.settings, base.settings);
+    const theirs = new Map(pruned.map(c => [c.date, c]));
+    const keptDays = new Set(open.checkIns.map(c => c.date));
+    const merged = new Set<CheckInRecord>();
+    const checkIns = [
+      ...pruned.filter(c => !keptDays.has(c.date)),
+      ...open.checkIns.map(mine => {
+        const other = theirs.get(mine.date);
+        if (!other) return mine;
+        const both = { ...neverLooser(answersOf(mine), answersOf(other), open.known), readiness: mine.readiness } as CheckInRecord;
+        merged.add(both);
+        return both;
+      }),
+    ].sort((a, b) => a.date.localeCompare(b.date));
+    // Kept readings stay as this device holds them, the file's copy under the
+    // same id left out, so a correction in the file never releases one; and
+    // they come before the file's in commit order: they are this device's,
+    // from before the file arrived.
+    const keptIds = new Set(open.observations.map(o => o.id));
+    const readings = open.observations.map(stripSeq);
     return {
       change: {
         reset: true,
         schemaVersion: SCHEMA_VERSION,
-        observations: { put: file.observations, keepOrder: true },
+        observations: { put: [...readings, ...file.observations.filter(o => !keptIds.has(o.id))], keepOrder: true },
         sessions: { put: file.sessions },
         ...(settings !== undefined ? { settings: { replace: settings } } : {}),
         ...(file.profile !== undefined ? { profile: file.profile } : {}),
-        checkIns: reevaluated(pruned, cleaned, file.profile),
+        checkIns: reevaluated(checkIns, new Set([...cleaned, ...merged]), file.profile ?? base.profile),
         personalRecords: file.personalRecords,
         bodyMetrics: file.bodyMetrics,
         focusOverrides: file.focusOverrides,
         content: { put: Object.fromEntries((file.contentState ?? []).map(r => [r.key, r.value])) },
-        records: Object.fromEntries(taken.map(s => [s, { put: file.records?.[s] ?? [] }])),
+        records: Object.fromEntries(taken.map(s => [s, { put: kept(s, base.settings, file.records?.[s] ?? []) }])),
       },
       report: {
         mode,
@@ -1294,12 +1479,12 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
         personalRecords: file.personalRecords.length,
         bodyMetrics: file.bodyMetrics.length,
         skipped: refused,
-        records: Object.fromEntries(taken.map(s => [s, file.records?.[s]?.length ?? 0])),
+        records: Object.fromEntries(taken.map(s => [s, kept(s, base.settings, file.records?.[s] ?? []).length])),
       },
     };
   }
 
-  const merge = planMerge(file, base, options.onConflict ?? 'keepDevice');
+  const merge = planMerge(file, base, options.onConflict ?? 'keepDevice', options.now);
   return {
     change: merge.change,
     report: {
