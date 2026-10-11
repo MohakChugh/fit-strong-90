@@ -89,7 +89,8 @@ export function consentSummary(walk: WalkSettings): { routes: string; map: strin
   const unasked = 'Asked on your first walk with location';
   return {
     routes: walk.saveRoutes === 'unasked' ? unasked : walk.saveRoutes ? 'Kept on this phone' : 'Not kept',
-    map: walk.map === 'unasked' ? unasked : walk.map === 'on' ? 'On' : 'Off',
+    // Never asked while routes aren't kept: the first walk asks only with a yes (K6R-08).
+    map: walk.map === 'unasked' ? (walk.saveRoutes === false ? 'Only used with kept routes' : unasked) : walk.map === 'on' ? 'On' : 'Off',
   };
 }
 

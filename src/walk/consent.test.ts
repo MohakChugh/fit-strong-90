@@ -59,6 +59,12 @@ describe('what this phone keeps, as the Walk hub and Me say it (journey §9.1)',
     expect(consentSummary({ saveRoutes: true, map: 'on' })).toEqual({ routes: 'Kept on this phone', map: 'On' });
     expect(consentSummary({ saveRoutes: false, map: 'off' })).toEqual({ routes: 'Not kept', map: 'Off' });
   });
+
+  it('never says the map question comes on a first walk that won’t ask it (K6R-08)', () => {
+    expect(preflightPages({ saveRoutes: false, map: 'unasked' }, GPS)).toEqual([]);
+    expect(consentSummary({ saveRoutes: false, map: 'unasked' })).toEqual({ routes: 'Not kept', map: 'Only used with kept routes' });
+    expect(consentSummary({ saveRoutes: true, map: 'unasked' }).map).toBe('Asked on your first walk with location');
+  });
 });
 
 describe('one answer at a time, and erasure by count and walk, never the clock (H6R-07, H6R-08, K6R-12, board D176)', () => {
