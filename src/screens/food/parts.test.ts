@@ -47,3 +47,13 @@ describe('the stepper, for a shaky hand and large text (H7-16, K7-08; board D141
     expect(markup).toMatch(/<span class="[^"]*@max-\[22rem\]:col-span-full[^"]*@max-\[22rem\]:order-1/);
   });
 });
+
+describe('what’s in a food, in plain words (K7-15)', () => {
+  it('calls each counted ingredient a “USDA value”, and keeps the record ids in a Sources line', () => {
+    const page = text({ show: true, ranges: false });
+    expect(page).not.toMatch(/\bFDC \d/);
+    expect(page).toContain('USDA value');
+    const ids = [...new Set(roti.recipe.ingredients.map(i => i.fdcId).filter(id => id !== null))];
+    expect(page).toContain(`Sources: USDA FoodData Central record ${ids.join(', ')}.`);
+  });
+});

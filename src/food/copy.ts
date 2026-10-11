@@ -71,6 +71,8 @@ export const FOOD_COPY = {
   useWeight: 'Use this weight',
   whatsInIt: 'What’s in it',
   notCounted: 'not counted',
+  usdaValue: 'USDA value',
+  fdcSources: (ids: string, many = false) => `Sources: USDA FoodData Central record${many ? 's' : ''} ${ids}.`,
   recipeNote: 'Tagged from our recipe. Kitchens and brands differ.',
   veganSwap: (swaps: string) => `For your plate, our recipes use ${swaps}.`,
   contains: (list: string) => `Contains ${list}`,

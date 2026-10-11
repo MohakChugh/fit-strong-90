@@ -115,6 +115,9 @@ export function FoodRow({ food, numbers, warning, added, onOpen, onAdd }: {
   );
 }
 
+/** The FDC records a dish's values come from, once each. */
+const fdcIds = (food: Food) => [...new Set(food.recipe.ingredients.flatMap(i => (i.fdcId === null ? [] : [i.fdcId])))];
+
 function BackToMeal({ onBack }: { onBack: () => void }) {
   return (
     <button type="button" onClick={onBack} className="press-feedback flex min-h-12 items-center gap-1 self-start text-[length:var(--text-body)] text-tint">
@@ -195,9 +198,10 @@ export function PortionPage({ food, item, numbers, allergies, look, onBack, onSa
           </div>
         )}
       </Group>
-      <Group header={FOOD_COPY.whatsInIt} footer={`${food.recipe.note}. ${FOOD_COPY.recipeNote}`}>
+      {/* Plain words in the rows; the FDC records each value comes from, as its sources (§20.4 rule 5, K7-15). */}
+      <Group header={FOOD_COPY.whatsInIt} footer={`${food.recipe.note}. ${FOOD_COPY.recipeNote} ${FOOD_COPY.fdcSources(fdcIds(food).join(', '), fdcIds(food).length > 1)}`}>
         {food.recipe.ingredients.map(i => (
-          <Row key={i.key} label={i.name} detail={i.fdcId === null ? FOOD_COPY.notCounted : `FDC ${i.fdcId}`} value={`${i.grams} g`} numeric />
+          <Row key={i.key} label={i.name} detail={i.fdcId === null ? FOOD_COPY.notCounted : FOOD_COPY.usdaValue} value={`${i.grams} g`} numeric />
         ))}
         <Row
           label={food.allergens.contains.length > 0 ? FOOD_COPY.contains(allergenList(food.allergens.contains)) : FOOD_COPY.noTaggedAllergens}
