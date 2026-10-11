@@ -245,7 +245,7 @@ export function settingsFrom(a: SetupAnswers, base: UserSettings, profile: UserP
 }
 
 /** A dated reading for each body measure that changed (§18.1). A v1 weight with no date is never given one (B-16). */
-export function measurementsFrom(a: SetupAnswers, before: UserProfile | undefined, at: string): ObservationInput[] {
+export function measurementsFrom(a: SetupAnswers, before: Partial<Pick<UserProfile, 'weightKg' | 'heightCm' | 'waistCm'>> | undefined, at: string): ObservationInput[] {
   const changed = (value: number | undefined, was: number | undefined) => value !== undefined && Number.isFinite(value) && value > 0 && value !== was;
   const reading = (kind: 'weight' | 'height' | 'waist', value: number, unit: string): ObservationInput =>
     ({ kind, value, unit, scope: 'pointInTime', source: 'manual', at, context: 'profile' });

@@ -107,6 +107,22 @@ describe('a clinical edit in Me (H5-08; board D162)', () => {
   });
 });
 
+describe('body readings from Me (H5-14)', () => {
+  it('a save of another chapter makes no reading from a value another tab changed since', async () => {
+    expect((await store.update(d => completedSetup(d, { ...MINIMAL, weightKg: 68 }, NOW, CTX))).ok).toBe(true);
+    host = render(createElement(ChapterEditor, { chapter: 'health' }));
+    await host.settle();
+    // Another tab: 70 kg.
+    expect((await store.update(d => ({ ...d, profile: { ...d.profile!, weightKg: 70 } }))).ok).toBe(true);
+    await host.settle();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('Saved.');
+    expect(store.getState().observations.filter(o => o.kind === 'weight')).toEqual([]);
+    expect(store.getState().profile?.weightKg).toBe(70);
+  });
+});
+
 describe('Your medicines in Me', () => {
   it('clearing the year metformin was started clears it from the record (H5-21)', async () => {
     const { withMeds } = await import('@/setup/fixtures');

@@ -14,7 +14,8 @@ import { isEnrolled } from '@/health/recommend';
 import { createDefaultProfile } from '@/profile/defaults';
 import { withJoinAnswers } from '@/programme/join';
 import { sameValue } from '@/store/transfer';
-import { profileFrom, settingsFrom } from './assemble';
+import type { ObservationInput } from '@/health/observation';
+import { measurementsFrom, profileFrom, settingsFrom } from './assemble';
 import { factsOf } from './facts';
 import { REVIEW_ALSO, SAFETY_CHAPTERS, chapterOf, commitPage, pageDef, pageDone, pageInvalid, pathFor, type Ctx } from './graph';
 import { setupStateOf } from './state';
@@ -133,6 +134,17 @@ function changedSettings(opened: Partial<UserSettings>, saved: Partial<UserSetti
     out.habits = habits;
   }
   return out as Partial<UserSettings>;
+}
+
+/**
+ * The dated readings an edit makes (§18.1): a body measure this edit
+ * changed, from what it opened with, in About you. Never one another tab
+ * changed since: an unchanged value is not a reading (H5-14).
+ */
+export function editMeasurements(edit: ChapterEdit, at: string): ObservationInput[] {
+  if (!edit.chapters.includes('about')) return [];
+  const { weightKg, heightCm, waistCm } = edit.opened;
+  return measurementsFrom(edit.answers, { weightKg, heightCm, waistCm }, at);
 }
 
 /** The profile an edit stores onto the record as it is now: what the edit changed, and nothing else (scan D-03). */

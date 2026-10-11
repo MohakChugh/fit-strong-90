@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { Screen } from '@/components/hig/Screen';
 import { dayOf, nowAt } from '@/health/observation';
-import { measurementsFrom } from '@/setup/assemble';
 import { whatChanges } from '@/setup/changes';
-import { editOf, editedProfile, editedRecord, editorOpens, editorState } from '@/setup/edit';
+import { editMeasurements, editOf, editedProfile, editedRecord, editorOpens, editorState } from '@/setup/edit';
 import { saveClinicalEdit } from '@/setup/effective';
 import { CHAPTER_TITLE, chapterOf } from '@/setup/graph';
 import { answersToEdit } from '@/setup/prefill';
@@ -35,7 +34,7 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
   const [outcome, setOutcome] = useState<{ tone: 'status' | 'error'; lines: string[] }>();
   const a: SetupAnswers = { ...opened, ...edits };
   const state = editorState(opens, a, opened, ctx);
-  const { pages, committed, blocking } = state;
+  const { pages, blocking } = state;
   const reviewing = opens.reviewing;
 
   const set = (patch: Partial<SetupAnswers>) => {
@@ -54,7 +53,7 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
     const edit = editOf(state, opened);
     // Stricter answers count for every gate from this tap; what the edit releases waits for the write, held until stored (H5-08).
     const saved = await saveClinicalEdit(edit.chapters, editedProfile(getState(), edit, today, ctx),
-      () => update(d => editedRecord(d, edit, today, ctx), { hold: true, addObservations: measurementsFrom(committed, profile, now) }));
+      () => update(d => editedRecord(d, edit, today, ctx), { hold: true, addObservations: editMeasurements(edit, now) }));
     setBusy(false);
     if (!saved.ok) {
       setOutcome({ tone: 'error', lines: [`That did not save. ${saved.failure.message}`] });

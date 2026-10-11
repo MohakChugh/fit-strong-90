@@ -6,7 +6,7 @@ import { isEnrolled } from '@/health/recommend';
 import { createDefaultProfile } from '@/profile/defaults';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import { completedSetup, profileFrom } from './assemble';
-import { editChapters, editOf, editPath, editedRecord, editorOpens, editorState } from './edit';
+import { editChapters, editMeasurements, editOf, editPath, editedRecord, editorOpens, editorState } from './edit';
 import { keysOfChapter } from './fields';
 import { COMPLEX, GLIFLOZIN_NO_DIABETES, JOIN, MINIMAL, NO_CLASSES, NO_CONDITIONS, withC } from './fixtures';
 import { SAFETY_CHAPTERS, commitPage, pathFor } from './graph';
@@ -296,5 +296,16 @@ describe('food answers after a skipped eating pattern (H5-20; board D164)', () =
     const after = editedRecord(data, editOf(state, a), TODAY, CTX);
     expect(after.profile?.food).toMatchObject({ pattern: 'vegetarian', level: 'meals', hardBefore: 'yes' });
     expect(logging(after)).toBe('Meals only, no numbers');
+  });
+});
+
+describe('the readings an edit makes (H5-14)', () => {
+  it('only from a body measure this edit changed, in About you', () => {
+    const data = finished({ ...MINIMAL, weightKg: 68, heightCm: 160 });
+    const a = opened(data);
+    expect(editMeasurements({ chapters: ['about'], opened: a, answers: { ...a, weightKg: 69 }, skipped: [] }, NOW).map(o => [o.kind, o.value])).toEqual([['weight', 69]]);
+    // Unchanged here, whatever the record says now.
+    expect(editMeasurements({ chapters: ['about'], opened: a, answers: a, skipped: [] }, NOW)).toEqual([]);
+    expect(editMeasurements({ chapters: ['health'], opened: a, answers: { ...a, weightKg: 69 }, skipped: [] }, NOW)).toEqual([]);
   });
 });
