@@ -1187,6 +1187,22 @@ describe('a file’s readings never release this device’s clock hold, in any m
     }
   });
 
+  it('a newer severe low in the file is the current reading, by when it was taken, whatever this phone stamped its own (H6F-05, board D186)', () => {
+    const base = device([record({ glucose: since, glucoseEarlier: [old] })]);
+    const low = newObservation({ id: 'track-low', kind: 'glucose', value: 50, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: at(13, 39) });
+    const raw = toTransferDoc({ ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings, observations: [low] }, '2026-10-08T13:39:30.000+05:30');
+    for (const [name, mode, onConflict] of MODES) {
+      const { next } = after(base, raw, mode, onConflict);
+      const today = effectiveCheckIns(next.checkIns, profile, next.observations, next.settings?.walk?.clock).find(c => c.date === TODAY)!;
+      const readiness = evaluateCheckIn(profile, today);
+      const codes = readiness.reasons.map(r => r.code);
+      // Treated as a low now, with its re-check: never as an episode from earlier, with the 120 standing as current.
+      expect(codes, name).toContain('severeLow');
+      expect(codes, name).not.toContain('severeLowEarlier');
+      expect(readiness.recheckAt, name).toBeDefined();
+    }
+  });
+
   it('keeps this phone’s own reading taken since, when the file holds the same one: no conflict, and it still releases', () => {
     const base = device([record({ glucose: since, glucoseEarlier: [old] })]);
     const own = toTransferDoc({ ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings, checkIns: [record({ glucose: since, glucoseEarlier: [old] })] }, '2026-10-08T13:39:30.000+05:30');

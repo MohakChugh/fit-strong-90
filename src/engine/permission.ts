@@ -25,7 +25,7 @@ import { DISPOSITION_ORDER } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { toDateString } from '@/lib/utils';
 import { deriveHealth, profileGaps } from './health';
-import { durableView, EMERGENCY_CALL, evaluateCheckIn, profileOnlyReadiness, takenAfter, withLogged } from './readiness';
+import { durableView, EMERGENCY_CALL, evaluateCheckIn, profileOnlyReadiness, withLogged } from './readiness';
 
 export type { Disposition, Mode } from '@/types/checkin';
 
@@ -208,14 +208,18 @@ function freshness(c: DailyCheckIn, now: Date): Block | undefined {
 
 /** The reading taken last, a number or the meter's HI or LO: the one the rules read as now. */
 function currentGlucose(c: DailyCheckIn): GlucoseEntry | undefined {
-  return [c.glucose, c.glucoseDisplay].filter((e): e is GlucoseEntry => !!e).reduce<GlucoseEntry | undefined>((a, e) => (!a || takenAfter(e, a) ? e : a), undefined);
+  const t = (e: GlucoseEntry) => { const ms = e.measuredAt ? Date.parse(e.measuredAt) : Number.NaN; return Number.isNaN(ms) ? -Infinity : ms; };
+  return [c.glucose, c.glucoseDisplay].filter((e): e is GlucoseEntry => !!e).sort((a, b) => t(b) - t(a))[0];
 }
 
 /**
  * B-19: after a change to the phone's clock, on the days either side of it,
- * the current reading must be one taken since: of this phone's latest clock
+ * the current reading, the one taken last by its time as every rule reads it,
+ * must be one acquired since: stamped with this phone's latest clock
  * generation, which a reading retimed, corrected or brought in by an import
- * never has. Never by its time, which would mix two clocks. The hold is the
+ * never has. Never by its time alone, which would mix two clocks; nor is a
+ * reading made current by its generation, so a newer one from a file is
+ * still treated as it says (H6F-05, board D186). The hold is the
  * device's (`clockHold`, on every day the gates read), so it reaches every
  * gate and outlasts the walk that saw the change (H6R-02, H6R-03, board
  * D174). In the record the device stored as well as the effective one, so a

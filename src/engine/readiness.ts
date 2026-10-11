@@ -187,18 +187,13 @@ const minutesApart = (a?: number, b?: number) => (a === undefined || b === undef
 
 // ─── Readings logged outside the check-in (scan X2-01) ──────────────────────
 
-/** Oldest first; one with no time first of all. */
 /**
- * When a glucose reading was taken, as this device can order it (B-19): its
- * clock generation first, so one taken after a change to the phone's clock is
- * later than every one from before it, whatever the two clocks' times say;
- * then the time it was taken, with an untimed one earliest.
+ * Oldest first; one with no time first of all. By when each was taken, and
+ * nothing else: a reading's clock generation (`gen`) says only whether it was
+ * acquired since a change to the phone's clock, never that it came after one
+ * from a file, which has none (H6F-05, board D186).
  */
-const takenKey = (e: GlucoseEntry): readonly [number, number] => [e.gen ?? 0, time(e.measuredAt) ?? -Infinity];
-const laterKey = (a: readonly [number, number], b: readonly [number, number]) => (a[0] !== b[0] ? a[0] > b[0] : a[1] > b[1]);
-/** `a` was taken after `b` (`takenKey`). */
-export const takenAfter = (a: GlucoseEntry, b: GlucoseEntry): boolean => laterKey(takenKey(a), takenKey(b));
-const byMeasured = <T extends GlucoseEntry>(list: readonly T[]): T[] => [...list].sort((a, b) => (takenAfter(a, b) ? 1 : takenAfter(b, a) ? -1 : 0));
+const byMeasured = <T extends GlucoseEntry>(list: readonly T[]): T[] => [...list].sort((a, b) => (time(a.measuredAt) ?? -Infinity) - (time(b.measuredAt) ?? -Infinity));
 const byAt = (list: readonly BpReading[]): BpReading[] => [...list].sort((a, b) => (time(a.at) ?? -Infinity) - (time(b.at) ?? -Infinity));
 
 /**
@@ -237,7 +232,6 @@ export function withLogged(c: DailyCheckIn): DailyCheckIn {
     const ownLatest = Math.max(-Infinity, ...own.map(e => time(e.measuredAt) ?? -Infinity));
     const sorted = byMeasured(glucose);
     const newest = sorted.at(-1)!;
-    // One taken since a change to the clock is put first by `latestTaken`, whatever its time (B-19).
     if ((time(newest.measuredAt) ?? -Infinity) > ownLatest) {
       const { glucoseDisplay: _shown, ...rest } = plain;
       void _shown;
@@ -268,9 +262,10 @@ export function withLogged(c: DailyCheckIn): DailyCheckIn {
 function latestTaken(record: DailyCheckIn): DailyCheckIn {
   const c = record.glucoseEarlier ? { ...record, glucoseEarlier: byMeasured(record.glucoseEarlier) } : record;
   const current = [c.glucose, c.glucoseDisplay].filter((x): x is GlucoseEntry => !!x);
-  if (!current.length || current.some(e => time(e.measuredAt) === undefined)) return c;
-  const top = current.reduce((best, e) => (takenAfter(e, best) ? e : best));
-  const later = (c.glucoseEarlier ?? []).filter(e => takenAfter(e, top));
+  const times = current.map(e => time(e.measuredAt));
+  if (!current.length || times.some(t => t === undefined)) return c;
+  const at = Math.max(...(times as number[]));
+  const later = (c.glucoseEarlier ?? []).filter(e => (time(e.measuredAt) ?? -Infinity) > at);
   if (!later.length) return c;
   const newest = byMeasured(later).at(-1)!;
   const { glucose: _g, glucoseDisplay: _d, ...rest } = c;

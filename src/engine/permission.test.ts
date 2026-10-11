@@ -345,20 +345,26 @@ describe('B-19: a change to the phone’s clock, held by the device and its cloc
     expect(askAfter(ci({ glucose: g(1, 120) })).reasons).toContain(PERMISSION_TEXT.clockChanged);
   });
 
-  it('reads a reading taken since as the current one, though the clock set back gives it an earlier time', () => {
+  it('reads the reading taken last by its time as the current one, so one from before that the clock set back left reading later still holds (H6F-05, board D186)', () => {
     // The clock was set back an hour: the reading from before reads 50 minutes ahead, the one taken since 2 minutes ago.
     const c = ci({ glucose: g(-50), glucoseEarlier: [g(2, 125, 1)] });
-    expect(askAfter(c).allowed).toBe(true);
+    expect(askAfter(c).allowed).toBe(false);
+    expect(askAfter(c).reasons).toContain(PERMISSION_TEXT.clockChanged);
     expect(askAfter({ ...c, glucoseEarlier: [g(2, 125)] }).allowed).toBe(false);
+    // Once the one taken since is the latest by its time, it releases.
+    expect(askAfter(ci({ glucose: g(2, 125, 1), glucoseEarlier: [g(10)] })).allowed).toBe(true);
   });
 
-  it('takes a Track reading taken since, or a meter’s number, as the current one over one from before read later by the old clock', () => {
+  it('never makes a Track reading taken since, or a number, current over one from before that reads later (H6F-05, board D186)', () => {
     // Track's reading taken since, two minutes ago; the check-in's from before the change reads 50 minutes ahead.
     const logged = ci({ glucose: g(-50), logged: { glucose: [{ ...g(2, 125, 1), unitConfirmed: true }] } });
-    expect(askAfter(logged).allowed).toBe(true);
-    // A number taken since, beside a meter's LO from before the change that reads later.
+    expect(askAfter(logged).allowed).toBe(false);
+    expect(askAfter(logged).reasons).toContain(PERMISSION_TEXT.clockChanged);
+    // A number taken since, beside a meter's LO from before the change that reads later: the LO is current.
     const shown = ci({ glucose: g(2, 125, 1), glucoseDisplay: { display: 'LO', measuredAt: at(-50) } });
-    expect(askAfter(shown).reasons).not.toContain(PERMISSION_TEXT.clockChanged);
+    expect(askAfter(shown).reasons).toContain(PERMISSION_TEXT.clockChanged);
+    // Taken since and later by its time too, Track's reading releases.
+    expect(askAfter(ci({ glucose: g(10), logged: { glucose: [{ ...g(2, 125, 1), unitConfirmed: true }] } })).allowed).toBe(true);
   });
 
   it('is the device’s: a day outside the change, or a phone that never saw one, is not held for it', () => {
