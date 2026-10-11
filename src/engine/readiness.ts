@@ -112,7 +112,9 @@ export function bpReadingId(r: BpReading, day?: string): string {
 export function bpPartialId(r: BpPartialReading, day?: string): string {
   return `bpp:${stampOf(r.at, day)}:${r.sys ?? ''}/${r.dia ?? ''}`;
 }
-const newsReadingId = (date: string, item: NewsItem) => `news:${item}@${date}`;
+export const newsReadingId = (date: string, item: NewsItem) => `news:${item}@${date}`;
+/** A record said "I need to stop" (journey §4.4): the incident stays open, whatever the day, until its own answer (H6R-01). */
+export const stoppedIn = (c: Pick<DailyCheckIn, 'news'>): boolean => c.news.includes('stopped');
 
 /**
  * What a reading has been settled as, by the latest answer that names it
@@ -465,7 +467,11 @@ export const endsTheDay = (n: NewsItem): n is DayEnding => Object.hasOwn(DAY_END
 /**
  * "I need to stop" said during movement, with nothing said since about what
  * happened (journey §4.4): saved at the tap, it holds every movement until it
- * is answered. Closing the guidance answers nothing.
+ * is answered. Closing the guidance answers nothing, and nor does midnight: a
+ * stop from an earlier day carries until its own answer, by its id (H6R-01,
+ * board D170). An answer is recorded as one (`news:stopped@<day>`), so the
+ * stop coming back from an older copy of the day reopens nothing; a stop said
+ * again after its answer reopens it (`reopenedByReport`).
  */
 export const STOP_UNANSWERED = {
   reason: 'You stopped and haven’t said what happened yet. Say what happened before you move again.',
@@ -483,7 +489,7 @@ function newsRules(p: UserProfile, c: DailyCheckIn, d: DerivedHealth, recorded: 
   const has = (n: NewsItem) => c.news.includes(n) || earlier.includes(n);
   const limit = fluidLimit(p.health);
 
-  if (has('stopped')) {
+  if (has('stopped') && settledAs(newsReadingId(c.date, 'stopped'), answers) === undefined) {
     out.push({ outcome: 'red', disposition: 'hold', release: STOP_UNANSWERED.release, reason: R('stopped', STOP_UNANSWERED.reason, 'red', 'hold') });
   }
   if (has('unwell')) {
@@ -1572,7 +1578,8 @@ export function reopenedByReport(saved: DailyCheckIn, next: DailyCheckIn): Episo
   const before = flagsIn(saved);
   const again: { kind: EpisodeKind; id: string }[] = [
     ...flagsIn(next).filter(f => !before.includes(f)).map(f => ({ kind: FLAGS[f].kind, id: flagId(f, next.date) })),
-    ...next.news.filter(n => endsTheDay(n) && !saved.news.includes(n)).map(n => ({ kind: 'news' as const, id: newsReadingId(next.date, n) })),
+    // A stop said again after its answer is a new one (journey §4.4, H6R-01).
+    ...next.news.filter(n => (endsTheDay(n) || n === 'stopped') && !saved.news.includes(n)).map(n => ({ kind: 'news' as const, id: newsReadingId(next.date, n) })),
   ];
   const answers = next.resolutions ?? [];
   return again.flatMap(({ kind, id }) => {
@@ -1723,6 +1730,14 @@ function carriedRules(profile: UserProfile, c: DailyCheckIn | undefined, date: s
         out.push(r.disposition === 'emergency'
           ? { outcome: 'urgent', disposition: 'emergency', unresolved: r.kind, reason: R(`carried:${r.kind}`, CARRY_MESSAGE[kind](r.label, unit, true), 'urgent', 'emergency') }
           : { outcome: 'red', disposition: 'today', release: 'Say what happened in today’s check-in.', unresolved: r.kind, reason: R(`carried:${r.kind}`, CARRY_MESSAGE[kind](r.label, unit, false), 'red', 'today') });
+      }
+    }
+    // A stop said on that day and never answered since (journey §4.4, H6R-01).
+    if (stoppedIn(record)) {
+      const id = newsReadingId(record.date, 'stopped');
+      const latest = standingAnswer(answers(id), id);
+      if (!latest || latest.resolution === 'reopened') {
+        out.push({ outcome: 'red', disposition: 'hold', release: STOP_UNANSWERED.release, reason: R('carried:stopped', STOP_UNANSWERED.reason, 'red', 'hold') });
       }
     }
     // Red flags and foot problems, by name, until their own release is given (X2-02, X2-03, R5-01).
@@ -1881,7 +1896,7 @@ function preparedHistory(profile: UserProfile, history: readonly DailyCheckIn[])
   const asked = sorted.map(() => [] as string[]);
   const unanswered = sorted.map((x, i) => seriousReadings(x, id => { asked[i].push(id); return []; }, ''));
   const flagged = sorted.map(x => flagsOf(x));
-  const carriers = sorted.flatMap((x, i) => (unanswered[i].length || (!x.readingsOnly && flagged[i].length) ? [i] : []));
+  const carriers = sorted.flatMap((x, i) => (unanswered[i].length || (!x.readingsOnly && flagged[i].length) || stoppedIn(x) ? [i] : []));
   const named: AnswerIndex = new Map();
   sorted.forEach((x, i) => indexAnswers(named, x.resolutions, i));
   /** For every prefix length, the last check-in that answered its questions and the last record saying how far leg symptoms reach. */

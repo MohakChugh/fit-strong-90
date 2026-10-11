@@ -6,7 +6,7 @@
  */
 import type { CheckInRecord } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
-import { answeredCheckIn, profileOnlyReadiness } from './readiness';
+import { answeredCheckIn, profileOnlyReadiness, stoppedIn } from './readiness';
 
 const dayAfter = (date: string, n: number) => {
   const [y, m, d] = date.split('-').map(Number);
@@ -56,7 +56,8 @@ export function reachableHistory(checkIns: readonly CheckInRecord[], today: stri
     // The check-in whose answers stand, past any day with only readings or a report (R5-07).
     if (answeredCheckIn(c) && (!lastAnswered || c.date >= lastAnswered.date)) lastAnswered = c;
     if (c.back?.reach && (!lastReach || c.date >= lastReach.date)) lastReach = c;
-    if (c.resolutions?.length || mayCarry(c, profile)) keep.add(c);
+    // A stop never answered holds from its day on (H6R-01).
+    if (c.resolutions?.length || stoppedIn(c) || mayCarry(c, profile)) keep.add(c);
   }
   if (last) keep.add(last);
   if (lastAnswered) keep.add(lastAnswered);

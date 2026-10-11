@@ -19,9 +19,9 @@
  */
 
 import type { AppData } from '@/types';
-import type { BpPartialReading, BpReading, CheckInRecord, DailyCheckIn, EmergencyFlag, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, SymptomReach } from '@/types/checkin';
+import type { BpPartialReading, BpReading, CheckInRecord, DailyCheckIn, EmergencyFlag, EpisodeAnswer, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, SymptomReach } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
-import { completes, evaluateCheckIn } from '@/engine/readiness';
+import { completes, evaluateCheckIn, newsReadingId, stoppedIn } from '@/engine/readiness';
 import { checkInDayOf, measuredStamp, type Observation } from '@/health/observation';
 import { pairBloodPressure } from '@/health/aggregate';
 import { carryForward, withoutGateFields } from './form';
@@ -448,10 +448,10 @@ export function reportSymptoms(
   deps: { profile: UserProfile; update: StoreUpdate; date: string },
   at: Date = new Date(),
 ): Promise<SaveResult> {
-  return saveWith(deps.date, today => applyReport(today, report, deps.date, at), deps);
+  return saveWith(deps.date, (today, recent) => applyReport(today, report, deps.date, at, recent), deps);
 }
 
-function applyReport(today: CheckInRecord | undefined, r: SymptomReport, date: string, at: Date): DailyCheckIn {
+function applyReport(today: CheckInRecord | undefined, r: SymptomReport, date: string, at: Date, recent: readonly DailyCheckIn[] = []): DailyCheckIn {
   // A day with no record yet — movement that ran past midnight — gets one
   // holding only what was said. Nothing else is filled in, and the
   // emergency question stays unanswered, so it is evidence for every rule
@@ -479,12 +479,22 @@ function applyReport(today: CheckInRecord | undefined, r: SymptomReport, date: s
     ...(r.provoked?.length ? { provoked: [...new Set([...(base.provoked ?? []), ...r.provoked])] } : {}),
     // Laid over today's back answers; nothing is filled in that was not said (J03, J16).
     ...(r.back ? { back: { ...base.back, ...r.back } } : {}),
+    // An answer to "I need to stop" is kept as one, about every stop still
+    // open, today's and earlier days' (H6R-01): so it holds as history, and a
+    // stop coming back from an older copy of a day reopens nothing (H6R-05).
+    ...(gone.has('stopped') ? { resolutions: [...(base.resolutions ?? []), stopAnswered([...recent, base], at)] } : {}),
   };
+}
+
+/** The answer to every stop said and not yet answered, given now. */
+function stopAnswered(days: readonly DailyCheckIn[], at: Date): EpisodeAnswer {
+  const readings = [...new Set(days.filter(stoppedIn).map(c => newsReadingId(c.date, 'stopped')))];
+  return { kind: 'news', readings, resolution: 'resolved', at: at.toISOString() };
 }
 
 async function saveWith(
   date: string,
-  build: (today: CheckInRecord | undefined) => DailyCheckIn,
+  build: (today: CheckInRecord | undefined, recent: readonly CheckInRecord[]) => DailyCheckIn,
   deps: { profile: UserProfile; update: StoreUpdate },
 ): Promise<SaveResult> {
   const { profile, update } = deps;
@@ -495,7 +505,7 @@ async function saveWith(
     const recent = list.filter(x => x.date < date);
     const mine = list.find(x => x.date === date);
     const base = effectiveRecord(mine, waitingFor(date, mine), profile, recent);
-    answers = build(base);
+    answers = build(base, recent);
     record = toStore(profile, carryForward(base, answers), recent);
     // Given on this visit: from here it is answered, not merely kept.
     restored.delete(date);
@@ -504,7 +514,7 @@ async function saveWith(
   });
   publish();
   const result = await written;
-  const saved = record ?? toStore(profile, answers ?? build(undefined), []);
+  const saved = record ?? toStore(profile, answers ?? build(undefined, []), []);
   if (result.ok) {
     refused.delete(date);
     const still = waiting.get(date);
