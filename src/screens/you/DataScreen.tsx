@@ -107,7 +107,7 @@ export function DataScreen() {
           onClick={() => setOpen('erase')}
           icon={<Trash2Icon className="text-stop" />}
           label={<span className="text-stop">Erase all routes</span>}
-          detail={routes > 0 ? `${plural(routes, 'route')} kept. Walks keep their time, distance and steps.` : 'No saved routes. Erasing also clears a walk not yet saved.'}
+          detail={routes > 0 ? `${plural(routes, 'route')} kept. Walks keep their time, distance and steps.` : 'No saved routes. Erasing also clears the route of a walk not yet saved. The walk stays.'}
           chevron
         />
       </Group>

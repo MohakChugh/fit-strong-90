@@ -1,9 +1,9 @@
 /**
  * Me → Data's walk answers and "Erase all routes", driven through the real
  * screen and sheets and the real store over a fake IndexedDB that can refuse
- * a write: asked twice before anything is erased (H6R-15, K6R-04), and said
- * when done (K6R-11). Replaced are only the router, the toasts and the
- * vendored sheet and switch.
+ * a write: asked twice before anything is erased (H6R-15, K6R-04), said when
+ * done (K6R-11), and the row's words (K6R-05). Replaced are only the router,
+ * the toasts and the vendored sheet and switch.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -134,5 +134,11 @@ describe('"Erase all routes" in Me → Data, asked twice, as Delete everything i
     expect(x().text()).toContain('The routes were not erased.');
     expect(store.getState().records.routes).toEqual([ROUTE]);
     expect(x().text()).not.toContain('All routes erased.');
+  });
+
+  it('says a walk not yet saved keeps itself, only its route goes, when no route is saved (K6R-05)', async () => {
+    await store.removeRecords('routes', [WALK]);
+    await open();
+    expect(x().text()).toContain('No saved routes. Erasing also clears the route of a walk not yet saved. The walk stays.');
   });
 });
