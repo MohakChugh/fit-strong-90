@@ -163,3 +163,10 @@ describe('a trend’s statistic, coverage and notes are read at subhead size (KT
     expect(read('CategoryTrend.tsx')).toContain('{view.notes.map(note => <p key={note} className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{note}</p>)}');
   });
 });
+
+describe('last week’s brief is kept as seen only when it was shown (KT-14, B-20)', () => {
+  it('choosing last week while Your week is paused leaves the brief to be read', () => {
+    const trends = read('TrendsScreen.tsx');
+    expect(trends).toContain('if (next === lastWeek && !pause) void setContentState(WEEK_BRIEF_KEY, withSeen(briefSeen(state.contentState[WEEK_BRIEF_KEY]), next));');
+  });
+});

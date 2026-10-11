@@ -83,8 +83,8 @@ export default function TrendsScreen() {
   const pending = week === thisWeek ? pendingGoalText(state.settings, today) : undefined;
   const choose = (next: string) => {
     markInPlace();
-    // Reading last week here is opening its brief (B-20).
-    if (next === lastWeek) void setContentState(WEEK_BRIEF_KEY, withSeen(briefSeen(state.contentState[WEEK_BRIEF_KEY]), next));
+    // Reading last week here is opening its brief (B-20), unless Your week is paused, which shows no sentence (KT-14).
+    if (next === lastWeek && !pause) void setContentState(WEEK_BRIEF_KEY, withSeen(briefSeen(state.contentState[WEEK_BRIEF_KEY]), next));
     setParams(prev => {
       const p = new URLSearchParams(prev);
       if (next === thisWeek) p.delete('week');
