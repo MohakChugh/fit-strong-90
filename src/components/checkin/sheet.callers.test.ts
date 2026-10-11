@@ -79,10 +79,12 @@ async function seed(profile: UserProfile, records: DailyCheckIn[] = []) {
 }
 
 /** The sheet as Today and the start buttons mount it: the real hook's record, save and earlier days. */
+let onSayWhatHappened = vi.fn();
 function Harness({ mode = 'guided' as Mode }) {
   const g = useGuided();
   return createElement(CheckInBody, {
     open: true, onOpenChange: () => {}, profile: g.profile, date: g.date, initial: g.checkIn, onSave: g.saveCheckIn, onStart, mode, recent: g.checkIns,
+    onSayWhatHappened,
   });
 }
 async function openSheet(mode: Mode = 'guided') {
@@ -1517,5 +1519,37 @@ describe('A saved half-reading, reopened: the symptom question is still asked', 
     const ids = (stored()!.readiness.episodes ?? []).flatMap(e => e.readings).map(x => x.id);
     expect(ids.some(id => id.startsWith('bpp:'))).toBe(false);
     expect(stored()!.readiness.reasons.map(x => x.code)).toContain('bpSevereUnconfirmed');
+  });
+});
+
+describe('an unanswered stop in the check-in: "Say what happened", never a box to untick (journey §4.4, K6R-03)', () => {
+  const plain = createDefaultProfile({ health: { ...known, diabetes: 'none' } });
+  const said = (date: string, news: DailyCheckIn['news']): DailyCheckIn => ({ date, urgentSymptoms: false, emergency: [], news, sleep: 'gt7', energy: 4 });
+
+  it('says it in the same words, and opens the stop’s own questions', async () => {
+    onSayWhatHappened = vi.fn();
+    await seed(plain, [said(DAY, ['stopped'])]);
+    await openSheet();
+    await changeAnswers();
+    expect(h().all().some(n => n.type === 'input' && n.props.type === 'checkbox' && JSON.stringify(n.props).includes('stopped'))).toBe(false);
+    expect(h().text()).not.toContain(NEWS_LABEL.stopped);
+    expect(h().text()).toContain('You stopped and haven’t said what happened yet');
+    await h().click(h().button('Say what happened', { exact: true }));
+    expect(onSayWhatHappened).toHaveBeenCalledTimes(1);
+    // Saving the check-in keeps the stop, "None of these" for today's news included: only its own answer releases it.
+    await none();
+    const nones = h().buttons('None of these', { exact: true });
+    await h().click(nones[nones.length - 1]);
+    await seePlan();
+    expect(stored()?.news).toContain('stopped');
+  });
+
+  it('says it for a stop from an earlier day too', async () => {
+    onSayWhatHappened = vi.fn();
+    await seed(plain, [said('2026-10-08', ['stopped'])]);
+    await openSheet();
+    await none();
+    expect(h().text()).toContain('You stopped and haven’t said what happened yet');
+    expect(h().buttons('Say what happened', { exact: true })).toHaveLength(1);
   });
 });

@@ -16,7 +16,7 @@ import { headline } from '@/components/checkin/copy';
 import { gateFor } from '@/components/checkin/start';
 import { profileGaps } from '@/engine/health';
 import { readinessFor, type Mode, type Permission } from '@/engine/permission';
-import { RECHECK_MINUTES, profileOnlyReadiness, toMgdl, withLogged } from '@/engine/readiness';
+import { RECHECK_MINUTES, STOP_UNANSWERED, profileOnlyReadiness, toMgdl, withLogged } from '@/engine/readiness';
 import { gateOf, nextBoundary, recommend, type RecommendInput, type RecommendationKind } from '@/health/recommend';
 import { useGuided } from '@/hooks/useGuided';
 import { prefersHour12, timeOf } from '@/lib/time';
@@ -46,6 +46,8 @@ export interface Urgent {
    * another one (`says`, codex W-01).
    */
   reasons: readonly string[];
+  /** An unanswered "I need to stop": the safe action is to say what happened (K6R-03). */
+  stop?: true;
 }
 
 // ============================================================================
@@ -190,6 +192,7 @@ export function urgentOf({ profile, checkIn, checkIns, permissions }: UrgentInpu
   if (hold) {
     return {
       kind: 'hold', tone: 'caution',
+      ...(day.reasons.some(x => x.message === STOP_UNANSWERED.reason) ? { stop: true as const } : {}),
       // The check-in's own headline, for every movement at once.
       headline: day.awaitingReading ? 'Check again before you start' : 'No exercise for now',
       when: stopWhen('hold', hold, checkIn, hour12),

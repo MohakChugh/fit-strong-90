@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
+import { useSayWhatHappened } from '@/components/checkin/sayWhatHappened';
 import { mealWalkNow } from '@/health/recommend';
 import { periodOn, type Status } from '@/health/status';
 import { timeOf } from '@/lib/time';
@@ -70,6 +71,8 @@ export default function WalkHub() {
   const g = useHubGate('walk');
   const { state, now, today, status, hour12 } = g;
   const navigate = useNavigate();
+  // An unanswered stop's own questions (K6R-03).
+  const say = useSayWhatHappened();
   const origin = useHubOrigin(category.title);
   const [params] = useSearchParams();
   const remembered = state.settings.walkDefaults;
@@ -206,6 +209,7 @@ export default function WalkHub() {
       go: to => navigate(to, { viewTransition: true, state: origin }),
       status: () => setStatusOpen(true),
       local: showTime,
+      stop: () => say?.(),
     });
   };
   const offering = card.state === 'go' || card.state === 'checkIn' || card.state === 'paused';
@@ -232,6 +236,7 @@ export default function WalkHub() {
         go: to => navigate(to, { viewTransition: true, state: origin }),
         status: () => setStatusOpen(true),
         local: () => {},
+        stop: () => say?.(),
       });
     };
     return (

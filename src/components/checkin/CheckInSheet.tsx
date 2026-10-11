@@ -16,14 +16,16 @@ import type { DailyCheckIn, EmergencyFlag, EpisodeKind, EpisodeResolution, Gluco
 import type { CheckInRecord } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { permission, type Mode } from '@/engine/permission';
-import { recordedLows, TREAT } from '@/engine/readiness';
+import { recordedLows, STOP_UNANSWERED, TREAT } from '@/engine/readiness';
 import { Sheet } from '@/components/hig/Sheet';
 import { Group, Row } from '@/components/hig/List';
+import { TARGET } from '@/components/hig/targets';
 import { cn } from '@/lib/utils';
 import { CannotSwallow, OutcomeBanner } from './OutcomeBanner';
 import { CheckRow, NumberBox, PainScale, Segmented, Toggle, Wrap } from './parts';
 import { BACK_LABEL, EMERGENCY_LABEL, LOW_NEWS, NEWS_LABEL, URINE_LABEL, defaultStartLabel } from './copy';
 import { WORSENING } from './stop';
+import { useSayWhatHappened } from './sayWhatHappened';
 import {
   answerEpisode, buildCheckIn, episodeChoice, formSanity, saveOnEmergency, submitBlocked, visibleQuestions, withBpBox,
   type Answerable, type BackAnswers, type CheckInForm, type EpisodeChoice,
@@ -52,13 +54,35 @@ interface Props {
   mode?: Mode;
   /** Earlier check-ins, for the two-days-running and spread rules. */
   recent?: DailyCheckIn[];
+  /**
+   * Opens the stop's own questions for an unanswered "I need to stop"
+   * (journey §4.4, K6R-03). `CheckInSheet` closes itself first; without one,
+   * the stop is still said, with no box to untick.
+   */
+  onSayWhatHappened?: () => void;
 }
 
 export function CheckInSheet(props: Props) {
+  const say = useSayWhatHappened();
+  // "Say what happened" closes the check-in, then opens the stop's own
+  // questions once it has closed and handed focus back: sheets never stack.
+  const [sayNext, setSayNext] = useState(false);
+  const [saying, setSaying] = useState<{ go: () => void } | null>(null);
+  if (sayNext && !props.open) {
+    setSayNext(false);
+    if (say) setSaying({ go: say });
+  } else if (sayNext) {
+    // It could have closed and didn't: nothing opens later, out of the blue.
+    setSayNext(false);
+  }
+  useEffect(() => {
+    if (saying) requestAnimationFrame(() => requestAnimationFrame(saying.go));
+  }, [saying]);
+  const onSayWhatHappened = say ? () => { setSayNext(true); props.onOpenChange(false); } : props.onSayWhatHappened;
   return (
     <Sheet open={props.open} onOpenChange={props.onOpenChange} title="Check-in" detent="large" ownsUrgent>
       {/* Mounted per opening, so the form always starts from the latest saved answers. */}
-      {props.open && <CheckInBody {...props} />}
+      {props.open && <CheckInBody {...props} {...(onSayWhatHappened ? { onSayWhatHappened } : {})} />}
     </Sheet>
   );
 }
@@ -181,7 +205,7 @@ const EPISODE_NOTE: Record<EpisodeKind, string> = {
   news: 'It ends exercise for the rest of today, even once it has passed.',
 };
 
-export function CheckInBody({ profile, date, initial, onSave, onStart, startLabel, mode = 'guided', recent }: Props) {
+export function CheckInBody({ profile, date, initial, onSave, onStart, startLabel, mode = 'guided', recent, onSayWhatHappened }: Props) {
   const [now, setNow] = useNow();
   const ctx: SheetContext = useMemo(() => ({ profile, date, mode, now, ...(recent ? { recent } : {}) }), [profile, date, mode, now, recent]);
   // Every transition goes through `sheetState`, which is where the rules about
@@ -209,6 +233,10 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
   // is said at once: no answer here can change it.
   const before = gate ? undefined : permission({ profile, now, ...(recent ? { recent } : {}) }, mode);
   const settled = before && !before.allowed && !before.needsCheckIn ? before : undefined;
+  // An unanswered "I need to stop", today's or an earlier day's: only its own
+  // questions answer it, so it is said here with the way to them, never as a
+  // box to untick (journey §4.4, K6R-03, board D173).
+  const stopOpen = form.news.includes('stopped') || !!(result ?? before)?.reasons.includes(STOP_UNANSWERED.reason);
   const v = visibleQuestions(profile, form, gate?.record ?? record, { date, recent: recent ?? [] });
   // The lows the app already holds count whatever is answered; the question says which (scan J2-01).
   const heldLows = recordedLows(gate?.record ?? recent?.find(r => r.date === date) ?? { date, urgentSymptoms: false, news: [] }, recent ?? [], now);
@@ -301,7 +329,8 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
   };
   // "None of these" clears only what is on screen; an answer the profile no longer asks stays saved.
   const noNews = () => {
-    setForm(f => ({ ...f, news: f.news.filter(n => !v.news.includes(n)) }));
+    // A stop stays until its own questions answer it.
+    setForm(f => ({ ...f, news: f.news.filter(n => n === 'stopped' || !v.news.includes(n)) }));
     answer('news');
   };
   const setBpSymptoms = (bpSymptoms: boolean) => {
@@ -516,8 +545,19 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
           )}
 
           <Group header="Anything else today?">
-            <CheckRow prominent label="None of these" checked={!!form.answered.news && !form.news.some(n => v.news.includes(n))} onToggle={noNews} />
-            {v.news.filter(n => !LOW_NEWS.includes(n)).map(n => <CheckRow key={n} label={NEWS_LABEL[n]} checked={form.news.includes(n)} onToggle={() => toggleNews(n)} />)}
+            {stopOpen && (
+              <div className={cn('flex flex-col px-4 py-3', TARGET.gap)}>
+                <p className="text-[length:var(--text-body)] leading-snug">You stopped and haven’t said what happened yet.</p>
+                {onSayWhatHappened && (
+                  <button type="button" onClick={onSayWhatHappened}
+                    className={cn('press-feedback w-full rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.primary)}>
+                    Say what happened
+                  </button>
+                )}
+              </div>
+            )}
+            <CheckRow prominent label="None of these" checked={!!form.answered.news && !form.news.some(n => n !== 'stopped' && v.news.includes(n))} onToggle={noNews} />
+            {v.news.filter(n => !LOW_NEWS.includes(n) && n !== 'stopped').map(n => <CheckRow key={n} label={NEWS_LABEL[n]} checked={form.news.includes(n)} onToggle={() => toggleNews(n)} />)}
             {LOW_NEWS.some(n => v.news.includes(n)) && (
               <div className="flex flex-col gap-2 px-4 py-3">
                 <span className="text-[length:var(--text-body)]">Lows in the last 24 hours</span>

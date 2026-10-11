@@ -21,7 +21,8 @@ interface Props {
   onReport: (report: SymptomReport) => Promise<boolean>;
   /** The "I feel low" path, resolving whether the device kept it. */
   onLow: () => Promise<boolean>;
-  onEnd: () => void;
+  /** On the walk: end it. Asked off it (Say what happened, K6R-03), the walk has already ended. */
+  onEnd?: () => void;
 }
 
 /**
@@ -117,7 +118,7 @@ function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close }
           />
         ))}
       </Group>
-      <SecondaryButton onClick={() => { close(); onEnd(); }}>End walk</SecondaryButton>
+      {onEnd && <SecondaryButton onClick={() => { close(); onEnd(); }}>End walk</SecondaryButton>}
       <Group header={STOP_CHOICES.find(c => c.choice === 'leg')!.label}>
         <div className="flex flex-col gap-2 px-4 py-3">
           <span id="walk-leg-reach" className="text-[length:var(--text-subhead)] text-muted-foreground">How far down symptoms reach now</span>
@@ -143,7 +144,7 @@ function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close }
           </label>
         ))}
       </Group>
-      {/* Walking is what was being done: it stops for the day (X2-09). */}
+      {/* Walking is what was being done, asked on the walk or after it (only a walk says "I need to stop"): it stops for the day (X2-09). */}
       <PrimaryButton onClick={() => submit(() => onReport(answering(legReport(leg, before, 'brisk-walking'))), close)} disabled={saving}>Save leg symptoms</PrimaryButton>
     </div>
   );

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PERMISSION_TEXT, type Permission } from '@/engine/permission';
+import { STOP_UNANSWERED } from '@/engine/readiness';
 import { createDefaultProfile } from '@/profile/defaults';
 import { movementLine, type TileLine } from '@/screens/home/tileLine';
 import {
@@ -184,7 +185,7 @@ describe('actionTarget: every way a hub can start movement goes through the gate
   });
 
   it('runAction starts only through `start`', () => {
-    const fx = { start: vi.fn(), go: vi.fn(), status: vi.fn(), local: vi.fn() };
+    const fx = { start: vi.fn(), go: vi.fn(), status: vi.fn(), local: vi.fn(), stop: vi.fn() };
     runAction(actionTarget('anyway', ctx), fx);
     expect(fx.start).toHaveBeenCalledWith('stretch', ctx.href, 'Start stretch');
     expect(fx.go).not.toHaveBeenCalled();
@@ -273,7 +274,7 @@ describe('the edges the copy table implies', () => {
     expect(actionTarget('profile', ctx)).toEqual({ via: 'go', to: '/me/profile' });
     expect(actionTarget('stretch', ctx)).toEqual({ via: 'go', to: '/hub/stretch' });
     expect(actionTarget('otherTime', ctx)).toEqual({ via: 'local' });
-    const fx = { start: vi.fn(), go: vi.fn(), status: vi.fn(), local: vi.fn() };
+    const fx = { start: vi.fn(), go: vi.fn(), status: vi.fn(), local: vi.fn(), stop: vi.fn() };
     runAction(actionTarget('join', ctx), fx);
     expect(fx.go).toHaveBeenCalledWith(JOIN_HREF);
     runAction(actionTarget('otherTime', ctx), fx);
@@ -488,5 +489,42 @@ describe('feetHold: Steps while walking is held for the feet (kiro KH-02, L-09, 
   it('nothing for walking held for another reason, or not held at all', () => {
     expect(feetHold(plain, held('walk', [PERMISSION_TEXT.noCheckIn], { needsCheckIn: true }))).toBeUndefined();
     expect(feetHold(plain, { ...ok, mode: 'walk' })).toBeUndefined();
+  });
+});
+
+describe('an unanswered stop, on every movement hub (journey §4.4, K6R-03)', () => {
+  const stopped = (mode: Permission['mode']) => held(mode, [STOP_UNANSWERED.reason], { release: STOP_UNANSWERED.release });
+  const SAY = { kind: 'sayWhatHappened', label: 'Say what happened' };
+
+  it('offers "Say what happened" first, on each hub, ahead of the status as of every other hold', () => {
+    for (const mode of ['guided', 'stretch', 'walk'] as const) {
+      for (const status of ['normal', 'away', 'unwell', 'flare'] as const) {
+        const c = movementCard(input({ mode, permission: stopped(mode), gate: 'hold', status, ...(mode === 'guided' ? { enrolled: true } : {}) }));
+        expect(c.primary, `${mode} ${status}`).toEqual(SAY);
+        expect(c.state, `${mode} ${status}`).toBe('held');
+        expect(c.reasons, `${mode} ${status}`).toContain(STOP_UNANSWERED.reason);
+      }
+    }
+  });
+
+  it('on the Walk hub’s walk still on this device too, with Review and save beside it', () => {
+    for (const status of ['normal', 'unwell'] as const) {
+      const c = pendingWalkCard({
+        state: 'inProgress', started: '9:00 am', permission: stopped('walk'), gate: 'hold', status,
+        gaps: { healthUnreviewed: false, medicinesUnknown: false }, stretchOpen: true,
+      });
+      expect(c.primary, status).toEqual(SAY);
+      expect(kinds(c), status).toContain('finishWalk');
+      expect(kinds(c), status).not.toContain('carryOn');
+    }
+  });
+
+  it('opens the shared stop questions, never a start', () => {
+    const ctx = { mode: 'walk' as const, href: '/walk/live', startLabel: 'Start walk' };
+    expect(actionTarget('sayWhatHappened', ctx)).toEqual({ via: 'stop' });
+    const fx = { start: vi.fn(), go: vi.fn(), status: vi.fn(), local: vi.fn(), stop: vi.fn() };
+    runAction(actionTarget('sayWhatHappened', ctx), fx);
+    expect(fx.stop).toHaveBeenCalledTimes(1);
+    expect(fx.start).not.toHaveBeenCalled();
   });
 });
