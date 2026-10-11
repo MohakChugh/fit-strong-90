@@ -716,6 +716,10 @@ describe('the safety surface wherever the person is (codex V1-02, V1-03, journey
     expect(html(boundary.render() as never)).toMatch(/data-urgent-kind="emergency"[\s\S]*This screen didn’t load/);
   });
 
+  it('the app watches the phone’s clock from the start, beside the store, walking or not (P8S-02, board D185)', () => {
+    expect(read('src/App.tsx')).toMatch(/void start\(\);\s*return startClockWatch\(\);/);
+  });
+
   it('is owned once, above the routes, their loading and their failures; the shell only shows it', () => {
     expect(read('src/App.tsx')).toMatch(/<UrgentProvider>[\s\S]*<Suspense fallback=\{<ScreenLoading full \/>\}>\s*<AppRoutes/);
     const shell = read('src/components/hig/AppShell.tsx');
