@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { CHAPTER_IDS, PAGE_IDS, type PageId, type SetupAnswers } from '@/types/setup';
 import { COMPLEX, EVERYTHING, FOOT_WOUND, GLIFLOZIN_NO_DIABETES, INSULIN_NO_DIABETES, JOIN, MINIMAL, NO_CLASSES, NO_CONDITIONS, UNSURE, withC } from './fixtures';
 import {
-  PAGES, capsuleOf, chapterComplete, commitPage, firstPageOf, guardFor, hrefOf, missingPages, nextFromReview, nextPage, pageAt, pageDone, pathFor,
-  prevPage, resumeAt, skippedChapters,
+  PAGES, capsuleOf, chapterComplete, commitPage, firstPageOf, guardFor, hrefOf, missingPages, nextFromReview, nextMove, nextPage, pageAt, pageDone, pathFor,
+  prevPage, resumeAt, skipMove, skippedChapters,
 } from './graph';
 
 const CTX = { thisYear: 2026 };
@@ -118,6 +118,18 @@ describe('moving through setup', () => {
     expect(prevPage(MINIMAL, 'medicines.regular')).toBe('health.conditions');
     expect(prevPage(MINIMAL, 'welcome.start')).toBeUndefined();
     expect(nextPage(MINIMAL, 'day.voice')).toBe('review');
+  });
+
+  it('plans Next from the page as it is now: a correction made after a refused store is what goes, and where it goes (H5-02)', () => {
+    const refused: SetupAnswers = { conditions: { diabetes: 'unsure', bp: 'yes' } };
+    expect(nextMove('health.conditions', refused, CTX, false)).toMatchObject({ to: 'health.diabetes', answers: { conditions: { diabetes: 'unsure' } } });
+    const corrected: SetupAnswers = { conditions: { diabetes: 'no', bp: 'yes' } };
+    expect(nextMove('health.conditions', corrected, CTX, false)).toMatchObject({ to: 'health.bp', answers: { conditions: { ...NO_CONDITIONS, bp: 'yes' } } });
+    // Unanswered, there's nothing to store.
+    expect(nextMove('health.conditions', { conditions: {} }, CTX, false)).toBeUndefined();
+    // Answering a skipped page takes it off the list; skipping one keeps the answers as they were before it.
+    expect(nextMove('movement.goal', { ...MINIMAL, skippedPages: ['movement.goal'] }, CTX, false)?.answers.skippedPages).toEqual([]);
+    expect(skipMove('movement.goal', { ...MINIMAL, weeklyGoal: undefined }, CTX, false)).toMatchObject({ to: 'movement.programme', answers: { skippedPages: ['movement.goal'] } });
   });
 
   it('a page that stops applying still knows the page after it', () => {

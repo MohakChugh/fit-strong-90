@@ -164,6 +164,29 @@ export function nextFromReview(a: SetupAnswers, from: PageId, ctx: Ctx): PageId 
     ?? 'review';
 }
 
+/** A move setup stores before it's made (M22): where to, and the answers stored. */
+export interface PlannedMove { to: PageId; answers: SetupAnswers }
+
+/**
+ * Next on a page: its answers as stored (`commitPage`), off the skipped list,
+ * and the page after; nothing while the page is unanswered. Planned from the
+ * page as it is now, for Next and for Try again and Continue without saving
+ * alike: a corrected page is never stored as it was when a write was refused
+ * (H5-02).
+ */
+export function nextMove(id: PageId, a: SetupAnswers, ctx: Ctx, fromReview: boolean): PlannedMove | undefined {
+  const stored = commitPage(id, a);
+  if (!pageDone(id, stored, ctx)) return undefined;
+  const answers = { ...stored, skippedPages: (stored.skippedPages ?? []).filter(p => p !== id) };
+  return { to: fromReview ? nextFromReview(answers, id, ctx) : nextPage(answers, id), answers };
+}
+
+/** "Skip for now": the answers as they were before the page, with the page skipped, and the page after. */
+export function skipMove(id: PageId, before: SetupAnswers, ctx: Ctx, fromReview: boolean): PlannedMove {
+  const answers = { ...before, skippedPages: [...new Set([...(before.skippedPages ?? []), id])] };
+  return { to: fromReview ? nextFromReview(answers, id, ctx) : nextPage(answers, id), answers };
+}
+
 /** Where Edit opens a chapter. Your back and feet has no page without a pain or foot answer, so it opens the question that brings them. */
 export function firstPageOf(chapter: ChapterId, a: SetupAnswers): PageId {
   return pathFor(a).find(id => chapterOf(id) === chapter) ?? 'health.conditions';

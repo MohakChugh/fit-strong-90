@@ -25,32 +25,36 @@ export function useSetupAnswers(): { answers: SetupAnswers; at: PageId | undefin
   return { answers: setup.draft?.answers ?? prefillAnswers(settings, profile), at: setup.draft?.at, setup };
 }
 
+type NavState = Record<string, unknown> | undefined;
+
 export interface Move {
   /** Store the draft, then go to `to` (M22). `state` goes with the navigation. */
-  go: (to: PageId, answers: SetupAnswers, state?: Record<string, unknown>) => void;
+  go: (to: PageId, answers: SetupAnswers, state?: NavState) => void;
+  /** B-07: go to `to` without saving, keeping `answers` in this session only. */
+  goUnsaved: (to: PageId, answers: SetupAnswers, state?: NavState) => void;
   /** The last store was refused: the page stays, with its answers (§6.1). */
   failed: boolean;
+}
+
+/**
+ * A refused store's two ways on (§6.1, B-07). Each runs the page's own move
+ * again, planned from the page as it is now. What was refused is never
+ * replayed, so a correction made since is the one stored, and its page is
+ * the one gone to (H5-02).
+ */
+export interface Recovery {
+  failed: boolean;
   retry: () => void;
-  /** B-07: go on, keeping the answers in this session only. */
   continueUnsaved: () => void;
 }
-
-interface Failed {
-  to: PageId;
-  answers: SetupAnswers;
-  /** The navigation's own state, kept for Try again and Continue without saving. */
-  state?: Record<string, unknown>;
-}
-
-type NavState = Record<string, unknown> | undefined;
 
 /** `mover`, with each move carrying its navigation's state ("from Review", "Welcome back") to where it lands. */
 function movesWithState(
   save: (to: PageId, answers: SetupAnswers) => Promise<SaveOutcome>,
-  on: { moved: (to: PageId, state: NavState) => void; failed: (to: PageId, answers: SetupAnswers, state: NavState) => void },
+  on: { moved: (to: PageId, state: NavState) => void; failed: () => void },
 ): (to: PageId, answers: SetupAnswers, state: NavState) => void {
   let pending: NavState;
-  const move = mover(save, { moved: to => on.moved(to, pending), failed: (to, answers) => on.failed(to, answers, pending) });
+  const move = mover(save, { moved: to => on.moved(to, pending), failed: () => on.failed() });
   return (to, answers, state) => {
     pending = state;
     void move(to, answers);
@@ -59,7 +63,8 @@ function movesWithState(
 
 export function useMove(): Move {
   const navigate = useNavigate();
-  const [failed, setFailed] = useState<Failed>();
+  // Only that a store was refused: never what was refused, so nothing stale can be replayed (H5-02).
+  const [failed, setFailed] = useState(false);
   const run = useMemo(() => movesWithState(
     async (to, answers) => {
       if (getSetupSession().unsaved) {
@@ -69,19 +74,17 @@ export function useMove(): Move {
       return outcomeOf(await update(d => withDraft(d, to, answers)), getState().status);
     },
     {
-      moved: (to, state) => { setFailed(undefined); navigate(hrefOf(to), state ? { state } : undefined); },
-      failed: (to, answers, state) => setFailed({ to, answers, ...(state ? { state } : {}) }),
+      moved: (to, state) => { setFailed(false); navigate(hrefOf(to), state ? { state } : undefined); },
+      failed: () => setFailed(true),
     },
   ), [navigate]);
   return {
     go: run,
-    failed: failed !== undefined,
-    retry: () => { if (failed) run(failed.to, failed.answers, failed.state); },
-    continueUnsaved: () => {
-      if (!failed) return;
-      continueWithoutSaving(failed.to, failed.answers);
-      setFailed(undefined);
-      navigate(hrefOf(failed.to), failed.state ? { state: failed.state } : undefined);
+    failed,
+    goUnsaved: (to, answers, state) => {
+      continueWithoutSaving(to, answers);
+      setFailed(false);
+      navigate(hrefOf(to), state ? { state } : undefined);
     },
   };
 }

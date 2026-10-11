@@ -115,4 +115,39 @@ export const cases = [
       });
     },
   },
+  {
+    // H5-02: the recovery actions store the page as it is now, never the refused submission.
+    name: 'Try again stores the page as corrected',
+    async run(t) {
+      const page = await refusedNext(t);
+      const main = page.getByRole('main');
+      await t.step(2, 'Take back “Not sure” about diabetes; writes work again; Try again', async () => {
+        await setup.tick(main, 'Not sure: Diabetes', false);
+        await t.setPageFaults(null);
+        await ui.tap(ui.button(main, 'Try again'));
+        await ui.heading(page, 'High blood pressure');
+        const draft = docs(await t.checkpoint('corrected-try-again')).settings?.setup?.draft;
+        await t.check(draft?.at === 'health.bp' && draft?.answers?.conditions?.diabetes === 'no' && draft?.answers?.conditions?.bp === 'yes',
+          `Try again stored ${JSON.stringify(draft)}`);
+      }, { input: 'Not sure: Diabetes unticked after the refusal' });
+    },
+  },
+  {
+    name: 'Continue without saving keeps the page as corrected',
+    async run(t) {
+      const page = await refusedNext(t);
+      const main = page.getByRole('main');
+      await t.step(2, 'Take back “Not sure” about diabetes; Continue without saving', async () => {
+        await setup.tick(main, 'Not sure: Diabetes', false);
+        await ui.tap(ui.button(main, 'Continue without saving'));
+        await ui.heading(page, 'High blood pressure');
+        await t.checkpoint('corrected-continue-unsaved');
+        // Back on the conditions, the answer kept is the corrected one.
+        await ui.tap(ui.button(main, 'Back'));
+        await ui.heading(page, 'Do you have any of these?');
+        await t.check(await main.getByRole('checkbox', { name: 'Not sure: Diabetes', exact: true }).getAttribute('aria-checked') === 'false',
+          '“Not sure: Diabetes” is ticked again after Continue without saving');
+      }, { input: 'Not sure: Diabetes unticked after the refusal' });
+    },
+  },
 ];

@@ -13,7 +13,7 @@ import { RestoreFlow } from '@/screens/you/RestoreFlow';
 import { Notice, PlainButton, PrimaryButton } from '@/screens/you/controls';
 import { privacyLine } from '@/screens/you/summaries';
 import { SetupShell } from './SetupShell';
-import { useCtx, useMove, useSetupAnswers } from './useSetup';
+import { useCtx, useMove, useSetupAnswers, type Recovery } from './useSetup';
 
 /**
  * Setup's page 1 (journey §6.2 ch. 1, §6.4, §6.5): what the app is, where the
@@ -35,9 +35,13 @@ export function WelcomePage() {
   const line = installLine(context, device);
 
   // A draft carries on where it stopped, with "Welcome back" (a backup restored here, V-J11); otherwise the first question.
-  const start = () => (at && at !== 'welcome.start'
-    ? move.go(resumeAt(answers, at, ctx), answers, { welcomeBack: true })
-    : move.go('about.name', answers));
+  // Planned from what setup holds now, again after a refused store (H5-02).
+  const start = (unsaved = false) => {
+    const go = unsaved ? move.goUnsaved : move.go;
+    if (at && at !== 'welcome.start') go(resumeAt(answers, at, ctx), answers, { welcomeBack: true });
+    else go('about.name', answers);
+  };
+  const recovery: Recovery = { failed: move.failed, retry: () => start(), continueUnsaved: () => start(true) };
 
   const lookAround = async () => {
     // Held until stored: it opens Home, and a refusal must leave the person here, where it is said (D-04).
@@ -47,7 +51,7 @@ export function WelcomePage() {
   };
 
   return (
-    <SetupShell title="Welcome" move={move}>
+    <SetupShell title="Welcome" recovery={recovery}>
       <p className="text-[length:var(--text-title-2)] font-semibold leading-snug">Your health, in one place.</p>
       <p className="text-[length:var(--text-body)] leading-snug">{privacyLine(device)}</p>
       {line && (
@@ -68,7 +72,7 @@ export function WelcomePage() {
         <Row onClick={() => setSheet('display')} icon={<TypeIcon />} label="Display" detail="Text size, Reduce motion, Reduce transparency" chevron />
       </Group>
       <div className="mt-auto flex flex-col gap-2">
-        <PrimaryButton className="min-h-[3.75rem]" onClick={start}>Get started</PrimaryButton>
+        <PrimaryButton className="min-h-[3.75rem]" onClick={() => start()}>Get started</PrimaryButton>
         <RestoreFlow
           place="welcome"
           {...(context === 'iosBrowser'
