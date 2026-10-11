@@ -232,7 +232,8 @@ function fieldsUnreadable(preview: ImportPreview): { health: boolean; settings: 
   return { health, settings: fields.filter(f => f !== 'profile.health' && f !== 'profile.pain').length };
 }
 
-function PreviewBody({ preview, saveRoutes, note, place, device, erases, onMerge, onReplace }: {
+/** What a file holds and what each way of restoring it does, before anything changes. */
+export function PreviewBody({ preview, saveRoutes, note, place, device, erases, onMerge, onReplace }: {
   preview: ImportPreview;
   /** This phone's own answer about keeping routes, for what happens to the file's (B-26). */
   saveRoutes: boolean | 'unasked';
@@ -270,6 +271,12 @@ function PreviewBody({ preview, saveRoutes, note, place, device, erases, onMerge
           // D-06: a merge never brings back what was deleted here since.
           !replaceOnly && (preview.deletedHere ?? 0) > 0
             && `${plural(preview.deletedHere ?? 0, 'record')} in it ${preview.deletedHere === 1 ? 'was' : 'were'} deleted on this ${device} since. Merging leaves ${preview.deletedHere === 1 ? 'it' : 'them'} deleted.`,
+          // D136: a record restored on the other device is the one held here, under a fresh id.
+          !replaceOnly && (preview.restoredHere ?? 0) > 0
+            && `${plural(preview.restoredHere ?? 0, 'record')} on this ${device} ${preview.restoredHere === 1 ? 'was' : 'were'} deleted and brought back on the device the file came from. Merging keeps the brought-back ${preview.restoredHere === 1 ? 'copy' : 'copies'} in ${preview.restoredHere === 1 ? 'its' : 'their'} place, once.`,
+          // D147: a brought-back copy never replaces a record that has changed here.
+          !replaceOnly && (preview.restoredKept ?? 0) > 0
+            && `${plural(preview.restoredKept ?? 0, 'record')} in it ${preview.restoredKept === 1 ? 'was' : 'were'} brought back on the device the file came from, and ${preview.restoredKept === 1 ? 'differs' : 'differ'} from this ${device}’s. Merging keeps this ${device}’s and leaves the brought-back ${preview.restoredKept === 1 ? 'copy' : 'copies'} out.`,
         ].filter(Boolean).join(' ') || undefined}
       >
         {lines.length > 0

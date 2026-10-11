@@ -23,5 +23,5 @@ export {
 } from './personalise';
 export { search, type ResultKind, type SearchResult } from './search';
 export {
-  componentsFor, isAvoided, mealAllowed, mealsFor, mealTags, sampleWeek, suits, unmatchedAvoid, WEEKDAYS, type SampleDay, type Weekday,
+  componentsFor, isAvoided, mealAllowed, mealsFor, mealTags, ownAllergyReading, sampleWeek, suits, unmatchedAvoid, veganSwaps, WEEKDAYS, type SampleDay, type Weekday,
 } from './week';

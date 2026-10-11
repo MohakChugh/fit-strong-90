@@ -34,10 +34,24 @@ export function weekFood(meals: readonly MealRecord[], day: string, view: Number
   });
 }
 
-/** "2 meals · Estimated 1,460 kcal in logged foods" (journey §11.2). */
+/** "Bhel puri", "Bhel puri and thepla", or "3 items": what has no calorie estimate. */
+function noKcal(t: Totals): string | undefined {
+  const names = t.missing.filter(m => m.kcal).map(m => m.name);
+  if (names.length === 0) return undefined;
+  const who = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.length} items`;
+  return `${who} ${names.length === 1 ? 'has' : 'have'} no calorie estimate`;
+}
+
+/**
+ * "2 meals · Estimated 1,460 kcal in logged foods" (journey §11.2), labelled
+ * partial and naming what has no figure: "· Partial: Bhel puri has no calorie
+ * estimate" (A-17, H7-14). Only when numbers are shown.
+ */
 export function dayLine(d: DayFood): string {
   const parts = [FOOD_COPY.mealsCount(d.meals)];
-  if (d.totals && d.totals.withKcal > 0) parts.push(`Estimated ${kcalText(d.totals.kcal)} in logged foods`);
+  const unknown = d.totals ? noKcal(d.totals) : undefined;
+  if (d.totals && d.totals.withKcal > 0) parts.push(`Estimated ${kcalText(d.totals.kcal)} in logged foods`, ...(unknown ? [`Partial: ${unknown}`] : []));
+  else if (unknown) parts.push(unknown);
   return parts.join(' · ');
 }
 

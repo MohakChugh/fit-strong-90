@@ -103,9 +103,10 @@ export function search(query: string, ctx: GuideContext): SearchResult[] {
   }
 
   const visibleCardIds = new Set(CARDS.filter(c => isCardVisible(c, ctx)).map(c => c.id));
-  // What meal ideas leave out, search leaves out too: the foods typed, allergies by recipe and the Jain pattern (B-13).
+  // What meal ideas leave out, search leaves out too: the foods typed, allergies by recipe and the Jain pattern (B-13),
+  // with no food record the allergies setup is keeping (board D205). Not known at all, the screen asks first.
   const meals = mealDocsFor(ctx.food?.pattern)
-    .filter(d => mealAllowed(MEALS.find(m => m.id === d.id)!, ctx.food));
+    .filter(d => mealAllowed(MEALS.find(m => m.id === d.id)!, ctx.food ?? ctx.allergies));
   const pool = [...TOPIC_DOCS, ...CARD_DOCS.filter(d => visibleCardIds.has(d.id)), ...meals];
   const phrase = normalise(query);
 

@@ -27,10 +27,11 @@ describe('items', () => {
     expect(foodItem(dal)).toEqual({ kind: 'food', foodId: 'toor-dal', rev: 2, name: 'Toor dal', unit: 'katori', count: 1, gramsPerPortion: 150, kcal: 141, carbsG: 19.6, carbsLowG: 14.1, carbsHighG: 25.9 });
   });
   it('leave a custom food’s unknown values unknown, never 0 (A-17)', () => {
-    expect(customItem(bhel)).toEqual({ kind: 'custom', customId: 'c1', name: 'Bhel puri', count: 1 });
-    expect(customItem({ ...bhel, kcal: 300 }, 2)).toEqual({ kind: 'custom', customId: 'c1', name: 'Bhel puri', count: 2, kcal: 600 });
+    const snapshot = { per: { qty: 1, unit: 'plate' }, version: bhel.updatedAt };
+    expect(customItem(bhel)).toEqual({ kind: 'custom', customId: 'c1', name: 'Bhel puri', count: 1, ...snapshot, basis: {} });
+    expect(customItem({ ...bhel, kcal: 300 }, 2)).toEqual({ kind: 'custom', customId: 'c1', name: 'Bhel puri', count: 2, ...snapshot, basis: { kcal: 300 }, kcal: 600 });
     expect(quickItem('normal')).toEqual({ kind: 'quick', size: 'normal', name: 'Normal plate' });
-    expect(customItem({ ...bhel, carbsG: 45.5 }, 2)).toEqual({ kind: 'custom', customId: 'c1', name: 'Bhel puri', count: 2, carbsG: 91 });
+    expect(customItem({ ...bhel, carbsG: 45.5 }, 2)).toEqual({ kind: 'custom', customId: 'c1', name: 'Bhel puri', count: 2, ...snapshot, basis: { carbsG: 45.5 }, carbsG: 91 });
     expect(quickItem('large', 612.4)).toEqual({ kind: 'quick', size: 'large', name: 'Large plate', kcal: 612 });
   });
   it('start at the food’s standard portion: two idlis, at their own grams', () => {
@@ -50,11 +51,20 @@ describe('items', () => {
 describe('totalsOf (A-17, B-12)', () => {
   it('adds the known items and names the unknown ones apart', () => {
     expect(totalsOf([foodItem(roti, 2), customItem(bhel), quickItem('small', 250)])).toEqual({
-      kcal: 454, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57, withKcal: 2, withCarbs: 1, items: 3,
+      kcal: 454, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57, ownCarbsG: 0, withKcal: 2, withCarbs: 1, withCarbRange: 1, withOwnCarbs: 0, items: 3,
       missing: [{ name: 'Bhel puri', kcal: true, carbs: true }, { name: 'Small plate', kcal: false, carbs: true }],
     });
   });
+  it('keeps your own foods’ carbs out of the range, as their own figure (board D132)', () => {
+    expect(totalsOf([foodItem(roti, 2), customItem({ ...bhel, carbsG: 40 })])).toMatchObject({
+      carbsG: 83.2, carbsLowG: 31.1, carbsHighG: 57, ownCarbsG: 40, withCarbs: 2, withCarbRange: 1, withOwnCarbs: 1,
+    });
+  });
+  it('never makes a range from a single figure: a table food’s carbs without one are unknown (board D132)', () => {
+    const half: FoodItem = { ...foodItem(roti, 2), carbsLowG: undefined, carbsHighG: undefined };
+    expect(totalsOf([half])).toMatchObject({ carbsG: 0, withCarbs: 0, withCarbRange: 0, missing: [{ name: 'Roti', kcal: false, carbs: true }] });
+  });
   it('knows nothing for an empty meal', () => {
-    expect(totalsOf([])).toEqual({ kcal: 0, carbsG: 0, carbsLowG: 0, carbsHighG: 0, withKcal: 0, withCarbs: 0, items: 0, missing: [] });
+    expect(totalsOf([])).toEqual({ kcal: 0, carbsG: 0, carbsLowG: 0, carbsHighG: 0, ownCarbsG: 0, withKcal: 0, withCarbs: 0, withCarbRange: 0, withOwnCarbs: 0, items: 0, missing: [] });
   });
 });

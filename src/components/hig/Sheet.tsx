@@ -242,7 +242,7 @@ export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissibl
               </SheetTitle>
               {/* A word, not a glyph: it reads at any text size, and its hit
                   area is the full height of the bar. */}
-              <SheetClose className="flex min-h-11 shrink-0 items-center rounded-lg px-2 text-[length:var(--text-body)] text-tint transition-opacity active:opacity-60 @max-[16rem]:self-end">
+              <SheetClose className="flex min-h-12 min-w-12 shrink-0 items-center justify-center rounded-lg px-2 text-[length:var(--text-body)] text-tint transition-opacity active:opacity-60 @max-[16rem]:self-end">
                 Close
               </SheetClose>
             </div>

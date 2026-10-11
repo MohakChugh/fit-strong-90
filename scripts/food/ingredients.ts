@@ -63,10 +63,12 @@ export const INGREDIENTS: Ingredient[] = [
   i('mustard-seeds', 'Mustard seeds (rai)', ['mustard', 'rai', 'sarson', 'राई'], null, NONE, { contains: ['mustard'] }),
   i('cumin', 'Cumin (jeera)', ['cumin', 'jeera', 'जीरा'], null, NONE),
   i('turmeric', 'Turmeric (haldi)', ['turmeric', 'haldi', 'हल्दी'], null, NONE),
+  // Chilli and coriander powder are each one ground spice, so each is named by what it is (K7-02).
   i('chilli-powder', 'Red chilli powder', ['chilli powder', 'lal mirch'], null, NONE),
   i('coriander-powder', 'Coriander powder', ['coriander powder', 'dhania powder'], null, NONE),
-  // Compounded hing is usually cut with wheat flour (D99).
-  i('hing', 'Hing (asafoetida)', ['hing', 'asafoetida', 'हींग'], null, NONE, { mayContain: ['wheat'] }),
+  // Compounded hing is usually cut with wheat flour (D99), and may be cut with rice flour and a gum instead:
+  // a blend, so a dish with it isn't matched against a custom allergy's words (K7-02).
+  i('hing', 'Hing (asafoetida)', ['hing', 'asafoetida', 'हींग'], null, NONE, { mayContain: ['wheat'], blend: true }),
   i('salt', 'Salt', ['salt', 'namak', 'नमक'], null, NONE),
   i('water', 'Water', [], null, NONE, { water: true }),
   // Fats, nuts and coconut. Recipes assume sunflower oil (D99). Coconut isn't a canonical allergen: a coconut allergy matches its words.

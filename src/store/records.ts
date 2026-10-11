@@ -33,6 +33,12 @@ export interface RecordRule {
   accepts?(device: UserSettings | undefined): boolean;
   /** Whether this device takes one record from a file, the store taken. Absent: every one. */
   keeps?(device: UserSettings | undefined, record: StoredRecord): boolean;
+  /**
+   * A deleted record may come back under a fresh id, naming the one it first came back from in
+   * `restoredFrom` (B-05), and a merge reads a record and its copies as one (board D136, D147).
+   * Absent: `restoredFrom` means nothing in this store.
+   */
+  restores?: true;
 }
 
 export const RECORD_RULES: Record<RecordStore, RecordRule> = {
@@ -53,8 +59,8 @@ export const RECORD_RULES: Record<RecordStore, RecordRule> = {
     },
   },
   // Plan 7's food records (journey §18.2; board D104): each read whole, and merged by the copy changed last.
-  meals: { keyPath: 'id', label: { one: 'meal', many: 'meals' }, limit: 200_000, backup: 'always', problem: mealProblem, newer: newerMeal },
-  savedMeals: { keyPath: 'id', label: { one: 'usual meal', many: 'usual meals' }, limit: 10_000, backup: 'always', problem: savedMealProblem, newer: newerByUpdate },
+  meals: { keyPath: 'id', label: { one: 'meal', many: 'meals' }, limit: 200_000, backup: 'always', problem: mealProblem, newer: newerMeal, restores: true },
+  savedMeals: { keyPath: 'id', label: { one: 'usual meal', many: 'usual meals' }, limit: 10_000, backup: 'always', problem: savedMealProblem, newer: newerByUpdate, restores: true },
   customFoods: { keyPath: 'id', label: { one: 'own food', many: 'own foods' }, limit: 10_000, backup: 'always', problem: customFoodProblem, newer: newerByUpdate },
 };
 

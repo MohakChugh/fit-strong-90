@@ -1,5 +1,7 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { contextFromProfile, type GuideContext } from '@/content';
+import { allergyAnswer, type AllergyAnswer } from '@/food/allergens';
+import { useSetupSession } from '@/setup/draft';
 import { getState, setProfile, useStore } from '@/store/useStore';
 import type { FoodPreferences } from '@/types/profile';
 
@@ -22,6 +24,14 @@ const readSessionFood = () => sessionFood;
 export interface Guide {
   ctx: GuideContext;
   food?: FoodPreferences;
+  /**
+   * What the person is allergic to as far as it's known: the food record's, or setup's waiting answer
+   * without one, this session's while setup goes on without saving (board D205; Plan 5's B-07). Absent is
+   * not known, never none: meal ideas ask first.
+   */
+  allergies?: AllergyAnswer;
+  /** What meal ideas are filtered by: the food record, or the allergies alone while there's none. */
+  filter?: Partial<FoodPreferences>;
   /** False before onboarding has stored a profile: food choices are for this visit only. */
   canSaveFood: boolean;
 }
@@ -32,8 +42,11 @@ export function useGuide(): Guide {
   const fromSession = useSyncExternalStore(subscribe, readSessionFood, readSessionFood);
   const food = profile?.food ?? fromSession;
   const fluidLimit = settings.habits?.fluidLimit;
-  const ctx = useMemo(() => contextFromProfile(profile, food, { fluidLimit }), [profile, food, fluidLimit]);
-  return { ctx, food, canSaveFood: profile !== undefined };
+  // Setup going on without saving keeps its answers in this session (Plan 5's B-07, H5-06).
+  const session = useSetupSession();
+  const allergies = useMemo(() => allergyAnswer(food, settings.setup, session), [food, settings.setup, session]);
+  const ctx = useMemo(() => ({ ...contextFromProfile(profile, food, { fluidLimit }), ...(allergies ? { allergies } : {}) }), [profile, food, fluidLimit, allergies]);
+  return { ctx, food, ...(allergies ? { allergies, filter: food ?? allergies } : {}), canSaveFood: profile !== undefined };
 }
 
 /**

@@ -15,11 +15,21 @@ describe('food level (journey §11.1)', () => {
     expect(logsMeals(undefined)).toBe(false);
     expect(logsMeals({ pattern: 'vegan', avoid: [], level: 'meals' })).toBe(true);
   });
-  it('is counts-free only for “meals only, no numbers” (B-11)', () => {
+  it('is counts-free for “meals only, no numbers” (B-11)', () => {
     expect(countsFree(person({ level: 'meals' }))).toBe(true);
+    expect(countsFree(person({ level: 'meals', hardBefore: 'no' }))).toBe(true);
     expect(countsFree(person({ level: 'estimates' }))).toBe(false);
     expect(countsFree(person({ level: 'ideas' }))).toBe(false);
     expect(countsFree(undefined)).toBe(false);
+  });
+  it('is counts-free too after “Yes” or “Prefer not to say” to the screening question, unless estimates were chosen (K7-04; board D133)', () => {
+    for (const hardBefore of ['yes', 'preferNot'] as const) {
+      expect(countsFree(person({ level: 'ideas', hardBefore })), hardBefore).toBe(true);
+      expect(countsFree(person({ hardBefore })), hardBefore).toBe(true);
+      expect(countsFree(person({ level: 'meals', hardBefore })), hardBefore).toBe(true);
+      expect(countsFree(person({ level: 'estimates', hardBefore })), hardBefore).toBe(false);
+    }
+    expect(countsFree(person({ level: 'ideas', hardBefore: 'no' }))).toBe(false);
   });
   it('shows numbers only with estimates', () => {
     expect(numbersView(person({ level: 'meals' }))).toEqual({ show: false });

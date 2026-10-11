@@ -52,7 +52,7 @@ Object.assign(globalThis, {
 
 const store = await import('@/store/useStore');
 const { WalkSummary } = await import('@/screens/walk/WalkSummary');
-const { WalkDetail } = await import('./RecordDetails');
+const { ReadingDetail, WalkDetail } = await import('./RecordDetails');
 const { MyDay } = await import('./MyDay');
 const { saveMeal } = await import('@/food/store');
 const { nowAt } = await import('@/health/observation');
@@ -103,6 +103,17 @@ describe('a walk’s energy estimate, counts-free (B-11, KH-09)', () => {
     }
   });
 
+  it('leaves the energy out for meal ideas only after “Yes” or “Prefer not to say” to the screening question (K7-04; board D133)', async () => {
+    for (const hardBefore of ['yes', 'preferNot'] as const) {
+      await store.update(prev => ({ ...prev, profile: createDefaultProfile({ birthYear: 1970, weightKg: 78, food: { pattern: 'vegetarian', avoid: [], level: 'ideas', hardBefore } }) }));
+      host?.unmount();
+      host = render(createElement(WalkSummary as never));
+      await host.settle();
+      expect(host.text(), hardBefore).toContain('Your walk');
+      expect(host.text(), hardBefore).not.toMatch(ENERGY);
+    }
+  });
+
   it('leaves the summary’s energy row out, and Save still keeps the estimate (board D101)', async () => {
     const h = await show(WalkSummary, 'meals');
     expect(h.text()).not.toMatch(ENERGY);
@@ -131,10 +142,34 @@ describe('a walk’s energy estimate, counts-free (B-11, KH-09)', () => {
   });
 });
 
+describe('an energy reading’s own screen, counts-free (H7-07)', () => {
+  it('shows no figure for an energy reading with no walk, opened by its address, and keeps its delete', async () => {
+    const at = nowAt();
+    const added = await store.addObservation({ kind: 'activeEnergy', value: 21.4, scope: 'sessionObserved', source: 'manual', at, coverageMs: 600_000 });
+    expect(added.ok).toBe(true);
+    router.id = added.ok ? added.value.id : '';
+    const free = await show(ReadingDetail, 'meals');
+    expect(free.text()).toContain('Active energy');
+    expect(free.text()).not.toMatch(/kcal|21/);
+    expect(free.text()).toContain('Delete this reading');
+    expect(free.buttons('Correct this')).toHaveLength(0);
+
+    await store.update(prev => ({ ...prev, profile: person('estimates') }));
+    await free.settle();
+    expect(free.text()).toMatch(/21(\.4)? kcal|21\.4/);
+  });
+  it('keeps a clinical measurement’s figure: only energy from movement goes (B-11)', async () => {
+    const added = await store.addObservation({ kind: 'weight', value: 71.5, unit: 'kg', scope: 'pointInTime', source: 'manual', at: nowAt() });
+    expect(added.ok).toBe(true);
+    router.id = added.ok ? added.value.id : '';
+    expect((await show(ReadingDetail, 'meals')).text()).toContain('71.5');
+  });
+});
+
 describe('My Day, counts-free (B-11, KH-09)', () => {
   it('shows a meal’s estimate, and one whose walk is gone, only with estimates', async () => {
     const at = nowAt();
-    const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2 } as const;
+    const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57 } as const;
     expect((await saveMeal({ id: 'meal-1', at, day: at.slice(0, 10), meal: 'breakfast', items: [roti], level: 'estimates', loggedAt: at, edits: [] })).ok).toBe(true);
     // Its walk is gone: a backup restored without it, say. Nothing else would show it.
     expect((await store.addObservation({ kind: 'activeEnergy', value: 21.4, scope: 'sessionObserved', source: 'measured', at, coverageMs: 600_000, context: 'walk:gone' })).ok).toBe(true);

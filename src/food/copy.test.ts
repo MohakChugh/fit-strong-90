@@ -11,7 +11,7 @@ const sample = (v: unknown): string => (typeof v === 'function' ? String((v as (
 describe('food words', () => {
   it('never judge, never count down, never offer making up for food', () => {
     for (const [key, value] of Object.entries(FOOD_COPY)) expect(sample(value), key).not.toMatch(FORBIDDEN);
-    const roti: FoodItem = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2 };
+    const roti: FoodItem = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57 };
     const shown = { show: true, ranges: true } as const;
     const lines = totalsLines(totalsOf([roti]), shown);
     for (const text of [itemEstimate(roti, shown), lines.estimate, careTeamLine({ kcal: 1600, setOn: '2026-10-01' }, shown), foodTileLine('estimates', 2).text]) {

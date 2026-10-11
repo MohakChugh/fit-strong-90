@@ -52,7 +52,8 @@
      "wheat"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -82,6 +83,7 @@
    "recipe": {
     "note": "Plain phulka, no oil",
     "hash": "67ea8e95",
+    "basis": "e618671f",
     "ingredients": [
      {
       "key": "atta",
@@ -134,7 +136,8 @@
      "wheat"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -163,6 +166,7 @@
    "recipe": {
     "note": "Home-style, 1 tsp oil",
     "hash": "9c689ef8",
+    "basis": "2d11f4ad",
     "ingredients": [
      {
       "key": "atta",
@@ -220,7 +224,8 @@
      "wheat"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -267,6 +272,7 @@
    "recipe": {
     "note": "Home-style, 1 tsp oil",
     "hash": "f1570365",
+    "basis": "59ad6407",
     "ingredients": [
      {
       "key": "atta",
@@ -353,7 +359,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -378,6 +385,7 @@
    "recipe": {
     "note": "Plain, no oil",
     "hash": "58cc1d2d",
+    "basis": "7380127c",
     "ingredients": [
      {
       "key": "jowar-flour",
@@ -427,7 +435,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -452,6 +461,7 @@
    "recipe": {
     "note": "Plain white rice, cooked without salt",
     "hash": "91874b7e",
+    "basis": "0ee421b8",
     "ingredients": [
      {
       "key": "rice-cooked",
@@ -493,7 +503,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -524,6 +535,7 @@
    "recipe": {
     "note": "Steamed rice and urad dal batter",
     "hash": "25c2a593",
+    "basis": "aae20973",
     "ingredients": [
      {
       "key": "rice-raw",
@@ -585,7 +597,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -621,6 +634,7 @@
    "recipe": {
     "note": "Home-style, 1 tsp oil",
     "hash": "7df7e5a1",
+    "basis": "ea4af5fb",
     "ingredients": [
      {
       "key": "rice-raw",
@@ -689,7 +703,8 @@
      "mustard"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -751,6 +766,7 @@
    "recipe": {
     "note": "Home-style with peanuts, 1 tsp oil",
     "hash": "f3ecfb13",
+    "basis": "b4a1ed86",
     "ingredients": [
      {
       "key": "poha",
@@ -860,7 +876,8 @@
      "mustard"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -920,6 +937,7 @@
    "recipe": {
     "note": "Home-style, 1 tsp oil",
     "hash": "c0424d90",
+    "basis": "aa4e9273",
     "ingredients": [
      {
       "key": "semolina",
@@ -1022,7 +1040,8 @@
      "wheat"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -1068,6 +1087,7 @@
    "recipe": {
     "note": "About ½ tsp ghee, no onion or garlic",
     "hash": "a6e52b55",
+    "basis": "d729af05",
     "ingredients": [
      {
       "key": "bulgur",
@@ -1161,7 +1181,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -1205,6 +1226,7 @@
    "recipe": {
     "note": "Home-style, about 1 tsp oil",
     "hash": "46ccc176",
+    "basis": "1ea5c7f1",
     "ingredients": [
      {
       "key": "moong-dal",
@@ -1289,7 +1311,8 @@
      "milk"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -1334,6 +1357,7 @@
    "recipe": {
     "note": "About ½ tsp ghee, no onion or garlic",
     "hash": "46163be5",
+    "basis": "14b2a9a2",
     "ingredients": [
      {
       "key": "rice-raw",
@@ -1424,7 +1448,8 @@
     "mayContain": [
      "wheat"
     ],
-    "complete": true
+    "complete": true,
+    "named": false
    },
    "patterns": [
     "vegetarian",
@@ -1473,6 +1498,7 @@
    "recipe": {
     "note": "Jeera and tomato tadka, about 1 tsp ghee, no onion or garlic",
     "hash": "ea7cb1fc",
+    "basis": "8609d263",
     "ingredients": [
      {
       "key": "toor-dal",
@@ -1563,7 +1589,8 @@
      "milk"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -1601,6 +1628,7 @@
    "recipe": {
     "note": "About ½ tsp ghee, no onion or garlic",
     "hash": "e7db4b5d",
+    "basis": "b70c0f04",
     "ingredients": [
      {
       "key": "moong-dal",
@@ -1681,7 +1709,8 @@
     "mayContain": [
      "wheat"
     ],
-    "complete": true
+    "complete": true,
+    "named": false
    },
    "patterns": [
     "vegetarian",
@@ -1753,6 +1782,7 @@
    "recipe": {
     "note": "Home-style with drumstick and lauki, about ½ tsp oil",
     "hash": "f0c3d9d5",
+    "basis": "8c32ceac",
     "ingredients": [
      {
       "key": "toor-dal",
@@ -1871,7 +1901,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -1920,6 +1951,7 @@
    "recipe": {
     "note": "Home-style, about 1 tsp oil",
     "hash": "b3662077",
+    "basis": "df9ec8de",
     "ingredients": [
      {
       "key": "rajma",
@@ -2022,7 +2054,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -2074,6 +2107,7 @@
    "recipe": {
     "note": "Home-style, about 1 tsp oil",
     "hash": "0633b3cf",
+    "basis": "aa15e533",
     "ingredients": [
      {
       "key": "chana",
@@ -2176,7 +2210,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -2228,6 +2263,7 @@
    "recipe": {
     "note": "Dry sabzi, 1 tsp oil, no onion, garlic or potato",
     "hash": "923fa61c",
+    "basis": "d4aab78f",
     "ingredients": [
      {
       "key": "cauliflower",
@@ -2316,7 +2352,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -2353,6 +2390,7 @@
    "recipe": {
     "note": "Dry sabzi, 1 tsp oil, no onion",
     "hash": "2f09672a",
+    "basis": "fe1cc111",
     "ingredients": [
      {
       "key": "okra",
@@ -2423,7 +2461,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -2468,6 +2507,7 @@
    "recipe": {
     "note": "Dry sabzi, 1 tsp oil",
     "hash": "0cb0d045",
+    "basis": "d9bf7a51",
     "ingredients": [
      {
       "key": "potato",
@@ -2557,7 +2597,8 @@
      "milk"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -2600,6 +2641,7 @@
    "recipe": {
     "note": "Home-style, 1 tsp oil, no cream",
     "hash": "a3ca31e8",
+    "basis": "e08f02fb",
     "ingredients": [
      {
       "key": "spinach",
@@ -2697,7 +2739,8 @@
      "milk"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -2737,6 +2780,7 @@
    "recipe": {
     "note": "Home-style, about 1 tsp oil",
     "hash": "e5d8e7e7",
+    "basis": "aa1b33d6",
     "ingredients": [
      {
       "key": "paneer",
@@ -2815,7 +2859,8 @@
      "mustard"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -2862,6 +2907,7 @@
    "recipe": {
     "note": "With grated coconut, about ½ tsp oil",
     "hash": "3ed6ddd5",
+    "basis": "37514048",
     "ingredients": [
      {
       "key": "green-beans",
@@ -2940,7 +2986,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -2970,6 +3017,7 @@
    "recipe": {
     "note": "Kheera and tomato with lemon",
     "hash": "b37ed981",
+    "basis": "860d07ac",
     "ingredients": [
      {
       "key": "cucumber",
@@ -3033,7 +3081,8 @@
      "milk"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -3052,6 +3101,7 @@
    "recipe": {
     "note": "Plain, whole milk",
     "hash": "f9b890e4",
+    "basis": "6b485f93",
     "ingredients": [
      {
       "key": "curd",
@@ -3092,7 +3142,8 @@
      "milk"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -3120,6 +3171,7 @@
    "recipe": {
     "note": "Whole-milk curd with cucumber",
     "hash": "34ac7443",
+    "basis": "1c16d332",
     "ingredients": [
      {
       "key": "curd",
@@ -3178,7 +3230,8 @@
      "mustard"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -3226,6 +3279,7 @@
    "recipe": {
     "note": "With roasted chana and a mustard tadka",
     "hash": "4b0914b0",
+    "basis": "caec792b",
     "ingredients": [
      {
       "key": "coconut",
@@ -3309,7 +3363,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -3347,6 +3402,7 @@
    "recipe": {
     "note": "Mint and coriander with lemon, no onion",
     "hash": "c4c0a901",
+    "basis": "29c03efb",
     "ingredients": [
      {
       "key": "mint",
@@ -3418,7 +3474,8 @@
      "egg"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "eggetarian",
@@ -3459,6 +3516,7 @@
    "recipe": {
     "note": "Two eggs, about 1 tsp oil",
     "hash": "b42700fc",
+    "basis": "650527bc",
     "ingredients": [
      {
       "key": "egg",
@@ -3547,7 +3605,8 @@
      "egg"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "eggetarian",
@@ -3563,6 +3622,7 @@
    "recipe": {
     "note": "One large egg",
     "hash": "041fb0a4",
+    "basis": "7dafecd3",
     "ingredients": [
      {
       "key": "egg-boiled",
@@ -3603,7 +3663,8 @@
      "egg"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "eggetarian",
@@ -3650,6 +3711,7 @@
    "recipe": {
     "note": "Two eggs, 1 tsp oil",
     "hash": "59d7d0eb",
+    "basis": "684bb080",
     "ingredients": [
      {
       "key": "egg-boiled",
@@ -3752,7 +3814,8 @@
      "fish"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "nonVegetarian"
@@ -3800,6 +3863,7 @@
    "recipe": {
     "note": "Rohu or another carp, 1 tsp sunflower oil",
     "hash": "f6533706",
+    "basis": "c19ae217",
     "ingredients": [
      {
       "key": "fish",
@@ -3897,7 +3961,8 @@
      "milk"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "nonVegetarian"
@@ -3948,6 +4013,7 @@
    "recipe": {
     "note": "Thigh meat in a curd marinade, about 1 tsp oil",
     "hash": "dd47e16f",
+    "basis": "38ca8bc7",
     "ingredients": [
      {
       "key": "chicken",
@@ -4052,7 +4118,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "nonVegetarian"
@@ -4102,6 +4169,7 @@
    "recipe": {
     "note": "Kerala style, with coconut milk",
     "hash": "4ca19fe8",
+    "basis": "638d3c9a",
     "ingredients": [
      {
       "key": "chicken",
@@ -4194,7 +4262,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -4215,6 +4284,7 @@
    "recipe": {
     "note": "Plain, unsalted",
     "hash": "a97e65ca",
+    "basis": "740af968",
     "ingredients": [
      {
       "key": "roasted-chana",
@@ -4256,7 +4326,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -4293,6 +4364,7 @@
    "recipe": {
     "note": "Boiled moong sprouts, no onion",
     "hash": "8519266c",
+    "basis": "8864a8bc",
     "ingredients": [
      {
       "key": "moong-sprouts",
@@ -4363,7 +4435,8 @@
      "peanut"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -4383,6 +4456,7 @@
    "recipe": {
     "note": "Dry-roasted, unsalted",
     "hash": "29002015",
+    "basis": "bbaf1b84",
     "ingredients": [
      {
       "key": "peanuts-roasted",
@@ -4427,7 +4501,8 @@
      "milk"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -4458,6 +4533,7 @@
    "recipe": {
     "note": "Thin, from whole-milk curd",
     "hash": "97d94a7d",
+    "basis": "a3818e3e",
     "ingredients": [
      {
       "key": "curd",
@@ -4517,7 +4593,8 @@
      "milk"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -4542,6 +4619,7 @@
    "recipe": {
     "note": "1 tsp sugar, a third milk",
     "hash": "894c2db5",
+    "basis": "8c8cea7e",
     "ingredients": [
      {
       "key": "tea",
@@ -4595,7 +4673,8 @@
      "milk"
     ],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -4612,6 +4691,7 @@
    "recipe": {
     "note": "Whole milk",
     "hash": "363d20e6",
+    "basis": "ffb798c6",
     "ingredients": [
      {
       "key": "milk",
@@ -4654,7 +4734,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -4671,6 +4752,7 @@
    "recipe": {
     "note": "One medium banana, peeled",
     "hash": "ee32bfc0",
+    "basis": "50127eef",
     "ingredients": [
      {
       "key": "banana",
@@ -4713,7 +4795,8 @@
    "allergens": {
     "contains": [],
     "mayContain": [],
-    "complete": true
+    "complete": true,
+    "named": true
    },
    "patterns": [
     "vegetarian",
@@ -4731,6 +4814,7 @@
    "recipe": {
     "note": "One medium guava",
     "hash": "fcca3857",
+    "basis": "c8443dfe",
     "ingredients": [
      {
       "key": "guava",
@@ -4740,6 +4824,1159 @@
      }
     ]
    }
+  }
+ ],
+ "ingredients": [
+  {
+   "key": "atta",
+   "name": "Whole-wheat flour (atta)",
+   "words": [
+    "atta",
+    "flour",
+    "gehun",
+    "wheat",
+    "whole",
+    "गेहूं"
+   ],
+   "contains": [
+    "wheat"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "rice-raw",
+   "name": "White rice",
+   "words": [
+    "chawal",
+    "rice",
+    "white",
+    "चावल"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "rice-cooked",
+   "name": "Cooked white rice",
+   "words": [
+    "bhat",
+    "chawal",
+    "cooked",
+    "rice",
+    "white",
+    "चावल"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "poha",
+   "name": "Flattened rice (poha)",
+   "words": [
+    "aval",
+    "beaten",
+    "flattened",
+    "poha",
+    "rice"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "semolina",
+   "name": "Semolina (rava, sooji)",
+   "words": [
+    "rava",
+    "semolina",
+    "sooji",
+    "suji"
+   ],
+   "contains": [
+    "wheat"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "bulgur",
+   "name": "Broken wheat (dalia)",
+   "words": [
+    "broken",
+    "cracked",
+    "dalia",
+    "wheat"
+   ],
+   "contains": [
+    "wheat"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "jowar-flour",
+   "name": "Jowar flour",
+   "words": [
+    "flour",
+    "jowar",
+    "sorghum",
+    "ज्वार"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "urad-dal",
+   "name": "Urad dal",
+   "words": [
+    "black",
+    "dal",
+    "gram",
+    "udad",
+    "urad",
+    "उड़द"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "toor-dal",
+   "name": "Toor dal",
+   "words": [
+    "arhar",
+    "dal",
+    "pea",
+    "pigeon",
+    "toor",
+    "tuvar",
+    "अरहर"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "moong-dal",
+   "name": "Moong dal",
+   "words": [
+    "dal",
+    "gram",
+    "green",
+    "moong",
+    "mung",
+    "मूंग"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "chana",
+   "name": "Kabuli chana",
+   "words": [
+    "chana",
+    "chickpea",
+    "chole",
+    "garbanzo",
+    "kabuli",
+    "छोले"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "rajma",
+   "name": "Rajma",
+   "words": [
+    "bean",
+    "kidney",
+    "rajma",
+    "राजमा"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "roasted-chana",
+   "name": "Roasted chana",
+   "words": [
+    "bhuna",
+    "chana",
+    "chickpea",
+    "gram",
+    "roasted"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "moong-sprouts",
+   "name": "Boiled moong sprouts",
+   "words": [
+    "ankurit",
+    "boiled",
+    "moong",
+    "sprout",
+    "अंकुरित"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "onion",
+   "name": "Onion",
+   "words": [
+    "kanda",
+    "onion",
+    "pyaz",
+    "प्याज"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ]
+  },
+  {
+   "key": "tomato",
+   "name": "Tomato",
+   "words": [
+    "tamatar",
+    "tomato",
+    "टमाटर"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "potato",
+   "name": "Potato",
+   "words": [
+    "aloo",
+    "potato",
+    "आलू"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ]
+  },
+  {
+   "key": "potato-boiled",
+   "name": "Boiled potato",
+   "words": [
+    "aloo",
+    "boiled",
+    "potato",
+    "आलू"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ]
+  },
+  {
+   "key": "spinach",
+   "name": "Spinach (palak)",
+   "words": [
+    "palak",
+    "spinach",
+    "पालक"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "cauliflower",
+   "name": "Cauliflower (gobhi)",
+   "words": [
+    "cauliflower",
+    "gobhi",
+    "gobi",
+    "गोभी"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "okra",
+   "name": "Okra (bhindi)",
+   "words": [
+    "bhindi",
+    "finger",
+    "lady",
+    "okra",
+    "भिंडी"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "carrot",
+   "name": "Carrot",
+   "words": [
+    "carrot",
+    "gajar",
+    "गाजर"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ]
+  },
+  {
+   "key": "green-beans",
+   "name": "Green beans",
+   "words": [
+    "bean",
+    "french",
+    "green",
+    "phali"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "green-peas",
+   "name": "Green peas (matar)",
+   "words": [
+    "green",
+    "matar",
+    "pea",
+    "मटर"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "cucumber",
+   "name": "Cucumber (kheera)",
+   "words": [
+    "cucumber",
+    "kheera",
+    "खीरा"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "drumstick",
+   "name": "Drumstick (moringa pods)",
+   "words": [
+    "drumstick",
+    "moringa",
+    "pod",
+    "sahjan"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "lauki",
+   "name": "Bottle gourd (lauki)",
+   "words": [
+    "bottle",
+    "doodhi",
+    "ghiya",
+    "gourd",
+    "lauki",
+    "लौकी"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "coriander-leaves",
+   "name": "Coriander leaves",
+   "words": [
+    "cilantro",
+    "coriander",
+    "dhania",
+    "leave",
+    "धनिया"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "mint",
+   "name": "Mint (pudina)",
+   "words": [
+    "mint",
+    "pudina",
+    "पुदीना"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "lemon-juice",
+   "name": "Lemon juice",
+   "words": [
+    "juice",
+    "lemon",
+    "nimbu",
+    "नींबू"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "tamarind",
+   "name": "Tamarind",
+   "words": [
+    "imli",
+    "tamarind",
+    "इमली"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "banana",
+   "name": "Banana",
+   "words": [
+    "banana",
+    "kela",
+    "केला"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "guava",
+   "name": "Guava",
+   "words": [
+    "amrood",
+    "guava",
+    "अमरूद"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "ginger",
+   "name": "Ginger",
+   "words": [
+    "adrak",
+    "ginger",
+    "अदरक"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ]
+  },
+  {
+   "key": "garlic",
+   "name": "Garlic",
+   "words": [
+    "garlic",
+    "lahsun",
+    "लहसुन"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ]
+  },
+  {
+   "key": "green-chilli",
+   "name": "Green chilli",
+   "words": [
+    "chilli",
+    "green",
+    "mirch",
+    "मिर्च",
+    "हरी"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "curry-leaves",
+   "name": "Curry leaves",
+   "words": [
+    "curry",
+    "kadi",
+    "leave",
+    "patta",
+    "कढ़ी",
+    "पत्ता"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "mustard-seeds",
+   "name": "Mustard seeds (rai)",
+   "words": [
+    "mustard",
+    "rai",
+    "sarson",
+    "seed",
+    "राई"
+   ],
+   "contains": [
+    "mustard"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "cumin",
+   "name": "Cumin (jeera)",
+   "words": [
+    "cumin",
+    "jeera",
+    "जीरा"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "turmeric",
+   "name": "Turmeric (haldi)",
+   "words": [
+    "haldi",
+    "turmeric",
+    "हल्दी"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "chilli-powder",
+   "name": "Red chilli powder",
+   "words": [
+    "chilli",
+    "lal",
+    "mirch",
+    "powder",
+    "red"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "coriander-powder",
+   "name": "Coriander powder",
+   "words": [
+    "coriander",
+    "dhania",
+    "powder"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "hing",
+   "name": "Hing (asafoetida)",
+   "words": [
+    "asafoetida",
+    "hing",
+    "हींग"
+   ],
+   "contains": [],
+   "mayContain": [
+    "wheat"
+   ],
+   "blend": true,
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "salt",
+   "name": "Salt",
+   "words": [
+    "namak",
+    "salt",
+    "नमक"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "water",
+   "name": "Water",
+   "words": [
+    "water"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "oil",
+   "name": "Sunflower oil",
+   "words": [
+    "oil",
+    "sunflower",
+    "tel"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "ghee",
+   "name": "Ghee",
+   "words": [
+    "butter",
+    "clarified",
+    "ghee",
+    "घी"
+   ],
+   "contains": [
+    "milk"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ]
+  },
+  {
+   "key": "coconut",
+   "name": "Grated coconut",
+   "words": [
+    "coconut",
+    "grated",
+    "nariyal",
+    "नारियल"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "coconut-milk",
+   "name": "Coconut milk",
+   "words": [
+    "coconut",
+    "milk",
+    "nariyal"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "peanuts",
+   "name": "Peanuts",
+   "words": [
+    "groundnut",
+    "moongphali",
+    "peanut",
+    "मूंगफली"
+   ],
+   "contains": [
+    "peanut"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "peanuts-roasted",
+   "name": "Dry-roasted peanuts",
+   "words": [
+    "dry",
+    "groundnut",
+    "moongphali",
+    "peanut",
+    "roasted",
+    "मूंगफली"
+   ],
+   "contains": [
+    "peanut"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "milk",
+   "name": "Whole milk",
+   "words": [
+    "doodh",
+    "milk",
+    "whole",
+    "दूध"
+   ],
+   "contains": [
+    "milk"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ]
+  },
+  {
+   "key": "curd",
+   "name": "Curd (dahi)",
+   "words": [
+    "curd",
+    "dahi",
+    "yogurt",
+    "दही"
+   ],
+   "contains": [
+    "milk"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ]
+  },
+  {
+   "key": "paneer",
+   "name": "Paneer",
+   "words": [
+    "cheese",
+    "cottage",
+    "paneer",
+    "पनीर"
+   ],
+   "contains": [
+    "milk"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ]
+  },
+  {
+   "key": "egg",
+   "name": "Egg",
+   "words": [
+    "anda",
+    "egg",
+    "अंडा"
+   ],
+   "contains": [
+    "egg"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "eggetarian",
+    "nonVegetarian"
+   ]
+  },
+  {
+   "key": "egg-boiled",
+   "name": "Boiled egg",
+   "words": [
+    "anda",
+    "boiled",
+    "egg",
+    "अंडा"
+   ],
+   "contains": [
+    "egg"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "eggetarian",
+    "nonVegetarian"
+   ]
+  },
+  {
+   "key": "chicken",
+   "name": "Chicken (thigh)",
+   "words": [
+    "chicken",
+    "murgh",
+    "thigh",
+    "चिकन"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "nonVegetarian"
+   ]
+  },
+  {
+   "key": "fish",
+   "name": "Fish (rohu or another carp)",
+   "words": [
+    "another",
+    "carp",
+    "fish",
+    "machli",
+    "rohu",
+    "मछली"
+   ],
+   "contains": [
+    "fish"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "nonVegetarian"
+   ]
+  },
+  {
+   "key": "sugar",
+   "name": "Sugar",
+   "words": [
+    "cheeni",
+    "sugar",
+    "चीनी"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "tea",
+   "name": "Brewed tea",
+   "words": [
+    "brewed",
+    "chai",
+    "tea",
+    "चाय"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
   }
  ]
 }

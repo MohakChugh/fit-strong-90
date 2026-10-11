@@ -7,7 +7,7 @@ import type { Food, FoodItem, MealRecord, SavedMeal } from './types';
 const NOW = '2026-10-08T13:20:00.000+05:30';
 const roti = { id: 'roti', rev: 2, name: 'Roti', portion: { unit: 'piece', grams: 40, count: 1, noun: ['roti', 'rotis'] }, per100g: { kcal: 255, carbsG: 54, carbsLowG: 48.6, carbsHighG: 59.4 } } as Food;
 const look: Lookup = { food: id => (id === 'roti' ? roti : undefined), custom: () => undefined };
-const logged: FoodItem = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 210, carbsG: 44 };
+const logged: FoodItem = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 210, carbsG: 44, carbsLowG: 32, carbsHighG: 58 };
 const yesterday: MealRecord = { id: 'meal-1', at: '2026-10-07T13:10:00.000+05:30', day: '2026-10-07', meal: 'lunch', items: [logged], level: 'meals', loggedAt: '2026-10-07T13:15:00.000+05:30', edits: [] };
 const usual: SavedMeal = { id: 'usual-1', name: 'Roti breakfast', meal: 'breakfast', items: [logged], savedAt: NOW, updatedAt: NOW };
 const ctx = { now: NOW, meals: [yesterday], saved: [usual], look };

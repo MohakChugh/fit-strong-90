@@ -41,16 +41,39 @@ export interface Food {
   portion: Portion;
   /** Per 100 g of the dish as served. Carbs are total carbohydrate (D95); the range is the ingredients' own variance (D97). */
   per100g: { kcal: number; carbsG: number; carbsLowG: number; carbsHighG: number };
-  allergens: { contains: AllergenId[]; mayContain: AllergenId[]; complete: boolean };
+  /** `complete`: every ingredient's allergens are tagged. `named`: no blend in it, so a custom allergy can be matched (K7-02). */
+  allergens: { contains: AllergenId[]; mayContain: AllergenId[]; complete: boolean; named: boolean };
   patterns: Pattern[];
   /** Every word its name, aliases and ingredients go by, folded: what a custom allergy is matched against (B-13). */
   words: string[];
-  recipe: { note: string; hash: string; ingredients: RecipeIngredient[] };
+  /**
+   * `hash` names the recipe's content; `basis` what its estimate is worked out
+   * from (each FDC record and value, each variance, the portion's): a change
+   * to either needs a new `rev` (B-12, H7-13).
+   */
+  recipe: { note: string; hash: string; basis: string; ingredients: RecipeIngredient[] };
 }
 
 export interface FoodSource { name: string; url: string; licence: string; credit: string; dataset: string; file: string; extractedOn: string }
 
-export interface FoodData { format: 'fit-strong-food'; version: 1; source: FoodSource; foods: Food[] }
+/**
+ * One of our ingredients, as meal ideas read it: what it's called and how
+ * it's tagged. A meal idea that names a food none of its dishes holds ("lauki
+ * or palak") names it here, so a custom allergy finds it (B-13).
+ */
+export interface FoodIngredient {
+  key: string;
+  name: string;
+  /** Its name and aliases, folded (`tokens`). */
+  words: string[];
+  contains: AllergenId[];
+  mayContain: AllergenId[];
+  /** A blend whose make-up isn't known by name. */
+  blend?: true;
+  patterns: Pattern[];
+}
+
+export interface FoodData { format: 'fit-strong-food'; version: 1; source: FoodSource; foods: Food[]; ingredients: FoodIngredient[] }
 
 // ---- The person's records (journey §18.2) ----------------------------------
 
@@ -76,8 +99,22 @@ export interface FoodItem extends ItemBase {
   carbsHighG?: number;
 }
 
-/** `count` portions of one of the person's own foods. */
-export interface CustomItem extends ItemBase { kind: 'custom'; customId: string; count: number }
+/**
+ * `count` portions of one of the person's own foods, with a snapshot of the
+ * food as it was when logged (board D134, H7-09): what one portion is, what
+ * one held (absent is unknown), and which version of the food that was (its
+ * `updatedAt`). The item reads and scales on its own, whatever the food is now.
+ * One logged before snapshots, with no food left to give it one, has none of
+ * the three and no figure: it reads by its name, "No estimate" (board D146).
+ */
+export interface CustomItem extends ItemBase {
+  kind: 'custom';
+  customId: string;
+  count: number;
+  per?: { qty: number; unit: string };
+  basis?: { kcal?: number; carbsG?: number };
+  version?: string;
+}
 
 /** "About how much?" with no food named: a plate size, with kcal only if the person gave a number. Never carbs. */
 export interface QuickItem extends ItemBase { kind: 'quick'; size: 'small' | 'normal' | 'large' }
@@ -101,7 +138,7 @@ export interface MealRecord {
   editedAt?: string;
   /** Earlier versions, oldest first (A-22). */
   edits: MealEdit[];
-  /** Brought back by Undo: the deleted record's id (B-05). */
+  /** Brought back by Undo: the id of the record it first came back from (B-05; board D147). */
   restoredFrom?: string;
 }
 

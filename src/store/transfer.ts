@@ -39,6 +39,8 @@ import { evaluateCheckIn, evaluateDays, profileOnlyReadiness, readingIdsIn } fro
 import { reachableHistory } from '@/engine/reach';
 import { DISPOSITION_ORDER } from '@/types/checkin';
 import { toDateString } from '@/lib/utils';
+import { customFoodsIn, withSnapshots } from '@/food/records';
+import type { CustomFood } from '@/food/types';
 import { readProfile, readSettings } from './importCheck';
 import { checkInEventId, liftBodyMetric, liftSessionPain, readingKey } from './project';
 import { commitChange, keptCheckIn, keptSession, readSnapshot, type Change, type Snapshot } from './snapshot';
@@ -460,7 +462,7 @@ function fromLegacyBackup(raw: Record<string, unknown>): TransferDoc | undefined
 
 type ParseResult = { ok: true; parsed: Parsed } | { ok: false; reason: string };
 
-function parse(raw: unknown): ParseResult {
+function parse(raw: unknown, foodsHere: readonly CustomFood[] = []): ParseResult {
   if (!isRecord(raw)) return { ok: false, reason: 'That file is not a health record export.' };
 
   let legacy = false;
@@ -585,6 +587,11 @@ function parse(raw: unknown): ParseResult {
       return true;
     });
   };
+
+  // Own-food items logged before snapshots are given one first, as this device's were (board D146, H7R-01):
+  // from the file's own food, else this device's.
+  const give = withSnapshots([...customFoodsIn({ customFoods: (recordLists.customFoods ?? []).filter(r => recordProblem('customFoods', r) === undefined) as StoredRecord[] }), ...foodsHere]);
+  for (const store of ['meals', 'savedMeals'] as const) recordLists[store] = recordLists[store]?.map(give);
 
   // Each record whole, by its store's own rule, and one per key, as every other collection.
   const records: Partial<Record<RecordStore, StoredRecord[]>> = {};
@@ -939,12 +946,95 @@ interface MergePlan {
   conflicts: CollectionCounts;
   /** Records in the file that were deleted on this device, and stay deleted. */
   deletedHere: number;
+  /** Records here the file holds restored under a fresh id: each takes its deletion record, and the restored copy is kept (D136). */
+  restoredHere: number;
+  /** Copies the file holds of records here, restored elsewhere, that differ from this device's: left out, this device's kept (D147). */
+  restoredKept: number;
   replacedObservations: number;
   counts: {
     observations: number; sessions: number; checkIns: number; personalRecords: number; bodyMetrics: number; contentState: number;
     /** v2 records written, by store. */
     records: Partial<Record<RecordStore, number>>;
   };
+}
+
+/** Equal but for its key and `restoredFrom`: a copy brought back from the other, unchanged since (board D147). */
+function sameButRestore(store: RecordStore, a: StoredRecord, b: StoredRecord): boolean {
+  const bare = (r: StoredRecord) => ({ ...r, [RECORD_RULES[store].keyPath]: undefined, restoredFrom: undefined });
+  return sameValue(bare(a), bare(b));
+}
+
+/**
+ * Restores in a merge (B-05; board D136, D147), settled on what the merge takes, never on a copy that
+ * loses. A copy names the record it first came back from (`restoredFrom`, followed through every record
+ * known for a chain made before copies did), so a record and its copies share that original.
+ *
+ * A copy the merge takes, new here, stands in for this device's records of the same original only when
+ * each is one it came back from, the same apart from key and `restoredFrom`: those take their deletion
+ * records, and nothing writes them again. Otherwise this device's are kept and the copy is left out,
+ * counted when it differs. A copy already here takes the place of such an earlier one beside it the same
+ * way, and a file's own original that its copy equals isn't brought in. Returns the keys to remove.
+ */
+function settleRestores(
+  store: RecordStore,
+  here: ReadonlyMap<string, StoredRecord>,
+  fileRecords: readonly StoredRecord[],
+  puts: Map<string, StoredRecord>,
+  taken: readonly StoredRecord[],
+  count: { here: number; kept: number },
+): string[] {
+  const inFile = new Map(fileRecords.map(r => [recordKey(store, r), r]));
+  const known = (k: string) => puts.get(k) ?? here.get(k) ?? inFile.get(k);
+  const now = (k: string) => (puts.get(k) ?? here.get(k))!;
+  /** Its own key, then each it came back from, nearest first: the last is its original. */
+  const lineOf = (key: string, r: StoredRecord): string[] => {
+    const line = [key];
+    for (let at: StoredRecord | undefined = r; at && typeof at.restoredFrom === 'string' && !line.includes(at.restoredFrom); at = known(at.restoredFrom)) {
+      line.push(at.restoredFrom);
+    }
+    return line;
+  };
+  // What the merge holds of each original: this device's records, then the copies that stand in for them.
+  const held = new Map<string, Set<string>>();
+  const originOf = new Map<string, string>();
+  const hold = (key: string, r: StoredRecord) => {
+    const origin = lineOf(key, r).at(-1)!;
+    originOf.set(key, origin);
+    held.set(origin, (held.get(origin) ?? new Set()).add(key));
+  };
+  for (const k of here.keys()) hold(k, now(k));
+  const removes: string[] = [];
+  const drop = (k: string) => {
+    held.get(originOf.get(k)!)?.delete(k);
+    if (here.has(k)) { removes.push(k); count.here += 1; }
+    puts.delete(k);
+  };
+  // A file's own original its copy equals isn't brought in, and its deletion is remembered, as a restore
+  // remembers it, so the same file merged again brings it in no more (H7-11).
+  const forgetOriginals = (line: readonly string[], r: StoredRecord) => {
+    for (const k of line.slice(1)) {
+      if (!here.has(k) && puts.has(k) && sameButRestore(store, puts.get(k)!, r)) { puts.delete(k); removes.push(k); }
+    }
+  };
+  for (const r of taken) {
+    if (typeof r.restoredFrom !== 'string') continue;
+    const key = recordKey(store, r);
+    const line = lineOf(key, r);
+    const others = [...(held.get(line.at(-1)!) ?? [])].filter(k => k !== key);
+    const cameFrom = (k: string) => line.includes(k) && sameButRestore(store, now(k), r);
+    if (here.has(key)) {
+      for (const k of others) if (cameFrom(k)) drop(k);
+      forgetOriginals(line, r);
+    } else if (others.every(cameFrom)) {
+      others.forEach(drop);
+      forgetOriginals(line, r);
+      hold(key, r);
+    } else {
+      puts.delete(key);
+      if (others.some(k => !sameButRestore(store, now(k), r))) count.kept += 1;
+    }
+  }
+  return removes;
 }
 
 /** Whether this device takes a store's records from a file at all (`RecordRule.accepts`). */
@@ -1050,23 +1140,30 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy, 
 
   // v2 record stores: by key, as sessions are, with each store's own `newer` and `accepts` (Plan 6 Task 1).
   const recordPuts: Partial<Record<RecordStore, StoredRecord[]>> = {};
+  const recordRemoves: Partial<Record<RecordStore, string[]>> = {};
+  const restores = { here: 0, kept: 0 };
   for (const store of file.stores ?? []) {
     if (!takes(store, base.settings)) continue;
     const rule = RECORD_RULES[store];
     const here = new Map((base.records?.[store] ?? []).map(r => [recordKey(store, r), r]));
     const goneKeys = new Set(base.settings?.deleted?.records?.[store] ?? []);
-    const puts: StoredRecord[] = [];
+    const puts = new Map<string, StoredRecord>();
+    // The file's records new here, or here already as they are: what restores are settled on. A newer
+    // version of one here is that record changed, and changes nothing else.
+    const taken: StoredRecord[] = [];
     for (const r of kept(store, base.settings, file.records?.[store] ?? [])) {
       const key = recordKey(store, r);
       const held = here.get(key);
       if (!held && goneKeys.has(key)) { deletedHere += 1; continue; }
-      if (!held) { puts.push(r); continue; }
-      if (sameValue(held, r)) continue;
+      if (!held) { puts.set(key, r); taken.push(r); continue; }
+      if (sameValue(held, r)) { taken.push(r); continue; }
       const verdict = rule.newer?.(held, r) ?? 0;
       if (verdict === 0) conflicts[store] += 1;
-      if (verdict > 0 || (verdict === 0 && takeFile)) puts.push(r);
+      if (verdict > 0 || (verdict === 0 && takeFile)) puts.set(key, r);
     }
-    if (puts.length > 0) recordPuts[store] = puts;
+    const removes = rule.restores ? settleRestores(store, here, file.records?.[store] ?? [], puts, taken, restores) : [];
+    if (puts.size > 0) recordPuts[store] = [...puts.values()];
+    if (removes.length > 0) recordRemoves[store] = removes;
   }
   // The file's deletions of records this device doesn't hold, for every store, included in the file or not.
   const learnedRecords: Partial<Record<RecordStore, string[]>> = {};
@@ -1213,7 +1310,13 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy, 
     ...(metricDates.length > 0 ? { bodyMetrics: [...bodyMetrics].sort((a, b) => b.date.localeCompare(a.date)) } : {}),
     ...(overridesChanged ? { focusOverrides } : {}),
     ...(Object.keys(contentPuts).length > 0 ? { content: { put: contentPuts } } : {}),
-    ...(Object.keys(recordPuts).length > 0 ? { records: Object.fromEntries(Object.entries(recordPuts).map(([s, put]) => [s, { put }])) } : {}),
+    ...(Object.keys(recordPuts).length + Object.keys(recordRemoves).length > 0
+      ? {
+        records: Object.fromEntries(RECORD_STORES.filter(s => recordPuts[s] || recordRemoves[s]).map(s => [s, {
+          ...(recordPuts[s] ? { put: recordPuts[s] } : {}), ...(recordRemoves[s] ? { remove: recordRemoves[s] } : {}),
+        }])),
+      }
+      : {}),
     // A device with no settings or profile yet is being set up from this file,
     // its walk consents asked afresh (B-26).
     ...(base.settings === undefined && file.settings !== undefined
@@ -1226,6 +1329,8 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy, 
     change,
     conflicts,
     deletedHere,
+    restoredHere: restores.here,
+    restoredKept: restores.kept,
     replacedObservations,
     counts: {
       observations: observationPuts.length + derived.length,
@@ -1278,6 +1383,10 @@ export interface ImportPreview {
   legacy?: boolean;
   /** Records in the file deleted on this device since, which a merge leaves deleted (D-06). Always set by `previewImport`. */
   deletedHere?: number;
+  /** Records here the file holds restored elsewhere under a fresh id: a merge keeps the restored copy in their place (D136). Always set by `previewImport`. */
+  restoredHere?: number;
+  /** Copies restored elsewhere that differ from this device's record: a merge keeps this device's and leaves the copy out (D147). Always set by `previewImport`. */
+  restoredKept?: number;
   /** Settings and profile fields that cannot be read, and are left out, by name (D-08). Always set by `previewImport`. */
   unreadableFields?: string[];
   /** The v2 record stores in the file, and how many records of each. Always set by `previewImport`. */
@@ -1310,7 +1419,7 @@ function isIdList(x: unknown): x is Iterable<string> {
  * learn how much is already here and what a merge would conflict with.
  */
 export function previewImport(raw: unknown, existing: Iterable<string> | ImportBase = []): ImportPreview | ImportProblem {
-  const result = parse(raw);
+  const result = parse(raw, isIdList(existing) ? [] : customFoodsIn({ customFoods: existing.records?.customFoods ?? [] }));
   if (!result.ok) return { ok: false, reason: result.reason };
   const { file, rejected, legacy, unreadableFields } = result.parsed;
 
@@ -1360,6 +1469,8 @@ export function previewImport(raw: unknown, existing: Iterable<string> | ImportB
     rejected,
     conflicts: merge.conflicts,
     deletedHere: merge.deletedHere,
+    restoredHere: merge.restoredHere,
+    restoredKept: merge.restoredKept,
     unreadableFields,
     legacy,
     records,
@@ -1402,7 +1513,7 @@ export interface ImportPlan {
  * written.
  */
 export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, options: ImportOptions = {}): ImportPlan {
-  const result = parse(raw);
+  const result = parse(raw, customFoodsIn(base.records));
   if (!result.ok) throw new StoreFailure('invalid', result.reason);
   const { file, rejected, unreadableFields } = result.parsed;
 

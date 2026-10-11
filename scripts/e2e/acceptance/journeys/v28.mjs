@@ -68,7 +68,8 @@ const estimates = {
       await sheet.waitFor();
       await ui.tap(sheet.getByRole('radio', { name: /^Yes, with calorie and carb estimates/ }));
       await sheet.getByText('Has food or weight ever been hard for you?', { exact: true }).waitFor();
-      await t.check(await sheet.getByText('Your answer stays on this phone, and only changes what we suggest.', { exact: true }).count() === 1, 'the question doesn’t say what happens to the answer');
+      // For this iPhone, this iPad or this device, as Me says it (K7R-09).
+      await t.check(await sheet.getByText(/^Your answer stays on this (iPhone|iPad|device), and only changes what we suggest\.$/).count() === 1, 'the question doesn’t say what happens to the answer');
     });
 
     await t.step(2, '"Prefer not to say" recommends meals only; "With estimates anyway" keeps estimates', async () => {

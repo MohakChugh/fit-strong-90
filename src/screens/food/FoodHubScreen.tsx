@@ -19,7 +19,7 @@ import { foodLevel, numbersView } from '@/food/level';
 import { logHref, logRequest } from '@/food/links';
 import { mealsIn, savedMealsIn } from '@/food/records';
 import { slotAt } from '@/food/tray';
-import { usualFor } from '@/food/usual';
+import { usualFor, usualSlot } from '@/food/usual';
 import { prefersHour12 } from '@/lib/time';
 import { mealDetail } from '@/screens/guide/mealText';
 import { ClaimGroup } from '@/screens/guide/parts';
@@ -28,6 +28,8 @@ import { HubFrame, HubSection } from '@/screens/hub/HubFrame';
 import { useClock } from '@/screens/today/clock';
 import { formatDayRelative } from '@/screens/track/format';
 import { useToday } from '@/screens/track/useToday';
+import { deviceNoun, readInstallEnv } from '@/screens/welcome/install';
+import { privacyLine } from '@/screens/you/summaries';
 import { useStore } from '@/store/useStore';
 import { LevelSheet } from './LevelSheet';
 import { LogMealSheet } from './LogMealSheet';
@@ -35,6 +37,14 @@ import { useFoodUndoScope } from './undo';
 
 /** Where an idea and the sample week go back to. */
 const FROM_HUB = { from: 'hub' };
+/**
+ * Right now's choices (B-08, rule 13; board D138): at most five, as up to two
+ * usual meals, "Log what you ate" (or "Log what you eat"), and ideas to fill,
+ * never more than the three the journey shows (§11.2).
+ */
+const RIGHT_NOW_MAX = 5;
+const RIGHT_NOW_USUAL = 2;
+const RIGHT_NOW_IDEAS = 3;
 
 export default function FoodHubScreen() {
   const { profile, records } = useStore();
@@ -46,16 +56,21 @@ export default function FoodHubScreen() {
   const { now } = useClock();
   const hour12 = prefersHour12();
   const [choosing, setChoosing] = useState(false);
+  const [device] = useState(() => deviceNoun(readInstallEnv()));
+  // "Log a meal" with logging off asks the level first, and that sheet owns the flow until its choice is
+  // stored: the profile shown changes the moment it's chosen, before it's written (H7-18).
+  const [askingLevel, setAskingLevel] = useState(false);
   useFoodUndoScope('/hub/food');
 
   const food = profile?.food;
   const level = foodLevel(food);
   const numbers = numbersView(profile);
   const meals = mealsIn(records);
-  const slot = slotAt(now.getHours() * 60 + now.getMinutes());
-  const ideas = mealsFor(food, slot).slice(0, 3);
-  const usual = level === 'ideas' ? [] : usualFor(slot, today, meals, savedMealsIn(records));
+  const minute = now.getHours() * 60 + now.getMinutes();
+  const slot = slotAt(minute);
   const todays = mealsOn(meals, today);
+  const usual = level === 'ideas' ? [] : usualFor(usualSlot(slot, minute, todays), today, meals, savedMealsIn(records)).slice(0, RIGHT_NOW_USUAL);
+  const ideas = mealsFor(food, slot).slice(0, Math.min(RIGHT_NOW_IDEAS, RIGHT_NOW_MAX - 1 - usual.length));
   const todayLines = totalsLines(totalsOf(todays.flatMap(m => m.items)), numbers);
   const target = careTeamLine(food?.careTeamTargets, numbers);
   const [notes] = resolveGroups([FOOD_DATA_NOTES], ctx);
@@ -69,6 +84,8 @@ export default function FoodHubScreen() {
 
   if (pathname !== '/hub/food' && pathname !== '/hub/food/log') return <Navigate to="/hub/food" replace />;
   const logging = pathname === '/hub/food/log';
+  const asking = logging && !logRequest(search).edit && (level === 'ideas' || askingLevel);
+  if (asking !== askingLevel) setAskingLevel(asking);
   // Meals logged before logging was turned off stay readable here (A-22).
   const history = level !== 'ideas' || meals.length > 0;
   const request = logRequest(search);
@@ -103,7 +120,10 @@ export default function FoodHubScreen() {
             {todays.length === 0
               ? <Row label={FOOD_COPY.nothingToday} />
               : todays.map(m => <Row key={m.id} as={Link} to={logHref({ edit: m.id })} label={SLOT_LABEL[m.meal]} detail={mealRowDetail(m, numbers, hour12)} chevron />)}
-            {todayLines.estimate && <Row label={todayLines.estimate} {...(todayLines.missing ? { detail: todayLines.missing } : {})} />}
+            {/* What has no estimate is said on its own, with a total or without one (A-17, H7-14). */}
+            {todayLines.estimate
+              ? <Row label={todayLines.estimate} {...(todayLines.missing ? { detail: todayLines.missing } : {})} />
+              : todayLines.missing && <Row label={todayLines.missing} />}
           </Group>
         </HubSection>
       )}
@@ -133,11 +153,12 @@ export default function FoodHubScreen() {
       )}
 
       {numbers.show && <ClaimGroup header={FOOD_COPY.howEstimates} claims={notes} ctx={ctx} />}
-      <p className="px-4 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">{FOOD_COPY.attribution} {FOOD_COPY.privacy}</p>
+      {/* B-24's privacy sentence, for this device, as Me says it (K7-16). */}
+      <p className="px-4 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">{FOOD_COPY.attribution} {privacyLine(device)}</p>
 
       {/* A new meal waits for logging to be on; a logged meal stays editable and deletable whatever the level (A-22). */}
-      {logging && (level === 'ideas' && !request.edit
-        ? <LevelSheet open onOpenChange={next => { if (!next) closeLog(); }} onDone={chosen => { if (chosen === 'ideas') closeLog(); }} />
+      {logging && (asking
+        ? <LevelSheet open onOpenChange={next => { if (!next) closeLog(); }} onDone={chosen => { setAskingLevel(false); if (chosen === 'ideas') closeLog(); }} />
         : <LogMealSheet key={search} request={request} onClose={closeLog} />)}
       <LevelSheet open={choosing} onOpenChange={setChoosing} />
     </HubFrame>

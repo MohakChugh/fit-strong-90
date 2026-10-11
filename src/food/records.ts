@@ -11,6 +11,7 @@
 import { isAt } from '@/health/observation';
 import type { Records, StoredRecord } from '@/store/records';
 import { ALLERGEN_IDS } from '@/types/profile';
+import { customItem, ownFigures } from './estimate';
 import type { CustomFood, MealEdit, MealRecord, SavedMeal, Slot } from './types';
 import { isUnitId } from './units';
 
@@ -25,6 +26,9 @@ const isAmount = (x: unknown, max: number): x is number => typeof x === 'number'
 const isCount = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x) && x > 0 && x <= 20 && Number.isInteger(x * 2);
 const optional = (x: unknown, check: (v: unknown) => boolean) => x === undefined || check(x);
 
+/** An own-food item logged before snapshots (board D146, H7R-01): none of `per`, `basis` and `version`. */
+const preSnapshot = (x: Record<string, unknown>) => x.kind === 'custom' && x.per === undefined && x.basis === undefined && x.version === undefined;
+
 /** Why a logged item can't be read, or nothing. */
 export function itemProblem(x: unknown): string | undefined {
   if (!isObject(x)) return 'an item is not an object';
@@ -38,14 +42,32 @@ export function itemProblem(x: unknown): string | undefined {
       if (!isUnitId(x.unit) || !isCount(x.count) || !isAmount(x.gramsPerPortion, 2_000) || x.gramsPerPortion === 0) return `${name}: an impossible portion`;
       if (!optional(x.weighed, v => v === true)) return `${name}: an impossible portion`;
       if (!optional(x.carbsLowG, v => isAmount(v, 2_000)) || !optional(x.carbsHighG, v => isAmount(v, 2_000))) return `${name}: an impossible carb range`;
+      // The estimate and its range are one set (B-12, H7-06): a range is never made from part of one.
       const { carbsG, carbsLowG, carbsHighG } = x;
-      if (typeof carbsG === 'number' && typeof carbsLowG === 'number' && typeof carbsHighG === 'number' && !(carbsLowG <= carbsG && carbsG <= carbsHighG)) {
+      const given = [carbsG, carbsLowG, carbsHighG].filter(v => v !== undefined).length;
+      if (given !== 0 && given !== 3) return `${name}: a carb estimate needs its whole carb range`;
+      if (given === 3 && !((carbsLowG as number) <= (carbsG as number) && (carbsG as number) <= (carbsHighG as number))) {
         return `${name}: a carb range that doesn’t hold its estimate`;
       }
+      // Equal ends of 1 g or more are a single figure, which the app never works out (board D149, H7-05).
+      if (given === 3 && carbsLowG === carbsHighG && (carbsHighG as number) >= 1) return `${name}: a carb range that is a single figure`;
       return undefined;
     }
-    case 'custom':
-      return isText(x.customId) && isCount(x.count) ? undefined : `${name}: an impossible portion of your own food`;
+    case 'custom': {
+      if (!isText(x.customId) || !isCount(x.count)) return `${name}: an impossible portion of your own food`;
+      // Logged before snapshots, with no food left to give it one (board D146, H7R-01): its name, with nothing known.
+      if (preSnapshot(x)) return x.kcal === undefined && x.carbsG === undefined ? undefined : `${name}: your own food’s figures can’t be read without what it held`;
+      // Its snapshot, so it reads on its own whether or not the food is still here (board D134, H7-10).
+      const per = x.per;
+      if (!isObject(per) || !(typeof per.qty === 'number' && per.qty > 0 && per.qty <= 10_000) || !isText(per.unit, 20)) return `${name}: what one portion of your own food was can’t be read`;
+      const basis = x.basis;
+      if (!isObject(basis) || !optional(basis.kcal, v => isAmount(v, 5_000)) || !optional(basis.carbsG, v => isAmount(v, 1_000))) return `${name}: what your own food held can’t be read`;
+      if (!isAt(x.version)) return `${name}: which version of your own food it was can’t be read`;
+      // Its figures are its snapshot's, at its count, as the stepper works them out (board D148, H7R-03).
+      const figures = ownFigures(basis, x.count);
+      if (x.kcal !== figures.kcal || x.carbsG !== figures.carbsG) return `${name}: your own food’s figures don’t match what it held`;
+      return undefined;
+    }
     case 'quick':
       if (x.size !== 'small' && x.size !== 'normal' && x.size !== 'large') return `${name}: a quick add needs its size`;
       return x.carbsG === undefined ? undefined : `${name}: a quick add never has carbs`;
@@ -125,6 +147,76 @@ export const newerMeal = byLatest(['editedAt', 'loggedAt']);
 /** The copy changed last: a usual meal, or the person's own food. */
 export const newerByUpdate = byLatest(['updatedAt']);
 
+/**
+ * An own-food item logged before snapshots, given one (board D146, H7R-01): from its food as held now, when
+ * that food still gives the figures the item was logged with. Otherwise its food is gone, or isn't the version
+ * it was logged from, so it keeps its name and count and holds no figure: "No estimate". Any other item is itself.
+ */
+export function upgradedItem(x: unknown, foodOf: (id: string) => CustomFood | undefined): unknown {
+  if (!isObject(x) || !preSnapshot(x) || !isText(x.customId) || !isCount(x.count)) return x;
+  // A figure that can't be read is never made unknown: the item stays as it is, and is refused (H7F-05; D207).
+  if (!optional(x.kcal, v => isAmount(v, 10_000)) || !optional(x.carbsG, v => isAmount(v, 2_000))) return x;
+  const food = foodOf(x.customId);
+  const now = food && customItem(food, x.count);
+  if (now && now.kcal === x.kcal && now.carbsG === x.carbsG) return { ...x, per: now.per, basis: now.basis, version: now.version };
+  if (x.kcal === undefined && x.carbsG === undefined) return x;
+  const { kcal, carbsG, ...known } = x;
+  void kcal; void carbsG;
+  return known;
+}
+
+/**
+ * A table food stored with equal carb ends of 1 g or more before D149 refused them (H7F-03; board D207): a
+ * single figure, never a range, so it keeps everything else and has no carb estimate. Any other item is itself.
+ */
+export function withoutFlatRange(x: unknown): unknown {
+  if (!isObject(x) || x.kind !== 'food') return x;
+  const { carbsG, carbsLowG, carbsHighG, ...rest } = x;
+  const flat = typeof carbsHighG === 'number' && carbsHighG >= 1 && carbsLowG === carbsHighG && carbsG === carbsHighG;
+  return flat ? rest : x;
+}
+
+/** These foods by id, the first of an id winning. */
+function foodsById(foods: readonly CustomFood[]): (id: string) => CustomFood | undefined {
+  const byId = new Map<string, CustomFood>();
+  for (const f of foods) if (!byId.has(f.id)) byId.set(f.id, f);
+  return id => byId.get(id);
+}
+
+/**
+ * A meal (every earlier version too) or a usual meal with its items as `upgradedItem` makes them, from these
+ * foods, the first of an id winning: the same row when nothing in it changes. A file's rows are read so.
+ */
+export function withSnapshots(foods: readonly CustomFood[]): (row: unknown) => unknown {
+  const foodOf = foodsById(foods);
+  return eachItem(i => upgradedItem(i, foodOf));
+}
+
+/** The rows this device holds, kept readable at start: `withSnapshots`, and no flat carb range either (H7F-03). */
+export function keptReadable(foods: readonly CustomFood[]): (row: unknown) => unknown {
+  const foodOf = foodsById(foods);
+  return eachItem(i => withoutFlatRange(upgradedItem(i, foodOf)));
+}
+
+/** A meal (every earlier version too) or a usual meal with each item as `f` makes it: the same row when nothing changes. */
+function eachItem(f: (item: unknown) => unknown): (row: unknown) => unknown {
+  const items = (list: unknown) => {
+    if (!Array.isArray(list)) return list;
+    const next = list.map(f);
+    return next.some((v, i) => v !== list[i]) ? next : list;
+  };
+  return row => {
+    if (!isObject(row)) return row;
+    const its = items(row.items);
+    const edits = Array.isArray(row.edits) ? row.edits.map(e => {
+      const next = isObject(e) ? items(e.items) : undefined;
+      return isObject(e) && next !== e.items ? { ...e, items: next } : e;
+    }) : row.edits;
+    const editsChanged = Array.isArray(row.edits) && (edits as unknown[]).some((e, i) => e !== (row.edits as unknown[])[i]);
+    return its === row.items && !editsChanged ? row : { ...row, items: its, ...(editsChanged ? { edits } : {}) };
+  };
+}
+
 const readable = new WeakMap<readonly StoredRecord[], readonly StoredRecord[]>();
 
 /** The rows of a store this version can read, worked out once per list. */
@@ -158,9 +250,12 @@ export function corrected(meal: MealRecord, next: Pick<MealRecord, 'at' | 'meal'
   };
 }
 
-/** A deleted record brought back by Undo, under a fresh id (B-05). The original's deletion record stays. */
-export function restored<T extends { id: string }>(record: T, id: string): T & { restoredFrom: string } {
-  return { ...record, id, restoredFrom: record.id };
+/**
+ * A deleted record brought back by Undo, under a fresh id (B-05). The original's deletion record stays.
+ * A copy brought back again names the same original, so every copy of a record names it (board D147).
+ */
+export function restored<T extends { id: string; restoredFrom?: string }>(record: T, id: string): T & { restoredFrom: string } {
+  return { ...record, id, restoredFrom: record.restoredFrom ?? record.id };
 }
 
 /** A food record as the store's registry types it. */

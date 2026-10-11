@@ -165,6 +165,8 @@ describe('sheets (S-04, S-19)', () => {
     const close = classOf(m, /<button type="button" class="([^"]*)">Close<\/button>/);
     expect(close).not.toMatch(/\babsolute\b/);
     expect(close).toContain('@max-[16rem]:self-end');
+    // A 48 px target, as every other (journey §20.4 rule 1; K7-08).
+    expect(close.split(' ')).toEqual(expect.arrayContaining(['min-h-12', 'min-w-12']));
     expect(m).toMatch(/@max-\[16rem\]:flex-col-reverse/);
     // A mirror of Close keeps the title centred while they share the bar.
     expect(m).toMatch(/<span aria-hidden="true" class="invisible[^"]*@max-\[16rem\]:hidden">Close<\/span>/);

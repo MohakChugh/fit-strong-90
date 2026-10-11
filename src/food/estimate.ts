@@ -33,11 +33,17 @@ export function foodItem(food: Food, count = food.portion.count, gramsPerPortion
   };
 }
 
+/** An item of the person's own food: `count` portions of it as it is now, with that snapshot kept (board D134). */
 export function customItem(custom: CustomFood, count = 1): CustomItem {
+  const basis = { ...(custom.kcal !== undefined ? { kcal: custom.kcal } : {}), ...(custom.carbsG !== undefined ? { carbsG: custom.carbsG } : {}) };
+  return { kind: 'custom', customId: custom.id, name: custom.name, count, per: { ...custom.per }, basis, version: custom.updatedAt, ...ownFigures(basis, count) };
+}
+
+/** What `count` portions hold, from what one held: unknown stays unknown, never 0 (A-17). */
+export function ownFigures(basis: NonNullable<CustomItem['basis']>, count: number): Pick<CustomItem, 'kcal' | 'carbsG'> {
   return {
-    kind: 'custom', customId: custom.id, name: custom.name, count,
-    ...(custom.kcal !== undefined ? { kcal: Math.round(custom.kcal * count) } : {}),
-    ...(custom.carbsG !== undefined ? { carbsG: r1(custom.carbsG * count) } : {}),
+    ...(basis.kcal !== undefined ? { kcal: Math.round(basis.kcal * count) } : {}),
+    ...(basis.carbsG !== undefined ? { carbsG: r1(basis.carbsG * count) } : {}),
   };
 }
 
@@ -59,14 +65,37 @@ export function refreshItem(item: MealItem, food: Food | undefined): MealItem {
   return foodItem(food, item.count, item.weighed ? item.gramsPerPortion : food.portion.grams, item.weighed === true);
 }
 
+/**
+ * An item's carbs as they may be shown (B-12, board D132): a table food's
+ * with its range, the person's own food's as they gave it, with no range.
+ * A table food's figure without its range is unknown: a range is never made
+ * from a single figure, and equal ends of 1 g or more are one (board D149).
+ */
+export type ItemCarbs = { g: number; own: false; low: number; high: number } | { g: number; own: true };
+
+export function itemCarbs(item: MealItem): ItemCarbs | undefined {
+  if (item.carbsG === undefined) return undefined;
+  if (item.kind === 'custom') return { g: item.carbsG, own: true };
+  if (item.kind === 'food' && item.carbsLowG !== undefined && item.carbsHighG !== undefined && (item.carbsLowG < item.carbsHighG || item.carbsHighG < 1)) {
+    return { g: item.carbsG, own: false, low: item.carbsLowG, high: item.carbsHighG };
+  }
+  return undefined;
+}
+
 export interface Totals {
   kcal: number;
+  /** Every carb figure added: what's shown when carbs aren't ranges. */
   carbsG: number;
+  /** The table's foods as a range (B-12). The person's own figures are never in it (D132). */
   carbsLowG: number;
   carbsHighG: number;
-  /** How many items have a calorie figure, and how many a carb figure. */
+  /** The person's own foods' carbs: their figures added, with no range. */
+  ownCarbsG: number;
+  /** How many items have a calorie figure, a carb figure, a carb range, and a carb figure of the person's own. */
   withKcal: number;
   withCarbs: number;
+  withCarbRange: number;
+  withOwnCarbs: number;
   /** Each item missing a figure (A-17): named, never counted as 0. */
   missing: { name: string; kcal: boolean; carbs: boolean }[];
   items: number;
@@ -77,21 +106,31 @@ export function totalsOf(items: readonly MealItem[]): Totals {
   let carbs = 0;
   let low = 0;
   let high = 0;
+  let own = 0;
   let withKcal = 0;
-  let withCarbs = 0;
+  let withCarbRange = 0;
+  let withOwnCarbs = 0;
   const missing: Totals['missing'] = [];
   for (const item of items) {
     if (item.kcal !== undefined) {
       kcal += item.kcal;
       withKcal += 1;
     }
-    if (item.carbsG !== undefined) {
-      carbs += item.carbsG;
-      low += item.kind === 'food' ? item.carbsLowG ?? item.carbsG : item.carbsG;
-      high += item.kind === 'food' ? item.carbsHighG ?? item.carbsG : item.carbsG;
-      withCarbs += 1;
+    const c = itemCarbs(item);
+    if (c) carbs += c.g;
+    if (c?.own === false) {
+      low += c.low;
+      high += c.high;
+      withCarbRange += 1;
     }
-    if (item.kcal === undefined || item.carbsG === undefined) missing.push({ name: item.name, kcal: item.kcal === undefined, carbs: item.carbsG === undefined });
+    if (c?.own) {
+      own += c.g;
+      withOwnCarbs += 1;
+    }
+    if (item.kcal === undefined || !c) missing.push({ name: item.name, kcal: item.kcal === undefined, carbs: !c });
   }
-  return { kcal: Math.round(kcal), carbsG: r1(carbs), carbsLowG: r1(low), carbsHighG: r1(high), withKcal, withCarbs, missing, items: items.length };
+  return {
+    kcal: Math.round(kcal), carbsG: r1(carbs), carbsLowG: r1(low), carbsHighG: r1(high), ownCarbsG: r1(own),
+    withKcal, withCarbs: withCarbRange + withOwnCarbs, withCarbRange, withOwnCarbs, missing, items: items.length,
+  };
 }

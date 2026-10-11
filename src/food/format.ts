@@ -9,7 +9,7 @@
 import type { TileLine } from '@/screens/home/tileLine';
 import { formatClock } from '@/screens/track/format';
 import type { FoodPreferences } from '@/types/profile';
-import { estimateFood, totalsOf, type Totals } from './estimate';
+import { estimateFood, itemCarbs, totalsOf, type ItemCarbs, type Totals } from './estimate';
 import type { FoodLevel, NumbersView } from './level';
 import type { Food, MealItem, MealRecord, Slot } from './types';
 import { countText, portionText } from './units';
@@ -17,6 +17,8 @@ import { countText, portionText } from './units';
 export const SLOT_LABEL: Record<Slot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', snack: 'Snack', dinner: 'Dinner' };
 
 const fmt = (n: number) => n.toLocaleString('en-IN');
+/** The person's own carb figure as they gave it, to one decimal, or under 1 g (K7R-07): never rounded off, as it may set a dose. */
+const ownGrams = (g: number) => (g < 1 ? 'under 1 g' : `${g.toLocaleString('en-IN', { maximumFractionDigits: 1 })} g`);
 const to = (n: number, step: number, how: 'round' | 'floor' | 'ceil') => Math[how](n / step) * step;
 const carbStep = (n: number) => (n < 10 ? 1 : 5);
 
@@ -25,28 +27,36 @@ export function kcalText(kcal: number): string {
   return kcal < 10 ? 'under 10 kcal' : `${fmt(to(kcal, 10, 'round'))} kcal`;
 }
 
-/** "45 g carbs", or "about 30–60 g carbs" as a range (K-22): to the gram under 10 g, to 5 g above. */
-export function carbsText(c: { carbsG: number; carbsLowG?: number; carbsHighG?: number }, ranges: boolean): string {
-  if (!ranges) return c.carbsG < 1 ? 'under 1 g carbs' : `${fmt(to(c.carbsG, carbStep(c.carbsG), 'round'))} g carbs`;
-  const lowRaw = c.carbsLowG ?? c.carbsG;
-  const highRaw = c.carbsHighG ?? c.carbsG;
-  if (highRaw < 1) return 'under 1 g carbs';
-  const low = to(lowRaw, carbStep(lowRaw), 'floor');
-  const high = to(highRaw, carbStep(highRaw), 'ceil');
-  return low === high ? `about ${fmt(low)} g carbs` : `about ${fmt(low)}–${fmt(high)} g carbs`;
+/** "45 g carbs": to the gram under 10 g, to 5 g above. */
+export function carbsText(carbsG: number): string {
+  return carbsG < 1 ? 'under 1 g carbs' : `${fmt(to(carbsG, carbStep(carbsG), 'round'))} g carbs`;
+}
+
+/**
+ * "about 30–60 g carbs" (K-22): the low end rounded down and the high end up, so it never narrows the
+ * estimate, and two ends that differ never meet. Equal ends of 1 g or more are a single figure, not a
+ * range, so they're nothing here (board D149, H7-05).
+ */
+export function carbsRangeText(c: { low: number; high: number }): string | undefined {
+  if (c.high < 1) return 'under 1 g carbs';
+  if (!(c.low < c.high)) return undefined;
+  return `about ${fmt(to(c.low, carbStep(c.low), 'floor'))}–${fmt(to(c.high, carbStep(c.high), 'ceil'))} g carbs`;
+}
+
+/** An item's carbs: a range with ranges on, except the person's own figure, which is never one (board D132). */
+function itemCarbsText(c: ItemCarbs, ranges: boolean): string | undefined {
+  if (!ranges) return carbsText(c.g);
+  return c.own ? `${ownGrams(c.g)} carbs, your own figure` : carbsRangeText(c);
 }
 
 /** One item's estimate in the tray, or nothing when numbers aren't shown. */
 export function itemEstimate(item: MealItem, view: NumbersView): string | undefined {
   if (!view.show) return undefined;
-  if (item.kcal === undefined && item.carbsG === undefined) return 'No estimate';
-  const known = [
-    item.kcal !== undefined ? kcalText(item.kcal) : undefined,
-    item.carbsG !== undefined
-      ? carbsText({ carbsG: item.carbsG, carbsLowG: item.kind === 'food' ? item.carbsLowG : undefined, carbsHighG: item.kind === 'food' ? item.carbsHighG : undefined }, view.ranges)
-      : undefined,
-  ].filter(Boolean);
-  const gap = item.kcal === undefined ? ' · no calorie estimate' : item.carbsG === undefined ? ' · no carb estimate' : '';
+  const c = itemCarbs(item);
+  const carbs = c && itemCarbsText(c, view.ranges);
+  if (item.kcal === undefined && !carbs) return 'No estimate';
+  const known = [item.kcal !== undefined ? kcalText(item.kcal) : undefined, carbs].filter(Boolean);
+  const gap = item.kcal === undefined ? ' · no calorie estimate' : !carbs ? ' · no carb estimate' : '';
   return `Estimated ${known.join(' · ')}${gap}`;
 }
 
@@ -57,15 +67,30 @@ export interface TotalsLines {
   missing?: string;
 }
 
+/**
+ * A meal's or a day's totals (journey §11.2, A-17). With ranges on, the
+ * table's foods are a range and the person's own figures are named apart,
+ * never added into it (board D132): "Estimated about 30–50 g carbs in logged
+ * foods, plus 40 g from foods you entered yourself".
+ */
 export function totalsLines(t: Totals, view: NumbersView): TotalsLines {
   if (!view.show || t.items === 0) return {};
-  const parts = [t.withKcal > 0 ? kcalText(t.kcal) : undefined, t.withCarbs > 0 ? carbsText(t, view.ranges) : undefined].filter(Boolean);
+  const ranged = view.ranges && t.withCarbRange > 0 ? carbsRangeText({ low: t.carbsLowG, high: t.carbsHighG }) : undefined;
+  const carbs = view.ranges ? ranged : t.withCarbs > 0 ? carbsText(t.carbsG) : undefined;
+  const parts = [t.withKcal > 0 ? kcalText(t.kcal) : undefined, carbs].filter(Boolean);
+  const base = parts.length > 0 ? `Estimated ${parts.join(' · ')} in logged foods` : undefined;
+  const ownG = ownGrams(t.ownCarbsG);
+  const own = !view.ranges || t.withOwnCarbs === 0 ? undefined
+    : !base ? `${ownG} carbs from foods you entered yourself`
+      : ranged ? `plus ${ownG} from foods you entered yourself`
+        : `plus ${ownG} carbs from foods you entered yourself`;
+  const estimate = [base, own].filter(Boolean).join(', ');
   const say = (n: number, what: string) => `${n} ${n === 1 ? 'item has' : 'items have'} no ${what}`;
   const none = t.missing.filter(m => m.kcal && m.carbs).length;
   const noCarbs = t.missing.filter(m => m.carbs && !m.kcal).length;
   const noKcal = t.missing.filter(m => m.kcal && !m.carbs).length;
   const missing = [none > 0 && say(none, 'estimate'), noCarbs > 0 && say(noCarbs, 'carb estimate'), noKcal > 0 && say(noKcal, 'calorie estimate')].filter(Boolean).join(' · ');
-  return { ...(parts.length > 0 ? { estimate: `Estimated ${parts.join(' · ')} in logged foods` } : {}), ...(missing ? { missing } : {}) };
+  return { ...(estimate ? { estimate } : {}), ...(missing ? { missing } : {}) };
 }
 
 /** "Roti ×2 · Toor dal ×1½ · Bhel puri". */

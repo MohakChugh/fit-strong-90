@@ -8,6 +8,7 @@ import type { FoodPreferences } from '@/types/profile';
 import { FoodPicker } from './FoodPicker';
 import { foodSummary, unmatchedNote } from './format';
 import { ClaimGroup, Lead, Reviewed, SourcesGroup } from './parts';
+import { RoughCarbs } from '@/screens/food/RoughCarbs';
 import { useGuide } from './useGuide';
 
 /**
@@ -26,6 +27,7 @@ export default function SampleWeekScreen() {
   return (
     <Screen title="Sample week" back={back}>
       <Lead>A week you can adapt — swap any meal for one you prefer from Meal ideas.</Lead>
+      <RoughCarbs />
 
       <Group footer={unmatchedNote(unmatchedAvoid(food?.avoid, food?.pattern))}>
         <Row

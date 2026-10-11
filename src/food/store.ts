@@ -4,9 +4,10 @@
  * a second tap on Save writes the same meal again rather than a second one
  * (Review Focus 1).
  */
-import type { StoreResult } from '@/store/db';
+import { StoreFailure, type StoreResult } from '@/store/db';
+import { sameValue } from '@/store/transfer';
 import { freshId, putRecords, removeRecords, writeRecords } from '@/store/useStore';
-import { restored, stored } from './records';
+import { corrected, mealsIn, restored, stored } from './records';
 import type { CustomFood, MealRecord, SavedMeal } from './types';
 
 export const newMealId = (): string => freshId('meal-');
@@ -24,9 +25,29 @@ export function saveMeal(meal: MealRecord, extras: { usual?: SavedMeal; customFo
   });
 }
 
-/** A corrected meal (`corrected`), with any own foods added while correcting it. */
-export function saveCorrection(meal: MealRecord, customFoods: readonly CustomFood[] = []): Promise<StoreResult> {
-  return writeRecords({ put: { meals: [stored(meal)], ...(customFoods.length > 0 ? { customFoods: customFoods.map(stored) } : {}) } });
+/**
+ * A correction of the meal the sheet opened (A-22), with any own foods added
+ * while correcting it. It's worked out against the meal as stored when it's
+ * written (board D135, H7-08): one deleted since is never brought back (only
+ * restore does that, under a fresh id), and one changed since in any way (a
+ * correction, a merged copy) isn't written over: the version checked is the
+ * whole record. Either refuses with `conflict`, in the words `describe` gives
+ * it; the sheet keeps the draft.
+ */
+export function saveCorrection(
+  editing: MealRecord,
+  next: Pick<MealRecord, 'at' | 'meal' | 'items'>,
+  now: string,
+  options: { customFoods?: readonly CustomFood[]; describe?: (current: MealRecord | undefined) => string } = {},
+): Promise<StoreResult> {
+  const customFoods = options.customFoods ?? [];
+  return writeRecords(records => {
+    const current = mealsIn(records).find(m => m.id === editing.id);
+    if (!current || !sameValue(current, editing)) {
+      throw new StoreFailure('conflict', options.describe?.(current) ?? (current ? 'That meal was changed elsewhere.' : 'That meal was deleted.'));
+    }
+    return { put: { meals: [stored(corrected(current, next, now))], ...(customFoods.length > 0 ? { customFoods: customFoods.map(stored) } : {}) } };
+  });
 }
 
 export const deleteMeal = (id: string): Promise<StoreResult> => removeRecords('meals', [id]);

@@ -1,18 +1,19 @@
-import { useId, useState, type FormEvent } from 'react';
-import { XIcon } from 'lucide-react';
+import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
-import { ALLERGENS } from '@/food/allergens';
+import { ALLERGENS, allergenName } from '@/food/allergens';
 import { FOOD_COPY, LEVEL_LABEL } from '@/food/copy';
 import { foodLevel, numbersView } from '@/food/level';
 import { promptDefault } from '@/food/prompts';
 import { LevelSheet } from '@/screens/food/LevelSheet';
+import { endFoodUndos, offerFoodUndo, useFoodUndoScope } from '@/screens/food/undo';
+import { ownAllergyStatus } from '@/screens/guide/format';
 import { formatDayShort } from '@/screens/track/format';
-import { NumberField } from '@/screens/track/ui';
+import { ConfirmSheet, NumberField } from '@/screens/track/ui';
 import { useToday } from '@/screens/track/useToday';
-import { useStore } from '@/store/useStore';
+import { getState, useStore } from '@/store/useStore';
 import type { Meal } from '@/types/habits';
-import type { AllergenId, FoodPreferences } from '@/types/profile';
+import { ALLERGEN_IDS, type AllergenId, type FoodPreferences } from '@/types/profile';
 import { CheckRows, ChoiceRows, Notice, PlainButton, Segmented, TimeField, type Choice } from './controls';
 import { AVOID_MAX_ITEMS, AVOID_MAX_LENGTH, FOOD_PATTERN, FOOD_REGION, addAvoid } from './summaries';
 import { changeProfile } from './write';
@@ -32,6 +33,37 @@ const REMINDER_MEALS: { value: Meal | 'off'; label: string }[] = [
   { value: 'lunch', label: 'Lunch' },
   { value: 'dinner', label: 'Dinner' },
 ];
+
+/**
+ * What "Clear food preferences" leaves (board D137, K7-03): never the
+ * allergies, each removed on its own, nor the answer to "Has food or weight
+ * ever been hard for you?". The record needs an eating pattern, so what the
+ * person eats stays with them. With none of those, the record goes.
+ */
+function cleared(food: FoodPreferences | undefined): FoodPreferences | undefined {
+  if (!food || !keeps(food)) return undefined;
+  return {
+    pattern: food.pattern, avoid: [],
+    ...(food.allergies?.length ? { allergies: food.allergies } : {}),
+    ...(food.customAllergies?.length ? { customAllergies: food.customAllergies } : {}),
+    ...(food.hardBefore ? { hardBefore: food.hardBefore } : {}),
+  };
+}
+/** "Peanut", "Tree nuts", "Brinjal": the start of a sentence. */
+const opening = (text: string) => text.charAt(0).toLocaleUpperCase() + text.slice(1);
+
+/**
+ * An allergy in the person's own words put back by Undo as adding it puts one (`addAvoid`: 30 at most, and the
+ * same word in any case is there already), in its old place where there's room (H7F-04).
+ */
+function putBack(list: readonly string[], item: string, at: number): string[] {
+  const added = addAvoid(list, item);
+  if (added.length === list.length) return added;
+  const place = Math.min(Math.max(0, at), list.length);
+  return [...list.slice(0, place), added[added.length - 1], ...list.slice(place)];
+}
+
+const keeps = (food: FoodPreferences) => (food.allergies?.length ?? 0) > 0 || (food.customAllergies?.length ?? 0) > 0 || food.hardBefore !== undefined;
 
 /** A whole number from a field, within bounds; blank is none; `null` can't be right. */
 function whole(text: string, max: number): number | undefined | null {
@@ -56,8 +88,11 @@ export function FoodScreen() {
   const ids = { avoid: useId(), allergy: useId(), time: useId() };
   const [problem, setProblem] = useState<string>();
   const [choosing, setChoosing] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [kcal, setKcal] = useState(String(food?.careTeamTargets?.kcal ?? ''));
   const [carbs, setCarbs] = useState(String(food?.careTeamTargets?.carbsG ?? ''));
+  // An allergy removed here can be put back until the person leaves (K7R-01; §20.4 rule 6).
+  useFoodUndoScope('/me/food');
 
   /** Each change is worked out from the stored preferences at the moment it is written. */
   const edit = async (change: (food: FoodPreferences | undefined) => FoodPreferences | undefined) => {
@@ -71,6 +106,24 @@ export function FoodScreen() {
     setProblem(saved.ok ? undefined : `That did not save. ${saved.failure.message}`);
     return saved.ok;
   };
+
+  /**
+   * Undo for an allergy just removed, offered at once, standing until the person leaves Me → Food or clears
+   * their food choices. It's said to be back only once the stored record holds it, and otherwise says why: the
+   * record went with Clear, or there's no room (H7F-01, H7F-04; board D207).
+   */
+  const offerBack = (what: string, back: (food: FoodPreferences) => FoodPreferences, holds: (food: FoodPreferences) => boolean) => offerFoodUndo({
+    text: FOOD_COPY.allergyRemoved(opening(what)),
+    restored: FOOD_COPY.allergyBack(opening(what)),
+    scope: '/me/food',
+    undo: async () => {
+      const saved = await changeProfile(current => (current.food ? { ...current, food: back(current.food) } : current));
+      if (!saved.ok) return saved.failure.message;
+      const now = getState().profile?.food;
+      if (!now) return FOOD_COPY.allergyNoRecord(opening(what));
+      return holds(now) ? undefined : FOOD_COPY.allergyNoRoom(opening(what));
+    },
+  });
 
   const saveTarget = () => {
     const k = whole(kcal, 10_000);
@@ -109,7 +162,16 @@ export function FoodScreen() {
             label={FOOD_COPY.allergiesGroup}
             options={ALLERGY_CHOICES}
             value={food.allergies ?? []}
-            onChange={allergies => void edit(current => current && { ...current, allergies })}
+            onChange={allergies => {
+              const gone = (food.allergies ?? []).filter(a => !allergies.includes(a));
+              void edit(current => current && { ...current, allergies }).then(ok => {
+                if (ok) {
+                  for (const id of gone) {
+                    offerBack(allergenName(id), f => ({ ...f, allergies: ALLERGEN_IDS.filter(a => a === id || f.allergies?.includes(a)) }), f => f.allergies?.includes(id) === true);
+                  }
+                }
+              });
+            }}
           />
         </Group>
       )}
@@ -121,14 +183,26 @@ export function FoodScreen() {
           inputLabel={FOOD_COPY.somethingElse}
           placeholder={FOOD_COPY.somethingElsePlaceholder}
           items={food.customAllergies ?? []}
+          // How each is read: "Read as milk", or, in caution ink, that we don't know the word (K7R-02).
+          detailOf={item => {
+            const status = ownAllergyStatus(item);
+            return status && (status.unknown ? <span className="text-caution">{status.text}</span> : status.text);
+          }}
           onAdd={entry => edit(current => current && { ...current, customAllergies: addAvoid(current.customAllergies ?? [], entry) })}
-          onRemove={item => void edit(current => {
-            if (!current) return current;
-            const left = (current.customAllergies ?? []).filter(a => a !== item);
-            const next: FoodPreferences = { ...current, customAllergies: left };
-            if (left.length === 0) delete next.customAllergies;
-            return next;
-          })}
+          onRemove={item => {
+            const at = (food.customAllergies ?? []).indexOf(item);
+            void edit(current => {
+              if (!current) return current;
+              const left = (current.customAllergies ?? []).filter(a => a !== item);
+              const next: FoodPreferences = { ...current, customAllergies: left };
+              if (left.length === 0) delete next.customAllergies;
+              return next;
+            }).then(ok => {
+              // Back in its place, as adding it would be: never twice, never past the limit.
+              const same = (a: string) => a.toLocaleLowerCase() === item.toLocaleLowerCase();
+              if (ok) offerBack(item, f => ({ ...f, customAllergies: putBack(f.customAllergies ?? [], item, at) }), f => (f.customAllergies ?? []).some(same));
+            });
+          }}
         />
       )}
 
@@ -211,20 +285,42 @@ export function FoodScreen() {
       )}
 
       {problem && <Notice tone="error">{problem}</Notice>}
-      {food && <PlainButton tone="stop" onClick={() => void edit(() => undefined)}>Clear food preferences</PlainButton>}
+      {food && <PlainButton tone="stop" onClick={() => setClearing(true)}>Clear food preferences</PlainButton>}
+      {food && (
+        <ConfirmSheet
+          open={clearing}
+          onOpenChange={setClearing}
+          title={FOOD_COPY.clearTitle}
+          detail={[
+            keeps(food) ? FOOD_COPY.clearSome : FOOD_COPY.clearAll,
+            (food.allergies?.length ?? 0) + (food.customAllergies?.length ?? 0) > 0 ? FOOD_COPY.clearKeepsAllergies : undefined,
+            keeps(food) ? FOOD_COPY.clearKeepsPattern : undefined,
+          ].filter(Boolean).join(' ')}
+          confirm={FOOD_COPY.clearConfirm}
+          // Clearing is another edit: an allergy Undo standing ends with it, as §20.4 rule 6 has it (H7F-01).
+          onConfirm={() => void edit(cleared).then(ok => {
+            if (!ok) return;
+            endFoodUndos('/me/food');
+            setClearing(false);
+          })}
+          {...(problem ? { error: problem } : {})}
+        />
+      )}
       <LevelSheet open={choosing} onOpenChange={setChoosing} />
     </Screen>
   );
 }
 
 /** A list of the person's own words, each removable, with a field to add one. */
-function WordList({ header, footer, inputId, inputLabel, placeholder, items, onAdd, onRemove }: {
+function WordList({ header, footer, inputId, inputLabel, placeholder, items, detailOf, onAdd, onRemove }: {
   header: string;
   footer?: string;
   inputId: string;
   inputLabel: string;
   placeholder: string;
   items: readonly string[];
+  /** A line under an entry, when it has one. */
+  detailOf?: (item: string) => ReactNode;
   onAdd: (entry: string) => Promise<boolean>;
   onRemove: (item: string) => void;
 }) {
@@ -243,15 +339,17 @@ function WordList({ header, footer, inputId, inputLabel, placeholder, items, onA
         <Row
           key={item}
           label={item}
+          {...(detailOf?.(item) ? { detail: detailOf(item) } : {})}
           className="py-1"
           accessory={
+            // "Remove" in words, at 48 px, the word named for VoiceOver (§20.4 rules 1, 2; board D141).
             <button
               type="button"
               aria-label={`Remove ${item}`}
               onClick={() => onRemove(item)}
-              className="press-feedback -mr-2 flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground"
+              className="press-feedback -mr-2 flex min-h-12 min-w-12 shrink-0 items-center justify-center rounded-full px-3 text-[length:var(--text-body)] font-medium text-stop"
             >
-              <XIcon className="size-5" aria-hidden />
+              Remove
             </button>
           }
         />
@@ -268,9 +366,9 @@ function WordList({ header, footer, inputId, inputLabel, placeholder, items, onA
             autoComplete="off"
             placeholder={placeholder}
             onChange={e => setTyped(e.target.value)}
-            className="min-h-11 min-w-0 flex-1 bg-transparent text-[length:var(--text-body)] outline-none placeholder:text-muted-foreground"
+            className="min-h-12 min-w-0 flex-1 bg-transparent text-[length:var(--text-body)] outline-none placeholder:text-muted-foreground"
           />
-          <button type="submit" disabled={!typed.trim()} className="press-feedback min-h-11 shrink-0 px-2 text-[length:var(--text-body)] font-semibold text-tint disabled:opacity-40">
+          <button type="submit" disabled={!typed.trim()} className="press-feedback min-h-12 min-w-12 shrink-0 px-3 text-[length:var(--text-body)] font-semibold text-tint disabled:opacity-40">
             Add
           </button>
         </form>
