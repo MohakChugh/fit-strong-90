@@ -195,9 +195,6 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
             <p className="px-1 text-[length:var(--text-body)] leading-snug">
               This deletes the {countsSentence(here)} on this {device}, with its profile and settings, and keeps only what is in the file{(total(stage.preview.rejected) || stage.preview.unreadableObservations) > 0 ? ', leaving out the records in it that cannot be read' : ''}. It cannot be undone.
             </p>
-            {(stage.preview.replaceRemoves?.routes ?? 0) > 0 && (
-              <p className="px-1 text-[length:var(--text-body)] leading-snug">{`Your ${plural(stage.preview.replaceRemoves?.routes ?? 0, 'route')} on this ${device} go too.`}</p>
-            )}
             {stage.preview.keepsOpen && <p className="px-1 text-[length:var(--text-body)] leading-snug">{keepsOpenLine(device)}</p>}
             <div className="flex flex-col gap-2">
               <button

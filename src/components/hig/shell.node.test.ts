@@ -341,6 +341,9 @@ describe('a sheet that will not close yet (review C2-07)', () => {
 
   it('the restore preview says what happens to routes on this phone’s own answer, before anything changes (H6-05, B-26)', () => {
     const flow = read('src/screens/you/RestoreFlow.tsx');
+    // Replace's confirmation counts this phone's routes once, in its counts sentence (K6R-10).
+    expect(flow).not.toMatch(/go too/);
+    expect(flow).toMatch(/This deletes the \{countsSentence\(here\)\} on this \{device\}/);
     expect(flow).toMatch(/saveRoutes=\{walkSettings\(state\.settings\)\.saveRoutes\}/);
     expect(flow).toMatch(/\{routeNotes\(preview, saveRoutes\)\.map\(n => <Notice key=\{n\}>\{n\}<\/Notice>\)\}/);
   });
