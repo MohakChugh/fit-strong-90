@@ -153,3 +153,13 @@ describe('Trends draws its rows in regions of at most 5 (H3-22, B-08)', () => {
     expect(trends).toContain('<Group key={s.title} header={s.title}>');
   });
 });
+
+describe('a trend’s statistic, coverage and notes are read at subhead size (KT-12, journey §20.4 rule 12)', () => {
+  it('names the statistic, what it covers, the days compared and each note at 15 px, never as a caption', () => {
+    const head = read('TrendHeadlines.tsx');
+    expect(head).toContain('<p className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground [overflow-wrap:break-word]">{headline.statistic} · {headline.coverage}</p>');
+    expect(head).toContain('{change.compared && <p className="text-[length:var(--text-subhead)] text-muted-foreground">{change.compared}</p>}');
+    expect(head).not.toContain('--text-footnote');
+    expect(read('CategoryTrend.tsx')).toContain('{view.notes.map(note => <p key={note} className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{note}</p>)}');
+  });
+});

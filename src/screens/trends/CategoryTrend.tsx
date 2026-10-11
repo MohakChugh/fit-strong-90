@@ -123,7 +123,7 @@ function PeriodTrend({ def }: { def: TrendDef }) {
       <StatGrid items={view.stats} />
       {view.notes.length > 0 && (
         <div className="flex flex-col gap-1 px-1">
-          {view.notes.map(note => <p key={note} className="text-[length:var(--text-footnote)] leading-snug text-muted-foreground">{note}</p>)}
+          {view.notes.map(note => <p key={note} className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{note}</p>)}
         </div>
       )}
       {backLeg && (

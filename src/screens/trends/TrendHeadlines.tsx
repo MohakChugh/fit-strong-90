@@ -19,7 +19,8 @@ export function TrendHeadlines({ headline, change, meter }: { headline: Headline
   return (
     <div className="flex flex-col gap-1">
       {meter && <p className="text-[length:var(--text-subhead)] font-semibold leading-snug text-caution">{meter}</p>}
-      <p className="text-[length:var(--text-footnote)] leading-snug text-muted-foreground [overflow-wrap:break-word]">{headline.statistic} · {headline.coverage}</p>
+      {/* What the figure is and covers (B-15): meaningful words, never a caption (§20.4 rule 12, KT-12). */}
+      <p className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground [overflow-wrap:break-word]">{headline.statistic} · {headline.coverage}</p>
       <p className="leading-tight [overflow-wrap:break-word]">
         <span className="numeric text-[length:var(--text-large-title)] font-semibold">{headline.value}</span>
         {headline.unit && <span className="ml-1.5 text-[length:var(--text-body)] text-muted-foreground">{headline.unit}</span>}
@@ -28,7 +29,7 @@ export function TrendHeadlines({ headline, change, meter }: { headline: Headline
         {change.direction && <ChangeArrow direction={change.direction} />}
         <span className="min-w-0 [overflow-wrap:break-word]">{change.text}</span>
       </p>
-      {change.compared && <p className="text-[length:var(--text-footnote)] text-muted-foreground">{change.compared}</p>}
+      {change.compared && <p className="text-[length:var(--text-subhead)] text-muted-foreground">{change.compared}</p>}
     </div>
   );
 }
