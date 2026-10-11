@@ -119,7 +119,7 @@ export function TextInput({ label, text, onText, inputMode = 'text', placeholder
         <input id={id} value={text} inputMode={inputMode} placeholder={placeholder} autoComplete={autoComplete}
           {...(hint ? { 'aria-describedby': hintId } : {})}
           onChange={e => onText(e.target.value)}
-          className="numeric min-h-11 w-full max-w-[12rem] rounded-lg bg-muted/60 px-3 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-3 focus-visible:ring-tint/40" />
+          className="numeric min-h-12 w-full max-w-[12rem] rounded-lg bg-muted/60 px-3 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-3 focus-visible:ring-tint/40" />
       </div>
       {hint && <p id={hintId} className="px-4 pb-2 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">{hint}</p>}
     </div>

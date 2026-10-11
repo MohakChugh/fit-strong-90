@@ -8,13 +8,13 @@ import { AREAS, TRI } from '../choices';
 import { Ask, Missing, type PageProps } from '../controls';
 
 /**
- * A body seen from behind, its areas tappable (journey §6.2 ch. 5). A picture
- * only: the list beside it is the control, for screen readers and for any
- * area too small to tap with confidence.
+ * A body seen from behind, the areas chosen filled in (journey §6.2 ch. 5).
+ * A picture only: its areas are too small to tap with confidence, so the
+ * labelled list below is how they're chosen (H5-22; board D159).
  */
-function BodyPicture({ chosen, onToggle }: { chosen: readonly PainArea[]; onToggle: (area: PainArea) => void }) {
+function BodyPicture({ chosen }: { chosen: readonly PainArea[] }) {
   const area = (id: PainArea, shape: ReactNode) => (
-    <g key={id} onClick={() => onToggle(id)} className={cn('cursor-pointer transition-colors', chosen.includes(id) ? 'fill-tint/70' : 'fill-tint/10')}>{shape}</g>
+    <g key={id} className={cn('transition-colors', chosen.includes(id) ? 'fill-tint/70' : 'fill-tint/10')}>{shape}</g>
   );
   return (
     <svg aria-hidden viewBox="0 0 120 230" className="mx-auto h-56 w-auto">
@@ -40,13 +40,9 @@ function BodyPicture({ chosen, onToggle }: { chosen: readonly PainArea[]; onTogg
 
 export function BackFeetWhere({ a, set, tried }: PageProps) {
   const areas = a.painAreas;
-  const toggle = (x: PainArea) => {
-    const now = areas ?? [];
-    set({ painAreas: now.includes(x) ? now.filter(y => y !== x) : [...now, x] });
-  };
   return (
     <>
-      <BodyPicture chosen={areas ?? []} onToggle={toggle} />
+      <BodyPicture chosen={areas ?? []} />
       <Group>
         <CheckRows label="Where does it hurt?" options={AREAS} value={areas ?? []} onChange={painAreas => set({ painAreas })} />
       </Group>

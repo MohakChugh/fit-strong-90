@@ -330,3 +330,56 @@ describe('a setup page, kept as typed (§6.1; H5-16, K5-17; board D158)', () => 
     expect(draft()).toMatchObject({ at: 'about.name', edits: { 'about.name': { name: 'Kai' } } });
   });
 });
+
+describe('tap targets (§20.4.1; H5-22; board D159)', () => {
+  /** The least height a node's classes give it, in px at the default text size. */
+  const leastHeight = (className: unknown): number => {
+    const classes = String(className ?? '').split(/\s+/);
+    const px = classes.map(c => {
+      const units = /^(?:min-)?h-(\d+)$/.exec(c);
+      if (units) return Number(units[1]) * 4;
+      const rem = /^(?:min-)?h-\[(\d*\.?\d+)rem\]$/.exec(c);
+      return rem ? Number(rem[1]) * 16 : 0;
+    });
+    return Math.max(0, ...px);
+  };
+  const tappable = (n: HostNode) => n.type === 'button' || n.type === 'input' || ['radio', 'checkbox', 'switch', 'button'].includes(String(n.props.role));
+
+  it('every control setup’s questions use is at least 48 px tall', async () => {
+    const { ChoiceRows, CheckRows, PlainButton, Segmented, TimeField } = await import('@/screens/you/controls');
+    const { NumberAnswer, TextInput } = await import('./controls');
+    const options = [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }];
+    const shown = render(createElement('div', null,
+      createElement(TextInput, { label: 'Name', text: '', onText: () => {} }),
+      createElement(NumberAnswer, { label: 'Year', value: undefined, onChange: () => {} }),
+      createElement(Segmented, { label: 'Units', options, value: 'a', onChange: () => {} }),
+      createElement(TimeField, { id: 't', label: 'From', value: '09:00', onChange: () => {} }),
+      createElement(PlainButton, null, 'Skip for now'),
+      createElement(ChoiceRows, { label: 'One', options, value: 'a', onChange: () => {} }),
+      createElement(CheckRows, { label: 'Some', options, value: [], onChange: () => {} }),
+    ));
+    const small = shown.all().filter(tappable).filter(n => leastHeight(n.props.className) < 48);
+    shown.unmount();
+    expect(small.map(n => `${String(n.type)} ${String(n.props.className)}`)).toEqual([]);
+  });
+
+  it('nothing in setup or the controls it uses is sized at 40 or 44 px, the switch included', async () => {
+    const fs = await import('node:fs');
+    const pages = fs.readdirSync('src/screens/setup/pages').map(f => `src/screens/setup/pages/${f}`);
+    for (const file of ['src/screens/you/controls.tsx', 'src/screens/setup/controls.tsx', 'src/screens/setup/SetupShell.tsx', 'src/screens/setup/PageFrame.tsx',
+      'src/screens/setup/WelcomePage.tsx', 'src/screens/setup/ReviewPage.tsx', 'src/screens/setup/ChapterEditor.tsx', ...pages]) {
+      expect(fs.readFileSync(file, 'utf8'), file).not.toMatch(/\b(?:min-)?h-(?:10|11)\b/);
+    }
+  });
+
+  it('the body picture only shows what’s chosen: areas are chosen in the labelled list', async () => {
+    const { BackFeetWhere } = await import('./pages/backFeet');
+    const shown = render(createElement(BackFeetWhere, { a: { painAreas: ['lowerBack'] }, set: () => {}, tried: false, ctx: { thisYear: 2026 }, mode: 'setup' }));
+    const picture = shown.all().find(n => n.type === 'svg');
+    const inPicture = (n: HostNode): HostNode[] => [n, ...n.children.flatMap(c => (typeof c === 'string' ? [] : inPicture(c)))];
+    expect(picture?.props['aria-hidden']).toBe(true);
+    expect(inPicture(picture!).filter(n => n.props.onClick !== undefined)).toEqual([]);
+    expect(shown.all().some(n => n.props.role === 'checkbox' && n.props['aria-checked'] === true)).toBe(true);
+    shown.unmount();
+  });
+});

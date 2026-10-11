@@ -6,7 +6,8 @@ import { cn } from '@/lib/utils';
 /**
  * The few controls these screens need beyond `hig`: the iOS switch, a list of
  * choices with a checkmark, a full-width primary action and a time field.
- * All at least 44 px tall, all labelled, all in the one accent colour.
+ * All at least 48 px tall (§20.4.1; H5-22), all labelled, all in the one
+ * accent colour.
  */
 
 export function PrimaryButton({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -28,7 +29,7 @@ export function PlainButton({ className, tone = 'tint', ...props }: ButtonHTMLAt
     <button
       type="button"
       className={cn(
-        'press-feedback flex min-h-11 w-full items-center justify-center rounded-xl px-4 text-center text-[length:var(--text-body)] font-medium disabled:opacity-50',
+        'press-feedback flex min-h-12 w-full items-center justify-center rounded-xl px-4 text-center text-[length:var(--text-body)] font-medium disabled:opacity-50',
         tone === 'stop' ? 'text-stop' : 'text-tint',
         className,
       )}
@@ -38,8 +39,8 @@ export function PlainButton({ className, tone = 'tint', ...props }: ButtonHTMLAt
 }
 
 /**
- * The iOS switch: a 51 × 31 track, accent when on, inside a 51 × 44 control,
- * so the target is a full 44 points tall (acceptance tap targets). The thumb
+ * The iOS switch: a 51 × 31 track, accent when on, inside a 51 × 48 control,
+ * so the target is a full 48 points tall (§20.4.1; H5-22). The thumb
  * carries no meaning on its own — the switch is announced as on or off with
  * its label.
  */
@@ -56,9 +57,9 @@ export function Toggle({ checked, onChange, label, disabled }: {
       onCheckedChange={next => onChange(next)}
       disabled={disabled}
       aria-label={label}
-      className="group/toggle relative inline-flex h-11 w-[51px] shrink-0 items-center outline-none"
+      className="group/toggle relative inline-flex h-12 w-[51px] shrink-0 items-center outline-none"
     >
-      {/* The visible track, centred in the 44-point control. */}
+      {/* The visible track, centred in the 48-point control. */}
       <span
         aria-hidden
         className={cn(
@@ -171,7 +172,7 @@ export function Segmented<T extends string>({ label, options, value, onChange }:
             aria-checked={on}
             onClick={() => onChange(option.value)}
             className={cn(
-              'numeric min-h-11 rounded-lg px-2 text-[length:var(--text-subhead)] font-medium transition-colors',
+              'numeric min-h-12 rounded-lg px-2 text-[length:var(--text-subhead)] font-medium transition-colors',
               on ? 'bg-grouped-card text-foreground ring-1 ring-separator' : 'text-muted-foreground',
             )}
           >
@@ -202,7 +203,7 @@ export function TimeField({ id, label, value, onChange }: {
         type="time"
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="numeric min-h-11 min-w-0 max-w-full rounded-lg bg-muted/60 px-[min(0.75rem,2vw)] text-[length:var(--text-body)] text-foreground outline-none focus-visible:ring-3 focus-visible:ring-tint/40"
+        className="numeric min-h-12 min-w-0 max-w-full rounded-lg bg-muted/60 px-[min(0.75rem,2vw)] text-[length:var(--text-body)] text-foreground outline-none focus-visible:ring-3 focus-visible:ring-tint/40"
       />
     </label>
   );
