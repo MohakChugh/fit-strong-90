@@ -81,11 +81,11 @@ const PAGES = {
   },
   'Your feet': async (s, a) => {
     await choose(s, 'Numbness or loss of feeling in your feet?', a.feetNumb);
-    await choose(s, 'A wound, an ulcer or a Charcot foot?', a.footWound);
+    await choose(s, 'A wound, an ulcer, or a hot, swollen foot (Charcot foot)?', a.footWound);
   },
-  'Exercise limits from a clinician': async (s, a) => {
-    await choose(s, 'Has a clinician cleared you to exercise?', a.clearance);
-    await choose(s, 'Has a clinician given you any limits or targets?', a.targets);
+  'Exercise limits from a doctor or nurse': async (s, a) => {
+    await choose(s, 'Has a doctor or nurse (clinician) cleared you to exercise?', a.clearance);
+    await choose(s, 'Has a doctor or nurse (clinician) given you any limits or targets?', a.targets);
   },
   'Your medicines': (s, a) => choose(s, 'Do you take any regular medicines?', a.regular),
   'Do any of these apply?': async (s, a) => {
@@ -98,7 +98,7 @@ const PAGES = {
     await choose(s, 'A severe low in the last 6 months, or do you often not feel lows coming?', a.lowsRisk);
   },
   Ketones: async (s, a) => {
-    await choose(s, 'Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?', a.priorDka);
+    await choose(s, 'Ever been very ill from high ketones (diabetic ketoacidosis, or DKA), or been told your body makes too little insulin?', a.priorDka);
     await choose(s, 'Can you test ketones?', a.ketoneTest);
   },
   'Standing up': (s, a) => choose(s, 'Do you get dizzy when you stand up?', a.dizzy),
@@ -117,7 +117,7 @@ const PAGES = {
   },
   'Nerves and feet': async (s, a) => {
     await choose(s, 'Has a doctor ever said a nerve in your back or leg was damaged?', a.neuro);
-    await choose(s, 'Has a clinician told you to keep weight off a foot?', a.footRestriction);
+    await choose(s, 'Has a doctor or nurse (clinician) told you to keep weight off a foot?', a.footRestriction);
   },
   'What would you most like to do?': async (s, a) => {
     await choose(s, 'What would you most like to do?', a.focus);
@@ -225,12 +225,12 @@ export async function reviewAsP01(main) {
   await tick(main, 'Back pain, sciatica or other pain');
   await choose(main, 'Which type of diabetes?', 'Type 2');
   await choose(main, 'Do you take medicine for high blood pressure?', 'Yes');
-  await choose(main, 'Has a clinician cleared you to exercise?', 'Yes, for vigorous exercise');
-  await choose(main, 'Has a clinician given you any limits or targets?', 'No');
+  await choose(main, 'Has a doctor or nurse (clinician) cleared you to exercise?', 'Yes, for vigorous exercise');
+  await choose(main, 'Has a doctor or nurse (clinician) given you any limits or targets?', 'No');
   await choose(main, 'Do you take any regular medicines?', 'Yes');
   await tick(main, 'Metformin');
   await fill(main, 'Year you started metformin (optional)', '2019');
-  await choose(main, 'Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?', 'No');
+  await choose(main, 'Ever been very ill from high ketones (diabetic ketoacidosis, or DKA), or been told your body makes too little insulin?', 'No');
   await choose(main, 'Do you get dizzy when you stand up?', 'No');
   await choose(main, 'Glucose meter or sensor', 'A glucose meter (finger-prick)');
   await choose(main, 'Glucose unit', 'mg/dL');

@@ -37,7 +37,7 @@ export interface ChapterEdit {
 /**
  * The chapters an edit owns: those opened, Your medicines when the edit makes
  * its answers needed again (Review Focus 1), and Your back and feet when it
- * adds foot problems: "Has a clinician told you to keep weight off a foot?"
+ * adds foot problems: "Has a doctor or nurse (clinician) told you to keep weight off a foot?"
  * holds walking (K-30), so it's asked in the same edit even where that page
  * was waiting for an upgrader's new questions (board D79). Taking foot
  * problems away while that limit stands asks it too: only it releases the

@@ -87,7 +87,7 @@ describe('a clinical edit in Me (H5-08; board D162)', () => {
     host = render(createElement(ChapterEditor, { chapter: 'health' }));
     await host.settle();
     // The wound has healed.
-    await host.click(radio(host, 'A wound, an ulcer or a Charcot foot?', 'No'));
+    await host.click(radio(host, 'A wound, an ulcer, or a hot, swollen foot (Charcot foot)?', 'No'));
     fake.control.hold();
     await host.click(host.button('Save', { exact: true }));
     await host.settle();
@@ -105,8 +105,8 @@ describe('a clinical edit in Me (H5-08; board D162)', () => {
     await host.click(host.button(/^Foot problems: numbness, a wound or an ulcer/));
     await host.settle();
     await host.click(radio(host, 'Numbness or loss of feeling in your feet?', 'Yes'));
-    await host.click(radio(host, 'A wound, an ulcer or a Charcot foot?', 'Yes, now'));
-    await host.click(radio(host, 'Has a clinician told you to keep weight off a foot?', 'No'));
+    await host.click(radio(host, 'A wound, an ulcer, or a hot, swollen foot (Charcot foot)?', 'Yes, now'));
+    await host.click(radio(host, 'Has a doctor or nurse (clinician) told you to keep weight off a foot?', 'No'));
     fake.control.setWriteError(() => new DOMException('Disk is full', 'QuotaExceededError'));
     await host.click(host.button('Save', { exact: true }));
     await host.settle();
@@ -263,5 +263,27 @@ describe('allergies in setup (K5-08; board D150)', () => {
     await host.click(host.button('Next', { exact: true }));
     await host.settle();
     expect((saves[0] as [string, { allergies?: unknown }])[1].allergies).toEqual([]);
+  });
+});
+
+describe('plain words first, the term in brackets (K5-13; board D155)', () => {
+  it('a clinician, a Charcot foot, DKA, a closed-loop system and HbA1c are named only after plain words', async () => {
+    const { PAGE_VIEWS } = await import('./pages');
+    const { PAGE_TITLE } = await import('./titles');
+    const { NO_CLASSES, NO_CONDITIONS } = await import('@/setup/fixtures');
+    const a = {
+      conditions: { ...NO_CONDITIONS, diabetes: 'yes', bp: 'yes', feet: 'yes', pain: 'yes' }, diabetesType: 'type2', targets: 'yes',
+      regular: 'yes', classes: { ...NO_CLASSES, insulin: 'yes' },
+    } as const;
+    const terms = ['clinician', 'Charcot foot', 'DKA', 'diabetic ketoacidosis', 'closed-loop system', 'HbA1c'];
+    const bare = (text: string) => text.replace(/\([^)]*\)/g, '');
+    for (const title of Object.values(PAGE_TITLE)) for (const term of terms) expect(bare(title), title).not.toContain(term);
+    for (const id of ['health.feet', 'health.limits', 'medicines.lows', 'medicines.ketones', 'backFeet.history'] as const) {
+      const shown = render(createElement(PAGE_VIEWS[id], { a, set: () => {}, tried: false, ctx: { thisYear: 2026 }, mode: 'setup' }));
+      await shown.settle();
+      const text = shown.text();
+      shown.unmount();
+      for (const term of terms) expect(bare(text), `${id}: “${term}” before its plain words`).not.toContain(term);
+    }
   });
 });

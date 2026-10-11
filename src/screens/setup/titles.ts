@@ -12,7 +12,7 @@ export const PAGE_TITLE: Record<PageId, string> = {
   'health.fluid': 'Heart, kidneys and fluids',
   'health.eyes': 'Your eyes',
   'health.feet': 'Your feet',
-  'health.limits': 'Exercise limits from a clinician',
+  'health.limits': 'Exercise limits from a doctor or nurse',
   'medicines.regular': 'Your medicines',
   'medicines.which': 'Do any of these apply?',
   'medicines.lows': 'Insulin and lows',

@@ -33,7 +33,7 @@ describe('which chapters an edit owns (board D79; Review Focus 1)', () => {
 });
 
 describe('foot problems added in Your health (board D79; K-30)', () => {
-  it('bring Your back and feet, for “Has a clinician told you to keep weight off a foot?”', () => {
+  it('bring Your back and feet, for “Has a doctor or nurse (clinician) told you to keep weight off a foot?”', () => {
     const feet = { ...MINIMAL, conditions: { ...NO_CONDITIONS, feet: 'yes' as const } };
     expect(editChapters(['health'], feet, MINIMAL)).toEqual(['health', 'backFeet']);
     expect(editChapters(['health'], { ...feet, conditions: { ...NO_CONDITIONS, feet: 'unsure' } }, MINIMAL)).toEqual(['health', 'backFeet']);

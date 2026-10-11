@@ -278,13 +278,13 @@ export const cases = [
         await editMedicines(t, async m => {
           await setup.tick(m, 'Diabetes');
           await setup.choose(m, 'Which type of diabetes?', 'Type 2');
-          await setup.choose(m, 'Has a clinician cleared you to exercise?', 'Yes, for vigorous exercise');
-          await setup.choose(m, 'Has a clinician given you any limits or targets?', 'No');
+          await setup.choose(m, 'Has a doctor or nurse (clinician) cleared you to exercise?', 'Yes, for vigorous exercise');
+          await setup.choose(m, 'Has a doctor or nurse (clinician) given you any limits or targets?', 'No');
           await setup.choose(m, 'Do you take any regular medicines?', 'Yes');
           await setup.tick(m, 'Not sure: Insulin');
           await setup.choose(m, 'How do you take insulin?', 'Not sure');
           await setup.choose(m, 'A severe low in the last 6 months, or do you often not feel lows coming?', 'No');
-          await setup.choose(m, 'Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?', 'No');
+          await setup.choose(m, 'Ever been very ill from high ketones (diabetic ketoacidosis, or DKA), or been told your body makes too little insulin?', 'No');
           await setup.choose(m, 'Do you get dizzy when you stand up?', 'No');
           await setup.choose(m, 'Glucose meter or sensor', 'A glucose meter (finger-prick)');
           await setup.choose(m, 'Glucose unit', 'mg/dL');

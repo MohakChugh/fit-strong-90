@@ -415,7 +415,7 @@ const step5 = {
       await setup.openChapter(t, 'Your health');
       await setup.tick(main, 'Back pain, sciatica or other pain', false);
       // P01 has diabetes and treated blood pressure, so the limits are asked; v1 never asked about targets.
-      await setup.choose(main, 'Has a clinician given you any limits or targets?', 'No');
+      await setup.choose(main, 'Has a doctor or nurse (clinician) given you any limits or targets?', 'No');
       await t.checkpoint('profile-edit');
       await setup.save(t);
       const snap0 = await t.db();

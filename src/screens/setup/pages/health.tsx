@@ -68,7 +68,7 @@ export function HealthFeet({ a, set, tried }: PageProps) {
     <>
       <Ask label="Numbness or loss of feeling in your feet?" header="Numbness or loss of feeling in your feet?" options={TRI}
         value={a.feetNumb} onChange={feetNumb => set({ feetNumb })} tried={tried} />
-      <Ask label="A wound, an ulcer or a Charcot foot?" header="A wound, an ulcer or a Charcot foot?" tried={tried}
+      <Ask label="A wound, an ulcer, or a hot, swollen foot (Charcot foot)?" header="A wound, an ulcer, or a hot, swollen foot (Charcot foot)?" tried={tried}
         value={a.footWound} onChange={footWound => set({ footWound })}
         options={[{ value: 'now', label: 'Yes, now' }, { value: 'past', label: 'In the past' }, { value: 'no', label: 'No' }, { value: 'unsure', label: 'Not sure' }]}
         footer="A wound now, or “Not sure”, keeps walks off until it has healed." />
@@ -99,21 +99,21 @@ export function HealthLimits(props: PageProps) {
   const targets = f.bp || f.diabetic;
   return (
     <>
-      <Ask label="Has a clinician cleared you to exercise?" header="Has a clinician cleared you to exercise?" tried={tried}
+      <Ask label="Has a doctor or nurse (clinician) cleared you to exercise?" header="Has a doctor or nurse (clinician) cleared you to exercise?" tried={tried}
         value={a.clearance} onChange={clearance => set({ clearance })}
         options={[
           { value: 'none', label: 'Not yet' }, { value: 'moderate', label: 'Yes, for moderate exercise' },
           { value: 'vigorous', label: 'Yes, for vigorous exercise' }, { value: 'unsure', label: 'Not sure' },
         ]} />
       {targets && (
-        <Ask label="Has a clinician given you any limits or targets?" header="Has a clinician given you any limits or targets?" options={TRI}
+        <Ask label="Has a doctor or nurse (clinician) given you any limits or targets?" header="Has a doctor or nurse (clinician) given you any limits or targets?" options={TRI}
           value={a.targets} onChange={t => set({ targets: t })} tried={tried} />
       )}
       {targets && a.targets === 'yes' && (
-        <Group header="Your limits and targets" footer="Only what your clinician gave you. Leave the rest empty.">
+        <Group header="Your limits and targets" footer="Only what your doctor or nurse gave you. Leave the rest empty.">
           {f.bp && <NumberAnswer label="Stop exercise if the top number is above (optional)" placeholder="180" value={a.bpStopSystolic} onChange={bpStopSystolic => set({ bpStopSystolic })} />}
           {f.bp && <BpPermission {...props} />}
-          {f.diabetic && <NumberAnswer label="HbA1c target, % (optional)" decimals placeholder="7" value={a.hba1cPercent} onChange={hba1cPercent => set({ hba1cPercent })} />}
+          {f.diabetic && <NumberAnswer label="Long-term blood sugar target (HbA1c), % (optional)" decimals placeholder="7" value={a.hba1cPercent} onChange={hba1cPercent => set({ hba1cPercent })} />}
         </Group>
       )}
       <Missing show={tried && a.clearance !== undefined && (!targets || a.targets !== undefined) && !pageDone('health.limits', a, props.ctx)}>

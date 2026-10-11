@@ -115,7 +115,7 @@ export const cases = [
     async after(t) {
       await t.step(6, 'Reload, change the diabetes diagnosis, try another mode', async () => {
         await t.reload();
-        await editChapter(t, 'Your health', async m => { await setup.choose(m, 'Which type of diabetes?', 'Type 1'); await setup.choose(m, 'Has a clinician given you any limits or targets?', 'No'); });
+        await editChapter(t, 'Your health', async m => { await setup.choose(m, 'Which type of diabetes?', 'Type 1'); await setup.choose(m, 'Has a doctor or nurse (clinician) given you any limits or targets?', 'No'); });
         const snap = await t.db();
         await t.check(docs(snap).profile?.health?.diabetes === 'type1', `diagnosis stored as ${docs(snap).profile?.health?.diabetes}`);
         await t.check(sb.checkInOn(snap)?.ketones?.value === 3, `the diagnosis edit changed the reported ketones: ${JSON.stringify(sb.checkInOn(snap)?.ketones)}`);
