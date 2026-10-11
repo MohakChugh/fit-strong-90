@@ -4,6 +4,7 @@ import type { CheckInRecord, DailyCheckIn, Readiness } from '@/types/checkin';
 import { evaluateCheckIn, glucoseReadingId, STOP_UNANSWERED } from '@/engine/readiness';
 import { permission, PERMISSION_TEXT } from '@/engine/permission';
 import { effectiveCheckIns } from '@/components/checkin/pending';
+import { carryForward } from '@/components/checkin/form';
 import type { UserSettings, WorkoutSession } from '@/types';
 import { newObservation, type Observation } from '@/health/observation';
 import { routeRecord, type RouteLine } from '@/walk/routeRecord';
@@ -1086,13 +1087,14 @@ describe('no import resolves or reopens this device’s incidents, in any mode (
   });
 });
 
-describe('an import keeps this device’s standing for each mode (H6R-04, board D175)', () => {
+describe('an import keeps this device’s standing for each mode, and for each answer it gave (H6R-04, H6R-05, board D175)', () => {
   const profile = createDefaultProfile({
     weightKg: 72,
     health: { diabetes: 'type2', metformin: true, glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
   });
   const TODAY = '2026-10-08';
   const NOW = new Date(2026, 9, 8, 13, 40);
+  const at = (h: number, m = 0) => new Date(2026, 9, 8, h, m).toISOString();
   const evaluated = (c: DailyCheckIn): CheckInRecord => ({ ...c, readiness: evaluateCheckIn(profile, c) });
   const day = (over: Partial<DailyCheckIn> = {}): DailyCheckIn => ({ date: TODAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over });
   const snapshot = (checkIns: CheckInRecord[]) => ({ ...emptySnapshot(3), profile, settings: { theme: 'dark' } as UserSettings, checkIns });
@@ -1122,6 +1124,25 @@ describe('an import keeps this device’s standing for each mode (H6R-04, board 
     expect(permission({ profile, checkIn: provoked.checkIns[0], recent: provoked.checkIns, now: NOW }, 'walk').allowed).toBe(false);
     for (const [name, mode, onConflict] of MODES) {
       expect(after(provoked, file([evaluated(day({ back: { pain: 3, legPain: 4, reach: 'thigh' } }))]), mode, onConflict)('walk').allowed, name).toBe(false);
+    }
+  });
+
+  it('a foot sore this device answered as ticked by mistake stays answered, though the file still has it ticked', () => {
+    const mistake = { kind: 'foot' as const, readings: [`flag:footProblem@${TODAY}`], resolution: 'mistake' as const, at: at(13, 30) };
+    const answered = snapshot([evaluated({ ...carryForward(day({ news: ['footProblem'] }), day()), resolutions: [mistake] })]);
+    expect(permission({ profile, checkIn: answered.checkIns[0], recent: answered.checkIns, now: NOW }, 'walk').allowed).toBe(true);
+    for (const [name, mode, onConflict] of MODES) {
+      const next = after(answered, file([evaluated(day({ news: ['footProblem'] }))]), mode, onConflict);
+      expect(next('walk').allowed, `${name}: ${next('walk').reasons.join(' ')}`).toBe(true);
+    }
+  });
+
+  it('a stop this device answered stays answered, though the file still has it unanswered', () => {
+    const rested = { kind: 'news' as const, readings: [`news:stopped@${TODAY}`], resolution: 'resolved' as const, at: at(13, 30) };
+    const answered = snapshot([evaluated(day({ resolutions: [rested] }))]);
+    for (const [name, mode, onConflict] of MODES) {
+      const next = after(answered, file([evaluated(day({ news: ['stopped'] }))]), mode, onConflict);
+      expect(next('walk').reasons, name).not.toContain(STOP_UNANSWERED.reason);
     }
   });
 });

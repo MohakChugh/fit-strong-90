@@ -19,7 +19,7 @@
  */
 
 import type { AppData } from '@/types';
-import type { BpPartialReading, BpReading, CheckInRecord, ClockHold, DailyCheckIn, EmergencyFlag, EpisodeAnswer, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, SymptomReach } from '@/types/checkin';
+import type { BpPartialReading, BpReading, CheckInRecord, ClockHold, DailyCheckIn, EmergencyFlag, EpisodeAnswer, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, RedFlag, SymptomReach } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { completes, evaluateCheckIn, glucoseReadingId, newsReadingId, stoppedIn } from '@/engine/readiness';
 import { clockGeneration } from '@/walk/consent';
@@ -301,7 +301,7 @@ export function withoutAnswersAbout<T extends DailyCheckIn>(day: T, known: Reado
  * later "feeling low" moment of the two, so no reading between them answers it.
  */
 export function neverLooser(kept: DailyCheckIn, other: DailyCheckIn, known: ReadonlySet<string>): DailyCheckIn {
-  const { resolutions: _theirs, ...merged } = strictest(other, kept);
+  const { resolutions: _theirs, ...merged } = strictest(withoutSettled(other, kept, known), kept);
   void _theirs;
   const mine = kept.resolutions ?? [];
   const theirs = withoutAnswersAbout(other, known).resolutions ?? [];
@@ -310,6 +310,35 @@ export function neverLooser(kept: DailyCheckIn, other: DailyCheckIn, known: Read
     .filter((t): t is string => typeof t === 'string' && !Number.isNaN(Date.parse(t)))
     .sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1);
   return { ...merged, ...(resolutions.length ? { resolutions } : {}), ...(felt ? { lowSymptomsAt: felt } : {}) };
+}
+
+/** Where a back red flag is said in a day's answers, for `withoutSettled`. */
+const BACK_FLAG_FIELDS: Partial<Record<RedFlag, readonly (keyof NonNullable<DailyCheckIn['back']>)[]>> = {
+  // A record from before `newWeakness` was asked said it as `newNeuro`.
+  newWeakness: ['newWeakness', 'newNeuro'],
+  backFever: ['feverish'],
+  backSudden: ['suddenSevere'],
+};
+
+/**
+ * The other copy of a day without its reports of what this device knows
+ * (H6R-05, board D175): a news item or red flag the device holds, answered,
+ * or said and unticked since, is the device's to say, so the other copy's
+ * report of it from before, a file's raw news or back answers, reopens
+ * nothing. Anything the device doesn't know is kept, so the day is never
+ * looser for it.
+ */
+function withoutSettled(other: DailyCheckIn, kept: DailyCheckIn, known: ReadonlySet<string>): DailyCheckIn {
+  const knownFlag = (f: RedFlag) => known.has(`flag:${f}@${kept.date}`);
+  const knownNews = (n: NewsItem) => known.has(newsReadingId(kept.date, n)) || ((n === 'footProblem' || n === 'hotSwollenFoot') && knownFlag(n));
+  const news = other.news.filter(n => !knownNews(n));
+  const backFields = (Object.entries(BACK_FLAG_FIELDS) as [RedFlag, readonly (keyof NonNullable<DailyCheckIn['back']>)[]][])
+    .filter(([f]) => knownFlag(f)).flatMap(([, fields]) => fields);
+  if (news.length === other.news.length && !(other.back && backFields.length)) return other;
+  const back = other.back && backFields.length
+    ? { ...other.back, ...Object.fromEntries(backFields.map(k => [k, kept.back?.[k]])) } as NonNullable<DailyCheckIn['back']>
+    : other.back;
+  return { ...other, news, ...(back ? { back } : {}) };
 }
 
 const previousDate = (date: string) => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DailyCheckIn } from '@/types/checkin';
+import { flagsIn } from '@/engine/readiness';
 import { neverLooser, withoutAnswersAbout } from './pending';
 
 const DAY = '2026-10-08';
@@ -28,6 +29,27 @@ describe('two copies of one day, never looser than this device’s (H6-03)', () 
     expect(own.resolutions).toEqual([mistake]);
     // The other's answers about its own readings come with them.
     expect(neverLooser(day(), day({ resolutions: [mistake, reopened] }), new Set()).resolutions).toEqual([mistake, reopened]);
+  });
+
+  it('keeps this device’s standing for what it settled: the other’s raw report of an answered or unticked item reopens nothing (H6R-05)', () => {
+    const footAnswered = { kind: 'foot' as const, readings: [`flag:footProblem@${DAY}`], resolution: 'mistake' as const, at: at(13, 40) };
+    const kept = day({ flagsEarlier: ['footProblem', 'newWeakness'], resolutions: [footAnswered], back: { pain: 2, newWeakness: false, newNeuro: false } });
+    const known = new Set([`flag:footProblem@${DAY}`, `flag:newWeakness@${DAY}`, `news:fainted@${DAY}`]);
+    const other = day({ news: ['footProblem', 'fainted', 'dizzy'], back: { pain: 2, newWeakness: true, newNeuro: true } });
+    const merged = neverLooser({ ...kept, newsEarlier: ['fainted'] }, other, known);
+    // The device's: unticked and answered, unticked and still carried, said and unticked since.
+    expect(merged.news).toEqual(['dizzy']);
+    expect(merged.back?.newWeakness).toBe(false);
+    expect(merged.flagsEarlier).toEqual(expect.arrayContaining(['footProblem', 'newWeakness']));
+    expect(merged.newsEarlier).toEqual(['fainted']);
+    // What the device doesn't know is the other's to add.
+    expect(neverLooser(day(), other, new Set()).news.sort()).toEqual(['dizzy', 'fainted', 'footProblem']);
+    // And what the device reports now stays.
+    expect(neverLooser(day({ news: ['footProblem'] }), other, known).news).toContain('footProblem');
+    // A foot drop said the old way, before the question had its own answer, reopens nothing either.
+    const legacy = day({ back: { pain: 2, newNeuro: true } });
+    expect(flagsIn(neverLooser(day({ flagsEarlier: ['newWeakness'] }), legacy, known))).not.toContain('newWeakness');
+    expect(flagsIn(neverLooser(day(), legacy, new Set()))).toContain('newWeakness');
   });
 
   it('leaves out only the readings this device holds from an answer that names others too', () => {
