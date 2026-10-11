@@ -227,6 +227,21 @@ describe('the record after an edit (journey §16)', () => {
     expect(timed.settings.habits?.water?.everyMinutes).toBe(90);
   });
 
+  it('a fluid limit answered in Your day and coach reaches the engine, as Your health’s does (H5-04, K5-03)', () => {
+    const data = finished(MINIMAL);
+    const a = opened(data);
+    expect(a.fluidLimit).toBeUndefined();
+    const water = { on: true, glassMl: 250, everyMinutes: 120, from: '09:00', to: '21:00' };
+    for (const [answer, want] of [['yes', true], ['unsure', 'unsure'], ['no', false]] as const) {
+      const state = editorState(editorOpens('day', data.profile), { ...a, water, fluidLimit: answer }, a, CTX);
+      expect(state.chapters).toEqual(['day']);
+      const after = editedRecord(data, editOf(state, a), TODAY, CTX);
+      expect(after.profile?.health.fluidRestriction, answer).toBe(want);
+      // The reminder follows it: on only with no limit.
+      expect(after.settings.habits?.water?.enabled, answer).toBe(answer === 'no');
+    }
+  });
+
   it('keeps a chapter under Finish setting up only while a page in it is left', () => {
     const data = finished({ ...MINIMAL, weeklyGoal: undefined, skippedPages: ['movement.goal'] });
     expect(data.settings.setup?.skipped).toEqual(['movement']);

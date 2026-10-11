@@ -196,6 +196,8 @@ export function profileFrom(a: SetupAnswers, base: UserProfile | undefined, toda
     if (reviews.bp && bpMedicinesAsked(next.health)) next.health.bpMedicinesReviewed = true;
     else if (bpMedicinesAsked(next.health) && !bpMedicinesAsked(start.health)) put(next.health, 'bpMedicinesReviewed', undefined);
   }
+  // Your day and coach asks the fluid limit too, when water reminders go on: the engine reads it as Your health's (§6.3; H5-04).
+  if (on('day') && a.fluidLimit !== undefined) next.health.fluidRestriction = med(a.fluidLimit);
   if (on('health') || on('backFeet')) next.pain = painFrom(a, start.pain);
   if (on('food')) put(next, 'food', foodFrom(a, start.food));
   if (on('day') && a.voice) next.voice = { ...start.voice, ...a.voice };
