@@ -54,7 +54,9 @@ export function MedicinesLows({ a, set, tried, ctx }: PageProps) {
             options={[{ value: 'mg/dL', label: 'mg/dL' }, { value: 'mmol/L', label: 'mmol/L' }]} />
         </div>
       </Group>
-      <Missing show={tried && answered && !pageDone('medicines.lows', a, ctx)}>Check the glucose number: 54 to 300 mg/dL, or 3 to 17 mmol/L.</Missing>
+      <Missing show={tried && answered && !pageDone('medicines.lows', a, ctx)}>
+        Check the glucose number: 70 to 300 mg/dL, or 3.9 to 17 mmol/L. Below 70 mg/dL (3.9 mmol/L) is a low, so exercise never starts there.
+      </Missing>
     </>
   );
 }

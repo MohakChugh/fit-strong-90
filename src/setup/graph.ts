@@ -38,9 +38,14 @@ const always = () => true;
 const inRange = (n: number | undefined, lo: number, hi: number) => n === undefined || (Number.isFinite(n) && n >= lo && n <= hi);
 const okWindow = (w: { on: boolean; everyMinutes: number; from: string; to: string } | undefined) =>
   !w?.on || windowProblem(w.from, w.to, w.everyMinutes) === undefined;
+/**
+ * A care team's start figure, from 70 mg/dL (3.9 mmol/L): below that is a
+ * low, where exercise never starts, and the engine wouldn't use it
+ * (`glucoseStartMin`, engine/health.ts; K5-10, board D152).
+ */
 const glucoseOk = (a: SetupAnswers) => {
   const mmol = (a.glucoseStartUnit ?? a.glucoseUnit) === 'mmol/L';
-  return inRange(a.glucoseStartMin, mmol ? 3 : 54, mmol ? 17 : 300);
+  return inRange(a.glucoseStartMin, mmol ? 3.9 : 70, mmol ? 17 : 300);
 };
 
 /** A checklist is one question (B-08): answered once a row is ticked, or "None of these" is (every row No). */

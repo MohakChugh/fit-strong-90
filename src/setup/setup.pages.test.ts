@@ -76,6 +76,13 @@ describe('setup’s pages (journey §1.2, §6.2; B-06)', () => {
     expect(commitPage('day.meals', { ...walks, mealFinish: { lunch: '12:45' } }).mealFinish).toEqual({ lunch: '12:45', dinner: '20:30' });
   });
 
+  it('takes a usual glucose start figure only from 70 mg/dL or 3.9 mmol/L, where the engine would use it (K5-10)', () => {
+    const lows: SetupAnswers = withC({ diabetes: 'yes' }, { diabetesType: 'type1', insulinHow: 'pump', lowsRisk: 'no' });
+    const at = (glucoseStartMin: number, glucoseStartUnit: 'mg/dL' | 'mmol/L') => pageDone('medicines.lows', { ...lows, glucoseStartMin, glucoseStartUnit }, CTX);
+    expect([at(65, 'mg/dL'), at(70, 'mg/dL'), at(300, 'mg/dL'), at(301, 'mg/dL')]).toEqual([false, true, true, false]);
+    expect([at(3.8, 'mmol/L'), at(3.9, 'mmol/L'), at(17, 'mmol/L')]).toEqual([false, true, true]);
+  });
+
   it('stores estimates only once the screening question is answered (K-22, board D82)', () => {
     expect(pageDone('food.logging', { foodLevel: 'estimates' }, CTX)).toBe(false);
     expect(pageDone('food.logging', { foodLevel: 'estimates', hardBefore: 'preferNot' }, CTX)).toBe(true);
