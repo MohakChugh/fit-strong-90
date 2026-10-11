@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { AppData } from '@/types';
 import type { Mode } from '@/types/checkin';
 import type { HealthProfile, UserProfile } from '@/types/profile';
-import { CHAPTER_IDS } from '@/types/setup';
+import { CHAPTER_IDS, CONDITION_IDS, type SetupAnswers } from '@/types/setup';
 import { permission } from '@/engine/permission';
 import { createDefaultProfile } from '@/profile/defaults';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import { profileFrom } from './assemble';
-import { editedRecord } from './edit';
+import { editOf, editedRecord, editorOpens, editorState } from './edit';
 import { answersFromProfile, answersToEdit } from './prefill';
 
 const TODAY = '2026-10-08';
@@ -58,6 +58,51 @@ describe('an upgrade from v1 changes nothing the engine reads (journey §6.6; A-
       for (const chapter of CHAPTER_IDS.filter(c => c !== 'welcome')) {
         const after = editedRecord(data, { chapters: [chapter], opened, answers: opened, skipped: [] }, TODAY, CTX);
         expect(after.profile, chapter).toEqual(p);
+        for (const mode of MODES) expect(permission({ profile: after.profile!, now: NOW }, mode), `${chapter} ${mode}`).toEqual(permission({ profile: p, now: NOW }, mode));
+      }
+    });
+  }
+});
+
+/** Records without diabetes that hold an eye or foot value only an answer put there (K5-02): Your health's rows open empty for them. */
+const HOLDS_WITHOUT_DIABETES: Record<string, UserProfile> = {
+  'eye treatment, no diabetes': persona({ retinopathy: 'recent_eye_treatment' }),
+  'moderate eye disease, no diabetes': persona({ retinopathy: 'moderate' }),
+  'a foot wound, no diabetes': persona({ footStatus: 'current_wound_or_active_charcot' }),
+  'numb feet not sure, no diabetes': persona({ peripheralNeuropathy: 'unsure' }),
+};
+
+/**
+ * The questions v1 never asked, answered as the record already says: with no
+ * limits or targets, no other condition, no regular medicine, no monitor, no
+ * nerve damaged, no foot limit and no food allergies.
+ */
+function asRecorded(p: UserProfile, a: SetupAnswers): SetupAnswers {
+  const h = p.health;
+  return {
+    ...a,
+    conditions: Object.fromEntries(CONDITION_IDS.map(id => [id, a.conditions?.[id] ?? 'no'])),
+    clearance: a.clearance ?? h.clearance, targets: a.targets ?? 'no', regular: a.regular ?? 'no',
+    glucoseMonitor: a.glucoseMonitor ?? h.glucoseMonitor, bpCuff: a.bpCuff ?? h.bpMonitor,
+    neuroHistory: a.neuroHistory ?? 'no', footRestriction: a.footRestriction ?? 'no', programme: a.programme ?? 'notNow', allergies: a.allergies ?? [],
+  };
+}
+
+describe('a Save in Me, committed as the editor stores it, weakens nothing the engine reads (K5-16; K5-02, board D163)', () => {
+  for (const [name, p] of Object.entries({ ...PERSONAS, ...HOLDS_WITHOUT_DIABETES })) {
+    it(`${name}: each chapter, its checklists' unticked rows stored as No, keeps the health record and every permission`, () => {
+      const data = recordOf(p);
+      const opened = answersToEdit(undefined, p, data.settings, TODAY, CTX);
+      for (const chapter of CHAPTER_IDS.filter(c => c !== 'welcome')) {
+        const state = editorState(editorOpens(chapter, p), asRecorded(p, opened), opened, CTX);
+        expect(state.blocking, chapter).toEqual([]);
+        const after = editedRecord(data, editOf(state, opened), TODAY, CTX);
+        // A medicine row shown unticked and saved is the answer No (B-08): it vouches for the stored No, and nothing else moves.
+        const { bpMedicinesReviewed: _vouched, ...health } = after.profile!.health;
+        void _vouched;
+        const { bpMedicinesReviewed: _was, ...before } = p.health;
+        void _was;
+        expect(health, chapter).toEqual(before);
         for (const mode of MODES) expect(permission({ profile: after.profile!, now: NOW }, mode), `${chapter} ${mode}`).toEqual(permission({ profile: p, now: NOW }, mode));
       }
     });
