@@ -2,7 +2,8 @@ import { useId, useState, type FormEvent } from 'react';
 import { XIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
-import { withPicked } from '@/content/allergens';
+import { withPicked, type MealFood } from '@/content/allergens';
+import { waitingFood } from '@/setup/state';
 import { useStore } from '@/store/useStore';
 import type { FoodPreferences } from '@/types/profile';
 import { ChoiceRows, Notice, PlainButton, type Choice } from './controls';
@@ -30,10 +31,13 @@ export function FoodScreen() {
   const [problem, setProblem] = useState<string>();
   const inputId = useId();
 
-  /** Each change is worked out from the stored preferences at the moment it is written. */
-  const edit = async (change: (food: FoodPreferences | undefined) => FoodPreferences | undefined) => {
-    const saved = await changeProfile(current => {
-      const next = change(current.food);
+  /**
+   * Each change is worked out from the stored preferences at the moment it is
+   * written, and with no record yet, setup's waiting food answers (board D192).
+   */
+  const edit = async (change: (food: FoodPreferences | undefined, waiting: MealFood | undefined) => FoodPreferences | undefined) => {
+    const saved = await changeProfile((current, settings) => {
+      const next = change(current.food, waitingFood(settings, current));
       const edited = { ...current };
       if (next) edited.food = next;
       else delete edited.food;
@@ -60,7 +64,7 @@ export function FoodScreen() {
           label="What you eat"
           options={PATTERNS}
           value={food?.pattern}
-          onChange={pattern => void edit(current => ({ avoid: [], ...current, pattern }))}
+          onChange={pattern => void edit((current, waiting) => ({ avoid: [], ...(current ?? waiting), pattern }))}
         />
       </Group>
 

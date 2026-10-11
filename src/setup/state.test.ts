@@ -3,7 +3,7 @@ import type { AppData } from '@/types';
 import type { SetupState } from '@/types/setup';
 import { createDefaultProfile } from '@/profile/defaults';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
-import { setupStateOf, showsNewHome, upgradeSkipped, withNewHomeSeen } from './state';
+import { setupStateOf, showsNewHome, upgradeSkipped, waitingFood, withNewHomeSeen } from './state';
 
 const v1 = createDefaultProfile({ weightKg: 78, health: { diabetes: 'type2', medicinesReviewed: true } });
 
@@ -63,5 +63,23 @@ describe('where setup stands (journey §6.6, §19.1; board D80)', () => {
     // Set up in this build, or still looking around: nothing is new to them.
     expect(showsNewHome({ stage: 'done', skipped: [] }, false)).toBe(false);
     expect(showsNewHome(setupStateOf({ onboardingComplete: true }, undefined), false)).toBe(false);
+  });
+});
+
+describe('the food answers waiting for an eating pattern (H5R-10, K5R-01; board D192)', () => {
+  const answers = { allergies: ['peanut' as const], customAllergies: ['brinjal'], foodLevel: 'meals' as const, hardBefore: 'yes' as const };
+  const waiting = { allergies: ['peanut'], customAllergies: ['brinjal'], level: 'meals', hardBefore: 'yes' };
+
+  it('are setup’s, finished or still a draft, as the food record would hold them', () => {
+    expect(waitingFood({ onboardingComplete: true, setup: { stage: 'done', answers } }, v1)).toEqual(waiting);
+    expect(waitingFood({ onboardingComplete: true, setup: { stage: 'lookAround', draft: { answers } } }, undefined)).toEqual(waiting);
+    // "No food allergies" is an answer too.
+    expect(waitingFood({ onboardingComplete: true, setup: { stage: 'done', answers: { allergies: [] } } }, v1)).toEqual({ allergies: [] });
+  });
+
+  it('are nothing once a food record holds them, or when setup holds none', () => {
+    const fed = { ...v1, food: { pattern: 'vegan' as const, avoid: [] } };
+    expect(waitingFood({ onboardingComplete: true, setup: { stage: 'done', answers } }, fed)).toBeUndefined();
+    expect(waitingFood({ onboardingComplete: true, setup: { stage: 'done', answers: { name: 'Kai' } } }, v1)).toBeUndefined();
   });
 });

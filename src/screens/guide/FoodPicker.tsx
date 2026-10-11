@@ -1,7 +1,7 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { CheckIcon } from 'lucide-react';
 import { Sheet } from '@/components/hig/Sheet';
-import { PATTERN_DETAIL, PATTERN_LABEL, unmatchedAvoid, withPicked, type Pattern, type Region } from '@/content';
+import { PATTERN_DETAIL, PATTERN_LABEL, unmatchedAvoid, withPicked, type MealFood, type Pattern, type Region } from '@/content';
 import type { FoodPreferences } from '@/types/profile';
 import { cn } from '@/lib/utils';
 import { AVOID_HELP, parseAvoid, REGION_LABEL, unmatchedNote } from './format';
@@ -16,21 +16,23 @@ const REGIONS: (Exclude<Region, 'mixed'> | 'any')[] = ['any', 'north', 'south', 
  * exercise setup (codex-vision §2). Three answers at most, one required.
  * The full food-preferences editor belongs to You.
  */
-export function FoodPicker({ open, onOpenChange, food, canSave }: {
+export function FoodPicker({ open, onOpenChange, food, waiting, canSave }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   food?: FoodPreferences;
+  /** With no food record, setup's waiting food answers: the record this makes takes them all (board D192). */
+  waiting?: MealFood;
   /** False before a profile exists: the choice lasts for this visit. */
   canSave: boolean;
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Your food" detent="large">
-      <FoodForm food={food} canSave={canSave} onDone={() => onOpenChange(false)} />
+      <FoodForm food={food} waiting={waiting} canSave={canSave} onDone={() => onOpenChange(false)} />
     </Sheet>
   );
 }
 
-function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: boolean; onDone: () => void }) {
+function FoodForm({ food, waiting, canSave, onDone }: { food?: FoodPreferences; waiting?: MealFood; canSave: boolean; onDone: () => void }) {
   const [pattern, setPattern] = useState<Pattern | undefined>(food?.pattern);
   const [region, setRegion] = useState<(typeof REGIONS)[number]>(
     food?.region && food.region !== 'mixed' ? food.region : 'any',
@@ -49,8 +51,9 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
     if (!pattern || saving) return;
     setSaving(true);
     setError(undefined);
-    // Only what this sheet asks: setup's allergies, logging level and screening answer stay (board D82).
-    const next = withPicked(food, { pattern, avoid: parseAvoid(avoid), region });
+    // Only what this sheet asks: setup's allergies, logging level and screening answer stay (board D82), and with no
+    // record yet, come into the new one (board D192).
+    const next = withPicked(food ?? waiting, { pattern, avoid: parseAvoid(avoid), region });
     const failure = await saveFood(next);
     setSaving(false);
     if (failure) setError(failure);

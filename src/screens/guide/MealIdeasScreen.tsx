@@ -5,9 +5,8 @@ import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import {
   DISCLAIMER, idsShown, MEAL_INTRO, mealsFor, resolveGroups, SLOT_NOTES, SLOTS, unmatchedAvoid,
-  type GuideContext, type ShownClaim,
+  type GuideContext, type MealFood, type ShownClaim,
 } from '@/content';
-import type { FoodPreferences } from '@/types/profile';
 import { FoodPicker } from './FoodPicker';
 import { foodSummary, unmatchedNote } from './format';
 import { mealDetail } from './mealText';
@@ -19,7 +18,7 @@ import { useGuide } from './useGuide';
  * what that is; until they answer, every meal shows.
  */
 export default function MealIdeasScreen() {
-  const { ctx, food, canSaveFood } = useGuide();
+  const { ctx, food, waiting, canSaveFood } = useGuide();
   // Asked the first time Meal ideas opens, not before (codex-vision §2).
   const [picking, setPicking] = useState(() => food === undefined);
   // One pass over the screen, so a caution shown under the intro is not repeated under Snacks.
@@ -34,7 +33,9 @@ export default function MealIdeasScreen() {
         <Row
           onClick={() => setPicking(true)}
           label="What you eat"
-          detail={food ? foodSummary(food) : 'Not chosen yet — every meal is shown'}
+          detail={food ? foodSummary(food) : waiting?.allergies?.length || waiting?.customAllergies?.length
+            ? 'Not chosen yet — every meal is shown, without your allergies'
+            : 'Not chosen yet — every meal is shown'}
           accessory={<span className="shrink-0 text-[length:var(--text-body)] text-tint">{food ? 'Change' : 'Choose'}</span>}
         />
         <Row
@@ -51,20 +52,20 @@ export default function MealIdeasScreen() {
       <ClaimGroup header="How these meals are built" claims={intro} ctx={ctx} footer={DISCLAIMER} />
 
       {SLOTS.map((slot, i) => (
-        <SlotGroup key={slot.id} slot={slot} food={food} notes={slotNotes[i]} ctx={ctx} />
+        <SlotGroup key={slot.id} slot={slot} food={food ?? waiting} notes={slotNotes[i]} ctx={ctx} />
       ))}
 
       <SourcesGroup claimIds={shown} />
       <Reviewed claimIds={shown} />
 
-      <FoodPicker open={picking} onOpenChange={setPicking} food={food} canSave={canSaveFood} />
+      <FoodPicker open={picking} onOpenChange={setPicking} food={food} waiting={waiting} canSave={canSaveFood} />
     </Screen>
   );
 }
 
 function SlotGroup({ slot, food, notes, ctx }: {
   slot: (typeof SLOTS)[number];
-  food?: FoodPreferences;
+  food?: MealFood;
   notes: ShownClaim[];
   ctx: GuideContext;
 }) {

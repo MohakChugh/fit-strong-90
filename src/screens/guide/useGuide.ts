@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from 'react';
-import { contextFromProfile, type GuideContext } from '@/content';
+import { contextFromProfile, type GuideContext, type MealFood } from '@/content';
+import { waitingFood } from '@/setup/state';
 import { getState, setProfile, useStore } from '@/store/useStore';
 import type { FoodPreferences } from '@/types/profile';
 
@@ -22,6 +23,8 @@ const readSessionFood = () => sessionFood;
 export interface Guide {
   ctx: GuideContext;
   food?: FoodPreferences;
+  /** With no food record, the food answers setup holds: meal ideas leave their allergies out, and a pattern chosen takes them all (board D192). */
+  waiting?: MealFood;
   /** False before onboarding has stored a profile: food choices are for this visit only. */
   canSaveFood: boolean;
 }
@@ -32,8 +35,9 @@ export function useGuide(): Guide {
   const fromSession = useSyncExternalStore(subscribe, readSessionFood, readSessionFood);
   const food = profile?.food ?? fromSession;
   const fluidLimit = settings.habits?.fluidLimit;
-  const ctx = useMemo(() => contextFromProfile(profile, food, { fluidLimit }), [profile, food, fluidLimit]);
-  return { ctx, food, canSaveFood: profile !== undefined };
+  const waiting = useMemo(() => (food ? undefined : waitingFood(settings, profile)), [food, settings, profile]);
+  const ctx = useMemo(() => contextFromProfile(profile, food, { fluidLimit }, waiting), [profile, food, fluidLimit, waiting]);
+  return { ctx, food, ...(waiting ? { waiting } : {}), canSaveFood: profile !== undefined };
 }
 
 /**

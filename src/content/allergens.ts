@@ -55,16 +55,23 @@ function named(entry: string): AllergenId[] {
 }
 
 /**
+ * What meal ideas are chosen by: the food record, or with no eating pattern
+ * chosen yet, the food answers setup holds meanwhile, allergies first
+ * (`waitingFood`; H5R-10, K5R-01; board D192).
+ */
+export type MealFood = Partial<FoodPreferences>;
+
+/**
  * Everything meal ideas leave out for this person, as words, in this order:
  * the foods they typed (v1's "Leave out", then allergies in their own
  * words), the words of each allergen, and Jain's rule.
  */
-export function leaveOut(food: FoodPreferences | undefined): string[] {
+export function leaveOut(food: MealFood | undefined): string[] {
   if (!food) return [];
   const custom = food.customAllergies ?? [];
   const allergens = [...new Set([...(food.allergies ?? []), ...custom.flatMap(named)])];
   return [...new Set([
-    ...food.avoid,
+    ...(food.avoid ?? []),
     ...custom,
     ...allergens.flatMap(id => ALLERGEN_TERMS[id]),
     ...(food.pattern === 'jain' ? JAIN_LEAVES_OUT : []),
@@ -73,10 +80,10 @@ export function leaveOut(food: FoodPreferences | undefined): string[] {
 
 /**
  * Meal ideas' own food question, answered: it changes what it asks and keeps
- * the rest of what was stored (setup's allergies, the logging level, the
- * screening answer).
+ * the rest, the record's or, with no record yet, setup's waiting answers
+ * (the allergies, the logging level, the screening answer; board D192).
  */
-export function withPicked(food: FoodPreferences | undefined, picked: { pattern: FoodPattern; avoid: string[]; region: Region | 'any' }): FoodPreferences {
+export function withPicked(food: MealFood | undefined, picked: { pattern: FoodPattern; avoid: string[]; region: Region | 'any' }): FoodPreferences {
   const next: FoodPreferences = { ...food, pattern: picked.pattern, avoid: picked.avoid };
   if (picked.region === 'any') delete next.region;
   else next.region = picked.region;

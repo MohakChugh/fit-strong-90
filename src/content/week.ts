@@ -1,5 +1,5 @@
 import type { FoodPreferences } from '@/types/profile';
-import { leaveOut, mealPattern } from './allergens';
+import { leaveOut, mealPattern, type MealFood } from './allergens';
 import { MEALS } from './meals';
 import type { MealComponent, MealTemplate, Pattern, Slot } from './schema';
 import { tokens } from './text';
@@ -55,7 +55,7 @@ export function unmatchedAvoid(avoid: readonly string[] = [], pattern?: Pattern)
  * With a region, dishes familiar there come first and every other dish still
  * follows, so a preference narrows the order, never the choice.
  */
-export function mealsFor(food?: FoodPreferences, slot?: Slot): MealTemplate[] {
+export function mealsFor(food?: MealFood, slot?: Slot): MealTemplate[] {
   const out = leaveOut(food);
   const pool = MEALS.filter(m =>
     (slot === undefined || m.slot === slot)

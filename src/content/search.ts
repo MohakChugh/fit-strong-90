@@ -104,10 +104,12 @@ export function search(query: string, ctx: GuideContext): SearchResult[] {
   }
 
   const visibleCardIds = new Set(CARDS.filter(c => isCardVisible(c, ctx)).map(c => c.id));
-  // What meal ideas leave out, search leaves out too: the foods typed, allergies and Jain's rule (board D82).
-  const out = leaveOut(ctx.food);
-  const meals = mealDocsFor(ctx.food?.pattern)
-    .filter(d => !isAvoided(MEALS.find(m => m.id === d.id)!, out, ctx.food?.pattern));
+  // What meal ideas leave out, search leaves out too: the foods typed, allergies and Jain's rule (board D82), and
+  // with no food record yet, the allergies setup holds (board D192).
+  const food = ctx.food ?? ctx.waiting;
+  const out = leaveOut(food);
+  const meals = mealDocsFor(food?.pattern)
+    .filter(d => !isAvoided(MEALS.find(m => m.id === d.id)!, out, food?.pattern));
   const pool = [...TOPIC_DOCS, ...CARD_DOCS.filter(d => visibleCardIds.has(d.id)), ...meals];
   const phrase = normalise(query);
 

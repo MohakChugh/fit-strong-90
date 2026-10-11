@@ -17,7 +17,7 @@ const OWN_PORTIONS = ['fd-personal-plan'];
 export default function MealDetailScreen() {
   const { mealId = '' } = useParams();
   const { state } = useLocation();
-  const { ctx, food } = useGuide();
+  const { ctx, food, waiting } = useGuide();
   const meal = getMeal(mealId);
   if (!meal) return <Navigate to="/guide/meals" replace />;
 
@@ -46,6 +46,7 @@ export default function MealDetailScreen() {
         {slot}
         {where ? ` · ${where}` : ''}
         {food && (!suits(meal, food.pattern) || isAvoided(meal, leaveOut(food), food.pattern)) ? ' · Outside the food choices you gave' : ''}
+        {!food && waiting && isAvoided(meal, leaveOut(waiting)) ? ' · Has something you’re allergic to' : ''}
       </Lead>
 
       <Group header="On the plate" footer={DISCLAIMER}>

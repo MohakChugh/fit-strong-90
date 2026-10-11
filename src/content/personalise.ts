@@ -2,6 +2,7 @@ import { deriveHealth, profileRules, takes } from '@/engine/health';
 import { fluidRestriction } from '@/reminders/water';
 import type { HabitSettings } from '@/types/habits';
 import type { FoodPreferences, UserProfile } from '@/types/profile';
+import type { MealFood } from './allergens';
 import { CARDS } from './cards';
 import { HABITS } from './habits';
 import { cardsInTopic, claims, getCard, getClaim } from './library';
@@ -17,6 +18,8 @@ export interface GuideContext {
   /** The person's own answer restated, e.g. "You have type 2 diabetes". */
   because: ReadonlyMap<Predicate, string>;
   food?: FoodPreferences;
+  /** With no food record yet, the food answers setup holds: meal ideas still leave the allergies out (board D192). */
+  waiting?: MealFood;
 }
 
 /** A context from explicit facts: for tests, and for callers without a profile. */
@@ -42,6 +45,7 @@ export function contextFromProfile(
   profile?: UserProfile,
   food: FoodPreferences | undefined = profile?.food,
   habits?: Pick<HabitSettings, 'fluidLimit'>,
+  waiting?: MealFood,
 ): GuideContext {
   const facts = new Set<Predicate>();
   const because = new Map<Predicate, string>();
@@ -157,7 +161,7 @@ export function contextFromProfile(
     if (food.pattern !== 'nonVegetarian') add('lowAnimalFood', reason);
   }
 
-  return { facts, because, food };
+  return { facts, because, food, ...(waiting && !food ? { waiting } : {}) };
 }
 
 export function holds(ctx: GuideContext, p: Predicate | undefined): boolean {

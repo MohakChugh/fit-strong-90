@@ -14,7 +14,7 @@ import { useGuide } from './useGuide';
  * starting point to adapt; portions and targets stay with the care team.
  */
 export default function SampleWeekScreen() {
-  const { ctx, food, canSaveFood } = useGuide();
+  const { ctx, food, waiting, canSaveFood } = useGuide();
   const [picking, setPicking] = useState(false);
   const [intro] = resolveGroups([MEAL_INTRO], ctx);
   const shown = idsShown([intro]);
@@ -38,7 +38,7 @@ export default function SampleWeekScreen() {
       <SourcesGroup claimIds={shown} />
       <Reviewed claimIds={shown} />
 
-      <FoodPicker open={picking} onOpenChange={setPicking} food={food} canSave={canSaveFood} />
+      <FoodPicker open={picking} onOpenChange={setPicking} food={food} waiting={waiting} canSave={canSaveFood} />
     </Screen>
   );
 }
