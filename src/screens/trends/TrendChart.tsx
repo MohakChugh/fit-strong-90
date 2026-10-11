@@ -159,7 +159,7 @@ export function TrendChart({ model, label, summary, table, view, origin }: {
         )}
       </div>
       {/* With no room for a plot, the list is the chart. */}
-      {(listOpen || !plot) && <Table id={`${uid}-list`} caption={label} table={table} />}
+      {(listOpen || !plot) && <TrendTable id={`${uid}-list`} caption={label} table={table} />}
       <p className="sr-only">{summary}</p>
     </div>
   );
@@ -365,10 +365,22 @@ function Legend({ items, average, uid }: { items: LegendItem[]; average?: string
   );
 }
 
-function Table({ id, caption, table }: { id: string; caption: string; table: { columns: string[]; rows: string[][] } }) {
+/**
+ * Below 5 rem a column (rem follows the text size), the columns can't hold
+ * their words: each row reflows to a block of labelled values, so nothing is
+ * clipped at 320 px and 200% text (H3-17, journey §20.4 rule 7). Only one of
+ * the two is ever displayed, so VoiceOver hears one.
+ */
+const NARROW: Record<number, { table: string; blocks: string }> = {
+  3: { table: '@max-[15rem]:hidden', blocks: '@min-[15rem]:hidden' },
+  4: { table: '@max-[20rem]:hidden', blocks: '@min-[20rem]:hidden' },
+};
+
+export function TrendTable({ id, caption, table }: { id: string; caption: string; table: { columns: string[]; rows: string[][] } }) {
+  const narrow = NARROW[table.columns.length] ?? NARROW[4];
   return (
-    <div id={id} className="overflow-hidden rounded-xl bg-grouped-card">
-      <table className="w-full border-collapse text-left text-[length:var(--text-subhead)]">
+    <div id={id} className="@container overflow-hidden rounded-xl bg-grouped-card">
+      <table className={`w-full border-collapse text-left text-[length:var(--text-subhead)] ${narrow.table}`}>
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>{table.columns.map(c => <th key={c} scope="col" className="px-3 py-2 font-semibold text-muted-foreground [overflow-wrap:anywhere]">{c}</th>)}</tr>
@@ -386,6 +398,19 @@ function Table({ id, caption, table }: { id: string; caption: string; table: { c
           ))}
         </tbody>
       </table>
+      <ul aria-label={caption} className={`flex flex-col divide-y divide-separator text-[length:var(--text-subhead)] leading-snug ${narrow.blocks}`}>
+        {table.rows.length === 0 && <li className="px-3 py-2 text-muted-foreground">Nothing recorded in this period.</li>}
+        {table.rows.map((row, i) => (
+          <li key={i} className="px-3 py-2">
+            <p className="font-medium [overflow-wrap:break-word]">{row[0]}</p>
+            <dl className="[overflow-wrap:break-word]">
+              {row.slice(1).map((cell, j) => (cell === '' ? null : (
+                <div key={j}><dt className="inline text-muted-foreground">{table.columns[j + 1]}: </dt><dd className="inline">{cell}</dd></div>
+              )))}
+            </dl>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

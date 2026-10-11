@@ -73,3 +73,27 @@ describe('the chart keeps pinch zoom (H3-18, journey §20.4 rule 7)', () => {
     expect(slider).toMatch(/className="[^"]*\btouch-pan-y touch-pinch-zoom\b/);
   });
 });
+
+describe('the list reflows when its columns have no room (H3-17, journey §20.4 rule 7)', () => {
+  const table = {
+    columns: ['Week', 'Readings', 'Range', 'Average'],
+    rows: [['21–27 Sep', '1', '104–104 mg/dL', '104 mg/dL'], ['5–11 Oct · Meter', 'LO on Tue 6 Oct at 1:00 pm', 'Below what the meter can show', '']],
+  };
+
+  it('narrower than 5 rem a column, each row is a block of labelled values; wider, the table; never both at once', async () => {
+    const { createElement } = await import('react');
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { TrendTable } = await import('./TrendChart');
+    const html = renderToStaticMarkup(createElement(TrendTable, { id: 'l', caption: 'Glucose, May – Oct 2026', table }));
+    expect(html).toMatch(/<div id="l" class="@container[^"]*">/);
+    expect(html).toMatch(/<table class="[^"]*@max-\[20rem\]:hidden/);
+    expect(html).toMatch(/<ul aria-label="Glucose, May – Oct 2026" class="[^"]*@min-\[20rem\]:hidden/);
+    // Every value with its column's name; an empty cell is left out.
+    expect(html).toContain('<dt class="inline text-muted-foreground">Readings: </dt><dd class="inline">1</dd>');
+    expect(html).toContain('<dt class="inline text-muted-foreground">Range: </dt><dd class="inline">Below what the meter can show</dd>');
+    expect(html).not.toContain('Average: </dt><dd class="inline"></dd>');
+    const three = renderToStaticMarkup(createElement(TrendTable, { id: 'd', caption: 'Steps', table: { columns: ['Day', 'This week', 'Last week'], rows: [] } }));
+    expect(three).toMatch(/<table class="[^"]*@max-\[15rem\]:hidden/);
+    expect(three).toContain('Nothing recorded in this period.');
+  });
+});
