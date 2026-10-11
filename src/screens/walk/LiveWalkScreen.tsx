@@ -225,8 +225,10 @@ export default function LiveWalkScreen() {
   const end = () => live.finish(emergency ? 'emergency' : low || (refusal && lowReportedDuring(checkIn, snapshot.walk)) ? 'low' : 'stop');
 
   /** "I need to stop": what happened, into today's check-in through the shared path. */
-  const reportStop = (r: SymptomReport) => {
-    void reportSymptoms(r, new Date()).then(res => setUnsaved(!res.stored));
+  const reportStop = async (r: SymptomReport): Promise<boolean> => {
+    const res = await reportSymptoms(r, new Date());
+    setUnsaved(!res.stored);
+    return res.stored;
   };
 
   /**
@@ -234,8 +236,10 @@ export default function LiveWalkScreen() {
    * today's check-in through the shared path, so this walk and the next start
    * are held until a reading taken afterwards answers it (N01).
    */
-  const reportLow = () => {
-    void feelLow(live, reportSymptoms).then(r => setUnsaved(!r.stored));
+  const reportLow = async (): Promise<boolean> => {
+    const r = await feelLow(live, reportSymptoms);
+    setUnsaved(!r.stored);
+    return r.stored;
   };
   const saveLowReading = async (reading: GlucoseEntry, symptomsGone: boolean, neededHelp: boolean) => {
     const r = await reportSymptoms(lowReading(reading, symptomsGone, neededHelp), new Date());
@@ -394,7 +398,7 @@ export default function LiveWalkScreen() {
               I need to stop
             </button>
             {hypoRisk && !emergency && (
-              <button type="button" onClick={reportLow} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-caution', TARGET.primary)}>
+              <button type="button" onClick={() => void reportLow()} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-caution', TARGET.primary)}>
                 <CandyIcon className="size-5 shrink-0" aria-hidden />
                 I feel low
               </button>

@@ -14,10 +14,13 @@ interface Props {
   hypoRisk: boolean;
   /** How far down symptoms reached earlier today, so "further" can be told. */
   before: SymptomReach | undefined;
-  /** Into today's check-in through the shared path. Every answer answers the stop the tap saved (§4.4). */
-  onReport: (report: SymptomReport) => void;
-  /** The "I feel low" path. */
-  onLow: () => void;
+  /**
+   * Into today's check-in through the shared path, resolving whether the
+   * device kept it. Every answer answers the stop the tap saved (§4.4).
+   */
+  onReport: (report: SymptomReport) => Promise<boolean>;
+  /** The "I feel low" path, resolving whether the device kept it. */
+  onLow: () => Promise<boolean>;
   onEnd: () => void;
 }
 
@@ -31,7 +34,9 @@ interface Props {
  * today's check-in, answering the stop, and the walk screen behind shows what
  * the engine makes of it: an emergency there offers only "Finish and save". A
  * rest records only that the stop is answered. Closing answers nothing: the
- * walk stays held until an answer comes.
+ * walk stays held until an answer comes. Each answer waits for the device to
+ * keep it before the sheet moves on; refused, it stays here, as given, with
+ * Try again (H6R-11, §4.5, B-03).
  */
 export function StopSheet(props: Props) {
   const [step, setStep] = useState<'choose' | 'dizzy'>('choose');
@@ -53,20 +58,42 @@ function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close }
   close: () => void;
 }) {
   const [leg, setLeg] = useState<LegAnswers>({ ...NO_LEG, spread: false });
+  const [saving, setSaving] = useState(false);
+  /** The answer the device refused, to give again as it was. */
+  const [retry, setRetry] = useState<(() => void) | null>(null);
+
+  /** Give an answer, and move on only once the device has kept it. */
+  const submit = (write: () => Promise<boolean>, then: () => void) => {
+    setSaving(true);
+    setRetry(null);
+    void write().then(ok => {
+      setSaving(false);
+      if (ok) then();
+      else setRetry(() => () => submit(write, then));
+    });
+  };
 
   const choose = (choice: StopChoice) => {
     const { report, next } = stopAnswer(choice, hypoRisk);
-    if (report) onReport(report);
-    if (next === 'dizzy') setStep('dizzy');
-    else close();
+    const then = () => (next === 'dizzy' ? setStep('dizzy') : close());
+    if (report) submit(() => onReport(report), then);
+    else then();
   };
+
+  const refused = retry && (
+    <div role="alert" className="flex flex-col gap-3 rounded-xl bg-grouped-card p-4 text-[length:var(--text-body)] leading-snug">
+      <p><span className="font-semibold">Your answer didn’t save.</span> It’s kept here as you gave it.</p>
+      <PrimaryButton onClick={retry} disabled={saving}>Try again</PrimaryButton>
+    </div>
+  );
 
   if (step === 'dizzy') {
     return (
       <div className="flex flex-col gap-4">
+        {refused}
         <p className="text-[length:var(--text-body)] leading-snug">Sit down somewhere safe. With your diabetes medicines, dizziness can be a low coming on.</p>
         <div className="flex flex-col gap-3">
-          <PrimaryButton onClick={() => { onLow(); close(); }}>I feel low</PrimaryButton>
+          <PrimaryButton onClick={() => submit(onLow, close)} disabled={saving}>I feel low</PrimaryButton>
           <SecondaryButton onClick={close}>Close</SecondaryButton>
         </div>
       </div>
@@ -78,14 +105,15 @@ function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close }
   const questions = [SPREAD_QUESTION, ...LEG_QUESTIONS.filter(q => q.key !== 'fast' || leg.weakness)];
   return (
     <div className="flex flex-col gap-4">
+      {refused}
       <Group footer="General information, not medical advice. This app cannot tell an emergency from anything else.">
         {/* For anyone who can go low, the low path first: it answers the stop too (K6R-01). */}
-        {hypoRisk && <Row label={<span className="leading-snug">I feel low</span>} onClick={() => { onReport(STOP_LOW); close(); }} />}
+        {hypoRisk && <Row label={<span className="leading-snug">I feel low</span>} onClick={() => { if (!saving) submit(() => onReport(STOP_LOW), close); }} />}
         {STOP_CHOICES.filter(c => c.choice !== 'leg').map(c => (
           <Row
             key={c.choice}
             label={<span className={cn('leading-snug', c.choice === 'chest' || c.choice === 'stroke' || c.choice === 'breathless' ? 'text-stop' : '')}>{c.label}</span>}
-            onClick={() => choose(c.choice)}
+            onClick={() => { if (!saving) choose(c.choice); }}
           />
         ))}
       </Group>
@@ -116,7 +144,7 @@ function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close }
         ))}
       </Group>
       {/* Walking is what was being done: it stops for the day (X2-09). */}
-      <PrimaryButton onClick={() => { onReport(answering(legReport(leg, before, 'brisk-walking'))); close(); }}>Save leg symptoms</PrimaryButton>
+      <PrimaryButton onClick={() => submit(() => onReport(answering(legReport(leg, before, 'brisk-walking'))), close)} disabled={saving}>Save leg symptoms</PrimaryButton>
     </div>
   );
 }

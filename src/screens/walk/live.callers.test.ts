@@ -17,11 +17,15 @@ import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, type Host, type HostNode } from '@/test/host';
 
 const router = vi.hoisted(() => ({ params: new URLSearchParams(), navigate: vi.fn() }));
-vi.mock('react-router-dom', () => ({
-  useSearchParams: () => [router.params],
-  useNavigate: () => router.navigate,
-  useLocation: () => ({ pathname: '/walk/live', search: '', state: null, key: 'k0' }),
-}));
+vi.mock('react-router-dom', async () => {
+  const { createElement: h } = await import('react');
+  return {
+    useSearchParams: () => [router.params],
+    useNavigate: () => router.navigate,
+    useLocation: () => ({ pathname: '/walk/live', search: '', state: null, key: 'k0' }),
+    Link: ({ to, children }: { to: string; children?: ReactNode }) => h('a', { href: `#${to}` }, children),
+  };
+});
 vi.mock('@/components/ui/sheet', async () => {
   const { createElement: h, createContext, useContext } = await import('react');
   // Close closes, as the vendored sheet's does: through the sheet's own `onOpenChange`.
@@ -91,6 +95,7 @@ const stamped = (h: number, m = 0) => measuredStamp(new Date(2026, 9, 9, h, m, 0
 const clock = (h: number, m = 0) => vi.setSystemTime(new Date(2026, 9, 9, h, m, 0));
 
 let host: Host | undefined;
+let db = fakeIndexedDB();
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   clock(9, 5);
@@ -100,7 +105,8 @@ beforeEach(async () => {
   store.resetForTests();
   resetPendingCheckInsForTests();
   router.navigate = vi.fn();
-  await store.start({ factory: fakeIndexedDB(), broadcast: null });
+  db = fakeIndexedDB();
+  await store.start({ factory: db, broadcast: null });
 });
 afterEach(() => {
   host?.unmount();
@@ -325,6 +331,48 @@ describe('"I feel low" for anyone who can go low, under any hold but an emergenc
     await h().click(h().button(/^Chest pain/));
     await h().settle();
     expect(h().buttons('I feel low', { exact: true })).toHaveLength(0);
+  });
+});
+
+describe('the stop question waits for its answer to save, and keeps it when it doesn’t (H6R-11)', () => {
+  const p = createDefaultProfile({ health: { ...known, diabetes: 'none' } });
+  async function stopped() {
+    const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4 };
+    await store.update(prev => ({ ...prev, profile: p, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
+    router.params = startedParams();
+    host = render(createElement(LiveWalkScreen));
+    await host.settle();
+    await h().click(h().button('I need to stop'));
+    expect(today()?.news).toContain('stopped');
+  }
+  const refuse = () => db.control.setWriteError(() => new DOMException('The device is full.', 'QuotaExceededError'));
+
+  it('stays open on a refused "Just need a rest", says so, and Try again saves it and closes', async () => {
+    await stopped();
+    refuse();
+    await h().click(h().button('Just need a rest'));
+    await h().settle();
+    expect(h().text()).toMatch(/What’s happening\?/);
+    expect(h().text()).toMatch(/didn’t save/);
+    db.control.setWriteError(undefined);
+    await h().click(h().button('Try again', { exact: true }));
+    await h().settle();
+    expect(h().text()).not.toMatch(/What’s happening\?/);
+    expect(store.getState().checkIns.find(c => c.date === DAY)?.news ?? []).not.toContain('stopped');
+  });
+
+  it('keeps the leg answers given when saving them is refused', async () => {
+    await stopped();
+    await h().click(h().field(/a leg getting weaker/));
+    refuse();
+    await h().click(h().button('Save leg symptoms'));
+    await h().settle();
+    expect(h().text()).toMatch(/didn’t save/);
+    expect(h().field(/a leg getting weaker/).props.checked).toBe(true);
+    db.control.setWriteError(undefined);
+    await h().click(h().button('Try again', { exact: true }));
+    await h().settle();
+    expect(store.getState().checkIns.find(c => c.date === DAY)?.back).toMatchObject({ newWeakness: true });
   });
 });
 
