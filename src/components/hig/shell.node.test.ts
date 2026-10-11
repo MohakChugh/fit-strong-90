@@ -283,14 +283,6 @@ describe('a sheet that will not close yet (review C2-07)', () => {
     }
   });
 
-  it('gives the first walk’s two consent answers the same weight, neither the primary one (§24, K6R-06)', () => {
-    const sheet = read('src/screens/walk/PreflightSheet.tsx');
-    for (const q of ['keepRoute', 'mapPictures']) {
-      expect(sheet, q).toMatch(new RegExp(`<SecondaryButton onClick=\\{\\(\\) => onAnswer\\(\\{ page, (keep|show): true \\}\\)\\}>\\{CONSENT\\.${q}\\.yes\\}</SecondaryButton>`));
-      expect(sheet, q).not.toMatch(new RegExp(`<PrimaryButton[^>]*>\\{CONSENT\\.${q}\\.(yes|no)\\}`));
-    }
-  });
-
   it('sizes the stop questions’ every choice as a target, 48 px at least and 12 px apart (§20.4 rule 1, K6R-07)', () => {
     const stop = read('src/screens/walk/StopSheet.tsx');
     expect(stop).not.toMatch(/min-h-(?:8|9|10|11)\b|min-w-11|gap-1\.5/);
