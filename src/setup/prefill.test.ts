@@ -3,7 +3,7 @@ import type { AppData, UserSettings } from '@/types';
 import { createDefaultProfile } from '@/profile/defaults';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import { profileFrom } from './assemble';
-import { editedRecord, editorState } from './edit';
+import { editOf, editedRecord, editorOpens, editorState } from './edit';
 import { keysOfChapter } from './fields';
 import { UNSURE } from './fixtures';
 import { SAFETY_CHAPTERS, pageDone } from './graph';
@@ -90,6 +90,15 @@ describe('answers v1 already gave (K-57; journey §6.4, §16)', () => {
     expect(a.glucoseMonitor).toBeUndefined();
   });
 
+  it('nor whether they exercise now: the default “Yes” would skip the engine’s light-work rule for the inactive (H5-11)', () => {
+    const p = createDefaultProfile({ needsHealthReview: true, health: { diabetes: 'type2', clearance: 'none' } });
+    expect(p.health.currentlyActive).toBe(true);
+    expect(prefillAnswers(S, p).active).toBeUndefined();
+    expect(answersToEdit(undefined, p, S, TODAY, CTX).active).toBeUndefined();
+    // The focus is a preference, not a health answer: it stays.
+    expect(prefillAnswers(S, p).focus).toBe('strength');
+  });
+
   it('carries a fluid-limit answer v1 kept in its reminders, as the water rules still read it (reminders/water.ts)', () => {
     const habits = { ...S.habits, fluidLimit: true };
     expect(answersFromProfile(P01, { ...S, habits }).fluidLimit).toBe('yes');
@@ -137,9 +146,9 @@ describe('the answers Me edits with (§16)', () => {
   it('a pending review is never cleared by a Save that answered only what the old editor asked (H5-10, K5-01)', () => {
     const opened = answersToEdit(undefined, unreviewed, S, TODAY, CTX);
     // The home cuff was all the old editor left unanswered here.
-    const state = editorState(SAFETY_CHAPTERS, { ...opened, bpCuff: false }, opened, CTX);
+    const state = editorState(editorOpens('health', unreviewed), { ...opened, bpCuff: false }, opened, CTX);
     expect(state.blocking).toContain('health.conditions');
-    const after = editedRecord(recordOf(unreviewed), { chapters: state.chapters, opened, answers: state.committed, skipped: state.left }, TODAY, CTX);
+    const after = editedRecord(recordOf(unreviewed), editOf(state, opened), TODAY, CTX);
     // Cleared, it would vouch for the default "no severe lows", which starts a type 1 at 90 instead of 145 mg/dL.
     expect(after.profile?.needsHealthReview).toBe(true);
   });

@@ -19,7 +19,7 @@ import { defaultHome, isHomeLayout } from '@/categories';
 import { withJoinAnswers } from '@/programme/join';
 import { withWeeklyGoal } from '@/screens/track/weeklyGoal';
 import { diabetesOf, factsOf, has } from './facts';
-import { SAFETY_CHAPTERS, chapterComplete, skippedChapters, type Ctx } from './graph';
+import { REVIEW_ALSO, SAFETY_CHAPTERS, chapterComplete, pageDone, skippedChapters, type Ctx } from './graph';
 import { setupStateOf } from './state';
 
 const med = (t: Tri | undefined): MedicineAnswer => (t === 'yes' ? true : t === 'unsure' ? 'unsure' : false);
@@ -197,8 +197,8 @@ export function profileFrom(a: SetupAnswers, base: UserProfile | undefined, toda
   if (on('health') || on('backFeet')) next.pain = painFrom(a, start.pain);
   if (on('food')) put(next, 'food', foodFrom(a, start.food));
   if (on('day') && a.voice) next.voice = { ...start.voice, ...a.voice };
-  // Only every safety chapter, complete, in one sitting clears a review (§6.1; contract H-DATA).
-  if (SAFETY_CHAPTERS.every(c => on(c) && chapterComplete(c, a, ctx))) next.needsHealthReview = false;
+  // Only every safety chapter, complete, in one sitting, with whether they exercise now, clears a review (§6.1; H-DATA; H5-11).
+  if (SAFETY_CHAPTERS.every(c => on(c) && chapterComplete(c, a, ctx)) && REVIEW_ALSO.every(id => pageDone(id, a, ctx))) next.needsHealthReview = false;
   next.ladder = base ? ladderAfterEdit(base, next, today) : startingLadder(next);
   return next;
 }

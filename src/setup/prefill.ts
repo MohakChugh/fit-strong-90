@@ -136,10 +136,13 @@ export function answersFromProfile(p: UserProfile, s: Kept): SetupAnswers {
 /**
  * An unreviewed profile's health, medicine and pain values may be defaults
  * nobody gave, so they're asked again, never shown as answers (contract
- * H-DATA). The same rule for setup and for Me's review (H5-10, K5-01).
+ * H-DATA). So is whether the person exercises now: its default "Yes" would
+ * skip the engine's light-work rule for the inactive (H5-11). The same rule
+ * for setup and for Me's review (H5-10, K5-01).
  */
+const UNREVIEWED: readonly (keyof SetupAnswers)[] = [...SAFETY_CHAPTERS.flatMap(keysOfChapter), 'active'];
 function withoutUnreviewed(out: SetupAnswers, profile: UserProfile): SetupAnswers {
-  if (profile.needsHealthReview) for (const c of SAFETY_CHAPTERS) for (const k of keysOfChapter(c)) delete out[k];
+  if (profile.needsHealthReview) for (const k of UNREVIEWED) delete out[k];
   return out;
 }
 

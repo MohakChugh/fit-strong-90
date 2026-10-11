@@ -289,6 +289,8 @@ export const cases = [
           await setup.choose(m, 'Glucose meter or sensor', 'A glucose meter (finger-prick)');
           await setup.choose(m, 'Glucose unit', 'mg/dL');
           await setup.choose(m, 'Home blood-pressure cuff', 'No');
+          // And whether they exercise now (H5-11).
+          await setup.choose(m, 'Do you exercise now?', 'Yes');
         });
         await t.reload();
         await openProfile(t);

@@ -235,4 +235,6 @@ export async function reviewAsP01(main) {
   await choose(main, 'Which leg?', 'Left leg');
   await choose(main, 'What makes it worse?', 'Sitting or bending forward');
   await choose(main, 'Has a doctor ever said a nerve in your back or leg was damaged?', 'No');
+  // The review asks this too (H5-11): its default "Yes" was never an answer.
+  await choose(main, 'Do you exercise now?', 'Yes');
 }

@@ -16,12 +16,14 @@ import { withJoinAnswers } from '@/programme/join';
 import { sameValue } from '@/store/transfer';
 import { profileFrom, settingsFrom } from './assemble';
 import { factsOf } from './facts';
-import { SAFETY_CHAPTERS, chapterOf, commitPage, pageDef, pageDone, pathFor, type Ctx } from './graph';
+import { REVIEW_ALSO, SAFETY_CHAPTERS, chapterOf, commitPage, pageDef, pageDone, pathFor, type Ctx } from './graph';
 import { setupStateOf } from './state';
 
 export interface ChapterEdit {
   /** The chapters the edit owns (`editChapters`). */
   chapters: readonly ChapterId[];
+  /** Pages from other chapters it shows too: a health review's `REVIEW_ALSO`. What they set is the edit's own. */
+  also?: readonly PageId[];
   /** The answers the editor opened with (`answersToEdit`). */
   opened: SetupAnswers;
   /** The answers saved: every page shown, stored (`commitPage`). */
@@ -48,25 +50,37 @@ export function editChapters(asked: readonly ChapterId[], a: SetupAnswers, opene
 
 /**
  * The pages the editor shows, in setup's order: every page of its chapters
- * that applies, and any other page this edit made necessary. A page that was
- * already unanswered when the editor opened, in a chapter not opened, waits.
+ * that applies, the `also` pages, and any other page this edit made
+ * necessary. A page that was already unanswered when the editor opened, in a
+ * chapter not opened, waits.
  */
-export function editPath(chapters: readonly ChapterId[], a: SetupAnswers, opened: SetupAnswers, ctx: Ctx): PageId[] {
+export function editPath(chapters: readonly ChapterId[], a: SetupAnswers, opened: SetupAnswers, ctx: Ctx, also: readonly PageId[] = []): PageId[] {
   const waiting = new Set(pathFor(opened).filter(id => !pageDone(id, opened, ctx)));
   const path = pathFor(a).filter(id => id !== 'welcome.start' && id !== 'review'
-    && (chapters.includes(chapterOf(id) as ChapterId) || (!pageDone(id, a, ctx) && !waiting.has(id))));
+    && (chapters.includes(chapterOf(id) as ChapterId) || also.includes(id) || (!pageDone(id, a, ctx) && !waiting.has(id))));
   // Your back and feet has no page without a pain or foot answer: the question that brings them is shown instead.
   return path.length === 0 && chapters.includes('backFeet') ? ['health.conditions'] : path;
 }
 
-/** The chapters Me opens for one: while a health review is pending, the three safety chapters together, since only all three answered clear it. */
-export function askedChapters(chapter: ChapterId, profile: UserProfile | undefined): readonly ChapterId[] {
-  return profile?.needsHealthReview === true && SAFETY_CHAPTERS.includes(chapter) ? SAFETY_CHAPTERS : [chapter];
+/** What Me opens for a chapter (journey §16). */
+export interface Opens {
+  /** A health review is pending, and this chapter is one of its three. */
+  reviewing: boolean;
+  /** The chapters asked: a pending review's are the three safety chapters, since only all three answered clear it. */
+  asked: readonly ChapterId[];
+  /** Pages from other chapters a review needs too (`REVIEW_ALSO`, H5-11). */
+  also: readonly PageId[];
+}
+
+export function editorOpens(chapter: ChapterId, profile: UserProfile | undefined): Opens {
+  const reviewing = profile?.needsHealthReview === true && SAFETY_CHAPTERS.includes(chapter);
+  return reviewing ? { reviewing, asked: SAFETY_CHAPTERS, also: REVIEW_ALSO } : { reviewing, asked: [chapter], also: [] };
 }
 
 /** Me's chapter editor as its answers stand (journey §16): what it shows, what Save would store, and what Save waits for. */
 export interface EditorState {
   chapters: ChapterId[];
+  also: readonly PageId[];
   pages: PageId[];
   /** What Save stores: each shown page as `commitPage` keeps it. */
   committed: SetupAnswers;
@@ -76,12 +90,17 @@ export interface EditorState {
   blocking: PageId[];
 }
 
-export function editorState(asked: readonly ChapterId[], a: SetupAnswers, opened: SetupAnswers, ctx: Ctx): EditorState {
-  const chapters = editChapters(asked, a, opened);
-  const pages = editPath(chapters, a, opened, ctx);
+export function editorState(opens: Pick<Opens, 'asked' | 'also'>, a: SetupAnswers, opened: SetupAnswers, ctx: Ctx): EditorState {
+  const chapters = editChapters(opens.asked, a, opened);
+  const pages = editPath(chapters, a, opened, ctx, opens.also);
   const committed = pages.reduce((x, id) => commitPage(id, x), a);
   const left = pages.filter(id => !pageDone(id, committed, ctx));
-  return { chapters, pages, committed, left, blocking: left.filter(id => !pageDef(id).skippable) };
+  return { chapters, also: opens.also, pages, committed, left, blocking: left.filter(id => !pageDef(id).skippable) };
+}
+
+/** What Save stores, from the editor's state and the answers it opened with. */
+export function editOf(state: EditorState, opened: SetupAnswers): ChapterEdit {
+  return { chapters: state.chapters, also: state.also, opened, answers: state.committed, skipped: state.left };
 }
 
 type Bag = Record<string, unknown>;
@@ -126,13 +145,16 @@ export function editedRecord(data: AppData, edit: ChapterEdit, today: string, ct
   const skippedPages = [...(edit.answers.skippedPages ?? []).filter(p => !edit.chapters.includes(chapterOf(p) as ChapterId)), ...edit.skipped];
   const joins = edit.chapters.includes('movement') && edit.answers.programme === 'join' && edit.answers.join !== undefined && !isEnrolled(data.settings, data.profile);
   const answers: SetupAnswers = { ...edit.answers, skippedPages, ...(joins ? { programme: 'joined' as const } : {}) };
+  // A page shown from another chapter (a review's "What would you most like to do?") saves what it sets there too:
+  // only what changed is written, so the rest of that chapter stays as it is.
+  const owns = [...new Set([...edit.chapters, ...(edit.also ?? []).map(id => chapterOf(id) as ChapterId)])];
 
   const next: AppData = {
     ...data,
     profile,
     settings: {
       ...data.settings,
-      ...changedSettings(settingsFrom(edit.opened, data.settings, profile, today, edit.chapters), settingsFrom(edit.answers, data.settings, profile, today, edit.chapters), data.settings),
+      ...changedSettings(settingsFrom(edit.opened, data.settings, profile, today, owns), settingsFrom(edit.answers, data.settings, profile, today, owns), data.settings),
       setup: { ...setup, answers, skipped },
     },
   };

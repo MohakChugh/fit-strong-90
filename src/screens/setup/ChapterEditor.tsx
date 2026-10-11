@@ -3,8 +3,8 @@ import { Screen } from '@/components/hig/Screen';
 import { dayOf, nowAt } from '@/health/observation';
 import { measurementsFrom } from '@/setup/assemble';
 import { whatChanges } from '@/setup/changes';
-import { askedChapters, editedRecord, editorState } from '@/setup/edit';
-import { CHAPTER_TITLE, SAFETY_CHAPTERS, chapterOf } from '@/setup/graph';
+import { editOf, editedRecord, editorOpens, editorState } from '@/setup/edit';
+import { CHAPTER_TITLE, chapterOf } from '@/setup/graph';
 import { answersToEdit } from '@/setup/prefill';
 import { setupStateOf } from '@/setup/state';
 import { Notice, PrimaryButton } from '@/screens/you/controls';
@@ -19,21 +19,23 @@ import { useCtx } from './useSetup';
  * One chapter of Profile & health (journey §16, board D79): its own page
  * views, one under another, and any page the change makes necessary, with
  * one Save. While a health review is pending, the three safety chapters open
- * together: only all three answered clear it.
+ * together, with whether the person exercises now: only all of them
+ * answered clear it.
  */
 export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
   const { settings, profile } = useStore();
   const ctx = useCtx();
   const [today] = useState(() => dayOf(nowAt()));
-  const reviewing = profile?.needsHealthReview === true && SAFETY_CHAPTERS.includes(chapter);
-  const asked = askedChapters(chapter, profile);
+  const opens = editorOpens(chapter, profile);
   const [opened] = useState<SetupAnswers>(() => (profile ? answersToEdit(setupStateOf(settings, profile).answers, profile, settings, today, ctx) : {}));
   const [edits, setEdits] = useState<Partial<SetupAnswers>>({});
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<{ tone: 'status' | 'error'; lines: string[] }>();
   const a: SetupAnswers = { ...opened, ...edits };
-  const { chapters, pages, committed, left, blocking } = editorState(asked, a, opened, ctx);
+  const state = editorState(opens, a, opened, ctx);
+  const { pages, committed, blocking } = state;
+  const reviewing = opens.reviewing;
 
   const set = (patch: Partial<SetupAnswers>) => {
     setOutcome(undefined);
@@ -48,7 +50,7 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
     }
     setBusy(true);
     const now = nowAt();
-    const edit = { chapters, opened, answers: committed, skipped: left };
+    const edit = editOf(state, opened);
     const saved = await update(d => editedRecord(d, edit, today, ctx), { addObservations: measurementsFrom(committed, profile, now) });
     setBusy(false);
     if (!saved.ok) {

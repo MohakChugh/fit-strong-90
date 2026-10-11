@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { AppData } from '@/types';
 import type { SetupAnswers } from '@/types/setup';
-import { profileGaps } from '@/engine/health';
+import { profileGaps, profileRules } from '@/engine/health';
 import { isEnrolled } from '@/health/recommend';
 import { createDefaultProfile } from '@/profile/defaults';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import { completedSetup, profileFrom } from './assemble';
-import { editChapters, editPath, editedRecord } from './edit';
+import { editChapters, editOf, editPath, editedRecord, editorOpens, editorState } from './edit';
 import { keysOfChapter } from './fields';
 import { COMPLEX, GLIFLOZIN_NO_DIABETES, JOIN, MINIMAL, NO_CONDITIONS } from './fixtures';
 import { SAFETY_CHAPTERS, commitPage, pathFor } from './graph';
 import { answersFromProfile, answersToEdit } from './prefill';
+import { setupStateOf } from './state';
 
 const TODAY = '2026-10-10';
 const NOW = '2026-10-10T09:00:00.000+05:30';
@@ -81,11 +82,38 @@ describe('the record after an edit (journey §16)', () => {
     data.settings = { ...data.settings, onboardingComplete: true };
     data.profile = { ...profileFrom(COMPLEX, undefined, TODAY, CTX), needsHealthReview: true };
     const a = opened(data);
-    // The review asks every safety question again (H5-10): here the person answers them as COMPLEX did.
-    const given: SetupAnswers = { ...a, ...Object.fromEntries(SAFETY_CHAPTERS.flatMap(keysOfChapter).map(k => [k, COMPLEX[k]])) };
+    // The review asks every safety question again (H5-10), and its page with whether they exercise now (H5-11): answered as COMPLEX did.
+    const given: SetupAnswers = { ...a, ...Object.fromEntries(SAFETY_CHAPTERS.flatMap(keysOfChapter).map(k => [k, COMPLEX[k]])), focus: COMPLEX.focus, active: COMPLEX.active };
     const answers = pathFor(given).reduce<SetupAnswers>((x, id) => commitPage(id, x), given);
     const after = editedRecord(data, { chapters: SAFETY_CHAPTERS, opened: a, answers, skipped: [] }, TODAY, CTX);
     expect(after.profile?.needsHealthReview).toBe(false);
+  });
+
+  it('a pending review asks whether they exercise now, and stays pending until it is answered (H5-11)', () => {
+    const data = fresh();
+    data.settings = { ...data.settings, onboardingComplete: true, focus: 'stretch' };
+    // Type 2 without clearance, and the default "exercises now", which would skip the light-work rule for the inactive.
+    data.profile = createDefaultProfile({ needsHealthReview: true, health: { diabetes: 'type2', clearance: 'none' } });
+    const a = opened(data);
+    const safety: SetupAnswers = {
+      conditions: { ...NO_CONDITIONS, diabetes: 'yes' }, diabetesType: 'type2', clearance: 'none', targets: 'no',
+      regular: 'no', priorDka: 'no', dizzy: 'no', glucoseMonitor: 'none', bpCuff: false,
+    };
+    const save = (answers: SetupAnswers) => {
+      const s = editorState(editorOpens('health', data.profile), answers, a, CTX);
+      return { s, after: editedRecord(data, editOf(s, a), TODAY, CTX) };
+    };
+    const unanswered = save({ ...a, ...safety });
+    expect(unanswered.s.blocking).toContain('movement.focus');
+    expect(unanswered.after.profile?.needsHealthReview).toBe(true);
+    const answered = save({ ...a, ...safety, active: 'no' });
+    expect(answered.s.blocking).toEqual([]);
+    expect(answered.after.profile?.needsHealthReview).toBe(false);
+    expect(profileRules(answered.after.profile!).lightOnly).toBe(true);
+    // A focus changed on the review's own page is saved too, and the rest of Your movement stays as it was.
+    const refocused = save({ ...a, ...safety, active: 'no', focus: 'move' });
+    expect(refocused.after.settings.focus).toBe('move');
+    expect(refocused.after.settings.setup?.skipped).toEqual(setupStateOf(data.settings, data.profile).skipped);
   });
 
   it('adding diabetes without its medicines never keeps the old review (Review Focus 1)', () => {

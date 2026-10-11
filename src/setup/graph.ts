@@ -114,6 +114,13 @@ export const CHAPTER_TITLE: Record<ChapterId, string> = {
 /** The chapters the engine's profile gaps depend on (§6.1). */
 export const SAFETY_CHAPTERS: readonly ChapterId[] = ['health', 'medicines', 'backFeet'];
 
+/**
+ * What a health review asks beyond the safety chapters: whether the person
+ * exercises now, which the engine's clearance screening reads
+ * (`currentlyActive`; H5-11). A review clears only with it answered too.
+ */
+export const REVIEW_ALSO: readonly PageId[] = ['movement.focus'];
+
 export function pathFor(a: SetupAnswers): PageId[] {
   const f = factsOf(a);
   return PAGES.filter(p => p.when(a, f)).map(p => p.id);
