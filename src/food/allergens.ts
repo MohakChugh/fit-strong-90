@@ -10,6 +10,7 @@
  */
 import { tokens } from '@/content/text';
 import { ALLERGEN_IDS, type AllergenId, type FoodPreferences } from '@/types/profile';
+import type { CustomFood } from './types';
 
 export interface Allergen {
   id: AllergenId;
@@ -47,7 +48,9 @@ export const ALLERGENS: readonly Allergen[] = ALLERGEN_IDS.map(id => ({ id, ...A
 
 const ALIASES = ALLERGENS.flatMap(a => a.aliases.map(alias => ({ id: a.id, words: tokens(alias) })));
 const unique = <T>(xs: readonly T[]): T[] => [...new Set(xs)];
-const and = (names: readonly string[]) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
+const joined = (word: string) => (names: readonly string[]) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} ${word} ${names.at(-1)}`);
+const and = joined('and');
+const or = joined('or');
 
 export function isAllergenId(x: unknown): x is AllergenId {
   return typeof x === 'string' && (ALLERGEN_IDS as readonly string[]).includes(x);
@@ -135,7 +138,11 @@ export function recommendable(tags: AllergenTags, allergies: Allergies): boolean
 
 const listed = (n: number) => (n === 1 ? 'which you listed as an allergy' : 'which you listed as allergies');
 
-/** Why a food the person can still log is marked for them, or nothing. */
+/**
+ * Why a food the person can still log is marked for them, or nothing. A
+ * food whose allergens aren't tagged says so, and what to check it for
+ * (H7-04): logging stays open (B-13).
+ */
 export function allergyWarning(tags: AllergenTags, allergies: Allergies): string | undefined {
   const contains = allergies.known.filter(id => tags.contains.includes(id));
   if (contains.length > 0) return `Contains ${allergenList(contains)}, ${listed(contains.length)}`;
@@ -143,5 +150,24 @@ export function allergyWarning(tags: AllergenTags, allergies: Allergies): string
   if (may.length > 0) return `May contain ${allergenList(may)}, ${listed(may.length)}`;
   const words = new Set(tags.words);
   const hits = allergies.custom.filter(entry => entry.every(w => words.has(w))).map(entry => entry.join(' '));
-  return hits.length > 0 ? `Contains ${and(hits)}, ${listed(hits.length)}` : undefined;
+  if (hits.length > 0) return `Contains ${and(hits)}, ${listed(hits.length)}`;
+  const all = [...allergies.known.map(allergenName), ...allergies.custom.map(entry => entry.join(' '))];
+  return !tags.complete && all.length > 0 ? `What’s in it isn’t known. Check it for ${or(all)}.` : undefined;
+}
+
+/**
+ * Your own food's tags (H7-04): what the person ticked, and any allergen its
+ * name says ("Peanut chutney"), which may be in it whatever was ticked.
+ * Nothing ticked is unknown, never "none"; "None of these" is `allergens: []`.
+ * Its ingredients are never known by name.
+ */
+export function ownFoodTags(food: Pick<CustomFood, 'name' | 'allergens'>): AllergenTags {
+  const contains = food.allergens ?? [];
+  return {
+    contains,
+    mayContain: resolveAllergens(food.name).filter(id => !contains.includes(id)),
+    complete: food.allergens !== undefined,
+    named: false,
+    words: tokens(food.name),
+  };
 }

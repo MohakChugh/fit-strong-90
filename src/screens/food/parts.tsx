@@ -190,6 +190,8 @@ export function PortionPage({ food, item, numbers, allergies, look, onBack, onSa
   );
 }
 
+const OWN_ALLERGENS: { value: AllergenId | 'none'; label: string }[] = [...ALLERGENS.map(a => ({ value: a.id, label: a.label })), { value: 'none', label: FOOD_COPY.ownNoneOfThese }];
+
 /** A figure the person may leave blank: blank is unknown, never 0 (A-17); `null` can't be right. */
 function figure(text: string, max: number): number | undefined | null {
   if (text.trim() === '') return undefined;
@@ -210,7 +212,8 @@ export function OwnFoodPage({ name: typed, numbers, onBack, onAdd }: {
   const [unit, setUnit] = useState('plate');
   const [kcal, setKcal] = useState('');
   const [carbs, setCarbs] = useState('');
-  const [allergens, setAllergens] = useState<AllergenId[]>([]);
+  // Nothing ticked is unknown; "None of these" is an answer (H7-04).
+  const [allergens, setAllergens] = useState<(AllergenId | 'none')[]>([]);
   const [problem, setProblem] = useState<string>();
   const add = () => {
     const q = Number(qty);
@@ -224,7 +227,7 @@ export function OwnFoodPage({ name: typed, numbers, onBack, onAdd }: {
       onAdd({
         id: newCustomId(), name: name.trim().slice(0, 60), per: { qty: q, unit: unit.trim().slice(0, 20) },
         ...(k !== undefined ? { kcal: k } : {}), ...(c !== undefined ? { carbsG: c } : {}),
-        ...(allergens.length > 0 ? { allergens } : {}), createdAt: now, updatedAt: now,
+        ...(allergens.length > 0 ? { allergens: allergens.filter((a): a is AllergenId => a !== 'none') } : {}), createdAt: now, updatedAt: now,
       });
     }
   };
@@ -254,7 +257,13 @@ export function OwnFoodPage({ name: typed, numbers, onBack, onAdd }: {
         </>
       )}
       <Group header={FOOD_COPY.ownAllergens}>
-        <CheckRows label={FOOD_COPY.ownAllergens} options={ALLERGENS.map(a => ({ value: a.id, label: a.label }))} value={allergens} onChange={setAllergens} />
+        <CheckRows
+          label={FOOD_COPY.ownAllergens}
+          options={OWN_ALLERGENS}
+          value={allergens}
+          // "None of these" stands alone: ticking it clears the rest, and ticking another clears it.
+          onChange={next => setAllergens(next.includes('none') && !allergens.includes('none') ? ['none'] : next.filter(a => a !== 'none'))}
+        />
       </Group>
       {problem && <ErrorText>{problem}</ErrorText>}
       <PrimaryButton onClick={add}>{FOOD_COPY.addToMeal}</PrimaryButton>

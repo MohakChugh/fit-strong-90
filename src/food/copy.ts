@@ -102,6 +102,7 @@ export const FOOD_COPY = {
   ownCarbs: 'Carbs in one portion, in grams (optional)',
   ownUnknown: 'Leave a figure blank if you don’t know it. It stays unknown, never 0.',
   ownAllergens: 'It contains (optional)',
+  ownNoneOfThese: 'None of these',
   ownNoName: 'Give it a name.',
   ownNoQty: 'Say how much one portion is.',
   ownBadFigure: 'That figure can’t be right. Check it, or leave it blank.',

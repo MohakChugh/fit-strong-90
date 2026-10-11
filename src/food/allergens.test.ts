@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ALLERGEN_IDS, type AllergenId } from '@/types/profile';
-import { ALLERGENS, allergenList, allergiesOf, allergyWarning, recommendable, resolveAllergens, type AllergenTags } from './allergens';
+import { ALLERGENS, allergenList, allergiesOf, allergyWarning, ownFoodTags, recommendable, resolveAllergens, type AllergenTags } from './allergens';
+import type { CustomFood } from './types';
 
 const tags = (over: Partial<AllergenTags> = {}): AllergenTags => ({ contains: [], mayContain: [], complete: true, named: true, words: [], ...over });
 
@@ -114,5 +115,29 @@ describe('allergyWarning: logging never hides a food, it says why (B-13)', () =>
   it('lists allergens as a sentence would', () => {
     expect(allergenList(['wheat'])).toBe('wheat');
     expect(allergenList(['milk', 'treeNut', 'sesame'])).toBe('milk, tree nuts and sesame');
+  });
+});
+
+describe('your own food’s allergens: unanswered is unknown, and its name is read too (H7-04)', () => {
+  const peanut = allergiesOf({ allergies: ['peanut'] });
+  const own = (over: Partial<CustomFood> = {}): CustomFood => ({
+    id: 'food-1', name: 'Peanut chutney', per: { qty: 1, unit: 'katori' }, createdAt: '2026-10-08T09:00:00.000+05:30', updatedAt: '2026-10-08T09:00:00.000+05:30', ...over,
+  });
+  it('warns of an allergen its name says, ticked or not', () => {
+    expect(allergyWarning(ownFoodTags(own()), peanut)).toBe('May contain peanut, which you listed as an allergy');
+    expect(allergyWarning(ownFoodTags(own({ allergens: [] })), peanut)).toBe('May contain peanut, which you listed as an allergy');
+    expect(allergyWarning(ownFoodTags(own({ allergens: ['peanut'] })), peanut)).toBe('Contains peanut, which you listed as an allergy');
+    expect(allergyWarning(ownFoodTags(own({ name: 'Groundnut ladoo' })), peanut)).toBe('May contain peanut, which you listed as an allergy');
+  });
+  it('says what isn’t known when nothing was answered, and nothing once “none of these” was', () => {
+    expect(allergyWarning(ownFoodTags(own({ name: 'Bhel puri' })), peanut)).toBe('What’s in it isn’t known. Check it for peanut.');
+    expect(allergyWarning(ownFoodTags(own({ name: 'Bhel puri' })), allergiesOf({ allergies: ['peanut', 'milk'], customAllergies: ['brinjal'] })))
+      .toBe('What’s in it isn’t known. Check it for peanut, milk or brinjal.');
+    expect(allergyWarning(ownFoodTags(own({ name: 'Bhel puri', allergens: [] })), peanut)).toBeUndefined();
+    expect(allergyWarning(ownFoodTags(own({ name: 'Bhel puri' })), allergiesOf({}))).toBeUndefined();
+  });
+  it('never reads your own food as fully known by name', () => {
+    expect(ownFoodTags(own({ allergens: [] }))).toMatchObject({ complete: true, named: false });
+    expect(ownFoodTags(own())).toMatchObject({ complete: false, named: false });
   });
 });

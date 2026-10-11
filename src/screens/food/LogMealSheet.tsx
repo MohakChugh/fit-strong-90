@@ -12,8 +12,7 @@ import { Group, Row } from '@/components/hig/List';
 import { cameFrom } from '@/components/hig/navigation';
 import { Sheet } from '@/components/hig/Sheet';
 import { TOAST_STYLE } from '@/components/hig/toast';
-import { tokens } from '@/content/text';
-import { allergiesOf, allergyWarning } from '@/food/allergens';
+import { allergiesOf, allergyWarning, ownFoodTags } from '@/food/allergens';
 import { FOOD_COPY } from '@/food/copy';
 import { FOODS, foodById } from '@/food/data';
 import { openDraft } from '@/food/draft';
@@ -97,7 +96,7 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
   const typed = shownQuery.trim();
 
   const foodWarning = (f: Food) => allergyWarning({ ...f.allergens, words: f.words }, allergies);
-  const customWarning = (c: CustomFood) => allergyWarning({ contains: c.allergens ?? [], mayContain: [], complete: true, named: false, words: tokens(c.name) }, allergies);
+  const customWarning = (c: CustomFood) => allergyWarning(ownFoodTags(c), allergies);
   const itemWarning = (item: MealItem) => {
     if (item.kind === 'food') {
       const food = foodById(item.foodId);
