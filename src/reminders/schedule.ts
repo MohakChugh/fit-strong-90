@@ -94,6 +94,8 @@ export interface ReminderContext {
   waterOn?: (day: string) => number | undefined;
   /** Whether that meal is logged on a day: its food prompt then doesn't show (journey §11.5). */
   mealLogged?: (day: string, meal: Meal) => boolean;
+  /** Whether a food prompt was offered on a day already: no other comes that day (H7-21). */
+  foodPromptOffered?: (day: string) => boolean;
 }
 
 function validEvery(value: unknown): value is number {
@@ -206,8 +208,9 @@ function waterGoalMet(context: ReminderContext, day: string): boolean {
 export function occurrencesOn(day: string, context: ReminderContext, times: readonly InAppTime[] = inAppTimes(context)): Occurrence[] {
   if (!canShow(context, day)) return [];
   const met = waterGoalMet(context, day);
+  const offered = context.foodPromptOffered?.(day) === true;
   return times
-    .filter(t => !(met && t.habit === 'water') && !(t.habit === 'foodLog' && t.meal !== undefined && context.mealLogged?.(day, t.meal)))
+    .filter(t => !(met && t.habit === 'water') && !(t.habit === 'foodLog' && (offered || (t.meal !== undefined && context.mealLogged?.(day, t.meal)))))
     .map(t => occurrence(t, day));
 }
 

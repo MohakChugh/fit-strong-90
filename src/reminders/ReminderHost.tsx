@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { foodPromptOfferedOn, noteFoodPromptsShown } from '@/food/prompts';
 import { mealsIn } from '@/food/records';
 import { useStore } from '@/store/useStore';
 import { statusOn } from '@/health/status';
@@ -52,6 +53,8 @@ export function ReminderHost() {
     status: day => statusOn(periods, day),
     waterOn: day => waterRecorded(day, observations),
     mealLogged: (day, meal) => mealsIn(records).some(m => m.day === day && m.meal === meal),
+    // At most one food prompt a day, remembered on this device (H7-21).
+    foodPromptOffered: day => foodPromptOfferedOn(day),
   }), [habits, profile, periods, observations, records]);
   // Read fresh by the runner on every check, so a glass logged a moment ago
   // counts towards the goal without restarting anything.
@@ -97,7 +100,10 @@ export function ReminderHost() {
       now: () => new Date(),
       context: () => context.current,
       show: due => {
-        if (!route.current) showReminders(due);
+        if (!route.current) {
+          showReminders(due);
+          noteFoodPromptsShown(due);
+        }
         setNow(wallTimeOf(new Date()));
       },
       later: (run, ms) => {

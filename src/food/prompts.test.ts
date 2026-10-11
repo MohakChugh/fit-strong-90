@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
 import type { FoodPreferences } from '@/types/profile';
-import { foodPromptTime, promptDefault } from './prompts';
+import { foodPromptTime, promptDefault, FOOD_PROMPT_DAY_KEY, foodPromptOfferedOn, noteFoodPromptsShown } from './prompts';
 
 const person = (food: Partial<FoodPreferences>) => createDefaultProfile({ food: { pattern: 'vegetarian', avoid: [], ...food } });
 
@@ -22,5 +22,25 @@ describe('the food prompt (journey §7.4, A-73; board D103)', () => {
     expect(promptDefault('breakfast', undefined)).toBe('10:00');
     expect(promptDefault('lunch', undefined)).toBe('14:30');
     expect(promptDefault('dinner', { mealWalk: { enabled: true, meals: [], finish: {} } })).toBe('21:30');
+  });
+});
+
+describe('the day a food prompt was offered (H7-21; board D140)', () => {
+  const kept = new Map<string, string>();
+  const storage = { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => void kept.set(k, v) };
+  it('is remembered from a food prompt shown, not from another reminder', () => {
+    kept.clear();
+    noteFoodPromptsShown([{ habit: 'water', day: '2026-10-08' }], storage);
+    expect(foodPromptOfferedOn('2026-10-08', storage)).toBe(false);
+    noteFoodPromptsShown([{ habit: 'water', day: '2026-10-08' }, { habit: 'foodLog', day: '2026-10-08' }], storage);
+    expect(foodPromptOfferedOn('2026-10-08', storage)).toBe(true);
+    expect(foodPromptOfferedOn('2026-10-09', storage)).toBe(false);
+    expect(kept.get(FOOD_PROMPT_DAY_KEY)).toBe('2026-10-08');
+  });
+  it('costs nothing worse than one more prompt when the device won’t keep it', () => {
+    const refusing = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
+    expect(() => noteFoodPromptsShown([{ habit: 'foodLog', day: '2026-10-08' }], refusing)).not.toThrow();
+    expect(foodPromptOfferedOn('2026-10-08', refusing)).toBe(false);
+    expect(foodPromptOfferedOn('2026-10-08', undefined)).toBe(false);
   });
 });

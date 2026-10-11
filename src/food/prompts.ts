@@ -28,3 +28,40 @@ export function foodPromptTime(profile: UserProfile | undefined): { habit: 'food
   const minute = parseClock(reminder.at);
   return minute === undefined ? undefined : { habit: 'foodLog', meal: reminder.meal, minute };
 }
+
+/** Where this device keeps the local day a food prompt was last offered (H7-21; board D140). On the device only, as the prompt is. */
+export const FOOD_PROMPT_DAY_KEY = 'fit-strong-food-prompt-day';
+
+type DayStorage = Pick<Storage, 'getItem' | 'setItem'>;
+
+function deviceStorage(): DayStorage | undefined {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether a food prompt was offered on this local day already: at most one a
+ * day, whatever its meal or time, so a time changed after it showed, or a
+ * reload, never brings a second (journey §11.5).
+ */
+export function foodPromptOfferedOn(day: string, storage: DayStorage | undefined = deviceStorage()): boolean {
+  try {
+    return storage?.getItem(FOOD_PROMPT_DAY_KEY) === day;
+  } catch {
+    return false;
+  }
+}
+
+/** Remember the day of a food prompt just shown. Kept as long as this device keeps it. */
+export function noteFoodPromptsShown(due: readonly { habit: string; day: string }[], storage: DayStorage | undefined = deviceStorage()): void {
+  const day = due.filter(o => o.habit === 'foodLog').map(o => o.day).sort().at(-1);
+  if (day === undefined) return;
+  try {
+    storage?.setItem(FOOD_PROMPT_DAY_KEY, day);
+  } catch {
+    // Not remembered: at worst one more prompt today, never a lost record.
+  }
+}
