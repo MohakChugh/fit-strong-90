@@ -67,6 +67,7 @@ export const FOOD_COPY = {
   weigh: 'Weigh yours',
   weighLabel: (what: string) => `One ${what} weighs, in grams`,
   weighHint: 'Weigh one portion once, and that weight is used for this meal.',
+  useWeight: 'Use this weight',
   whatsInIt: 'What’s in it',
   notCounted: 'not counted',
   recipeNote: 'Tagged from our recipe. Kitchens and brands differ.',

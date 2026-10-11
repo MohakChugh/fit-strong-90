@@ -189,3 +189,45 @@ describe('your own food in a meal whose food is gone (H7-10; board D134)', () =>
     expect(item(h, 'Bhel puri')).toContain('What’s in it isn’t known. Check it for peanut.');
   });
 });
+
+const { PortionPage } = await import('./parts');
+const { foodById } = await import('@/food/data');
+
+describe('a food’s portion page, weighed (H7-12)', () => {
+  const roti = foodById('roti')!;
+  const page = (onSave: (item: unknown) => void) => {
+    host = render(createElement(PortionPage, {
+      food: roti, numbers: { show: true, ranges: false }, allergies: { known: [], custom: [] },
+      look: { food: foodById, custom: () => undefined }, onBack() {}, onSave,
+    }));
+    return host;
+  };
+  it('applies a weight typed in when the page’s own action is tapped', async () => {
+    const saved: unknown[] = [];
+    const h = page(item => saved.push(item));
+    await h.settle();
+    await h.click(h.button('Weigh yours'));
+    await h.change(h.field('One roti weighs, in grams'), { value: '70' });
+    await h.click(h.button('Add to meal', { exact: true }));
+    expect(saved).toEqual([expect.objectContaining({ gramsPerPortion: 70, weighed: true, kcal: 179 })]);
+  });
+  it('leaves the standard portion as it is when “Weigh yours” was opened and nothing typed', async () => {
+    const saved: unknown[] = [];
+    const h = page(item => saved.push(item));
+    await h.settle();
+    await h.click(h.button('Weigh yours'));
+    await h.click(h.button('Add to meal', { exact: true }));
+    expect(saved).toEqual([expect.objectContaining({ gramsPerPortion: 40 })]);
+    expect(saved[0]).not.toHaveProperty('weighed');
+  });
+  it('refuses a weight that can’t be right, saying so, and saves nothing', async () => {
+    const saved: unknown[] = [];
+    const h = page(item => saved.push(item));
+    await h.settle();
+    await h.click(h.button('Weigh yours'));
+    await h.change(h.field('One roti weighs, in grams'), { value: '0' });
+    await h.click(h.button('Add to meal', { exact: true }));
+    expect(saved).toEqual([]);
+    expect(h.text()).toContain('That figure can’t be right');
+  });
+});

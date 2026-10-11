@@ -134,14 +134,25 @@ export function PortionPage({ food, item, numbers, allergies, look, onBack, onSa
   const one = food.portion.unit === 'piece' && food.portion.noun ? food.portion.noun[0] : unit.one;
   const warning = allergyWarning({ ...food.allergens, words: food.words }, allergies);
   const estimate = itemEstimate(draft, numbers);
-  const weigh = () => {
+  /** The portion with the weight in the field applied, or nothing when that weight can't be right (H7-12). */
+  const applied = (): FoodItem | undefined => {
+    if (!weighing || grams === String(draft.gramsPerPortion)) return draft;
     const g = Number(grams);
     if (!(g > 0 && g <= 2000)) {
       setProblem(FOOD_COPY.ownBadFigure);
-      return;
+      return undefined;
     }
     setProblem(undefined);
-    setDraft(d => weighed(d, g, food));
+    return weighed(draft, g, food);
+  };
+  const weigh = () => {
+    const next = applied();
+    if (next) setDraft(next);
+  };
+  // The page's own action takes the weight as typed, applied or not, and is stopped by one that can't be right.
+  const commit = () => {
+    const next = applied();
+    if (next) onSave(next);
   };
   return (
     <div className="flex flex-col gap-4">
@@ -170,7 +181,7 @@ export function PortionPage({ food, item, numbers, allergies, look, onBack, onSa
           <div className="flex flex-col gap-2 px-4 py-3">
             <NumberField label={FOOD_COPY.weighLabel(one)} mode="numeric" unit="g" value={grams} onChange={v => { setGrams(v); setProblem(undefined); }} invalid={!!problem} />
             <Hint>{FOOD_COPY.weighHint}</Hint>
-            <SecondaryButton onClick={weigh}>{FOOD_COPY.done}</SecondaryButton>
+            <SecondaryButton onClick={weigh}>{FOOD_COPY.useWeight}</SecondaryButton>
             {problem && <ErrorText>{problem}</ErrorText>}
           </div>
         )}
@@ -184,7 +195,7 @@ export function PortionPage({ food, item, numbers, allergies, look, onBack, onSa
           {...(food.allergens.mayContain.length > 0 ? { detail: FOOD_COPY.mayContain(allergenList(food.allergens.mayContain)) } : {})}
         />
       </Group>
-      <PrimaryButton onClick={() => onSave(draft)}>{item ? FOOD_COPY.done : FOOD_COPY.addToMeal}</PrimaryButton>
+      <PrimaryButton onClick={commit}>{item ? FOOD_COPY.done : FOOD_COPY.addToMeal}</PrimaryButton>
       {onRemove && <SecondaryButton tone="stop" onClick={onRemove}>{FOOD_COPY.remove}</SecondaryButton>}
     </div>
   );
