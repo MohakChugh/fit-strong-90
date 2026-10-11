@@ -4,7 +4,7 @@
  * in place of the tray, because sheets never nest: a food's portion, your own
  * food, and Quick add.
  */
-import { useEffect, useId, useState } from 'react';
+import { useId, useLayoutEffect, useState } from 'react';
 import { ChevronLeftIcon, PlusIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import { ALLERGENS, allergenList, allergenName, allergyWarning, type Allergies } from '@/food/allergens';
@@ -132,9 +132,10 @@ function BackToMeal({ onBack }: { onBack: () => void }) {
 /**
  * Tells the sheet whether a page holds what the person hasn't added yet, so a Back or Close asks first, and
  * that it holds nothing once the page goes (H7-19). `onDirty` is the sheet's own setter, so it never changes.
+ * A layout effect, so the sheet has heard before the browser does anything else, a Back right after typing included.
  */
 function useHolds(holds: boolean, onDirty?: (holds: boolean) => void): void {
-  useEffect(() => {
+  useLayoutEffect(() => {
     onDirty?.(holds);
     return () => onDirty?.(false);
   }, [holds, onDirty]);
