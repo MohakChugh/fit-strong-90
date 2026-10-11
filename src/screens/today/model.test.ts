@@ -247,6 +247,24 @@ describe('pickPrompt', () => {
     expect(pickPrompt({ ...base, waiting: [] })).toEqual({ kind: 'water', goalMl: 2000, glassMl: 300 });
   });
 
+  it('offers Your week in brief last of all: after a reminder, the water row and a first result never entered (B-20, §12.6)', () => {
+    const weekBrief = { week: '2026-09-28' };
+    const late = at(TODAY, '22:00');
+    const diabetic = profile({ diabetes: 'type2', hypertension: 'none' });
+    expect(pickPrompt({ ...base, weekBrief, now: late })).toEqual({ kind: 'weekBrief', week: '2026-09-28' });
+    expect(pickPrompt({ ...base, weekBrief })).toEqual({ kind: 'water', goalMl: 2000, glassMl: 300 });
+    expect(pickPrompt({ ...base, weekBrief, now: late, waiting: [stand] })).toEqual({ kind: 'reminder', item: stand });
+    expect(pickPrompt({ ...base, weekBrief, now: late, profile: diabetic })).toMatchObject({ kind: 'due', item: { kind: 'hba1cFirst' } });
+  });
+
+  it('never offers the brief beside a safety decision, or on a day that isn’t Normal (§12.6)', () => {
+    const weekBrief = { week: '2026-09-28' };
+    const late = at(TODAY, '22:00');
+    expect(pickPrompt({ ...base, weekBrief, now: late, held: true })).toBeUndefined();
+    expect(pickPrompt({ ...base, weekBrief, now: late, stopped: true })).toBeUndefined();
+    for (const status of ['flare', 'unwell', 'away'] as const) expect(pickPrompt({ ...base, weekBrief, now: late, status })).toBeUndefined();
+  });
+
   /** A full home blood-pressure day: two readings morning and evening, a minute apart. */
   const bpDay = (day: string): Observation[] => ['07:30', '07:31', '20:00', '20:01'].flatMap((time, i) => {
     const shared = { at: `${day}T${time}:00+05:30`, scope: 'pointInTime' as const, source: 'manual' as const, context: bpContext(`d${day}-${i}`), tag: i < 2 ? 'morning' as const : 'evening' as const };

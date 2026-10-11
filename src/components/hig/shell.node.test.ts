@@ -516,6 +516,25 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     expect(home).toMatch(/readingLine\(id, \{ \.\.\.\(glucose \? \{ glucose \} : \{\}\), \.\.\.\(pressure \? \{ pressure \} : \{\}\), last \}\)/);
   });
 
+  it('This week’s ring is drawn against the goal its own week had, and keyed by it, as each of Trends’ rings is (kiro KV-25, B-16, B-32)', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    // The week's own goal, never the goal last chosen (`weeklyMovementGoalMinutes`), which may wait for Monday.
+    expect(home).toContain('const goal = weeklyGoalOn(settings, today);');
+    expect(home).toMatch(/<WeekCard[^/]*?\{\.\.\.\(goal !== undefined \? \{ goal \} : \{\}\)\}/);
+    expect(home.match(/<WeekCard[\s\S]*?\/>/)?.[0]).not.toContain('weeklyMovementGoalMinutes');
+    expect(read('src/screens/home/WeekCard.tsx')).toContain('useRingValue(ringId(today, goal ?? 0), minutes, still || reduced)');
+    expect(read('src/screens/trends/yourWeek.ts')).toContain('const goal = weeklyGoalOn(settings, week);');
+  });
+
+  it('Home offers last week’s brief only when it has something to say and isn’t seen, and opening it keeps it seen (journey §12.6, B-20)', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    expect(home).toContain('return weekSentences(weekFacts({ week: addDays(mondayOf(today), -7), data, prefs, ctx }), prefs).length > 0;');
+    expect(home).toContain('const weekBrief = weekBriefFor({ now, seen: briefSeen(state.contentState[WEEK_BRIEF_KEY]), hasFacts: briefHasFacts });');
+    expect(home).toMatch(/pickPrompt\(\{[^}]*\.\.\.\(weekBrief \? \{ weekBrief \} : \{\}\)/);
+    expect(home).toContain("markTab('trends');\n      void setContentState(WEEK_BRIEF_KEY, withSeen(briefSeen(getState().contentState[WEEK_BRIEF_KEY]), week));");
+    expect(home).toContain('to={`/trends?week=${week}`} viewTransition onClick={open}');
+  });
+
   it('Home’s movement tiles know whether the person is in the programme, so a flare names no programme on the Workout tile (D35, J16 step 1)', () => {
     expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/movementLine\(\{\s+mode, permission, status, enrolled,/);
   });

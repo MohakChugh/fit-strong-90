@@ -116,8 +116,10 @@ async function inventory(t, { textScale } = {}) {
     await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Trends'));
     await page.waitForTimeout(400);
     await t.checkpoint('track-trends');
-    // The Trends tab's root: My Day's Trends view on its own until Plan 3 (journey §12).
+    // The Trends tab's root (journey §12.1), and two category trends with P01's September records (§12.2).
     await visit(t, '/trends', 'trends-tab');
+    await visit(t, '/trends/glucose?period=month&at=2026-09-25', 'trends-glucose-september');
+    await visit(t, '/trends/back?period=month&at=2026-09-25', 'trends-back-september');
     await visit(t, '/day/today');
     for (const kind of ['Glucose', 'Blood pressure', 'Back & leg pain', 'Weight', 'Water', 'Steps', 'Sleep', 'Waist', 'Lab result', 'Workout']) {
       await ui.tap(ui.header(page).getByRole('button', { name: 'Add a record', exact: true }));

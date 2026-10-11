@@ -11,38 +11,17 @@
  * says which is which in words.
  */
 
-import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import {
   MAX_SLOTS, gutterFor, isReading, labelWidth, linePath, lineRuns, niceDomain, niceTicks, placeLabels, plotFrame,
-  plotY, pointXs, recent, textSize, thinLabels,
+  plotY, pointXs, recent, thinLabels,
 } from '@/components/hig/scale';
+import { useMeasure } from '@/components/hig/useMeasure';
 import { cn } from '@/lib/utils';
 
 export interface PairSlot {
   label: string;
   first: number | null;
   second: number | null;
-}
-
-/** Width (floored, never rounded up) and text size, measured before paint, as `LineChart` does. */
-function useMeasure(): [RefObject<HTMLElement | null>, number, number] {
-  const ref = useRef<HTMLElement>(null);
-  const [width, setWidth] = useState(0);
-  const [fontPx, setFontPx] = useState(13);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const update = (px: number) => {
-      setWidth(Math.floor(px));
-      setFontPx(textSize(parseFloat(getComputedStyle(el).fontSize)));
-    };
-    update(el.getBoundingClientRect().width);
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(([entry]) => update(entry.contentRect.width));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  return [ref, width, fontPx];
 }
 
 export function PairChart({ slots, names, unit, label, targets, height = 200, missingLabel = 'Not entered', className }: {

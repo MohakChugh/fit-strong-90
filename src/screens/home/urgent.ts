@@ -17,7 +17,7 @@ import { gateFor } from '@/components/checkin/start';
 import { profileGaps } from '@/engine/health';
 import { readinessFor, type Mode, type Permission } from '@/engine/permission';
 import { RECHECK_MINUTES, profileOnlyReadiness, toMgdl, withLogged } from '@/engine/readiness';
-import { gateOf, nextBoundary, type RecommendInput } from '@/health/recommend';
+import { gateOf, nextBoundary, recommend, type RecommendInput, type RecommendationKind } from '@/health/recommend';
 import { useGuided } from '@/hooks/useGuided';
 import { prefersHour12, timeOf } from '@/lib/time';
 import { toDateString } from '@/lib/utils';
@@ -249,6 +249,25 @@ export function recommendSources({ now, state, plan, checkIns }: {
 /** The gate's answer for every mode, now. */
 export function gatesNow(records: Parameters<typeof gateFor>[0]): Record<Mode, Permission> {
   return { guided: gateFor(records, 'guided'), stretch: gateFor(records, 'stretch'), walk: gateFor(records, 'walk') };
+}
+
+/** What Home's card stands on when it is quiet (§12.6): a stop, a re-check or a hold. The one definition, Home's and Trends'. */
+export const SAFETY_KINDS: ReadonlySet<RecommendationKind> = new Set(['emergency', 'seekHelp', 'recheck', 'hold']);
+
+/**
+ * Whether Home's card stands on a stop, a re-check or a hold now: the verdict
+ * Home's quiet branch reads, from the same sources and gate, worked out live
+ * and again at each time boundary, so another screen goes quiet with Home
+ * (H3-03). A check-in still to give before starting is no hold: the card
+ * offers "Check in & start".
+ */
+export function useHeld(): boolean {
+  const state = useStore();
+  const guided = useGuided();
+  const { now } = useClock();
+  const checkIns = useMemo(() => withEffectiveToday(state.checkIns, guided.checkIn), [state.checkIns, guided.checkIn]);
+  useWakeAt(nextBoundary(now, { ...(guided.checkIn ? { checkIn: guided.checkIn } : {}), ...(state.settings.habits ? { habits: state.settings.habits } : {}) }));
+  return SAFETY_KINDS.has(recommend({ ...recommendSources({ now, state, plan: guided.plan, checkIns }), permissions: gatesNow(guided) }).kind);
 }
 
 // ============================================================================

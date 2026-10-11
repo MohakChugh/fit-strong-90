@@ -10,7 +10,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle2Icon, PlusIcon } from 'lucide-react';
-import { CATEGORIES } from '@/categories';
 import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
 import { BarChart, LineChart } from '@/components/hig/Chart';
@@ -91,33 +90,6 @@ export function MetricDetail({ kind }: {
   // `movementMinutes` is counted by the week on My Day (D31), so it has no chart of its own.
   if (!metric) return <Navigate to="/track" replace />;
   return <MetricScreen key={metric} metric={metric} />;
-}
-
-/** v1's metric for each reading category (journey §5.1), and for the movement trends v1 charted. */
-const CATEGORY_METRIC: Record<string, MetricId> = {
-  glucose: 'glucose', bp: 'bloodPressure', steps: 'steps', water: 'water', weight: 'weight', waist: 'waist', sleep: 'sleep', labs: 'hba1c',
-};
-const TREND_METRIC: Record<string, MetricId> = { ...CATEGORY_METRIC, walk: 'walking', mood: 'mood' };
-const LABS: readonly MetricId[] = ['hba1c', 'b12', 'vitaminD'];
-
-/**
- * A reading hub (`/hub/:id`) or a trend (`/trends/:id`), shown until Plans 2
- * and 3 build them by v1's metric screen for that category. Labs shows the
- * lab its `?metric=` names, HbA1c by default (B-14). An id with no metric
- * here is an address that has moved.
- */
-export function MetricFor({ trend = false }: { trend?: boolean }) {
-  const { id = '' } = useParams();
-  const [params] = useSearchParams();
-  const table = trend ? TREND_METRIC : CATEGORY_METRIC;
-  const lab = id === 'labs' ? LABS.find(l => l === params.get('metric')) : undefined;
-  const metric = lab ?? (Object.hasOwn(table, id) ? table[id] : undefined);
-  if (!metric) {
-    // A category that declares a trend v1 never charted (Stretch, Back & leg) opens the Trends tab until Plan 3 builds it, never "That page has moved".
-    const declared = trend && CATEGORIES.some(c => c.id === id && c.trend !== undefined);
-    return <Navigate to={declared ? '/trends' : '/home?moved=1'} replace />;
-  }
-  return <MetricDetail kind={metric} />;
 }
 
 function MetricScreen({ metric }: { metric: MetricId }) {

@@ -37,6 +37,7 @@ import { parseStretchSpec, specFromPlanId, stretchPlanFor } from '@/engine/stret
 import type { StretchSpec } from '@/types/plan';
 import { cameFrom } from '@/components/hig/navigation';
 import { SessionGate } from '@/components/checkin/SessionGate';
+import { measuredStamp } from '@/health/observation';
 import { nextBoundary } from '@/health/recommend';
 import { OwnsUrgent } from '@/screens/home/UrgentBanner';
 import { useClock, useWakeAt } from '@/screens/today/clock';
@@ -1004,10 +1005,12 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
     if (!usable || busy) return;
     setBusy(true);
     const source = profile.health.glucoseMonitor === 'cgm' ? 'sensor' as const : 'meter' as const;
-    const measuredAt = new Date().toISOString();
+    const taken = new Date();
+    const measuredAt = taken.toISOString();
     try {
       await onSave(display
-        ? { display, measuredAt, source }
+        // A meter's HI or LO is kept only in the check-in, so in this phone's offset, written out (H3-01).
+        ? { display, measuredAt: measuredStamp(taken), source }
         : { value: n, unit, measuredAt, source, ...(unitConfirmed ? { unitConfirmed: true } : {}) }, { neededHelp, recovered });
     } finally {
       setBusy(false);

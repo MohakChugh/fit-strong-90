@@ -21,7 +21,7 @@ import { HBA1C_CADENCE_CITATION, clinicianHba1cGoal } from '@/health/cadence';
 import { fluidRestriction, waterBlock } from '@/reminders/water';
 import type { HabitSettings } from '@/types/habits';
 import type { HealthProfile, UserProfile } from '@/types/profile';
-import { EXTREME_GLUCOSE_MGDL, HYPO_LEVEL_1_MGDL, HYPO_LEVEL_2_MGDL } from './escalation';
+import { EXTREME_GLUCOSE_MGDL, HIGH_GLUCOSE_MGDL, HYPO_LEVEL_1_MGDL, HYPO_LEVEL_2_MGDL } from './escalation';
 import {
   CM_PER_IN, KG_PER_LB, MGDL_PER_MMOL, PMOL_PER_PG_B12, convert, decimalsFor, formatNumber, glucoseMgdl, roundTo,
   type Boundary, type GlucoseUnit, type LengthUnit, type MassUnit,
@@ -477,7 +477,8 @@ export const STEPS_NOTE: Interpretation = {
  * The thresholds a shown value of `kind`, in `unit`, is judged against, for
  * showing it without crossing one (`safeDecimals`): the glucose lows and
  * extreme (judged in unrounded mg/dL), the ADA targets in the unit, and the
- * B12 and vitamin D bands. HbA1c is judged as shown, so it needs none.
+ * B12 and vitamin D bands. HbA1c is judged as shown, so it needs none. The
+ * glucose lows, high and extreme are judged in unrounded mg/dL.
  */
 export function displayBoundaries(kind: string, unit: string): Boundary[] {
   if (kind === 'glucose') {
@@ -487,6 +488,8 @@ export function displayBoundaries(kind: string, unit: string): Boundary[] {
       { value: HYPO_LEVEL_2_MGDL * perMgdl, op: 'lt' },
       { value: HYPO_LEVEL_1_MGDL * perMgdl, op: 'lt' },
       { value: EXTREME_GLUCOSE_MGDL * perMgdl, op: 'lt' },
+      // Trends counts a reading above 250 as high, so 250 itself is on the line's own side (H3-04).
+      { value: HIGH_GLUCOSE_MGDL * perMgdl, op: 'le' },
       { value: BEFORE_MEAL[g].min, op: 'lt' },
       { value: BEFORE_MEAL[g].max, op: 'le' },
       { value: AFTER_MEAL_MAX[g], op: 'lt' },
