@@ -147,8 +147,11 @@ export type Direction = 'higher' | 'lower' | 'same';
 
 export type Comparison =
   | { shown: true; direction: Direction; difference: number }
-  /** `fewKinds`: readings of more than one kind (fasting, after a meal), none on 3 days in both windows (KT-07). */
-  | { shown: false; reason: 'fewDays' | 'meterLo' | 'fewKinds' };
+  /**
+   * `fewKinds`: readings of more than one kind (fasting, after a meal), none on 3 days in both windows (KT-07).
+   * `partial`: a day's figure is a lower bound, never set against a whole one (D90, H3-11).
+   */
+  | { shown: false; reason: 'fewDays' | 'meterLo' | 'fewKinds' | 'partial' };
 
 /** The change as shown: both figures rounded as the screen shows them, so "the same" is the same on screen. */
 export function change(current: number, previous: number, decimals: number): Comparison {
@@ -160,6 +163,8 @@ export function compareDaily(current: DailyStats, previous: DailyStats, statisti
   const a = figureOf(current, statistic);
   const b = figureOf(previous, statistic);
   if (current.days < MIN_DAYS || previous.days < MIN_DAYS || a === undefined || b === undefined) return { shown: false, reason: 'fewDays' };
+  // A lower bound has no exact difference from anything (D90).
+  if (current.partialDays + previous.partialDays > 0) return { shown: false, reason: 'partial' };
   return change(a, b, decimals);
 }
 

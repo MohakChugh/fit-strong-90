@@ -37,7 +37,8 @@ export interface WeekFacts {
   /** "by this time last week", "the week before". */
   beforeName: string;
   stretchDays: number;
-  steps?: { perDay: number; days: number };
+  /** `partial`: the average takes in a day that is a lower bound (D90). */
+  steps?: { perDay: number; days: number; partial: boolean };
   /** Readings past a line, a meter's LO and HI among them: never how many were taken (KT-05, A-15, K-51). */
   glucose?: { lows: number; highs: number };
   pressure?: { severe: number };
@@ -73,7 +74,7 @@ export function weekFacts({ week, data, prefs, ctx }: { week: string; data: Tren
     ...(ctx.since !== undefined && ctx.since <= prior.from && enough(shown) && enough(prior) ? { before: moved(prior) } : {}),
     beforeName: current ? 'by this time last week' : 'the week before',
     stretchDays: [...stretchedDays(data.sessions)].filter(d => d >= shown.from && d <= shown.to).length,
-    ...(steps.perDay !== undefined ? { steps: { perDay: steps.perDay, days: steps.days } } : {}),
+    ...(steps.perDay !== undefined ? { steps: { perDay: steps.perDay, days: steps.days, partial: steps.partialDays > 0 } } : {}),
     ...(g.lows + g.highs > 0 ? { glucose: { lows: g.lows, highs: g.highs } } : {}),
     ...(severe > 0 ? { pressure: { severe } } : {}),
   };
@@ -105,7 +106,7 @@ export function weekSentences(f: WeekFacts, prefs: DisplayPrefs): string[] {
     out.push(`${countText(lows > 0 ? lows : highs, ['glucose reading', 'glucose readings'])} ${past} ${f.name}.`);
   }
   if (f.pressure) out.push(`${countText(f.pressure.severe, ['blood pressure reading', 'blood pressure readings'])} ${were(f.pressure.severe)} 180/120 mmHg or higher ${f.name}.`);
-  if (f.steps) out.push(`${formatNumber(f.steps.perDay)} steps a day on average ${f.name}, from ${countText(f.steps.days, ['day with steps', 'days with steps'])}.`);
+  if (f.steps) out.push(`${f.steps.partial ? 'At least ' : ''}${formatNumber(f.steps.perDay)} steps a day on average ${f.name}, from ${countText(f.steps.days, ['day with steps', 'days with steps'])}.`);
   return out.slice(0, 4);
 }
 

@@ -98,6 +98,8 @@ export function fewDaysText(period: TrendPeriod): string {
 
 export const METER_LO_TEXT = 'No change shown: a meter LO has no number, so an average would leave out the lowest reading.';
 
+export const PARTIAL_TEXT = 'No change shown: on some of these days only part of the day’s steps is known.';
+
 /** "Comparisons start once one kind of reading, such as fasting, has 3 days in both weeks." (KT-07) */
 export function fewKindsText(period: TrendPeriod): string {
   return `Comparisons start once one kind of reading, such as fasting, has 3 days in both ${BOTH[period]}.`;
@@ -105,7 +107,7 @@ export function fewKindsText(period: TrendPeriod): string {
 
 /** "Higher than last week · +417 steps a day": the direction in words, and the difference with its unit and statistic (A-41). */
 function changeOf(c: Comparison, against: string, unit: string, decimals: number, period: TrendPeriod, compared?: string): Change {
-  if (!c.shown) return { text: c.reason === 'meterLo' ? METER_LO_TEXT : c.reason === 'fewKinds' ? fewKindsText(period) : fewDaysText(period) };
+  if (!c.shown) return { text: c.reason === 'meterLo' ? METER_LO_TEXT : c.reason === 'fewKinds' ? fewKindsText(period) : c.reason === 'partial' ? PARTIAL_TEXT : fewDaysText(period) };
   const by = formatNumber(c.difference, decimals);
   const text = c.direction === 'same' ? `The same as ${against}`
     : c.direction === 'higher' ? `Higher than ${against} · +${by} ${unit}` : `Lower than ${against} · −${by} ${unit}`;
@@ -152,6 +154,9 @@ interface Cell {
 
 const words = (text: string): Cell => ({ value: null, text, brief: text });
 
+/** Steps from FitStrong walks only, or walks after an entered total: at least what is shown (J§9.6). */
+const lowerBound = (f: DayFigure) => f.basis === 'walks' || f.basis === 'atLeast';
+
 /** A day's figure, shading and words (Week and Month). */
 function dayCell(day: string, f: DayFigure | undefined, { def, prefs, ctx }: TrendInput, rule: DailyRule): Cell {
   if (day > ctx.today) return words('Still to come');
@@ -161,7 +166,8 @@ function dayCell(day: string, f: DayFigure | undefined, { def, prefs, ctx }: Tre
   // Shading is for movement charts only (J§12.2); a rest day is shaded only when nothing was done on it.
   const mark: SlotMark | undefined = !def.movement ? undefined : status !== 'normal' ? status : !f && ctx.restOn(day) ? 'rest' : undefined;
   if (f) {
-    const brief = `${f.basis === 'atLeast' ? 'at least ' : ''}${formatNumber(f.value, d)} ${unit}`;
+    // FitStrong walks only, or walks after an entered total: a lower bound, said so wherever it's said (D90).
+    const brief = `${lowerBound(f) ? 'at least ' : ''}${formatNumber(f.value, d)} ${unit}`;
     return { value: f.value, ...(mark ? { mark } : {}), text: `${brief}${f.note ? `, ${f.note}` : ''}${mark ? ` (${MARK_WORDS[mark]})` : ''}`, brief };
   }
   if (mark) return { ...words(MARK_WORDS[mark]), mark };
@@ -184,7 +190,7 @@ function bucketCell(range: DayRange, figures: readonly DayFigure[], { def, prefs
     return { value: total, text, brief: text };
   }
   if (s.perDay === undefined) return words('Not entered');
-  const brief = `${formatNumber(s.perDay, d)} ${unit} a ${def.per}`;
+  const brief = `${s.partialDays > 0 ? 'at least ' : ''}${formatNumber(s.perDay, d)} ${unit} a ${def.per}`;
   return { value: s.perDay, text: `${brief} on average, from ${countText(s.days, def.coverage)}`, brief };
 }
 
@@ -222,7 +228,8 @@ export function dailyView(input: TrendInput): TrendView {
     coverage: statistic === 'total' ? countText(s.recordDays, ['day', 'days'])
       : statistic === 'perDay' ? countText(s.days, def.coverage)
         : `from ${countText(s.days, ['day', 'days'])}`,
-    ...(value === undefined ? { value: rule === 'stated' ? 'Not entered' : 'Nothing recorded' } : { value: formatNumber(value, d), unit }),
+    // An average over a lower bound is one too (D90).
+    ...(value === undefined ? { value: rule === 'stated' ? 'Not entered' : 'Nothing recorded' } : { value: `${s.partialDays > 0 ? 'at least ' : ''}${formatNumber(value, d)}`, unit }),
   };
 
   const ranges = compareRanges(w, ctx.today);
@@ -241,7 +248,11 @@ export function dailyView(input: TrendInput): TrendView {
     if (statistic !== 'total' && s.recordDays > 0) stats.push({ label: 'Total', value: `${formatNumber(s.sum, d)} ${unit}` });
   }
   if (s.high && s.high.value > 0) {
-    stats.push({ label: rule === 'stated' ? 'Highest' : 'Highest day', value: `${formatNumber(s.high.value, d)} ${unit} · ${shortDay(s.high.day, ctx.today)}` });
+    const high = byDay.get(s.high.day);
+    stats.push({
+      label: rule === 'stated' ? 'Highest' : 'Highest day',
+      value: `${high && lowerBound(high) ? 'at least ' : ''}${formatNumber(s.high.value, d)} ${unit} · ${shortDay(s.high.day, ctx.today)}`,
+    });
   }
 
   const notes: string[] = [];
@@ -284,7 +295,9 @@ export function dailyView(input: TrendInput): TrendView {
   const average = figureOf(s, lineStat);
   const chart: ChartModel = {
     slots, series, lines: [], unit, decimals: d,
-    ...(average !== undefined ? { average: { value: average, label: `Average ${formatNumber(average, d)} ${unit}${perWords(lineStat, def)}` } } : {}),
+    ...(average !== undefined ? {
+      average: { value: average, label: `Average${s.partialDays > 0 ? ': at least' : ''} ${formatNumber(average, d)} ${unit}${perWords(lineStat, def)}` },
+    } : {}),
   };
 
   const head = dayly ? 'Day' : w.period === 'sixMonths' ? 'Week' : 'Month';
