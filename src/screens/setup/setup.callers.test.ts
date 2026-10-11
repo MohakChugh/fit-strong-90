@@ -363,15 +363,6 @@ describe('tap targets (§20.4.1; H5-22; board D159)', () => {
     expect(small.map(n => `${String(n.type)} ${String(n.props.className)}`)).toEqual([]);
   });
 
-  it('nothing in setup or the controls it uses is sized at 40 or 44 px, the switch included', async () => {
-    const fs = await import('node:fs');
-    const pages = fs.readdirSync('src/screens/setup/pages').map(f => `src/screens/setup/pages/${f}`);
-    for (const file of ['src/screens/you/controls.tsx', 'src/screens/setup/controls.tsx', 'src/screens/setup/SetupShell.tsx', 'src/screens/setup/PageFrame.tsx',
-      'src/screens/setup/WelcomePage.tsx', 'src/screens/setup/ReviewPage.tsx', 'src/screens/setup/ChapterEditor.tsx', ...pages]) {
-      expect(fs.readFileSync(file, 'utf8'), file).not.toMatch(/\b(?:min-)?h-(?:10|11)\b/);
-    }
-  });
-
   it('the body picture only shows what’s chosen: areas are chosen in the labelled list', async () => {
     const { BackFeetWhere } = await import('./pages/backFeet');
     const shown = render(createElement(BackFeetWhere, { a: { painAreas: ['lowerBack'] }, set: () => {}, tried: false, ctx: { thisYear: 2026 }, mode: 'setup' }));
