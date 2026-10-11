@@ -13,6 +13,7 @@ import { FoodPicker } from './FoodPicker';
 import { foodSummary, unmatchedNote } from './format';
 import { mealDetail } from './mealText';
 import { ClaimGroup, Lead, Reviewed, SourcesGroup } from './parts';
+import { RoughCarbs } from '@/screens/food/RoughCarbs';
 import { useGuide } from './useGuide';
 
 /**
@@ -30,6 +31,7 @@ export default function MealIdeasScreen() {
   return (
     <Screen title="Meal ideas" back={{ to: '/hub/food', label: 'Food' }}>
       <Lead>Familiar Indian meals to adapt, laid out with the plate method. Examples, not a diet to follow.</Lead>
+      <RoughCarbs />
 
       <Group footer={unmatchedNote(unmatchedAvoid(food?.avoid, food?.pattern))}>
         <Row

@@ -14,6 +14,7 @@ import { deleteUsual, restoreUsual } from '@/food/store';
 import type { SavedMeal } from '@/food/types';
 import { Notice } from '@/screens/you/controls';
 import { useStore } from '@/store/useStore';
+import { RoughCarbs } from './RoughCarbs';
 import { offerFoodUndo, useFoodUndoScope } from './undo';
 
 export default function UsualMealsScreen() {
@@ -42,6 +43,7 @@ export default function UsualMealsScreen() {
 
   return (
     <Screen title={FOOD_COPY.usualTitle} back={{ to: '/hub/food', label: 'Food' }}>
+      <RoughCarbs />
       <Group {...(saved.length === 0 ? { footer: FOOD_COPY.noUsual } : {})}>
         {saved.map(u => (
           // "Remove" in words, 48 px and 12 px from the row; below it in a narrow container (§20.4 rules 1, 2; board D141).

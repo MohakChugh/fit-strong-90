@@ -7,6 +7,7 @@ import { FOOD_COPY } from '@/food/copy';
 import { REGION_LABEL } from './format';
 import { componentDetail, measureClaimIds } from './mealText';
 import { ClaimGroup, Lead, Reviewed, SourcesGroup } from './parts';
+import { RoughCarbs } from '@/screens/food/RoughCarbs';
 import { useGuide } from './useGuide';
 
 /** Where individual portions come from; on every meal, beside the meal. */
@@ -54,6 +55,7 @@ export default function MealDetailScreen() {
         {where ? ` · ${where}` : ''}
         {food && !mealAllowed(meal, food) ? ' · Outside the food choices you gave' : ''}
       </Lead>
+      <RoughCarbs />
 
       <Group header="On the plate" footer={DISCLAIMER}>
         {parts.map(c => (

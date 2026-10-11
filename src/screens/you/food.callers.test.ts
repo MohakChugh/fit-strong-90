@@ -16,6 +16,7 @@ vi.mock('react-router-dom', async () => {
   return {
     useNavigate: () => () => {},
     useLocation: () => ({ pathname: '/me/food', search: '', state: null, key: 'k0' }),
+    useParams: () => ({ mealId: 'd-khichdi' }),
     Link: ({ children }: { children?: unknown }) => h('a', null, children as never),
     Navigate: () => null,
   };
@@ -123,5 +124,36 @@ describe('removing a usual meal, with a visible “Remove” (H7-17, K7-09; boar
     expect(String(remove?.props.className).split(' ')).toEqual(expect.arrayContaining(['min-h-12', 'min-w-12']));
     await host.click(remove!);
     expect(store.getState().records.savedMeals).toEqual([]);
+  });
+});
+
+describe('“Carb figures are rough estimates” on every food screen while carbs are ranges (K7-13)', () => {
+  const ROUGH = 'Carb figures are rough estimates. Follow your care team’s plan.';
+  const insulin = { diabetes: 'type2', insulin: 'injections_or_pump', medicinesReviewed: true } as const;
+  const screens = async () => [
+    (await import('@/screens/guide/MealIdeasScreen')).default,
+    (await import('@/screens/guide/MealDetailScreen')).default,
+    (await import('@/screens/guide/SampleWeekScreen')).default,
+    UsualMealsScreen,
+  ];
+  it('says it on Meal ideas, a meal idea, the sample week and your usual meals', async () => {
+    await store.update(prev => ({ ...prev, profile: createDefaultProfile({ birthYear: 1970, weightKg: 70, health: insulin, food: { pattern: 'vegetarian', avoid: [], level: 'estimates', hardBefore: 'no' } }) }));
+    for (const s of await screens()) {
+      host?.unmount();
+      host = render(createElement(s));
+      await host.settle();
+      expect(host.text(), s.name).toContain(ROUGH);
+    }
+  });
+  it('says nothing of the sort without ranges, or with no figures shown', async () => {
+    for (const food of [{ level: 'estimates', hardBefore: 'no' }, { level: 'meals' }] as const) {
+      await store.update(prev => ({ ...prev, profile: createDefaultProfile({ birthYear: 1970, weightKg: 70, health: food.level === 'meals' ? insulin : { medicinesReviewed: true }, food: { pattern: 'vegetarian', avoid: [], ...food } }) }));
+      for (const s of await screens()) {
+        host?.unmount();
+        host = render(createElement(s));
+        await host.settle();
+        expect(host.text(), s.name).not.toContain(ROUGH);
+      }
+    }
   });
 });
