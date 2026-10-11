@@ -12,8 +12,9 @@ import { FOOD_COPY } from '@/food/copy';
 import { foodItem, QUICK_NAME, quickItem } from '@/food/estimate';
 import { foodRowDetail, itemEstimate } from '@/food/format';
 import type { NumbersView } from '@/food/level';
+import { itemProblem } from '@/food/records';
 import { newCustomId } from '@/food/store';
-import { MAX_COUNT, step, stepOf, weighed, type Lookup } from '@/food/tray';
+import { moreFits, step, stepOf, weighed, type Lookup } from '@/food/tray';
 import type { CustomFood, Food, FoodItem, MealItem, QuickItem } from '@/food/types';
 import { portionText, UNITS } from '@/food/units';
 import { nowAt } from '@/health/observation';
@@ -57,11 +58,13 @@ export function Stepper({ label, text, onLess, onMore, removes, moreDisabled }: 
 }
 
 /** One item in the tray: its name opens its portion page, and "Less" and "More" change it at once, with its estimate (M15). */
-export function ItemRow({ item, portion, numbers, warning, onOpen, onChange, onRemove }: {
+export function ItemRow({ item, portion, numbers, warning, more, onOpen, onChange, onRemove }: {
   item: MealItem;
   portion: string;
   numbers: NumbersView;
   warning?: string;
+  /** Whether "More" makes an item the store keeps (`moreFits`). */
+  more: boolean;
   /** Absent when there's no portion page: a food the table no longer has, your own food, Quick add. */
   onOpen?: () => void;
   onChange: (by: 1 | -1) => void;
@@ -81,7 +84,7 @@ export function ItemRow({ item, portion, numbers, warning, onOpen, onChange, onR
       {onOpen ? <button type="button" onClick={onOpen} className="press-feedback text-left">{text}</button> : <div>{text}</div>}
       {item.kind === 'quick'
         ? <SecondaryButton tone="stop" onClick={onRemove}>{FOOD_COPY.remove}</SecondaryButton>
-        : <Stepper label={item.name} text={portion} removes={atLeast} onLess={() => (atLeast ? onRemove() : onChange(-1))} onMore={() => onChange(1)} moreDisabled={item.count >= MAX_COUNT} />}
+        : <Stepper label={item.name} text={portion} removes={atLeast} onLess={() => (atLeast ? onRemove() : onChange(-1))} onMore={() => onChange(1)} moreDisabled={!more} />}
     </div>
   );
 }
@@ -164,12 +167,14 @@ export function PortionPage({ food, item, numbers, allergies, look, onBack, onSa
   const applied = (): FoodItem | undefined => {
     if (!weighing || grams === String(draft.gramsPerPortion)) return draft;
     const g = Number(grams);
-    if (!(g > 0 && g <= 2000)) {
+    // As the store will keep it, or not at all: a weight that rounds to nothing, or one more than an item holds.
+    const next = weighed(draft, g, food);
+    if (itemProblem(next) !== undefined) {
       setProblem(FOOD_COPY.ownBadFigure);
       return undefined;
     }
     setProblem(undefined);
-    return weighed(draft, g, food);
+    return next;
   };
   const weigh = () => {
     const next = applied();
@@ -192,7 +197,7 @@ export function PortionPage({ food, item, numbers, allergies, look, onBack, onSa
             removes={false}
             onLess={() => setDraft(d => step(d, -1, look) as FoodItem)}
             onMore={() => setDraft(d => step(d, 1, look) as FoodItem)}
-            moreDisabled={draft.count >= MAX_COUNT}
+            moreDisabled={!moreFits(draft, look)}
           />
           {estimate && <p className="text-center text-[length:var(--text-subhead)] text-muted-foreground">{estimate}</p>}
           {/* The tray's footer says it there; this page stands in for the tray (K-22). */}

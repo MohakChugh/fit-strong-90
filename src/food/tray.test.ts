@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { customItem, foodItem } from './estimate';
-import { addFood, step, slotAt, weighed, withCount, type Lookup } from './tray';
+import { addFood, moreFits, step, slotAt, weighed, withCount, type Lookup } from './tray';
 import type { CustomFood, Food, FoodItem } from './types';
 
 const roti = { id: 'roti', rev: 2, name: 'Roti', portion: { unit: 'piece', grams: 40, count: 1, noun: ['roti', 'rotis'] }, per100g: { kcal: 255, carbsG: 54, carbsLowG: 48.6, carbsHighG: 59.4 } } as Food;
@@ -33,6 +33,20 @@ describe('the meal tray (journey §11.3, B-08)', () => {
     expect(slotAt(17 * 60)).toBe('snack');
     expect(slotAt(21 * 60)).toBe('dinner');
     expect(slotAt(2 * 60)).toBe('dinner');
+  });
+});
+
+describe('“More”, only as far as the store keeps an item (H7-12)', () => {
+  it('stops at 20, and short of what one item can hold, for a table food, a weighed one and your own food', () => {
+    expect(moreFits(foodItem(roti, 19), look)).toBe(true);
+    expect(moreFits(foodItem(roti, 20), look)).toBe(false);
+    // A kilo of roti is 2,550 kcal: three of them 7,650, four 10,200, more than one item holds.
+    expect(moreFits(foodItem(roti, 2, 1000, true), look)).toBe(true);
+    expect(moreFits(foodItem(roti, 3, 1000, true), look)).toBe(false);
+    const big: CustomFood = { id: 'food-1', name: 'Feast', per: { qty: 1, unit: 'plate' }, kcal: 5000, createdAt: '2026-10-08T09:00:00.000+05:30', updatedAt: '2026-10-08T09:00:00.000+05:30' };
+    expect(moreFits(customItem(big, 1.5), look)).toBe(true);
+    expect(moreFits(customItem(big, 2), look)).toBe(false);
+    expect(moreFits({ kind: 'quick', size: 'large', name: 'Large plate', kcal: 900 }, look)).toBe(false);
   });
 });
 

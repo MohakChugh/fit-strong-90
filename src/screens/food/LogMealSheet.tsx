@@ -24,7 +24,7 @@ import type { LogRequest } from '@/food/links';
 import { customFoodsIn, mealsIn, savedMealsIn } from '@/food/records';
 import { commonFoods, searchFoods } from '@/food/search';
 import { deleteMeal, newMealId, newUsualId, restoreMeal, saveCorrection, saveMeal } from '@/food/store';
-import { addFood, step, type Lookup } from '@/food/tray';
+import { addFood, moreFits, step, type Lookup } from '@/food/tray';
 import type { CustomFood, Food, FoodItem, MealItem, Slot } from '@/food/types';
 import { countText, portionText } from '@/food/units';
 import { usualFor } from '@/food/usual';
@@ -326,6 +326,7 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
                       item={item}
                       portion={portionOf(item)}
                       numbers={numbers}
+                      more={moreFits(item, look)}
                       {...(itemWarning(item) ? { warning: itemWarning(item) } : {})}
                       {...(food && item.kind === 'food' ? { onOpen: () => setPage({ kind: 'portion', foodId: food.id, index: i }) } : {})}
                       onChange={by => setItems(list => list.map((x, j) => (j === i ? step(x, by, look) : x)))}

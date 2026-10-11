@@ -275,6 +275,58 @@ describe('a food’s portion page, weighed (H7-12)', () => {
     expect(saved).toEqual([]);
     expect(h.text()).toContain('That figure can’t be right');
   });
+  it('stops “More” on the page before the portion holds more than one item can', async () => {
+    const h = page(() => {});
+    await h.settle();
+    await h.click(h.button('Weigh yours'));
+    await h.change(h.field('One roti weighs, in grams'), { value: '1000' });
+    await h.click(h.button('Use this weight', { exact: true }));
+    const more = () => h.all().find(n => n.type === 'button' && textOf(n.children).includes('More'))!;
+    await h.click(more());
+    await h.click(more());
+    expect(h.text()).toContain('3 rotis');
+    expect(more().props.disabled).toBe(true);
+  });
+  it('refuses a weight that would round to nothing, or make more than one item can hold, before it reaches the tray', async () => {
+    for (const grams of ['0.4', '-5', 'abc', '2001']) {
+      const saved: unknown[] = [];
+      const h = page(item => saved.push(item));
+      await h.settle();
+      await h.click(h.button('Weigh yours'));
+      await h.change(h.field('One roti weighs, in grams'), { value: grams });
+      await h.click(h.button('Add to meal', { exact: true }));
+      expect(saved, grams).toEqual([]);
+      expect(h.text()).toContain('That figure can’t be right');
+      h.unmount();
+    }
+    const peanuts = foodById('roasted-peanuts')!;
+    const saved: unknown[] = [];
+    host = render(createElement(PortionPage, {
+      food: peanuts, numbers: { show: true, ranges: false }, allergies: { known: [], custom: [] },
+      look: { food: foodById, custom: () => undefined }, onBack() {}, onSave: (item: unknown) => saved.push(item),
+    }));
+    await host.settle();
+    await host.click(host.button('Weigh yours'));
+    await host.change(host.all().find(n => n.type === 'input' && n.props.inputMode === 'numeric')!, { value: '1800' });
+    await host.click(host.button('Add to meal', { exact: true }));
+    expect(saved).toEqual([]);
+    expect(host.text()).toContain('That figure can’t be right');
+  });
+});
+
+describe('“More” in the tray, as far as the store keeps an item (H7-12)', () => {
+  it('stops before your own food holds more than one item can', async () => {
+    const h = await open({});
+    await h.change(h.field('Search foods'), { value: 'Feast' });
+    await h.click(h.button('Add “Feast” as your own food'));
+    await h.change(h.field('kcal in one portion (optional)'), { value: '5000' });
+    await h.click(h.button('Add to meal', { exact: true }));
+    const more = () => allIn(h.all().find(n => n.props['data-item'] === 'Feast')!).find(n => n.type === 'button' && textOf(n.children).includes('More'))!;
+    await h.click(more());
+    await h.click(more());
+    expect(item(h, 'Feast')).toContain('2 × 1 plate');
+    expect(more().props.disabled).toBe(true);
+  });
 });
 
 describe('browser Back with the sheet open (H7-19)', () => {

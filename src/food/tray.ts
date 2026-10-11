@@ -4,6 +4,7 @@
  * holds the items and hands in the foods it knows.
  */
 import { foodItem, ownFigures } from './estimate';
+import { itemProblem } from './records';
 import type { CustomFood, Food, FoodItem, MealItem, Slot } from './types';
 import { UNITS } from './units';
 
@@ -51,6 +52,11 @@ export function withCount(item: MealItem, count: number, look: Lookup): MealItem
   const { kcal, carbsG, ...rest } = item;
   void kcal; void carbsG;
   return { ...rest, count: c, ...(item.basis ? ownFigures(item.basis, c) : {}) };
+}
+
+/** Whether "More" makes an item the store keeps (H7-12): never past 20, nor past what one item can hold. */
+export function moreFits(item: MealItem, look: Lookup): boolean {
+  return item.kind !== 'quick' && item.count < MAX_COUNT && itemProblem(step(item, 1, look)) === undefined;
 }
 
 /** "Less" or "More": one step. */
