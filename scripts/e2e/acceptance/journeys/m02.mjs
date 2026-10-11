@@ -148,6 +148,8 @@ const carryOnGate = {
       await t.checkpoint('h2-01-left-open');
       await t.check(/left open/i.test(text), `the card does not say the walk was left open: ${text.slice(0, 240)}`);
       await refusesCarryOn(t, 'Left open', /3 hours/);
+      // The summary, drawn once the hub's view transition has finished.
+      await page.getByText('This walk was left open', { exact: false }).first().waitFor({ timeout: 10000 }).catch(() => {});
       const summary = flat(await page.getByRole('main').innerText());
       await t.check(/This walk was left open/.test(summary), `the summary does not say the walk was left open: ${summary.slice(0, 240)}`);
       await t.check((await walk.stored(page))?.endedBy === 'stale', `the walk ended as ${(await walk.stored(page))?.endedBy}, not as left open`);
