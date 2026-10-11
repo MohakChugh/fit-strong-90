@@ -37,7 +37,7 @@ export default function MealDetailScreen() {
   const parts = componentsFor(meal, pattern);
   const tags = mealTags(meal, pattern);
   // Why an idea is kept from this person's suggestions, in the allergy's own words (K7-14), with no food record from
-  // the allergies setup is keeping; with no answer at all, that they're not known, which is never none (board D185).
+  // the allergies setup is keeping; with no answer at all, that they're not known, which is never none (board D205).
   const warning = allergies ? allergyWarning(tags, allergiesOf(allergies)) : FOOD_COPY.allergiesFirst;
   // A vegan plate's recipes, as the map makes them (H7-20).
   const swapped = veganSwaps(meal, pattern).map(s => `${s.to} instead of ${s.from}`);

@@ -224,7 +224,7 @@ describe('the screening question’s note, for this device (K7R-09)', () => {
 describe('the hub’s privacy line (K7-16)', () => {
   it('is B-24’s, for this device, as Me says it', async () => {
     const h = await hub({});
-    // Me's own sentence, whichever it is: Plan 6's map pictures sentence joins it at the merge (board D184).
+    // Me's own sentence, whichever it is: Plan 6's map pictures sentence joins it at the merge (board D204).
     const { privacyLine } = await import('@/screens/you/summaries');
     expect(privacyLine('device')).toMatch(/^Your records are stored on this device\. .*Backups and calendar files leave only when you share them\.$/);
     expect(h.text()).toContain(privacyLine('device'));

@@ -61,7 +61,7 @@ describe('resolveAllergens: the person’s own words to canonical ids (B-13, Rev
   it('reads the other words for milk sweets and cream as milk (K7-01)', () => {
     for (const word of ['khoa', 'mawa', 'malai', 'chhena']) expect(resolveAllergens(word), word).toEqual(['milk']);
   });
-  it('reads the regional words for buttermilk, butter and shrikhand as milk, and the food table’s own spellings too (K7R-02; board D180)', () => {
+  it('reads the regional words for buttermilk, butter and shrikhand as milk, and the food table’s own spellings too (K7R-02; board D200)', () => {
     for (const word of ['chaach', 'mattha', 'taak', 'moru', 'majjiga', 'makhan', 'shrikhand', 'chhachh', 'majjige', 'mor']) {
       expect(resolveAllergens(word), word).toEqual(['milk']);
     }
@@ -156,7 +156,7 @@ describe('your own food’s allergens: unanswered is unknown, and its name is re
   });
 });
 
-describe('the allergy answer setup keeps for a food record not made yet (Plan 5’s D166, D167; board D185)', () => {
+describe('the allergy answer setup keeps for a food record not made yet (Plan 5’s D166, D167; board D205)', () => {
   // Asked on setup's 'food.allergies' page whatever the pattern: with 'food.pattern' skipped, it waits in setup's answers.
   it('reads the answer from finished setup, or else the draft, as given', () => {
     expect(setupAllergyAnswer({ stage: 'done', answers: { allergies: ['peanut'], customAllergies: ['brinjal'], skippedPages: ['food.pattern'] } }))

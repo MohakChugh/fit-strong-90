@@ -70,7 +70,7 @@ export function unmatchedNote(entries: readonly string[]): string | undefined {
 }
 
 /**
- * How an allergy in the person's own words is read (K7R-02; board D180): "Read as milk", or, said with
+ * How an allergy in the person's own words is read (K7R-02; board D200): "Read as milk", or, said with
  * caution, that we don't know the word; nothing when our foods' words find it as written.
  */
 export function ownAllergyStatus(entry: string): { text: string; unknown: boolean } | undefined {

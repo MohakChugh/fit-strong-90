@@ -148,7 +148,7 @@ describe('your own food’s allergens, in the tray (H7-04)', () => {
   });
 });
 
-describe('with no food record yet, the allergies setup is keeping (Plan 5’s D166, D167; board D185)', () => {
+describe('with no food record yet, the allergies setup is keeping (Plan 5’s D166, D167; board D205)', () => {
   it('warn in the tray as the food record’s would', async () => {
     // What setup's 'food.allergies' page keeps when 'food.pattern' was skipped.
     await store.update(prev => ({
@@ -162,7 +162,7 @@ describe('with no food record yet, the allergies setup is keeping (Plan 5’s D1
   });
 });
 
-describe('your own food’s checklist, once answered (K7R-04; board D182)', () => {
+describe('your own food’s checklist, once answered (K7R-04; board D202)', () => {
   const own = async (h: Host, name: string) => {
     await h.change(h.field('Search foods'), { value: name });
     await h.click(h.button(`Add “${name}” as your own food`));

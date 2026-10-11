@@ -79,7 +79,7 @@ describe('partial search results', () => {
   });
 });
 
-describe('an allergy in the person’s own words, and how it’s read (K7R-02; board D180)', () => {
+describe('an allergy in the person’s own words, and how it’s read (K7R-02; board D200)', () => {
   it('says what it is read as, or that we don’t know the word, and nothing when our foods’ words find it', () => {
     expect(ownAllergyStatus('chaach')).toEqual({ text: 'Read as milk', unknown: false });
     expect(ownAllergyStatus('peanuts and badam')).toEqual({ text: 'Read as peanut and tree nuts', unknown: false });

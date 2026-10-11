@@ -42,7 +42,7 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
     food?.region && food.region !== 'mixed' ? food.region : 'any',
   );
   const [avoid, setAvoid] = useState(food?.avoid.join(', ') ?? '');
-  // With no food record yet, the allergies start from the answer setup is keeping for one (board D185).
+  // With no food record yet, the allergies start from the answer setup is keeping for one (board D205).
   const { settings } = useStore();
   const [waiting] = useState(() => (food ? undefined : setupAllergyAnswer(settings.setup)));
   const [chosen, setChosen] = useState<AllergenId[]>(food?.allergies ?? waiting?.allergies ?? []);

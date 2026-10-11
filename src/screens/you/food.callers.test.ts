@@ -112,7 +112,7 @@ describe('“Clear food preferences” (K7-03; board D137)', () => {
   });
 });
 
-describe('removing an allergy offers Undo, until you leave Me → Food (K7R-01; board D181)', () => {
+describe('removing an allergy offers Undo, until you leave Me → Food (K7R-01; board D201)', () => {
   const undo = async (h: Host, text: string) => {
     const t = toasts.shown.find(x => x.text === text);
     if (!t?.action) throw new Error(`no Undo for “${text}”: ${toasts.shown.map(x => x.text).join(' | ')}`);
@@ -164,7 +164,7 @@ describe('removing an allergy offers Undo, until you leave Me → Food (K7R-01; 
   });
 });
 
-describe('meal ideas with no food record yet: allergies not known, never none (Plan 5’s D166, D167; board D185)', () => {
+describe('meal ideas with no food record yet: allergies not known, never none (Plan 5’s D166, D167; board D205)', () => {
   // What setup's 'food.allergies' page keeps when 'food.pattern' was skipped: no food record, the answer waiting.
   const WAITING = { stage: 'done' as const, answers: { allergies: ['peanut' as const], customAllergies: ['brinjal'], skippedPages: ['food.pattern' as const] } };
   const ASK = 'Tell us about food allergies first';
@@ -231,7 +231,7 @@ describe('meal ideas with no food record yet: allergies not known, never none (P
   });
 });
 
-describe('how each allergy in your own words is read (K7R-02; board D180)', () => {
+describe('how each allergy in your own words is read (K7R-02; board D200)', () => {
   it('says “Read as milk”, or that we don’t know the word, under each', async () => {
     const h = await screen({ pattern: 'vegetarian', avoid: [], customAllergies: ['chaach', 'kumquat', 'jeera'] });
     // The smallest part of the screen that starts with the entry and says more: its row.

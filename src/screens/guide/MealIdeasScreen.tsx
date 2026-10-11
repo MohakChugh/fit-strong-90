@@ -20,7 +20,7 @@ import { useGuide } from './useGuide';
  * Meal ideas by meal slot, for what the person eats. The first visit asks
  * what that is. Until they answer, every pattern's meals show, without the
  * allergies setup is keeping; with no allergy answer at all, it asks about
- * allergies before showing any, since not known is never none (board D185).
+ * allergies before showing any, since not known is never none (board D205).
  */
 export default function MealIdeasScreen() {
   const { ctx, food, filter, canSaveFood } = useGuide();

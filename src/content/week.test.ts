@@ -313,7 +313,7 @@ describe('allergies and the Jain pattern from recipe tags (B-13, board D99, D100
   });
 });
 
-describe('an allergy in the person’s own words, read (K7R-02; board D180)', () => {
+describe('an allergy in the person’s own words, read (K7R-02; board D200)', () => {
   it('names the allergens its words do, and says when nothing of ours goes by them', () => {
     expect(ownAllergyReading('chaach')).toEqual({ allergens: ['milk'] });
     expect(ownAllergyReading('coconut milk')).toEqual({ allergens: ['milk'] });

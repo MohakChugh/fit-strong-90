@@ -157,7 +157,7 @@ function Results({ query, results, allergiesKnown }: { query: string; results: S
           )}
           {groups.map(({ kind, items }) => (
             <Group key={kind} header={KIND_HEADER[kind]}>
-              {/* Not known is never none: meal ideas ask about allergies before showing any (board D185). */}
+              {/* Not known is never none: meal ideas ask about allergies before showing any (board D205). */}
               {kind === 'meal' && !allergiesKnown ? (
                 <Row as={Link} to="/hub/food/ideas" viewTransition label={FOOD_COPY.allergiesFirst} detail={FOOD_COPY.allergiesFirstDetail} chevron />
               ) : items.map(r => (

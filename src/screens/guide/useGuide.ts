@@ -25,7 +25,7 @@ export interface Guide {
   food?: FoodPreferences;
   /**
    * What the person is allergic to as far as it's known: the food record's, or setup's waiting answer
-   * without one (board D185). Absent is not known, never none: meal ideas ask first.
+   * without one (board D205). Absent is not known, never none: meal ideas ask first.
    */
   allergies?: AllergyAnswer;
   /** What meal ideas are filtered by: the food record, or the allergies alone while there's none. */

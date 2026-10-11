@@ -19,7 +19,7 @@ export interface GuideContext {
   food?: FoodPreferences;
   /**
    * What the person is allergic to as far as it's known: the food record's, or setup's waiting answer
-   * without one (board D185). Absent is not known, never none: meal ideas ask first.
+   * without one (board D205). Absent is not known, never none: meal ideas ask first.
    */
   allergies?: Pick<FoodPreferences, 'allergies' | 'customAllergies'>;
 }

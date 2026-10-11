@@ -63,7 +63,7 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
   const hour12 = prefersHour12();
   const ids = { search: useId(), usual: useId() };
   const numbers = numbersView(profile);
-  // With no food record yet, the allergies setup is keeping warn as well (board D185).
+  // With no food record yet, the allergies setup is keeping warn as well (board D205).
   const allergies = allergiesOf(allergyAnswer(profile?.food, settings.setup));
   const meals = mealsIn(records);
   const saved = savedMealsIn(records);

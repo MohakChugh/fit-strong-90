@@ -306,7 +306,7 @@ export function OwnFoodPage({ name: typed, numbers, allergies, onBack, onAdd, on
           {numbers.ranges && <Hint>{FOOD_COPY.roughCarbs}</Hint>}
         </>
       )}
-      {/* Once answered, unticked means "not in it": said, with each of the person's allergies left unticked (K7R-04; D182). */}
+      {/* Once answered, unticked means "not in it": said, with each of the person's allergies left unticked (K7R-04; D202). */}
       <Group header={FOOD_COPY.ownAllergens} {...(allergens.length > 0 ? { footer: FOOD_COPY.ownUntickedHint } : {})}>
         <CheckRows
           label={FOOD_COPY.ownAllergens}

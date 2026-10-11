@@ -14,7 +14,7 @@ export const FOOD_COPY = {
   noIdeaLeft: (slot: string) => `${slot} · every idea has a food you’re allergic to or chose to leave out`,
   chooseFood: 'What you eat',
   chooseFoodDetail: 'Tell us how you eat, for ideas that suit you',
-  // With no food record and no allergy answer waiting, allergies aren't known: never "none" (board D185).
+  // With no food record and no allergy answer waiting, allergies aren't known: never "none" (board D205).
   allergiesFirst: 'Tell us about food allergies first',
   allergiesFirstDetail: 'Meal ideas leave out anything you’re allergic to, so we ask before showing any.',
   notChosenYet: 'Not chosen yet',
@@ -113,7 +113,7 @@ export const FOOD_COPY = {
   ownUnknown: 'Leave a figure blank if you don’t know it. It stays unknown, never 0.',
   ownAllergens: 'It contains (optional)',
   ownNoneOfThese: 'None of these',
-  // Once the checklist is answered, unticked means "not in it" (board D145, D182, K7R-04).
+  // Once the checklist is answered, unticked means "not in it" (board D145, D202, K7R-04).
   ownUntickedHint: 'Anything you leave unticked is treated as not in it',
   ownUnticked: (allergen: string) => `You didn’t tick ${allergen}. Check it.`,
   ownNoName: 'Give it a name.',
@@ -144,9 +144,9 @@ export const FOOD_COPY = {
   allergiesFooter: 'Meal ideas leave out anything with these in it, or that may have them. Foods you’ve eaten can still be logged.',
   somethingElse: 'Something else',
   somethingElsePlaceholder: 'For example: brinjal',
-  // How an allergy in the person's own words is read (K7R-02; board D180).
+  // How an allergy in the person's own words is read (K7R-02; board D200).
   readAs: (allergens: string) => `Read as ${allergens}`,
-  // Removing an allergy in Me → Food offers Undo (K7R-01; board D181).
+  // Removing an allergy in Me → Food offers Undo (K7R-01; board D201).
   allergyRemoved: (what: string) => `${what} removed from your allergies`,
   allergyBack: (what: string) => `${what} is back in your allergies`,
   unknownWord: 'We don’t know this word, so check every meal yourself',

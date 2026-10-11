@@ -172,7 +172,7 @@ export function isAvoided(meal: MealTemplate, avoid: readonly string[] = [], pat
 
 /**
  * Every filter for one person (A-16, B-13): the pattern, the foods they leave out, and their allergies. A
- * filter may hold allergies alone: setup's waiting answer, before there's a food record (board D185).
+ * filter may hold allergies alone: setup's waiting answer, before there's a food record (board D205).
  */
 export function mealAllowed(meal: MealTemplate, food?: Partial<FoodPreferences>): boolean {
   return suits(meal, food?.pattern)
@@ -196,7 +196,7 @@ export function unmatchedAvoid(avoid: readonly string[] = [], pattern?: Pattern)
 let foodWords: Set<string>[] | undefined;
 
 /**
- * What an allergy in the person's own words is read as (K7R-02; board D180): the allergens its words name
+ * What an allergy in the person's own words is read as (K7R-02; board D200): the allergens its words name
  * ("chaach" is milk), or, when none does and no one food or ingredient of ours goes by all its words, `unknown`:
  * it can't keep a meal out by itself, so the person checks every meal. Nothing: our foods' words find it, as written.
  */

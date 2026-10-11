@@ -32,7 +32,7 @@ const ALLERGEN_DEFS: Record<AllergenId, Omit<Allergen, 'id'>> = {
     aliases: [
       'milk', 'dairy', 'lactose', 'curd', 'dahi', 'yogurt', 'yoghurt', 'paneer', 'ghee', 'butter', 'buttermilk', 'cream', 'cheese', 'khoya', 'khoa',
       'mawa', 'malai', 'chhena', 'doodh', 'raita', 'chaas', 'lassi', 'thayir', 'दूध', 'दही', 'पनीर', 'घी',
-      // Regional words for buttermilk, butter and shrikhand, and the food table's own spellings of chaas (K7R-02; board D180).
+      // Regional words for buttermilk, butter and shrikhand, and the food table's own spellings of chaas (K7R-02; board D200).
       'chaach', 'mattha', 'taak', 'moru', 'majjiga', 'makhan', 'shrikhand', 'chhachh', 'majjige', 'mor',
     ],
   },
@@ -93,7 +93,7 @@ function resolve(text: string): { ids: AllergenId[]; whole: boolean } {
 export type AllergyAnswer = Pick<FoodPreferences, 'allergies' | 'customAllergies'>;
 
 /**
- * The allergy answer setup keeps for a food record not made yet (Plan 5's D166, D167; board D185): asked on its
+ * The allergy answer setup keeps for a food record not made yet (Plan 5's D166, D167; board D205): asked on its
  * 'food.allergies' page whatever the pattern, so with the pattern skipped it waits in setup's answers. Read from
  * finished setup, else the draft, as far as it can be read. Nothing is no answer, which is never "none".
  */
@@ -109,7 +109,7 @@ export function setupAllergyAnswer(setup: SetupRecord | undefined): AllergyAnswe
 }
 
 /**
- * The person's allergies as far as they're known (board D185): their food record's wherever there is one, and
+ * The person's allergies as far as they're known (board D205): their food record's wherever there is one, and
  * without one, setup's waiting answer. Nothing means not known: meal ideas ask first, never treat it as none.
  */
 export function allergyAnswer(food: AllergyAnswer | undefined, setup: SetupRecord | undefined): AllergyAnswer | undefined {
