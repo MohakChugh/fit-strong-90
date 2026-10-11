@@ -222,6 +222,14 @@ describe('allergies and the Jain pattern from recipe tags (B-13, board D99, D100
     expect(mealTags(meal('l-roti-dal-sabzi'), 'vegetarian')).toMatchObject({ contains: expect.arrayContaining(['milk', 'wheat']), mayContain: [], complete: true });
     expect(mealTags(meal('l-roti-dal-sabzi'), 'vegetarian').contains).toHaveLength(2);
   });
+  it('carries every food an idea names, by all its names, so a custom allergy finds it: palak is spinach, lauki is bottle gourd (H7-02)', () => {
+    expect(mealTags(meal('l-roti-dal-sabzi'), 'vegetarian').words).toEqual(expect.arrayContaining(['spinach', 'palak', 'bottle', 'gourd', 'doodhi', 'ghiya']));
+    expect(ids(food('vegetarian', { customAllergies: ['spinach'] }), 'lunch')).not.toContain('l-roti-dal-sabzi');
+    expect(ids(food('vegetarian', { customAllergies: ['bottle gourd'] }), 'lunch')).not.toContain('l-roti-dal-sabzi');
+    // Poha's idea names tomato, which its recipe doesn't hold.
+    expect(mealTags(meal('b-poha'), 'vegetarian').words).toContain('tamatar');
+    expect(ids(food('vegetarian', { customAllergies: ['tamatar'] }), 'breakfast')).not.toContain('b-poha');
+  });
   it('keeps out, for anyone with an allergy, an idea with a part the map doesn’t know', () => {
     const base = meal('l-roti-dal-sabzi');
     const unknown = { ...base, components: [...base.components, { ...base.components[0], name: 'Something new' }] };

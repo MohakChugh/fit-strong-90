@@ -50,7 +50,24 @@ export interface Food {
 
 export interface FoodSource { name: string; url: string; licence: string; credit: string; dataset: string; file: string; extractedOn: string }
 
-export interface FoodData { format: 'fit-strong-food'; version: 1; source: FoodSource; foods: Food[] }
+/**
+ * One of our ingredients, as meal ideas read it: what it's called and how
+ * it's tagged. A meal idea that names a food none of its dishes holds ("lauki
+ * or palak") names it here, so a custom allergy finds it (B-13).
+ */
+export interface FoodIngredient {
+  key: string;
+  name: string;
+  /** Its name and aliases, folded (`tokens`). */
+  words: string[];
+  contains: AllergenId[];
+  mayContain: AllergenId[];
+  /** A blend whose make-up isn't known by name. */
+  blend?: true;
+  patterns: Pattern[];
+}
+
+export interface FoodData { format: 'fit-strong-food'; version: 1; source: FoodSource; foods: Food[]; ingredients: FoodIngredient[] }
 
 // ---- The person's records (journey §18.2) ----------------------------------
 

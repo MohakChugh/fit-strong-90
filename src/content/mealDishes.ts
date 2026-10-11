@@ -3,12 +3,16 @@
  * §11.1, B-13). The ideas stay v1's plate-method templates; this map lets the
  * one filter, `mealsFor`, know their allergens and whether a Jain plate suits
  * them. An "or" component lists every dish it could be, so its tags are the
- * union. A component no dish in the table is says what it may carry.
+ * union. A component no dish in the table is says what it may carry. Every
+ * food a component names is in one of its dishes or in its `also`, which
+ * mealDishes.node.test.ts checks against the names it says (H7-02).
  */
 import type { AllergenId } from '@/types/profile';
 
 export interface ComponentFoods {
   dishes: readonly string[];
+  /** Ingredients it names that none of its dishes holds ("lauki or palak"), by key: their names and tags count too. */
+  also?: readonly string[];
   mayContain?: readonly AllergenId[];
 }
 
@@ -28,7 +32,7 @@ export const MEAL_DISHES: Readonly<Record<string, ComponentFoods>> = {
   'b-dosa-sambar|Sambar dal': { dishes: ['sambar'] },
   'b-dosa-sambar|Plain dosa': { dishes: ['plain-dosa'] },
   'b-dosa-sambar|Coconut chutney': { dishes: ['coconut-chutney'] },
-  'b-poha|Onion, tomato and other vegetables mixed in': { dishes: ['poha'] },
+  'b-poha|Onion, tomato and other vegetables mixed in': { dishes: ['poha'], also: ['tomato'] },
   'b-poha|Poha': { dishes: ['poha'] },
   'b-poha|Cooked sprouts or roasted chana on the side': { dishes: ['sprouts-chaat', 'roasted-chana'] },
   'b-poha|A few peanuts': { dishes: ['roasted-peanuts'] },
@@ -47,7 +51,7 @@ export const MEAL_DISHES: Readonly<Record<string, ComponentFoods>> = {
   'b-egg-bhurji|Egg bhurji with onion, tomato and palak': { dishes: ['egg-bhurji'] },
   'b-egg-bhurji|Whole-wheat or millet roti': ROTI,
   // Lunch
-  'l-roti-dal-sabzi|Sabzi and salad — bhindi, lauki, gobhi or palak, with kheera and tomato': { dishes: ['mixed-veg-sabzi', 'bhindi-sabzi', SALAD] },
+  'l-roti-dal-sabzi|Sabzi and salad — bhindi, lauki, gobhi or palak, with kheera and tomato': { dishes: ['mixed-veg-sabzi', 'bhindi-sabzi', SALAD], also: ['lauki', 'spinach'] },
   'l-roti-dal-sabzi|Dal': { dishes: ['toor-dal'] },
   'l-roti-dal-sabzi|Whole-wheat or millet roti': ROTI,
   'l-roti-dal-sabzi|Dahi (curd)': { dishes: ['dahi'] },
@@ -74,9 +78,9 @@ export const MEAL_DISHES: Readonly<Record<string, ComponentFoods>> = {
   // Snacks
   's-roasted-chana|Roasted chana': { dishes: ['roasted-chana'] },
   's-sprouts-chaat|Cooked moong sprouts': { dishes: ['sprouts-chaat'] },
-  's-sprouts-chaat|Onion, tomato and cucumber with lemon': { dishes: ['sprouts-chaat'] },
+  's-sprouts-chaat|Onion, tomato and cucumber with lemon': { dishes: ['sprouts-chaat'], also: ['onion'] },
   's-fruit|Whole fruit, such as guava, orange, apple or papaya': { dishes: ['guava'] },
-  's-salad-seeds|Cucumber, tomato, carrot and onion': { dishes: [SALAD] },
+  's-salad-seeds|Cucumber, tomato, carrot and onion': { dishes: [SALAD], also: ['carrot', 'onion'] },
   's-salad-seeds|A few seeds or nuts': { dishes: [], mayContain: ['peanut', 'treeNut', 'sesame'] },
   's-salad-seeds|Curd on top, if you like': { dishes: ['dahi'] },
   's-chaas|Chaas': { dishes: ['chaas'] },

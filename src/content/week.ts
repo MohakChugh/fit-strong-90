@@ -1,9 +1,10 @@
 import { allergiesOf, recommendable, type AllergenTags } from '@/food/allergens';
-import { foodById } from '@/food/data';
+import { foodById, ingredientByKey } from '@/food/data';
+import type { Food } from '@/food/types';
 import type { AllergenId, FoodPreferences } from '@/types/profile';
 import { JAIN_LEAVES_OUT, mealPattern } from './allergens';
 import { MEALS } from './meals';
-import { componentKey, MEAL_DISHES } from './mealDishes';
+import { componentKey, MEAL_DISHES, type ComponentFoods } from './mealDishes';
 import type { MealComponent, MealTemplate, Pattern, Slot } from './schema';
 import { tokens } from './text';
 
@@ -27,6 +28,31 @@ function ownWords(meal: MealTemplate, pattern?: Pattern): Set<string> {
 /** The dishes a component this person eats is, from the map. */
 const dishesOf = (meal: MealTemplate, c: MealComponent) => MEAL_DISHES[componentKey(meal.id, c.name)];
 
+/** What meal ideas read of a dish, or of an ingredient a component names apart from its dishes. */
+interface Part {
+  patterns: readonly Pattern[];
+  words: readonly string[];
+  contains: readonly AllergenId[];
+  mayContain: readonly AllergenId[];
+  complete: boolean;
+}
+
+const dishPart = (f: Food): Part => ({ patterns: f.patterns, words: f.words, ...f.allergens });
+
+/** A component's foods: its dishes and the ingredients it names apart from them (H7-02). `undefined` for one the table lacks. */
+function partsOf(mapped: ComponentFoods): (Part | undefined)[] {
+  return [
+    ...mapped.dishes.map(id => {
+      const f = foodById(id);
+      return f && dishPart(f);
+    }),
+    ...(mapped.also ?? []).map(key => {
+      const i = ingredientByKey(key);
+      return i && { patterns: i.patterns, words: i.words, contains: i.contains, mayContain: i.mayContain, complete: !i.blend };
+    }),
+  ];
+}
+
 /**
  * Whether a template suits an eating pattern. A Jain plate is a vegetarian
  * one whose words name nothing Jain cooking leaves out, and whose dishes
@@ -38,13 +64,14 @@ export function suits(meal: MealTemplate, pattern?: Pattern): boolean {
   if (!meal.patterns.includes(p)) return false;
   if (pattern !== 'jain') return true;
   if ([...ownWords(meal, pattern)].some(w => JAIN_WORDS.has(w))) return false;
-  return componentsFor(meal, pattern).every(c => (dishesOf(meal, c)?.dishes ?? []).every(id => foodById(id)?.patterns.includes('jain') === true));
+  return componentsFor(meal, pattern).every(c => partsOf(dishesOf(meal, c) ?? { dishes: [] }).every(part => part?.patterns.includes('jain') === true));
 }
 
 /**
- * A template's allergen tags (B-13): its components' dishes, what a
- * component with no dish may carry, and every word it and its dishes go
- * by. A component the map doesn't know leaves the template not fully tagged.
+ * A template's allergen tags (B-13): its components' dishes and the
+ * ingredients they name, what a component with no dish may carry, and every
+ * word it and its dishes go by. A component the map doesn't know leaves the
+ * template not fully tagged.
  */
 export function mealTags(meal: MealTemplate, pattern?: Pattern): AllergenTags {
   const contains = new Set<AllergenId>();
@@ -58,16 +85,15 @@ export function mealTags(meal: MealTemplate, pattern?: Pattern): AllergenTags {
       continue;
     }
     for (const a of mapped.mayContain ?? []) may.add(a);
-    for (const id of mapped.dishes) {
-      const dish = foodById(id);
-      if (!dish) {
+    for (const part of partsOf(mapped)) {
+      if (!part) {
         complete = false;
         continue;
       }
-      for (const a of dish.allergens.contains) contains.add(a);
-      for (const a of dish.allergens.mayContain) may.add(a);
-      if (!dish.allergens.complete) complete = false;
-      for (const w of dish.words) words.add(w);
+      for (const a of part.contains) contains.add(a);
+      for (const a of part.mayContain) may.add(a);
+      if (!part.complete) complete = false;
+      for (const w of part.words) words.add(w);
     }
   }
   return { contains: [...contains], mayContain: [...may].filter(a => !contains.has(a)), complete, words: [...words] };

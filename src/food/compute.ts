@@ -16,7 +16,7 @@
 import type { Pattern, Slot } from '@/content/schema';
 import { tokens } from '@/content/text';
 import { ALLERGEN_IDS, type AllergenId } from '@/types/profile';
-import type { Food, FoodData, FoodSource, Portion, RecipeIngredient, ShelfId } from './types';
+import type { Food, FoodData, FoodIngredient, FoodSource, Portion, RecipeIngredient, ShelfId } from './types';
 
 export interface FdcRecord { fdcId: number; dataType: string; description: string; kcal: number; carbsG: number }
 export interface FdcExtract { source: FoodSource; records: FdcRecord[] }
@@ -126,7 +126,17 @@ export function buildFoodData({ fdc, ingredients, recipes }: { fdc: FdcExtract; 
     return buildFood(r, byKey, byDescription, problems);
   });
   if (problems.length > 0) throw new Error(`The food table can't be built:\n- ${problems.join('\n- ')}`);
-  return { format: 'fit-strong-food', version: 1, source: fdc.source, foods };
+  return { format: 'fit-strong-food', version: 1, source: fdc.source, foods, ingredients: ingredients.map(ingredientOf) };
+}
+
+/** An ingredient as meal ideas read it (B-13): its words, its tags and the eating patterns it suits. */
+function ingredientOf(i: Ingredient): FoodIngredient {
+  const contains = sorted(i.contains);
+  return {
+    key: i.key, name: i.name, words: [...new Set([i.name, ...i.aliases].flatMap(tokens))].sort(),
+    contains, mayContain: sorted(i.mayContain).filter(a => !contains.includes(a)),
+    ...(i.blend ? { blend: true as const } : {}), patterns: patternsOf([i]),
+  };
 }
 
 function buildFood(r: Recipe, byKey: ReadonlyMap<string, Ingredient>, byDescription: ReadonlyMap<string, FdcRecord>, problems: string[]): Food {
