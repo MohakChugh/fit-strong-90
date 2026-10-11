@@ -17,6 +17,7 @@ import type { Pattern, Slot } from '@/content/schema';
 import { tokens } from '@/content/text';
 import { ALLERGEN_IDS, type AllergenId } from '@/types/profile';
 import type { Food, FoodData, FoodIngredient, FoodSource, Portion, RecipeIngredient, ShelfId } from './types';
+import { UNITS } from './units';
 
 export interface FdcRecord { fdcId: number; dataType: string; description: string; kcal: number; carbsG: number }
 export interface FdcExtract { source: FoodSource; records: FdcRecord[] }
@@ -107,11 +108,16 @@ export function patternsOf(ingredients: readonly Pick<Ingredient, 'animal' | 'ro
   });
 }
 
-/** A short, stable name for a recipe's content (FNV-1a), so a change without a new rev is caught. */
-export function hashOf(recipe: Pick<Recipe, 'portion' | 'yieldG' | 'ingredients'>): string {
+/** A short, stable name for some JSON (FNV-1a). */
+function fnv(value: unknown): string {
   let h = 0x811c9dc5;
-  for (const ch of JSON.stringify([recipe.portion, recipe.yieldG, recipe.ingredients])) h = Math.imul(h ^ ch.charCodeAt(0), 0x01000193);
+  for (const ch of JSON.stringify(value)) h = Math.imul(h ^ ch.charCodeAt(0), 0x01000193);
   return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+/** A short, stable name for a recipe's content, so a change without a new rev is caught. */
+export function hashOf(recipe: Pick<Recipe, 'portion' | 'yieldG' | 'ingredients'>): string {
+  return fnv([recipe.portion, recipe.yieldG, recipe.ingredients]);
 }
 
 export function buildFoodData({ fdc, ingredients, recipes }: { fdc: FdcExtract; ingredients: readonly Ingredient[]; recipes: readonly Recipe[] }): FoodData {
@@ -156,6 +162,8 @@ function buildFood(r: Recipe, byKey: ReadonlyMap<string, Ingredient>, byDescript
   let high = 0;
   const used: Ingredient[] = [];
   const rows: RecipeIngredient[] = [];
+  // What the estimate is worked out from beyond the recipe's own words (H7-13): each FDC record and its values, each variance.
+  const inputs: unknown[] = [];
   for (const [key, grams] of r.ingredients) {
     const ing = byKey.get(key);
     if (!ing) {
@@ -171,6 +179,7 @@ function buildFood(r: Recipe, byKey: ReadonlyMap<string, Ingredient>, byDescript
     }
     const rec = byDescription.get(ing.fdc);
     if (!rec) continue; // reported with the ingredients
+    inputs.push([key, grams, rec.fdcId, rec.kcal, rec.carbsG, ing.carbVariance]);
     const c = (rec.carbsG * grams) / 100;
     kcal += (rec.kcal * grams) / 100;
     carbs += c;
@@ -189,17 +198,24 @@ function buildFood(r: Recipe, byKey: ReadonlyMap<string, Ingredient>, byDescript
     allergens: { contains, mayContain, complete: true, named: used.every(i => !i.blend) },
     patterns: patternsOf(used),
     words,
-    recipe: { note: r.note, hash: hashOf(r), ingredients: rows },
+    recipe: { note: r.note, hash: hashOf(r), basis: fnv([r.portion, r.yieldG, UNITS[r.portion.unit].variance, inputs]), ingredients: rows },
   };
 }
 
-/** Recipes whose content changed while their rev didn't rise (B-12): each must get a new rev. */
+/**
+ * Recipes whose content, or what their estimate is worked out from (an FDC
+ * record or value, a variance, H7-13), changed while their rev didn't rise
+ * (B-12): each must get a new rev, so a logged item on the old one scales
+ * its own figures. A table from before the basis was kept is compared by its
+ * content alone.
+ */
 export function unbumped(before: Pick<FoodData, 'foods'> | undefined, after: Pick<FoodData, 'foods'>): string[] {
   const old = new Map((before?.foods ?? []).map(f => [f.id, f]));
   return after.foods
     .filter(f => {
       const o = old.get(f.id);
-      return o !== undefined && o.recipe.hash !== f.recipe.hash && f.rev <= o.rev;
+      const changed = o !== undefined && (o.recipe.hash !== f.recipe.hash || (o.recipe.basis !== undefined && o.recipe.basis !== f.recipe.basis));
+      return changed && f.rev <= o.rev;
     })
     .map(f => f.id);
 }

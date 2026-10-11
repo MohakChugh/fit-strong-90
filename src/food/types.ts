@@ -46,7 +46,12 @@ export interface Food {
   patterns: Pattern[];
   /** Every word its name, aliases and ingredients go by, folded: what a custom allergy is matched against (B-13). */
   words: string[];
-  recipe: { note: string; hash: string; ingredients: RecipeIngredient[] };
+  /**
+   * `hash` names the recipe's content; `basis` what its estimate is worked out
+   * from (each FDC record and value, each variance, the portion's): a change
+   * to either needs a new `rev` (B-12, H7-13).
+   */
+  recipe: { note: string; hash: string; basis: string; ingredients: RecipeIngredient[] };
 }
 
 export interface FoodSource { name: string; url: string; licence: string; credit: string; dataset: string; file: string; extractedOn: string }

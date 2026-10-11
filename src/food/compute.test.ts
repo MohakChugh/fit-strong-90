@@ -128,4 +128,17 @@ describe('unbumped (B-12)', () => {
     expect(unbumped(before, before)).toEqual([]);
     expect(unbumped(undefined, before)).toEqual([]);
   });
+  it('names one whose estimate inputs changed with the same ingredients and grams: an FDC value, an FDC record, or a variance (H7-13)', () => {
+    const before = build([paratha]);
+    const variance = (rev: number) => buildFoodData({ fdc, ingredients: INGREDIENTS.map(i => (i.key === 'flour' ? { ...i, carbVariance: 0.2 } : i)), recipes: [{ ...paratha, rev }] });
+    expect(unbumped(before, variance(1))).toEqual(['paratha']);
+    expect(unbumped(before, variance(2))).toEqual([]);
+    const values = buildFoodData({ fdc: { ...fdc, records: fdc.records.map(r => (r.description === 'Flour' ? { ...r, carbsG: 70 } : r)) }, ingredients: INGREDIENTS, recipes: [paratha] });
+    expect(unbumped(before, values)).toEqual(['paratha']);
+    const record = buildFoodData({ fdc: { ...fdc, records: fdc.records.map(r => (r.description === 'Flour' ? { ...r, fdcId: 9 } : r)) }, ingredients: INGREDIENTS, recipes: [paratha] });
+    expect(unbumped(before, record)).toEqual(['paratha']);
+    // A tag or a name changes no estimate.
+    const tagged = buildFoodData({ fdc, ingredients: INGREDIENTS.map(i => (i.key === 'flour' ? { ...i, mayContain: ['sesame'] as const, aliases: ['gehun'] } : i)), recipes: [paratha] });
+    expect(unbumped(before, tagged)).toEqual([]);
+  });
 });

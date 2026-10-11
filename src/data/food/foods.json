@@ -83,6 +83,7 @@
    "recipe": {
     "note": "Plain phulka, no oil",
     "hash": "67ea8e95",
+    "basis": "e618671f",
     "ingredients": [
      {
       "key": "atta",
@@ -165,6 +166,7 @@
    "recipe": {
     "note": "Home-style, 1 tsp oil",
     "hash": "9c689ef8",
+    "basis": "2d11f4ad",
     "ingredients": [
      {
       "key": "atta",
@@ -270,6 +272,7 @@
    "recipe": {
     "note": "Home-style, 1 tsp oil",
     "hash": "f1570365",
+    "basis": "59ad6407",
     "ingredients": [
      {
       "key": "atta",
@@ -382,6 +385,7 @@
    "recipe": {
     "note": "Plain, no oil",
     "hash": "58cc1d2d",
+    "basis": "7380127c",
     "ingredients": [
      {
       "key": "jowar-flour",
@@ -457,6 +461,7 @@
    "recipe": {
     "note": "Plain white rice, cooked without salt",
     "hash": "91874b7e",
+    "basis": "0ee421b8",
     "ingredients": [
      {
       "key": "rice-cooked",
@@ -530,6 +535,7 @@
    "recipe": {
     "note": "Steamed rice and urad dal batter",
     "hash": "25c2a593",
+    "basis": "aae20973",
     "ingredients": [
      {
       "key": "rice-raw",
@@ -628,6 +634,7 @@
    "recipe": {
     "note": "Home-style, 1 tsp oil",
     "hash": "7df7e5a1",
+    "basis": "ea4af5fb",
     "ingredients": [
      {
       "key": "rice-raw",
@@ -759,6 +766,7 @@
    "recipe": {
     "note": "Home-style with peanuts, 1 tsp oil",
     "hash": "f3ecfb13",
+    "basis": "b4a1ed86",
     "ingredients": [
      {
       "key": "poha",
@@ -929,6 +937,7 @@
    "recipe": {
     "note": "Home-style, 1 tsp oil",
     "hash": "c0424d90",
+    "basis": "aa4e9273",
     "ingredients": [
      {
       "key": "semolina",
@@ -1078,6 +1087,7 @@
    "recipe": {
     "note": "About ½ tsp ghee, no onion or garlic",
     "hash": "a6e52b55",
+    "basis": "d729af05",
     "ingredients": [
      {
       "key": "bulgur",
@@ -1216,6 +1226,7 @@
    "recipe": {
     "note": "Home-style, about 1 tsp oil",
     "hash": "46ccc176",
+    "basis": "1ea5c7f1",
     "ingredients": [
      {
       "key": "moong-dal",
@@ -1346,6 +1357,7 @@
    "recipe": {
     "note": "About ½ tsp ghee, no onion or garlic",
     "hash": "46163be5",
+    "basis": "14b2a9a2",
     "ingredients": [
      {
       "key": "rice-raw",
@@ -1486,6 +1498,7 @@
    "recipe": {
     "note": "Jeera and tomato tadka, about 1 tsp ghee, no onion or garlic",
     "hash": "ea7cb1fc",
+    "basis": "8609d263",
     "ingredients": [
      {
       "key": "toor-dal",
@@ -1615,6 +1628,7 @@
    "recipe": {
     "note": "About ½ tsp ghee, no onion or garlic",
     "hash": "e7db4b5d",
+    "basis": "b70c0f04",
     "ingredients": [
      {
       "key": "moong-dal",
@@ -1768,6 +1782,7 @@
    "recipe": {
     "note": "Home-style with drumstick and lauki, about ½ tsp oil",
     "hash": "f0c3d9d5",
+    "basis": "8c32ceac",
     "ingredients": [
      {
       "key": "toor-dal",
@@ -1936,6 +1951,7 @@
    "recipe": {
     "note": "Home-style, about 1 tsp oil",
     "hash": "b3662077",
+    "basis": "df9ec8de",
     "ingredients": [
      {
       "key": "rajma",
@@ -2091,6 +2107,7 @@
    "recipe": {
     "note": "Home-style, about 1 tsp oil",
     "hash": "0633b3cf",
+    "basis": "aa15e533",
     "ingredients": [
      {
       "key": "chana",
@@ -2246,6 +2263,7 @@
    "recipe": {
     "note": "Dry sabzi, 1 tsp oil, no onion, garlic or potato",
     "hash": "923fa61c",
+    "basis": "d4aab78f",
     "ingredients": [
      {
       "key": "cauliflower",
@@ -2372,6 +2390,7 @@
    "recipe": {
     "note": "Dry sabzi, 1 tsp oil, no onion",
     "hash": "2f09672a",
+    "basis": "fe1cc111",
     "ingredients": [
      {
       "key": "okra",
@@ -2488,6 +2507,7 @@
    "recipe": {
     "note": "Dry sabzi, 1 tsp oil",
     "hash": "0cb0d045",
+    "basis": "d9bf7a51",
     "ingredients": [
      {
       "key": "potato",
@@ -2621,6 +2641,7 @@
    "recipe": {
     "note": "Home-style, 1 tsp oil, no cream",
     "hash": "a3ca31e8",
+    "basis": "e08f02fb",
     "ingredients": [
      {
       "key": "spinach",
@@ -2759,6 +2780,7 @@
    "recipe": {
     "note": "Home-style, about 1 tsp oil",
     "hash": "e5d8e7e7",
+    "basis": "aa1b33d6",
     "ingredients": [
      {
       "key": "paneer",
@@ -2885,6 +2907,7 @@
    "recipe": {
     "note": "With grated coconut, about ½ tsp oil",
     "hash": "3ed6ddd5",
+    "basis": "37514048",
     "ingredients": [
      {
       "key": "green-beans",
@@ -2994,6 +3017,7 @@
    "recipe": {
     "note": "Kheera and tomato with lemon",
     "hash": "b37ed981",
+    "basis": "860d07ac",
     "ingredients": [
      {
       "key": "cucumber",
@@ -3077,6 +3101,7 @@
    "recipe": {
     "note": "Plain, whole milk",
     "hash": "f9b890e4",
+    "basis": "6b485f93",
     "ingredients": [
      {
       "key": "curd",
@@ -3146,6 +3171,7 @@
    "recipe": {
     "note": "Whole-milk curd with cucumber",
     "hash": "34ac7443",
+    "basis": "1c16d332",
     "ingredients": [
      {
       "key": "curd",
@@ -3253,6 +3279,7 @@
    "recipe": {
     "note": "With roasted chana and a mustard tadka",
     "hash": "4b0914b0",
+    "basis": "caec792b",
     "ingredients": [
      {
       "key": "coconut",
@@ -3375,6 +3402,7 @@
    "recipe": {
     "note": "Mint and coriander with lemon, no onion",
     "hash": "c4c0a901",
+    "basis": "29c03efb",
     "ingredients": [
      {
       "key": "mint",
@@ -3488,6 +3516,7 @@
    "recipe": {
     "note": "Two eggs, about 1 tsp oil",
     "hash": "b42700fc",
+    "basis": "650527bc",
     "ingredients": [
      {
       "key": "egg",
@@ -3593,6 +3622,7 @@
    "recipe": {
     "note": "One large egg",
     "hash": "041fb0a4",
+    "basis": "7dafecd3",
     "ingredients": [
      {
       "key": "egg-boiled",
@@ -3681,6 +3711,7 @@
    "recipe": {
     "note": "Two eggs, 1 tsp oil",
     "hash": "59d7d0eb",
+    "basis": "684bb080",
     "ingredients": [
      {
       "key": "egg-boiled",
@@ -3832,6 +3863,7 @@
    "recipe": {
     "note": "Rohu or another carp, 1 tsp sunflower oil",
     "hash": "f6533706",
+    "basis": "c19ae217",
     "ingredients": [
      {
       "key": "fish",
@@ -3981,6 +4013,7 @@
    "recipe": {
     "note": "Thigh meat in a curd marinade, about 1 tsp oil",
     "hash": "dd47e16f",
+    "basis": "38ca8bc7",
     "ingredients": [
      {
       "key": "chicken",
@@ -4136,6 +4169,7 @@
    "recipe": {
     "note": "Kerala style, with coconut milk",
     "hash": "4ca19fe8",
+    "basis": "638d3c9a",
     "ingredients": [
      {
       "key": "chicken",
@@ -4250,6 +4284,7 @@
    "recipe": {
     "note": "Plain, unsalted",
     "hash": "a97e65ca",
+    "basis": "740af968",
     "ingredients": [
      {
       "key": "roasted-chana",
@@ -4329,6 +4364,7 @@
    "recipe": {
     "note": "Boiled moong sprouts, no onion",
     "hash": "8519266c",
+    "basis": "8864a8bc",
     "ingredients": [
      {
       "key": "moong-sprouts",
@@ -4420,6 +4456,7 @@
    "recipe": {
     "note": "Dry-roasted, unsalted",
     "hash": "29002015",
+    "basis": "bbaf1b84",
     "ingredients": [
      {
       "key": "peanuts-roasted",
@@ -4496,6 +4533,7 @@
    "recipe": {
     "note": "Thin, from whole-milk curd",
     "hash": "97d94a7d",
+    "basis": "a3818e3e",
     "ingredients": [
      {
       "key": "curd",
@@ -4581,6 +4619,7 @@
    "recipe": {
     "note": "1 tsp sugar, a third milk",
     "hash": "894c2db5",
+    "basis": "8c8cea7e",
     "ingredients": [
      {
       "key": "tea",
@@ -4652,6 +4691,7 @@
    "recipe": {
     "note": "Whole milk",
     "hash": "363d20e6",
+    "basis": "ffb798c6",
     "ingredients": [
      {
       "key": "milk",
@@ -4712,6 +4752,7 @@
    "recipe": {
     "note": "One medium banana, peeled",
     "hash": "ee32bfc0",
+    "basis": "50127eef",
     "ingredients": [
      {
       "key": "banana",
@@ -4773,6 +4814,7 @@
    "recipe": {
     "note": "One medium guava",
     "hash": "fcca3857",
+    "basis": "c8443dfe",
     "ingredients": [
      {
       "key": "guava",
