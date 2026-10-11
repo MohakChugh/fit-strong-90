@@ -8,7 +8,8 @@ import {
   CHAPTER_IDS, CONDITION_IDS, MEDICINE_CLASSES, PAGE_IDS, type ChapterId, type PageId, type SetupAnswers, type Tri,
 } from '@/types/setup';
 import { metforminYearProblem } from '@/components/profile/wizardSteps';
-import { mealProblem, windowProblem } from '@/screens/you/habitOptions';
+import { DEFAULT_FINISH, mealProblem, windowProblem } from '@/screens/you/habitOptions';
+import type { Meal } from '@/types/habits';
 import { asksAdult, birthYearProblem } from './age';
 import { factsOf, has, type Facts } from './facts';
 import { heightProblem, waistProblem, weightProblem } from './units';
@@ -46,6 +47,10 @@ const glucoseOk = (a: SetupAnswers) => {
 export function checklistDone<K extends string>(r: Partial<Record<K, Tri>> | undefined, ids: readonly K[]): boolean {
   return r !== undefined && (ids.some(id => has(r[id])) || ids.every(id => r[id] === 'no'));
 }
+
+/** Usual finish times for the meals chosen: labelled defaults until the person changes them (§6.1), the times the page shows. */
+export const finishFor = (meals: readonly Meal[], kept: Partial<Record<Meal, string>> | undefined): Partial<Record<Meal, string>> =>
+  Object.fromEntries(meals.map(m => [m, kept?.[m] ?? DEFAULT_FINISH[m]])) as Partial<Record<Meal, string>>;
 
 const fill = <K extends string>(r: Partial<Record<K, Tri>>, ids: readonly K[]): Record<K, Tri> =>
   Object.fromEntries(ids.map(id => [id, r[id] ?? 'no'])) as Record<K, Tri>;
@@ -146,8 +151,9 @@ export function pageInvalid(id: PageId, a: SetupAnswers, ctx: Ctx): boolean {
   return pageDef(id).invalid?.(a, factsOf(a), ctx) ?? false;
 }
 
-/** What a page stores: a checklist's unticked rows are No once it's answered (B-08). */
+/** What a page stores: a checklist's unticked rows are No once it's answered (B-08), and the meal times as shown (H5-26). */
 export function commitPage(id: PageId, a: SetupAnswers): SetupAnswers {
+  if (id === 'day.meals' && a.mealWalk) return { ...a, mealFinish: finishFor(a.mealWalk.meals, a.mealFinish) };
   if (id === 'health.conditions' && a.conditions && checklistDone(a.conditions, CONDITION_IDS)) return { ...a, conditions: fill(a.conditions, CONDITION_IDS) };
   if (id === 'medicines.which' && a.classes && checklistDone(a.classes, MEDICINE_CLASSES)) {
     const stored: SetupAnswers = { ...a, classes: fill(a.classes, MEDICINE_CLASSES) };

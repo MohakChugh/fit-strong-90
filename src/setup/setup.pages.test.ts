@@ -67,6 +67,15 @@ describe('setup’s pages (journey §1.2, §6.2; B-06)', () => {
     expect(commitPage('medicines.which', { classes: { metformin: 'yes' }, metforminSince: '2019' }).metforminSince).toBe('2019');
   });
 
+  it('accepts the usual meal times it shows, and stores them as shown (H5-26)', () => {
+    const walks: SetupAnswers = { mealWalk: { on: true, meals: ['lunch', 'dinner'] } };
+    const stored = commitPage('day.meals', walks);
+    expect(stored.mealFinish).toEqual({ lunch: '13:30', dinner: '20:30' });
+    expect(pageDone('day.meals', stored, CTX)).toBe(true);
+    // A time the person set is kept.
+    expect(commitPage('day.meals', { ...walks, mealFinish: { lunch: '12:45' } }).mealFinish).toEqual({ lunch: '12:45', dinner: '20:30' });
+  });
+
   it('stores estimates only once the screening question is answered (K-22, board D82)', () => {
     expect(pageDone('food.logging', { foodLevel: 'estimates' }, CTX)).toBe(false);
     expect(pageDone('food.logging', { foodLevel: 'estimates', hardBefore: 'preferNot' }, CTX)).toBe(true);

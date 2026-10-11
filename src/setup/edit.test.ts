@@ -266,3 +266,16 @@ describe('what Save waits for in Me (H5-15, K5-04)', () => {
     expect(blocks({ birthYear: 2008, adult: true })).toEqual([]);
   });
 });
+
+describe('the usual meal times Me shows (H5-26)', () => {
+  it('an upgrader with after-meal walks and no stored times saves the day chapter unchanged, with the times it showed', () => {
+    const data = fresh();
+    data.settings = { ...data.settings, onboardingComplete: true, habits: { mealWalk: { enabled: true, meals: ['lunch'] } } };
+    data.profile = createDefaultProfile({ weightKg: 70, health: { medicinesReviewed: true } });
+    const a = opened(data);
+    const state = editorState(editorOpens('day', data.profile), a, a, CTX);
+    expect(state.pages).toContain('day.meals');
+    expect(state.blocking).toEqual([]);
+    expect(editedRecord(data, editOf(state, a), TODAY, CTX).settings.habits?.mealWalk?.finish).toEqual({ lunch: '13:30' });
+  });
+});
