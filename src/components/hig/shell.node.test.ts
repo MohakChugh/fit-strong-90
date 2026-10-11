@@ -301,8 +301,10 @@ describe('a sheet that will not close yet (review C2-07)', () => {
 
   it('Me → Data changes both walk answers, erases every route in one call, and has no placeholder left (Task 14, H6-07, KH-07)', () => {
     const data = read('src/screens/you/DataScreen.tsx');
-    expect(data).toMatch(/<Toggle label="Keep walk routes" checked=\{walk\.saveRoutes === true\} onChange=\{on => void setSettings\(\{ walk: \{ \.\.\.walk, saveRoutes: on \} \}\)\} \/>/);
-    expect(data).toMatch(/<Toggle label="Map pictures under routes" checked=\{walk\.map === 'on'\} onChange=\{on => void setSettings\(\{ walk: \{ \.\.\.walk, map: on \? 'on' : 'off' \} \}\)\} \/>/);
+    // One answer at a time, against what is stored, never this screen's copy of both (H6R-07).
+    expect(data).toMatch(/<Toggle label="Keep walk routes" checked=\{walk\.saveRoutes === true\} onChange=\{on => void setWalkSettings\(\{ saveRoutes: on \}\)\} \/>/);
+    expect(data).toMatch(/<Toggle label="Map pictures under routes" checked=\{walk\.map === 'on'\} onChange=\{on => void setWalkSettings\(\{ map: on \? 'on' : 'off' \}\)\} \/>/);
+    expect(data).not.toMatch(/setSettings\(\{ walk/);
     expect(data).toMatch(/const done = await eraseRoutes\(\);/);
     expect(data).not.toMatch(/Not in this version yet|Plan 6 replaces this group/);
     expect(read('src/screens/you/DataSheets.tsx')).toMatch(/exportRecord\(withRoutes \? \{ include: \['routes'\] \} : \{\}\)/);

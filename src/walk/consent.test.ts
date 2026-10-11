@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONSENT, UNASKED, answered, consentSummary, preflightPages, routeNote, walkSettings, withConsent } from './consent';
+import { CONSENT, UNASKED, answered, answerOf, consentSummary, preflightPages, routeNote, walkSettings, withConsent } from './consent';
 
 const GPS = { gps: true, steps: false };
 
@@ -58,5 +58,15 @@ describe('what this phone keeps, as the Walk hub and Me say it (journey §9.1)',
     expect(consentSummary(UNASKED)).toEqual({ routes: 'Asked on your first walk with location', map: 'Asked on your first walk with location' });
     expect(consentSummary({ saveRoutes: true, map: 'on' })).toEqual({ routes: 'Kept on this phone', map: 'On' });
     expect(consentSummary({ saveRoutes: false, map: 'off' })).toEqual({ routes: 'Not kept', map: 'Off' });
+  });
+});
+
+describe('one answer at a time (H6R-07, board D176)', () => {
+  it('writes only the setting an answer changes', () => {
+    expect(answerOf({ page: 'keepRoute', keep: false })).toEqual({ saveRoutes: false });
+    expect(answerOf({ page: 'mapPictures', show: true })).toEqual({ map: 'on' });
+    expect(answerOf({ page: 'stepCard' })).toEqual({ stepCardSeen: true });
+    expect(answered({ saveRoutes: true, map: 'unasked', stepCardSeen: true }, { page: 'mapPictures', show: false }))
+      .toEqual({ saveRoutes: true, map: 'off', stepCardSeen: true });
   });
 });

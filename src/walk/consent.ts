@@ -46,12 +46,17 @@ export function preflightPages(walk: WalkSettings, plan: Pick<WalkPlan, 'gps' | 
 
 export type PreflightAnswer = { page: 'keepRoute'; keep: boolean } | { page: 'mapPictures'; show: boolean } | { page: 'stepCard' };
 
-export function answered(walk: WalkSettings, a: PreflightAnswer): WalkSettings {
+/** The one setting an answer changes, to write against this phone's settings as they are then (H6R-07). */
+export function answerOf(a: PreflightAnswer): Partial<WalkSettings> {
   switch (a.page) {
-    case 'keepRoute': return { ...walk, saveRoutes: a.keep };
-    case 'mapPictures': return { ...walk, map: a.show ? 'on' : 'off' };
-    case 'stepCard': return { ...walk, stepCardSeen: true };
+    case 'keepRoute': return { saveRoutes: a.keep };
+    case 'mapPictures': return { map: a.show ? 'on' : 'off' };
+    case 'stepCard': return { stepCardSeen: true };
   }
+}
+
+export function answered(walk: WalkSettings, a: PreflightAnswer): WalkSettings {
+  return { ...walk, ...answerOf(a) };
 }
 
 /** The plan as it finally starts: the route kept only on this phone's yes, and only with location (§9.1). */

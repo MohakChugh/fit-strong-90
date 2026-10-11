@@ -1176,6 +1176,18 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
     expect(store.getState().settings.walk?.routesErasedAt).toEqual(expect.any(Number));
   });
 
+  it('changes one walk answer at a time, against what is stored: another tab’s answer stays (H6R-07)', async () => {
+    const fake = await booted();
+    await store.setSettings({ walk: { saveRoutes: true, map: 'unasked' } });
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { settings: { patch: { walk: { saveRoutes: false, map: 'unasked', stepCardSeen: true } } } } }))).ok).toBe(true);
+    tab.close();
+    // This tab still shows Yes, and answers the map question.
+    expect(store.getState().settings.walk).toEqual({ saveRoutes: true, map: 'unasked' });
+    expect((await store.setWalkSettings({ map: 'on' })).ok).toBe(true);
+    expect(store.getState().settings.walk).toEqual({ saveRoutes: false, map: 'on', stepCardSeen: true });
+  });
+
   it('reads back only the checkpoints it can trust', async () => {
     await booted();
     await store.putWalkJournal(journalEntry(walked(), T));

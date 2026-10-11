@@ -57,7 +57,7 @@ import {
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
 import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult } from './db';
 import { parseJournalEntry, type JournalEntry } from '@/walk/journal';
-import { clockGeneration, takenHere, walkSettings, withClockChange } from '@/walk/consent';
+import { clockGeneration, takenHere, walkSettings, withClockChange, type WalkSettings } from '@/walk/consent';
 import { routeRecord, type RouteRecord } from '@/walk/routeRecord';
 import type { WalkInput } from '@/walk/record';
 import { SCHEMA_VERSION, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
@@ -1038,6 +1038,19 @@ export function setSettings(patch: Partial<UserSettings>): Promise<StoreResult> 
     else set[field] = value;
   }
   return enqueue<void>({ plan: () => ({ change: { settings: { patch: set as Partial<UserSettings>, unset } }, result: () => undefined }) });
+}
+
+/**
+ * Change this phone's own walk answers, field by field, against the walk
+ * settings the transaction finds (H6R-07, board D176): an answer given from
+ * a screen opened before another tab erased routes, or changed the other
+ * answer, never takes either back. `undefined` leaves a field as it is.
+ */
+export function setWalkSettings(patch: Partial<Pick<WalkSettings, 'saveRoutes' | 'map' | 'stepCardSeen'>>): Promise<StoreResult> {
+  const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+  return enqueue<void>({
+    plan: base => ({ change: { settings: { patch: { walk: { ...walkSettings(base.settings ?? {}), ...given } } } }, result: () => undefined }),
+  });
 }
 
 export function setProfile(profile: UserProfile): Promise<StoreResult> {

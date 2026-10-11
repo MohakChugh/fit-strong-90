@@ -5,7 +5,7 @@ import { Screen } from '@/components/hig/Screen';
 import { Sheet } from '@/components/hig/Sheet';
 import { TARGET } from '@/components/hig/targets';
 import { cn } from '@/lib/utils';
-import { eraseRoutes, setSettings, useStore } from '@/store/useStore';
+import { eraseRoutes, setWalkSettings, useStore } from '@/store/useStore';
 import { CONSENT, consentSummary, walkSettings } from '@/walk/consent';
 import { BACKUP_EVERY_DAYS, backupMark, backupNudge, recordSpan } from '@/reminders/backup';
 import { InstallSteps } from '@/screens/welcome/InstallSteps';
@@ -108,13 +108,13 @@ export function DataScreen() {
           icon={<RouteIcon />}
           label="Keep walk routes"
           detail={walk.saveRoutes === false ? 'New walks don’t keep their route. Routes already kept stay until you erase them.' : consentSummary(walk).routes}
-          accessory={<Toggle label="Keep walk routes" checked={walk.saveRoutes === true} onChange={on => void setSettings({ walk: { ...walk, saveRoutes: on } })} />}
+          accessory={<Toggle label="Keep walk routes" checked={walk.saveRoutes === true} onChange={on => void setWalkSettings({ saveRoutes: on })} />}
         />
         <Row
           icon={<MapIcon />}
           label="Map pictures under routes"
           detail={walk.map === 'unasked' ? `${consentSummary(walk).map}. ${CONSENT.mapPictures.detail}` : CONSENT.mapPictures.detail}
-          accessory={<Toggle label="Map pictures under routes" checked={walk.map === 'on'} onChange={on => void setSettings({ walk: { ...walk, map: on ? 'on' : 'off' } })} />}
+          accessory={<Toggle label="Map pictures under routes" checked={walk.map === 'on'} onChange={on => void setWalkSettings({ map: on ? 'on' : 'off' })} />}
         />
         <Row
           onClick={() => { setEraseError(undefined); setOpen('erase'); }}
