@@ -24,6 +24,7 @@ import type { CheckInRecord, DailyCheckIn, Disposition, Mode, Modifier, Readines
 import { DISPOSITION_ORDER } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { toDateString } from '@/lib/utils';
+import { candidatesOf, planningProfile, readinessAcross } from './candidates';
 import { deriveHealth, profileGaps } from './health';
 import { durableView, EMERGENCY_CALL, evaluateCheckIn, profileOnlyReadiness, withLogged } from './readiness';
 
@@ -75,6 +76,7 @@ export const PERMISSION_TEXT = {
   staleNoTime: 'Add the time you took your glucose reading: with insulin or a sulfonylurea it must be from the last 30 minutes.',
   future: 'Your glucose reading’s time is later than now. Check the time and enter it again.',
   footWalk: 'No walking today: your foot needs protecting. Seated and floor work can still go ahead.',
+  unsaved: 'Your new health answers haven’t been saved yet, so the app can’t tell which to plan with. Save them, or discard them, in Profile & health first.',
 } as const;
 
 const RELEASES = {
@@ -84,6 +86,7 @@ const RELEASES = {
   fresh: 'Check your glucose now and add the reading.',
   foot: 'Walking is back once your foot has healed or a clinician says it is fine.',
   provoked: 'Try it again tomorrow, once your symptoms have settled.',
+  unsaved: 'Save your new health answers in Profile & health, or discard them.',
 } as const;
 
 /** Refusals for the rest of the day, by the movement that made symptoms worse (X2-09, J2-04): no answer changes them. */
@@ -214,6 +217,8 @@ function profileRefuses(profile: UserProfile, mode: Mode): boolean {
  * same answer (journey §4.7).
  */
 export function readinessFor(input: PermissionInput): Readiness {
+  // A gate's profile with answers on their way: its planning candidate's readiness (board D168).
+  if (input.profile.candidates) return readinessAcross(input.profile, p => readinessFor({ ...input, profile: p }));
   const { profile, now } = input;
   const today = toDateString(now);
   const checkIn = input.checkIn && input.checkIn.date === today ? input.checkIn : undefined;
@@ -226,7 +231,43 @@ export function readinessFor(input: PermissionInput): Readiness {
   return checkIn ? evaluateCheckIn(profile, checkIn, recent, now) : profileOnlyReadiness(profile, { date: today, recent, now });
 }
 
-function decide(input: PermissionInput, mode: Mode, opts: { fresh: boolean; needToday: boolean; onScreen?: boolean }): Permission {
+type Opts = { fresh: boolean; needToday: boolean; onScreen?: boolean };
+
+/**
+ * The answer across a gate's candidates (board D168): each decided as a
+ * profile of its own. Refused if any candidate refuses, with all their
+ * reasons, the most serious first, and a check-in asked for only if one can
+ * answer every refusal. Allowed, with every candidate's restrictions, only if
+ * every candidate allows it and one of them is at least as strict as all the
+ * others; with none, no single profile can stand for them, so it holds until
+ * the answers are saved.
+ */
+function decide(input: PermissionInput, mode: Mode, opts: Opts): Permission {
+  const all = candidatesOf(input.profile);
+  if (all.length === 1) return decideOne(input.profile.candidates ? { ...input, profile: all[0] } : input, mode, opts);
+  const each = all.map(profile => decideOne({ ...input, profile }, mode, opts));
+  const refusing = each.filter(p => !p.allowed).sort((a, b) => rank(b.disposition) - rank(a.disposition));
+  if (refusing.length) {
+    const top = refusing[0].disposition;
+    // In an emergency, nothing about starting later belongs next to "call now".
+    const shown = top === 'emergency' ? refusing.filter(p => p.disposition === 'emergency') : refusing;
+    const release = top === 'emergency' ? undefined : refusing.find(p => p.release)?.release;
+    return {
+      mode, allowed: false, disposition: top, reasons: [...new Set(shown.flatMap(p => p.reasons))], restrictions: [], codes: [],
+      ...(release ? { release } : {}), needsCheckIn: refusing.every(p => p.needsCheckIn),
+    };
+  }
+  if (!planningProfile(input.profile, profile => readinessFor({ ...input, profile }))) {
+    return { mode, allowed: false, disposition: 'hold', reasons: [PERMISSION_TEXT.unsaved], release: RELEASES.unsaved, restrictions: [], codes: [], needsCheckIn: false };
+  }
+  const codes = ORDER.filter(k => each.some(p => p.codes?.includes(k)));
+  return {
+    mode, allowed: true, disposition: each.some(p => p.disposition === 'adjust') ? 'adjust' : 'reassure',
+    reasons: [...new Set(each.flatMap(p => p.reasons))], restrictions: codes.map(k => RESTRICTIONS[mode][k] as string), codes, needsCheckIn: false,
+  };
+}
+
+function decideOne(input: PermissionInput, mode: Mode, opts: Opts): Permission {
   const { profile, now } = input;
   const today = toDateString(now);
   const checkIn = input.checkIn && input.checkIn.date === today ? input.checkIn : undefined;

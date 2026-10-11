@@ -24,6 +24,7 @@ import { fitStrength } from './strengthBlock';
 import { stepSeconds } from './timing';
 import { deriveHealth } from './health';
 import { createSpeechSizer } from './speech';
+import { planAcross } from './candidates';
 
 export interface PlanInput {
   profile: UserProfile;
@@ -99,6 +100,11 @@ function seatedFlow(steps: Step[]): Step[] {
 }
 
 export function buildSessionPlan(input: PlanInput): SessionPlan {
+  // A gate's profile with answers on their way: planned from the candidate at least as strict as the rest (board D168).
+  if (input.profile.candidates) {
+    const readinessOf = (p: UserProfile) => (input.checkIn ? evaluateCheckIn(p, input.checkIn, input.recentCheckIns ?? []) : profileOnlyReadiness(p));
+    return planAcross(input.profile, readinessOf, profile => buildSessionPlan({ ...input, profile }));
+  }
   const { profile, date } = input;
   const evaluated = input.checkIn
     ? evaluateCheckIn(profile, input.checkIn, input.recentCheckIns ?? [])

@@ -98,6 +98,20 @@ describe('a clinical edit in Me (H5-08; board D162)', () => {
     expect(footStatus()).toEqual({ stored: 'healthy', gate: 'healthy' });
   });
 
+  it('with nothing to store to, a release isn’t taken, not even for this session (K5R-05)', async () => {
+    store.resetForTests();
+    await store.start({ factory: fakeIndexedDB({ openFails: 'error' }), broadcast: null });
+    expect((await store.update(d => completedSetup(d, FOOT_WOUND, NOW, CTX))).ok).toBe(false);
+    expect(store.getState().profile?.health.footStatus).toBe('current_wound_or_active_charcot');
+    host = render(createElement(ChapterEditor, { chapter: 'health' }));
+    await host.settle();
+    await host.click(radio(host, 'A wound, an ulcer, or a hot, swollen foot (Charcot foot)?', 'No'));
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('That did not save.');
+    expect(footStatus()).toEqual({ stored: 'current_wound_or_active_charcot', gate: 'current_wound_or_active_charcot' });
+  });
+
   it('a stricter answer counts from the tap, and keeps counting if its write is refused', async () => {
     expect((await store.update(d => completedSetup(d, MINIMAL, NOW, CTX))).ok).toBe(true);
     host = render(createElement(ChapterEditor, { chapter: 'health' }));
@@ -431,5 +445,24 @@ describe('body measures on Review and in Profile & health (§4.10, B-24; H5-24)'
     host = render(createElement(ProfileHealthScreen));
     await host.settle();
     expect(host.text()).toMatch(/70 kg, entered \d+ \w+ 2026 at /);
+  });
+});
+
+describe('a save from Me the device refused, in Profile & health (board D168)', () => {
+  it('stays until it’s tried again or not kept, and says so', async () => {
+    const { ProfileHealthScreen } = await import('./ProfileHealthScreen');
+    const { saveClinicalEdit, refusedSaves } = await import('@/setup/effective');
+    const { StoreFailure } = await import('@/store/db');
+    expect((await store.update(d => completedSetup(d, MINIMAL, NOW, CTX))).ok).toBe(true);
+    const profile = store.getState().profile!;
+    await saveClinicalEdit([{ path: ['health', 'footStatus'], value: 'current_wound_or_active_charcot' }], () => Promise.resolve({ ok: false, failure: new StoreFailure('quotaExceeded', 'Storage is full') }));
+    expect(profile.health.footStatus).toBe('healthy');
+    host = render(createElement(ProfileHealthScreen));
+    await host.settle();
+    expect(host.text()).toContain('1 change you made didn’t save on this phone.');
+    await host.click(host.button('Don’t keep them'));
+    await host.settle();
+    expect(refusedSaves()).toEqual([]);
+    expect(host.text()).not.toContain('didn’t save on this phone');
   });
 });

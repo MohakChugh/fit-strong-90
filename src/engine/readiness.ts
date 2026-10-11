@@ -27,6 +27,7 @@ import type { HealthProfile } from '@/types/profile';
 import { MGDL_PER_MMOL, bpMedicinesUnknown, deriveHealth, glucoseStartIsCareTeams, glucoseStartMin, profileRules, takes, type DerivedHealth } from './health';
 import { getMobility } from '@/data/catalog';
 import { prefersHour12, timeOf } from '@/lib/time';
+import { readinessAcross } from './candidates';
 
 export { MGDL_PER_MMOL };
 
@@ -2007,6 +2008,8 @@ function profileContributions(profile: UserProfile): { contributions: Contributi
  * the check-in's day.
  */
 export function evaluateCheckIn(profile: UserProfile, checkIn: DailyCheckIn, recent: DailyCheckIn[] = [], now?: Date): Readiness {
+  // A gate's profile with answers on their way: its planning candidate's readiness (board D168).
+  if (profile.candidates) return readinessAcross(profile, p => evaluateCheckIn(p, checkIn, recent, now));
   return evaluateWith(profile, checkIn, listedBefore(recent, checkIn.date), now);
 }
 
@@ -2141,6 +2144,7 @@ function merge(cs: Contribution[], vigorousLocked: boolean, rpeOnly: boolean): R
  * `recent` it is the profile alone.
  */
 export function profileOnlyReadiness(profile: UserProfile, day?: { date: string; recent: readonly DailyCheckIn[]; now?: Date }): Readiness {
+  if (profile.candidates) return readinessAcross(profile, p => profileOnlyReadiness(p, day));
   const base = profileContributions(profile);
   const carried = day ? carriedRules(profile, undefined, day.date, listedBefore(day.recent, day.date), day.now) : { contributions: [], readings: [] };
   const r = merge([...base.contributions, ...carried.contributions], base.vigorousLocked, base.rpeOnly);

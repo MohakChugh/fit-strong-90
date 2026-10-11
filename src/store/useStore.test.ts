@@ -1145,3 +1145,16 @@ describe('update with readings (journey §18.1: weight and height are dated read
     expect(waists().map(o => o.value)).toEqual([90]);
   });
 });
+
+describe('a gate’s profile is never stored as one (board D168)', () => {
+  it('a profile carrying candidates is kept without them', async () => {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const fake = await booted();
+    const profile = createDefaultProfile({ weightKg: 70 });
+    expect((await store.update(d => ({ ...d, profile: { ...profile, candidates: [profile, { ...profile, weightKg: 71 }] } }))).ok).toBe(true);
+    expect(store.getState().profile?.candidates).toBeUndefined();
+    const db = await openDb(fake);
+    expect((await readDoc(db, 'profile') as { candidates?: unknown }).candidates).toBeUndefined();
+    db.close();
+  });
+});

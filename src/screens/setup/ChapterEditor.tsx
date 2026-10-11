@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { Screen } from '@/components/hig/Screen';
+import { profileChanges } from '@/components/profile/wizardSteps';
 import { dayOf, nowAt } from '@/health/observation';
 import { whatChanges } from '@/setup/changes';
 import { editMeasurements, editOf, editedProfile, editedRecord, editorOpens, editorState } from '@/setup/edit';
-import { saveClinicalEdit } from '@/setup/effective';
+import { discardSave, saveClinicalEdit } from '@/setup/effective';
 import { CHAPTER_TITLE, chapterOf } from '@/setup/graph';
 import { answersToEdit } from '@/setup/prefill';
 import { setupStateOf } from '@/setup/state';
-import { Notice, PrimaryButton } from '@/screens/you/controls';
+import { Notice, PlainButton, PrimaryButton } from '@/screens/you/controls';
 import { getState, update, useStore } from '@/store/useStore';
 import type { ChapterId, SetupAnswers } from '@/types/setup';
 import { Missing } from './controls';
@@ -32,6 +33,8 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<{ tone: 'status' | 'error'; lines: string[] }>();
+  // A save the device refused: Save tries it again, or it's not kept (board D168).
+  const [refused, setRefused] = useState<number>();
   const a: SetupAnswers = { ...opened, ...edits };
   const state = editorState(opens, a, opened, ctx);
   const { pages, blocking } = state;
@@ -51,17 +54,31 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
     setBusy(true);
     const now = nowAt();
     const edit = editOf(state, opened);
-    // Stricter answers count for every gate from this tap; what the edit releases waits for the write, held until stored (H5-08).
-    const saved = await saveClinicalEdit(edit.chapters, editedProfile(getState(), edit, today, ctx),
-      () => update(d => editedRecord(d, edit, today, ctx), { hold: true, addObservations: editMeasurements(edit, now) }));
+    // What the edit changes counts for every gate from this tap, beside the record: a stricter answer at once, a release
+    // only once stored, held until it is (H5-08; D168). With nothing to store to, it isn't stored at all (K5R-05).
+    const changes = profileChanges(getState().profile, editedProfile(getState(), edit, today, ctx));
+    const { saved, id } = await saveClinicalEdit(changes, () => update(d => editedRecord(d, edit, today, ctx), {
+      hold: true, needsStorage: 'This phone isn’t storing data right now, so these answers aren’t saved.', addObservations: editMeasurements(edit, now),
+    }), refused);
     setBusy(false);
     if (!saved.ok) {
+      setRefused(id);
       setOutcome({ tone: 'error', lines: [`That did not save. ${saved.failure.message}`] });
       return;
     }
+    setRefused(undefined);
     setTried(false);
     const after = getState().profile;
     setOutcome({ tone: 'status', lines: ['Saved. Home uses your new answers.', ...(after ? whatChanges(profile, after) : [])] });
+  };
+
+  /** Not kept: the record's answers stand, and the page shows them again. */
+  const discard = () => {
+    if (refused !== undefined) discardSave(refused);
+    setRefused(undefined);
+    setEdits({});
+    setTried(false);
+    setOutcome({ tone: 'status', lines: ['Not kept. Your answers are as they were.'] });
   };
 
   return (
@@ -84,7 +101,8 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
       <div className="flex flex-col gap-2">
         <Missing show={tried && blocking.length > 0}>Answer the questions marked above, then Save.</Missing>
         {outcome?.lines.map(line => <Notice key={line} tone={outcome.tone}>{line}</Notice>)}
-        <PrimaryButton className="min-h-[3.75rem]" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save'}</PrimaryButton>
+        <PrimaryButton className="min-h-[3.75rem]" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : refused !== undefined ? 'Try again' : 'Save'}</PrimaryButton>
+        {refused !== undefined && !busy && <PlainButton className="min-h-12" onClick={discard}>Don’t keep these answers</PlainButton>}
       </div>
     </Screen>
   );

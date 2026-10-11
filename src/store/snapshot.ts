@@ -288,7 +288,7 @@ export function prepare(base: Snapshot, change: Change): Prepared {
     observations: mergeObservations(from.observations, puts, removes),
     sessions: mergeSessions(from.sessions, sessionPuts, sessionRemoves),
     ...(settings !== undefined ? { settings } : {}),
-    ...(change.profile === null ? {} : change.profile !== undefined ? { profile: change.profile } : from.profile !== undefined ? { profile: from.profile } : {}),
+    ...(change.profile === null ? {} : change.profile !== undefined ? { profile: stored(change.profile) } : from.profile !== undefined ? { profile: from.profile } : {}),
     checkIns: change.checkIns ?? from.checkIns,
     personalRecords: change.personalRecords ?? from.personalRecords,
     bodyMetrics: change.bodyMetrics ?? from.bodyMetrics,
@@ -354,6 +354,14 @@ function docValue(s: Snapshot, key: Doc['key']): unknown {
 }
 
 const isRecord = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+
+/** A profile as it is kept: the candidates a gate's profile carries are never stored (board D168). */
+function stored(profile: UserProfile): UserProfile {
+  if (profile.candidates === undefined) return profile;
+  const { candidates: _gate, ...kept } = profile;
+  void _gate;
+  return kept;
+}
 
 /** Something only the screens' copy of a day carries (`logged`, `readingsOnly`, `durable`), never kept. */
 const screensOnly = (c: DailyCheckIn) => c.logged !== undefined || c.readingsOnly !== undefined || c.durable !== undefined;
