@@ -6,22 +6,31 @@
 import { addDays } from '@/screens/track/periods';
 import { FOOD_COPY } from './copy';
 import { itemsLine, SLOT_LABEL } from './format';
+import { slotAt } from './tray';
 import type { MealItem, MealRecord, SavedMeal, Slot } from './types';
 
 export const USUAL_MAX = 3;
 
-/** When each main meal's time has come (`slotAt`'s boundaries, in minutes). */
-const MAIN_FROM: readonly [Slot, number][] = [['dinner', 19 * 60], ['lunch', 11 * 60], ['breakfast', 4 * 60]];
+const DAY = 24 * 60;
+/** The main meals, in the day's order. */
+const MAIN: readonly Slot[] = ['breakfast', 'lunch', 'dinner'];
+/** The minute each main meal's time comes: where `slotAt` turns to it (dinner's in the evening, not after midnight). */
+const FROM = new Map(MAIN.map(slot => {
+  let m = 0;
+  while (m < DAY && !(slotAt(m) === slot && slotAt((m + DAY - 1) % DAY) !== slot)) m += 1;
+  return [slot, m] as const;
+}));
 
 /**
- * The meal usual meals are offered for (board D139, K7-07): the latest main
- * meal whose time has come today and that isn't logged yet, so lunch is still
- * offered after 15:30; with every one logged, the meal the clock suggests.
- * Snacks are optional, so one never stands in for a main meal still to log.
+ * The meal usual meals are offered for (board D139, K7-07, K7R-05): the
+ * latest main meal whose time has come today and that comes after every main
+ * meal logged today, so lunch is still offered after 15:30, and a breakfast
+ * skipped stays skipped once lunch is in. With none, the meal the clock
+ * suggests. Snacks are optional, so one never stands in for a main meal.
  */
 export function usualSlot(clockSlot: Slot, minuteOfDay: number, todays: readonly Pick<MealRecord, 'meal'>[]): Slot {
-  const unlogged = MAIN_FROM.find(([slot, from]) => minuteOfDay >= from && !todays.some(m => m.meal === slot));
-  return unlogged ? unlogged[0] : clockSlot;
+  const latest = Math.max(-1, ...todays.map(m => MAIN.indexOf(m.meal)));
+  return MAIN.filter((slot, i) => i > latest && minuteOfDay >= FROM.get(slot)!).at(-1) ?? clockSlot;
 }
 
 export interface Usual {

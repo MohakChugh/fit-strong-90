@@ -42,8 +42,21 @@ describe('usualSlot: the meal usual meals are for (K7-07; board D139)', () => {
   it('is the latest main meal whose time has come and that isn’t logged yet', () => {
     expect(usualSlot('snack', at(16), [{ meal: 'breakfast' }])).toBe('lunch');
     expect(usualSlot('dinner', at(21), [{ meal: 'lunch' }])).toBe('dinner');
-    expect(usualSlot('dinner', at(21), [{ meal: 'dinner' }])).toBe('lunch');
     expect(usualSlot('breakfast', at(9), [])).toBe('breakfast');
+    expect(usualSlot('snack', at(16), [])).toBe('lunch');
+  });
+  it('never goes back past a main meal logged since: a skipped breakfast stays skipped once lunch is in (K7R-05)', () => {
+    expect(usualSlot('snack', at(16), [{ meal: 'lunch' }])).toBe('snack');
+    expect(usualSlot('lunch', at(13, 30), [{ meal: 'lunch' }])).toBe('lunch');
+    expect(usualSlot('dinner', at(21), [{ meal: 'dinner' }])).toBe('dinner');
+    expect(usualSlot('dinner', at(21), [{ meal: 'breakfast' }, { meal: 'snack' }])).toBe('dinner');
+    expect(usualSlot('snack', at(17), [{ meal: 'snack' }])).toBe('lunch');
+  });
+  it('takes each meal’s time from the clock’s own turns: dinner at 19:00, breakfast at 04:00', () => {
+    expect(usualSlot('snack', at(18, 59), [{ meal: 'lunch' }])).toBe('snack');
+    expect(usualSlot('dinner', at(19), [{ meal: 'lunch' }])).toBe('dinner');
+    expect(usualSlot('dinner', at(3, 59), [])).toBe('dinner');
+    expect(usualSlot('breakfast', at(4), [])).toBe('breakfast');
   });
   it('is the clock’s meal once each main meal so far is logged, or before any has come', () => {
     expect(usualSlot('snack', at(16), [{ meal: 'breakfast' }, { meal: 'lunch' }])).toBe('snack');
