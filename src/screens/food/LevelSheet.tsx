@@ -12,6 +12,7 @@ import { Sheet } from '@/components/hig/Sheet';
 import { FOOD_COPY } from '@/food/copy';
 import { afterScreening, foodLevel, type FoodLevel, type ScreenAnswer } from '@/food/level';
 import { ErrorText, Hint, PrimaryButton, SecondaryButton } from '@/screens/track/ui';
+import { deviceNoun, readInstallEnv } from '@/screens/welcome/install';
 import { ChoiceRows, type Choice } from '@/screens/you/controls';
 import { changeProfile } from '@/screens/you/write';
 import { useStore } from '@/store/useStore';
@@ -85,7 +86,8 @@ export function LevelSheet({ open, onOpenChange, onDone }: {
           <SecondaryButton onClick={() => answerWith('yes')} disabled={saving}>{FOOD_COPY.screenYes}</SecondaryButton>
           <SecondaryButton onClick={() => answerWith('no')} disabled={saving}>{FOOD_COPY.screenNo}</SecondaryButton>
           <SecondaryButton onClick={() => answerWith('preferNot')} disabled={saving}>{FOOD_COPY.screenPreferNot}</SecondaryButton>
-          <Hint>{FOOD_COPY.screenNote}</Hint>
+          {/* This iPhone, this iPad or this device, as Me and the hub say it (K7R-09, K7-16). */}
+          <Hint>{FOOD_COPY.screenNote(deviceNoun(readInstallEnv()))}</Hint>
         </div>
       ) : (
         <div className="flex flex-col gap-3">

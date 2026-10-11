@@ -128,7 +128,7 @@ export const FOOD_COPY = {
   screenYes: 'Yes',
   screenNo: 'No',
   screenPreferNot: 'Prefer not to say',
-  screenNote: 'Your answer stays on this phone, and only changes what we suggest.',
+  screenNote: (device: string) => `Your answer stays on this ${device}, and only changes what we suggest.`,
   suggestTitle: 'Many people find it easier to log without numbers.',
   suggestMeals: 'Meals only, no numbers (recommended)',
   suggestEstimates: 'With estimates anyway',

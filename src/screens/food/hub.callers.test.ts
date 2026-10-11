@@ -210,6 +210,17 @@ describe('usual meals for the latest meal not yet logged (K7-07; board D139)', (
   });
 });
 
+describe('the screening question’s note, for this device (K7R-09)', () => {
+  it('says where the answer stays as Me does: this iPhone, this iPad, or this device', async () => {
+    router.pathname = '/hub/food/log';
+    const h = await hub({ level: undefined, hardBefore: undefined });
+    await h.click(h.button(/^Yes, with calorie and carb estimates/));
+    expect(h.text()).toContain('Has food or weight ever been hard for you?');
+    expect(h.text()).toContain('Your answer stays on this device, and only changes what we suggest.');
+    expect(h.text()).not.toContain('this phone');
+  });
+});
+
 describe('the hub’s privacy line (K7-16)', () => {
   it('is B-24’s, for this device, as Me says it', async () => {
     const h = await hub({});
