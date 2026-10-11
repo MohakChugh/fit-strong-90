@@ -272,7 +272,7 @@ function Ranges({ model, plot, y }: { model: ChartModel; plot: Plot; y: Y }) {
         return (
           <g key={`${s.id}-${i}`}>
             <line x1={cx} x2={cx} y1={y(r.max)} y2={y(r.min)} style={{ stroke: s.colour }} strokeWidth={3} strokeLinecap="round" />
-            <ShapeMark shape={j === 0 ? 'circle' : 'square'} x={cx} y={y(r.mean)} size={7} colour={s.colour} />
+            <ShapeMark shape={s.shape} x={cx} y={y(r.mean)} size={7} colour={s.colour} />
           </g>
         );
       }))}
@@ -332,7 +332,12 @@ function Swatch({ item, uid }: { item: LegendItem; uid: string }) {
     case 'bar': return <rect x="3" y="2" width="10" height="12" rx="2" style={{ fill: item.colour }} />;
     case 'previous': return <rect x="2" y="2" width="12" height="12" rx="1" style={{ fill: `url(#${uid}-previous)`, stroke: 'var(--trend-previous)' }} />;
     case 'mark': return <rect x="1" y="1" width="14" height="14" style={{ fill: `url(#${uid}-mark)`, stroke: 'var(--muted-foreground)' }} strokeWidth="1" />;
-    case 'range': return <line x1="8" x2="8" y1="2" y2="14" style={{ stroke: item.colour }} strokeWidth="3" strokeLinecap="round" />;
+    case 'range': return (
+      <>
+        <line x1="8" x2="8" y1="2" y2="14" style={{ stroke: item.colour }} strokeWidth="3" strokeLinecap="round" />
+        {item.shape && <ShapeMark shape={item.shape} x={8} y={8} size={7} colour={item.colour} />}
+      </>
+    );
     default: return <ShapeMark shape={item.swatch} x={8} y={8} size={10} colour={item.colour} />;
   }
 }

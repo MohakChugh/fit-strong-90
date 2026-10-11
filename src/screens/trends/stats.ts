@@ -147,7 +147,8 @@ export type Direction = 'higher' | 'lower' | 'same';
 
 export type Comparison =
   | { shown: true; direction: Direction; difference: number }
-  | { shown: false; reason: 'fewDays' | 'meterLo' };
+  /** `fewKinds`: readings of more than one kind (fasting, after a meal), none on 3 days in both windows (KT-07). */
+  | { shown: false; reason: 'fewDays' | 'meterLo' | 'fewKinds' };
 
 /** The change as shown: both figures rounded as the screen shows them, so "the same" is the same on screen. */
 export function change(current: number, previous: number, decimals: number): Comparison {

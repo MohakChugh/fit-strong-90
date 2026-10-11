@@ -61,6 +61,8 @@ export interface RangeSeries {
   id: string;
   label: string;
   colour: string;
+  /** The mean's mark, the series' own shape, as its readings are drawn by the day (H3-08). */
+  shape: Shape;
   /** One per slot: the lowest, the highest and the mean of its numeric readings. */
   values: ({ min: number; max: number; mean: number } | null)[];
 }
@@ -136,6 +138,8 @@ export interface LegendItem {
   label: string;
   swatch: 'bar' | 'previous' | 'range' | 'mark' | Shape;
   colour: string;
+  /** A range's mean mark. */
+  shape?: Shape;
 }
 
 const MARK_ORDER: readonly SlotMark[] = ['rest', 'flare', 'unwell', 'away'];
@@ -147,6 +151,7 @@ export function legendOf(model: ChartModel): LegendItem[] {
     label: s.label,
     colour: s.colour,
     swatch: s.kind === 'bars' ? (s.previous ? 'previous' : 'bar') : s.kind === 'points' ? s.shape : 'range',
+    ...(s.kind === 'ranges' ? { shape: s.shape } : {}),
   }));
   const marks = new Set(model.slots.map(s => s.mark));
   for (const m of MARK_ORDER) if (marks.has(m)) items.push({ id: `mark:${m}`, label: MARK_WORDS[m], swatch: 'mark', colour: 'var(--muted-foreground)' });

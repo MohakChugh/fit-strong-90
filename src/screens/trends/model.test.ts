@@ -355,8 +355,9 @@ describe('a readings trend: Glucose (A-44, K-11)', () => {
     expect(view.meter).toBeUndefined();
   });
 
-  it('compares means over the same days, with 3 days in both weeks', () => {
-    expect(view.change).toEqual({ text: 'Higher than last week · +37 mg/dL', direction: 'higher', compared: 'Mon–Thu vs last Mon–Thu' });
+  it('compares means over the same days, with 3 days in both weeks, one kind of reading at a time (KT-07)', () => {
+    // Last week's were all fasting; this week's are a mix with one fasting: no one kind has 3 days in both.
+    expect(view.change).toEqual({ text: 'Comparisons start once one kind of reading, such as fasting, has 3 days in both weeks.' });
   });
 
   it('lists each reading with its time, context and what it was', () => {
@@ -615,17 +616,70 @@ describe('more of the readings view (A-43, A-44, K-11)', () => {
     const six = readingsView({ def: TRENDS.glucose, window: windowOf('sixMonths', TODAY), data: data(GLUCOSE), prefs, ctx: ctx() });
     const slot = (key: string) => six.chart.slots.findIndex(s => s.key === key);
     expect(six.headline).toEqual({ statistic: 'Average', coverage: '7 readings, all with a number', value: '141', unit: 'mg/dL' });
-    const [ranges] = six.chart.series;
-    expect(ranges.kind === 'ranges' && [ranges.label, ranges.values[slot('2026-09-28')], ranges.values[slot('2026-10-05')], ranges.values[slot('2026-09-21')]])
-      .toEqual(['Glucose', { min: 118, max: 122, mean: 120 }, { min: 62, max: 280, mean: 157 }, null]);
-    expect(six.chart.slots[slot('2026-09-28')].text).toBe('28 Sep – 4 Oct: 3 readings, 118 to 122 mg/dL, average 120 mg/dL.');
+    // A range for each context (H3-08): fasting, after a meal and other times, never one of all of them.
+    expect(six.chart.series.map(s => s.kind === 'ranges' && [s.label, s.values[slot('2026-09-28')], s.values[slot('2026-10-05')], s.values[slot('2026-09-21')]])).toEqual([
+      ['Fasting or before a meal', { min: 118, max: 122, mean: 120 }, { min: 118, max: 118, mean: 118 }, null],
+      ['After a meal', null, { min: 168, max: 280, mean: 224 }, null],
+      ['Other times', null, { min: 62, max: 62, mean: 62 }, null],
+    ]);
+    expect(six.chart.slots[slot('2026-09-28')].text).toBe('28 Sep – 4 Oct: Fasting or before a meal: 3 readings, 118 to 122 mg/dL, average 120 mg/dL.');
     expect(six.chart.slots[slot('2026-09-21')].text).toBe('21–27 Sep: No readings.');
     expect(six.chart.slots[slot('2026-10-12')].text).toBe('12–18 Oct: Still to come.');
     expect(six.chart.slots.every(s => s.day === undefined)).toBe(true);
     expect(six.table).toEqual({
       columns: ['Week', 'Readings', 'Range', 'Average'],
-      rows: [['28 Sep – 4 Oct', '3', '118–122 mg/dL', '120 mg/dL'], ['5–11 Oct', '4', '62–280 mg/dL', '157 mg/dL']],
+      rows: [
+        ['28 Sep – 4 Oct · Fasting or before a meal', '3', '118–122 mg/dL', '120 mg/dL'],
+        ['5–11 Oct · Fasting or before a meal', '1', '118–118 mg/dL', '118 mg/dL'],
+        ['5–11 Oct · After a meal', '2', '168–280 mg/dL', '224 mg/dL'],
+        ['5–11 Oct · Other times', '1', '62–62 mg/dL', '62 mg/dL'],
+      ],
     });
+  });
+
+  it('6 Months and Year: each glucose context its own range, shape and words, never one mixed range (H3-08, KT-07)', () => {
+    const at = (day: string, time: string) => `${day}T${time}:00+05:30`;
+    const both = data([g(100, at('2026-10-05', '07:30'), 'fasting'), g(200, at('2026-10-05', '14:00'), 'afterMeal')]);
+    const six = readingsView({ def: TRENDS.glucose, window: windowOf('sixMonths', TODAY), data: both, prefs, ctx: ctx() });
+    const i = six.chart.slots.findIndex(s => s.key === '2026-10-05');
+    expect(six.chart.series.map(s => s.kind === 'ranges' && [s.id, s.label, s.shape, s.values[i]])).toEqual([
+      ['beforeMeal', 'Fasting or before a meal', 'circle', { min: 100, max: 100, mean: 100 }],
+      ['afterMeal', 'After a meal', 'triangle', { min: 200, max: 200, mean: 200 }],
+    ]);
+    expect(six.chart.slots[i].text).toBe('5–11 Oct: Fasting or before a meal: 1 reading, 100 to 100 mg/dL, average 100 mg/dL; After a meal: 1 reading, 200 to 200 mg/dL, average 200 mg/dL.');
+    expect(six.table.rows).toEqual([
+      ['5–11 Oct · Fasting or before a meal', '1', '100–100 mg/dL', '100 mg/dL'],
+      ['5–11 Oct · After a meal', '1', '200–200 mg/dL', '200 mg/dL'],
+    ]);
+    const year = readingsView({ def: TRENDS.glucose, window: windowOf('year', TODAY), data: both, prefs, ctx: ctx() });
+    expect(year.chart.series.map(s => s.label)).toEqual(['Fasting or before a meal', 'After a meal']);
+  });
+
+  it('a change compares like with like: one context at a time, named, never a mix (KT-07)', () => {
+    const at = (day: string, time: string) => `${day}T${time}:00+05:30`;
+    const fasting = ['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-05', '2026-10-06', '2026-10-07'].map((day, j) => g(j < 3 ? 110 : 116, at(day, '07:30'), 'fasting'));
+    // This week also has after-meal readings: the mean of the mix would be "+36 mg/dL".
+    const view = readingsView({ def: TRENDS.glucose, window: week, data: data([...fasting, g(180, at('2026-10-05', '14:00'), 'afterMeal'), g(190, at('2026-10-06', '14:00'), 'afterMeal')]), prefs, ctx: ctx() });
+    expect(view.change).toEqual({ text: 'Higher than last week · +6 mg/dL, fasting or before a meal', direction: 'higher', compared: 'Mon–Thu vs last Mon–Thu' });
+    // Two kinds each on 3 days in both: the first in the fixed order, fasting, as the series are listed.
+    const afterMeals = ['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-05', '2026-10-06', '2026-10-07'].map((day, j) => g(j < 3 ? 200 : 180, at(day, '14:00'), 'afterMeal'));
+    expect(readingsView({ def: TRENDS.glucose, window: week, data: data([...fasting, ...afterMeals]), prefs, ctx: ctx() }).change.text)
+      .toBe('Higher than last week · +6 mg/dL, fasting or before a meal');
+    // With no one kind on 3 days in both weeks, no change: GLUCOSE's mix had a fasting week before an after-meal one.
+    expect(readingsView({ def: TRENDS.glucose, window: week, data: data(GLUCOSE), prefs, ctx: ctx() }).change)
+      .toEqual({ text: 'Comparisons start once one kind of reading, such as fasting, has 3 days in both weeks.' });
+  });
+
+  it('6 Months and Year say and list every plotted series: both numbers of a pressure, back and leg (H3-15)', () => {
+    const year = readingsView({ def: TRENDS.bp, window: windowOf('year', TODAY), data: data(reading('2026-10-05', 150, 95)), prefs, ctx: ctx() });
+    const october = year.chart.slots.findIndex(s => s.key === '2026-10-01');
+    expect(year.chart.slots[october].text)
+      .toBe('October 2026: Top number (systolic): 1 reading, 150 to 150 mmHg, average 150 mmHg; Bottom number (diastolic): 1 reading, 95 to 95 mmHg, average 95 mmHg.');
+    expect(year.table.rows).toEqual([
+      ['October 2026 · Top number (systolic)', '1', '150–150 mmHg', '150 mmHg'], ['October 2026 · Bottom number (diastolic)', '1', '95–95 mmHg', '95 mmHg'],
+    ]);
+    const back = readingsView({ def: TRENDS.back, window: windowOf('sixMonths', TODAY), data: data([pain('backPain', 4, '2026-10-05'), pain('legPain', 2, '2026-10-05')]), prefs, ctx: ctx() });
+    expect(back.table.rows).toEqual([['5–11 Oct · Back pain', '1', '4.0–4.0 of 10', '4.0 of 10'], ['5–11 Oct · Leg pain', '1', '2.0–2.0 of 10', '2.0 of 10']]);
   });
 
   it('6 Months of blood pressure: a range for each number, named', () => {

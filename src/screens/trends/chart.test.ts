@@ -63,7 +63,7 @@ describe('the value axis', () => {
 
   it('weekly or monthly ranges reach from their lowest to their highest, off the zero line', () => {
     const { domain } = domainOf(model({
-      series: [{ kind: 'ranges', id: 'all', label: 'Glucose', colour: 'var(--cat-glucose)', values: [{ min: 120, max: 180, mean: 150 }, null] }],
+      series: [{ kind: 'ranges', id: 'all', label: 'Glucose', colour: 'var(--cat-glucose)', shape: 'circle', values: [{ min: 120, max: 180, mean: 150 }, null] }],
     }));
     expect(domain).toEqual({ min: 100, max: 200, step: 20 });
   });
@@ -92,11 +92,13 @@ describe('the legend (journey §20.3: colour is never the only signal)', () => {
         { kind: 'bars', id: 'previous', label: 'Last week', colour: 'var(--trend-previous)', values: [], previous: true },
         { kind: 'bars', id: 'current', label: 'This week', colour: 'var(--cat-walk)', values: [] },
         { kind: 'points', id: 'afterMeal', label: 'After a meal', colour: 'var(--cat-glucose)', shape: 'triangle', points: [] },
-        { kind: 'ranges', id: 'all', label: 'Weekly range', colour: 'var(--cat-glucose)', values: [] },
+        { kind: 'ranges', id: 'all', label: 'Weekly range', colour: 'var(--cat-glucose)', shape: 'square', values: [] },
       ],
     }));
     expect(items.map(i => [i.label, i.swatch])).toEqual([
       ['Last week', 'previous'], ['This week', 'bar'], ['After a meal', 'triangle'], ['Weekly range', 'range'], ['Rest day', 'mark'], ['Away', 'mark'],
     ]);
+    // A range's mean is marked by its series' shape, in the plot and beside its name (H3-08).
+    expect(items.find(i => i.swatch === 'range')?.shape).toBe('square');
   });
 });

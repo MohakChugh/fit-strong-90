@@ -98,9 +98,14 @@ export function fewDaysText(period: TrendPeriod): string {
 
 export const METER_LO_TEXT = 'No change shown: a meter LO has no number, so an average would leave out the lowest reading.';
 
+/** "Comparisons start once one kind of reading, such as fasting, has 3 days in both weeks." (KT-07) */
+export function fewKindsText(period: TrendPeriod): string {
+  return `Comparisons start once one kind of reading, such as fasting, has 3 days in both ${BOTH[period]}.`;
+}
+
 /** "Higher than last week · +417 steps a day": the direction in words, and the difference with its unit and statistic (A-41). */
 function changeOf(c: Comparison, against: string, unit: string, decimals: number, period: TrendPeriod, compared?: string): Change {
-  if (!c.shown) return { text: c.reason === 'meterLo' ? METER_LO_TEXT : fewDaysText(period) };
+  if (!c.shown) return { text: c.reason === 'meterLo' ? METER_LO_TEXT : c.reason === 'fewKinds' ? fewKindsText(period) : fewDaysText(period) };
   const by = formatNumber(c.difference, decimals);
   const text = c.direction === 'same' ? `The same as ${against}`
     : c.direction === 'higher' ? `Higher than ${against} · +${by} ${unit}` : `Lower than ${against} · −${by} ${unit}`;
@@ -364,11 +369,18 @@ export function readingsView(input: TrendInput): TrendView {
   const ranges = compareRanges(w, ctx.today);
   // `r.meters` are those that may have been measured in either period: one whose zone was lost, wherever it could have been (H3-01).
   const lo = r.meters.filter(m => m.display === 'LO').length;
+  // Like with like (KT-07): glucose of more than one kind on the compared days is compared a kind at a time, the first
+  // in the fixed order with 3 days in both, and the change says which; a mean of a mix would change with when one tests.
+  const kinds = def.id === 'glucose' && ranges ? r.series.filter(sr => stat(ranges.current, sr.id).n + stat(ranges.previous, sr.id).n > 0) : [];
+  const like = kinds.length > 1 && ranges ? kinds.find(sr => compareReadings(stat(ranges.current, sr.id), stat(ranges.previous, sr.id), d).shown) : undefined;
+  const basis = like?.id ?? primary;
   const comparison: Comparison = !ranges ? { shown: false, reason: 'fewDays' }
     // A LO anywhere in either period hides the change, not only on the days compared (B-15).
     : lo > 0 ? { shown: false, reason: 'meterLo' }
-      : compareReadings(stat(ranges.current, primary), stat(ranges.previous, primary), d);
-  const change = changeOf(comparison, against, def.id === 'bp' ? `${unit}, top number` : unit, d, w.period, ranges && comparedText(w, ranges, ctx.today));
+      : kinds.length > 1 && !like ? { shown: false, reason: 'fewKinds' }
+        : compareReadings(stat(ranges.current, basis), stat(ranges.previous, basis), d);
+  const by = def.id === 'bp' ? `${unit}, top number` : like ? `${unit}, ${lowerFirst(like.label)}` : unit;
+  const change = changeOf(comparison, against, by, d, w.period, ranges && comparedText(w, ranges, ctx.today));
 
   const stats: StatItem[] = [];
   (groups ?? [{ id: '', words: '' }]).forEach((g, i) => {
@@ -407,13 +419,11 @@ export function readingsView(input: TrendInput): TrendView {
         ...(p.low ? { flag: 'low' as const } : p.high ? { flag: 'high' as const } : {}),
       })),
     })).filter(s => s.points.length > 0)
-    : (groups ?? [{ id: '', words: '' }]).map((g): RangeSeries => ({
-      kind: 'ranges',
-      id: g.id || 'all',
-      label: r.series.find(sr => sr.id === g.id)?.label ?? def.title,
-      colour,
+    // A range for every series plotted by the day: each glucose context, each number of a pressure, back and leg (H3-08).
+    : r.series.map((sr): RangeSeries => ({
+      kind: 'ranges', id: sr.id, label: sr.label, colour, shape: sr.shape,
       values: w.buckets.map(b => {
-        const s = stat(b, g.id || undefined);
+        const s = stat(b, sr.id);
         return s.mean === undefined || s.min === undefined || s.max === undefined ? null : { min: s.min, max: s.max, mean: s.mean };
       }),
     }));
@@ -424,15 +434,20 @@ export function readingsView(input: TrendInput): TrendView {
   ];
   const average = groups ? undefined : all.mean;
 
+  // A week's or a month's readings, every plotted series named when there is more than one (H3-08, H3-15).
+  const named = r.series.length > 1;
+  const plotted = (b: DayRange) => r.series.flatMap(sr => {
+    const s = stat(b, sr.id);
+    return s.mean === undefined || s.min === undefined || s.max === undefined ? [] : [{ label: sr.label, n: s.n, min: s.min, max: s.max, mean: s.mean }];
+  });
   const said = (b: DayRange): string => {
     if (b.from > ctx.today) return 'Still to come';
     if (dayly) {
       const day = texts.filter(t => t.day === b.from).map(t => `${t.text}${t.note ? `, ${lowerFirst(t.note)}` : ''}`);
       return day.length ? day.join('; ') : 'No readings';
     }
-    const s = stat(b, primary);
-    return s.mean === undefined || s.min === undefined || s.max === undefined ? 'No readings'
-      : `${countText(s.n, READING)}, ${fmt(s.min)} to ${fmt(s.max)} ${unit}, average ${fmt(s.mean)} ${unit}`;
+    const parts = plotted(b).map(p => `${named ? `${p.label}: ` : ''}${countText(p.n, READING)}, ${fmt(p.min)} to ${fmt(p.max)} ${unit}, average ${fmt(p.mean)} ${unit}`);
+    return parts.length ? parts.join('; ') : 'No readings';
   };
   const slots: Slot[] = w.buckets.map(b => {
     const name = slotName(w.period, b, ctx.today);
@@ -449,11 +464,9 @@ export function readingsView(input: TrendInput): TrendView {
     ? { columns: ['Day', 'Reading', 'Note'], rows: texts.map(t => [formatDayLong(t.day, ctx.today), t.text, t.note ?? '']) }
     : {
       columns: [w.period === 'sixMonths' ? 'Week' : 'Month', 'Readings', 'Range', 'Average'],
-      rows: w.buckets.flatMap(b => {
-        const s = stat(b, primary);
-        return s.mean === undefined || s.min === undefined || s.max === undefined ? []
-          : [[slotName(w.period, b, ctx.today), formatNumber(s.n), `${fmt(s.min)}–${fmt(s.max)} ${unit}`, `${fmt(s.mean)} ${unit}`]];
-      }),
+      rows: w.buckets.flatMap(b => plotted(b).map(p => [
+        `${slotName(w.period, b, ctx.today)}${named ? ` · ${p.label}` : ''}`, formatNumber(p.n), `${fmt(p.min)}–${fmt(p.max)} ${unit}`, `${fmt(p.mean)} ${unit}`,
+      ])),
     };
 
   return {
