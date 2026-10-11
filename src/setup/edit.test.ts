@@ -93,8 +93,8 @@ describe('which pages an edit shows (journey §16)', () => {
     expect(path).not.toContain('medicines.which');
   });
 
-  it('Your back and feet with no pain answer shows the question that brings it', () => {
-    expect(editPath(['backFeet'], MINIMAL, MINIMAL, CTX)).toEqual(['health.conditions']);
+  it('Your back and feet with no pain answer shows the question that brings it, and the nerve history (H5-19)', () => {
+    expect(editPath(['backFeet'], MINIMAL, MINIMAL, CTX)).toEqual(['health.conditions', 'backFeet.history']);
   });
 });
 

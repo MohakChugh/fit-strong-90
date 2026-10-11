@@ -112,6 +112,11 @@ describe('every conditional page can be reached, and none is always on (B-06)', 
     expect(pageDone('health.limits', withC({ heart: 'yes' }, { clearance: 'none' }), CTX)).toBe(true);
   });
 
+  it('keeps the nerve-history question while a history is kept, with no pain now (H5-19)', () => {
+    expect(pathFor(withC({ pain: 'no' }, { neuroHistory: 'yes' }))).toContain('backFeet.history');
+    expect(pathFor(withC({ pain: 'no' }, { neuroHistory: 'no' }))).not.toContain('backFeet.history');
+  });
+
   it('a wound now takes the after-meal walks off (K-30)', () => {
     expect(pathFor({ ...FOOT_WOUND, mealWalk: { on: true, meals: ['lunch'] } })).not.toContain('day.meals');
   });

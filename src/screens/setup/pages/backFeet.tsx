@@ -86,11 +86,12 @@ export function BackFeetSide({ a, set, tried }: PageProps) {
   );
 }
 
-export function BackFeetHistory({ a, set, tried }: PageProps) {
+export function BackFeetHistory({ a, set, tried, mode }: PageProps) {
   const f = factsOf(a);
   return (
     <>
-      {f.pain && (
+      {/* With pain now, a history kept, or Your back and feet opened in Me: a past nerve injury is history, not pain (H5-19). */}
+      {(f.pain || a.neuroHistory !== undefined || mode === 'edit') && (
         <Ask label="Has a doctor ever said a nerve in your back or leg was damaged?" header="Has a doctor ever said a nerve in your back or leg was damaged?"
           options={TRI} value={a.neuroHistory} onChange={neuroHistory => set({ neuroHistory })} tried={tried} footer="For example, foot drop after sciatica." />
       )}

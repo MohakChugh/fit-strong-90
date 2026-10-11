@@ -136,18 +136,18 @@ export function painFrom(a: SetupAnswers, base: PainProfile): PainProfile {
   const chip = a.conditions?.pain;
   if (chip === undefined) return base;
   const next: PainProfile = { ...base };
+  // A nerve damaged in the past is history, not pain now: no pain today keeps it (H5-19).
+  if (a.neuroHistory !== undefined) next.neuroHistory = med(a.neuroHistory);
   if (chip === 'no') {
     next.areas = [];
     next.worseWith = 'unknown';
     put(next, 'sciaticaSide', undefined);
-    put(next, 'neuroHistory', undefined);
     return next;
   }
   if (a.painAreas !== undefined) next.areas = [...a.painAreas];
   const back = next.areas.includes('lowerBack') || next.areas.includes('sciatica');
   put(next, 'sciaticaSide', next.areas.includes('sciatica') ? a.sciaticaSide ?? base.sciaticaSide : undefined);
   next.worseWith = back ? a.worseWith ?? base.worseWith : 'unknown';
-  if (a.neuroHistory !== undefined) next.neuroHistory = med(a.neuroHistory);
   return next;
 }
 

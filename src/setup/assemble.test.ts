@@ -108,11 +108,17 @@ describe('gaps stay gaps (journey §6.1)', () => {
 });
 
 describe('back, feet and food', () => {
-  it('back pain and sciatica set the areas and the leg; no pain clears them', () => {
+  it('back pain and sciatica set the areas and the leg; no pain clears them, and keeps the nerve history (H5-19)', () => {
     const p = profileFrom(COMPLEX, undefined, TODAY, CTX);
     expect(p.pain).toMatchObject({ areas: ['lowerBack', 'sciatica'], sciaticaSide: 'left', worseWith: 'flexion', neuroHistory: false });
     const none = profileFrom({ ...COMPLEX, conditions: { ...COMPLEX.conditions, pain: 'no' } }, p, TODAY, CTX);
-    expect(none.pain).toEqual({ areas: [], worseWith: 'unknown', preference: p.pain.preference });
+    expect(none.pain).toEqual({ areas: [], worseWith: 'unknown', preference: p.pain.preference, neuroHistory: false });
+  });
+
+  it('a past nerve injury stays when there is no pain now, and its question sets it without pain (H5-19)', () => {
+    const injured = createDefaultProfile({ pain: { areas: ['sciatica'], sciaticaSide: 'left', worseWith: 'flexion', neuroHistory: true } });
+    expect(profileFrom(withC({ pain: 'no' }), injured, TODAY, CTX).pain.neuroHistory).toBe(true);
+    expect(profileFrom(withC({ pain: 'no' }, { neuroHistory: 'unsure' }), createDefaultProfile(), TODAY, CTX).pain.neuroHistory).toBe('unsure');
   });
 
   it('a wound now, or a clinician’s limit, holds walking (K-30)', () => {

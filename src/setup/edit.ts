@@ -60,8 +60,9 @@ export function editPath(chapters: readonly ChapterId[], a: SetupAnswers, opened
   const waiting = new Set(pathFor(opened).filter(id => !pageDone(id, opened, ctx)));
   const path = pathFor(a).filter(id => id !== 'welcome.start' && id !== 'review'
     && (chapters.includes(chapterOf(id) as ChapterId) || also.includes(id) || (!pageDone(id, a, ctx) && !waiting.has(id))));
-  // Your back and feet has no page without a pain or foot answer: the question that brings them is shown instead.
-  return path.length === 0 && chapters.includes('backFeet') ? ['health.conditions'] : path;
+  // Your back and feet has no page without a pain or foot answer: the question that brings them is shown instead,
+  // with the nerve history, a question of its own (H5-19).
+  return path.length === 0 && chapters.includes('backFeet') ? ['health.conditions', 'backFeet.history'] : path;
 }
 
 /** What Me opens for a chapter (journey §16). */
