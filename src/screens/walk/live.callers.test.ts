@@ -14,7 +14,7 @@ import type { LiveWalk } from '@/walk/live';
 import { measuredStamp } from '@/health/observation';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
-import { render, type Host } from '@/test/host';
+import { render, type Host, type HostNode } from '@/test/host';
 
 const router = vi.hoisted(() => ({ params: new URLSearchParams(), navigate: vi.fn() }));
 vi.mock('react-router-dom', () => ({
@@ -268,6 +268,63 @@ describe('Resume asks the status first, as the hubs’ Continue does (H2-01, jou
     expect(statusOn(store.getState().settings.statusPeriods, DAY)).toBe('normal');
     await h().click(h().button('Resume', { exact: true }));
     expect(status()).toBe('running');
+  });
+});
+
+describe('"I feel low" for anyone who can go low, under any hold but an emergency (K6R-01)', () => {
+  /** Walking on a fresh 140, with insulin. */
+  async function walkingOnInsulin() {
+    const p = createDefaultProfile(INSULIN);
+    const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } };
+    await store.update(prev => ({ ...prev, profile: p, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
+    router.params = startedParams();
+    host = render(createElement(LiveWalkScreen));
+    await host.settle();
+    expect(status()).toBe('running');
+    return p;
+  }
+
+  it('stays on the walk screen once "I need to stop" holds it', async () => {
+    await walkingOnInsulin();
+    await h().click(h().button('I need to stop'));
+    await h().click(h().button('Close', { exact: true }));
+    expect(h().text()).toMatch(/You stopped and haven’t said what happened yet/);
+    expect(h().buttons('I feel low', { exact: true })).toHaveLength(1);
+    // Beside "I need to stop", as before the hold.
+    const low = h().button('I feel low', { exact: true });
+    const row = h().all().find(n => n.children.includes(low))!;
+    expect(String(row.props.className)).toContain('min-[360px]:grid-cols-2');
+  });
+
+  it('is the stop question’s first answer, and answers the stop through the low path', async () => {
+    await walkingOnInsulin();
+    clock(9, 10);
+    await h().click(h().button('I need to stop'));
+    const dialog = h().all().find(n => n.props.role === 'dialog')!;
+    const first = dialog && JSON.stringify(dialog).indexOf('I feel low');
+    expect(first).toBeGreaterThan(-1);
+    expect(first).toBeLessThan(JSON.stringify(dialog).indexOf('Dizzy or faint'));
+    // The sheet's own row: the screen behind it is inert while the sheet is open.
+    const inside: HostNode[] = [];
+    const collect = (n: HostNode) => { for (const c of n.children) if (typeof c !== 'string') { inside.push(c); collect(c); } };
+    collect(dialog);
+    const row = h().buttons('I feel low', { exact: true }).find(b => inside.includes(b))!;
+    expect(row).toBeDefined();
+    await h().click(row);
+    await h().settle();
+    expect(today()?.news).toContain('lowSymptoms');
+    expect(today()?.news).not.toContain('stopped');
+    expect(h().text()).not.toMatch(/You stopped and haven’t said what happened yet/);
+    // What follows is the low's own guidance, as "I feel low" on the walk gives it.
+    expect(h().text()).toMatch(/Check your glucose now|What the meter shows|Glucose now/);
+  });
+
+  it('goes for an emergency, which only Finish and save follows', async () => {
+    await walkingOnInsulin();
+    await h().click(h().button('I need to stop'));
+    await h().click(h().button(/^Chest pain/));
+    await h().settle();
+    expect(h().buttons('I feel low', { exact: true })).toHaveLength(0);
   });
 });
 

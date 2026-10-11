@@ -387,12 +387,13 @@ export default function LiveWalkScreen() {
             </div>
           )}
 
-          <div className={cn('grid grid-cols-1', TARGET.gap, hypoRisk && !refusal && 'min-[360px]:grid-cols-2')}>
+          {/* "I feel low" stays for anyone who can go low under any hold but an emergency (K6R-01). */}
+          <div className={cn('grid grid-cols-1', TARGET.gap, hypoRisk && !emergency && 'min-[360px]:grid-cols-2')}>
             <button type="button" onClick={stopNow} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-stop', TARGET.primary)}>
               <HandIcon className="size-5 shrink-0" aria-hidden />
               I need to stop
             </button>
-            {hypoRisk && !refusal && (
+            {hypoRisk && !emergency && (
               <button type="button" onClick={reportLow} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-caution', TARGET.primary)}>
                 <CandyIcon className="size-5 shrink-0" aria-hidden />
                 I feel low

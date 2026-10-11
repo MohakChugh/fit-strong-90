@@ -4,7 +4,7 @@ import { Sheet } from '@/components/hig/Sheet';
 import type { SymptomReport } from '@/components/checkin/pending';
 import type { SymptomReach } from '@/types/checkin';
 import { cn } from '@/lib/utils';
-import { answering, LEG_QUESTIONS, legReport, NO_LEG, REACH, REACH_LABEL, SPREAD_QUESTION, STOP_CHOICES, stopAnswer, type LegAnswers, type StopChoice } from '@/walk/stop';
+import { answering, LEG_QUESTIONS, legReport, NO_LEG, REACH, REACH_LABEL, SPREAD_QUESTION, STOP_CHOICES, STOP_LOW, stopAnswer, type LegAnswers, type StopChoice } from '@/walk/stop';
 import { PrimaryButton, SecondaryButton } from './parts';
 
 interface Props {
@@ -79,6 +79,8 @@ function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close }
   return (
     <div className="flex flex-col gap-4">
       <Group footer="General information, not medical advice. This app cannot tell an emergency from anything else.">
+        {/* For anyone who can go low, the low path first: it answers the stop too (K6R-01). */}
+        {hypoRisk && <Row label={<span className="leading-snug">I feel low</span>} onClick={() => { onReport(STOP_LOW); close(); }} />}
         {STOP_CHOICES.filter(c => c.choice !== 'leg').map(c => (
           <Row
             key={c.choice}
