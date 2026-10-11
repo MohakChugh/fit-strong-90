@@ -261,7 +261,8 @@ describe('a sheet that will not close yet (review C2-07)', () => {
 
   it('sizes every destructive confirmation as a main target, 60 px at least (§20.4 rule 1, H4-08)', () => {
     const expected: Record<string, number> = {
-      'src/screens/you/DataSheets.tsx': 2, 'src/screens/you/RestoreFlow.tsx': 1, 'src/screens/you/DataScreen.tsx': 1, 'src/screens/you/ProgrammeGroup.tsx': 1,
+      // Delete everything's two steps, and Erase all routes' one style for its two (H6R-15).
+      'src/screens/you/DataSheets.tsx': 3, 'src/screens/you/RestoreFlow.tsx': 1, 'src/screens/you/DataScreen.tsx': 0, 'src/screens/you/ProgrammeGroup.tsx': 1,
     };
     for (const [file, count] of Object.entries(expected)) {
       const buttons = read(file).split('\n').filter(line => line.includes('bg-stop-fill'));
@@ -331,7 +332,7 @@ describe('a sheet that will not close yet (review C2-07)', () => {
     expect(data).toMatch(/<Toggle label="Keep walk routes" checked=\{walk\.saveRoutes === true\} onChange=\{on => void setWalkSettings\(\{ saveRoutes: on \}\)\} \/>/);
     expect(data).toMatch(/<Toggle label="Map pictures under routes" checked=\{walk\.map === 'on'\} onChange=\{on => void setWalkSettings\(\{ map: on \? 'on' : 'off' \}\)\} \/>/);
     expect(data).not.toMatch(/setSettings\(\{ walk/);
-    expect(data).toMatch(/const done = await eraseRoutes\(\);/);
+    expect(read('src/screens/you/DataSheets.tsx')).toMatch(/const done = await eraseRoutes\(\);/);
     expect(data).not.toMatch(/Not in this version yet|Plan 6 replaces this group/);
     expect(read('src/screens/you/DataSheets.tsx')).toMatch(/exportRecord\(withRoutes \? \{ include: \['routes'\] \} : \{\}\)/);
     const hub = read('src/screens/hub/WalkHub.tsx');

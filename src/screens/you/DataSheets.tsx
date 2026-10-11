@@ -3,7 +3,8 @@ import { cn } from '@/lib/utils';
 import { TARGET } from '@/components/hig/targets';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
-import { clearAllAndRestart, exportRecord, getState, useStore } from '@/store/useStore';
+import { clearAllAndRestart, eraseRoutes, exportRecord, getState, useStore } from '@/store/useStore';
+import { walkSettings } from '@/walk/consent';
 import { deliver, deliveryMethod } from '@/store/transfer';
 import { showBadge } from '@/reminders/badge';
 import { clearReminders } from '@/reminders/pending';
@@ -143,6 +144,75 @@ function BackupBody({ device }: { device: string }) {
 // ============================================================================
 // Delete everything
 // ============================================================================
+
+// ============================================================================
+// Erase all routes
+// ============================================================================
+
+/**
+ * "Erase all routes" (B-05), asked twice, as everything that cannot be undone
+ * is, in Delete everything's pattern (§20.4 rule 6, H6R-15, K6R-04, board
+ * D182). The sheet can't be closed while the erase is being written.
+ */
+export function EraseRoutesSheet({ open, onOpenChange, device, onErased }: SheetProps & { onErased: () => void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Sheet open={open} onOpenChange={next => { if (!busy) onOpenChange(next); }} dismissible={!busy} title="Erase all routes" detent="medium">
+      {open && <EraseRoutesBody device={device} busy={busy} setBusy={setBusy} close={() => onOpenChange(false)} onErased={onErased} />}
+    </Sheet>
+  );
+}
+
+function EraseRoutesBody({ device, busy, setBusy, close, onErased }: {
+  device: string; busy: boolean; setBusy: (busy: boolean) => void; close: () => void; onErased: () => void;
+}) {
+  const keeps = walkSettings(useStore().settings).saveRoutes === true;
+  const [step, setStep] = useState<'ask' | 'confirm'>('ask');
+  const [problem, setProblem] = useState<string>();
+  const heading = useRef<HTMLParagraphElement>(null);
+  // The button pressed has gone: the second question takes focus (B-03).
+  useEffect(() => { if (step === 'confirm') heading.current?.focus(); }, [step]);
+  const erase = async () => {
+    setBusy(true);
+    setProblem(undefined);
+    const done = await eraseRoutes();
+    setBusy(false);
+    if (!done.ok) return setProblem(`The routes were not erased. ${done.failure.message}`);
+    onErased();
+    close();
+  };
+  const stop = cn('press-feedback w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white disabled:opacity-60', TARGET.primary);
+
+  if (step === 'ask') {
+    return (
+      <>
+        <p className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug">Erase all routes on this {device}?</p>
+        <p className="px-1 text-[length:var(--text-body)] leading-snug">
+          Every route on this {device} is erased: from saved walks, from a walk not yet saved, and from one you’re on now. The walks keep their time, distance and steps. This cannot be undone.
+        </p>
+        {/* What happens next, so erasing is never mistaken for turning routes off (K6R-11). */}
+        {keeps && <p className="px-1 text-[length:var(--text-body)] leading-snug">New walks still keep their route while Keep walk routes is on.</p>}
+        <div className={cn('flex flex-col', TARGET.gap)}>
+          <button type="button" onClick={() => setStep('confirm')} className={stop}>Erase routes</button>
+          <PlainButton className={TARGET.tap} onClick={close}>Keep my routes</PlainButton>
+        </div>
+      </>
+    );
+  }
+  return (
+    <>
+      <p ref={heading} tabIndex={-1} className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug outline-none">Erase every route for good?</p>
+      <p className="px-1 text-[length:var(--text-body)] leading-snug">This is the last step. No backup brings them back.</p>
+      {problem && <Notice tone="error">{problem}</Notice>}
+      <div className={cn('flex flex-col', TARGET.gap)}>
+        <button type="button" disabled={busy} onClick={() => void erase()} className={stop}>
+          {busy ? 'Erasing…' : 'Erase all routes'}
+        </button>
+        <PlainButton disabled={busy} className={TARGET.tap} onClick={close}>Keep my routes</PlainButton>
+      </div>
+    </>
+  );
+}
 
 export function DeleteSheet({ open, onOpenChange, device }: SheetProps) {
   return (
