@@ -54,6 +54,11 @@ describe('setup’s pages (journey §1.2, §6.2; B-06)', () => {
     expect(pageDone('medicines.which', { classes: { metformin: 'yes' }, metforminSince: '201' }, CTX)).toBe(false);
   });
 
+  it('takes “Not sure” about eye treatment as an answer: it is read as recent treatment, so no severity is asked (K5-09)', () => {
+    expect(pageDone('health.eyes', { eyeTreatment: 'unsure' }, CTX)).toBe(true);
+    expect(pageDone('health.eyes', { eyeTreatment: 'no' }, CTX)).toBe(false);
+  });
+
   it('stores estimates only once the screening question is answered (K-22, board D82)', () => {
     expect(pageDone('food.logging', { foodLevel: 'estimates' }, CTX)).toBe(false);
     expect(pageDone('food.logging', { foodLevel: 'estimates', hardBefore: 'preferNot' }, CTX)).toBe(true);

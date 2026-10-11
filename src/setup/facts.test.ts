@@ -44,6 +44,12 @@ describe('what the answers mean in the engine’s terms (journey §6.3, board D7
     expect(factsOf(withC({ feet: 'yes' }, { footWound: 'past', footRestriction: 'no' })).footHeld).toBe(false);
   });
 
+  it('holds walking when a wound now, or a clinician’s limit, isn’t ruled out (K5-09)', () => {
+    expect(factsOf(withC({ feet: 'yes' }, { footWound: 'unsure', footRestriction: 'no' })).footHeld).toBe(true);
+    expect(factsOf(withC({ feet: 'yes' }, { footWound: 'no', footRestriction: 'unsure' })).footHeld).toBe(true);
+    expect(factsOf(withC({ feet: 'no' }, { footRestriction: 'unsure' })).footLimit).toBe(true);
+  });
+
   it('keeps a clinician’s limit holding walks after the foot chip is taken away (H5-03)', () => {
     const f = factsOf(withC({ feet: 'no' }, { footWound: 'no', footRestriction: 'yes' }));
     expect(f.footHeld).toBe(true);

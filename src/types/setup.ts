@@ -63,12 +63,15 @@ export interface SetupAnswers {
   conditions?: Partial<Record<ConditionId, Tri>>;
   diabetesType?: 'type1' | 'type2' | 'prediabetes' | 'other' | 'unsure';
   bpMedicine?: Tri;
-  kidneyTreatment?: 'yes' | 'no';
+  /** "Not sure" is read as dialysis or a transplant (K5-09, board D151). */
+  kidneyTreatment?: Tri;
   fluidLimit?: Tri;
-  eyeTreatment?: 'yes' | 'no';
+  /** "Not sure" is read as recent eye treatment (K5-09, board D151). */
+  eyeTreatment?: Tri;
   eyeDisease?: 'mild' | 'moderate' | 'severe' | 'unsure';
   feetNumb?: Tri;
-  footWound?: 'now' | 'past' | 'no';
+  /** "Not sure" is read as a wound now (K5-09, board D151). */
+  footWound?: 'now' | 'past' | 'no' | 'unsure';
   clearance?: 'none' | 'moderate' | 'vigorous' | 'unsure';
   targets?: Tri;
   bpStopSystolic?: number;
@@ -97,7 +100,8 @@ export interface SetupAnswers {
   /** Optional, and kept here only (board D77). */
   helps?: ('moving' | 'lying' | 'heat' | 'bendingForward' | 'archingBack')[];
   neuroHistory?: Tri;
-  footRestriction?: 'yes' | 'no';
+  /** "Not sure" is read as a limit, which holds walking (K5-09, board D151). */
+  footRestriction?: Tri;
   // ---- 6. Your movement
   focus?: 'stretch' | 'move' | 'strength' | 'explore';
   active?: 'yes' | 'no';

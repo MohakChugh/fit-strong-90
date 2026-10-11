@@ -58,16 +58,16 @@ export function healthFrom(a: SetupAnswers, base: HealthProfile, today: string):
   }
   if (c.heart !== undefined) next.heartOrVascularDisease = has(c.heart);
   if (c.kidney !== undefined) {
-    next.kidneyDisease = !has(c.kidney) ? 'none' : a.kidneyTreatment === 'yes' ? 'dialysis_or_transplant' : c.kidney === 'unsure' ? 'unsure' : 'ckd';
+    next.kidneyDisease = !has(c.kidney) ? 'none' : has(a.kidneyTreatment) ? 'dialysis_or_transplant' : c.kidney === 'unsure' ? 'unsure' : 'ckd';
   }
   if (a.fluidLimit !== undefined) next.fluidRestriction = med(a.fluidLimit);
   if (c.eyes !== undefined) {
-    next.retinopathy = !has(c.eyes) ? 'none_or_mild' : a.eyeTreatment === 'yes' ? 'recent_eye_treatment' : EYES[a.eyeDisease ?? 'unsure'];
+    next.retinopathy = !has(c.eyes) ? 'none_or_mild' : has(a.eyeTreatment) ? 'recent_eye_treatment' : EYES[a.eyeDisease ?? 'unsure'];
   }
   if (c.feet !== undefined) {
     next.peripheralNeuropathy = !has(c.feet) || a.feetNumb === 'no' ? 'no' : a.feetNumb === 'yes' ? 'yes' : 'unsure';
     next.footStatus = !has(c.feet) ? 'healthy'
-      : a.footWound === 'now' ? 'current_wound_or_active_charcot'
+      : a.footWound === 'now' || a.footWound === 'unsure' ? 'current_wound_or_active_charcot'
       : a.footWound === 'past' ? 'past_ulcer_or_charcot' : 'healthy';
   }
   // A clinician's weight-bearing limit outranks the foot chip: only the limit, answered again, releases it (K-30; H5-03).

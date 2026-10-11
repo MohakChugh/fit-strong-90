@@ -4,7 +4,7 @@ import { CheckRows } from '@/screens/you/controls';
 import { cn } from '@/lib/utils';
 import { factsOf } from '@/setup/facts';
 import type { PainArea } from '@/types/profile';
-import { AREAS, TRI, YES_NO } from '../choices';
+import { AREAS, TRI } from '../choices';
 import { Ask, Missing, type PageProps } from '../controls';
 
 /**
@@ -95,9 +95,9 @@ export function BackFeetHistory({ a, set, tried }: PageProps) {
           options={TRI} value={a.neuroHistory} onChange={neuroHistory => set({ neuroHistory })} tried={tried} footer="For example, foot drop after sciatica." />
       )}
       {(f.feet || f.footLimit) && (
-        <Ask label="Has a clinician told you to keep weight off a foot?" header="Has a clinician told you to keep weight off a foot?" options={YES_NO}
+        <Ask label="Has a clinician told you to keep weight off a foot?" header="Has a clinician told you to keep weight off a foot?" options={TRI}
           value={a.footRestriction} onChange={footRestriction => set({ footRestriction })} tried={tried}
-          footer="Then walks stay off until they say it’s fine." />
+          footer="Yes, or “Not sure”, keeps walks off until they say it’s fine." />
       )}
     </>
   );

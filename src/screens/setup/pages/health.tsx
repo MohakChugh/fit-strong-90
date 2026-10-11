@@ -3,7 +3,7 @@ import { Group } from '@/components/hig/List';
 import { factsOf } from '@/setup/facts';
 import { pageDone } from '@/setup/graph';
 import { numberFrom } from '@/setup/units';
-import { CONDITION_ROWS, TRI, YES_NO } from '../choices';
+import { CONDITION_ROWS, TRI } from '../choices';
 import { Ask, Missing, NumberAnswer, TextInput, TriChecklist, type PageProps } from '../controls';
 
 /** "Do you have any of these?": one checklist, "Not sure" on every row (journey §6.2 ch. 3; B-08). */
@@ -39,7 +39,8 @@ export function HealthFluid({ a, set, tried }: PageProps) {
     <>
       {factsOf(a).kidney && (
         <Ask label="Are you on dialysis, or have you had a kidney transplant?" header="Are you on dialysis, or have you had a kidney transplant?"
-          options={YES_NO} value={a.kidneyTreatment} onChange={kidneyTreatment => set({ kidneyTreatment })} tried={tried} />
+          options={TRI} value={a.kidneyTreatment} onChange={kidneyTreatment => set({ kidneyTreatment })} tried={tried}
+          footer="“Not sure” is read as yes, so the app plays safe." />
       )}
       <Ask label="Has a doctor given you a fluid limit?" header="Has a doctor given you a fluid limit?" options={TRI}
         value={a.fluidLimit} onChange={fluidLimit => set({ fluidLimit })} tried={tried} footer="It changes your rest-time and water advice." />
@@ -50,8 +51,9 @@ export function HealthFluid({ a, set, tried }: PageProps) {
 export function HealthEyes({ a, set, tried }: PageProps) {
   return (
     <>
-      <Ask label="Eye treatment or surgery in the last 3 months?" header="Eye treatment or surgery in the last 3 months?" options={YES_NO}
-        value={a.eyeTreatment} onChange={eyeTreatment => set({ eyeTreatment })} tried={tried} />
+      <Ask label="Eye treatment or surgery in the last 3 months?" header="Eye treatment or surgery in the last 3 months?" options={TRI}
+        value={a.eyeTreatment} onChange={eyeTreatment => set({ eyeTreatment })} tried={tried}
+        footer="Yes, or “Not sure”, means no exercise until your eye doctor says it’s fine." />
       {a.eyeTreatment === 'no' && (
         <Ask label="How bad is the eye disease from diabetes?" header="How bad is the eye disease from diabetes?" tried={tried}
           value={a.eyeDisease} onChange={eyeDisease => set({ eyeDisease })} footer="As your eye doctor last said. “Not sure” is fine."
@@ -68,8 +70,8 @@ export function HealthFeet({ a, set, tried }: PageProps) {
         value={a.feetNumb} onChange={feetNumb => set({ feetNumb })} tried={tried} />
       <Ask label="A wound, an ulcer or a Charcot foot?" header="A wound, an ulcer or a Charcot foot?" tried={tried}
         value={a.footWound} onChange={footWound => set({ footWound })}
-        options={[{ value: 'now', label: 'Yes, now' }, { value: 'past', label: 'In the past' }, { value: 'no', label: 'No' }]}
-        footer="A wound now keeps walks off until it has healed." />
+        options={[{ value: 'now', label: 'Yes, now' }, { value: 'past', label: 'In the past' }, { value: 'no', label: 'No' }, { value: 'unsure', label: 'Not sure' }]}
+        footer="A wound now, or “Not sure”, keeps walks off until it has healed." />
     </>
   );
 }

@@ -57,7 +57,7 @@ export const PAGES: readonly PageDef[] = [
   { id: 'health.fluid', when: (_a, f) => f.heart || f.kidney || f.other, sets: ['kidneyTreatment', 'fluidLimit'], skippable: false,
     done: (a, f) => a.fluidLimit !== undefined && (!f.kidney || a.kidneyTreatment !== undefined) },
   { id: 'health.eyes', when: (_a, f) => f.eyes, sets: ['eyeTreatment', 'eyeDisease'], skippable: false,
-    done: a => a.eyeTreatment === 'yes' || (a.eyeTreatment === 'no' && a.eyeDisease !== undefined) },
+    done: a => has(a.eyeTreatment) || (a.eyeTreatment === 'no' && a.eyeDisease !== undefined) },
   { id: 'health.feet', when: (_a, f) => f.feet, sets: ['feetNumb', 'footWound'], skippable: false,
     done: a => a.feetNumb !== undefined && a.footWound !== undefined },
   { id: 'health.limits', when: (_a, f) => f.heart || f.kidney || f.eyes || f.bp || f.pain || f.diabetic,

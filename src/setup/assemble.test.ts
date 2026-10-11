@@ -39,6 +39,21 @@ describe('"Not sure" is "may have", through the engine itself (journey §6.1)', 
   });
 });
 
+describe('"Not sure" where it is now offered (K5-09; board D151)', () => {
+  const health = (a: Parameters<typeof withC>[1], c: Parameters<typeof withC>[0]) => profileFrom(withC(c, a), undefined, TODAY, CTX).health;
+
+  it('reads each as the stricter value', () => {
+    expect(health({ kidneyTreatment: 'unsure', fluidLimit: 'no', clearance: 'none' }, { kidney: 'yes' }).kidneyDisease).toBe('dialysis_or_transplant');
+    expect(health({ eyeTreatment: 'unsure', clearance: 'none' }, { eyes: 'yes' }).retinopathy).toBe('recent_eye_treatment');
+    expect(health({ feetNumb: 'no', footWound: 'unsure', footRestriction: 'no' }, { feet: 'yes' }).footStatus).toBe('current_wound_or_active_charcot');
+    expect(health({ feetNumb: 'no', footWound: 'no', footRestriction: 'unsure' }, { feet: 'yes' }).footStatus).toBe('current_wound_or_active_charcot');
+  });
+
+  it('a limit not ruled out holds walks whatever the foot chip says, as Yes does (H5-03)', () => {
+    expect(health({ footRestriction: 'unsure' }, { feet: 'no' }).footStatus).toBe('current_wound_or_active_charcot');
+  });
+});
+
 describe('medicines whatever the diagnosis (A-06, K-05)', () => {
   it('insulin with diabetes "No" is diabetes that can go low (Review Focus 3, D78)', () => {
     const p = profileFrom(INSULIN_NO_DIABETES, undefined, TODAY, CTX);
