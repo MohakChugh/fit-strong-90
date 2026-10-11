@@ -119,6 +119,13 @@ describe('answers v1 already gave (K-57; journey §6.4, §16)', () => {
     expect(answersFromProfile(P01, S).fluidLimit).toBeUndefined();
   });
 
+  it('carries on from the setup answers a backup kept when its health answers were left out, asking those again (H5-17; H-DATA)', () => {
+    const kept = { ...S, setup: { stage: 'done' as const, skipped: [], answers: { name: 'Kai', figure: 'either' as const, conditions: { diabetes: 'no' as const }, regular: 'no' as const, active: 'yes' as const, pattern: 'vegan' as const } } };
+    const a = prefillAnswers(kept, undefined);
+    expect(a).toMatchObject({ name: 'Kai', figure: 'either', pattern: 'vegan' });
+    expect([a.conditions, a.regular, a.active]).toEqual([undefined, undefined, undefined]);
+  });
+
   it('a v1 Welcome left part-way fills in its focus (K-57)', () => {
     expect(prefillAnswers({ ...S, focus: 'stretch' }, undefined)).toEqual({ metric: true, focus: 'stretch' });
   });

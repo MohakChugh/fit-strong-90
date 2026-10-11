@@ -27,6 +27,12 @@ describe('where setup stands (journey §6.6, §19.1; board D80)', () => {
     expect(upgradeSkipped({ habits: { mealWalk: { enabled: true, meals: ['lunch'] } } }, named)).toEqual(['day']);
   });
 
+  it('a finished setup with no profile, a backup whose health answers were left out, carries on as Look around first (H5-17)', () => {
+    const restored = { onboardingComplete: true, setup: { stage: 'done' as const, skipped: [], answers: { name: 'Kai' } } };
+    expect(setupStateOf(restored, undefined).stage).toBe('lookAround');
+    expect(setupStateOf(restored, v1).stage).toBe('done');
+  });
+
   it('keeps what Me was told “Not now” before this build wrote anything (Plan 4, D65)', () => {
     expect(setupStateOf({ onboardingComplete: false, setup: { declined: ['food'] } }, undefined)).toEqual({ stage: 'open', skipped: [], declined: ['food'] });
     expect(setupStateOf({ onboardingComplete: true, setup: { declined: ['food'] } }, v1))

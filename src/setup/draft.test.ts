@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { AppData } from '@/types';
+import { createDefaultProfile } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { StoreFailure } from '@/store/db';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
@@ -45,6 +46,8 @@ describe('the draft (journey §6.1, §18.1)', () => {
 
   it('changes nothing once another tab has finished setup (Review Focus 4)', () => {
     const data = fresh();
+    // Finishing stores the profile with completion; without one, setup is still to finish (H5-17).
+    data.profile = createDefaultProfile({ name: 'Asha' });
     data.settings = { ...data.settings, onboardingComplete: true, setup: { stage: 'done', skipped: [], answers: { name: 'Asha' } } };
     expect(withDraft(data, 'health.conditions', { name: 'Someone else' })).toBe(data);
   });

@@ -20,7 +20,9 @@ export function upgradeSkipped(settings: Pick<UserSettings, 'habits'>, profile: 
 
 export function setupStateOf(settings: Pick<UserSettings, 'setup' | 'onboardingComplete' | 'habits'>, profile: UserProfile | undefined): SetupState {
   const stored = settings.setup ?? {};
-  if (stored.stage !== undefined) return { ...stored, stage: stored.stage, skipped: stored.skipped ?? [] };
+  // Finished, with no profile (a backup whose health or pain answers couldn't be read): setup carries on, every
+  // movement held, as after Look around first, so its questions can be answered again (H5-17).
+  if (stored.stage !== undefined) return { ...stored, stage: stored.stage === 'done' && !profile ? 'lookAround' : stored.stage, skipped: stored.skipped ?? [] };
   const declined = stored.declined?.length ? { declined: [...stored.declined] } : {};
   if (!settings.onboardingComplete) return { stage: 'open', skipped: [], ...declined };
   if (!profile) return { stage: 'lookAround', skipped: [], upgraded: true, ...declined };

@@ -20,7 +20,7 @@ import { profileFrom, put, settingsFrom } from './assemble';
 import { fieldsOfChapter, keysOfChapter } from './fields';
 import { SAFETY_CHAPTERS, type Ctx } from './graph';
 
-type Kept = Pick<UserSettings, 'useMetric' | 'focus' | 'weeklyMovementGoalMinutes' | 'habits' | 'startDate'>;
+type Kept = Pick<UserSettings, 'useMetric' | 'focus' | 'weeklyMovementGoalMinutes' | 'habits' | 'startDate'> & Partial<Pick<UserSettings, 'setup'>>;
 
 const tri = (v: MedicineAnswer | undefined): Tri | undefined => (v === true ? 'yes' : v === 'unsure' ? 'unsure' : v === false ? 'no' : undefined);
 
@@ -143,14 +143,22 @@ export function answersFromProfile(p: UserProfile, s: Kept): SetupAnswers {
  * for setup and for Me's review (H5-10, K5-01).
  */
 const UNREVIEWED: readonly (keyof SetupAnswers)[] = [...SAFETY_CHAPTERS.flatMap(keysOfChapter), 'active'];
-function withoutUnreviewed(out: SetupAnswers, profile: UserProfile): SetupAnswers {
-  if (profile.needsHealthReview) for (const k of UNREVIEWED) delete out[k];
+const withoutClinical = (out: SetupAnswers): SetupAnswers => {
+  for (const k of UNREVIEWED) delete out[k];
   return out;
+};
+function withoutUnreviewed(out: SetupAnswers, profile: UserProfile): SetupAnswers {
+  return profile.needsHealthReview ? withoutClinical(out) : out;
 }
 
 /** What setup starts from when nothing was drafted: what the record already says (K-57, §6.4), less what an unreviewed profile can't vouch for. */
 export function prefillAnswers(settings: Kept, profile: UserProfile | undefined): SetupAnswers {
-  if (!profile) return { metric: settings.useMetric, ...(settings.focus ? { focus: settings.focus } : {}) };
+  if (!profile) {
+    const base = { metric: settings.useMetric, ...(settings.focus ? { focus: settings.focus } : {}) };
+    // Setup answers a backup kept when its health or pain answers couldn't be read: the rest carry on, those are asked again (H5-17).
+    const kept = settings.setup?.answers;
+    return kept ? { ...base, ...withoutClinical(structuredClone(kept)) } : base;
+  }
   return withoutUnreviewed(answersFromProfile(profile, settings), profile);
 }
 
