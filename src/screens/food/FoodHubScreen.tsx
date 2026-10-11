@@ -46,6 +46,9 @@ export default function FoodHubScreen() {
   const { now } = useClock();
   const hour12 = prefersHour12();
   const [choosing, setChoosing] = useState(false);
+  // "Log a meal" with logging off asks the level first, and that sheet owns the flow until its choice is
+  // stored: the profile shown changes the moment it's chosen, before it's written (H7-18).
+  const [askingLevel, setAskingLevel] = useState(false);
   useFoodUndoScope('/hub/food');
 
   const food = profile?.food;
@@ -69,6 +72,8 @@ export default function FoodHubScreen() {
 
   if (pathname !== '/hub/food' && pathname !== '/hub/food/log') return <Navigate to="/hub/food" replace />;
   const logging = pathname === '/hub/food/log';
+  const asking = logging && !logRequest(search).edit && (level === 'ideas' || askingLevel);
+  if (asking !== askingLevel) setAskingLevel(asking);
   // Meals logged before logging was turned off stay readable here (A-22).
   const history = level !== 'ideas' || meals.length > 0;
   const request = logRequest(search);
@@ -139,8 +144,8 @@ export default function FoodHubScreen() {
       <p className="px-4 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">{FOOD_COPY.attribution} {FOOD_COPY.privacy}</p>
 
       {/* A new meal waits for logging to be on; a logged meal stays editable and deletable whatever the level (A-22). */}
-      {logging && (level === 'ideas' && !request.edit
-        ? <LevelSheet open onOpenChange={next => { if (!next) closeLog(); }} onDone={chosen => { if (chosen === 'ideas') closeLog(); }} />
+      {logging && (asking
+        ? <LevelSheet open onOpenChange={next => { if (!next) closeLog(); }} onDone={chosen => { setAskingLevel(false); if (chosen === 'ideas') closeLog(); }} />
         : <LogMealSheet key={search} request={request} onClose={closeLog} />)}
       <LevelSheet open={choosing} onOpenChange={setChoosing} />
     </HubFrame>

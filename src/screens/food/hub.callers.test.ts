@@ -72,7 +72,10 @@ const mealOn = (id: string, at: string, meal: MealRecord['meal'], items: readonl
   ({ id, at, day: at.slice(0, 10), meal, items: [...items], level: 'estimates', loggedAt: at, edits: [] });
 
 let host: Host | undefined;
+/** Refuse writes of the profile, as a full disk would. */
+let refuseProfile = false;
 beforeEach(async () => {
+  refuseProfile = false;
   vi.useFakeTimers({ toFake: ['Date'] });
   // Thursday 8 October, 13:20: lunch by the hub's clock.
   vi.setSystemTime(new Date(2026, 9, 8, 13, 20, 0));
@@ -81,7 +84,10 @@ beforeEach(async () => {
   router.pathname = '/hub/food';
   router.search = '';
   router.navigate.mockReset();
-  await store.start({ factory: fakeIndexedDB(), broadcast: null });
+  await store.start({
+    factory: fakeIndexedDB({ failWrite: (_store, row) => (refuseProfile && row.key === 'profile' ? new DOMException('Full', 'QuotaExceededError') : undefined) }),
+    broadcast: null,
+  });
 });
 afterEach(() => {
   host?.unmount();
@@ -123,6 +129,29 @@ describe('what has no estimate, on the hub (H7-14, K7-10, K7-17)', () => {
     const week = region(h, 'This week');
     expect(week).toContain('1 meal · Estimated 200 kcal in logged foods · Partial: Bhel puri has no calorie estimate');
     expect(week).toContain('1 meal · Bhel puri has no calorie estimate');
+  });
+});
+
+describe('choosing a level from “Log a meal” with logging off (H7-18)', () => {
+  const dialog = (h: Host, name: string) => h.all().find(n => n.props.role === 'dialog' && n.props['aria-label'] === name);
+  it('keeps the level sheet, the choice and its error while the choice isn’t stored', async () => {
+    router.pathname = '/hub/food/log';
+    const h = await hub({ level: undefined });
+    expect(dialog(h, 'Log what you eat?')).toBeDefined();
+    refuseProfile = true;
+    await h.click(h.button('Yes, meals only, no numbers'));
+    await h.settle();
+    expect(dialog(h, 'Log a meal')).toBeUndefined();
+    expect(textOf(dialog(h, 'Log what you eat?')!.children)).toContain('That didn’t save.');
+  });
+  it('opens “Log a meal” once the choice is stored', async () => {
+    router.pathname = '/hub/food/log';
+    const h = await hub({ level: undefined });
+    await h.click(h.button('Yes, meals only, no numbers'));
+    await h.settle();
+    expect(store.getState().profile?.food?.level).toBe('meals');
+    expect(dialog(h, 'Log what you eat?')).toBeUndefined();
+    expect(dialog(h, 'Log a meal')).toBeDefined();
   });
 });
 
