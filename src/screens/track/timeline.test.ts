@@ -305,7 +305,7 @@ describe('a day total that belongs to a walk', () => {
 });
 
 describe('meals in Today’s log (Plan 7)', () => {
-  const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2 } as const;
+  const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57 } as const;
   const lunch = { id: 'meal-1', at: '2026-10-08T13:10:00.000+05:30', day, meal: 'lunch', items: [roti], level: 'estimates', loggedAt: '2026-10-08T13:15:00.000+05:30', edits: [] } as const;
   const meals = [{ ...lunch, items: [...lunch.items], edits: [] }];
 

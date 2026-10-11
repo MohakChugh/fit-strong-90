@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { RECORD_RULES, recordProblem } from '@/store/records';
+import { emptySnapshot } from '@/store/snapshot';
+import { planImport, previewImport, TRANSFER_FORMAT } from '@/store/transfer';
 import type { CustomFood, MealEdit, MealRecord, SavedMeal } from './types';
 import {
   corrected, customFoodProblem, itemProblem, mealProblem, mealsIn, newerByUpdate, newerMeal, restored, savedMealProblem, stored,
@@ -29,6 +31,26 @@ describe('a meal record (journey §18.2, B-12)', () => {
     expect(bad({ items: [{ kind: 'quick', size: 'small', name: 'Small plate', carbsG: 30 }] })).toMatch(/never has carbs/);
     expect(bad({ items: [{ kind: 'mystery', name: 'X' }] })).toMatch(/kind/);
     expect(bad({ edits: [{ replacedAt: AT, at: AT, meal: 'lunch', items: [roti] }] })).toMatch(/when it was corrected/);
+  });
+  it('reads a carb estimate and its range as one set: all three, in order, or none (H7-06)', () => {
+    const { carbsG, carbsLowG, carbsHighG, ...bare } = roti;
+    void carbsG; void carbsLowG; void carbsHighG;
+    expect(itemProblem(bare)).toBeUndefined();
+    expect(itemProblem({ ...bare, carbsG: 40, carbsLowG: 60 })).toMatch(/carb range/);
+    expect(itemProblem({ ...bare, carbsG: 40, carbsHighG: 50 })).toMatch(/carb range/);
+    expect(itemProblem({ ...bare, carbsG: 40 })).toMatch(/carb range/);
+    expect(itemProblem({ ...bare, carbsLowG: 30, carbsHighG: 50 })).toMatch(/carb range/);
+    expect(itemProblem({ ...bare, carbsG: 40, carbsLowG: 50, carbsHighG: 60 })).toMatch(/carb range/);
+    expect(itemProblem({ ...bare, carbsG: 40, carbsLowG: 30, carbsHighG: 50 })).toBeUndefined();
+  });
+  it('refuses a backup whose meal holds half a carb range, before anything is written (H7-06)', () => {
+    const doc = {
+      format: TRANSFER_FORMAT, version: 1, exportedAt: AT, schemaVersion: 6, observations: [], sessions: [], checkIns: [], personalRecords: [], bodyMetrics: [],
+      focusOverrides: {}, contentState: [], stores: ['meals'], records: { meals: [meal({ items: [{ ...roti, carbsG: 40, carbsLowG: 60, carbsHighG: undefined }] })] },
+    };
+    const preview = previewImport(JSON.parse(JSON.stringify(doc)));
+    expect(preview.ok && preview.rejected?.meals).toBe(1);
+    expect(() => planImport(JSON.parse(JSON.stringify(doc)), 'merge', emptySnapshot())).toThrow(/could not be read, so nothing was changed/);
   });
   it('takes an unknown figure as unknown, never as 0 (A-17)', () => {
     expect(itemProblem({ kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1 })).toBeUndefined();
@@ -112,7 +134,8 @@ describe('every other part a food record could not hold (mutation-checked)', () 
       [{ kind: 'quick', size: 'huge', name: 'Huge plate' }, /needs its size/],
     ];
     for (const [item, why] of cases) expect(itemProblem(item), JSON.stringify(item)).toMatch(why);
-    expect(itemProblem({ ...roti, weighed: true, carbsLowG: undefined, carbsHighG: undefined })).toBeUndefined();
+    // A weighed portion keeps its whole range; carbs with no range are refused (H7-06, above).
+    expect(itemProblem({ ...roti, weighed: true })).toBeUndefined();
   });
   it('refuses a meal it can’t read', () => {
     const cases: [Record<string, unknown>, RegExp][] = [

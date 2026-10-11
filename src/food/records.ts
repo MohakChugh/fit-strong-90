@@ -38,8 +38,11 @@ export function itemProblem(x: unknown): string | undefined {
       if (!isUnitId(x.unit) || !isCount(x.count) || !isAmount(x.gramsPerPortion, 2_000) || x.gramsPerPortion === 0) return `${name}: an impossible portion`;
       if (!optional(x.weighed, v => v === true)) return `${name}: an impossible portion`;
       if (!optional(x.carbsLowG, v => isAmount(v, 2_000)) || !optional(x.carbsHighG, v => isAmount(v, 2_000))) return `${name}: an impossible carb range`;
+      // The estimate and its range are one set (B-12, H7-06): a range is never made from part of one.
       const { carbsG, carbsLowG, carbsHighG } = x;
-      if (typeof carbsG === 'number' && typeof carbsLowG === 'number' && typeof carbsHighG === 'number' && !(carbsLowG <= carbsG && carbsG <= carbsHighG)) {
+      const given = [carbsG, carbsLowG, carbsHighG].filter(v => v !== undefined).length;
+      if (given !== 0 && given !== 3) return `${name}: a carb estimate needs its whole carb range`;
+      if (given === 3 && !((carbsLowG as number) <= (carbsG as number) && (carbsG as number) <= (carbsHighG as number))) {
         return `${name}: a carb range that doesn’t hold its estimate`;
       }
       return undefined;

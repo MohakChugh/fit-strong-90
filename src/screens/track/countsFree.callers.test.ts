@@ -134,7 +134,7 @@ describe('a walk’s energy estimate, counts-free (B-11, KH-09)', () => {
 describe('My Day, counts-free (B-11, KH-09)', () => {
   it('shows a meal’s estimate, and one whose walk is gone, only with estimates', async () => {
     const at = nowAt();
-    const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2 } as const;
+    const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57 } as const;
     expect((await saveMeal({ id: 'meal-1', at, day: at.slice(0, 10), meal: 'breakfast', items: [roti], level: 'estimates', loggedAt: at, edits: [] })).ok).toBe(true);
     // Its walk is gone: a backup restored without it, say. Nothing else would show it.
     expect((await store.addObservation({ kind: 'activeEnergy', value: 21.4, scope: 'sessionObserved', source: 'measured', at, coverageMs: 600_000, context: 'walk:gone' })).ok).toBe(true);
