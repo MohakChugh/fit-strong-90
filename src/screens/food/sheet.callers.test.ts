@@ -361,3 +361,14 @@ describe('Save within reach, and a usual meal’s tray first (K7-07; board D139)
     expect(h.text()).toContain('Common Indian foods');
   });
 });
+
+describe('a past day’s meal, at that meal’s usual hour (K7-12)', () => {
+  it('moves to the meal’s hour when the meal is changed, until the person sets the time', async () => {
+    const h = await open({}, { day: '2026-10-05', meal: 'breakfast' });
+    await h.click(h.button(/^Add Roti \(whole-wheat\)/));
+    await h.click(h.button('Dinner', { exact: true }));
+    expect(h.text()).toContain('8:30 pm');
+    await h.click(h.button('Save meal', { exact: true }));
+    expect(mealsIn(store.getState().records).map(m => [m.meal, m.at])).toEqual([['dinner', '2026-10-05T20:30:00.000+05:30']]);
+  });
+});

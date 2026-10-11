@@ -16,7 +16,7 @@ import { TOAST_STYLE } from '@/components/hig/toast';
 import { allergiesOf, allergyWarning, ownFoodTags } from '@/food/allergens';
 import { FOOD_COPY } from '@/food/copy';
 import { FOODS, foodById } from '@/food/data';
-import { openDraft } from '@/food/draft';
+import { atOn, openDraft } from '@/food/draft';
 import { customItem, refreshItem, totalsOf } from '@/food/estimate';
 import { itemsLine, SLOT_LABEL, totalsLines } from '@/food/format';
 import { foodLevel, numbersView } from '@/food/level';
@@ -92,7 +92,9 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
   const [opened] = useState(() => JSON.stringify([draft.slot, draft.items]));
   const { shownQuery, listProps } = useHeldQuery(query, page.kind === 'tray');
 
-  const at = whenInput !== undefined ? fromLocalInput(whenInput) : draft.at;
+  // A past day's meal follows its meal's usual hour until the person sets the time (K7-12).
+  const shownAt = draft.pastDay ? atOn(draft.pastDay, slot) : draft.at;
+  const at = whenInput !== undefined ? fromLocalInput(whenInput) : shownAt;
   // Read against the clock that ticks each minute; Save checks again when tapped.
   const future = at !== undefined && Date.parse(at) > clock.getTime();
   const dirty = JSON.stringify([slot, items]) !== opened || whenInput !== undefined || own.length > 0 || keepUsual;
@@ -274,7 +276,7 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
             label={FOOD_COPY.when}
             value={whenInput}
             onChange={setWhenInput}
-            {...(draft.at ? { captured: { at: draft.at, label: `${formatDayRelative(draft.at.slice(0, 10), today)}, ${formatClock(draft.at, hour12)}` } } : {})}
+            {...(shownAt ? { captured: { at: shownAt, label: `${formatDayRelative(shownAt.slice(0, 10), today)}, ${formatClock(shownAt, hour12)}` } } : {})}
           />
           {future && <ErrorText>{FOOD_COPY.futureTime}</ErrorText>}
 

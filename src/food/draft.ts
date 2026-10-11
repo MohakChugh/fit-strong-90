@@ -17,10 +17,17 @@ export interface Draft {
   items: MealItem[];
   /** The moment the meal stands for until the person changes it. Absent: the moment Save is tapped. */
   at?: string;
+  /** A past day's meal: its time follows the meal chosen (`atOn`), until the person sets one (K7-12). */
+  pastDay?: { day: string; offset: string };
   editing?: MealRecord;
   page: { kind: 'tray' } | { kind: 'portion'; foodId: string } | { kind: 'quick' };
   /** The meal the address names isn't stored any more. */
   gone?: true;
+}
+
+/** A past day's meal at that meal's usual hour, in this phone's offset. */
+export function atOn(pastDay: { day: string; offset: string }, slot: Slot): string {
+  return `${pastDay.day}T${SLOT_HOUR[slot]}:00.000${pastDay.offset}`;
 }
 
 /** `now` is ISO with this phone's offset (`nowAt()`). */
@@ -51,12 +58,13 @@ export function openDraft(r: LogRequest, ctx: { now: string; meals: readonly Mea
   }
   const today = ctx.now.slice(0, 10);
   const offset = /([+-]\d\d:\d\d|Z)$/.exec(ctx.now)?.[1] ?? 'Z';
-  const at = r.day && r.day < today ? `${r.day}T${SLOT_HOUR[slot]}:00.000${offset}` : undefined;
+  const pastDay = r.day && r.day < today ? { day: r.day, offset } : undefined;
+  const at = pastDay ? atOn(pastDay, slot) : undefined;
   const page: Draft['page'] = r.food && ctx.look.food(r.food) ? { kind: 'portion', foodId: r.food } : r.quick ? { kind: 'quick' } : { kind: 'tray' };
   return {
     slot,
     items: items.map(i => (i.kind === 'food' ? refreshItem(i, ctx.look.food(i.foodId)) : i)),
-    ...(at ? { at } : {}),
+    ...(at && pastDay ? { at, pastDay } : {}),
     page,
     ...(r.edit ? { gone: true as const } : {}),
   };
