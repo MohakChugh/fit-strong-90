@@ -148,6 +148,36 @@ describe('your own food’s allergens, in the tray (H7-04)', () => {
   });
 });
 
+describe('your own food’s checklist, once answered (K7R-04; board D182)', () => {
+  const own = async (h: Host, name: string) => {
+    await h.change(h.field('Search foods'), { value: name });
+    await h.click(h.button(`Add “${name}” as your own food`));
+  };
+  const HINT = 'Anything you leave unticked is treated as not in it';
+  it('says unticked is “not in it”, and names each of your allergies left unticked, quietly', async () => {
+    const h = await open({ allergies: ['peanut', 'milk'] });
+    await own(h, 'Satay sauce');
+    expect(h.text()).not.toContain(HINT);
+    expect(h.text()).not.toContain('You didn’t tick');
+    await h.click(h.button('Soy', { exact: true }));
+    expect(h.text()).toContain(HINT);
+    expect(h.text()).toContain('You didn’t tick peanut. Check it.');
+    expect(h.text()).toContain('You didn’t tick milk. Check it.');
+    await h.click(h.button('Peanuts', { exact: true }));
+    expect(h.text()).not.toContain('You didn’t tick peanut.');
+    expect(h.text()).toContain('You didn’t tick milk. Check it.');
+    await h.click(h.button('None of these', { exact: true }));
+    expect(h.text()).toContain('You didn’t tick peanut. Check it.');
+  });
+  it('says the rule, and nothing more, to someone with no allergies', async () => {
+    const h = await open({});
+    await own(h, 'Satay sauce');
+    await h.click(h.button('Soy', { exact: true }));
+    expect(h.text()).toContain(HINT);
+    expect(h.text()).not.toContain('You didn’t tick');
+  });
+});
+
 describe('a correction made against a meal that changed underneath it (H7-08; board D135)', () => {
   const AT = '2026-10-08T13:10:00.000+05:30';
   const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti (whole-wheat)', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57 } as const;

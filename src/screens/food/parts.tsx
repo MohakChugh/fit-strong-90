@@ -7,7 +7,7 @@
 import { useEffect, useId, useState } from 'react';
 import { ChevronLeftIcon, PlusIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
-import { ALLERGENS, allergenList, allergyWarning, type Allergies } from '@/food/allergens';
+import { ALLERGENS, allergenList, allergenName, allergyWarning, type Allergies } from '@/food/allergens';
 import { FOOD_COPY } from '@/food/copy';
 import { foodItem, QUICK_NAME, quickItem } from '@/food/estimate';
 import { foodRowDetail, itemEstimate } from '@/food/format';
@@ -243,9 +243,11 @@ function figure(text: string, max: number): number | undefined | null {
 }
 
 /** Your own food (journey §11.3): a name and what one portion is, with kcal and carbs only if known, and only with estimates. */
-export function OwnFoodPage({ name: typed, numbers, onBack, onAdd, onDirty }: {
+export function OwnFoodPage({ name: typed, numbers, allergies, onBack, onAdd, onDirty }: {
   name: string;
   numbers: NumbersView;
+  /** The person's own, to name each one left unticked. */
+  allergies: Allergies;
   onBack: () => void;
   onAdd: (food: CustomFood) => void;
   onDirty?: (holds: boolean) => void;
@@ -301,7 +303,8 @@ export function OwnFoodPage({ name: typed, numbers, onBack, onAdd, onDirty }: {
           <Hint>{FOOD_COPY.ownUnknown}</Hint>
         </>
       )}
-      <Group header={FOOD_COPY.ownAllergens}>
+      {/* Once answered, unticked means "not in it": said, with each of the person's allergies left unticked (K7R-04; D182). */}
+      <Group header={FOOD_COPY.ownAllergens} {...(allergens.length > 0 ? { footer: FOOD_COPY.ownUntickedHint } : {})}>
         <CheckRows
           label={FOOD_COPY.ownAllergens}
           options={OWN_ALLERGENS}
@@ -310,6 +313,7 @@ export function OwnFoodPage({ name: typed, numbers, onBack, onAdd, onDirty }: {
           onChange={next => setAllergens(next.includes('none') && !allergens.includes('none') ? ['none'] : next.filter(a => a !== 'none'))}
         />
       </Group>
+      {allergens.length > 0 && allergies.known.filter(a => !allergens.includes(a)).map(a => <Hint key={a}>{FOOD_COPY.ownUnticked(allergenName(a))}</Hint>)}
       {problem && <ErrorText>{problem}</ErrorText>}
       <PrimaryButton onClick={add}>{FOOD_COPY.addToMeal}</PrimaryButton>
     </div>

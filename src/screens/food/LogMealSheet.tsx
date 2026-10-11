@@ -263,6 +263,7 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
           <OwnFoodPage
             name={page.name}
             numbers={numbers}
+            allergies={allergies}
             onDirty={setPageHolds}
             onBack={() => setPage({ kind: 'tray' })}
             onAdd={food => {

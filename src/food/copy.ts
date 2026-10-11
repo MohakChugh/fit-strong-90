@@ -108,6 +108,9 @@ export const FOOD_COPY = {
   ownUnknown: 'Leave a figure blank if you don’t know it. It stays unknown, never 0.',
   ownAllergens: 'It contains (optional)',
   ownNoneOfThese: 'None of these',
+  // Once the checklist is answered, unticked means "not in it" (board D145, D182, K7R-04).
+  ownUntickedHint: 'Anything you leave unticked is treated as not in it',
+  ownUnticked: (allergen: string) => `You didn’t tick ${allergen}. Check it.`,
   ownNoName: 'Give it a name.',
   ownNoQty: 'Say how much one portion is.',
   ownBadFigure: 'That figure can’t be right. Check it, or leave it blank.',
