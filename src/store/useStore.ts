@@ -1147,26 +1147,33 @@ export function removeRecords(store: RecordStore, keys: readonly string[]): Prom
   });
 }
 
+/** Records to put and keys to remove, store by store. */
+export interface RecordsWrite {
+  put?: Partial<Record<RecordStore, readonly StoredRecord[]>>;
+  remove?: Partial<Record<RecordStore, readonly string[]>>;
+}
+
 /**
  * Records in several stores as one change (Plan 7): a meal saved with a new
  * usual meal and the person's own foods. Every put is checked first, and one
- * refusal writes nothing. Keys no longer stored are passed over.
+ * refusal writes nothing. Keys no longer stored are passed over. Given a
+ * plan, it's worked out against the records as stored when it's written, as
+ * every mutation is, and may refuse by throwing a `StoreFailure` (a
+ * correction of a meal changed or deleted elsewhere, H7-08).
  */
-export function writeRecords(write: {
-  put?: Partial<Record<RecordStore, readonly StoredRecord[]>>;
-  remove?: Partial<Record<RecordStore, readonly string[]>>;
-}): Promise<StoreResult> {
+export function writeRecords(write: RecordsWrite | ((records: Readonly<Records>) => RecordsWrite)): Promise<StoreResult> {
   return enqueue<void>({
     plan: base => {
+      const w = typeof write === 'function' ? write(base.records) : write;
       const refused: FailureDetail[] = [];
       const records: NonNullable<Change['records']> = {};
       for (const store of RECORD_STORES) {
-        const put = write.put?.[store] ?? [];
+        const put = w.put?.[store] ?? [];
         put.forEach((r, index) => {
           const problem = recordProblem(store, r);
           if (problem) refused.push({ index, ...(recordKey(store, r) ? { id: recordKey(store, r) } : {}), reason: `${RECORD_RULES[store].label.one} ${index + 1}: ${problem}` });
         });
-        const wanted = new Set(write.remove?.[store] ?? []);
+        const wanted = new Set(w.remove?.[store] ?? []);
         const remove = base.records[store].map(r => recordKey(store, r)).filter(k => wanted.has(k));
         if (put.length > 0 || remove.length > 0) records[store] = { ...(put.length > 0 ? { put: [...put] } : {}), ...(remove.length > 0 ? { remove } : {}) };
       }

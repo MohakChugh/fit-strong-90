@@ -10,7 +10,8 @@ import { createElement } from 'react';
 import type { FoodPreferences, UserProfile } from '@/types/profile';
 import { createDefaultProfile } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
-import { render, textOf, type Host } from '@/test/host';
+import { render, textOf, type Host, type HostNode } from '@/test/host';
+import type { MealRecord } from '@/food/types';
 
 vi.mock('react-router-dom', async () => {
   const { createElement: h } = await import('react');
@@ -53,6 +54,11 @@ Object.assign(globalThis, {
 
 const store = await import('@/store/useStore');
 const { LogMealSheet } = await import('./LogMealSheet');
+const food = await import('@/food/store');
+const { corrected, mealsIn, stored } = await import('@/food/records');
+
+/** Every host node under one, depth first. */
+const allIn = (node: HostNode): HostNode[] => node.children.flatMap(c => (typeof c === 'string' ? [] : [c, ...allIn(c)]));
 
 /** 13:20 on Thursday 8 October: lunch by the sheet's clock. */
 const NOW = new Date(2026, 9, 8, 13, 20, 0).getTime();
@@ -108,5 +114,44 @@ describe('your own food’s allergens, in the tray (H7-04)', () => {
     expect(item(h, 'Bhel puri')).toContain('What’s in it isn’t known. Check it for peanut.');
     await addOwn(h, 'Thepla', ['None of these']);
     expect(item(h, 'Thepla')).not.toMatch(/isn’t known|peanut/);
+  });
+});
+
+describe('a correction made against a meal that changed underneath it (H7-08; board D135)', () => {
+  const AT = '2026-10-08T13:10:00.000+05:30';
+  const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti (whole-wheat)', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57 } as const;
+  const lunch: MealRecord = { id: 'meal-1', at: AT, day: '2026-10-08', meal: 'lunch', items: [roti], level: 'estimates', loggedAt: AT, edits: [] };
+  const stepMore = async (h: Host) => {
+    const row = h.all().find(n => n.props['data-item'] === 'Roti (whole-wheat)')!;
+    const more = row && allIn(row).find(n => n.type === 'button' && textOf(n.children).includes('More'));
+    await h.click(more!);
+  };
+
+  it('keeps the other correction and its history, keeps the draft, and says what changed', async () => {
+    await store.update(prev => ({ ...prev, profile: person({}) }));
+    expect((await food.saveMeal(lunch)).ok).toBe(true);
+    const h = await open({}, { edit: 'meal-1' });
+    // Another screen moves it to dinner while this sheet is open.
+    const elsewhere = corrected(lunch, { at: AT, meal: 'dinner', items: lunch.items }, '2026-10-08T13:15:00.000+05:30');
+    expect((await store.writeRecords({ put: { meals: [stored(elsewhere)] } })).ok).toBe(true);
+    await stepMore(h);
+    await h.click(h.button('Save meal', { exact: true }));
+    expect(mealsIn(store.getState().records)).toEqual([elsewhere]);
+    expect(h.text()).toMatch(/changed elsewhere at 1:15 pm.*It’s now Dinner, Roti \(whole-wheat\) ×2/);
+    expect(item(h, 'Roti (whole-wheat)')).toContain('3 rotis');
+    expect(toasts).toEqual([]);
+  });
+
+  it('never brings back a meal deleted underneath it, and keeps its deletion record', async () => {
+    await store.update(prev => ({ ...prev, profile: person({}) }));
+    expect((await food.saveMeal(lunch)).ok).toBe(true);
+    const h = await open({}, { edit: 'meal-1' });
+    expect((await food.deleteMeal('meal-1')).ok).toBe(true);
+    await stepMore(h);
+    await h.click(h.button('Save meal', { exact: true }));
+    expect(mealsIn(store.getState().records)).toEqual([]);
+    expect(store.getState().settings.deleted?.records?.meals).toEqual(['meal-1']);
+    expect(h.text()).toMatch(/deleted/);
+    expect(toasts).toEqual([]);
   });
 });

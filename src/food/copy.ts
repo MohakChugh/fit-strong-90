@@ -93,6 +93,8 @@ export const FOOD_COPY = {
   restored: (slot: string) => `${slot} restored`,
   undo: 'Undo',
   didNotSave: 'That didn’t save.',
+  changedElsewhere: (when: string, now: string) => `That meal was changed elsewhere at ${when}, so this wasn’t saved. It’s now ${now}. Close this and open it again to correct that version.`,
+  deletedElsewhere: 'That meal was deleted elsewhere, so this wasn’t saved. Nothing was changed.',
   // Your own food, and Quick add
   ownTitle: 'Your own food',
   ownName: 'Name',

@@ -82,14 +82,58 @@ describe('correcting, deleting and restoring (A-22, B-05)', () => {
     await booted();
     const dinner = meal('meal-1', { at: '2026-10-07T23:30:00.000+05:30', day: '2026-10-07', meal: 'dinner' });
     await food.saveMeal(dinner);
-    const later = corrected(dinner, { at: '2026-10-08T00:30:00.000+05:30', meal: 'dinner', items: dinner.items }, '2026-10-08T09:00:00.000+05:30');
     const own: CustomFood = { id: 'food-1', name: 'Bhel puri', per: { qty: 1, unit: 'plate' }, createdAt: AT, updatedAt: AT };
-    expect((await food.saveCorrection(later, [own])).ok).toBe(true);
+    expect((await food.saveCorrection(dinner, { at: '2026-10-08T00:30:00.000+05:30', meal: 'dinner', items: dinner.items }, '2026-10-08T09:00:00.000+05:30', { customFoods: [own] })).ok).toBe(true);
     expect(customFoodsIn(store.getState().records)).toEqual([own]);
     const kept = mealsIn(store.getState().records);
     expect(kept).toHaveLength(1);
     expect(kept[0]).toMatchObject({ id: 'meal-1', day: '2026-10-08', editedAt: '2026-10-08T09:00:00.000+05:30' });
     expect(kept[0].edits).toEqual([{ replacedAt: '2026-10-08T09:00:00.000+05:30', at: dinner.at, meal: 'dinner', items: dinner.items }]);
+  });
+
+  it('corrects the meal as stored now, refusing one corrected or deleted since the sheet opened it (H7-08; board D135)', async () => {
+    await booted();
+    const m = meal('meal-1');
+    await food.saveMeal(m);
+    const first = await food.saveCorrection(m, { at: AT, meal: 'dinner', items: m.items }, '2026-10-08T14:00:00.000+05:30');
+    expect(first.ok).toBe(true);
+    const now = mealsIn(store.getState().records)[0];
+    // The same old version again: refused, in the caller's words, and the first correction stands.
+    const stale = await food.saveCorrection(m, { at: AT, meal: 'lunch', items: [{ ...roti, count: 3 }] }, '2026-10-08T14:05:00.000+05:30', { describe: c => `now ${c?.meal}` });
+    expect(!stale.ok && [stale.failure.code, stale.failure.message]).toEqual(['conflict', 'now dinner']);
+    expect(mealsIn(store.getState().records)).toEqual([now]);
+    // The version it now is: corrected, keeping both earlier versions.
+    expect((await food.saveCorrection(now, { at: AT, meal: 'snack', items: m.items }, '2026-10-08T14:10:00.000+05:30')).ok).toBe(true);
+    expect(mealsIn(store.getState().records)[0].edits.map(e => e.meal)).toEqual(['lunch', 'dinner']);
+    // Deleted since: refused, and its deletion record kept.
+    await food.deleteMeal('meal-1');
+    const gone = await food.saveCorrection(mealsIn(store.getState().records)[0] ?? now, { at: AT, meal: 'lunch', items: m.items }, '2026-10-08T14:20:00.000+05:30');
+    expect(!gone.ok && gone.failure.code).toBe('conflict');
+    expect(mealsIn(store.getState().records)).toEqual([]);
+    expect(store.getState().settings.deleted?.records?.meals).toEqual(['meal-1']);
+  });
+
+  it('refuses a correction of a copy stored since with the same times but other contents, as a merge may bring (H7-08)', async () => {
+    await booted();
+    const m = meal('meal-1');
+    await food.saveMeal(m);
+    const merged = { ...m, items: [{ ...roti, count: 3 }] };
+    await store.writeRecords({ put: { meals: [merged] } });
+    const result = await food.saveCorrection(m, { at: AT, meal: 'dinner', items: m.items }, '2026-10-08T14:00:00.000+05:30');
+    expect(!result.ok && result.failure.code).toBe('conflict');
+    expect(mealsIn(store.getState().records)).toEqual([merged]);
+  });
+
+  it('is planned against what the screen shows, a delete still waiting to be written included: nothing comes back, even for a moment (H7-08)', async () => {
+    await booted();
+    const m = meal('meal-1');
+    await food.saveMeal(m);
+    const deleting = food.deleteMeal('meal-1');
+    const correcting = food.saveCorrection(m, { at: AT, meal: 'dinner', items: m.items }, '2026-10-08T14:00:00.000+05:30');
+    expect(mealsIn(store.getState().records)).toEqual([]);
+    expect((await deleting).ok).toBe(true);
+    expect((await correcting).ok).toBe(false);
+    expect(mealsIn(store.getState().records)).toEqual([]);
   });
 
   it('deletes at once, remembers the deletion, and brings the meal back under a fresh id', async () => {

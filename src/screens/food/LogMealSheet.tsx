@@ -20,7 +20,7 @@ import { customItem, refreshItem, totalsOf } from '@/food/estimate';
 import { itemsLine, SLOT_LABEL, totalsLines } from '@/food/format';
 import { foodLevel, numbersView } from '@/food/level';
 import type { LogRequest } from '@/food/links';
-import { corrected, customFoodsIn, mealsIn, savedMealsIn } from '@/food/records';
+import { customFoodsIn, mealsIn, savedMealsIn } from '@/food/records';
 import { commonFoods, searchFoods } from '@/food/search';
 import { deleteMeal, newMealId, newUsualId, restoreMeal, saveCorrection, saveMeal } from '@/food/store';
 import { addFood, step, type Lookup } from '@/food/tray';
@@ -45,6 +45,9 @@ const SLOTS: Slot[] = ['breakfast', 'lunch', 'snack', 'dinner'];
 const SLOT_OPTIONS = SLOTS.map(id => ({ id, label: SLOT_LABEL[id] }));
 const FIELD = 'h-11 w-full rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50';
 const LABEL = 'px-4 pb-2 text-[length:var(--text-footnote)] font-medium uppercase tracking-wide text-muted-foreground';
+
+/** A time that hasn't come yet, read when Save is tapped. */
+const notYet = (at: string) => Date.parse(at) > Date.now();
 
 type Page =
   | { kind: 'tray' }
@@ -127,14 +130,20 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
   };
 
   const save = async () => {
-    if (busy.current || items.length === 0 || (at !== undefined && Date.parse(at) > Date.now())) return;
+    if (busy.current || items.length === 0 || (at !== undefined && notYet(at))) return;
     busy.current = true;
     setSaving(true);
     setError(undefined);
     const now = nowAt();
     const when = at ?? now;
     const result = editing
-      ? await saveCorrection(corrected(editing, { at: when, meal: slot, items }, now), own)
+      ? await saveCorrection(editing, { at: when, meal: slot, items }, now, {
+        customFoods: own,
+        // What changed, so the person can see why nothing was saved: the draft stays (board D135).
+        describe: current => (current
+          ? FOOD_COPY.changedElsewhere(formatClock(current.editedAt ?? current.loggedAt, hour12), `${SLOT_LABEL[current.meal]}, ${itemsLine(current.items)}`)
+          : FOOD_COPY.deletedElsewhere),
+      })
       : await saveMeal(
         { id: mealId, at: when, day: when.slice(0, 10), meal: slot, items, level: foodLevel(profile?.food) === 'estimates' ? 'estimates' : 'meals', loggedAt: now, edits: [] },
         {
@@ -145,7 +154,7 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
     busy.current = false;
     setSaving(false);
     if (!result.ok) {
-      setError(`${FOOD_COPY.didNotSave} ${result.failure.message}`);
+      setError(result.failure.code === 'conflict' ? result.failure.message : `${FOOD_COPY.didNotSave} ${result.failure.message}`);
       return;
     }
     // A save is an unrelated change: any Undo still standing ends (B-04).
