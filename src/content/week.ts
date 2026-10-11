@@ -1,5 +1,5 @@
-import { allergiesOf, recommendable, type AllergenTags } from '@/food/allergens';
-import { foodById, ingredientByKey } from '@/food/data';
+import { allergiesOf, recommendable, resolveAllergens, type AllergenTags } from '@/food/allergens';
+import { FOOD_DATA, foodById, ingredientByKey } from '@/food/data';
 import type { Food, FoodIngredient } from '@/food/types';
 import type { AllergenId, FoodPreferences } from '@/types/profile';
 import { JAIN_LEAVES_OUT, mealPattern } from './allergens';
@@ -187,6 +187,23 @@ export function mealAllowed(meal: MealTemplate, food?: FoodPreferences): boolean
 export function unmatchedAvoid(avoid: readonly string[] = [], pattern?: Pattern): string[] {
   const pool = MEALS.filter(m => suits(m, pattern));
   return avoid.filter(term => !pool.some(m => isAvoided(m, [term], pattern)));
+}
+
+/** Each food's and ingredient's own words, worked out once: the words an allergy in a person's own words is matched against. */
+let foodWords: Set<string>[] | undefined;
+
+/**
+ * What an allergy in the person's own words is read as (K7R-02; board D180): the allergens its words name
+ * ("chaach" is milk), or, when none does and no one food or ingredient of ours goes by all its words, `unknown`:
+ * it can't keep a meal out by itself, so the person checks every meal. Nothing: our foods' words find it, as written.
+ */
+export function ownAllergyReading(entry: string): { allergens: AllergenId[] } | 'unknown' | undefined {
+  const allergens = resolveAllergens(entry);
+  if (allergens.length > 0) return { allergens };
+  // No words at all is in every food, vacuously: nothing to say.
+  const wanted = tokens(entry);
+  foodWords ??= [...FOOD_DATA.foods, ...FOOD_DATA.ingredients].map(f => new Set(f.words));
+  return foodWords.some(words => wanted.every(w => words.has(w))) ? undefined : 'unknown';
 }
 
 /**

@@ -31,6 +31,8 @@ const ALLERGEN_DEFS: Record<AllergenId, Omit<Allergen, 'id'>> = {
     aliases: [
       'milk', 'dairy', 'lactose', 'curd', 'dahi', 'yogurt', 'yoghurt', 'paneer', 'ghee', 'butter', 'buttermilk', 'cream', 'cheese', 'khoya', 'khoa',
       'mawa', 'malai', 'chhena', 'doodh', 'raita', 'chaas', 'lassi', 'thayir', 'दूध', 'दही', 'पनीर', 'घी',
+      // Regional words for buttermilk, butter and shrikhand, and the food table's own spellings of chaas (K7R-02; board D180).
+      'chaach', 'mattha', 'taak', 'moru', 'majjiga', 'makhan', 'shrikhand', 'chhachh', 'majjige', 'mor',
     ],
   },
   egg: { label: 'Egg', name: 'egg', aliases: ['egg', 'anda', 'omelette', 'अंडा'] },

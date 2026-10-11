@@ -7,7 +7,7 @@ import { FOOD_COPY } from '@/food/copy';
 import { CheckRows } from '@/screens/you/controls';
 import type { AllergenId, FoodPreferences } from '@/types/profile';
 import { cn } from '@/lib/utils';
-import { AVOID_HELP, parseAllergies, parseAvoid, REGION_LABEL, unmatchedNote } from './format';
+import { AVOID_HELP, ownAllergyNote, parseAllergies, parseAvoid, REGION_LABEL, unmatchedNote } from './format';
 import { saveFood } from './useGuide';
 
 const PATTERNS: Pattern[] = ['vegetarian', 'eggetarian', 'nonVegetarian', 'vegan', 'jain'];
@@ -50,8 +50,11 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
   const avoidNote = useId();
   const allergyId = useId();
   const allergyHelp = useId();
+  const allergyNote = useId();
   // Said while typing, so an entry that hides nothing is never taken as done.
   const unmatched = unmatchedNote(unmatchedAvoid(parseAvoid(avoid), pattern));
+  // And how each allergy in the person's own words is read, so one that keeps nothing out is never taken as done (K7R-02).
+  const read = ownAllergyNote(parseAllergies(otherAllergies));
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -96,12 +99,17 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
           onChange={e => setOtherAllergies(e.target.value)}
           placeholder={FOOD_COPY.somethingElsePlaceholder}
           autoComplete="off"
-          aria-describedby={allergyHelp}
+          aria-describedby={read ? `${allergyHelp} ${allergyNote}` : allergyHelp}
           className="h-11 rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50"
         />
         <p id={allergyHelp} className="px-4 pt-2 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
           {FOOD_COPY.allergiesFooter}
         </p>
+        {read && (
+          <p id={allergyNote} role="status" className={cn('px-4 pt-2 text-[length:var(--text-footnote)] leading-snug', read.unknown ? 'text-caution' : 'text-muted-foreground')}>
+            {read.text}
+          </p>
+        )}
       </div>
 
       <Choices legend="Dishes from (optional)">

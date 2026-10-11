@@ -101,6 +101,28 @@ describe('“Clear food preferences” (K7-03; board D137)', () => {
   });
 });
 
+describe('how each allergy in your own words is read (K7R-02; board D180)', () => {
+  it('says “Read as milk”, or that we don’t know the word, under each', async () => {
+    const h = await screen({ pattern: 'vegetarian', avoid: [], customAllergies: ['chaach', 'kumquat', 'jeera'] });
+    // The smallest part of the screen that starts with the entry and says more: its row.
+    const row = (label: string) => h.all().map(n => textOf(n.children)).filter(t => t.startsWith(label) && t !== label).sort((a, b) => a.length - b.length)[0] ?? '';
+    expect(row('chaach')).toContain('Read as milk');
+    expect(row('kumquat')).toContain('We don’t know this word, so check every meal yourself');
+    expect(row('jeera')).not.toMatch(/Read as|don’t know/);
+    const said = h.all().filter(n => n.type === 'span' && textOf(n.children) === 'We don’t know this word, so check every meal yourself');
+    expect(said.some(n => String(n.props.className).split(' ').includes('text-caution'))).toBe(true);
+  });
+  it('says the same while the words are typed in setup’s “Your food”', async () => {
+    const { FoodPicker } = await import('@/screens/guide/FoodPicker');
+    host = render(createElement(FoodPicker, { open: true, onOpenChange() {}, canSave: true }));
+    await host.settle();
+    await host.change(host.field('Something else'), { value: 'chaach, kumquat' });
+    const note = host.all().find(n => n.props.role === 'status' && textOf(n.children).includes('chaach'))!;
+    expect(textOf(note.children)).toBe('chaach: Read as milk. kumquat: We don’t know this word, so check every meal yourself.');
+    expect(String(note.props.className)).toContain('text-caution');
+  });
+});
+
 describe('removing a word, with a visible “Remove” (H7-17, K7-09; board D141)', () => {
   it('labels each allergy and food left out “Remove”, its name kept for VoiceOver, at 48 px', async () => {
     const h = await screen({ pattern: 'vegetarian', avoid: ['mushroom'], customAllergies: ['brinjal'] });

@@ -1,6 +1,7 @@
 import type { FoodPreferences } from '@/types/profile';
-import { PATTERN_LABEL, unmatchedAvoid, type SearchResult } from '@/content';
-import { allergenName } from '@/food/allergens';
+import { ownAllergyReading, PATTERN_LABEL, unmatchedAvoid, type SearchResult } from '@/content';
+import { allergenList, allergenName } from '@/food/allergens';
+import { FOOD_COPY } from '@/food/copy';
 
 /** "2026-10-08" → "8 October 2026", read as a local calendar date. */
 export function longDate(iso: string): string {
@@ -66,6 +67,25 @@ export function unmatchedNote(entries: readonly string[]): string | undefined {
   return entries.length === 1
     ? `Nothing was left out for ${list}: none of the meal ideas shown to you names it. A meal can still contain it under another name.`
     : `Nothing was left out for ${list}: none of the meal ideas shown to you names them. A meal can still contain them under other names.`;
+}
+
+/**
+ * How an allergy in the person's own words is read (K7R-02; board D180): "Read as milk", or, said with
+ * caution, that we don't know the word; nothing when our foods' words find it as written.
+ */
+export function ownAllergyStatus(entry: string): { text: string; unknown: boolean } | undefined {
+  const reading = ownAllergyReading(entry);
+  if (reading === 'unknown') return { text: FOOD_COPY.unknownWord, unknown: true };
+  return reading && { text: FOOD_COPY.readAs(allergenList(reading.allergens)), unknown: false };
+}
+
+/** The setup field's entries that have a status, as one note ("chaach: Read as milk."), and whether any word is unknown. */
+export function ownAllergyNote(entries: readonly string[]): { text: string; unknown: boolean } | undefined {
+  const read = entries.flatMap(e => {
+    const status = ownAllergyStatus(e);
+    return status ? [{ line: `${e}: ${status.text}.`, unknown: status.unknown }] : [];
+  });
+  return read.length > 0 ? { text: read.map(r => r.line).join(' '), unknown: read.some(r => r.unknown) } : undefined;
 }
 
 /** "“insulin”", or "“fasting” and “insulin”". */

@@ -4,7 +4,9 @@ import { MEALS } from './meals';
 import type { Pattern, Slot } from './schema';
 import { JAIN_LEAVES_OUT, withPicked } from './allergens';
 import { componentKey, MEAL_DISHES, type ComponentFoods } from './mealDishes';
-import { componentsFor, isAvoided, mealAllowed, mealsFor, mealTags, sampleWeek, suits, veganSwaps, WEEKDAYS } from './week';
+import { FOODS } from '@/food/data';
+import { tokens } from './text';
+import { componentsFor, isAvoided, mealAllowed, mealsFor, mealTags, ownAllergyReading, sampleWeek, suits, veganSwaps, WEEKDAYS } from './week';
 
 const PATTERNS: Pattern[] = ['vegetarian', 'eggetarian', 'nonVegetarian', 'vegan'];
 const SLOTS: Slot[] = ['breakfast', 'lunch', 'snack', 'dinner'];
@@ -308,5 +310,28 @@ describe('allergies and the Jain pattern from recipe tags (B-13, board D99, D100
   });
   it('fills a Jain sample week from those ideas', () => {
     for (const day of sampleWeek(food('jain'))) expect(Object.keys(day.meals).sort()).toEqual(['breakfast', 'dinner', 'lunch', 'snack']);
+  });
+});
+
+describe('an allergy in the person’s own words, read (K7R-02; board D180)', () => {
+  it('names the allergens its words do, and says when nothing of ours goes by them', () => {
+    expect(ownAllergyReading('chaach')).toEqual({ allergens: ['milk'] });
+    expect(ownAllergyReading('coconut milk')).toEqual({ allergens: ['milk'] });
+    expect(ownAllergyReading('Peanuts and badam')).toEqual({ allergens: ['peanut', 'treeNut'] });
+    expect(ownAllergyReading('kumquat')).toBe('unknown');
+    expect(ownAllergyReading('jeera')).toBeUndefined();
+    expect(ownAllergyReading('Cumin')).toBeUndefined();
+    // None of our foods is brinjal: the word keeps nothing out by itself.
+    expect(ownAllergyReading('brinjal')).toBe('unknown');
+    expect(ownAllergyReading('  ')).toBeUndefined();
+  });
+  it('finds a word only within one food or ingredient, as the filter matches it', () => {
+    // Cumin is in chaas and rice in many dishes, but no one food is both "cumin" and "kumquat".
+    expect(ownAllergyReading('cumin kumquat')).toBe('unknown');
+  });
+  it('agrees with the food table for every milk word: each food the table names by one is tagged milk', () => {
+    for (const word of ['chaach', 'mattha', 'taak', 'moru', 'majjiga', 'makhan', 'shrikhand', 'chhachh', 'majjige', 'mor']) {
+      for (const f of FOODS.filter(x => x.words.includes(tokens(word)[0]))) expect(f.allergens.contains, `${word}: ${f.id}`).toContain('milk');
+    }
   });
 });

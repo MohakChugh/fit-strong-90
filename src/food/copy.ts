@@ -136,6 +136,9 @@ export const FOOD_COPY = {
   allergiesFooter: 'Meal ideas leave out anything with these in it, or that may have them. Foods you’ve eaten can still be logged.',
   somethingElse: 'Something else',
   somethingElsePlaceholder: 'For example: brinjal',
+  // How an allergy in the person's own words is read (K7R-02; board D180).
+  readAs: (allergens: string) => `Read as ${allergens}`,
+  unknownWord: 'We don’t know this word, so check every meal yourself',
   avoidFooter: 'Foods you don’t eat, in your own words. Meal ideas leave them out.',
   targetGroup: 'Daily target from your care team (optional)',
   targetFooter: 'FitStrong doesn’t suggest targets. Add one only if your care team gave it to you.',

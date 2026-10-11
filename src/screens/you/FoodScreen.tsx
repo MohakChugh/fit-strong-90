@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { ALLERGENS } from '@/food/allergens';
@@ -6,6 +6,7 @@ import { FOOD_COPY, LEVEL_LABEL } from '@/food/copy';
 import { foodLevel, numbersView } from '@/food/level';
 import { promptDefault } from '@/food/prompts';
 import { LevelSheet } from '@/screens/food/LevelSheet';
+import { ownAllergyStatus } from '@/screens/guide/format';
 import { formatDayShort } from '@/screens/track/format';
 import { ConfirmSheet, NumberField } from '@/screens/track/ui';
 import { useToday } from '@/screens/track/useToday';
@@ -138,6 +139,11 @@ export function FoodScreen() {
           inputLabel={FOOD_COPY.somethingElse}
           placeholder={FOOD_COPY.somethingElsePlaceholder}
           items={food.customAllergies ?? []}
+          // How each is read: "Read as milk", or, in caution ink, that we don't know the word (K7R-02).
+          detailOf={item => {
+            const status = ownAllergyStatus(item);
+            return status && (status.unknown ? <span className="text-caution">{status.text}</span> : status.text);
+          }}
           onAdd={entry => edit(current => current && { ...current, customAllergies: addAvoid(current.customAllergies ?? [], entry) })}
           onRemove={item => void edit(current => {
             if (!current) return current;
@@ -250,13 +256,15 @@ export function FoodScreen() {
 }
 
 /** A list of the person's own words, each removable, with a field to add one. */
-function WordList({ header, footer, inputId, inputLabel, placeholder, items, onAdd, onRemove }: {
+function WordList({ header, footer, inputId, inputLabel, placeholder, items, detailOf, onAdd, onRemove }: {
   header: string;
   footer?: string;
   inputId: string;
   inputLabel: string;
   placeholder: string;
   items: readonly string[];
+  /** A line under an entry, when it has one. */
+  detailOf?: (item: string) => ReactNode;
   onAdd: (entry: string) => Promise<boolean>;
   onRemove: (item: string) => void;
 }) {
@@ -275,6 +283,7 @@ function WordList({ header, footer, inputId, inputLabel, placeholder, items, onA
         <Row
           key={item}
           label={item}
+          {...(detailOf?.(item) ? { detail: detailOf(item) } : {})}
           className="py-1"
           accessory={
             // "Remove" in words, at 48 px, the word named for VoiceOver (§20.4 rules 1, 2; board D141).

@@ -59,6 +59,11 @@ describe('resolveAllergens: the person’s own words to canonical ids (B-13, Rev
   it('reads the other words for milk sweets and cream as milk (K7-01)', () => {
     for (const word of ['khoa', 'mawa', 'malai', 'chhena']) expect(resolveAllergens(word), word).toEqual(['milk']);
   });
+  it('reads the regional words for buttermilk, butter and shrikhand as milk, and the food table’s own spellings too (K7R-02; board D180)', () => {
+    for (const word of ['chaach', 'mattha', 'taak', 'moru', 'majjiga', 'makhan', 'shrikhand', 'chhachh', 'majjige', 'mor']) {
+      expect(resolveAllergens(word), word).toEqual(['milk']);
+    }
+  });
 });
 
 describe('allergiesOf', () => {
