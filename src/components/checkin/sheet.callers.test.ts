@@ -75,7 +75,8 @@ afterEach(() => {
 
 async function seed(profile: UserProfile, records: DailyCheckIn[] = []) {
   const recs = records.map((c, i) => ({ ...c, readiness: evaluateCheckIn(profile, c, records.slice(0, i)) }));
-  await store.update(prev => ({ ...prev, profile, checkIns: recs }));
+  // Someone who has finished setting up (a record part-way through setup is held for its gap, H5-05).
+  await store.update(prev => ({ ...prev, profile, settings: { ...prev.settings, onboardingComplete: true }, checkIns: recs }));
 }
 
 /** The sheet as Today and the start buttons mount it: the real hook's record, save and earlier days. */

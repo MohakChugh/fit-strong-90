@@ -27,7 +27,8 @@ import type { UserProfile } from '@/types/profile';
 import { arrivalGate, liveGate, startGate } from '@/session/gate';
 import { answeredCheckIn, profileOnlyReadiness } from '@/engine/readiness';
 import { effectiveCheckIns, pendingCheckInsVersion, subscribePendingCheckIns } from '@/components/checkin/pending';
-import { createDefaultProfile } from '@/profile/defaults';
+import { getSetupSession } from '@/setup/draft';
+import { gateProfile } from '@/setup/effective';
 import { toDateString } from '@/lib/utils';
 import { getState, subscribe, type StoreState } from '@/store/useStore';
 import type { WalkIntent } from './live';
@@ -82,7 +83,8 @@ export function walkInput(clinical: Clinical, now: Date, clockChangedAt?: number
  * for its health questions, never assumed fine.
  */
 export function deviceClinical(state: Pick<StoreState, 'profile' | 'checkIns' | 'settings'> & { observations?: StoreState['observations'] }): Clinical {
-  const profile = state.profile ?? createDefaultProfile({ weightKg: state.settings.currentWeight || 0, needsHealthReview: true });
+  // While setup is unfinished, its gap and any stricter answer it has disclosed (H5-05).
+  const profile = gateProfile(state);
   // Track's glucose and blood pressure readings count as the check-in's do (scan X2-01).
   return { profile, checkIns: effectiveCheckIns(state.checkIns, profile, state.observations ?? []) };
 }
@@ -161,15 +163,17 @@ export function deviceGate(
   // Keyed on the state itself, not the parts read today: the store hands out a
   // new state only when something changed, so whatever the gate comes to read
   // from it is covered, and a quiet walk asks the cache.
-  let memo: { state: unknown; pending: number; day: string; clinical: Clinical } | undefined;
+  let memo: { state: unknown; pending: number; session: unknown; day: string; clinical: Clinical } | undefined;
   return (intent, clockChangedAt) => {
     const at = now();
     const state = read();
     const day = toDateString(at);
     const pending = pendingCheckInsVersion();
-    if (!memo || memo.state !== state || memo.pending !== pending || memo.day !== day) {
+    // Setup's answers kept this session only count too (`gateProfile`).
+    const session = getSetupSession();
+    if (!memo || memo.state !== state || memo.pending !== pending || memo.session !== session || memo.day !== day) {
       const all = deviceClinical(state);
-      memo = { state, pending, day, clinical: { profile: all.profile, checkIns: reachableHistory(all.checkIns, day, all.profile) } };
+      memo = { state, pending, session, day, clinical: { profile: all.profile, checkIns: reachableHistory(all.checkIns, day, all.profile) } };
     }
     return walkRefusal(walkInput(memo.clinical, at, clockChangedAt), intent) === undefined;
   };

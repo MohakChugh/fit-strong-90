@@ -105,7 +105,7 @@ const answer = (p: UserProfile) => permission({ profile: p, checkIn: today()!, n
 async function feelingLow(p: UserProfile) {
   const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } };
   const rec: CheckInRecord = { ...morning, readiness: evaluateCheckIn(p, morning) };
-  await store.update(prev => ({ ...prev, profile: p, checkIns: [rec] }));
+  await store.update(prev => ({ ...prev, profile: p, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [rec] }));
   router.params = new URLSearchParams({ id: newWalkId(Date.now()) });
   host = render(createElement(LiveWalkScreen));
   await host.settle();

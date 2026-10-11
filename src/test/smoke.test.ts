@@ -28,7 +28,7 @@ afterEach(() => { host?.unmount(); vi.useRealTimers(); });
 describe('host smoke', () => {
   it('renders the real sheet over the real store and saves through useGuided', async () => {
     const profile = createDefaultProfile({ health: { diabetes: 'type2', insulin: 'injections_or_pump', insulinRegimen: 'basalOnly', medicinesReviewed: true, glucoseMonitor: 'meter', currentlyActive: true, clearance: 'vigorous' } });
-    await store.update(prev => ({ ...prev, profile }));
+    await store.update(prev => ({ ...prev, profile, settings: { ...prev.settings, onboardingComplete: true } }));
     const onStart = vi.fn();
     function Harness() {
       const g = useGuided();

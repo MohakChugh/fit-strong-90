@@ -80,7 +80,7 @@ export function useSetupSession(): SetupSession {
     // The record's epoch moves on in the store, so that's listened to as well.
     const stop = subscribe(listener);
     return () => { listeners.delete(listener); stop(); };
-  }, current);
+  }, current, current);
 }
 export const getSetupSession = (): SetupSession => current();
 

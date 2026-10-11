@@ -945,7 +945,7 @@ describe('round 3: what the walk acts on is every day’s effective record', () 
     pain: { areas: ['lowerBack', 'sciatica'], sciaticaSide: 'left', worseWith: 'flexion' },
     health: { diabetes: 'type2', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
   });
-  const settings = { currentWeight: 82 } as AppData['settings'];
+  const settings = { currentWeight: 82, onboardingComplete: true } as AppData['settings'];
   const readiness: Readiness = {
     outcome: 'green', modifiers: [], back: 'green', nerveFlag: false, reasons: [], actions: [],
     vigorousLocked: false, capHeavy: false, rpeOnly: false, notices: [],
