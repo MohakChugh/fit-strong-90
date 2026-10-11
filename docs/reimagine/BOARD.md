@@ -927,3 +927,24 @@ The plan is `docs/superpowers/plans/2026-10-10-fitstrong-v2-plan-5-setup.md`. It
 | D104 | Each logged item keeps its name, recipe revision, unit, grams and estimate snapshot (B-12), so history reads the same when the table changes. Undo restores a deleted meal under a fresh id, with `restoredFrom`; the deletion record stays (B-05) | J§18.2, B-05 |
 
 Task 1's checks found every name Plans 2, 4, 5 and 6 left under the name this plan expects, so there are no name pairs to record.
+
+### 2026-10-11 — [claude] v2 Plan 7 (Food): acceptance
+
+| Journey | What it proves | Result |
+| --- | --- | --- |
+| V-J03 | A usual lunch in three taps; "Lunch saved" only once stored; no figure counts-free; a refused write keeps the tray | Passed in all four projects |
+| V-J28 | Logging turned on from the hub, in place; estimates only after the screening question, with the answer kept as `food.hardBefore` | Passed in all four projects, once `food.openHub` waits for the hub to load (below) |
+| V-J29 | A peanut allergy keeps poha out of the ideas and warns when it's logged; your own food with no values stays unknown; the partial total | Passed in all four projects |
+| V-J30 | Four taps for an adjusted usual lunch, five for the first-time path; a double tap saves one meal | Passed in all four projects |
+| V-J31 | A meal from 10 days ago corrected with its history, no reading or check-in changed, the urgent low still urgent. Pending: Food's trend | Passed in all four projects, with its one pending item |
+
+Where Task 16 differs from the plan's text, and why:
+- **`food.openHub` waits for the hub's content, past its skeleton** (`ui.LOADING`), as `hub.openHub` does. The hub's skeleton has the title "Food" too. Without the wait, V-J28 counted "Lunch · ideas for you" while the skeleton still showed, found no ideas, and failed in all four projects.
+- **Two test-only changes from `feat/v2-journey` are cherry-picked here**, so the full run tests Plan 7 against the integrated journeys. They are 179239d (VJ12's "Water" row, J07's walk energy record, J10's Done going to the Walk hub) and the VJ06 change in 831e0c9 (History is read once the hub is in). 831e0c9's board entry stays on `feat/v2-journey`.
+
+Runs, port 50021:
+- The five journeys first gave 24 passed, 8 failed and 4 pending. The 8 were V-J28 step 1 (above); the 4 were V-J31's Food trend.
+- The full suite ran 1024 cases in 66.4 min: 1000 passed, 4 were pending (V-J31's Food trend) and 20 failed.
+  - J11's 16 failures all stop at Plan 6's first-walk question, "Keep a record of your route on this phone?", which Plan 6 Task 15 answers in the harness.
+  - VJ12's pick-mode case failed in all four projects at step 3. Task 15 had made "+ Add"'s body lazy, and it wasn't in yet when the sheet showed. Edit Home now loads it as it opens, so the sheet opens with its rows (Plan 7's result, below).
+- VJ12, S01 and J20 ran again after that fix: see Plan 7's result, below.
