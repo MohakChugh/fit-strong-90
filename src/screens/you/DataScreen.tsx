@@ -43,6 +43,10 @@ export function DataScreen() {
   const routes = state.records.routes.length;
   // Said once the erase is stored, while this screen is open (K6R-11).
   const [erased, setErased] = useState(false);
+  // A walk answer the device refused to store: the switch stays as it was, and this says why (K6R-09).
+  const [walkProblem, setWalkProblem] = useState<string>();
+  const answer = (patch: Parameters<typeof setWalkSettings>[0]) =>
+    void setWalkSettings(patch).then(r => setWalkProblem(r.ok ? undefined : `That change wasn’t saved. ${r.failure.message}`));
   const nudge = backupNudge(now, backupMark(settings.habits), recordSpan(state), state.revision);
   const backup = backupState(settings.habits);
   const install = installStatus(context, device);
@@ -95,13 +99,13 @@ export function DataScreen() {
           icon={<RouteIcon />}
           label="Keep walk routes"
           detail={walk.saveRoutes === false ? 'New walks don’t keep their route. Routes already kept stay until you erase them.' : consentSummary(walk).routes}
-          accessory={<Toggle label="Keep walk routes" checked={walk.saveRoutes === true} onChange={on => void setWalkSettings({ saveRoutes: on })} />}
+          accessory={<Toggle label="Keep walk routes" checked={walk.saveRoutes === true} onChange={on => answer({ saveRoutes: on })} />}
         />
         <Row
           icon={<MapIcon />}
           label="Map pictures under routes"
           detail={walk.map === 'unasked' ? `${consentSummary(walk).map}. ${CONSENT.mapPictures.detail}` : CONSENT.mapPictures.detail}
-          accessory={<Toggle label="Map pictures under routes" checked={walk.map === 'on'} onChange={on => void setWalkSettings({ map: on ? 'on' : 'off' })} />}
+          accessory={<Toggle label="Map pictures under routes" checked={walk.map === 'on'} onChange={on => answer({ map: on ? 'on' : 'off' })} />}
         />
         <Row
           onClick={() => setOpen('erase')}
@@ -111,6 +115,7 @@ export function DataScreen() {
           chevron
         />
       </Group>
+      {walkProblem && <Notice tone="error">{walkProblem}</Notice>}
       {erased && <Notice>All routes erased.</Notice>}
 
       <Group footer={`Deletes everything the app holds on this ${device} and starts again. It asks twice.`}>

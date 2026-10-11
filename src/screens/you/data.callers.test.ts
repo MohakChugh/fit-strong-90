@@ -2,8 +2,8 @@
  * Me → Data's walk answers and "Erase all routes", driven through the real
  * screen and sheets and the real store over a fake IndexedDB that can refuse
  * a write: asked twice before anything is erased (H6R-15, K6R-04), said when
- * done (K6R-11), and the row's words (K6R-05). Replaced are only the router,
- * the toasts and the vendored sheet and switch.
+ * done (K6R-11), a refused answer said too (K6R-09), and the row's words
+ * (K6R-05). Replaced are only the router and the vendored sheet.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -140,5 +140,21 @@ describe('"Erase all routes" in Me → Data, asked twice, as Delete everything i
     await store.removeRecords('routes', [WALK]);
     await open();
     expect(x().text()).toContain('No saved routes. Erasing also clears the route of a walk not yet saved. The walk stays.');
+  });
+});
+
+describe('a walk answer the device refuses, said where it was given (K6R-09)', () => {
+  it('leaves the switch as it was, and says the change wasn’t saved', async () => {
+    await open();
+    refuse = true;
+    const toggle = () => x().all().find(n => n.props.role === 'switch' && n.props['aria-label'] === 'Map pictures under routes')!;
+    await x().click(toggle());
+    expect(x().text()).toContain('That change wasn’t saved.');
+    expect(store.getState().settings.walk?.map).toBe('off');
+    // Given again once it can be kept: the note goes.
+    refuse = false;
+    await x().click(toggle());
+    expect(x().text()).not.toContain('That change wasn’t saved.');
+    expect(store.getState().settings.walk?.map).toBe('on');
   });
 });
