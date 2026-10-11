@@ -145,3 +145,11 @@ describe('the one action of an empty Trends is a 60 px primary button (KT-06, jo
     expect(empty).not.toContain('min-h-12');
   });
 });
+
+describe('Trends draws its rows in regions of at most 5 (H3-22, B-08)', () => {
+  it('each region is one of `trendSections`, drawn as a group under its title', () => {
+    const trends = read('TrendsScreen.tsx');
+    expect(trends).toContain('const sections = trendSections(rows);');
+    expect(trends).toContain('<Group key={s.title} header={s.title}>');
+  });
+});

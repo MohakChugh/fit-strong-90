@@ -6,7 +6,7 @@ import { weekdayOf } from '@/health/status';
 import { DEFAULT_PREFS } from '@/screens/track/format';
 import { addDays } from '@/screens/track/periods';
 import { TRENDS } from './metrics';
-import { dailyView, labsView, latestLab, readingCount, readingsView, trendContext, trendRow } from './model';
+import { dailyView, labsView, latestLab, readingCount, readingsView, trendContext, trendRow, trendSections, type TrendRowView } from './model';
 import { windowOf } from './periods';
 import type { DayContext } from './stats';
 
@@ -824,5 +824,26 @@ describe('more of labs and the rows', () => {
     const twelve = Array.from({ length: 12 }, (_, i) => g(100 + i, `2026-10-0${1 + (i % 7)}T0${i % 10}:00:00+05:30`));
     expect(trendRow(TRENDS.glucose, data(twelve), prefs, ctx()).spark).toHaveLength(10);
     expect(trendRow(TRENDS.steps, data([]), prefs, ctx()).value).toBe('Not entered this week');
+  });
+});
+
+describe('Trends’ rows, at most 5 to a region (H3-22, KT-12, B-08)', () => {
+  const row = (id: TrendRowView['id']): TrendRowView => ({ id, title: TRENDS[id].title, colour: TRENDS[id].colour, value: '', spark: [] });
+  const of = (ids: TrendRowView['id'][]) => trendSections(ids.map(row)).map(s => [s.title, s.rows.map(r => r.id)]);
+
+  it('a group of more than 5 is cut into labelled parts, in the registry’s order, every category kept', () => {
+    expect(of(['workout', 'walk', 'glucose', 'bp', 'back', 'weight', 'water', 'sleep', 'waist', 'labs', 'mood'])).toEqual([
+      ['Move', ['workout', 'walk']],
+      ['Check', ['glucose', 'bp', 'back', 'weight']],
+      ['Check, continued', ['water', 'sleep', 'waist', 'labs']],
+      ['Other records', ['mood']],
+    ]);
+    expect(of(['glucose', 'bp', 'back', 'weight', 'water', 'sleep'])).toEqual([['Check', ['glucose', 'bp', 'back']], ['Check, continued', ['weight', 'water', 'sleep']]]);
+  });
+
+  it('5 or fewer stay one region; a group with none has none', () => {
+    expect(of(['glucose', 'bp', 'back', 'weight', 'water'])).toEqual([['Check', ['glucose', 'bp', 'back', 'weight', 'water']]]);
+    expect(of(['steps'])).toEqual([['Move', ['steps']]]);
+    expect(of([])).toEqual([]);
   });
 });

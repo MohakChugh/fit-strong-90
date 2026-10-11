@@ -5,6 +5,7 @@
  * and its words for VoiceOver. Pure: the screen only draws it.
  */
 import { format } from 'date-fns';
+import { GROUPS as REGISTRY_GROUPS, categoryById, type CategoryId } from '@/categories';
 import type { DayRange } from '@/health/aggregate';
 import { isDay } from '@/health/observation';
 import { isEnrolled } from '@/health/recommend';
@@ -590,6 +591,24 @@ export interface TrendRowView {
   value: string;
   /** The small chart's values, oldest first; empty draws none. */
   spark: (number | null)[];
+}
+
+/**
+ * Trends' rows by the registry's groups, in its order, at most 5 to a region
+ * (B-08, H3-22): a longer group is cut into parts as even as they can be,
+ * the first named for its group, the rest "continued". Mood isn't a
+ * category: it comes only from v4 backups, under "Other records" (D74).
+ */
+export function trendSections(rows: readonly TrendRowView[]): { title: string; rows: TrendRowView[] }[] {
+  const parts = (title: string, list: TrendRowView[]) => {
+    const count = Math.ceil(list.length / 5);
+    const size = Math.ceil(list.length / Math.max(1, count));
+    return Array.from({ length: count }, (_, i) => ({ title: i === 0 ? title : `${title}, continued`, rows: list.slice(i * size, (i + 1) * size) }));
+  };
+  return [
+    ...REGISTRY_GROUPS.filter(g => g.id !== 'learn').flatMap(g => parts(g.title, rows.filter(r => r.id !== 'mood' && categoryById(r.id as CategoryId).group === g.id))),
+    ...parts('Other records', rows.filter(r => r.id === 'mood')),
+  ];
 }
 
 /** A category's row on the Trends tab: its week, or its latest reading or result. */

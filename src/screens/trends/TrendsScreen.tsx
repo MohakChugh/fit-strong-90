@@ -9,7 +9,7 @@
 import { useContext, useMemo } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronRightIcon, PlusIcon, SmileIcon } from 'lucide-react';
-import { GROUPS, categoryById, type CategoryId } from '@/categories';
+import type { CategoryId } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { markInPlace, type Origin } from '@/components/hig/navigation';
@@ -27,7 +27,7 @@ import { RouteThumb } from '@/screens/walk/RouteThumb';
 import { setContentState, useStore } from '@/store/useStore';
 import type { RouteRecord } from '@/walk/routeRecord';
 import { TREND_ORDER, TRENDS, hasData } from './metrics';
-import { trendContext, trendRow, type TrendRowView } from './model';
+import { trendContext, trendRow, trendSections, type TrendRowView } from './model';
 import { activities } from './records';
 import { Sparkline } from './Sparkline';
 import { WeeklyRings } from './WeeklyRings';
@@ -93,11 +93,8 @@ export default function TrendsScreen() {
     }, { replace: true });
   };
   const origin: Origin = { path: location.pathname, label: 'Trends', ...(location.search ? { search: location.search } : {}) };
-  const sections = [
-    ...GROUPS.filter(g => g.id !== 'learn').map(g => ({ title: g.title, rows: rows.filter(r => r.id !== 'mood' && categoryById(r.id as CategoryId).group === g.id) })),
-    // Mood isn't a category: it comes only from v4 backups, and is never hidden (D74).
-    { title: 'Other records', rows: rows.filter(r => r.id === 'mood') },
-  ].filter(s => s.rows.length > 0);
+  // By the registry's groups, at most 5 rows to a region (B-08, H3-22).
+  const sections = trendSections(rows);
 
   if (ctx.since === undefined) {
     return (
