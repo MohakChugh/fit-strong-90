@@ -120,6 +120,17 @@ export function planningProfile(profile: UserProfile, readinessOf: (p: UserProfi
   return undefined;
 }
 
+/**
+ * Which of two profiles is at least as strict as the other, each evaluated
+ * with `readinessOf`: `'a'`, `'b'`, `'same'` where each is, or `undefined`
+ * where neither is (each holds something the other doesn't).
+ */
+export function stricterOf(a: UserProfile, b: UserProfile, readinessOf: (p: UserProfile) => Readiness): 'a' | 'b' | 'same' | undefined {
+  const [va, vb] = [viewOf(a, readinessOf(a)), viewOf(b, readinessOf(b))];
+  const [ab, ba] = [atLeastAsStrict(va, vb), atLeastAsStrict(vb, va)];
+  return ab && ba ? 'same' : ab ? 'a' : ba ? 'b' : undefined;
+}
+
 const severity = (r: Readiness) => at(DISPOSITION_ORDER, r.disposition, 'reassure') * OUTCOME_ORDER.length + at(OUTCOME_ORDER, r.outcome, 'green');
 
 /**
