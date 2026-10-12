@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
 import { getState, importRecord, previewRecord, useStore } from '@/store/useStore';
+import { readBackupFile } from '@/store/limits';
 import { decode, type CollectionCounts, type ConflictPolicy, type ImportMode, type ImportPreview } from '@/store/transfer';
 import { deviceNoun, readInstallEnv } from '@/screens/welcome/install';
 import { ChoiceRows, Notice, PlainButton, PrimaryButton } from './controls';
@@ -12,7 +13,7 @@ import { checkOutcome, checkedLine, type CheckOutcome } from './dataStatus';
 import { shortDate, shortDay } from './dates';
 import { latestOnly } from './latest';
 import { replaceErases, restoreLocked } from './restore';
-import { keepsOpenLine, plural, previewLines, routeNotes } from './summaries';
+import { conflictLines, keepsOpenLine, plural, previewLines, routeNotes } from './summaries';
 import { walkSettings } from '@/walk/consent';
 import { recordBackupCheck, recordExport } from './write';
 
@@ -90,7 +91,7 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
     const token = selection.next();
     setStage({ kind: 'reading' });
     try {
-      const raw = await decode(await file.arrayBuffer());
+      const raw = await decode(await readBackupFile(file));
       if (!selection.isCurrent(token)) return;
       const preview = previewRecord(raw);
       if (!preview.ok) {
@@ -310,6 +311,7 @@ export function PreviewBody({ preview, saveRoutes, note, place, device, erases, 
               header="Records that differ"
               footer={`${plural(differ, 'record')} ${differ === 1 ? 'is' : 'are'} both here and in the file, with different contents and no way to tell which is newer.`}
             >
+              {conflictLines(preview).map(line => <Row key={line.label} label={line.label} value={line.count.toLocaleString('en-IN')} numeric />)}
               <ChoiceRows
                 label="Which copy to keep when merging"
                 options={[

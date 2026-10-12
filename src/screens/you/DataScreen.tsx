@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ArchiveRestoreIcon, DownloadIcon, FileCheckIcon, HousePlusIcon, MapIcon, RouteIcon, Trash2Icon } from 'lucide-react';
+import { ArchiveRestoreIcon, DownloadIcon, FileCheckIcon, HousePlusIcon, ListIcon, MapIcon, RouteIcon, Trash2Icon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { Sheet } from '@/components/hig/Sheet';
+import { limitLines } from '@/store/limits';
 import { setWalkSettings, useStore } from '@/store/useStore';
 import { CONSENT, consentSummary, walkSettings } from '@/walk/consent';
 import { BACKUP_EVERY_DAYS, backupMark, backupNudge, recordSpan } from '@/reminders/backup';
@@ -14,7 +15,7 @@ import { backupLine, backupState, installStatus, storageLine } from './dataStatu
 import { RestoreFlow } from './RestoreFlow';
 import { countsSentence, plural, privacyLine, recordCounts } from './summaries';
 
-type Open = 'backup' | 'delete' | 'install' | 'erase' | undefined;
+type Open = 'backup' | 'delete' | 'install' | 'erase' | 'limits' | undefined;
 
 /**
  * What is stored, how safe it is, and the only two ways the record leaves or
@@ -91,6 +92,7 @@ export function DataScreen() {
           place="you"
           trigger={pick => <Row onClick={pick} icon={<ArchiveRestoreIcon />} label="Restore from a backup" detail="See what is in the file before anything changes." chevron />}
         />
+        <Row onClick={() => setOpen('limits')} icon={<ListIcon />} label="What a backup can hold" detail="A file past these is refused, and nothing changes." chevron />
       </Group>
 
       {/* This phone's two walk answers, each changeable here (journey §9.1, §16), and erasing every route (B-05). */}
@@ -130,6 +132,11 @@ export function DataScreen() {
           On the Home Screen the app is kept apart from Safari, which can clear a website’s data after 7 days without a visit. The Home Screen app starts empty, so back up here first and restore the file there.
         </p>
         <InstallSteps device={device} />
+      </Sheet>
+      <Sheet open={open === 'limits'} onOpenChange={next => setOpen(next ? 'limits' : undefined)} title="What a backup can hold" detent="large">
+        <Group footer="A file past any of these is refused before anything in it is read, and nothing on this device changes. A backup made of a record past one still holds everything, and says so when it’s made.">
+          {limitLines().map(line => <Row key={line.label} label={line.label} value={line.value} numeric />)}
+        </Group>
       </Sheet>
     </Screen>
   );

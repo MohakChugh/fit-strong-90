@@ -57,6 +57,7 @@ import {
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
 import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult, type TxHandle } from './db';
 import { setStorageReadOnly } from './writable';
+import { exportExcess, exportWarning } from './limits';
 import { parseJournalEntry, withJournalled, type JournalEntry } from '@/walk/journal';
 import { sameClockChange, type ClockSeen } from '@/walk/clock';
 import { clockGeneration, erasedGeneration, routeErased, walkSettings, withClockChange, withErase, withPendingClock, type WalkSettings } from '@/walk/consent';
@@ -1909,6 +1910,8 @@ export interface ExportedRecord extends EncodedTransfer {
   exportedAt: string;
   /** The v2 record stores the file holds. */
   stores: RecordStore[];
+  /** The record is past a limit a restore applies: it still holds everything (D108). */
+  warning?: string;
 }
 
 /**
@@ -1930,7 +1933,8 @@ export function exportRecord(options: ExportOptions = {}): Promise<StoreResult<E
       const exportedAt = nowAt();
       const doc = toTransferDoc(snap, exportedAt, options);
       const file = await encode(doc);
-      return { ok: true as const, value: { ...file, revision: snap.revision, exportedAt, stores: doc.stores ?? [] } };
+      const excess = exportExcess(doc, { packed: file.bytes.byteLength, unpacked: file.textBytes });
+      return { ok: true as const, value: { ...file, revision: snap.revision, exportedAt, stores: doc.stores ?? [], ...(excess ? { warning: exportWarning(excess) } : {}) } };
     } catch (error) {
       const failure = toFailure(error, 'readFailed');
       note(failure);
