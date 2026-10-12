@@ -230,6 +230,7 @@ export function sensorInit({ geo = 'deny', motion = 'absent', monotonic = 'real'
   const play = HTMLMediaElement.prototype.play;
   HTMLMediaElement.prototype.play = function (...args) {
     calls.play.push({ src: String(this.src).slice(0, 160), during: window.event?.type ?? null });
+    acc.lastAudio = this;
     return play.apply(this, args);
   };
 }
@@ -352,6 +353,115 @@ export async function readDatabase() {
       tx.onabort = () => { db.close(); resolve({ ...out, error: String(tx.error) }); };
     };
   });
+}
+
+/** Earphone and lock-screen buttons (V-J21): every media session handler the app sets, for the test to press. */
+export function mediaInit() {
+  const acc = (window.__acc = window.__acc || {});
+  if (acc.mediaInstalled || !navigator.mediaSession) return;
+  acc.mediaInstalled = true;
+  acc.media = {};
+  const set = navigator.mediaSession.setActionHandler.bind(navigator.mediaSession);
+  navigator.mediaSession.setActionHandler = (action, handler) => {
+    if (handler) acc.media[action] = handler;
+    else delete acc.media[action];
+    return set(action, handler);
+  };
+}
+
+/**
+ * A service worker the test drives (V-J38's quick cases), speaking Task 2's
+ * two questions on the port each is sent with: `windows` (this release, and
+ * how many windows of FitStrong are open: `__acc.sw.windows`, 1 unless a case
+ * sets it) and `restart` (take over, only while that count is 1, counted as it
+ * answers, after `__acc.sw.restartDelayMs` when a case slows it). `offerUpdate()`
+ * installs a new release, which waits; a restart makes it take over and fires
+ * `controllerchange`, as a real one does, and the release it brings is kept
+ * for the reload that follows. Each load is counted under the test's own
+ * key. Two real releases are `lib/releases.mjs`'s.
+ */
+export function updateInit() {
+  if (!location.pathname.startsWith('/fit-strong-90')) return;
+  const acc = (window.__acc = window.__acc || {});
+  const KEY = '__acceptance:sw';
+  let saved = { loads: 0, build: 'release-a' };
+  try { saved = JSON.parse(sessionStorage.getItem(KEY) ?? 'null') ?? saved; } catch { /* the first load */ }
+  saved.loads += 1;
+  const keep = () => { try { sessionStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* no storage: this load only */ } };
+  keep();
+  const messages = [];
+  const container = new EventTarget();
+  const registration = new EventTarget();
+  let waiting = null;
+  const worker = build => {
+    const w = new EventTarget();
+    w.state = 'activated';
+    w.postMessage = (data, transfer = []) => {
+      messages.push(data?.type);
+      const answer = () => {
+        const restarting = data?.type === 'restart' && w === waiting && acc.sw.windows === 1;
+        transfer[0]?.postMessage({ build, windows: acc.sw.windows, restarting });
+        if (!restarting) return;
+        setTimeout(() => {
+          waiting = null;
+          saved.build = build;
+          keep();
+          container.controller = w;
+          container.dispatchEvent(new Event('controllerchange'));
+        }, 0);
+      };
+      // A slow worker (P8S-13): the restart answered only after the delay a case sets.
+      if (data?.type === 'restart' && acc.sw.restartDelayMs > 0) setTimeout(answer, acc.sw.restartDelayMs);
+      else answer();
+    };
+    return w;
+  };
+  registration.installing = null;
+  Object.defineProperty(registration, 'waiting', { get: () => waiting });
+  container.controller = worker(saved.build);
+  container.register = () => Promise.resolve(registration);
+  container.getRegistration = () => Promise.resolve(registration);
+  container.ready = Promise.resolve(registration);
+  try { Object.defineProperty(navigator, 'serviceWorker', { configurable: true, get: () => container }); } catch { /* keep the real one */ }
+  acc.sw = {
+    loads: saved.loads,
+    messages,
+    windows: 1,
+    restartDelayMs: 0,
+    offerUpdate() {
+      const next = worker(`${saved.build}-next`);
+      next.state = 'installing';
+      registration.installing = next;
+      registration.dispatchEvent(new Event('updatefound'));
+      registration.installing = null;
+      waiting = next;
+      next.state = 'installed';
+      next.dispatchEvent(new Event('statechange'));
+    },
+  };
+}
+
+/**
+ * The 3D demo's own drawing (PERF01, D117): every WebGL draw call the page
+ * makes, counted. Only the demo draws with WebGL in this app, so this counts
+ * what it renders, whatever drives its loop.
+ */
+export function drawInit() {
+  const acc = (window.__acc = window.__acc || {});
+  if (acc.drawsInstalled) return;
+  acc.drawsInstalled = true;
+  acc.draws = 0;
+  for (const proto of [window.WebGLRenderingContext?.prototype, window.WebGL2RenderingContext?.prototype]) {
+    if (!proto) continue;
+    for (const name of ['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced', 'drawRangeElements']) {
+      const draw = proto[name];
+      if (typeof draw !== 'function') continue;
+      proto[name] = function counted(...args) {
+        acc.draws += 1;
+        return draw.apply(this, args);
+      };
+    }
+  }
 }
 
 /** Every key the page holds in web storage, for privacy and leftover checks. */

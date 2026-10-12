@@ -20,8 +20,8 @@ Run every journey in Chromium in these four projects:
 
 | Project | Viewport, CSS pixels | Appearance |
 |---|---|---|
-| Large light | 430 × 932 | Light |
-| Large dark | 430 × 932 | Dark |
+| Large light | 428 × 926 | Light |
+| Large dark | 428 × 926 | Dark |
 | Small light | 320 × 568 | Light |
 | Small dark | 320 × 568 | Dark |
 
@@ -33,6 +33,7 @@ Use touch emulation, `locale=en-IN` and `timezoneId=Asia/Kolkata`. Freeze the in
 4. Normalise hash routes before assertions. For example, the logical route `/track?day=2026-10-07` is the part after `#`, within the deployment's base URL. An HTTP path outside that base is not a valid deep link.
 5. Capture console errors, uncaught exceptions, requests, screenshots and a database snapshot at each checkpoint. Store runner artifacts outside the repository. Fault tests may allow only the exact browser resource error intentionally injected, never a blanket console allowlist.
 6. A journey passes only when its UI, permission, recovery and persistence assertions all pass. A missing control or unrepresentable required safety answer is a failure, not a skipped case.
+7. The release run is `npm run e2e:acceptance -- --strict`. A pending case fails it, and so does any case not passed in each of its projects: all four, unless the case names its own, as PERF01 does (D121).
 
 Text in backticks identifies a visible label or required text fragment. Locate labelled inputs by their accessible name. For a row whose accessible name includes its subtitle, locate the exact visible label and its enclosing semantic button or link. Scope repeated `None of these` controls to their named section. An ambiguous locator is a test failure. Do not select the first matching element to conceal it.
 
@@ -724,7 +725,7 @@ Apply these checks at **every visible checkpoint**, not only the four roots. Inc
 
 | Check | Unambiguous pass condition |
 |---|---|
-| Horizontal layout | `document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1` at 320 and 430. No essential label/value/control clipped by overflow hiding. All content is reachable by vertical scroll. |
+| Horizontal layout | `document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1` at 320 and 428. No essential label/value/control clipped by overflow hiding. All content is reachable by vertical scroll. |
 | Errors | No unexpected console error, uncaught exception or unhandled rejection. Only an explicitly identified fault-test browser resource failure may be exempted. |
 | Landmarks and heading | Exactly one main landmark; one exposed level-1 screen heading with the correct title. Compact duplicate title is aria-hidden. Main tab navigation named; active destination observable, including Move on Walk routes. |
 | Controls | Every actionable item has a nonempty accessible name and correct button/link/input/checkbox/radio/switch role. Keyboard can reach it, with arrow navigation inside composite controls. Minimum 44 × 44 CSS-pixel target; focus visibly indicated. Numeric inputs use appropriate input mode and readable size. |

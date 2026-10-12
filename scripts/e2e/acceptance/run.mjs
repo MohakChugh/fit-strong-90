@@ -25,6 +25,7 @@ import { writeReport } from './lib/report.mjs';
 import { devServer, previewServer, stopServers } from './lib/servers.mjs';
 import { seedInit } from './lib/inpage.mjs';
 import { norm } from './lib/ids.mjs';
+import { releaseServer } from './lib/releases.mjs';
 import { persona } from './fixtures/personas.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).map(a => a.replace(/^--/, '').split(/=(.*)/s).slice(0, 2)).map(([k, v]) => [k, v ?? 'true']));
@@ -92,6 +93,13 @@ if (!previewUrl && tasks.some(task => task.c.preview)) {
 }
 const origin = new URL(devUrl).origin;
 const previewOrigin = previewUrl ? new URL(previewUrl).origin : undefined;
+const releasePort = Number(args['release-port'] ?? devPort + 2);
+let releases;
+if (tasks.some(task => task.c.releases)) {
+  console.log('Building two releases for the update cases …');
+  releases = await releaseServer(releasePort, root);
+}
+const releaseOrigin = releases ? new URL(releases.url).origin : undefined;
 
 // ---------------------------------------------------------------- run
 
@@ -104,7 +112,7 @@ const browser = await launch();
  * (another agent mid-edit), rather than letting journeys fail on it one by one.
  */
 async function warm(url) {
-  const ctx = await browser.newContext({ viewport: { width: 430, height: 932 } });
+  const ctx = await browser.newContext({ viewport: { width: 428, height: 926 } });
   await ctx.addInitScript(seedInit, { blob: JSON.stringify(persona('P01')), extra: {}, guard: '__acceptance:seeded' });
   const page = await ctx.newPage();
   const errors = [];
@@ -129,36 +137,62 @@ console.log(`Artifacts: ${root}`);
 
 const results = [];
 const began = Date.now();
-let next = 0;
 const verbose = args.verbose !== undefined;
-async function worker() {
-  while (next < tasks.length) {
-    const { j, c, project } = tasks[next++];
-    const t = new Case({
-      journey: j.id, name: c.name, project, browser, root,
-      origin: c.preview ? previewOrigin : origin,
-      log: verbose ? m => console.log(m) : m => { if (m.includes('FAIL')) console.log(m); },
-    });
-    try {
-      if (c.preview && !previewOrigin) throw new Error('this case needs the production preview server');
-      await c.run(t, { project, devUrl, previewUrl });
-    } catch (e) {
-      await t.fail(`journey error outside a step: ${String(e?.stack ?? e).split('\n').slice(0, 4).join(' | ')}`);
-    }
-    const r = await t.close();
-    r.safety = !!j.safety;
-    r.title = j.title;
-    results.push(r);
-    const mark = r.status === 'pass' ? 'pass' : r.status === 'pending' ? 'PEND' : 'FAIL';
-    console.log(`${mark.padEnd(4)} ${j.id} ${project.id.padEnd(11)} ${c.name}${r.failures.length ? ` — ${r.failures.length} failure(s), first at step ${r.failures[0].step}: ${r.failures[0].message.slice(0, 140)}` : ''} (${Math.round(r.durationMs / 1000)}s)`);
+
+/** One case in one project: its own context, its result recorded and printed. */
+async function runCase({ j, c, project }) {
+  const t = new Case({
+    journey: j.id, name: c.name, project, browser, root,
+    origin: c.releases ? releaseOrigin : c.preview ? previewOrigin : origin,
+    log: verbose ? m => console.log(m) : m => { if (m.includes('FAIL')) console.log(m); },
+  });
+  try {
+    if (c.preview && !previewOrigin) throw new Error('this case needs the production preview server');
+    if (c.releases && !releases) throw new Error('this case needs the release server');
+    await c.run(t, { project, devUrl, previewUrl, releases });
+  } catch (e) {
+    await t.fail(`journey error outside a step: ${String(e?.stack ?? e).split('\n').slice(0, 4).join(' | ')}`);
   }
+  const r = await t.close();
+  r.safety = !!j.safety;
+  r.title = j.title;
+  results.push(r);
+  const mark = r.status === 'pass' ? 'pass' : r.status === 'pending' ? 'PEND' : 'FAIL';
+  console.log(`${mark.padEnd(4)} ${j.id} ${project.id.padEnd(11)} ${c.name}${r.failures.length ? ` — ${r.failures.length} failure(s), first at step ${r.failures[0].step}: ${r.failures[0].message.slice(0, 140)}` : ''} (${Math.round(r.durationMs / 1000)}s)`);
 }
-await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker));
+
+/** `list`, `width` cases at a time. */
+async function pool(list, width) {
+  let next = 0;
+  const lane = async () => { while (next < list.length) await runCase(list[next++]); };
+  await Promise.all(Array.from({ length: Math.min(width, list.length) }, lane));
+}
+
+// The release server serves one release at a time, so a release case runs alone, after the rest.
+await pool(tasks.filter(task => !task.c.releases), concurrency);
+await pool(tasks.filter(task => task.c.releases), 1);
 await browser.close();
 stopServers();
+releases?.close();
 
 const elapsed = Date.now() - began;
 const report = writeReport({ root, results, journeys, projects, elapsed, devUrl, previewUrl });
 console.log(`\n${report.summary}\nReport: ${report.file}`);
+// The release run (D121): nothing pending, and every case of every journey passed in each of its projects:
+// all four, unless the case names its own (PERF01, large light).
+if (args.strict !== undefined) {
+  const problems = results.filter(r => r.status === 'pending').map(r => `${r.journey} ${r.project} ${r.case}: pending`);
+  for (const j of journeys) {
+    for (const c of j.cases) {
+      for (const p of PROJECTS.filter(p => !c.projects || c.projects.includes(p.id))) {
+        if (!results.some(r => r.journey === j.id && r.case === c.name && r.project === p.id && r.status === 'pass')) problems.push(`${j.id} ${p.id} ${c.name}: not passed`);
+      }
+    }
+  }
+  if (problems.length) {
+    console.error(`Strict run: ${problems.length} problem(s).\n  ${problems.join('\n  ')}`);
+    process.exit(1);
+  }
+}
 // A case pending an agreed app change is reported, not failed.
 process.exit(results.every(r => r.status !== 'fail') ? 0 : 1);
