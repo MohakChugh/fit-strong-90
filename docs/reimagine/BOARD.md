@@ -1341,3 +1341,36 @@ Also: V34's step 6 taps both erase confirmations (`8491a1f`), and M02's H2-01 ga
 **Gates** on `8491a1f`: `tsc -b --force` and `eslint .` clean; Vitest 257 files, 6,546 tests, all passed.
 
 **Acceptance** (port 49981, through the lock, on `8491a1f`): **1,156 cases, 1,150 passed, 2 failed and 4 pending, in 71.3 min.** The two failures were V-J11 (large-dark and small-light), each a 30 s boot wait timing out under load; V-J11 alone then passed 8/8. V-J31 (4) is pending on Food's trend, as agreed. Plan 3's uncommitted journeys aren't in the tree. Every walk journey (J10, J11, V02, V16, V19, V20, V33, V34) and M02 passed in all four projects.
+
+### 2026-10-12 — [claude] Plan 6, round 3: Codex's final verification (H6F) and the seven PARTIALs
+
+Branch `feat/v2-p6c`, on round 2 (`8979a7e`). The clock-generation design was simplified first, as the coordinator asked (Ponytail); each fix then began with a test that failed on the code the finding named, and every new rule's mutants fail a test (equivalent ones were simplified away). Gates at every commit: `tsc -b --force`, `eslint .`, `vitest run --maxWorkers=3`. D186 to D189, then D210 onward (D190 to D209 belong to other branches).
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| D186 | **Glucose readings are ordered by when they were taken, and nothing else**, as before round 2. **The clock hold asks one thing of the current reading: was it acquired since the change.** Its stamp (`gen`) is the device's count of clock changes as stored, a local count that only grows, set by the screen that takes the reading: the check-in when a number is typed into its empty box or a meter's HI or LO is chosen, Quick Log at the reading's first Save (kept in its draft through a refusal and a reload, and renewed with its time when the box is emptied), and the shared report path as a reading is given. Corrected or retimed in its box, a reading keeps its stamp; the save and the store add none, and an import none. Under the hold the check-in opens with the glucose box empty, naming the last reading. A per-reading counter was not used: to stay conservative across tabs it would need a write at each reading, where a count read by a tab that hasn't heard of a change is older, so it holds. Supersedes D174's generation-first order and stamping inside the write | H6F-05, H6F-06, H6R-03 |
+| D187 | **One change to the clock is told from another by its own observation**: the two clocks a walk or the page saw it between. The store marks it once: a second look over an overlapping span of the monotonic clock, the same way, by as much and ending at the same place, is the same change; anything else is another. Never by the generation, which can't say what a span nobody watched held | H6F-04; P8S-02 |
+| D188 | **A change is held from the moment it is seen until it is stored.** Every gate reads `clockHold`: the stored hold with any change still being kept, on its days and of a generation past every one kept, so nothing stamped releases it. The marker is written held (never shown as stored before it is) and written again every 5 s until it is; with no storage at all it is held for the session. The page's watch hands each change on and then looks on from its last look: freezing its baseline until the marker is kept would add nothing the store doesn't already hold, and would miss a clock put back while a marker waits | H6F-02, H6R-02 |
+| D189 | **A walk keeps its own record of a change the device hasn't stored** (`clockUnkept`, or an older version's `untimedReadings`): loaded, it hands the change to the device before anything asks whether it may go on, and lets go of that record once the device has kept every change handed on. So an upgraded walk, or one reloaded before a refused marker was stored, is held again | H6F-03, H6F-02, H6R-02 |
+| D210 | **An erase made before board D176 becomes this phone's erase record as the app starts**: `routesErasedAt` turns into `erased.before`, never later than that start, so a clock that was ahead drops no walk recorded since; every route of a walk begun at or before it is erased, conservatively; and the routes it deleted join `erased.walks` by name. Until that is stored, the old marker is read as it is. **Replace keeps the routes this phone deleted deleted**, with their ids | H6F-07, H6R-08; B-05 |
+| D211 | **Only a whole route stands for a walk's route in the page**: the page's own checkpoint once its route is back, or what the store says it merged and stored for one made while reading back, unless the page has checkpointed it whole since or forgotten every route meanwhile | H6F-08, H6R-10 |
+| D212 | **The shared stop questions sit under the sheets' safety surface**, so an emergency reported there says so in them at once, before and whatever its save. Over the stop's own questions the surface says every decision but the stop they answer | H6F-01, K6R-03; B-02 |
+| D213 | **The stop questions own their answer's save**: while one is stored, nothing closes them, their Close and End walk wait, and a way on from the surface waits and says so | H6R-11; B-03 |
+| D214 | **Closing, the shared stop questions hand focus to the screen's title** when what opened them has gone with the stop | H6F-09, K6R-03; B-03 |
+| D215 | **Me → Data's Backup and Restore primary buttons are main targets**, 60 px | H6R-13; §20.4 rule 1 |
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| H6F-05 | D186, order | `beb21b0` |
+| H6F-06, H6R-03 | D186, acquisition | `9446e5e` |
+| H6F-04 | D187 | `42739b7` |
+| H6F-02, H6R-02 | D188 | `b4eb0f3` |
+| H6F-03, H6R-02 | D189 | `0f98a5b` |
+| H6F-07, H6R-08 | D210 | `f3d87a7` |
+| H6F-08, H6R-10 | D211 | `f91cedf` |
+| H6F-01, K6R-03 | D212 | `d8266d3` |
+| H6R-11 | D213 | `27dee39` |
+| H6F-09, K6R-03 | D214 | `a8f8c19` |
+| H6R-13 | D215 | `8416c9c` |
+
+Checked in headless Chromium at 428 px and 320 px, at 100% and 200% text (screenshots in `/tmp/fit-checks/shots-p6b/r3-*`): chest pain in the shared questions with the device refusing the answer shows "Call emergency services now" at their top, beside Try again; stored, Home says it; no stop surface over its own questions; under a clock hold the check-in opens with the glucose box empty and "Last reading: 140 mg/dL at 6:22 am. Enter a new one."; Backup's button is 60 px. No console errors. Seen, not changed: at 320 px an empty glucose box (the day's first check-in too) leaves the unit's "mg/dL" cut at the row's right edge; at 320 px/200% the shared surface's headline breaks a long word ("emergency") mid-word and, in a sheet, widens it past the screen, its Close cut at the edge, as in any sheet that shows the surface.
