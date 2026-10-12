@@ -62,10 +62,17 @@ export function AboutBody({ a, raw, set, tried }: PageProps) {
   const cm = heightFrom(height, metric, stored.height);
   const kg = weightFrom(weight, metric, stored.weight);
   const wc = waistFrom(waist, metric, stored.waist);
+  const problem = heightProblem(cm) ?? weightProblem(kg);
+  const waistIssue = waistProblem(wc);
+  // A units change refused for a measure typed that isn't an answer.
+  const [unitsHeld, setUnitsHeld] = useState(false);
 
-  // The texts in the other unit, the answers as they are.
+  // The texts in the other unit, the answers as they are. One that isn't an answer has no value to put in the other
+  // unit, so it's corrected or cleared first, and never silently emptied (H5F-11; board D223).
   const switchUnits = (to: boolean) => {
     if (to === metric) return;
+    setUnitsHeld(problem !== null || waistIssue !== null);
+    if (problem !== null || waistIssue !== null) return;
     const h = heightText(cm, to);
     set({ metric: to }, { heightCm: h.cm, 'heightCm.ft': h.ft, 'heightCm.inch': h.inch, weightKg: convertWeightText(weight, to), waistCm: waistText(wc, to) });
   };
@@ -81,15 +88,13 @@ export function AboutBody({ a, raw, set, tried }: PageProps) {
     const value = waistFrom(t, metric, stored.waist);
     set({ waistCm: valid(value, waistProblem(value)) }, { waistCm: t });
   };
-  const problem = heightProblem(cm) ?? weightProblem(kg);
-  const waistIssue = waistProblem(wc);
-
   return (
     <>
       <div className="px-1">
         <Segmented label="Units" value={metric ? 'metric' : 'imperial'} onChange={v => switchUnits(v === 'metric')}
           options={[{ value: 'metric', label: 'cm and kg' }, { value: 'imperial', label: 'ft, in and lb' }]} />
       </div>
+      <Missing show={unitsHeld && (problem ?? waistIssue) !== null}>{`${problem ?? waistIssue} Then change units.`}</Missing>
       <Group footer="Optional. Each one you give is kept as a dated reading.">
         {metric
           ? <NumberAnswer label="Height in cm" decimals text={height.cm} onText={t => changeHeight({ ...height, cm: t })} placeholder="160" />

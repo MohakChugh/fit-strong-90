@@ -716,6 +716,30 @@ describe('a setup page, its answers kept as they’re given (§6.1; H5-16, K5-17
     expect(draft()?.answers?.weightKg).toBe(70);
   });
 
+  it('units don’t change while a measure typed isn’t an answer: it’s corrected or cleared first, never lost (H5F-11; board D223)', async () => {
+    host = await page('about.body');
+    const field = (hint: string) => host!.all().find(n => n.type === 'input' && n.props.placeholder === hint)!;
+    await host.change(field('160'), { value: '0' });
+    await host.click(radio(host, 'Units', 'ft, in and lb'));
+    await new Promise(r => setTimeout(r, AUTOSAVE_MS + 50));
+    await host.settle();
+    expect(draft()?.answers?.metric).not.toBe(false);
+    expect(draft()?.raw).toEqual({ heightCm: '0' });
+    expect(field('160').props.value).toBe('0');
+    expect(host.text()).toContain('Enter a height between 50 and 260 cm (1 ft 8 in and 8 ft 6 in). Then change units.');
+    // Cleared, and the waist too: then a waist that isn't one holds them the same way.
+    await host.change(field('160'), { value: '' });
+    await host.change(field('85'), { value: '1.2.3' });
+    await host.click(radio(host, 'Units', 'ft, in and lb'));
+    await host.settle();
+    expect(host.text()).toContain('Enter a waist between 30 and 250 cm (12 and 98 inches). Then change units.');
+    // Cleared, the units change.
+    await host.change(field('85'), { value: '' });
+    await host.click(radio(host, 'Units', 'ft, in and lb'));
+    await new Promise(r => setTimeout(r, AUTOSAVE_MS + 50));
+    expect(draft()?.answers?.metric).toBe(false);
+  });
+
   it('a number its unit makes invalid isn’t an answer either: a start figure in mmol/L, then mg/dL (H5R-15)', async () => {
     const { MedicinesLows } = await import('./pages/medicines');
     const { PageFrame } = await import('./PageFrame');
