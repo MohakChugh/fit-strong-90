@@ -14,7 +14,9 @@ import { redirectFor } from '@/redirects';
 export type BrowseRow =
   | { kind: 'category'; id: CategoryId; title: string }
   | { kind: 'shortcut'; id: string; title: string; to: string }
-  | { kind: SearchResult['kind']; id: string; title: string; detail: string; to: string; result: SearchResult };
+  | { kind: SearchResult['kind']; id: string; title: string; detail: string; to: string; result: SearchResult }
+  /** A food from the food table (D115), to log: Browse's food rows (`foods.ts`). */
+  | { kind: 'food'; id: string; title: string; detail: string; to: string };
 
 export interface BrowseGroup {
   id: BrowseGroupId;

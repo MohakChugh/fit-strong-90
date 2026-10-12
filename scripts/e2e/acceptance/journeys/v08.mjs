@@ -87,4 +87,59 @@ export const cases = [
       }, { input: 'xylophone' });
     },
   },
+  {
+    name: 'chapatti lists the roti to log, with its estimate only when estimates are on',
+    async run(t) {
+      // Allergies answered, as "No food allergies": Browse lists foods to log only once they're known (D115, the owner's rule).
+      const page = await t.open({ seed: persona('P01', { patch: { profile: { food: { pattern: 'vegetarian', avoid: [], allergies: [], level: 'estimates', hardBefore: 'no' } } } }), route: '/home' });
+      const main = page.getByRole('main');
+      await t.step(1, 'Browse → “chapatti”: the roti under Eat, after the meal idea, with its estimate', async () => {
+        await searchBrowse(t, 'chapatti');
+        const names = (await ui.section(main, 'Eat').getByRole('link').allInnerTexts()).map(flat);
+        const idea = names.findIndex(n => n.startsWith('Roti, dal and sabzi'));
+        const food = names.findIndex(n => n.startsWith('Roti (whole-wheat)'));
+        await t.must(food >= 0, `Eat lists no roti to log: ${JSON.stringify(names)}`);
+        await t.check(idea >= 0 && idea < food, `the food is not after the meal idea: ${JSON.stringify(names)}`);
+        await t.check(/Estimated \d+ kcal/.test(names[food]), `the roti row has no estimate: “${names[food]}”`);
+        await t.checkpoint('browse-food-row');
+      }, { input: 'chapatti' });
+      await t.step(2, 'The row opens “Log a meal” at the roti’s portion', async () => {
+        await ui.tap(ui.section(main, 'Eat').getByRole('link', { name: /^Roti \(whole-wheat\)/ }));
+        await page.waitForFunction(() => location.hash.startsWith('#/hub/food/log'), null, { timeout: 10000 });
+        const sheet = page.getByRole('dialog', { name: 'Log a meal' });
+        await sheet.waitFor({ timeout: 10000 });
+        await t.check(/Roti \(whole-wheat\)/.test(await sheet.innerText()), 'the sheet did not open at the roti');
+        await t.checkpoint('browse-food-log');
+      });
+    },
+  },
+  {
+    name: 'counts-free, the food row has no figure',
+    async run(t) {
+      const page = await t.open({ seed: persona('P01', { patch: { profile: { food: { pattern: 'vegetarian', avoid: [], allergies: [], level: 'meals' } } } }), route: '/home' });
+      const main = page.getByRole('main');
+      await t.step(1, 'Browse → “chapatti”: the roti with its portion, and no figure (B-11)', async () => {
+        await searchBrowse(t, 'chapatti');
+        const text = flat(await ui.section(main, 'Eat').innerText());
+        await t.check(/Roti \(whole-wheat\)/.test(text), `Eat lists no roti: ${text}`);
+        await t.check(!/kcal|carbs|Estimated/.test(text), `counts-free shows a figure: ${text}`);
+        await t.checkpoint('browse-food-counts-free');
+      }, { input: 'chapatti' });
+    },
+  },
+  {
+    name: 'allergies never answered, no food is listed to log',
+    async run(t) {
+      // Logs meals, but the food record's allergies were never answered: unknown, never "none" (the owner's rule).
+      const page = await t.open({ seed: persona('P01', { patch: { profile: { food: { pattern: 'vegetarian', avoid: [], level: 'estimates', hardBefore: 'no' } } } }), route: '/home' });
+      const main = page.getByRole('main');
+      await t.step(1, 'Browse → “chapatti”: no food from the table to log while allergies are unknown (D115)', async () => {
+        await searchBrowse(t, 'chapatti');
+        const text = flat(await main.innerText());
+        await t.check(!/Roti \(whole-wheat\)/.test(text), `Browse lists a food to log with allergies unknown: ${text.slice(0, 300)}`);
+        await t.check(await main.locator('a[href*="/hub/food/log"]').count() === 0, 'a row opens “Log a meal” with allergies unknown');
+        await t.checkpoint('browse-food-allergies-unknown');
+      }, { input: 'chapatti' });
+    },
+  },
 ];
