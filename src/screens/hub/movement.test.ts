@@ -504,3 +504,19 @@ describe('feetHold: Steps while walking is held for the feet (kiro KH-02, L-09, 
     expect(feetHold(plain, { ...ok, mode: 'walk' })).toBeUndefined();
   });
 });
+
+describe('the Workout card after the twelve weeks (D116)', () => {
+  it('offers the choice, and no session', () => {
+    const c = movementCard(input({ mode: 'guided', permission: { ...ok, mode: 'guided' }, enrolled: true, done: true }));
+    expect(c).toMatchObject({ state: 'done', title: 'The 12 weeks are done', primary: { kind: 'next', label: 'Choose what’s next' } });
+    expect(actionTarget('next', { mode: 'guided', href: '/session', startLabel: 'Start session' })).toEqual({ via: 'go', to: '/hub/workout/plan?next=1' });
+  });
+
+  it('keeps a run saved part-way, and every stop and hold, ahead of the choice', () => {
+    const guided = { ...ok, mode: 'guided' as const };
+    expect(movementCard(input({ mode: 'guided', permission: guided, enrolled: true, done: true, saved: { minutesLeft: 20, label: 'Full Body B' } })).state).toBe('resume');
+    const stop = held('guided', ['You reported chest pain.'], { disposition: 'emergency' });
+    expect(movementCard(input({ mode: 'guided', permission: stop, gate: 'emergency', enrolled: true, done: true })).state).toBe('stopped');
+    expect(movementCard(input({ mode: 'guided', permission: held('guided', ['Your back pain is up today.']), gate: 'hold', enrolled: true, done: true })).state).toBe('held');
+  });
+});

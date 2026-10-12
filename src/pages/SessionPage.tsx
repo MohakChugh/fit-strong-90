@@ -3,7 +3,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import type { Segment, SessionPlan, SetStep, Step } from '@/types/plan';
 import type { RepSync } from '@/components/motion/MotionView';
 import type { RunnerState } from '@/session/runner';
@@ -38,7 +38,7 @@ import type { StretchSpec } from '@/types/plan';
 import { cameFrom } from '@/components/hig/navigation';
 import { SessionGate } from '@/components/checkin/SessionGate';
 import { measuredStamp } from '@/health/observation';
-import { nextBoundary } from '@/health/recommend';
+import { HREF, nextBoundary } from '@/health/recommend';
 import { OwnsUrgent } from '@/screens/home/UrgentBanner';
 import { useClock, useWakeAt } from '@/screens/today/clock';
 import { displayToKg, generateId, kgToDisplay, toDateString } from '@/lib/utils';
@@ -56,6 +56,7 @@ import {
   PlusIcon, MinusIcon, CheckIcon, CandyIcon, HeadphonesIcon, OctagonAlertIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAdmission } from './admission';
 
 /** Two stretch routines are the same when their area and length match. */
 function sameSpec(a: StretchSpec | null, b: StretchSpec): boolean {
@@ -71,7 +72,17 @@ interface Run {
   stale?: SavedProgress;
 }
 
+/**
+ * After the twelve weeks no guided session is planned (D116): a stale link or
+ * bookmark to one opens Your plan's choice instead. Decided once, when the
+ * page opens: a stretch, and a run saved part-way and still resumable, open
+ * as before, and a run under way at midnight stays (P8-19).
+ */
 export default function SessionPage() {
+  return useAdmission() ? <SessionRun /> : <Navigate to={HREF.next} replace />;
+}
+
+function SessionRun() {
   const { data, update, profile, date, plan: todayPlan, checkIn, checkIns, reportSymptoms, saveCheckIn } = useGuided();
   const [params] = useSearchParams();
   const navigate = useNavigate();

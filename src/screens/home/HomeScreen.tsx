@@ -49,7 +49,7 @@ import { trendContext } from '@/screens/trends/model';
 import { WEEK_BRIEF_KEY, briefSeen, weekBriefFor, weekFacts, weekSentences, withSeen } from '@/screens/trends/yourWeek';
 import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
 import { addToDayTotal, getState, isSessionSaved, setContentState, useStore } from '@/store/useStore';
-import { cn } from '@/lib/utils';
+import { cn, programmeDone } from '@/lib/utils';
 import { canLocate, canSenseMotion } from '@/walk/browser';
 import { peekWalk } from '@/walk/persist';
 import { directWalkHref, walkFirst, type WalkFirst } from '@/walk/plan';
@@ -347,8 +347,10 @@ export function HomeScreen() {
   const due = dueItems({ now, ...(profile ? { profile } : {}), observations });
   const recheckAt = guided.checkIn?.readiness.recheckAt;
   // The gate as this render asked it, the same answer the card shows; a tap asks it again.
+  // After the twelve weeks nothing is planned (D116): the Workout tile says so, with nothing to check in for.
+  const done = programmeDone(settings.startDate, today);
   const lineOf = (mode: Mode, permission = permissions[mode]) => movementLine({
-    mode, permission, status, enrolled, normal: normalLine(mode, { recommendation, enrolled, plan: guided.plan }),
+    mode, permission, status, enrolled, normal: normalLine(mode, { recommendation, enrolled, plan: guided.plan, done }), done,
     ...(recheckAt ? { recheckAt } : {}), now, hour12: HOUR12, ...(left ? { gapChapter: left.chapter } : {}),
   });
   // A hold or a stop on the tile's mode: its hub opens on it, so the tap skips the morph (motion rule 2).

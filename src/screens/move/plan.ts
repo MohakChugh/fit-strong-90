@@ -279,6 +279,9 @@ export function withLeft(data: AppData): AppData {
   return { ...data, settings: { ...data.settings, startDate: '' } };
 }
 
+/** "Start the 12 weeks again" (D116): week 1 from today, on the same training days. Nothing recorded changes. */
+export const withRestart = (today: string) => (data: AppData): AppData => ({ ...data, settings: { ...data.settings, startDate: today } });
+
 /**
  * The Join form's life (codex R02). The wizard stays open, with every answer
  * in it, until the store says the save happened: closing it first would let

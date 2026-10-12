@@ -53,7 +53,7 @@ export function checkInOnly(p: Permission): boolean {
 const FLARE: Partial<Record<Mode, string>> = { guided: 'Gentle only today', stretch: 'Gentle stretch' };
 const STRETCH_SUGGESTED = 'Stretch is suggested today';
 
-export function movementLine({ mode, permission: p, status, normal, enrolled = true, recheckAt, now, hour12 = prefersHour12(), gapChapter }: {
+export function movementLine({ mode, permission: p, status, normal, enrolled = true, done = false, recheckAt, now, hour12 = prefersHour12(), gapChapter }: {
   mode: Mode;
   permission: Permission;
   status: Status;
@@ -65,6 +65,11 @@ export function movementLine({ mode, permission: p, status, normal, enrolled = t
    * programme (no programme pressure during a flare).
    */
   enrolled?: boolean;
+  /**
+   * The twelve weeks are over (D116): the Workout tile starts nothing then
+   * either, so, as outside the programme, it has nothing to check in for.
+   */
+  done?: boolean;
   /**
    * When a treated low's re-check can be taken (`Readiness.recheckAt`, from
    * today's check-in), with the moment the line is worked out: the line names
@@ -78,8 +83,8 @@ export function movementLine({ mode, permission: p, status, normal, enrolled = t
 }): TileLine {
   if (!p.allowed && (p.disposition === 'emergency' || p.disposition === 'today')) return { text: 'Not today', tone: 'stop' };
   if (status === 'away' || status === 'unwell') return { text: 'Paused', tone: 'quiet' };
-  // Outside the programme the Workout tile starts nothing, so it has nothing to check in for (D35, kiro KV-05).
-  const outside = mode === 'guided' && !enrolled;
+  // Outside the programme, or after its twelve weeks, the Workout tile starts nothing, so it has nothing to check in for (D35, kiro KV-05, D116).
+  const outside = mode === 'guided' && (!enrolled || done);
   // The line before any check-in: a flare's own first, then the check-in after it (kiro KV-04).
   const line = status !== 'flare' ? normal : outside ? STRETCH_SUGGESTED : FLARE[mode] ?? `${normal} · ${STRETCH_SUGGESTED}`;
   if (!p.allowed) {

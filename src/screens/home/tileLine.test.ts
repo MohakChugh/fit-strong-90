@@ -72,6 +72,17 @@ describe('movementLine (journey §7.5)', () => {
     expect(movementLine({ mode: 'stretch', permission: base, status: 'flare', normal: 'x', enrolled: false }).text).toBe('Gentle stretch');
     expect(movementLine({ mode: 'walk', permission: base, status: 'flare', normal: 'Just a walk', enrolled: false }).text).toBe('Just a walk · Stretch is suggested today');
   });
+  it('after the twelve weeks the Workout tile starts nothing, so it has nothing to check in for (D116)', () => {
+    const checkInOnly = { ...hold(PERMISSION_TEXT.noCheckIn), needsCheckIn: true };
+    const normal = 'The 12 weeks are done';
+    expect(movementLine({ mode: 'guided', permission: checkInOnly, status: 'normal', normal, enrolled: true, done: true })).toEqual({ text: normal, tone: 'normal' });
+    expect(movementLine({ mode: 'guided', permission: checkInOnly, status: 'normal', normal: 'Full Body B · 45 min', enrolled: true }).text).toBe('Full Body B · 45 min · check in first');
+    // Stretch and Walk still ask for theirs, and a stop keeps its words.
+    expect(movementLine({ mode: 'stretch', permission: { ...checkInOnly, mode: 'stretch' }, status: 'normal', normal: '10 or 15 min', enrolled: true, done: true }).text).toBe('10 or 15 min · check in first');
+    const stop = { ...base, allowed: false, disposition: 'today' as const, reasons: ['No exercise today.'] };
+    expect(movementLine({ mode: 'guided', permission: stop, status: 'normal', normal, enrolled: true, done: true }).text).toBe('Not today');
+  });
+
   it('works out the flare line first, then says "check in first" for a hold only a check-in answers, except where there is nothing to check in for (kiro KV-03 to KV-05)', () => {
     const checkInOnly = { ...hold(PERMISSION_TEXT.noCheckIn), needsCheckIn: true };
     const notJoined = workoutNormal({ enrolled: false, label: 'Full Body B', minutes: 45 });

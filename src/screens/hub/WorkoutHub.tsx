@@ -49,8 +49,10 @@ export default function WorkoutHub() {
   const saved = savedToday && resumeAllowed(status, 'guided') ? savedToday : undefined;
   const rest = enrolled ? restDayOf(plan) : undefined;
   const parts = sessionParts(plan);
+  const week = programmeWeek(state.settings.startDate, today);
   const card = movementCard({
     mode: 'guided', permission: g.permission, gate: g.gate, status, line: g.line, enrolled, recovery,
+    done: enrolled && week.finished,
     title: workoutNormal({ enrolled: true, label: plan.label, minutes: Math.round(plan.totalSeconds / 60) }),
     ...(parts ? { detail: parts } : {}),
     ...(g.recommendation.action.mode === 'guided' && g.recommendation.reason ? { reason: g.recommendation.reason } : {}),
@@ -67,8 +69,7 @@ export default function WorkoutHub() {
     local: () => {},
   });
 
-  const week = programmeWeek(state.settings.startDate, today);
-  const planDetail = !enrolled ? 'Not joined yet' : week.startsOn ? 'Starts soon' : `Week ${week.week} of 12`;
+  const planDetail = !enrolled ? 'Not joined yet' : week.startsOn ? 'Starts soon' : week.finished ? 'The 12 weeks are done' : `Week ${week.week} of 12`;
   const goal = weeklyGoalOn(state.settings, today);
   const pending = pendingWeeklyGoal(state.settings, today);
   const goalDetail = pending

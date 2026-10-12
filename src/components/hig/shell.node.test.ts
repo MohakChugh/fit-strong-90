@@ -322,7 +322,8 @@ describe('a sheet that will not close yet (review C2-07)', () => {
   it('is told so by the sheets that refuse while they save', () => {
     expect(read('src/screens/you/RestoreFlow.tsx')).toMatch(/<Sheet open=\{open\} dismissible=\{!locked\}/);
     expect(read('src/screens/workout/sheets.tsx')).toMatch(/<Sheet open=\{open\} dismissible=\{!saving\}/);
-    expect(read('src/screens/move/PlanScreen.tsx').match(/dismissible=\{!saving\}/g)).toHaveLength(2);
+    // Swap, leave, and after the twelve weeks starting them again (D116).
+    expect(read('src/screens/move/PlanScreen.tsx').match(/dismissible=\{!saving\}/g)).toHaveLength(3);
     expect(read('src/screens/you/ProgrammeGroup.tsx')).toMatch(/<Sheet open=\{leaving\} dismissible=\{!busy\}/);
   });
 });

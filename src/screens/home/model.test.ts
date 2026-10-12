@@ -91,6 +91,11 @@ describe('normalLine', () => {
     expect(normalLine('walk', { recommendation: stop, enrolled: false, plan })).toBe('Just a walk');
     expect(normalLine('walk', { recommendation: suggests({ mode: 'stretch' }), enrolled: false, plan })).toBe('Just a walk');
   });
+  it('says the twelve weeks are done on the Workout tile, never a week-12 session (D116)', () => {
+    expect(normalLine('guided', { recommendation: suggests({ mode: 'stretch' }), enrolled: true, plan, done: true })).toBe('The 12 weeks are done');
+    expect(normalLine('stretch', { recommendation: suggests({ mode: 'stretch' }), enrolled: true, plan, done: true })).toBe('A morning stretch');
+    expect(normalLine('guided', { recommendation: suggests({ mode: 'stretch' }), enrolled: false, plan, done: true })).toBe('12-week programme · not joined');
+  });
 });
 
 describe('readingLine (journey §7.2)', () => {
