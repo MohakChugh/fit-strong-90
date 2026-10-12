@@ -1,43 +1,43 @@
 #!/usr/bin/env node
 /**
- * The coach's voice must start on the first Start tap, the way a phone allows
- * audio: each audio element needs its own tap (Chromium's user-gesture policy,
- * like iOS). Checks:
+ * The coach's RECORDED voice must start on the first Start tap, the way a
+ * phone allows audio: each audio element needs its own tap (Chromium's
+ * user-gesture policy, like iOS). Checks:
  *   - a quick tap, while the voice pack is still arriving over a slow network
  *   - a normal tap, after the pack has loaded
  *   - a reload mid-session, then Resume
  * A run passes when recorded clips actually play and the "tap to turn the
  * voice back on" prompt never shows.
- *   node scripts/e2e/voice-start.mjs [--url=http://127.0.0.1:5173/fit-strong-90/] [--delay=2500]
+ *
+ *   node scripts/e2e/voice-start.mjs [--url=http://127.0.0.1:49731/fit-strong-90/] [--delay=2500]
+ *
+ * Without --url it starts its own watch-free dev server and stops it after.
+ * The owner persona (voice on) is seeded as a v4 blob before the first app
+ * script runs, then checks in through the real check-in sheet.
  */
 import { chromium } from 'playwright-core';
-import fs from 'node:fs';
 import os from 'node:os';
-import path from 'node:path';
+import { findChromium } from './acceptance/lib/env.mjs';
+import { seedInit } from './acceptance/lib/inpage.mjs';
+import { devServer, stopServers } from './acceptance/lib/servers.mjs';
+import { persona } from './acceptance/fixtures/personas.mjs';
+import * as ui from './acceptance/lib/ui.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).map(a => a.replace(/^--/, '').split(/=(.*)/s).slice(0, 2)));
-const BASE = args.url ?? 'http://127.0.0.1:5173/fit-strong-90/';
+const BASE = args.url ?? await devServer(Number(args.port ?? 49737), os.tmpdir());
 const DELAY = Number(args.delay ?? 2500);
 
-const cache = path.join(os.homedir(), 'Library/Caches/ms-playwright');
-const d = fs.readdirSync(cache).filter(x => x.startsWith('chromium_headless_shell-')).sort().reverse()[0];
 const browser = await chromium.launch({
-  executablePath: path.join(cache, d, 'chrome-headless-shell-mac-arm64', 'chrome-headless-shell'),
+  executablePath: findChromium(),
   chromiumSandbox: false,
   args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=user-gesture-required'],
 });
 
-const today = new Date().toISOString().slice(0, 10);
-const seed = {
-  version: 3,
-  settings: { onboardingComplete: true, startDate: new Date(Date.now() - 9 * 864e5).toISOString().slice(0, 10), useMetric: true, currentWeight: 82 },
-  sessions: [], personalRecords: [], bodyMetrics: [],
-  profile: { weightKg: 82, pain: { areas: ['lowerBack'] }, health: { diabetes: 'none' } },
-  checkIns: [{ date: today, urgentSymptoms: false, news: [], sleep: 'gt7', energy: 4, readiness: { outcome: 'green', modifiers: [], back: 0, nerveFlag: false, reasons: [], actions: [], vigorousLocked: false, capHeavy: false, rpeOnly: false, notices: [] } }],
-};
+const seed = persona('P01', { patch: { profile: { voice: { muted: false } } } });
 
 async function run(name, { delayManifest, tapAfterVoiceLoads, reloadAndResume }) {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const ctx = await browser.newContext({ viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true, locale: 'en-IN', timezoneId: 'Asia/Kolkata' });
+  await ctx.addInitScript(seedInit, { blob: JSON.stringify(seed), extra: {}, guard: '__acceptance:seeded' });
   // Record every play() and whether the browser allowed it.
   await ctx.addInitScript(() => {
     window.__plays = [];
@@ -61,12 +61,15 @@ async function run(name, { delayManifest, tapAfterVoiceLoads, reloadAndResume })
       await r.continue();
     });
   }
-  await page.goto(BASE, { waitUntil: 'networkidle' });
-  await page.evaluate(s => localStorage.setItem('fit-strong-90-data', JSON.stringify(s)), seed);
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.goto(`${BASE}#/today`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { level: 1, name: 'Today' }).waitFor({ timeout: 30000 });
 
-  // Today → Start → the session's own Start, by client-side navigation as a person would.
-  await page.getByRole('button', { name: 'Start session' }).click();
+  // Today → check in → Start session → the player's own Start, as a person would.
+  const main = page.getByRole('main');
+  await ui.tap(main.getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) }).getByRole('button'));
+  const sheet = page.getByRole('dialog', { name: ui.CHECKIN });
+  await ui.answerCheckIn({ advance: async () => {} }, sheet, ui.normalAnswers('P01', { bpGapMs: 0 }));
+  await ui.tap(sheet.getByRole('button', { name: /^Start session$/ }));
   const start = page.getByRole('button', { name: /^Start$/ });
   await start.waitFor();
   if (tapAfterVoiceLoads) await page.getByText(/^Voice: /).waitFor({ timeout: 10000 });
@@ -74,9 +77,9 @@ async function run(name, { delayManifest, tapAfterVoiceLoads, reloadAndResume })
   await page.waitForTimeout(DELAY + 4000);
 
   if (reloadAndResume) {
-    await page.reload({ waitUntil: 'networkidle' });
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await page.evaluate(() => { window.__plays = []; });
-    await page.getByRole('button', { name: 'Resume' }).click();
+    await page.getByRole('button', { name: 'Resume' }).click({ timeout: 20000 });
     await page.waitForTimeout(6000);
   }
 
@@ -90,10 +93,17 @@ async function run(name, { delayManifest, tapAfterVoiceLoads, reloadAndResume })
   return ok;
 }
 
-const results = [
-  await run('quick tap, slow voice pack', { delayManifest: true }),
-  await run('tap after the voice loads', { tapAfterVoiceLoads: true }),
-  await run('reload, then Resume', { delayManifest: true, reloadAndResume: true }),
-];
+const results = [];
+for (const [name, opts] of [
+  ['quick tap, slow voice pack', { delayManifest: true }],
+  ['tap after the voice loads', { tapAfterVoiceLoads: true }],
+  ['reload, then Resume', { delayManifest: true, reloadAndResume: true }],
+]) {
+  try { results.push(await run(name, opts)); } catch (e) {
+    console.log(`FAIL ${name.padEnd(26)} could not get there: ${e.message.split('\n')[0]}`);
+    results.push(false);
+  }
+}
 await browser.close();
+stopServers();
 process.exit(results.every(Boolean) ? 0 : 1);

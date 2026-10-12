@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
-import type { MobilityDayType } from '@/types/plan';
+import type { MobilityDayType, Step } from '@/types/plan';
+import { getMeta } from '@/data/catalog';
+import { buildSessionPlan } from './session';
 import { activeConditions } from './safety';
 import { profileOnlyReadiness } from './readiness';
 import { EQUIPMENT_BY_ACCESS } from '@/data/catalog';
@@ -86,5 +88,55 @@ describe('mobility block', () => {
         expect(regionsOf(s.exerciseId).length, s.exerciseId).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+/**
+ * The core template (rest-day and recovery sessions, and Stretch) follows the
+ * same rules as the training-day deep slot: no long hold that tensions an
+ * un-cleared sciatic nerve (gate G5), and no long holds on an irritable back.
+ */
+describe('core template safety guards', () => {
+  const START = '2026-09-28'; // Monday; 2026-10-11 is a rest Sunday
+  const UNCLEARED: ProfileInput = {
+    pain: { areas: ['lowerBack', 'sciatica'], sciaticaSide: 'left', worseWith: 'flexion' },
+    ladder: { hinge: 2, squat: 2, neuralGate: false },
+    flexibilityTargets: ['hamstrings', 'hipFlexors', 'thoracic'],
+  };
+  const day = { urgentSymptoms: false, emergency: [], news: [], energy: 4 as const };
+  const tensionHolds = (steps: Step[]) => steps.filter(s => s.kind === 'hold' && (getMeta(s.exerciseId)?.flags.sciaticTension ?? 0) >= 2);
+
+  it('holds no high-tension sciatic stretch on a rest day while the nerve gate is not cleared', () => {
+    const plan = buildSessionPlan({ profile: createDefaultProfile(UNCLEARED), date: '2026-10-11', startDate: START, sessions: [] });
+    expect(plan.kind).toBe('restDay');
+    expect(tensionHolds(plan.steps)).toEqual([]);
+  });
+
+  it('holds no high-tension sciatic stretch in a recovery session while the nerve gate is not cleared', () => {
+    const yesterday = { ...day, date: '2026-10-08', sleep: 'lt5' as const };
+    const plan = buildSessionPlan({
+      profile: createDefaultProfile(UNCLEARED), date: '2026-10-09', startDate: START, sessions: [],
+      checkIn: { ...day, date: '2026-10-09', sleep: 'lt5' }, recentCheckIns: [yesterday],
+    });
+    expect(plan.kind).toBe('recovery');
+    expect(tensionHolds(plan.steps)).toEqual([]);
+  });
+
+  it('drops the long flexibility-target holds on an irritable-back day', () => {
+    const back: ProfileInput = { pain: { areas: ['lowerBack'] }, ladder: { neuralGate: true }, flexibilityTargets: ['hipFlexors', 'hamstrings'] };
+    const plan = buildSessionPlan({
+      profile: createDefaultProfile(back), date: '2026-10-11', startDate: START, sessions: [],
+      checkIn: { ...day, date: '2026-10-11', sleep: 'gt7', back: { pain: 4, newNeuro: false, caudaEquinaFlag: false } },
+    });
+    expect(plan.readiness.back).toBe('amber');
+    const deep = plan.steps.filter(s => s.kind === 'hold' && s.deep).map(s => (s as { exerciseId: string }).exerciseId);
+    expect(deep).not.toContain('half-kneeling-hip-flexor-stretch');
+    expect(deep).not.toContain('supine-hamstring-stretch-strap');
+  });
+
+  it('still fills its budget to the second once those holds are dropped', () => {
+    const plan = buildSessionPlan({ profile: createDefaultProfile(UNCLEARED), date: '2026-10-11', startDate: START, sessions: [] });
+    const mobility = plan.steps.filter(s => s.block === 'mobility' || s.block === 'intro');
+    expect(totalSeconds(mobility)).toBe(900);
   });
 });

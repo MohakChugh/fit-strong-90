@@ -1,4 +1,8 @@
 @import "tailwindcss";
+/* Classes come from the app only: docs and test scripts mention class-like
+   text (the brief lists the type scale) that must not become CSS. */
+@source not "../docs";
+@source not "../scripts";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
@@ -98,6 +102,8 @@
     --block-strength-ink: oklch(0.55 0.14 55);
     --block-cardio-ink: oklch(0.52 0.18 15);
     --on-ink: oklch(1 0 0);
+    /* Text on a --safety fill (the mistake chip and badge): 4.5:1 or better in both themes. */
+    --on-safety: oklch(1 0 0);
 }
 
 .dark {
@@ -147,6 +153,8 @@
     --block-strength-ink: oklch(0.82 0.13 70);
     --block-cardio-ink: oklch(0.78 0.15 15);
     --on-ink: oklch(0.145 0 0);
+    /* Dark text on the lighter dark-mode red: white on it was 2.9:1 (scan S-07). */
+    --on-safety: oklch(0.145 0 0);
 }
 
 @layer base {
@@ -185,14 +193,29 @@ button, [role="button"], a {
   user-select: none;
 }
 
-/* Better touch targets */
-input[type="number"], input[type="text"], input[type="date"] {
-  font-size: 16px !important; /* Prevents zoom on iOS */
+/* Text fields read at the body size and grow with the person's text size,
+   but never under 16px, below which iOS zooms in on focus. In the base layer,
+   so a field's own size class still wins (Track's large reading field). */
+@layer base {
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]), textarea, select {
+    font-size: max(16px, var(--text-body));
+  }
 }
 
-/* Smooth scrolling */
-* {
-  scroll-behavior: smooth;
+/* No global smooth scrolling: a screen pushed or popped must appear at its
+   place at once, not scroll there during its transition (scan S-16). Scrolls
+   that should glide ask for it themselves. */
+
+/* Native controls (date fields, scroll bars) follow the app's theme, not only
+   the device's: the class is the app's choice (scan S-17). */
+:root { color-scheme: light; }
+:root.dark { color-scheme: dark; }
+
+/* Toasts sit clear of the tab bar and the home indicator; beside the
+   sidebar (lg) there is no bar below them to clear. */
+:root { --toast-offset-bottom: calc(3.0625rem + env(safe-area-inset-bottom, 0px) + 0.5rem); }
+@media (min-width: 64rem) {
+  :root { --toast-offset-bottom: 1.5rem; }
 }
 
 /* ==========================================================================
@@ -327,13 +350,61 @@ input[type="number"], input[type="text"], input[type="date"] {
    without support simply navigate instantly with no visual regression.
    ========================================================================== */
 
+/* A push moves toward the leading edge, Back toward the trailing one, as a
+   navigation controller does, so going back reads as going back. The screen
+   that is leaving fades out first and fast; the one arriving starts once it
+   has nearly gone, so the two are never seen on top of each other. Both are
+   drawn over the page colour without additive blending, so the background
+   holds steady in light and dark. A tab is a change of place, not of depth:
+   a plain hand-over. The stack sets `data-nav` on <html> before each one. */
+@keyframes fs-nav-fade-out {
+  to { opacity: 0; }
+}
+@keyframes fs-nav-out-leading {
+  to { transform: translate3d(-0.75rem, 0, 0); }
+}
+@keyframes fs-nav-out-trailing {
+  to { transform: translate3d(0.75rem, 0, 0); }
+}
+@keyframes fs-nav-in-trailing {
+  from { opacity: 0; transform: translate3d(1.75rem, 0, 0); }
+}
+@keyframes fs-nav-in-leading {
+  from { opacity: 0; transform: translate3d(-1.75rem, 0, 0); }
+}
+
 @media (prefers-reduced-motion: no-preference) {
+  ::view-transition-group(root) {
+    background-color: var(--grouped-bg);
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    mix-blend-mode: normal;
+  }
+
   ::view-transition-old(root) {
-    animation: fs-fade-in 0.2s var(--ease-out-quart) reverse;
+    animation: fs-nav-fade-out 0.1s linear both, fs-nav-out-leading 0.12s cubic-bezier(0.4, 0, 1, 1) both;
   }
 
   ::view-transition-new(root) {
-    animation: fs-rise-in 0.32s var(--ease-out-quart);
+    animation: fs-nav-in-trailing 0.3s var(--ease-out-quart) 0.07s both;
+  }
+
+  :root[data-nav="back"]::view-transition-old(root) {
+    animation-name: fs-nav-fade-out, fs-nav-out-trailing;
+  }
+
+  :root[data-nav="back"]::view-transition-new(root) {
+    animation-name: fs-nav-in-leading;
+  }
+
+  :root[data-nav="tab"]::view-transition-old(root) {
+    animation: fs-nav-fade-out 0.1s linear both;
+  }
+
+  :root[data-nav="tab"]::view-transition-new(root) {
+    animation: fs-fade-in 0.2s var(--ease-out-quart) 0.06s both;
   }
 
   /* The persistent shell must not cross-fade with the page body, or the
@@ -395,4 +466,94 @@ input[type="number"], input[type="text"], input[type="date"] {
     animation: none !important;
     transition: none !important;
   }
+}
+/* ==========================================================================
+   Apple-style foundation
+   --------------------------------------------------------------------------
+   The app should feel native on an iPhone without imitating Apple's branding.
+   Three things do most of that work: the system typeface, the grouped-list
+   surface colours, and a single action accent. Everything here is additive —
+   the shadcn tokens above still drive the older screens during migration.
+   ========================================================================== */
+
+@theme inline {
+  /* `system-ui` resolves to SF Pro on iOS and macOS, Roboto on Android and
+     Segoe on Windows: native everywhere rather than Apple-only. Geist stays
+     as the fallback so nothing regresses where the system font is unusable. */
+  --font-sans: -apple-system, BlinkMacSystemFont, system-ui, 'Geist Variable', 'Segoe UI', Roboto, sans-serif;
+
+  /* Type scale, in rem so browser text enlargement still works. */
+  --text-large-title: 2.125rem;   /* 34px — screen titles */
+  --text-title-2: 1.375rem;       /* 22px — section titles */
+  --text-body: 1.0625rem;         /* 17px — body, and the minimum for inputs */
+  --text-subhead: 0.9375rem;      /* 15px — supporting text */
+  --text-footnote: 0.8125rem;     /* 13px — captions, source labels */
+}
+
+/* Every text colour below was measured against the grouped page and the card
+   in its theme and clears WCAG's 4.5:1 for body text with margin (lowest:
+   muted text on the light page, 5.0). Re-measure before changing one. */
+:root {
+  /* Grouped lists: a tinted page behind white cards, as iOS does. */
+  --grouped-bg: oklch(0.967 0.002 247);
+  --grouped-card: oklch(1 0 0);
+  --separator: oklch(0.882 0.004 247);
+  /* One action accent for navigation and primary actions (board D12). */
+  --tint: oklch(0.5 0.1 199);
+  --on-tint: oklch(0.99 0 0);
+  /* shadcn's muted grey is 4.3:1 on the grouped page; this is 5.0. */
+  --muted-foreground: oklch(0.52 0 0);
+  /* Caution and stop as text. Always paired with words, never colour alone. */
+  --caution: oklch(0.52 0.13 65);
+  --stop: oklch(0.52 0.2 25);
+  /* The same meanings as backgrounds: black text on caution, white on stop. */
+  --caution-fill: oklch(0.68 0.16 70);
+  --stop-fill: oklch(0.52 0.2 25);
+  /* iOS's segmented control: a grey track with a raised thumb. Labels are
+     the body colour on both, as on iOS (15:1 or better). */
+  --segment-track: oklch(0.915 0.004 286);
+  --segment-thumb: oklch(1 0 0);
+}
+
+.dark {
+  --grouped-bg: oklch(0.145 0 0);
+  --grouped-card: oklch(0.205 0 0);
+  --separator: oklch(0.32 0 0);
+  /* The light value above comes later than shadcn's .dark block, so it must be
+     restated here: 6.7:1 on the card, 7.4:1 on the page, 5.8:1 on a segment track. */
+  --muted-foreground: oklch(0.7 0 0);
+  --tint: oklch(0.74 0.11 199);
+  --on-tint: oklch(0.17 0.02 199);
+  --caution: oklch(0.78 0.15 75);
+  --stop: oklch(0.72 0.17 25);
+  --caution-fill: oklch(0.78 0.15 75);
+  --stop-fill: oklch(0.5 0.19 25);
+  /* The thumb is lighter than the track in the dark, as iOS draws it; white
+     text on it is 6:1. */
+  --segment-track: oklch(0.26 0.003 286);
+  --segment-thumb: oklch(0.5 0.004 286);
+}
+
+@theme inline {
+  --color-grouped-bg: var(--grouped-bg);
+  --color-grouped-card: var(--grouped-card);
+  --color-separator: var(--separator);
+  --color-tint: var(--tint);
+  --color-on-tint: var(--on-tint);
+  --color-caution: var(--caution);
+  --color-stop: var(--stop);
+  --color-caution-fill: var(--caution-fill);
+  --color-stop-fill: var(--stop-fill);
+  --color-segment-track: var(--segment-track);
+  --color-segment-thumb: var(--segment-thumb);
+}
+
+/* Horizontal safe areas matter in landscape on a notched phone. */
+.pl-safe { padding-left: env(safe-area-inset-left, 0px); }
+.pr-safe { padding-right: env(safe-area-inset-right, 0px); }
+
+/* Live timers, pace and readings: tabular figures so digits stop jittering. */
+.numeric {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
 }

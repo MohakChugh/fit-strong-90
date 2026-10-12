@@ -35,7 +35,11 @@ describe('glucose units (Review Focus #1)', () => {
     [99, 'mg/dL', 'ok'],
     [5.5, 'mmol/L', 'ok'],
     [0, 'mg/dL', 'implausible'],
-    [900, 'mg/dL', 'implausible'],
+    // Contract E-EXTREME-GLUCOSE: an extreme high is acted on, never discarded as implausible.
+    [900, 'mg/dL', 'ok'],
+    // A real 0.9 mmol/L (16 mg/dL) is a severe low, not an implausible number.
+    [0.9, 'mmol/L', 'ok'],
+    [Number.NaN, 'mg/dL', 'implausible'],
   ] as const)('%s %s → %s', (v, u, expected) => {
     expect(glucoseSanity(v, u)).toBe(expected);
   });
@@ -74,7 +78,8 @@ describe('pre-session glucose for insulin users (spec §4.6)', () => {
     [110, 'green', ['HYPO']],
     [150, 'green', []],
     [220, 'green', []],
-    [320, 'amber', ['INT', 'LOAD']],
+    // Contract H-T2-HIGH: over 300 in type 2 holds, it no longer runs a lighter session.
+    [320, 'red', []],
   ] as const)('%i mg/dL → %s', (mg, outcome, mods) => {
     const r = evalWith(insulinUser, { glucose: { value: mg, unit: 'mg/dL' } });
     expect(r.outcome).toBe(outcome);
@@ -106,10 +111,14 @@ describe('pre-session glucose for insulin users (spec §4.6)', () => {
     expect(r.recheckMinutes).toBe(15);
   });
 
-  it('is amber with HYPO when an insulin user has no reading', () => {
+  // Was amber and runnable. Contract H-DATA: a required check that is missing
+  // is never labelled safe; the hold lifts once a reading is entered.
+  it('holds an insulin user who has no reading, until one is entered', () => {
     const r = evalWith(insulinUser, {});
-    expect(r.outcome).toBe('amber');
-    expect(r.modifiers).toEqual(expect.arrayContaining(['HYPO', 'INT']));
+    expect(r.outcome).toBe('red');
+    expect(r.disposition).toBe('hold');
+    expect(r.awaitingReading).toBe(true);
+    expect(r.reasons.map(x => x.code)).toContain('noReading');
   });
 
   it('needs no carbs and no reading on low-risk medicines', () => {
@@ -132,8 +141,12 @@ describe('ketones (type 1 and SGLT2)', () => {
     expect(evalWith(type1, { glucose: { value: 260, unit: 'mg/dL' }, ketones: { value: k, kind: 'blood' } }).outcome).toBe(outcome);
   });
 
-  it('allows recovery only for type 1 at ≥ 250 without a ketone test', () => {
-    expect(evalWith(type1, { glucose: { value: 260, unit: 'mg/dL' } }).outcome).toBe('recovery');
+  // Was a runnable recovery session. Contract H-HIGH-UNCHECKED: hold until ketones are tested.
+  it('holds type 1 at ≥ 250 without a ketone test', () => {
+    const r = evalWith(type1, { glucose: { value: 260, unit: 'mg/dL' } });
+    expect(r.outcome).toBe('red');
+    expect(r.disposition).toBe('hold');
+    expect(r.reasons.map(x => x.code)).toContain('noKetones');
   });
 
   it('is amber above 270 with negative ketones', () => {
@@ -148,7 +161,8 @@ describe('check-in news items', () => {
     ['lowTwoPlus', 'red'],
     ['lowOne', 'amber'],
     ['fainted', 'red'],
-    ['dizzy', 'amber'],
+    // Was amber. Contract H-DIZZY: dizziness holds, whatever the blood pressure.
+    ['dizzy', 'red'],
     ['footProblem', 'amber'],
     ['unusualFatigue', 'red'],
     ['hot', 'green'],
@@ -157,7 +171,6 @@ describe('check-in news items', () => {
   });
 
   it('adds the matching modifiers', () => {
-    expect(evalWith({}, { news: ['dizzy'] }).modifiers).toEqual(expect.arrayContaining(['COOL', 'INT']));
     expect(evalWith({}, { news: ['footProblem'] }).modifiers).toContain('FOOT');
     expect(evalWith({}, { news: ['hot'] }).modifiers).toContain('HEAT');
   });
@@ -172,7 +185,8 @@ describe('blood pressure (spec §4.7)', () => {
     [[120, 80], 'green'],
     [[145, 85], 'amber'],
     [[150, 95], 'amber'],
-    [[165, 95], 'amber'],
+    // Was amber. D29(4): above 160 or 100 holds every movement mode.
+    [[165, 95], 'red'],
     [[182, 100], 'red'],
     [[170, 112], 'red'],
     [[185, 125], 'red'],
@@ -187,8 +201,9 @@ describe('blood pressure (spec §4.7)', () => {
     expect(r.capHeavy).toBe(true);
   });
 
-  it('adds LOAD, HEAD and COOL from 160/100', () => {
-    expect(evalWith({}, { bp: { sys: 165, dia: 95 } }).modifiers).toEqual(expect.arrayContaining(['INT', 'LOAD', 'HEAD', 'COOL']));
+  // Exactly 160/100 is below the strict hold but keeps the comfort restrictions.
+  it('adds LOAD, HEAD and COOL at 160/100', () => {
+    expect(evalWith({}, { bp: { sys: 160, dia: 100 } }).modifiers).toEqual(expect.arrayContaining(['INT', 'LOAD', 'HEAD', 'COOL']));
   });
 
   it('is red when low blood pressure comes with dizziness', () => {
@@ -201,9 +216,12 @@ describe('back pain and sciatica (spec §4.5)', () => {
     expect(evalWith(backUser, { back: { pain: 2, newNeuro: false, caudaEquinaFlag: true } }).outcome).toBe('urgent');
   });
 
-  it('is a recovery day with new neurological symptoms', () => {
+  // Was a recovery day with a Start button. Contract T-NEURO: the old question
+  // covered weakness too, so an older answer is read as possible weakness.
+  it('stops, with help today, for new numbness, tingling or weakness on the old question', () => {
     const r = evalWith(backUser, { back: { pain: 2, newNeuro: true, caudaEquinaFlag: false } });
-    expect(r.outcome).toBe('recovery');
+    expect(r.outcome).toBe('red');
+    expect(r.disposition).toBe('today');
     expect(r.nerveFlag).toBe(true);
     expect(r.back).toBe('red');
   });
@@ -246,9 +264,22 @@ describe('sleep and energy', () => {
 
 describe('merging', () => {
   it('lets the most restrictive outcome win and accumulates modifiers', () => {
-    const r = evalWith(insulinUser, { news: ['dizzy', 'hot'], glucose: { value: 110, unit: 'mg/dL' }, bp: { sys: 150, dia: 92 } });
+    const r = evalWith({ health: { ...insulinUser.health, hypertension: 'treated' } }, { news: ['hot'], glucose: { value: 110, unit: 'mg/dL' }, bp: { sys: 150, dia: 92 } });
     expect(r.outcome).toBe('amber');
     expect(r.modifiers).toEqual(expect.arrayContaining(['COOL', 'INT', 'HEAT', 'HYPO']));
+  });
+
+  // D28: no rule returns early and hides another. A low glucose, a high blood
+  // pressure and positive ketones each keep their own reason.
+  it('evaluates every rule on its own, so no reading masks another', () => {
+    const r = evalWith({ health: { diabetes: 'type2', sglt2i: true } }, {
+      glucose: { value: 62, unit: 'mg/dL', measuredAt: '2026-10-09T08:00:00.000Z' },
+      ketones: { kind: 'blood', value: 0.9 },
+      bpReadings: [{ sys: 165, dia: 90 }],
+      news: ['dizzy'],
+    });
+    expect(r.reasons.map(x => x.code)).toEqual(expect.arrayContaining(['low', 'ketonesTrace', 'bpHold', 'dizzy']));
+    expect(r.disposition).toBe('hold');
   });
 
   it('is urgent with urgent symptoms whatever else is fine', () => {
@@ -282,9 +313,12 @@ describe('blood pressure thresholds', () => {
     expect(r.modifiers).toContain('COOL');
   });
 
-  it('red for 180 over 110 and above, amber below that', () => {
+  // Was amber at 165/102. D29(4): above 160 or 100 holds; 160/100 itself is amber.
+  it('red above 160 over 100, amber at or below it', () => {
     expect(evalWith(treated, { bp: { sys: 182, dia: 92 } }).outcome).toBe('red');
-    expect(evalWith(treated, { bp: { sys: 165, dia: 102 } }).outcome).toBe('amber');
+    expect(evalWith(treated, { bp: { sys: 165, dia: 102 } }).outcome).toBe('red');
+    expect(evalWith(treated, { bp: { sys: 160, dia: 100 } }).outcome).toBe('amber');
+    expect(evalWith(treated, { bp: { sys: 159, dia: 99 } }).outcome).toBe('amber');
   });
 });
 
@@ -292,12 +326,15 @@ describe('ketones', () => {
   const sglt2: ProfileInput = { health: { diabetes: 'type2', sglt2i: true, glucoseMonitor: 'meter' } };
   const type2: ProfileInput = { health: { diabetes: 'type2', glucoseMonitor: 'meter' } };
 
-  it('restricts a high glucose more for a user who can make ketones', () => {
+  // Both were runnable (recovery and amber). Contract H-HIGH-UNCHECKED and
+  // H-T2-HIGH hold both; the ketone-risk user is also asked to test ketones.
+  it('holds a very high glucose, and asks a user who can make ketones to test them', () => {
     const risk = evalWith(sglt2, { glucose: { value: 400, unit: 'mg/dL' } });
     const plain = evalWith(type2, { glucose: { value: 400, unit: 'mg/dL' } });
-    expect(risk.outcome).toBe('recovery');
-    expect(OUTCOME_ORDER.indexOf(risk.outcome)).toBeGreaterThan(OUTCOME_ORDER.indexOf(plain.outcome));
-    expect(plain.outcome).toBe('amber');
+    expect(OUTCOME_ORDER.indexOf(risk.outcome)).toBeGreaterThanOrEqual(OUTCOME_ORDER.indexOf('red'));
+    expect(OUTCOME_ORDER.indexOf(plain.outcome)).toBeGreaterThanOrEqual(OUTCOME_ORDER.indexOf('red'));
+    expect(risk.reasons.map(r => r.code)).toContain('noKetones');
+    expect(plain.reasons.map(r => r.code)).not.toContain('noKetones');
   });
 
   it('reads a urine strip on strip markings, not blood mmol/L', () => {

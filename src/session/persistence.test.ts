@@ -14,7 +14,7 @@ globalThis.localStorage = {
   get length() { return store.size; },
 } as Storage;
 
-const { saveProgress, loadProgress, loadExpiredProgress, clearProgress, minutesLeft, resumeOffer, RESUME_WINDOW_MS } = await import('./persistence');
+const { saveProgress, loadProgress, loadExpiredProgress, clearProgress, minutesLeft, resumeOffer, RESUME_WINDOW_MS, setAside, loadSetAside, releaseSetAside } = await import('./persistence');
 
 const profile = createDefaultProfile({ pain: { areas: ['lowerBack'] } });
 const planFor = (date: string) => buildSessionPlan({ profile, date, startDate: '2026-09-28', sessions: [] });
@@ -78,5 +78,69 @@ describe('minutesLeft', () => {
   it('shrinks as the session advances', () => {
     expect(minutesLeft(progress(today, 2))).toBeGreaterThan(minutesLeft(progress(today, 20)));
     expect(minutesLeft(progress(today, today.steps.length))).toBeGreaterThanOrEqual(1);
+  });
+});
+
+const { buildStretchPlan } = await import('@/engine/stretch');
+const { slotOf } = await import('./persistence');
+
+describe('progress slots', () => {
+  const stretch = buildStretchPlan({ profile, date: '2026-10-09', startDate: '2026-09-28', sessions: [], focus: 'backHips', minutes: 10 });
+
+  beforeEach(() => store.clear());
+
+  it('keeps a stretch in its own slot, so it never overwrites a paused guided hour', () => {
+    const guided = progress(today, 3);
+    saveProgress(guided.plan, guided.state, guided.clockAt);
+    const s = progress(stretch, 2);
+    saveProgress(s.plan, s.state, s.clockAt);
+    expect(slotOf(stretch)).toBe('stretch');
+    expect(loadProgress()?.plan.id).toBe(today.id);
+    expect(loadProgress(Date.now(), 'stretch')?.plan.id).toBe(stretch.id);
+  });
+
+  it('clears one slot without touching the other', () => {
+    const guided = progress(today, 3);
+    saveProgress(guided.plan, guided.state, guided.clockAt);
+    const s = progress(stretch, 2);
+    saveProgress(s.plan, s.state, s.clockAt);
+    clearProgress('stretch');
+    expect(loadProgress(Date.now(), 'stretch')).toBeNull();
+    expect(loadProgress()?.plan.id).toBe(today.id);
+  });
+});
+
+describe('a finished run that was never stored', () => {
+  beforeEach(() => store.clear());
+
+  it('is handed back for banking at any age, and never offered as a resume', () => {
+    const run = progress(today, 2);
+    const done = { ...run.state, status: 'done' as const };
+    saveProgress(today, done, run.clockAt, Date.now());
+    expect(loadProgress()).toBeNull();
+    expect(loadExpiredProgress()?.state.status).toBe('done');
+  });
+});
+
+describe('runs kept aside because they could not be banked (scan M-08)', () => {
+  beforeEach(() => store.clear());
+
+  it('are kept under their own key, once each, outlive the slot being overwritten, and go when released', () => {
+    const old = { ...progress(yesterday, 3), sessionId: 'guided-2026-10-08-a' };
+    expect(setAside(old)).toBe(true);
+    expect(setAside(old)).toBe(true);
+    expect(loadSetAside().map(s => s.sessionId)).toEqual(['guided-2026-10-08-a']);
+    saveProgress(today, progress(today, 1).state, 2000);
+    expect(loadSetAside()).toHaveLength(1);
+    releaseSetAside(old);
+    expect(loadSetAside()).toEqual([]);
+    expect(store.has('fit-strong-90-unbanked')).toBe(false);
+  });
+
+  it('read nothing from a damaged copy', () => {
+    store.set('fit-strong-90-unbanked', '{not json');
+    expect(loadSetAside()).toEqual([]);
+    store.set('fit-strong-90-unbanked', JSON.stringify([{ nope: 1 }, null]));
+    expect(loadSetAside()).toEqual([]);
   });
 });

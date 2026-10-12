@@ -26,7 +26,7 @@ export function FormDemo({ exerciseId, className }: { exerciseId: string; classN
           </button>
           {mistakes.map(m => (
             <button key={m.clip} type="button" role="radio" aria-checked={clip === m.clip} onClick={() => pick(m.clip)}
-              className={cn(chip, clip === m.clip ? 'border-transparent bg-[var(--safety)] text-white' : 'bg-background text-[var(--safety)]')}>
+              className={cn(chip, clip === m.clip ? 'border-transparent bg-[var(--safety)] text-[var(--on-safety)]' : 'bg-background text-[var(--safety)]')}>
               <XIcon className="size-4" aria-hidden /> {m.mistake}
             </button>
           ))}

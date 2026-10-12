@@ -192,6 +192,11 @@ function resolve(id: string, ctx: MobilityContext, used: Set<string>, depth = 0)
   return id;
 }
 
+/** Long holds never tension an un-cleared sciatic nerve (gate G5). */
+function nerveUnsafe(ctx: MobilityContext, id: string): boolean {
+  return ctx.profile.pain.areas.includes('sciatica') && !ctx.profile.ladder.neuralGate && (getMeta(id)?.flags.sciaticTension ?? 0) >= 2;
+}
+
 function toStep(item: Item, ctx: MobilityContext, index: number): HoldStep | DrillStep {
   const meta = getMobility(item.id);
   const name = getMeta(item.id)?.name ?? item.id;
@@ -328,13 +333,10 @@ export function mobilityBlock(ctx: MobilityContext): Step[] {
   const targets = ctx.profile.flexibilityTargets
     .filter(r => !PRIME_REGIONS[ctx.dayType].includes(r) && TARGET_DEEP[r])
     .sort((a, b) => ((ctx.coverage[a] ?? 0) + (today[a] ?? 0)) - ((ctx.coverage[b] ?? 0) + (today[b] ?? 0)));
-  // Long holds never tension an un-cleared sciatic nerve (gate G5).
-  const nerveUnsafe = (id: string) =>
-    ctx.profile.pain.areas.includes('sciatica') && !ctx.profile.ladder.neuralGate && (getMeta(id)?.flags.sciaticTension ?? 0) >= 2;
   let deepPlaced = false;
   for (const r of targets) {
     const id = resolve(TARGET_DEEP[r]!, ctx, used);
-    if (id && !c.backIrritable && !nerveUnsafe(id)) {
+    if (id && !c.backIrritable && !nerveUnsafe(ctx, id)) {
       used.add(id);
       items.push({ id, hold: deepSeconds, sets: 1, slot: 'deep' });
       deepPlaced = true;
@@ -342,7 +344,7 @@ export function mobilityBlock(ctx: MobilityContext): Step[] {
     }
   }
   if (!deepPlaced) {
-    for (const d of day.deep) if (!nerveUnsafe(d.id)) push({ ...d, sets: 1, hold: Math.min(d.hold ?? deepSeconds, deepSeconds + 15) });
+    for (const d of day.deep) if (!nerveUnsafe(ctx, d.id)) push({ ...d, sets: 1, hold: Math.min(d.hold ?? deepSeconds, deepSeconds + 15) });
   }
 
   // Coverage: the region furthest behind its weekly target, counting what the
@@ -430,11 +432,18 @@ function coreDayBlock(ctx: MobilityContext): Step[] {
   push({ id: 'bird-dog', reps: 3, slot: 'big3' });
   if (ctx.profile.pain.areas.includes('sciatica') || ctx.conditions.sciaticaActive) push({ id: 'sciatic-nerve-glide-supine', reps: 12, slot: 'nerve' });
   else { push({ id: 'chin-tuck', reps: 10, slot: 'nerve' }); push({ id: 'upper-trap-stretch', hold: 20, slot: 'nerve' }); }
+  // The training-day deep slot's guards hold here too: no long holds on an
+  // irritable back, and none that tension an un-cleared sciatic nerve. Checked
+  // on what the item resolves to, since a swap can change it.
   for (const r of ctx.profile.flexibilityTargets.slice(0, 2)) {
-    const id = TARGET_DEEP[r];
-    if (id) push({ id, hold: 45, slot: 'deep' });
+    const target = TARGET_DEEP[r];
+    const id = target && !ctx.conditions.backIrritable ? resolve(target, ctx, used) : null;
+    if (id && !nerveUnsafe(ctx, id)) {
+      used.add(id);
+      items.push({ id, hold: 45, slot: 'deep' });
+    }
   }
-  push({ id: 'supine-figure-4', hold: 30, slot: 'deep' });
+  if (!nerveUnsafe(ctx, 'supine-figure-4')) push({ id: 'supine-figure-4', hold: 30, slot: 'deep' });
   push({ id: 'dead-bug', reps: 6, slot: 'activate' });
   push({ id: 'crocodile-breathing', reps: 6, slot: 'activate' });
   return fitToBudget(items, ctx);

@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "node scripts/e2e/journey.mjs"
+    "e2e": "node scripts/e2e/all.mjs",
+    "e2e:acceptance": "node scripts/e2e/acceptance/run.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
@@ -18,16 +19,11 @@
     "@tailwindcss/vite": "^4.2.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "lucide-react": "^1.7.0",
-    "next-themes": "^0.4.6",
     "react": "^19.2.4",
-    "react-day-picker": "^9.14.0",
     "react-dom": "^19.2.4",
-    "react-is": "^19.2.4",
     "react-router-dom": "^7.13.2",
-    "recharts": "^3.8.1",
     "shadcn": "^4.1.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",

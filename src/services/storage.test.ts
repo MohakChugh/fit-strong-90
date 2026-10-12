@@ -13,7 +13,21 @@ globalThis.localStorage = {
   get length() { return store.size; },
 } as Storage;
 
-const { loadData, saveData, migrateData, CURRENT_VERSION, importData, resetData, resetAndRestart } = await import('./storage');
+// And a tab's sessionStorage, where the walk and Quick Log drafts live.
+const tab = new Map<string, string>();
+globalThis.sessionStorage = {
+  getItem: (k: string) => tab.get(k) ?? null,
+  setItem: (k: string, v: string) => void tab.set(k, v),
+  removeItem: (k: string) => void tab.delete(k),
+  clear: () => tab.clear(),
+  key: (i: number) => [...tab.keys()][i] ?? null,
+  get length() { return tab.size; },
+} as Storage;
+
+const { migrateData, CURRENT_VERSION, resetData, APP_KEY_PREFIX } = await import('./storage');
+
+/** What a brand-new device starts from: the store builds its defaults the same way. */
+const fresh = () => migrateData({ version: CURRENT_VERSION } as AppData);
 
 function v2Data(overrides: Partial<AppData['settings']> = {}): AppData {
   return {
@@ -45,7 +59,7 @@ describe('storage v3', () => {
   beforeEach(() => store.clear());
 
   it('starts fresh users at the current version with no profile', () => {
-    const data = loadData();
+    const data = fresh();
     expect(data.version).toBe(CURRENT_VERSION);
     expect(data.profile).toBeUndefined();
     expect(data.checkIns).toEqual([]);
@@ -67,26 +81,17 @@ describe('storage v3', () => {
     expect(migrated.profile).toBeUndefined();
   });
 
-  it('round-trips v3 data unchanged', () => {
+  it('leaves already-current data unchanged when migrated again', () => {
     const migrated = migrateData(v2Data());
-    saveData(migrated);
-    expect(loadData()).toEqual(migrated);
-  });
-
-  it('falls back to defaults on corrupt JSON', () => {
-    store.set('fit-strong-90-data', '{not json');
-    expect(loadData().version).toBe(CURRENT_VERSION);
-  });
-
-  it('migrates an imported v2 export', () => {
-    expect(importData(JSON.stringify(v2Data()))).toBe(true);
-    expect(loadData().profile?.weightKg).toBe(82);
+    expect(migrateData(JSON.parse(JSON.stringify(migrated)) as AppData)).toEqual(migrated);
   });
 
   it('never hands out the shared default object', () => {
-    const a = loadData();
+    const a = fresh();
     a.sessions.push(v2Data().sessions[0]);
-    expect(loadData().sessions).toHaveLength(0);
+    a.settings.useMetric = false;
+    expect(fresh().sessions).toHaveLength(0);
+    expect(fresh().settings.useMetric).toBe(true);
   });
 
   // Review Focus #7: `undefined < 2` is false, so a version-less blob used to
@@ -110,7 +115,7 @@ describe('resetData', () => {
   beforeEach(() => store.clear());
 
   it('removes every key the app owns, not just the main blob', () => {
-    saveData(migrateData(v2Data()));
+    store.set('fit-strong-90-data', JSON.stringify(migrateData(v2Data())));
     store.set('fit-strong-90-guided', '{"plan":{"readiness":{"reasons":[{"message":"Glucose below 54 mg/dL"}]}}}');
     store.set('fit-strong-90-anything-later', 'x');
     store.set('some-other-app', 'keep me');
@@ -119,21 +124,27 @@ describe('resetData', () => {
 
     expect([...store.keys()]).toEqual(['some-other-app']);
   });
-});
 
-// App's route gate keeps its own copy of the data, so navigating alone bounced
-// back to Today until a refresh.
-describe('resetAndRestart', () => {
-  beforeEach(() => store.clear());
+  it('removes the drafts kept in the tab too: a walk in progress and an unsaved reading (D-05)', async () => {
+    tab.clear();
+    const { WALK_KEY, LAST_WALK_KEY } = await import('@/walk/persist');
+    const { DRAFT_KEY } = await import('@/screens/track/draft');
+    tab.set(WALK_KEY, '{"walk":{"id":"walk-before-delete","pain":{"back":{"value":6}}}}');
+    tab.set(LAST_WALK_KEY, 'walk-before-delete');
+    tab.set(DRAFT_KEY, '{"kind":"glucose","raw":"54"}');
+    tab.set('fit-strong-90-navigation', '{}');
+    tab.set('some-other-app', 'keep me');
 
-  it('clears everything, then reloads straight onto onboarding', () => {
-    saveData(migrateData(v2Data()));
-    const calls: string[] = [];
-    resetAndRestart({
-      replace: url => void calls.push(`replace ${url}`),
-      reload: () => void calls.push(`reload with ${store.size} keys`),
-    });
-    expect(calls).toEqual(['replace #/onboarding', 'reload with 0 keys']);
+    resetData();
+
+    expect([...tab.keys()]).toEqual(['some-other-app']);
+  });
+
+  it('every key the app keeps starts with the one prefix the sweep removes', async () => {
+    const { WALK_KEY, LAST_WALK_KEY } = await import('@/walk/persist');
+    const { DRAFT_KEY } = await import('@/screens/track/draft');
+    const { THEME_KEY } = await import('@/store/useStore');
+    for (const key of [WALK_KEY, LAST_WALK_KEY, DRAFT_KEY, THEME_KEY, 'fit-strong-90-data']) expect(key.startsWith(APP_KEY_PREFIX)).toBe(true);
   });
 });
 

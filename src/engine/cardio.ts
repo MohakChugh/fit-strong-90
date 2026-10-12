@@ -9,6 +9,7 @@ import type { UserProfile } from '@/types/profile';
 import { getCardio, hasEquipment } from '@/data/catalog';
 import { isUpperFocus } from './templates';
 import { deriveHealth } from './health';
+import { fluidLimit } from './readiness';
 import type { Conditions } from './safety';
 
 export interface CardioContext {
@@ -84,6 +85,16 @@ export function cardioPlan(ctx: CardioContext): CardioPlan | null {
   return { modality, format, seconds };
 }
 
+/**
+ * A hot day's spare minutes, with only the drinking advice this profile may
+ * be given, as the rest line says it (contract H-DIZZY; Codex re-audit F13).
+ */
+export const HOT_COOL_DOWN: Record<ReturnType<typeof fluidLimit>, string> = {
+  limited: 'Easy cool-down, cool off and keep to your fluid plan',
+  free: 'Easy cool-down, cool off and drink',
+  unknown: 'Easy cool-down, cool off and drink unless you have a fluid limit',
+};
+
 export function cardioBlock(ctx: CardioContext): Step[] {
   const plan = cardioPlan(ctx);
   if (!plan) return [];
@@ -111,7 +122,7 @@ export function cardioBlock(ctx: CardioContext): Step[] {
   // On a hot day cardio is capped, so the time it gives back becomes an easy
   // cool-down rather than vanishing: the session still ends when promised.
   const spare = ctx.budgetSeconds - total;
-  if (spare >= 30) parts.push({ seconds: spare, intensity: 'cooldown', label: 'Easy cool-down, cool off and drink' });
+  if (spare >= 30) parts.push({ seconds: spare, intensity: 'cooldown', label: HOT_COOL_DOWN[fluidLimit(ctx.profile.health)] });
 
   const name = getCardio(plan.modality)?.name ?? plan.modality;
   return [{ kind: 'cardio', id: `${ctx.idPrefix ?? 'c'}cardio`, block: 'cardio', title: name, exerciseId: plan.modality, parts }];

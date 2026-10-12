@@ -5,7 +5,7 @@ import { ChipGroup, type ChipOption } from '@/components/profile/ChipGroup';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import { Switch } from '@/components/ui/switch';
+import { Toggle } from '@/screens/you/controls';
 import { cn } from '@/lib/utils';
 import { CheckIcon, MicIcon, PlayIcon, SquareIcon } from 'lucide-react';
 
@@ -65,9 +65,10 @@ export function VoiceSettingsCard({ voice, onChange }: { voice: VoiceSettings; o
               const on = p.id === current;
               const status = recorded[p.id];
               return (
-                <div key={p.id} className={cn('flex items-center gap-2 rounded-xl border p-1 pl-3', on && 'border-primary bg-primary/5')}>
+                // At large text the Preview button moves under the name rather than off the screen (D-10).
+                <div key={p.id} className={cn('flex flex-wrap items-center gap-2 rounded-xl border p-1 pl-3', on && 'border-primary bg-primary/5')}>
                   <button type="button" role="radio" aria-checked={on} onClick={() => onChange({ pack: p.id })}
-                    className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left">
+                    className="flex min-h-11 min-w-0 flex-1 basis-40 items-center gap-2 text-left [overflow-wrap:anywhere]">
                     <span className={cn('flex size-5 shrink-0 items-center justify-center rounded-full border', on && 'border-primary bg-primary text-primary-foreground')}>
                       {on && <CheckIcon className="size-3.5" />}
                     </span>
@@ -105,10 +106,11 @@ export function VoiceSettingsCard({ voice, onChange }: { voice: VoiceSettings; o
 
         <div className="flex items-center justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <Label htmlFor="voice-muted">Start sessions muted</Label>
+            <span className="text-sm font-medium leading-none">Start sessions muted</span>
             <span className="text-sm text-muted-foreground">Captions only; unmute any time during a session.</span>
           </div>
-          <Switch id="voice-muted" checked={voice.muted} onCheckedChange={checked => onChange({ muted: checked })} />
+          {/* The 44-point iOS switch the rest of You uses, named by its row. */}
+          <Toggle checked={voice.muted} onChange={muted => onChange({ muted })} label="Start sessions muted" />
         </div>
       </div>
     </Card>

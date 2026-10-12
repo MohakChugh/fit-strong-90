@@ -108,7 +108,7 @@ export function MotionView({ exerciseId, name, side = 'left', mistake = null, pl
         aria-label={`3D demonstration${name ? ` of ${name}` : ''}${label ? `, showing what not to do: ${label}` : ''}${side === 'right' ? ', right side' : ''}. Drag sideways to look around.`} />
       {(!ready || failed) && <div className="absolute inset-0 bg-background">{fallback}</div>}
       {ready && label && (
-        <span className="pointer-events-none absolute left-2 top-2 flex items-center gap-1 rounded-full bg-[var(--safety)] px-2.5 py-1 text-xs font-semibold text-white shadow">
+        <span className="pointer-events-none absolute left-2 top-2 flex items-center gap-1 rounded-full bg-[var(--safety)] px-2.5 py-1 text-xs font-semibold text-[var(--on-safety)] shadow">
           <XIcon className="size-3.5" aria-hidden /> {label}
         </span>
       )}

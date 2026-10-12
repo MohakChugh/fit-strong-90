@@ -4,6 +4,8 @@ import { createDefaultProfile } from '@/profile/defaults';
 import { buildSessionPlan } from '@/engine/session';
 import { createRunner, initialState, type RunnerState } from './runner';
 import { toWorkoutSession, newRecords, withGuidedSession, activeSeconds, bankProgress } from './logging';
+import { buildStretchPlan } from '@/engine/stretch';
+import type { Step as SessionPlanStep } from '@/types/plan';
 
 const profile = createDefaultProfile({ pain: { areas: ['lowerBack'] }, ladder: { hinge: 2, squat: 2 } });
 const plan = buildSessionPlan({ profile, date: '2026-10-09', startDate: '2026-09-28', sessions: [] });
@@ -176,6 +178,21 @@ describe('withGuidedSession', () => {
     expect(data.profile!.ladder.changedOn).toBe('2026-10-09');
   });
 
+  // Scan J2-02: a stop for leg symptoms is that movement answered "worse", and a later "Same" never overrules it.
+  it('records a stop for leg symptoms as "worse" for the movement, over any later answer, and steps the ladder down', () => {
+    let s = runner.reduce(initialState(plan), { type: 'start', now: 0 });
+    const check = plan.steps.find(x => x.kind === 'checkpoint' && x.question === 'backSymptoms')! as Extract<SessionPlanStep, { kind: 'checkpoint' }>;
+    const lift = check.exerciseId!;
+    s = runner.reduce(s, { type: 'log', entry: { stepId: `stop-${lift}`, kind: 'checkpoint', exerciseId: lift, completed: true, answer: 'worse', at: 1 } });
+    s = runner.reduce(s, { type: 'log', entry: { stepId: check.id, kind: 'checkpoint', completed: true, answer: 'same', at: 2 } });
+    s = runner.reduce(s, { type: 'tick', now: plan.totalSeconds * 1000 + 1 });
+    const w = toWorkoutSession(plan, s, { sessionId: 'g-stop' });
+    expect(w.symptomChecks?.[lift]).toBe('worse');
+    const data = withGuidedSession(empty, w);
+    expect(data.profile!.ladder.hinge + data.profile!.ladder.squat).toBeLessThan(profile.ladder.hinge + profile.ladder.squat);
+    expect(data.profile!.ladder.changedOn).toBe('2026-10-09');
+  });
+
   it('leaves a legacy user without a stored profile alone', () => {
     const data = withGuidedSession({ ...empty, profile: undefined }, toWorkoutSession(plan, finishedRun(), { sessionId: 'g-np' }));
     expect(data.profile).toBeUndefined();
@@ -192,5 +209,61 @@ describe('newRecords', () => {
     const w = toWorkoutSession(plan, s, { sessionId: 'g3' });
     expect(newRecords(w, [{ exerciseId: 'trap-bar-deadlift', weight: 60, reps: 6, volume: 360, date: '2026-10-01' }]))
       .toEqual([{ exerciseId: 'trap-bar-deadlift', weight: 70, reps: 6, volume: 420, date: '2026-10-09' }]);
+  });
+});
+
+describe('stretch and programme sessions on the same day', () => {
+  const empty: AppData = {
+    version: 3, settings: {} as AppData['settings'], sessions: [], bodyMetrics: [],
+    personalRecords: [], checkIns: [], profile,
+  };
+  const stretch = buildStretchPlan({ profile, date: '2026-10-09', startDate: '2026-09-28', sessions: [], focus: 'backHips', minutes: 10 });
+  const stretchRunner = createRunner(stretch);
+  const finishedStretch = (): RunnerState => {
+    const started = stretchRunner.reduce(initialState(stretch), { type: 'start', now: 0 });
+    return stretchRunner.reduce(started, { type: 'tick', now: stretch.totalSeconds * 1000 + 1 });
+  };
+
+  it('marks a stretch so it can never count as the day\'s programme workout', () => {
+    const session = toWorkoutSession(stretch, finishedStretch(), { sessionId: 's-1' });
+    expect(session.planKind).toBe('stretch');
+    expect(toWorkoutSession(plan, finishedRun(), { sessionId: 'g-1' }).planKind).toBe('full');
+  });
+
+  it('never replaces an unfinished programme record with a stretch', () => {
+    const partial = toWorkoutSession(plan, runner.reduce(initialState(plan), { type: 'start', now: 0 }), { sessionId: 'g-part' });
+    const done = toWorkoutSession(stretch, finishedStretch(), { sessionId: 's-done' });
+    const data = withGuidedSession({ ...empty, sessions: [partial] }, done);
+    expect(data.sessions.map(s => s.id).sort()).toEqual(['g-part', 's-done']);
+  });
+
+  it('banks a partial programme hour even when a stretch was finished that day', () => {
+    const done = toWorkoutSession(stretch, finishedStretch(), { sessionId: 's-done' });
+    let s = runner.reduce(initialState(plan), { type: 'start', now: 0 });
+    for (let i = 0; i < 8; i++) s = runner.reduce(s, { type: 'next', now: 1000 * (i + 1) });
+    const banked = bankProgress({ ...empty, sessions: [done] }, { plan, state: s, clockAt: 9000 }, 'g-banked');
+    expect(banked.sessions.some(x => x.id === 'g-banked')).toBe(true);
+  });
+});
+
+describe('timed sets in a guided session', () => {
+  it('marks a hold or a carry as counted in seconds, so it adds no weight lifted', () => {
+    const isTimed = (st: SessionPlanStep) => st.kind === 'set' && !st.ramp && (st.holdSeconds !== undefined || st.carrySeconds !== undefined);
+    // A week of plans: find a day whose strength block doses something in seconds.
+    const days = ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10', '2026-10-11'];
+    const timedPlan = days.map(date => buildSessionPlan({ profile, date, startDate: '2026-09-28', sessions: [] })).find(p => p.steps.some(isTimed));
+    expect(timedPlan).toBeDefined();
+    const r = createRunner(timedPlan!);
+    const done = r.reduce(r.reduce(initialState(timedPlan!), { type: 'start', now: 0 }), { type: 'tick', now: timedPlan!.totalSeconds * 1000 + 1 });
+    const session = toWorkoutSession(timedPlan!, done, { sessionId: 'g-timed' });
+    const timed = timedPlan!.steps.filter(isTimed);
+    expect(timed.length).toBeGreaterThan(0);
+    for (const st of timed) {
+      const set = session.sets.find(x => x.id === `g-timed-${st.id}`);
+      expect(set?.unit).toBe('seconds');
+    }
+    const lifted = session.sets.filter(x => x.unit !== 'seconds' && x.status === 'completed' && x.weight && x.actualReps)
+      .reduce((t, x) => t + x.weight! * x.actualReps!, 0);
+    expect(session.totalVolume).toBe(lifted);
   });
 });

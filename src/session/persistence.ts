@@ -8,7 +8,18 @@ import type { SessionPlan } from '@/types/plan';
 import { stepSeconds } from '@/engine/timing';
 import { position, type RunnerState } from './runner';
 
-const KEY = 'fit-strong-90-guided';
+/**
+ * One saved run per kind: the programme's guided session, and a stretch. A
+ * ten-minute stretch must never overwrite a paused guided hour, nor resume in
+ * its place.
+ */
+export type ProgressSlot = 'guided' | 'stretch';
+const KEYS: Record<ProgressSlot, string> = { guided: 'fit-strong-90-guided', stretch: 'fit-strong-90-stretch' };
+
+/** Which slot a plan's progress lives in. */
+export function slotOf(plan: Pick<SessionPlan, 'kind'>): ProgressSlot {
+  return plan.kind === 'stretch' ? 'stretch' : 'guided';
+}
 /** Older progress than this is offered as "discard", not "resume". */
 export const RESUME_WINDOW_MS = 18 * 60 * 60 * 1000;
 
@@ -25,15 +36,15 @@ export interface SavedProgress {
 
 export function saveProgress(plan: SessionPlan, state: RunnerState, clockAt: number, savedAt = Date.now(), sessionId?: string): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ plan, state, savedAt, clockAt, ...(sessionId ? { sessionId } : {}) } satisfies SavedProgress));
+    localStorage.setItem(KEYS[slotOf(plan)], JSON.stringify({ plan, state, savedAt, clockAt, ...(sessionId ? { sessionId } : {}) } satisfies SavedProgress));
   } catch {
     // Storage full or unavailable: the session still runs; only resume is lost.
   }
 }
 
-export function loadProgress(now = Date.now()): SavedProgress | null {
+export function loadProgress(now = Date.now(), slot: ProgressSlot = 'guided'): SavedProgress | null {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEYS[slot]);
     if (!raw) return null;
     const saved = JSON.parse(raw) as SavedProgress;
     if (!saved.plan || !saved.state || saved.state.status === 'done') return null;
@@ -45,15 +56,18 @@ export function loadProgress(now = Date.now()): SavedProgress | null {
 }
 
 /**
- * Progress too old to resume. Its work still belongs in History, so it is
- * handed back for banking rather than silently ignored.
+ * Progress that can no longer be resumed — too old, or finished but never
+ * stored as a session (the summary was closed before its save landed). Its
+ * work still belongs in History, so it is handed back for banking rather than
+ * silently ignored. Banking skips a day that already has the finished record.
  */
-export function loadExpiredProgress(now = Date.now()): SavedProgress | null {
+export function loadExpiredProgress(now = Date.now(), slot: ProgressSlot = 'guided'): SavedProgress | null {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEYS[slot]);
     if (!raw) return null;
     const saved = JSON.parse(raw) as SavedProgress;
-    if (!saved.plan || !saved.state || saved.state.status === 'done') return null;
+    if (!saved.plan || !saved.state) return null;
+    if (saved.state.status === 'done') return saved;
     return now - saved.savedAt > RESUME_WINDOW_MS ? saved : null;
   } catch {
     return null;
@@ -83,9 +97,53 @@ export function resumeOffer(date: string, saved: SavedProgress | null = loadProg
   return { kind: 'earlier', date: saved.plan.date, minutesLeft: minutesLeft(saved) };
 }
 
-export function clearProgress(): void {
+/**
+ * Earlier runs whose banking into History the device refused (scan M-08).
+ * A run's own slot is overwritten by the next run's first save, so one that
+ * could not be banked is moved here first, and banked from here once the
+ * device stores again. Under the app's key prefix, so "Clear all data"
+ * sweeps it.
+ */
+const ASIDE_KEY = 'fit-strong-90-unbanked';
+
+/** The runs kept aside, oldest first. */
+export function loadSetAside(): SavedProgress[] {
   try {
-    localStorage.removeItem(KEY);
+    const raw = localStorage.getItem(ASIDE_KEY);
+    const list = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(list) ? list.filter((s): s is SavedProgress => !!s && typeof s === 'object' && 'plan' in s && 'state' in s) : [];
+  } catch {
+    return [];
+  }
+}
+
+const sameRun = (a: SavedProgress, b: SavedProgress) => (a.sessionId ?? a.savedAt) === (b.sessionId ?? b.savedAt) && a.plan.date === b.plan.date;
+
+/** Keep a run that could not be banked. True when it is kept, so the caller may tell the person. */
+export function setAside(saved: SavedProgress): boolean {
+  try {
+    const list = loadSetAside().filter(s => !sameRun(s, saved));
+    localStorage.setItem(ASIDE_KEY, JSON.stringify([...list, saved]));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A kept run is in History now: let it go. */
+export function releaseSetAside(saved: SavedProgress): void {
+  try {
+    const list = loadSetAside().filter(s => !sameRun(s, saved));
+    if (list.length) localStorage.setItem(ASIDE_KEY, JSON.stringify(list));
+    else localStorage.removeItem(ASIDE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function clearProgress(slot: ProgressSlot = 'guided'): void {
+  try {
+    localStorage.removeItem(KEYS[slot]);
   } catch {
     // ignore
   }
