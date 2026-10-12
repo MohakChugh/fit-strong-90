@@ -1,24 +1,19 @@
 /**
  * Answers changed in one place, written onto the answers as they are now
- * (H5-12, H5-13; boards D165, D190). Only what a page or an edit changed from
- * what it opened with is written, so another copy's answers stay. A checklist
- * (the conditions, the medicine classes) is merged row by row.
+ * (H5-12, H5-13; boards D165, D190, D196). Only what a page or an edit
+ * changed from what it opened with is written, so another copy's answers
+ * stay. A checklist (the conditions, the medicine classes) is merged row by
+ * row.
  *
  * Where both copies changed the same answer, a preference takes this one, the
- * later. A safety answer keeps whichever the engine finds stricter, each
- * evaluated as the profile it gives (`engine/candidates.ts`), so "Not sure"
- * is never turned into "No" (§6.1) and no answer is decided by the order of
- * the saves (K5R-09). Where neither is stricter, the stored answer stays and
- * the answer is named, so the caller can say so.
+ * later. A safety answer of Yes, No or Not sure takes the earlier in Yes, Not
+ * sure, No, so a disclosure or a doubt is never erased by another copy's
+ * answer (§6.1; H5F-03). Any other safety answer both changed is never chosen
+ * between: the stored one stays, and the answer is named, so the person
+ * checks it.
  */
 import type { PageId, SetupAnswers } from '@/types/setup';
-import type { UserProfile } from '@/types/profile';
-import { stricterOf } from '@/engine/candidates';
-import { profileOnlyReadiness } from '@/engine/readiness';
-import { dayOf, nowAt } from '@/health/observation';
-import { createDefaultProfile } from '@/profile/defaults';
 import { sameValue } from '@/store/transfer';
-import { profileFrom } from './assemble';
 import { keysOfChapter } from './fields';
 import { SAFETY_CHAPTERS } from './graph';
 
@@ -70,23 +65,22 @@ function fieldsOf(...all: SetupAnswers[]): string[] {
   return [...out];
 }
 
-const profileOf = (a: SetupAnswers): UserProfile => profileFrom(a, BASE, dayOf(nowAt()), { thisYear: new Date().getFullYear() });
-const BASE = createDefaultProfile({ needsHealthReview: false });
+/** A Yes, No or Not sure answer, most disclosing first (board D196). */
+const TRI_ORDER: readonly unknown[] = ['yes', 'unsure', 'no'];
 
 /**
- * The answer a safety field takes when both copies changed it: `stored` or
- * `mine`, whichever gives the stricter profile with the rest of `answers`;
- * the later where the engine reads them alike; `undefined` where neither is
- * stricter.
+ * The answer a safety field takes when both copies changed it (board D196):
+ * of two Yes, No or Not sure answers, the earlier in Yes, Not sure, No;
+ * of any other answers, neither, `undefined`, so the stored one stays.
  */
-export function stricterAnswer(answers: SetupAnswers, field: string, stored: unknown, mine: unknown): { value: unknown } | undefined {
-  const which = stricterOf(profileOf(putField(answers, field, stored)), profileOf(putField(answers, field, mine)), p => profileOnlyReadiness(p));
-  return which === undefined ? undefined : { value: which === 'a' ? stored : mine };
+export function stricterAnswer(stored: unknown, mine: unknown): { value: unknown } | undefined {
+  const [a, b] = [TRI_ORDER.indexOf(stored), TRI_ORDER.indexOf(mine)];
+  return a >= 0 && b >= 0 ? { value: a <= b ? stored : mine } : undefined;
 }
 
 export interface Merged {
   answers: SetupAnswers;
-  /** Safety answers both copies changed where neither is stricter: the stored one stays. */
+  /** Safety answers both copies changed, not Yes, No or Not sure: the stored one stays. */
   conflicts: string[];
 }
 
@@ -102,7 +96,7 @@ export function mergeAnswersWithConflicts(now: SetupAnswers, opened: SetupAnswer
   }
   const conflicts: string[] = [];
   for (const field of both) {
-    const chosen = stricterAnswer(out, field, getField(now, field), getField(mine, field));
+    const chosen = stricterAnswer(getField(now, field), getField(mine, field));
     if (chosen) out = putField(out, field, chosen.value);
     else conflicts.push(field);
   }

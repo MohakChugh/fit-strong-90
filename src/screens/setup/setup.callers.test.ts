@@ -128,6 +128,36 @@ describe('a clinical edit in Me (H5-08; board D162)', () => {
   });
 });
 
+describe('two copies of Me changing the same safety answer (H5F-10; board D196)', () => {
+  it('Save says so and shows the other copy’s answer, stays usable, and saves once the person chooses again', async () => {
+    const { withC } = await import('@/setup/fixtures');
+    const back = withC({ pain: 'yes' }, { painAreas: ['lowerBack'], worseWith: 'unknown', neuroHistory: 'no', clearance: 'vigorous' });
+    expect((await store.update(d => completedSetup(d, back, NOW, CTX))).ok).toBe(true);
+    host = render(createElement(ChapterEditor, { chapter: 'backFeet' }));
+    await host.settle();
+    await host.click(radio(host, 'What makes it worse?', 'Standing, walking or arching back'));
+    // The other copy, meanwhile: sitting or bending forward.
+    const { editOf, editedRecord, editorOpens, editorState } = await import('@/setup/edit');
+    const { answersToEdit } = await import('@/setup/prefill');
+    const elsewhere = (d: Parameters<typeof editedRecord>[0]) => {
+      const opened = answersToEdit(d.settings.setup?.answers, d.profile!, d.settings, '2026-10-10', CTX);
+      return editedRecord(d, editOf(editorState(editorOpens('backFeet', d.profile), { ...opened, worseWith: 'flexion' }, opened, CTX), opened), '2026-10-10', CTX);
+    };
+    expect((await store.update(elsewhere)).ok).toBe(true);
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('Your answers changed in another window of FitStrong. Check them here, then Save again.');
+    expect(radio(host, 'What makes it worse?', 'Sitting or bending forward').props['aria-checked']).toBe(true);
+    expect(store.getState().profile?.pain.worseWith).toBe('flexion');
+    // Still usable: the person chooses again, and it saves.
+    await host.click(radio(host, 'What makes it worse?', 'Standing, walking or arching back'));
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('Saved.');
+    expect(store.getState().profile?.pain.worseWith).toBe('extension');
+  });
+});
+
 describe('body readings from Me (H5-14)', () => {
   it('a save of another chapter makes no reading from a value another tab changed since', async () => {
     expect((await store.update(d => completedSetup(d, { ...MINIMAL, weightKg: 68 }, NOW, CTX))).ok).toBe(true);

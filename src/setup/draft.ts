@@ -183,13 +183,14 @@ export function fieldChanges(shown: SetupAnswers, patch: Partial<SetupAnswers>):
 }
 
 /**
- * Changes onto the draft as it is now, inside its transaction (board D190):
- * each written where the stored answer is still what its control started
- * from. Where it isn't, another copy changed it meanwhile: a preference takes
- * this one, the later; a safety answer keeps whichever the engine finds
- * stricter (`stricterAnswer`), and the stored one where neither is. Each
- * answer not written as given is named in `kept`, and its number's text
- * isn't written either, so a page never shows a number its answer isn't.
+ * Changes onto the draft as it is now, inside its transaction (boards D190,
+ * D196): each written where the stored answer is still what its control
+ * started from. Where it isn't, another copy changed it meanwhile: a
+ * preference takes this one, the later; a Yes, No or Not sure safety answer
+ * the earlier in Yes, Not sure, No (`stricterAnswer`); any other safety
+ * answer stays as stored. Each answer not written as given is named in
+ * `kept`, and its number's text isn't written either, so a page never shows
+ * a number its answer isn't.
  */
 export function withFields(
   data: AppData, changes: ReadonlyMap<string, FieldChange>, raw: ReadonlyMap<string, string | undefined>, at: PageId | undefined, kept: string[] = [],
@@ -200,7 +201,7 @@ export function withFields(
   let answers = setup.draft?.answers ?? prefillAnswers(data.settings, data.profile);
   for (const [field, { baseline, value }] of changes) {
     const stored = getField(answers, field);
-    const chosen = sameValue(stored, baseline) || sameValue(stored, value) || !isSafetyField(field) ? { value } : stricterAnswer(answers, field, stored, value);
+    const chosen = sameValue(stored, baseline) || sameValue(stored, value) || !isSafetyField(field) ? { value } : stricterAnswer(stored, value);
     if (chosen) answers = putField(answers, field, chosen.value);
     if (!chosen || !sameValue(chosen.value, value)) kept.push(field);
   }

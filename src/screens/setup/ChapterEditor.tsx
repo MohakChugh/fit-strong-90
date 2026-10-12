@@ -3,12 +3,14 @@ import { Screen } from '@/components/hig/Screen';
 import { profileChanges } from '@/components/profile/wizardSteps';
 import { dayOf, nowAt } from '@/health/observation';
 import { whatChanges } from '@/setup/changes';
-import { editMeasurements, editOf, editedProfile, editedRecord, editorOpens, editorState } from '@/setup/edit';
+import { ANSWERS_CHANGED, editMeasurements, editOf, editedProfile, editedRecord, editorOpens, editorState } from '@/setup/edit';
+import { getField, mergeAnswersWithConflicts, putField } from '@/setup/merge';
 import { discardSave, saveClinicalEdit } from '@/setup/effective';
 import { CHAPTER_TITLE, chapterOf } from '@/setup/graph';
 import { answersToEdit } from '@/setup/prefill';
 import { setupStateOf } from '@/setup/state';
 import { Notice, PlainButton, PrimaryButton } from '@/screens/you/controls';
+import { StoreFailure, type StoreResult } from '@/store/db';
 import { getState, update, useStore } from '@/store/useStore';
 import type { ChapterId, SetupAnswers } from '@/types/setup';
 import { Missing } from './controls';
@@ -24,11 +26,15 @@ import { useCtx } from './useSetup';
  * answered clear it.
  */
 export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
-  const { settings, profile } = useStore();
+  const { profile } = useStore();
   const ctx = useCtx();
   const [today] = useState(() => dayOf(nowAt()));
   const opens = editorOpens(chapter, profile);
-  const [opened] = useState<SetupAnswers>(() => (profile ? answersToEdit(setupStateOf(settings, profile).answers, profile, settings, today, ctx) : {}));
+  const reopen = () => {
+    const now = getState();
+    return now.profile ? answersToEdit(setupStateOf(now.settings, now.profile).answers, now.profile, now.settings, today, ctx) : {};
+  };
+  const [opened, setOpened] = useState<SetupAnswers>(reopen);
   const [edits, setEdits] = useState<Partial<SetupAnswers>>({});
   // Numbers as typed: one is an answer only once it's valid, and Save waits for any that isn't (H5R-15).
   const [typed, setTyped] = useState<Readonly<Record<string, string>>>({});
@@ -59,15 +65,32 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
     setBusy(true);
     const now = nowAt();
     const edit = editOf(state, opened);
-    // What the edit changes counts for every gate from this tap, beside the record: a stricter answer at once, a release
-    // only once stored, held until it is (H5-08; D168). With nothing to store to, it isn't stored at all (K5R-05).
-    const changes = profileChanges(getState().profile, editedProfile(getState(), edit, today, ctx));
-    const { saved, id } = await saveClinicalEdit(changes, () => update(d => editedRecord(d, edit, today, ctx), {
-      hold: true, needsStorage: 'This phone isn’t storing data right now, so these answers aren’t saved.', addObservations: editMeasurements(edit, now), generation,
-    }), refused);
-    setBusy(false);
+    let result: { saved: StoreResult; id?: number };
+    try {
+      // What the edit changes counts for every gate from this tap, beside the record: a stricter answer at once, a release
+      // only once stored, held until it is (H5-08; D168). With nothing to store to, it isn't stored at all (K5R-05).
+      const changes = profileChanges(getState().profile, editedProfile(getState(), edit, today, ctx));
+      result = await saveClinicalEdit(changes, () => update(d => editedRecord(d, edit, today, ctx), {
+        hold: true, needsStorage: 'This phone isn’t storing data right now, so these answers aren’t saved.', addObservations: editMeasurements(edit, now), generation,
+      }), refused);
+    } catch (error) {
+      result = { saved: { ok: false, failure: error instanceof StoreFailure ? error : new StoreFailure('unknown', 'The device did not keep it.', error) } };
+    } finally {
+      setBusy(false);
+    }
+    const { saved, id } = result;
     if (!saved.ok) {
-      setRefused(id);
+      if (id !== undefined) setRefused(id);
+      // Another copy changed an answer this edit changed too, and neither is chosen (board D196): the editor shows that
+      // copy's answer, keeps the person's others, and saves from the record as it is now (H5F-10).
+      if (saved.failure.message === ANSWERS_CHANGED) {
+        const latest = reopen();
+        const { conflicts } = mergeAnswersWithConflicts(latest, opened, edit.answers);
+        setOpened(latest);
+        setEdits(e => conflicts.reduce<Partial<SetupAnswers>>((out, field) => putField(out, field, getField(latest, field)), e));
+        setOutcome({ tone: 'error', lines: [ANSWERS_CHANGED] });
+        return;
+      }
       setOutcome({ tone: 'error', lines: [`That did not save. ${saved.failure.message}`] });
       return;
     }

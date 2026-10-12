@@ -464,13 +464,14 @@ describe('two copies, each storing only what it changed (H5R-03, H5R-14, K5R-02;
     expect(write(withAnswers({ name: 'Kai' }), { name: [undefined, 'Asha'] }).draft?.answers).toEqual({ name: 'Asha' });
   });
 
-  it('a safety answer both changed keeps the stricter, whichever copy gave it; with neither stricter, the stored one, named (board D190)', () => {
-    const wound = (footWound: 'unsure' | 'past' | 'no') => withAnswers(withC({ diabetes: 'yes', feet: 'yes' }, { feetNumb: 'no', footWound }));
-    // The other copy's "Not sure" holds walks; this one's "No" would release them.
-    expect(write(wound('unsure'), { footWound: ['past', 'no'] })).toMatchObject({ draft: { answers: { footWound: 'unsure' } }, kept: ['footWound'] });
-    expect(write(wound('no'), { footWound: ['past', 'now'] })).toMatchObject({ draft: { answers: { footWound: 'now' } }, kept: [] });
-    // A wound now holds walks, one in the past impact: each holds something the other doesn't.
-    expect(write(wound('past'), { footWound: ['no', 'now'] })).toMatchObject({ draft: { answers: { footWound: 'past' } }, kept: ['footWound'] });
+  it('a Yes, No or Not sure safety answer both changed keeps the earlier in Yes, Not sure, No; any other, the stored one, named (boards D190, D196)', () => {
+    const numb = (feetNumb: 'unsure' | 'no' | 'yes') => withAnswers(withC({ diabetes: 'yes', feet: 'yes' }, { feetNumb, footWound: 'no' }));
+    // The other copy's "Not sure" stays over this one's "No"; this one's "Yes" goes over its "Not sure".
+    expect(write(numb('unsure'), { feetNumb: ['yes', 'no'] })).toMatchObject({ draft: { answers: { feetNumb: 'unsure' } }, kept: ['feetNumb'] });
+    expect(write(numb('unsure'), { feetNumb: ['no', 'yes'] })).toMatchObject({ draft: { answers: { feetNumb: 'yes' } }, kept: [] });
+    // A wound answer, a clearance, a direction: never chosen between.
+    const wound = (footWound: 'past' | 'no') => withAnswers(withC({ diabetes: 'yes', feet: 'yes' }, { feetNumb: 'no', footWound }));
+    expect(write(wound('no'), { footWound: ['past', 'now'] })).toMatchObject({ draft: { answers: { footWound: 'no' } }, kept: ['footWound'] });
     const back = (worseWith: 'flexion' | 'extension') => withAnswers(withC({ pain: 'yes' }, { painAreas: ['lowerBack'], worseWith }));
     expect(write(back('flexion'), { worseWith: ['unknown', 'extension'] })).toMatchObject({ draft: { answers: { worseWith: 'flexion' } }, kept: ['worseWith'] });
   });
