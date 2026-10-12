@@ -46,6 +46,14 @@ describe('what makes the day’s answer less strict (D119)', () => {
     expect(loosens(ready({ reasons: [r('low', 'hold'), r('bpSevereUnconfirmed', 'hold')] }), ready({ reasons: [r('low', 'hold')] }))).toBe(true);
     expect(loosens(ready({ reasons: [r('low', 'hold')] }), ready({ reasons: [r('lowEarlier', 'adjust')] }))).toBe(true);
   });
+
+  it('a mode’s own restrictions gone under a stricter answer are none gone: nothing they restrict is allowed', () => {
+    const r = (code: string, disposition: 'adjust' | 'hold') => ({ code, message: '', outcome: 'red' as const, disposition });
+    // A normal reading deleted, so a fresh one is needed first: held, and the low precautions it carried drop.
+    expect(loosens(ready({ reasons: [r('bpMeds', 'adjust')], modifiers: ['COOL', 'HYPO'], capHeavy: true }), ready({ reasons: [r('noReading', 'hold'), r('bpMeds', 'adjust')], modifiers: ['COOL'] }))).toBe(false);
+    // As strict as before, they still count.
+    expect(loosens(ready({ reasons: [r('bpMeds', 'adjust')], modifiers: ['COOL', 'HYPO'] }), ready({ reasons: [r('bpMeds', 'adjust')], modifiers: ['COOL'] }))).toBe(true);
+  });
 });
 
 describe('which changes are asked about, and what they take away (D119, P8S-01, P8S-03)', () => {

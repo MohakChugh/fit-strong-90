@@ -121,12 +121,21 @@ const fewer = (before: Readiness, after: Readiness) => {
   return was.some((n, level) => now[level] < n);
 };
 
-/** The day's answer is less strict after than before: a restriction gone, a serious reading no longer asked about, a mode, modifier or cap lifted, or a re-check due sooner. */
+/** The strictest of the answer's restrictions. */
+const top = (r: Readiness) => Math.max(rank('reassure'), ...r.reasons.map(x => rank(x.disposition)));
+
+/**
+ * The day's answer is less strict after than before: a restriction gone, a serious reading no longer asked
+ * about, a mode, modifier or cap lifted, or a re-check due sooner. A mode's own restrictions (its modifiers and
+ * caps) dropped under an answer stricter than before's are none gone: nothing they restrict is allowed then.
+ */
 export function loosens(before: Readiness, after: Readiness): boolean {
   const recheck = (r: Readiness) => (r.recheckAt ? Date.parse(r.recheckAt) : -Infinity);
+  const tighter = top(after) > top(before);
+  const inMode = !tighter && (lost(before.modifiers, after.modifiers)
+    || (before.capHeavy && !after.capHeavy) || (before.vigorousLocked && !after.vigorousLocked));
   return fewer(before, after) || lost(open(before), open(after))
-    || lost(before.refusedModes ?? [], after.refusedModes ?? []) || lost(before.modifiers, after.modifiers)
-    || (before.capHeavy && !after.capHeavy) || (before.vigorousLocked && !after.vigorousLocked)
+    || lost(before.refusedModes ?? [], after.refusedModes ?? []) || inMode
     || recheck(after) < recheck(before);
 }
 
