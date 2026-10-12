@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONSENT, UNASKED, answered, answerOf, consentSummary, preflightPages, routeErased, routeNote, walkSettings, withConsent, withErase } from './consent';
+import { CONSENT, UNASKED, answered, answerOf, consentSummary, erasedHere, preflightPages, routeErased, routeNote, walkSettings, withConsent, withErase } from './consent';
 
 const GPS = { gps: true, steps: false };
 
@@ -87,9 +87,20 @@ describe('one answer at a time, and erasure by count and walk, never the clock (
     const once = withErase({ saveRoutes: true, map: 'off' }, ['walk-b', 'walk-a', 'walk-a']);
     expect(once.erased).toEqual({ generation: 1, walks: ['walk-a', 'walk-b'] });
     expect(withErase(once, ['walk-c']).erased).toEqual({ generation: 2, walks: ['walk-a', 'walk-b', 'walk-c'] });
-    expect(routeErased(once, 'walk-z', {})).toBe(true);
-    expect(routeErased(once, 'walk-z', { routeGen: 1 })).toBe(false);
-    expect(routeErased(once, 'walk-a', { routeGen: 1 })).toBe(true);
-    expect(routeErased({ saveRoutes: true, map: 'off' }, 'walk-z', {})).toBe(false);
+    expect(routeErased(once, 'walk-z', {}, 0)).toBe(true);
+    expect(routeErased(once, 'walk-z', { routeGen: 1 }, 0)).toBe(false);
+    expect(routeErased(once, 'walk-a', { routeGen: 1 }, 0)).toBe(true);
+    expect(routeErased({ saveRoutes: true, map: 'off' }, 'walk-z', {}, 0)).toBe(false);
+  });
+
+  it('erases the route of a walk begun at or before an erase made before board D176, and its old marker until it is turned into one (H6F-07, board D210)', () => {
+    const kept = { saveRoutes: true as const, map: 'off' as const, erased: { generation: 0, walks: [], before: 1000 } };
+    expect(routeErased(kept, 'walk-z', { routeGen: 0 }, 999)).toBe(true);
+    expect(routeErased(kept, 'walk-z', { routeGen: 0 }, 1000)).toBe(true);
+    expect(routeErased(kept, 'walk-z', { routeGen: 0 }, 1001)).toBe(false);
+    expect(erasedHere(kept, 'walk-z', Number.NaN)).toBe(true);
+    const old = { saveRoutes: true as const, map: 'off' as const, routesErasedAt: 1000 } as never;
+    expect(erasedHere(old, 'walk-z', 1000)).toBe(true);
+    expect(erasedHere(old, 'walk-z', 1001)).toBe(false);
   });
 });

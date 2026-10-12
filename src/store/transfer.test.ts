@@ -819,6 +819,15 @@ describe('v2 record stores in a backup (Plan 6 Task 1)', () => {
     expect(prepare(here, planImport(file(), 'replace', here).change).next.records.routes).toEqual([]);
   });
 
+  it('keeps the routes this phone deleted deleted, with the file’s, whether or not the file has settings (H6F-07, board D210)', () => {
+    const device = { theme: 'light', walk: { saveRoutes: true, map: 'off' }, deleted: { records: { routes: ['walk-here'] } } } as UserSettings;
+    const theirs = { theme: 'dark', deleted: { observations: ['g-1'], records: { routes: ['walk-there'] } } } as UserSettings;
+    expect(withDeviceConsent(theirs, device)?.deleted).toEqual({ observations: ['g-1'], records: { routes: ['walk-there', 'walk-here'] } });
+    expect(withDeviceConsent(undefined, device)).toEqual({ walk: device.walk, deleted: { records: { routes: ['walk-here'] } } });
+    expect(withDeviceConsent(undefined, { deleted: { records: { routes: ['walk-here'] } } } as UserSettings)).toEqual({ deleted: { records: { routes: ['walk-here'] } } });
+    expect(withDeviceConsent(undefined, { theme: 'light' } as UserSettings)).toBeUndefined();
+  });
+
   it('never switches map pictures or route keeping on from a file (B-26)', () => {
     const theirs = { theme: 'dark', walk: { saveRoutes: true, map: 'on', stepCardSeen: true } } as UserSettings;
     expect(withDeviceConsent(theirs, { walk: { saveRoutes: false, map: 'off' } } as UserSettings)?.walk).toEqual({ saveRoutes: false, map: 'off' });

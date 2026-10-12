@@ -58,7 +58,7 @@ import { pairBloodPressure, type BpReading } from '@/health/aggregate';
 import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult } from './db';
 import { parseJournalEntry, withJournalled, type JournalEntry } from '@/walk/journal';
 import { sameClockChange, type ClockSeen } from '@/walk/clock';
-import { clockGeneration, routeErased, walkSettings, withClockChange, withErase, withPendingClock, type WalkSettings } from '@/walk/consent';
+import { clockGeneration, erasedGeneration, routeErased, walkSettings, withClockChange, withErase, withPendingClock, type WalkSettings } from '@/walk/consent';
 import { routeRecord, type RouteRecord } from '@/walk/routeRecord';
 import type { WalkInput } from '@/walk/record';
 import { SCHEMA_VERSION, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
@@ -577,6 +577,31 @@ async function boot(options: StartOptions): Promise<void> {
   coordinate(options);
   recompute();
   publish();
+  convertLegacyErase();
+}
+
+/**
+ * B-05: an erase made before board D176 kept only when it ran
+ * (`routesErasedAt`) and, as deleted, the routes it took. As the app starts,
+ * it becomes this phone's erase record, conservatively: every route of a walk
+ * begun by then (never later than now, so a clock that was ahead drops no
+ * walk recorded since) and every route deleted here, by name. Until that is
+ * stored, the old marker is read as it is (H6F-07, board D210).
+ */
+function convertLegacyErase(): void {
+  const legacy = (s: Snapshot) => (s.settings?.walk as { routesErasedAt?: unknown } | undefined)?.routesErasedAt;
+  if (typeof legacy(committed) !== 'number') return;
+  void enqueue<void>({
+    plan: base => {
+      const at = legacy(base);
+      if (typeof at !== 'number') return { change: null, result: () => undefined };
+      const { routesErasedAt: _old, ...walk } = walkSettings(base.settings ?? {}) as WalkSettings & { routesErasedAt?: number };
+      void _old;
+      const before = Math.max(walk.erased?.before ?? -Infinity, Math.min(at, Date.now()));
+      const walks = [...new Set([...(walk.erased?.walks ?? []), ...(base.settings?.deleted?.records?.routes ?? [])])].sort();
+      return { change: { settings: { patch: { walk: { ...walk, erased: { generation: erasedGeneration(walk), walks, before } } } } }, result: () => undefined };
+    },
+  });
 }
 
 /**
@@ -1226,7 +1251,7 @@ export function putWalkJournal(entry: JournalEntry, options: { keepJournalled?: 
     if (!entry.route) return tx.put(JOURNAL_STORE, entry);
     tx.get('settings', 'settings', row => {
       const walk = ((row as Doc | undefined)?.value as UserSettings | undefined)?.walk;
-      const keeps = walk?.saveRoutes === true && !routeErased(walk, entry.id, entry.walk.plan);
+      const keeps = walk?.saveRoutes === true && !routeErased(walk, entry.id, entry.walk.plan, entry.walk.startedAt);
       if (!keeps) return tx.put(JOURNAL_STORE, (({ route: _gone, ...rest }) => { void _gone; return rest; })(entry));
       if (!options.keepJournalled) return tx.put(JOURNAL_STORE, entry);
       // A page still reading the route back: the lines held stay beside what it walked since (H6R-10).
@@ -1298,8 +1323,10 @@ export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
       const lines = withJournalled(journalled?.segments, input.route?.segments);
       const given = lines && startedAt !== undefined ? routeRecord(input.walkId, startedAt, lines) : undefined;
       // Never a route of a walk an "Erase all routes" erased, whichever screen saves it: by this
-      // phone's own count of erases and the walk's id, never its clock (B-05, K6R-12, board D176).
-      const erased = given !== undefined && routeErased(base.settings?.walk, input.walkId, { ...(input.routeGen !== undefined ? { routeGen: input.routeGen } : {}) });
+      // phone's own count of erases and the walk's id, never its clock (B-05, K6R-12, board D176),
+      // or one an erase made before board D176 erased, by when it began (H6F-07, board D210).
+      const erased = given !== undefined
+        && routeErased(base.settings?.walk, input.walkId, { ...(input.routeGen !== undefined ? { routeGen: input.routeGen } : {}) }, Date.parse(given.startedAt));
       let route: StoredRecord | undefined;
       // Kept only on this phone's yes, as it is when the walk is saved, whatever the walk was given (H6-04).
       if (given && !erased && base.settings?.walk?.saveRoutes === true) {

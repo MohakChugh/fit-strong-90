@@ -231,9 +231,11 @@ export interface UserSettings {
      * (`WalkPlan.routeGen`), whatever the clock says; `walks` are the walks
      * whose routes it erased, by id, so no file brings one back. This
      * phone's own: an import or a Replace never changes it (H6R-08, K6R-12,
-     * board D176).
+     * board D176). `before`: an erase made before board D176, which kept
+     * only when it ran: every route of a walk begun by then is erased
+     * (H6F-07, board D210).
      */
-    erased?: { generation: number; walks: string[] };
+    erased?: { generation: number; walks: string[]; before?: number };
     /**
      * B-19: changes to this phone's clock, seen by a walk or the page.
      * `generation` counts them, and a reading acquired here carries the count

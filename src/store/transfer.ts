@@ -200,12 +200,22 @@ export function toTransferDoc(snapshot: Snapshot, exportedAt: string = nowAt(), 
  * answers outlast a file that holds no settings at all.
  */
 export function withDeviceConsent(file: UserSettings | undefined, device: UserSettings | undefined): UserSettings | undefined {
-  if (file === undefined) return device?.walk ? ({ walk: device.walk } as UserSettings) : undefined;
+  // The routes deleted on this phone stay deleted, whatever the file knows (H6F-07, board D210).
+  const gone = device?.deleted?.records?.routes ?? [];
+  if (file === undefined) {
+    if (!device?.walk && !gone.length) return undefined;
+    return { ...(device?.walk ? { walk: device.walk } : {}), ...(gone.length ? { deleted: { records: { routes: [...gone] } } } : {}) } as UserSettings;
+  }
   const { walk: theirs, ...rest } = file;
   const walk = device?.walk ?? (theirs
     ? { saveRoutes: 'unasked' as const, map: 'unasked' as const, ...(theirs.stepCardSeen ? { stepCardSeen: true } : {}) }
     : undefined);
-  return { ...rest, ...(walk ? { walk } : {}) } as UserSettings;
+  const routes = [...new Set([...(rest.deleted?.records?.routes ?? []), ...gone])];
+  return {
+    ...rest,
+    ...(walk ? { walk } : {}),
+    ...(gone.length ? { deleted: { ...rest.deleted, records: { ...rest.deleted?.records, routes } } } : {}),
+  } as UserSettings;
 }
 
 /** Everything on the device, as one document read in one transaction (F26). */
@@ -981,6 +991,15 @@ const takes = (store: RecordStore, device: UserSettings | undefined): boolean =>
 /** The file's records of a store this device takes that it keeps, one by one (`RecordRule.keeps`): an erased route stays erased (B-05). */
 const kept = (store: RecordStore, device: UserSettings | undefined, records: readonly StoredRecord[]): StoredRecord[] =>
   records.filter(r => RECORD_RULES[store].keeps?.(device, r) ?? true);
+/**
+ * What Replace installs of a store: what this device keeps, less the routes
+ * it deleted, which stay deleted whatever the file's settings know, as a merge
+ * leaves them (H6F-07, board D210).
+ */
+const replaced = (store: RecordStore, device: UserSettings | undefined, records: readonly StoredRecord[]): StoredRecord[] => {
+  const gone = new Set(store === 'routes' ? device?.deleted?.records?.routes ?? [] : []);
+  return kept(store, device, records).filter(r => !gone.has(recordKey(store, r)));
+};
 
 /**
  * How a merge reconciles the file with the device.
@@ -1497,7 +1516,7 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
         bodyMetrics: file.bodyMetrics,
         focusOverrides: file.focusOverrides,
         content: { put: Object.fromEntries((file.contentState ?? []).map(r => [r.key, r.value])) },
-        records: Object.fromEntries(taken.map(s => [s, { put: kept(s, base.settings, file.records?.[s] ?? []) }])),
+        records: Object.fromEntries(taken.map(s => [s, { put: replaced(s, base.settings, file.records?.[s] ?? []) }])),
       },
       report: {
         mode,
@@ -1508,7 +1527,7 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
         personalRecords: file.personalRecords.length,
         bodyMetrics: file.bodyMetrics.length,
         skipped: refused,
-        records: Object.fromEntries(taken.map(s => [s, kept(s, base.settings, file.records?.[s] ?? []).length])),
+        records: Object.fromEntries(taken.map(s => [s, replaced(s, base.settings, file.records?.[s] ?? []).length])),
       },
     };
   }

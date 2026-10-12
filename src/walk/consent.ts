@@ -81,12 +81,25 @@ export function answered(walk: WalkSettings, a: PreflightAnswer): WalkSettings {
 export const erasedGeneration = (walk: WalkSettings | undefined): number => walk?.erased?.generation ?? 0;
 
 /**
+ * B-05: an erase this phone knows erased this walk's route, whatever the walk
+ * says of itself: by its walk's id, or, for an erase made before board D176
+ * that kept only when it ran, by when the walk began, at or before it. Until
+ * this phone has turned that erase into its record, its old marker is read as
+ * it is (`routesErasedAt`, H6F-07, board D210).
+ */
+export function erasedHere(walk: WalkSettings | undefined, walkId: string, startedAt: number): boolean {
+  const before = walk?.erased?.before ?? (walk as { routesErasedAt?: unknown } | undefined)?.routesErasedAt;
+  return (walk?.erased?.walks.includes(walkId) ?? false) || (typeof before === 'number' && !(startedAt > before));
+}
+
+/**
  * B-05: this walk's route is erased for good: an "Erase all routes" ran since
  * the walk began, by this phone's own count, never its clock, or erased this
- * walk's route by name (H6R-08, K6R-12, board D176).
+ * walk's route by name, or began before an erase made before board D176
+ * (H6R-08, K6R-12, H6F-07, board D176, D210).
  */
-export function routeErased(walk: WalkSettings | undefined, walkId: string, plan: Pick<WalkPlan, 'routeGen'>): boolean {
-  return (plan.routeGen ?? 0) !== erasedGeneration(walk) || (walk?.erased?.walks.includes(walkId) ?? false);
+export function routeErased(walk: WalkSettings | undefined, walkId: string, plan: Pick<WalkPlan, 'routeGen'>, startedAt: number): boolean {
+  return (plan.routeGen ?? 0) !== erasedGeneration(walk) || erasedHere(walk, walkId, startedAt);
 }
 
 /** "Erase all routes": the count moves on, and these walks' routes are erased by name, as well as every earlier erase's. */
