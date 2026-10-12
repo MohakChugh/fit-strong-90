@@ -8,7 +8,8 @@ import { discardClinical, retryClinical, useClinicalUnsaved } from '@/setup/effe
  * While a clinical answer couldn't be stored (board D197): that said, with
  * Try again and Discard changes, wherever the day's answer is read. Once
  * they're gone, the region stays, saying what happened, with focus on it, so
- * neither the place nor the news is lost (H5F-12).
+ * neither the place nor the news is lost (H5F-12). A card that says the pause
+ * draws it whatever its answer, so it stays as the hold lifts.
  */
 export function UnsavedClinical({ stated = false }: {
   /** The card around it already says the pause (Readiness, a hub's Right now): only the way out, then. */
@@ -35,7 +36,8 @@ export function UnsavedClinical({ stated = false }: {
     discardClinical();
     done('Not kept. The health answers stored before stand.');
   };
-  if (!unsaved && said === undefined) return <div ref={region} tabIndex={-1} className="outline-none" />;
+  // Nothing waiting and nothing said: no place taken in the screen's layout.
+  if (!unsaved && said === undefined) return null;
   return (
     <div ref={region} tabIndex={-1} className="outline-none">
       <p role="status" className="px-4 pb-2 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{said}</p>

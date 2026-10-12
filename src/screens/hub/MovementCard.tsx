@@ -2,7 +2,6 @@ import { SirenIcon, TriangleAlertIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { HubSection } from './HubFrame';
 import type { HubActionKind, HubCard } from './movement';
-import { PERMISSION_TEXT } from '@/engine/permission';
 import { UnsavedClinical } from '@/components/profile/UnsavedClinical';
 
 /**
@@ -38,8 +37,8 @@ export function MovementCard({ card, onAction }: { card: HubCard; onAction: (kin
             {card.release && <p className="text-muted-foreground">{card.release}</p>}
           </div>
         )}
-        {/* A clinical save the device refused: the way out of the pause (board D197). */}
-        {card.reasons.includes(PERMISSION_TEXT.unsaved) && <UnsavedClinical stated />}
+        {/* A clinical save the device refused: the way out of the pause, kept as the hold lifts (board D197). */}
+        {card.tone !== 'stop' && <UnsavedClinical stated />}
         {card.restrictions.length > 0 && (
           <ul aria-label="Changes for today" className="flex list-disc flex-col gap-1.5 pl-5 text-[length:var(--text-body)] leading-snug">
             {card.restrictions.map(r => <li key={r}>{r}</li>)}
