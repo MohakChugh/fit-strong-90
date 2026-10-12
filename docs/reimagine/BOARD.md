@@ -1365,7 +1365,7 @@ Branch `feat/v2-p6c`, on round 2 (`8979a7e`). The clock-generation design was si
 | H6F-06, H6R-03 | D186, acquisition | `9446e5e` |
 | H6F-04 | D187 | `42739b7` |
 | H6F-02, H6R-02 | D188 | `b4eb0f3` |
-| H6F-03, H6R-02 | D189 | `0f98a5b` |
+| H6F-03, H6R-02 | D189; the browser's port settles only once the change is stored | `0f98a5b`, `c12e66e` |
 | H6F-07, H6R-08 | D210 | `f3d87a7` |
 | H6F-08, H6R-10 | D211 | `f91cedf` |
 | H6F-01, K6R-03 | D212 | `d8266d3` |
@@ -1374,3 +1374,7 @@ Branch `feat/v2-p6c`, on round 2 (`8979a7e`). The clock-generation design was si
 | H6R-13 | D215 | `8416c9c` |
 
 Checked in headless Chromium at 428 px and 320 px, at 100% and 200% text (screenshots in `/tmp/fit-checks/shots-p6b/r3-*`): chest pain in the shared questions with the device refusing the answer shows "Call emergency services now" at their top, beside Try again; stored, Home says it; no stop surface over its own questions; under a clock hold the check-in opens with the glucose box empty and "Last reading: 140 mg/dL at 6:22 am. Enter a new one."; Backup's button is 60 px. No console errors. Seen, not changed: at 320 px an empty glucose box (the day's first check-in too) leaves the unit's "mg/dL" cut at the row's right edge; at 320 px/200% the shared surface's headline breaks a long word ("emergency") mid-word and, in a sheet, widens it past the screen, its Close cut at the edge, as in any sheet that shows the surface.
+
+**Gates** on `c12e66e`: `tsc -b --force` and `eslint .` clean; Vitest 257 files, 6,583 tests, all passed.
+
+**Acceptance** (port 49981, through the lock, on `c12e66e`): **1,156 cases, 1,152 passed, none failed and 4 pending, in 68.6 min.** V-J31 (4) is pending on Food's trend, as agreed. Plan 3's uncommitted journeys aren't in the tree. Every walk journey (J10, J11, V02, V16, V19, V20, V33, V34), J16 and M02 passed in all four projects.
