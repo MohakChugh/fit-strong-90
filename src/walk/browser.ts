@@ -153,7 +153,8 @@ export function browserPorts(): LivePorts {
   return {
     mayRun: intent => storeGate(intent),
     watchClinical,
-    clockChanged: (days, seen) => markClockChange(days, seen),
+    // Settles once the device has stored the change; never while it can't, so the walk keeps its own record of it (H6F-03).
+    clockChanged: (days, seen) => markClockChange(days, seen).then(r => (r.ok ? undefined : new Promise<never>(() => {}))),
     keepsRoutes: () => walkSettings(getState().settings).saveRoutes === true,
     now: () => Date.now(),
     monotonic: () => performance.now(),

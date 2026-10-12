@@ -130,7 +130,8 @@ export interface LivePorts {
    * clocks `seen` holds. The device keeps the change (`markClockChange`), so
    * every gate, this walk's own included, holds someone who can go low until a
    * reading acquired since (board D174), and marks it once though the page saw
-   * it too (H6F-04). Settles once the device has kept it (H6F-03).
+   * it too (H6F-04). Settles once the device has stored it, and never while
+   * it can't, so the walk keeps its own record of the change (H6F-03).
    */
   clockChanged?(days: readonly string[], seen?: ClockSeen): Promise<unknown> | void;
   /** Run `fn` after `ms`. Returns a function that cancels it. */

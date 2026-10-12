@@ -16,7 +16,7 @@ const profile = createDefaultProfile({
   health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
 });
 const day = { date: TODAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7' as const, energy: 4 as const, glucose: reading };
-const state = vi.hoisted(() => ({ value: undefined as unknown, listeners: new Set<() => void>(), marked: [] as (readonly string[])[], seen: [] as unknown[] }));
+const state = vi.hoisted(() => ({ value: undefined as unknown, listeners: new Set<() => void>(), marked: [] as (readonly string[])[], seen: [] as unknown[], stores: true }));
 vi.mock('@/store/useStore', async importOriginal => {
   const real = await importOriginal<typeof import('@/store/useStore')>();
   const { walkSettings: walkOf, withClockChange: changed } = await import('./consent');
@@ -31,7 +31,7 @@ vi.mock('@/store/useStore', async importOriginal => {
       const was = state.value as { settings: { walk?: ReturnType<typeof walkOf> } };
       state.value = { ...was, settings: { ...was.settings, walk: changed(walkOf(was.settings), days) } };
       for (const l of [...state.listeners]) l();
-      return Promise.resolve({ ok: true });
+      return Promise.resolve(state.stores ? { ok: true } : { ok: false });
     },
   };
 });
@@ -66,6 +66,17 @@ describe('the browser’s live walk ports (B-19)', () => {
     state.value = { ...(state.value as object), checkIns: [{ ...since, readiness: evaluateCheckIn(profile, since) }] };
     expect(ports.mayRun('restart')).toBe(true);
     expect(walkSettings((state.value as { settings: object }).settings).clock).toEqual(withClockChange(walkSettings({}), [TODAY]).clock);
+    state.value = was;
+  });
+
+  it('settle a change to the clock once the device has stored it, and never while it can’t, so the walk keeps its own record of it (H6F-03)', async () => {
+    const ports = browserPorts();
+    const was = state.value;
+    const outcome = (told: unknown) => Promise.race([(told as Promise<unknown>).then(() => 'settled'), new Promise(resolve => setTimeout(() => resolve('waiting'), 20))]);
+    await expect(outcome(ports.clockChanged!([TODAY]))).resolves.toBe('settled');
+    state.stores = false;
+    await expect(outcome(ports.clockChanged!([TODAY]))).resolves.toBe('waiting');
+    state.stores = true;
     state.value = was;
   });
 
