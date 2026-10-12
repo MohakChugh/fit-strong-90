@@ -104,10 +104,21 @@ export interface Observation {
    */
   seq?: number;
   /**
+   * When it was said: a number this device gives a statement as it is made,
+   * a correction included, which every copy keeps through a restore, a backup
+   * and a merge (board D110, Codex P8R-06). It orders two statements said at
+   * the same instant on whichever device they meet; `seq`, one database's
+   * commit order, decides only between statements that lack it, made before
+   * this release.
+   */
+  order?: number;
+  /**
    * The clock time in `at` is a stand-in: the source recorded only a date
    * (a v4 check-in, a body measurement). The day is exact; the time is not.
    */
   timeUnknown?: true;
+  /** Restored from Recently deleted (B-05): the id it had before it was deleted. */
+  restoredFrom?: string;
   /**
    * B-19, a glucose reading only: this device's clock generation when it was
    * acquired here (`settings.walk.clock`), stamped by the screen that took it
@@ -326,6 +337,14 @@ function randomId(): string {
   return `${now.toString(36).padStart(9, '0')}-${withinStamp.toString(36).padStart(4, '0')}-${noise}`;
 }
 
+let lastOrder = 0;
+
+/** A statement's place (P8R-06): the time it is said, in microseconds, and always later than the last one here. */
+export function nextOrder(now: number = Date.now()): number {
+  lastOrder = Math.max(now * 1000, lastOrder + 1);
+  return lastOrder;
+}
+
 const SCOPES: readonly Scope[] = ['pointInTime', 'dayTotal', 'sessionObserved'];
 const SOURCES: readonly ObservationSource[] = ['manual', 'measured', 'imported'];
 
@@ -388,6 +407,8 @@ export function observationProblem(o: Observation): string | undefined {
   if (o.seq !== undefined && !(Number.isSafeInteger(o.seq) && o.seq >= 0)) return 'seq must be a whole number';
   if (o.timeUnknown !== undefined && o.timeUnknown !== true) return 'timeUnknown is either true or absent';
   if (o.gen !== undefined && !(kind === 'glucose' && Number.isSafeInteger(o.gen) && o.gen >= 0)) return 'gen is a whole number, on a glucose reading only';
+  if (o.restoredFrom !== undefined && (typeof o.restoredFrom !== 'string' || o.restoredFrom === '')) return 'restoredFrom names the record it came from';
+  if (o.order !== undefined && !(Number.isSafeInteger(o.order) && o.order >= 0)) return 'order must be a whole number';
   return undefined;
 }
 
@@ -412,6 +433,7 @@ export function newObservation(input: ObservationInput): Observation {
     unit: input.unit ?? canonicalUnit(kind),
     scope,
     source,
+    order: nextOrder(),
     ...(input.context !== undefined ? { context: input.context } : {}),
     ...(input.tag !== undefined ? { tag: input.tag } : {}),
     ...(input.mealStartedAt !== undefined ? { mealStartedAt: input.mealStartedAt } : {}),
@@ -464,8 +486,9 @@ export function reviseObservation(existing: Observation, patch: ObservationRevis
   else if (patch.mealStartedAt !== undefined) next.mealStartedAt = patch.mealStartedAt;
   if (next.tag !== 'afterMeal' && patch.mealStartedAt === undefined) delete next.mealStartedAt;
   next.editedAt = editedAt;
-  // A correction is a new statement; the store stamps its commit order.
+  // A correction is a new statement, with a place of its own; the store stamps its commit order.
   delete next.seq;
+  next.order = nextOrder();
 
   const problem = observationProblem(next);
   if (problem !== undefined) throw new ObservationError(problem);
@@ -540,6 +563,11 @@ function byId(a: Observation, b: Observation): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
+/** When it was said, when both records know it (P8R-06). */
+function byOrder(a: Observation, b: Observation): number {
+  return a.order !== undefined && b.order !== undefined ? order(a.order, b.order) : 0;
+}
+
 /** Commit order, when both records have one. */
 function bySeq(a: Observation, b: Observation): number {
   return a.seq !== undefined && b.seq !== undefined ? order(a.seq, b.seq) : 0;
@@ -573,11 +601,14 @@ export function compareObservations(a: Observation, b: Observation): number {
  * day-total replace rule: correcting this morning's entry at 23:00 is a newer
  * statement about today than the one typed at 22:00, even though the moment it
  * refers to is earlier. Two statements at the same instant are ordered by
- * commit, which is the same in every open copy of the app.
+ * when they were said (`order`, kept by every copy, P8R-06), and between
+ * statements made before this release by commit, which is the same in every
+ * open copy of the app.
  */
 export function compareStatements(a: Observation, b: Observation): number {
   return (
     order(Date.parse(a.editedAt ?? a.at), Date.parse(b.editedAt ?? b.at)) ||
+    byOrder(a, b) ||
     bySeq(a, b) ||
     order(Date.parse(a.at), Date.parse(b.at)) ||
     byId(a, b)

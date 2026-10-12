@@ -3,7 +3,7 @@ import type { AppData, PersonalRecord, WorkoutSession, WorkoutSet } from '@/type
 import { createDefaultProfile } from '@/profile/defaults';
 import { buildSessionPlan } from '@/engine/session';
 import { createRunner, initialState } from '@/session/runner';
-import { asItStands, newBests, withActiveMinutes, withEditedSet, withoutWorkout, withWorkout, withWorkoutChanged } from './records';
+import { asItStands, newBests, withActiveMinutes, withEditedSet, withoutWorkout, withWorkout, withWorkoutBack, withWorkoutChanged } from './records';
 
 const set = (id: string, over: Partial<WorkoutSet> = {}): WorkoutSet => ({
   id, exerciseId: 'goblet-squat', setNumber: 1, plannedReps: 10, actualReps: 10, weight: 20, status: 'completed', rpe: null, ...over,
@@ -123,6 +123,17 @@ describe('correcting a set', () => {
 });
 
 describe('deleting a workout', () => {
+  it('puts a deleted workout back under a fresh id, with the records its sets set (D110)', () => {
+    const d = withWorkout(withWorkout(data([]), session('early', '2026-09-28', [set('a', { weight: 20 })])),
+      session('best', '2026-10-05', [set('b', { weight: 30 })]));
+    const best = d.sessions.find(s => s.id === 'best')!;
+    const back = withWorkoutBack(withoutWorkout(d, 'best'), best, 'best-again');
+    expect(back.sessions.map(s => [s.id, s.restoredFrom])).toEqual([['best-again', 'best'], ['early', undefined]]);
+    expect(back.personalRecords).toEqual([record('goblet-squat', 30, 10, '2026-10-05')]);
+    expect(back.profile).toBe(d.profile);
+    expect(withWorkoutBack(withoutWorkout(d, 'best'), best, 'best-again', 4).sessions[0].painAfter).toBe(4);
+  });
+
   it('takes away the records its sets set, and falls back to the next best', () => {
     const d = withWorkout(withWorkout(data([]), session('early', '2026-09-28', [set('a', { weight: 20 })])),
       session('best', '2026-10-05', [set('b', { weight: 30 })]));

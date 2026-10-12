@@ -60,6 +60,7 @@ import {
 } from './limits';
 
 export { IMPORT_LIMITS } from './limits';
+import { deviceHistory, isLocalKey, lineageIn, throughLineage, withoutRecentCarrier } from './recent';
 
 export const TRANSFER_FORMAT = 'fit-strong-health-record';
 
@@ -164,13 +165,14 @@ export function toTransferDoc(snapshot: Snapshot, exportedAt: string = nowAt(), 
     schemaVersion: SCHEMA_VERSION,
     observations: [...snapshot.observations].sort(compareObservations),
     sessions: snapshot.sessions,
-    ...(snapshot.settings !== undefined ? { settings: snapshot.settings } : {}),
+    ...(snapshot.settings !== undefined ? { settings: withoutRecentCarrier(snapshot.settings)! } : {}),
     ...(snapshot.profile !== undefined ? { profile: snapshot.profile } : {}),
     checkIns: snapshot.checkIns,
     personalRecords: snapshot.personalRecords,
     bodyMetrics: snapshot.bodyMetrics,
     focusOverrides: snapshot.focusOverrides,
-    contentState: Object.entries(snapshot.content).map(([key, value]) => ({ key, value })),
+    // Recently deleted, the lineage and expiry's clock never leave this device (D109, P8R-04).
+    contentState: Object.entries(snapshot.content).filter(([key]) => !isLocalKey(key)).map(([key, value]) => ({ key, value })),
     stores,
     records: Object.fromEntries(stores.map(s => [s, snapshot.records[s]])),
   };
@@ -332,7 +334,8 @@ export function isSessionRecord(x: unknown): x is WorkoutSession {
     && optional(x.exerciseNotes, isRecord) && optional(x.guided, v => typeof v === 'boolean')
     && optional(x.mobility, Array.isArray) && optional(x.cardio, isRecord)
     && optional(x.checkIn, isCheckInRecord) && optional(x.painAfter, isNumber)
-    && optional(x.symptomChecks, isRecord) && optional(x.durationSeconds, isNumber);
+    && optional(x.symptomChecks, isRecord) && optional(x.durationSeconds, isNumber)
+    && optional(x.restoredFrom, isText);
 }
 
 const listOf = (ok: (x: unknown) => boolean) => (x: unknown) => Array.isArray(x) && x.every(ok);
@@ -568,7 +571,8 @@ function parse(raw: unknown, foodsHere: readonly CustomFood[] = []): ParseResult
   const checkIns = keep(checkInsIn, isCheckInRecord, 'checkIns');
   const personalRecords = keep(lists.personalRecords!, isPersonalRecord, 'personalRecords');
   const bodyMetrics = keep(lists.bodyMetrics!, isBodyMetric, 'bodyMetrics');
-  const contentState = keep(lists.contentState!, isContentRow, 'contentState');
+  // Recently deleted, the lineage and expiry's clock are this device's own (D109, P8R-04): a file's are never taken.
+  const contentState = keep(lists.contentState!, isContentRow, 'contentState').filter(r => !isLocalKey(r.key));
   const focusOverrides: Record<string, DayFocus> = {};
   for (const [day, focus] of Object.entries(overrides)) {
     if (isDay(day) && isText(focus)) focusOverrides[day] = focus as DayFocus;
@@ -626,7 +630,8 @@ function parse(raw: unknown, foodsHere: readonly CustomFood[] = []): ParseResult
         // kept as the file has them. A profile is not: a hand-made or older
         // file must not hand the planner an incomplete one. (Filling a complete
         // profile changes nothing, so a real export round-trips unchanged.)
-        ...(settingsRead ? { settings: settingsRead.settings as unknown as UserSettings } : {}),
+        // A `deleted.recent` a file carries is never this device's to restore (D109).
+        ...(settingsRead ? { settings: withoutRecentCarrier(settingsRead.settings as unknown as UserSettings)! } : {}),
         ...(profileRead?.profile ? { profile: createDefaultProfile(profileRead.profile as ProfileInput) } : {}),
         checkIns: checkIns.map(dayWithoutGen),
         personalRecords: unique(personalRecords, r => r.exerciseId, 'personalRecords'),
@@ -1100,6 +1105,9 @@ const replaced = (store: RecordStore, device: UserSettings | undefined, records:
  *   left out whole.
  */
 function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy, now: Date = new Date()): MergePlan {
+  // A file's references to records restored here under new ids name those records (B-05, D110, P8-09),
+  // through this device's own lineage, which no file can change (P8R-04).
+  file = throughLineage(file, lineageIn(base.content ?? {}));
   const conflicts = zero();
   const takeFile = policy === 'takeFile';
   // This device's incidents, open or answered, and what they depend on: no
@@ -1615,7 +1623,9 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
         personalRecords: file.personalRecords,
         bodyMetrics: file.bodyMetrics,
         focusOverrides: file.focusOverrides,
-        content: { put: Object.fromEntries((file.contentState ?? []).map(r => [r.key, r.value])) },
+        // This device's history stays through a Replace, as through every import (P8S-08): its lineage and
+        // expiry's clock. Recently deleted's entries go with the records they describe.
+        content: { put: { ...Object.fromEntries((file.contentState ?? []).map(r => [r.key, r.value])), ...deviceHistory(base.content) } },
         records: Object.fromEntries(taken.map(s => [s, { put: replaced(s, base.settings, file.records?.[s] ?? []) }])),
       },
       report: {

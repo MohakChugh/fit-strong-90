@@ -164,4 +164,6 @@ export interface CustomFood {
   allergens?: AllergenId[];
   createdAt: string;
   updatedAt: string;
+  /** Brought back from Recently deleted: the deleted food's id (B-05). */
+  restoredFrom?: string;
 }

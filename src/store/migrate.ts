@@ -87,7 +87,19 @@ export interface Projection {
  */
 export function observationsFromCheckIn(record: CheckInRecord): Projection {
   const lifted = liftCheckIn(record, { existing: [] });
-  return { observations: lifted.put, skipped: lifted.skipped };
+  return { observations: lifted.put.map(unsaid), skipped: lifted.skipped };
+}
+
+/**
+ * A measurement lifted from an old record, not said now: no place of its own (`order`, P8R-06), so a
+ * conversion is the same however often it runs, and its commit order decides, as for every statement
+ * from before this release.
+ */
+function unsaid(o: Observation): Observation {
+  if (o.order === undefined) return o;
+  const { order: _now, ...rest } = o;
+  void _now;
+  return rest;
 }
 
 /**
@@ -124,7 +136,7 @@ export function projectV4(data: AppData): Projection {
     if (metric && typeof metric.date === 'string') take(liftBodyMetric(metric.date, metric, observations));
   }
 
-  return { observations, skipped };
+  return { observations: observations.map(unsaid), skipped };
 }
 
 /** The observations a v4 blob yields, without the skip report. */

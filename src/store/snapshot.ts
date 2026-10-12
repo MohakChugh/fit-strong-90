@@ -84,8 +84,11 @@ export interface Change {
    * this change — an import keeps the order its file's records were said in
    * (J05). They are restamped as consecutive commit numbers after the base,
    * a put with none first, and the commit ends on the last.
+   * `keepSeq`: each put keeps its own `seq`, the place it had when first said
+   * (a restore, D110), so two statements made at one moment keep their order;
+   * one with none takes this commit's.
    */
-  observations?: { put?: Observation[]; remove?: string[]; keepOrder?: boolean };
+  observations?: { put?: Observation[]; remove?: string[]; keepOrder?: boolean; keepSeq?: boolean };
   sessions?: { put?: WorkoutSession[]; remove?: string[] };
   /**
    * Field by field, so that two writers each changing one setting both land:
@@ -227,14 +230,15 @@ export function prepare(base: Snapshot, change: Change): Prepared {
   const given = lastById(change.observations?.put ?? []);
   // Every observation this commit writes carries its commit order: one number
   // for the commit, or with `keepOrder` one per step of the order it was given.
-  const steps = change.observations?.keepOrder ? [...new Set(given.map(o => o.seq ?? -1))].sort((a, b) => a - b) : [];
+  const keepSeq = change.observations?.keepSeq === true;
+  const steps = !keepSeq && change.observations?.keepOrder ? [...new Set(given.map(o => o.seq ?? -1))].sort((a, b) => a - b) : [];
   const revision = base.revision + Math.max(1, steps.length);
   // Replacing the whole record makes a new one: its generation moves on (H5R-09).
   const from = change.reset ? emptySnapshot(base.revision, base.generation + 1) : base;
 
   // Each step's place, looked up rather than searched for (C2-04).
   const rank = new Map(steps.map((step, i) => [step, i]));
-  const puts = given.map(o => ({ ...o, seq: steps.length ? base.revision + 1 + rank.get(o.seq ?? -1)! : revision }));
+  const puts = given.map(o => (keepSeq && o.seq !== undefined ? o : { ...o, seq: steps.length ? base.revision + 1 + rank.get(o.seq ?? -1)! : revision }));
   const removes = change.observations?.remove ?? [];
   const sessionPuts = lastById(change.sessions?.put ?? []);
   const sessionRemoves = change.sessions?.remove ?? [];

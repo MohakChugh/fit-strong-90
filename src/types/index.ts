@@ -116,6 +116,8 @@ export interface WorkoutSession {
   /** Answers to in-session symptom checkpoints, keyed by exercise id. */
   symptomChecks?: Record<string, 'better' | 'same' | 'worse'>;
   durationSeconds?: number;
+  /** Brought back from Recently deleted: the deleted session's id (B-05). */
+  restoredFrom?: string;
 }
 
 export interface PersonalRecord {
