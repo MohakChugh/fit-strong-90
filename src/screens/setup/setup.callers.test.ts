@@ -562,6 +562,59 @@ describe('allergies in setup (K5-08; board D150)', () => {
     expect(router.navigate).toHaveBeenCalledWith('/setup/food/logging', undefined);
     expect(store.getState().settings.setup?.draft?.answers?.allergies).toEqual([]);
   });
+
+  const allergiesPage = async () => {
+    const { PageFrame } = await import('./PageFrame');
+    const { FoodAllergies } = await import('./pages/food');
+    const shown = render(createElement(PageFrame, { id: 'food.allergies', View: FoodAllergies }));
+    await shown.settle();
+    return shown;
+  };
+  const OWN = 'Something else you’re allergic to (optional)';
+  const stored = () => store.getState().settings.setup?.draft;
+
+  it('own words that can’t be stored yet keep every earlier exclusion, and leave the answer not known until they can (H5F-08; board D222)', async () => {
+    const { allergyAnswer } = await import('@/food/allergens');
+    // Milk ticked and peanut typed, with “How do you eat?” skipped.
+    const { pattern: _p, ...answers } = { ...MINIMAL, allergies: ['milk' as const], customAllergies: ['peanut'] };
+    void _p;
+    expect((await store.update(d => withDraft(d, 'food.allergies', answers))).ok).toBe(true);
+    host = await allergiesPage();
+    const typed = `peanut, ${'k'.repeat(61)}`;
+    await host.change(host.field(OWN), { value: typed });
+    await new Promise(r => setTimeout(r, AUTOSAVE_MS + 50));
+    await host.settle();
+    expect([stored()?.answers?.allergies, stored()?.answers?.customAllergies, stored()?.raw]).toEqual([['milk'], ['peanut'], { customAllergies: typed }]);
+    // Meal ideas ask first, so a dish with peanuts can't show.
+    expect(allergyAnswer(undefined, store.getState().settings.setup)).toBeUndefined();
+    await host.click(host.button('Next', { exact: true }));
+    await host.settle();
+    expect(router.navigate).not.toHaveBeenCalled();
+    // Corrected: stored, and known again.
+    await host.change(host.field(OWN), { value: 'peanut, kiwi' });
+    await host.click(host.button('Next', { exact: true }));
+    await host.settle();
+    expect(allergyAnswer(undefined, store.getState().settings.setup)).toEqual({ allergies: ['milk'], customAllergies: ['peanut', 'kiwi'] });
+  });
+
+  it('a chip ticked here leaves own words another window stored meanwhile, and the field shows them (H5R-03)', async () => {
+    const { withFields } = await import('@/setup/draft');
+    expect((await store.update(d => withDraft(d, 'food.allergies', MINIMAL))).ok).toBe(true);
+    host = await allergiesPage();
+    expect(host.field(OWN).props.value).toBe('');
+    // Another window: kiwi, in the person's own words.
+    expect((await store.update(d => withFields(d, new Map([['customAllergies', { baseline: undefined, value: ['kiwi'] }]]), new Map(), undefined))).ok).toBe(true);
+    await host.settle();
+    expect(host.field(OWN).props.value).toBe('kiwi');
+    await host.click(host.button('Milk', { exact: true }));
+    await new Promise(r => setTimeout(r, AUTOSAVE_MS + 50));
+    await host.settle();
+    expect([stored()?.answers?.allergies, stored()?.answers?.customAllergies]).toEqual([['milk'], ['kiwi']]);
+    // Unticked again: kiwi is still an answer, so the chips' is none, not unanswered.
+    await host.click(host.button('Milk', { exact: true }));
+    await new Promise(r => setTimeout(r, AUTOSAVE_MS + 50));
+    expect([stored()?.answers?.allergies, stored()?.answers?.customAllergies]).toEqual([[], ['kiwi']]);
+  });
 });
 
 describe('plain words first, the term in brackets (K5-13; board D155)', () => {

@@ -187,6 +187,17 @@ describe('the allergy answer setup keeps for a food record not made yet (Plan 5�
     // Setup's answer, where it has one, is still the person's.
     expect(allergyAnswer(v1, { answers: { allergies: ['milk'] } })).toEqual({ allergies: ['milk'] });
   });
+  it('own words typed that can’t be stored yet make the whole answer not known, its earlier exclusions kept for when they can (H5F-08; board D222)', () => {
+    const typed = `peanut, ${'k'.repeat(61)}`;
+    const draft = { stage: 'open' as const, draft: { answers: { allergies: ['milk' as const], customAllergies: ['peanut'] }, raw: { customAllergies: typed } } };
+    expect(setupAllergyAnswer(draft)).toBeUndefined();
+    expect(allergyAnswer(undefined, draft)).toBeUndefined();
+    // So while setup goes on without saving.
+    expect(setupAllergyAnswer(undefined, { unsaved: true, answers: { allergies: ['milk'] }, raw: { customAllergies: typed } })).toBeUndefined();
+    // Words that fit are an answer: the page stores them, and no text waits.
+    expect(setupAllergyAnswer({ ...draft, draft: { ...draft.draft, raw: { customAllergies: 'peanut, kiwi' } } })).toEqual({ allergies: ['milk'], customAllergies: ['peanut'] });
+  });
+
   it('reads this session’s answer while setup goes on without saving, over a draft stored before (Plan 5’s B-07, H5-06)', () => {
     // "No food allergies" was stored; then storage refused, and Peanuts was ticked without saving.
     const stored = { stage: 'open' as const, draft: { answers: { allergies: [] } } };

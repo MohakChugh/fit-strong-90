@@ -284,6 +284,14 @@ describe('a number typed that isn’t an answer counts as unanswered everywhere 
     expect(rawLeft(lows, { glucoseStartMin: ' ' })).toBeUndefined();
   });
 
+  it('so do own-word allergies that can’t be stored yet, with the earlier ones still in the answers (H5F-08; board D222)', () => {
+    const shown = { ...MINIMAL, allergies: ['milk' as const], customAllergies: ['peanut'] };
+    const raw = { customAllergies: `peanut, ${'k'.repeat(61)}` };
+    expect(rawLeft(shown, raw)).toBe('food.allergies');
+    expect(guardFor(shown, 'review', { ...CTX, raw })).toBe('food.allergies');
+    expect(rawLeft(shown, { customAllergies: 'peanut, kiwi' })).toBeUndefined();
+  });
+
   it('only while its question shows: a figure for a page off the path doesn’t count', () => {
     expect(rawLeft(MINIMAL, raw)).toBeUndefined();
     expect(rawLeft(lows, raw)).toBe('medicines.lows');

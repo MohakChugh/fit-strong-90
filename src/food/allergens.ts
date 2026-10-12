@@ -11,6 +11,7 @@
 import { tokens } from '@/content/text';
 import { ALLERGEN_IDS, type AllergenId, type FoodPreferences } from '@/types/profile';
 import type { SetupAnswers, SetupRecord } from '@/types/setup';
+import { ownTextProblem } from '@/setup/limits';
 import type { CustomFood } from './types';
 
 export interface Allergen {
@@ -93,16 +94,19 @@ function resolve(text: string): { ids: AllergenId[]; whole: boolean } {
 export type AllergyAnswer = Pick<FoodPreferences, 'allergies' | 'customAllergies'>;
 
 /** Setup's session (`useSetupSession`): while setup goes on without saving, its answers are there, not stored (Plan 5's B-07, H5-06). */
-type SetupSessionAnswers = { unsaved: boolean; answers: SetupAnswers };
+type SetupSessionAnswers = { unsaved: boolean; answers: SetupAnswers; raw?: Readonly<Record<string, string>> };
 
 /**
  * The allergy answer setup keeps for a food record not made yet (Plan 5's D166, D167; board D205): asked on its
  * 'food.allergies' page whatever the pattern, so with the pattern skipped it waits in setup's answers. Read from
  * this session while setup goes on without saving, as every reader of setup's answers does, since a draft stored
  * before is older; else finished setup, else the draft; as far as it can be read. Nothing is no answer, which is
- * never "none".
+ * never "none". Own words typed that can't be stored yet leave the whole answer not known until they can: the
+ * earlier exclusions wait beside them, never dropped (H5F-08; board D222).
  */
 export function setupAllergyAnswer(setup: SetupRecord | undefined, session?: SetupSessionAnswers): AllergyAnswer | undefined {
+  const typed = (session?.unsaved ? session.raw : setup?.draft?.raw)?.customAllergies;
+  if (typeof typed === 'string' && ownTextProblem(typed) !== null) return undefined;
   const answered = (a: unknown): a is Record<string, unknown> =>
     typeof a === 'object' && a !== null && ((a as Record<string, unknown>).allergies !== undefined || (a as Record<string, unknown>).customAllergies !== undefined);
   const answers = [session?.unsaved ? session.answers : undefined, setup?.answers, setup?.draft?.answers].find(answered);

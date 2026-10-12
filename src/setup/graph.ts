@@ -11,7 +11,7 @@ import { metforminYearProblem } from '@/components/profile/wizardSteps';
 import { DEFAULT_FINISH, mealProblem, windowProblem } from '@/screens/you/habitOptions';
 import type { Meal } from '@/types/habits';
 import { asksAdult, birthYearProblem } from './age';
-import { nameProblem, ownAllergiesProblem, type RawKey } from './limits';
+import { nameProblem, ownAllergiesProblem, ownTextProblem, type RawKey } from './limits';
 import { factsOf, has, type Facts } from './facts';
 import { heightProblem, numberFrom, waistProblem, weightProblem } from './units';
 
@@ -258,7 +258,9 @@ export const rawPage = (key: string): PageId | undefined => PAGES.find(p => (p.s
  */
 export function rawInvalid(id: PageId, a: SetupAnswers, raw: Readonly<Record<string, string>> | undefined): boolean {
   return Object.entries(raw ?? {}).some(([key, text]) =>
-    text.trim() !== '' && a[key.split('.')[0] as keyof SetupAnswers] === undefined && rawPage(key) === id && RAW_FIELDS[key as RawKey]?.(a) === true);
+    text.trim() !== '' && rawPage(key) === id && RAW_FIELDS[key as RawKey]?.(a) === true
+    // Own-word allergies by their own rule: those that can't be stored wait as typed, the earlier answer kept beside them (H5F-08).
+    && (key === 'customAllergies' ? ownTextProblem(text) !== null : a[key.split('.')[0] as keyof SetupAnswers] === undefined));
 }
 
 /** The first page on the path with a number typed that isn't an answer: finishing waits for it (H5F-05; board D199). */
