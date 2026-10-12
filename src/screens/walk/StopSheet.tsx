@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
 import type { SymptomReport } from '@/components/checkin/pending';
+import { AnsweringStopContext } from '@/components/checkin/sayWhatHappened';
 import type { SymptomReach } from '@/types/checkin';
 import { TARGET } from '@/components/hig/targets';
 import { cn } from '@/lib/utils';
@@ -48,9 +49,11 @@ export function StopSheet(props: Props) {
     setStep('choose');
   };
   return (
-    <Sheet open={props.open} onOpenChange={o => { if (!o) close(); }} title={title} detent="large">
-      {props.open && <Body {...props} step={step} setStep={setStep} close={close} />}
-    </Sheet>
+    <AnsweringStopContext value>
+      <Sheet open={props.open} onOpenChange={o => { if (!o) close(); }} title={title} detent="large">
+        {props.open && <Body {...props} step={step} setStep={setStep} close={close} />}
+      </Sheet>
+    </AnsweringStopContext>
   );
 }
 

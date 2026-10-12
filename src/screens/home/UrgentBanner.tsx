@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffe
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { SirenIcon, TriangleAlertIcon } from 'lucide-react';
-import { useSayWhatHappened } from '@/components/checkin/sayWhatHappened';
+import { AnsweringStopContext, useSayWhatHappened } from '@/components/checkin/sayWhatHappened';
 import { markTab, ScreenTopContext, SheetTopContext, type SheetExit } from '@/components/hig/navigation';
 import { cn } from '@/lib/utils';
 import { RIGHT_NOW_ID, UrgentContext, says, useUrgent, type Urgent } from './urgent';
@@ -35,7 +35,9 @@ function showRightNow(): void {
  * sheet first, through the sheet's own close, and goes on only once the sheet
  * has closed: never from under a sheet still saving (codex W-05). For an
  * unanswered "I need to stop" the safe action is "Say what happened": the
- * stop's own questions, here, after any sheet has closed (K6R-03).
+ * stop's own questions, here, after any sheet has closed (K6R-03). Over those
+ * questions it says every decision but that stop, the one they answer: an
+ * emergency reported there shows in them at once (H6F-01, board D212).
  */
 export function UrgentBanner({ urgent, exit }: { urgent: Urgent; exit?: SheetExit }) {
   const titleId = useId();
@@ -50,6 +52,8 @@ export function UrgentBanner({ urgent, exit }: { urgent: Urgent; exit?: SheetExi
   const home = pathname === '/home';
   const say = useSayWhatHappened();
   const stopFirst = urgent.stop && say;
+  // Over the stop's own questions, the stop is what they answer: every other decision is said there (H6F-01).
+  const answering = useContext(AnsweringStopContext);
   const leave = () => exit?.leave(() => {
     // The sheet has closed: once its dialog has handed focus back, and the page behind it is live again.
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -61,6 +65,7 @@ export function UrgentBanner({ urgent, exit }: { urgent: Urgent; exit?: SheetExi
       }
     }));
   });
+  if (answering && urgent.stop) return null;
   return (
     <section
       aria-labelledby={titleId}
@@ -108,13 +113,15 @@ export function UrgentProvider({ children }: { children: ReactNode }) {
   const inSheet = useMemo(() => (urgent
     ? { key: [urgent.kind, urgent.headline, urgent.when].join('|'), draw: (exit: SheetExit) => <UrgentBanner urgent={urgent} exit={exit} /> }
     : null), [urgent]);
+  // The stop's shared questions sit under the sheets' surface too, so a report there that is an
+  // emergency says so in them at once, before and whatever its save (H6F-01, board D212).
   return (
     <UrgentContext value={urgent}>
-      <SayWhatHappenedProvider>
-        <ScreenTopContext value={banner}>
-          <SheetTopContext value={inSheet}>{children}</SheetTopContext>
-        </ScreenTopContext>
-      </SayWhatHappenedProvider>
+      <ScreenTopContext value={banner}>
+        <SheetTopContext value={inSheet}>
+          <SayWhatHappenedProvider>{children}</SayWhatHappenedProvider>
+        </SheetTopContext>
+      </ScreenTopContext>
       {createPortal(
         <div aria-live="assertive" aria-atomic="true" className="sr-only">{urgent ? `${urgent.headline}. ${lineOf(urgent)}.` : ''}</div>,
         document.body,

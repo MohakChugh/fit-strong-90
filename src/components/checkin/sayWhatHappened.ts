@@ -11,3 +11,10 @@ export const SayWhatHappenedContext = createContext<(() => void) | null>(null);
 export function useSayWhatHappened(): (() => void) | null {
   return useContext(SayWhatHappenedContext);
 }
+
+/**
+ * Inside the stop's own questions (`StopSheet`): the shared surface at their
+ * top says every decision but the stop they answer, whose way on is them
+ * (H6F-01, board D212).
+ */
+export const AnsweringStopContext = createContext(false);

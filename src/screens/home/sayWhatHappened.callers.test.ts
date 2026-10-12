@@ -70,7 +70,8 @@ const { Sheet } = await import('@/components/hig/Sheet');
 const { CheckInSheet } = await import('@/components/checkin/CheckInSheet');
 const { resetPendingCheckInsForTests, effectiveCheckIns } = await import('@/components/checkin/pending');
 const { evaluateCheckIn, STOP_UNANSWERED } = await import('@/engine/readiness');
-const { permission } = await import('@/engine/permission');
+const { permission, PERMISSION_TEXT } = await import('@/engine/permission');
+const { EMERGENCY_LABEL } = await import('@/components/checkin/copy');
 const { default: WalkHub } = await import('@/screens/hub/WalkHub');
 const { default: StretchHub } = await import('@/screens/hub/StretchHub');
 const { default: WorkoutHub } = await import('@/screens/hub/WorkoutHub');
@@ -80,13 +81,18 @@ const DAY = '2026-10-09';
 const day = (date: string, news: DailyCheckIn['news']): DailyCheckIn => ({ date, urgentSymptoms: false, emergency: [], news, sleep: 'gt7', energy: 4 });
 
 let host: Host | undefined;
+/** Whether the device refuses to store a check-in. */
+let refuse = false;
+let fake: ReturnType<typeof fakeIndexedDB>;
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(2026, 9, 9, 9, 30));
   local.clear();
   store.resetForTests();
   resetPendingCheckInsForTests();
-  await store.start({ factory: fakeIndexedDB(), broadcast: null });
+  refuse = false;
+  fake = fakeIndexedDB({ failWrite: (_name, row) => (refuse && row.key === 'checkIns' ? new DOMException('Full', 'QuotaExceededError') : undefined) });
+  await store.start({ factory: fake, broadcast: null });
 });
 afterEach(() => {
   host?.unmount();
@@ -146,6 +152,51 @@ describe('"Say what happened" on the shared safety surface (journey §4.4, K6R-0
     await x().settle();
     expect(x().text()).toContain('What’s happening?');
     expect(dialogs()).toBe(1);
+  });
+
+  /** What the stop's questions say, and nothing from the screen behind. */
+  const asked = () => {
+    const dialog = x().all().find(n => n.props.role === 'dialog');
+    const text = (n: HostNode): string => n.children.map(c => (typeof c === 'string' ? c : text(c))).join(' ');
+    return dialog ? text(dialog) : '';
+  };
+
+  it('says to get help now inside the questions the moment chest pain is said, while its answer is still being stored (H6F-01, board D212)', async () => {
+    await seed([day(DAY, ['stopped'])]);
+    host = render(h(UrgentProvider, null, h(Screen)));
+    await x().settle();
+    await x().click(x().button('Say what happened', { exact: true }));
+    expect(asked()).not.toContain(PERMISSION_TEXT.emergencyTitle);
+    // The stop's own surface is not drawn over its own questions.
+    expect(asked()).not.toContain('Say what happened');
+    fake.control.hold();
+    await x().click(x().button(EMERGENCY_LABEL.chest, { exact: true }));
+    await x().settle();
+    expect(asked()).toContain('What’s happening?');
+    expect(asked()).toContain(PERMISSION_TEXT.emergencyTitle);
+    fake.control.release();
+    await x().settle();
+  });
+
+  it('and when the device refuses the answer, beside Try again, and while it is tried again (H6F-01, board D212)', async () => {
+    await seed([day(DAY, ['stopped'])]);
+    host = render(h(UrgentProvider, null, h(Screen)));
+    await x().settle();
+    await x().click(x().button('Say what happened', { exact: true }));
+    refuse = true;
+    await x().click(x().button(EMERGENCY_LABEL.chest, { exact: true }));
+    await x().settle();
+    expect(asked()).toContain('Your answer didn’t save.');
+    expect(asked()).toContain(PERMISSION_TEXT.emergencyTitle);
+    fake.control.hold();
+    refuse = false;
+    await x().click(x().button('Try again', { exact: true }));
+    expect(asked()).toContain(PERMISSION_TEXT.emergencyTitle);
+    fake.control.release();
+    await x().settle();
+    // Kept, the questions close, and the screen behind says it.
+    expect(dialogs()).toBe(0);
+    expect(x().text()).toContain(PERMISSION_TEXT.emergencyTitle);
   });
 
   it('a hold that is not a stop keeps "What to do"', async () => {
