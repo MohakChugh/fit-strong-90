@@ -29,6 +29,8 @@ export function SayWhatHappenedProvider({ children }: { children: ReactNode }) {
         <StopSheet
           open={open}
           onClose={() => setOpen(false)}
+          // Answered, the button that opened it goes with the stop: focus goes to the screen's title (B-03, H6F-09).
+          returnFocus={() => document.querySelector<HTMLElement>('main h1')}
           hypoRisk={deriveHealth(profile.health).hypoRisk}
           before={checkIn?.back?.reach}
           onReport={report}

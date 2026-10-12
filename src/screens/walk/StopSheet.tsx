@@ -25,6 +25,8 @@ interface Props {
   onLow: () => Promise<boolean>;
   /** On the walk: end it. Asked off it (Say what happened, K6R-03), the walk has already ended. */
   onEnd?: () => void;
+  /** Where focus goes on closing when what opened it has gone (`Sheet`, B-03). */
+  returnFocus?: () => HTMLElement | null;
 }
 
 /**
@@ -57,7 +59,7 @@ export function StopSheet(props: Props) {
   };
   return (
     <AnsweringStopContext value>
-      <Sheet open={props.open} onOpenChange={o => { if (!o) close(); }} dismissible={!saving} title={title} detent="large">
+      <Sheet open={props.open} onOpenChange={o => { if (!o) close(); }} dismissible={!saving} title={title} detent="large" {...(props.returnFocus ? { returnFocus: props.returnFocus } : {})}>
         {props.open && <Body {...props} step={step} setStep={setStep} close={close} saving={saving} setSaving={setSaving} />}
       </Sheet>
     </AnsweringStopContext>

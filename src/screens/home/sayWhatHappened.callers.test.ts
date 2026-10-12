@@ -32,7 +32,8 @@ vi.mock('@/components/ui/sheet', async () => {
   return {
     Sheet: ({ open, onOpenChange, children }: { open: boolean; onOpenChange: (open: boolean) => void; children?: ReactNode }) =>
       (open ? createElement(Closing.Provider, { value: onOpenChange }, children) : null),
-    SheetContent: ({ children }: { children?: ReactNode }) => createElement('div', { role: 'dialog' }, children),
+    // Where focus goes on closing, handed on for a test to ask (B-03).
+    SheetContent: ({ children, finalFocus }: { children?: ReactNode; finalFocus?: unknown }) => createElement('div', { role: 'dialog', finalFocus }, children),
     SheetTitle: ({ children }: { children?: ReactNode }) => createElement('h2', null, children),
     SheetClose: ({ children }: { children?: ReactNode }) => {
       const close = use(Closing);
@@ -201,6 +202,19 @@ describe('"Say what happened" on the shared safety surface (journey §4.4, K6R-0
     // Kept, the questions close, and the screen behind says it.
     expect(dialogs()).toBe(0);
     expect(x().text()).toContain(PERMISSION_TEXT.emergencyTitle);
+  });
+
+  it('hands focus to the screen’s title as it closes, the button that opened it having gone with the stop it answered (H6F-09, board D214)', async () => {
+    await seed([day(DAY, ['stopped'])]);
+    host = render(h(UrgentProvider, null, h(Screen)));
+    await x().settle();
+    await x().click(x().button('Say what happened', { exact: true }));
+    const title = { focus() {} };
+    const was = document.querySelector;
+    document.querySelector = ((selector: string) => (selector === 'main h1' ? title : null)) as typeof document.querySelector;
+    const dialog = x().all().find(n => n.props.role === 'dialog')!;
+    expect((dialog.props.finalFocus as () => unknown)()).toBe(title);
+    document.querySelector = was;
   });
 
   it('a hold that is not a stop keeps "What to do"', async () => {
