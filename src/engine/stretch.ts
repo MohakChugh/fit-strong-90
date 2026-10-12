@@ -29,7 +29,6 @@ import { mobilityBlock, REGION_TARGETS, regionsOf } from './mobility';
 import { modeFor, phaseFor } from './dosage';
 import { stepSeconds, totalSeconds } from './timing';
 import { createSpeechSizer } from './speech';
-import { planAcross } from './candidates';
 
 export const STRETCH_FOCI: StretchFocus[] = ['backHips', 'neckShoulders', 'hipsLegs', 'wholeBody'];
 export const STRETCH_MINUTES: StretchMinutes[] = [10, 15];
@@ -195,8 +194,6 @@ export function specFromPlanId(id: string | undefined): StretchSpec | null {
 }
 
 export function buildStretchPlan(input: StretchInput): SessionPlan {
-  // A gate's profile with answers on their way: planned from the candidate at least as strict as the rest (board D168).
-  if (input.profile.candidates) return planAcross(input.profile, profile => readinessOf({ ...input, profile }), profile => buildStretchPlan({ ...input, profile }));
   const { profile, date } = input;
   const spec: StretchSpec = { focus: input.focus, minutes: input.minutes };
   const readiness = readinessOf(input);

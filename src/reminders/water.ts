@@ -51,6 +51,8 @@ export function withFluidAnswer(profile: UserProfile, habits: HabitSettings | un
  * a fluid limit counts as a limit.
  */
 export function waterBlock(profile: UserProfile | undefined, habits: HabitSettings | undefined): string | undefined {
+  // A clinical answer this session gave isn't stored, and it may be a fluid limit or a condition that needs one (board D197).
+  if (profile?.clinicalUnsaved) return 'Paused until your health answers are saved, since some answers need a fluid limit.';
   const limit = fluidRestriction(profile, habits);
   if (limit === true) return 'Off, because your care team has asked you to limit fluids.';
   if (limit === 'unsure') return 'Off until you know whether your care team wants you to limit fluids. Ask them first.';

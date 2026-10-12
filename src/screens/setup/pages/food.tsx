@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Group, Row } from '@/components/hig/List';
 import { PATTERN_DETAIL, PATTERN_LABEL, type Pattern } from '@/content';
-import { parseAvoid } from '@/screens/guide/format';
+
 import { CheckRows } from '@/screens/you/controls';
 import { ALLERGY_CHIPS } from '@/setup/allergies';
-import { ownAllergiesProblem, typedMax } from '@/setup/limits';
+import { ownTextProblem, parseAvoid, typedMax } from '@/setup/limits';
 import type { AllergenId } from '@/types/profile';
 import { Ask, Missing, TextInput, type PageProps } from '../controls';
 
@@ -27,31 +27,48 @@ export function FoodHowYouEat({ a, set, tried }: PageProps) {
  */
 export function FoodAllergies({ a, raw, set, tried }: PageProps) {
   const chips = a.allergies ?? [];
-  // As typed, the commas included; kept in the draft only while it isn't an answer (H5-18).
-  const [other, setOther] = useState(() => raw.customAllergies ?? (a.customAllergies ?? []).join(', '));
-  const write = (ids: AllergenId[], typed: string) => {
+  // As typed, the commas included; kept in the draft only while it isn't an answer (H5-18). Changed elsewhere, in
+  // another window or by a restore, the field shows it as it is now (H5R-03).
+  const shown = raw.customAllergies ?? (a.customAllergies ?? []).join(', ');
+  const [other, setOther] = useState(shown);
+  // What this field last wrote, as the answers show it: anything else came from elsewhere.
+  const [mine, setMine] = useState(shown);
+  if (shown !== mine) {
+    setMine(shown);
+    setOther(shown);
+  }
+  // Nothing ticked and nothing typed is no answer yet, never "No food allergies".
+  const answered = (ids: AllergenId[], words: number) => (ids.length > 0 || words > 0 ? ids : undefined);
+  const type = (typed: string) => {
+    setOther(typed);
     const words = parseAvoid(typed);
-    // More, or longer, than a backup holds: the text waits as typed, the page says why, and nothing reads as "No food
-    // allergies" meanwhile (H5-18).
-    if (ownAllergiesProblem(words) !== null) {
-      set({ allergies: ids.length > 0 ? ids : undefined, customAllergies: undefined }, { customAllergies: typed });
+    // More, or longer, than a backup holds: the text waits as typed, the page says why, and the answers stay as they
+    // were, every exclusion in them, while the whole answer reads as not known (H5-18, H5F-08; board D222).
+    if (ownTextProblem(typed) !== null) {
+      setMine(typed);
+      set({}, { customAllergies: typed });
       return;
     }
-    // Nothing ticked and nothing typed is no answer yet, never "No food allergies".
-    set({ allergies: ids.length > 0 || words.length > 0 ? ids : undefined, customAllergies: words.length > 0 ? words : undefined }, { customAllergies: '' });
+    setMine(words.join(', '));
+    set({ allergies: answered(chips, words.length), customAllergies: words.length > 0 ? words : undefined }, { customAllergies: '' });
   };
-  const problem = ownAllergiesProblem(parseAvoid(other));
+  const problem = ownTextProblem(other);
   const none = a.allergies !== undefined && a.allergies.length === 0 && !(a.customAllergies?.length);
   return (
     <>
       <Group header="Allergies" footer="Meal ideas leave out anything with these. A food you’ve already eaten can still be logged.">
-        <CheckRows label="Allergies" options={ALLERGY_CHIPS} value={chips} onChange={ids => write(ids, other)} />
+        {/* A chip is the chips' answer alone: the own words stay as they are (H5R-03). */}
+        <CheckRows label="Allergies" options={ALLERGY_CHIPS} value={chips} onChange={ids => set({ allergies: answered(ids, a.customAllergies?.length ?? 0) })} />
         <TextInput label="Something else you’re allergic to (optional)" text={other} placeholder="For example: brinjal, kiwi" maxLength={typedMax('customAllergies')}
-          onText={t => { setOther(t); write(chips, t); }} />
+          onText={type} />
       </Group>
       <Group>
         <CheckRows label="No food allergies" options={[{ value: 'none', label: 'No food allergies' }]} value={none ? ['none'] : []}
-          onChange={v => { setOther(''); set({ allergies: v.length > 0 ? [] : undefined, customAllergies: undefined }, { customAllergies: '' }); }} />
+          onChange={v => {
+            setOther('');
+            setMine('');
+            set({ allergies: v.length > 0 ? [] : undefined, customAllergies: undefined }, { customAllergies: '' });
+          }} />
       </Group>
       <Missing show={tried && problem !== null}>{problem ?? ''}</Missing>
       <Missing show={tried && problem === null && a.allergies === undefined}>Tick your allergies, or “No food allergies”.</Missing>

@@ -32,9 +32,9 @@ export function useSetupAnswers(): { answers: SetupAnswers; raw: Raw | undefined
  * your back and feet" (§6.1; K5-07).
  */
 export function useSafetyLeft(): { chapter: string; ask: string } | undefined {
-  const { answers, setup } = useSetupAnswers();
+  const { answers, raw, setup } = useSetupAnswers();
   const ctx = useCtx();
-  const left = setup.stage !== 'done' ? safetyLeft(answers, ctx) : undefined;
+  const left = setup.stage !== 'done' ? safetyLeft(answers, { ...ctx, raw }) : undefined;
   return left && { chapter: CHAPTER_TITLE[left.chapter].toLowerCase(), ask: askAbout(left) };
 }
 

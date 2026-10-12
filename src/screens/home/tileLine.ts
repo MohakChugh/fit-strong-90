@@ -22,6 +22,7 @@ export interface TileLine {
  * the reasons come in. Anything new falls back to a pointer to the hub.
  */
 const HOLD_HEADLINE: [reason: string, headline: string][] = [
+  [PERMISSION_TEXT.unsaved, 'Paused: health answers not saved'],
   [PERMISSION_TEXT.footWalk, 'No walking for now'],
   [PERMISSION_TEXT.future, 'Check the reading’s time'],
   [PERMISSION_TEXT.stale, 'Check glucose first'],

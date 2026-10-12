@@ -87,6 +87,7 @@ import { TileMenu } from './TileMenu';
 import { NewHomeRow } from './NewHomeRow';
 import { movementLine } from './tileLine';
 import { RIGHT_NOW_ID, SAFETY_KINDS, SLOTS, UrgentContext, recommendSources, withEffectiveToday } from './urgent';
+import { UnsavedClinical } from '@/components/profile/UnsavedClinical';
 import { WeekCard } from './WeekCard';
 import { WalkRecoveryRow } from './WalkRecoveryRow';
 import { movedDays, restDaysOf, stepsLine, stretchDays, weekDots } from './week';
@@ -384,6 +385,8 @@ export function HomeScreen() {
           <Row role="status" icon={<InfoIcon />} label="That page has moved" />
         </Group>
       )}
+      {/* A clinical save the device refused: every movement waits until it's tried again or discarded (board D197). */}
+      <UnsavedClinical />
       {/* "What to do" on the urgent surface brings this into view, focus with it. */}
       <div id={RIGHT_NOW_ID} tabIndex={-1} className="flex scroll-mt-16 flex-col gap-3 outline-none">
         <RecommendationCard

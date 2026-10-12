@@ -171,12 +171,12 @@ export interface UserProfile {
   /** v2: the latest waist in cm. Each change is also a dated `waist` reading (journey §18.1). */
   waistCm?: number;
   /**
-   * Only on the profile a gate reads, while answers are on their way (setup
-   * unfinished, a save in Me pending or refused): every profile the person
-   * might have, each run through the engine (`engine/candidates.ts`; board
-   * D168). Never stored.
+   * Only on the profile a gate reads, for this session: a clinical answer the
+   * person gave couldn't be stored (`setup/effective.ts`; board D197). Every
+   * movement holds and water reminders pause until it's stored or
+   * discarded. Never stored.
    */
-  candidates?: readonly UserProfile[];
+  clinicalUnsaved?: true;
 }
 
 /**

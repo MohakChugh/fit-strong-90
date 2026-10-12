@@ -60,12 +60,13 @@ function ByAddress() {
 }
 
 /** A page opened by its address: on to the page it needs first, or past one that doesn't apply (Review Focus 5). */
-function Guarded({ id }: { id: PageId }) {
+export function Guarded({ id }: { id: PageId }) {
   const location = useLocation();
-  const { answers } = useSetupAnswers();
+  const { answers, raw } = useSetupAnswers();
   const { epoch } = useStore();
   const ctx = useCtx();
-  const to = guardFor(answers, id, ctx);
+  // A number typed that isn't an answer leaves its page unanswered, so Review and the pages after it go back to it (H5F-05).
+  const to = guardFor(answers, id, { ...ctx, raw });
   if (to !== undefined && to !== id) return <Navigate to={hrefOf(to)} replace state={location.state} />;
   if (id === 'review') return <ReviewPage />;
   // A record replaced under the page draws it again from the new one (H5-07).
