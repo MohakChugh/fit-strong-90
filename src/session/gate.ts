@@ -28,16 +28,22 @@ import { evaluateCheckIn, profileOnlyReadiness } from '@/engine/readiness';
 import { deriveHealth } from '@/engine/health';
 import { checkedIn, onScreenPermission, permission, resumePermission, type Permission, type PermissionInput } from '@/engine/permission';
 import { toDateString } from '@/lib/utils';
+import { storageReadOnly } from '@/store/writable';
 
-/** Opening the player: a start or a restart, so the full question. */
+/** A start in a window that can't save any more (P8S-04): nothing new starts, and the words say why. */
+export const READ_ONLY_REASON = 'FitStrong can’t save in this window any more, so nothing new can start here.';
+export const READ_ONLY_RELEASE = 'Close this window and open FitStrong again.';
+const readOnlyHold = (mode: Mode): Permission => ({ mode, allowed: false, disposition: 'hold', reasons: [READ_ONLY_REASON], release: READ_ONLY_RELEASE, restrictions: [], needsCheckIn: false });
+
+/** Opening the player: a start or a restart, so the full question. Never in a window gone read-only (D107). */
 export function arrivalGate(input: PermissionInput, mode: Mode, resuming: boolean): Permission {
   void resuming;
-  return permission(input, mode);
+  return storageReadOnly() ? readOnlyHold(mode) : permission(input, mode);
 }
 
-/** The Start tap in the open player, first or after a pause: everything, except a refusal of new starts only (J2-04). */
+/** The Start tap in the open player, first or after a pause: everything, except a refusal of new starts only (J2-04). Never in a window gone read-only (D107). */
 export function startGate(input: PermissionInput, mode: Mode): Permission {
-  return onScreenPermission(input, mode);
+  return storageReadOnly() ? readOnlyHold(mode) : onScreenPermission(input, mode);
 }
 
 /** While exercise is under way: a refusal here stops it. `undefined` means carry on. */

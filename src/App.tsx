@@ -14,7 +14,7 @@ import { ReminderHost } from '@/reminders/ReminderHost';
 import { ScreenLoading } from '@/components/hig/AppShell';
 import { UrgentProvider } from '@/screens/home/UrgentBanner';
 import { RestartCover } from '@/app/RestartCover';
-import { useUpdates } from '@/app/updates';
+import { restartToUpdate, useUpdates } from '@/app/updates';
 
 /**
  * Set once a saved person has been read, so that if the database later cannot
@@ -49,13 +49,15 @@ function StorageUnavailable({ onContinue }: { onContinue: () => void }) {
         </p>
       </div>
       <div className="flex w-full max-w-xs flex-col gap-2">
-        <button type="button" onClick={() => window.location.reload()}
-          className="press-feedback min-h-12 rounded-xl bg-tint text-[length:var(--text-body)] font-semibold text-on-tint">
+        {/* With a newer release waiting and this FitStrong's only window, Try again restarts onto it (D107);
+            otherwise it reloads, as it always has. */}
+        <button type="button" onClick={() => { void restartToUpdate().then(how => { if (how !== 'restarting') window.location.reload(); }); }}
+          className="press-feedback min-h-[3.75rem] rounded-xl bg-tint text-[length:var(--text-body)] font-semibold text-on-tint">
           Try again
         </button>
         {!existing && (
           <button type="button" onClick={onContinue}
-            className="press-feedback min-h-11 rounded-xl text-[length:var(--text-body)] text-tint">
+            className="press-feedback min-h-12 rounded-xl text-[length:var(--text-body)] text-tint">
             Continue without saving
           </button>
         )}
@@ -71,7 +73,7 @@ function StorageUnavailable({ onContinue }: { onContinue: () => void }) {
 
 function App() {
   const { theme } = useTheme();
-  const { status, settings, profile } = useStore();
+  const { status, settings, profile, readOnly } = useStore();
   const session = useSetupSession();
   const [continueUnsaved, setContinueUnsaved] = useState(false);
   // Restarting to update (D106, P8S-13): the cover is up, and nothing under it can be tapped, typed or reached.
@@ -124,7 +126,9 @@ function App() {
   // background rather than a spinner: this is usually over in well under the
   // time a spinner would take to stop looking like a glitch.
   if (status === 'loading') return <div className="min-h-dvh bg-grouped-bg" aria-busy="true" />;
-  if (status === 'unavailable' && !continueUnsaved) {
+  // Only a first open that can't reach the records shows the storage screen. Storage lost while the app
+  // runs keeps every screen, its answers and its guidance, read-only (D107, P8S-04).
+  if (status === 'unavailable' && !readOnly && !continueUnsaved) {
     return (
       <>
         <div inert={restarting} className="contents"><StorageUnavailable onContinue={() => setContinueUnsaved(true)} /></div>

@@ -39,11 +39,15 @@ import { StoreFailure, readDoc, toFailure, type Db, type StoreResult } from './d
 import { commitChange, emptySnapshot, prepare, type Change, type Snapshot } from './snapshot';
 import { liftBodyMetric, liftCheckIn, liftSessionPain, type SkippedRecord } from './project';
 import type { Records, StoredRecord } from './records';
+import { SUCCESSOR } from './successor';
 
 export type { SkippedRecord } from './project';
 
-/** The data schema (journey §18.3): 6 adds the v2 record stores, which IndexedDB 2 creates empty. */
-export const SCHEMA_VERSION = 6;
+/**
+ * The data schema (journey §18.3): 6 adds the v2 record stores, which IndexedDB 2 creates empty. The suite's
+ * successor build is 7 (board D121): `migrateToV6` stamps it over any marker from 5 up, its empty migration.
+ */
+export const SCHEMA_VERSION = 6 + SUCCESSOR;
 /**
  * The marker the v4 → v5 move first wrote. A device at or past it has moved,
  * whatever the current schema is: running the move again would replace the

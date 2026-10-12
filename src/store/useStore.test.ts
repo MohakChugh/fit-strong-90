@@ -1018,7 +1018,7 @@ describe('a phone the previous build left behind, and its other tabs (journey §
     db.close();
   });
 
-  it('lets go at once when another copy upgrades while it is still starting, and asks for a reload (B-21)', async () => {
+  it('lets go at once when another copy upgrades while it is still starting, and says to open FitStrong again (B-21)', async () => {
     const fake = fakeIndexedDB();
     // Part-way through its start: its first write waits to commit.
     fake.control.hold();
@@ -1032,7 +1032,7 @@ describe('a phone the previous build left behind, and its other tabs (journey §
     fake.control.release();
     await starting;
     expect(store.getState()).toMatchObject({ status: 'unavailable', failure: { code: 'stale' } });
-    expect(store.storageNotice()?.detail).toMatch(/reload/i);
+    expect(store.storageNotice()?.detail).toMatch(/Close this window and open FitStrong again/);
     expect(fake.control.openConnections()).toBe(0);
   });
 

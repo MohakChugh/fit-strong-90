@@ -56,6 +56,7 @@ import {
 } from '@/health/observation';
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
 import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult, type TxHandle } from './db';
+import { setStorageReadOnly } from './writable';
 import { parseJournalEntry, withJournalled, type JournalEntry } from '@/walk/journal';
 import { sameClockChange, type ClockSeen } from '@/walk/clock';
 import { clockGeneration, erasedGeneration, routeErased, walkSettings, withClockChange, withErase, withPendingClock, type WalkSettings } from '@/walk/consent';
@@ -117,6 +118,8 @@ export interface StoreState {
    * D188). A reading is stamped by what is stored (`acquisitionStamp`).
    */
   clockHold?: ClockHold;
+  /** Storage was lost while the app ran: every screen stays, nothing more is saved, and nothing new starts (P8S-04). A first open that fails is never this. */
+  readOnly: boolean;
   /**
    * The revision of what is stored, as far as this copy knows. It moves with
    * every commit of anything — a reading, a backdated session, a profile or
@@ -190,6 +193,8 @@ let detachVisibility: (() => void) | undefined;
 let generation = 0;
 /** B-19: the days of each change to the clock seen here and not yet stored, held meanwhile (`markClockChange`, H6F-02). */
 let clockPending: (readonly string[])[] = [];
+/** `StoreState.readOnly`: a working store lost its storage (`leave`), as opposed to a first open that failed (P8S-04). */
+let wentReadOnly = false;
 
 interface Planned<T> {
   /** `null`: nothing to do, and nothing is written. */
@@ -251,6 +256,7 @@ function toState(s: Snapshot): StoreState {
     persisted,
     saving: jobs.some(j => j.kind === 'mutation'),
     installed,
+    readOnly: mode === 'memory' && wentReadOnly,
     clockHold: withPendingClock(settingsOf(s.settings).walk?.clock, clockPending),
     revision: committed.revision,
     epoch: s.generation,
@@ -571,6 +577,15 @@ async function boot(options: StartOptions): Promise<void> {
     persisted = kept;
     publish();
   });
+  // A newer build has been here: this one writes nothing in its shape (D107). Its
+  // migrations know only the shapes before it; FitStrong opened again is the newer build.
+  const marker = await schemaMarker(handle);
+  if (stopped()) { handle.close(); return; }
+  if (typeof marker === 'number' && marker > SCHEMA_VERSION) {
+    handle.close();
+    enterMemory(new StoreFailure('stale', 'FitStrong was updated in another window.'));
+    return;
+  }
   const migrated = await migrateToV5(handle);
   if (stopped()) { handle.close(); return; }
   if (!migrated.ok) {
@@ -614,6 +629,15 @@ async function boot(options: StartOptions): Promise<void> {
   convertLegacyErase();
 }
 
+/** The schema marker as stored, or nothing when there is none or it can't be read (`migrateToV5` then says why). */
+async function schemaMarker(handle: Db): Promise<unknown> {
+  try {
+    return (await handle.get<Doc>('settings', 'schemaVersion'))?.value;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * B-05: an erase made before board D176 kept only when it ran
  * (`routesErasedAt`) and, as deleted, the routes it took. As the app starts,
@@ -648,7 +672,9 @@ function leave(): void {
   const handle = db;
   db = undefined;
   handle?.close();
-  // Everything already stored stays on screen; only new changes go unsaved.
+  // Everything already stored stays on screen; only new changes go unsaved, and nothing new starts (P8S-04).
+  wentReadOnly = true;
+  setStorageReadOnly(true);
   enterMemory(new StoreFailure('stale', 'The app was updated in another tab or window.'), 'keep');
 }
 
@@ -725,6 +751,8 @@ export function resetForTests(): void {
   listeners.clear();
   clockSeen = [];
   clockPending = [];
+  wentReadOnly = false;
+  setStorageReadOnly(false);
   state = toState(view);
 }
 
@@ -1808,17 +1836,19 @@ export interface StorageNotice {
 export function storageNotice(current: StoreState = state): StorageNotice | undefined {
   if (current.status === 'unavailable') {
     switch (current.failure?.code) {
+      // This copy is the newer one: an older connection hasn't let go (D107).
       case 'blocked':
         return {
           tone: 'warning',
-          title: 'Close the app’s other tabs',
-          detail: 'Another tab or window of this app is open and holding its data, so nothing is being saved here. Close the other tabs of this app, then try again.',
+          title: 'Close FitStrong’s other tabs',
+          detail: 'Another tab or window still has an older version of FitStrong open, so nothing is being saved here yet. Close the other tabs of FitStrong, and this one carries on by itself.',
         };
+      // This copy is the older one (D107).
       case 'stale':
         return {
           tone: 'warning',
-          title: 'This copy of the app is out of date',
-          detail: 'The app was updated in another tab or window. Reload this page to keep saving; anything you do before then is not saved.',
+          title: 'A newer version of FitStrong is open',
+          detail: 'FitStrong is open somewhere else with a newer version. Close this window and open FitStrong again. Nothing is saved here until then; your saved records are safe.',
         };
       case 'readFailed':
         return {

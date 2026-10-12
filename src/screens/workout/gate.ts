@@ -27,7 +27,7 @@ import type { CheckInRecord } from '@/types/checkin';
 import type { SessionPlan } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import { toDateString } from '@/lib/utils';
-import { FRESH_MINUTES, permission, resumePermission, type Permission, type PermissionInput } from '@/engine/permission';
+import { FRESH_MINUTES, resumePermission, type Permission, type PermissionInput } from '@/engine/permission';
 import { arrivalGate } from '@/session/gate';
 import { startDecision } from '@/components/checkin/start';
 
@@ -64,7 +64,8 @@ export function stageOf(w: { begun: boolean; live: boolean; afterTheFact: boolea
 
 export function logGate(input: PermissionInput, stage: Stage): LogGate {
   if (stage === 'record') return { kind: 'log', permission: RECORDING };
-  const p = stage === 'start' ? permission(input, LOG_MODE)
+  // A first start asks what opening the player asks, so a window gone read-only starts nothing (D107).
+  const p = stage === 'start' ? arrivalGate(input, LOG_MODE, false)
     : stage === 'restart' ? arrivalGate(input, LOG_MODE, true)
       : resumePermission(input, LOG_MODE);
   if (startDecision(p) === 'go') return { kind: 'log', permission: p };

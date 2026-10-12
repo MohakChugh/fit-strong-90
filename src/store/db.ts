@@ -22,9 +22,11 @@
  */
 
 import { RECORD_RULES, RECORD_STORES, type RecordStore } from './records';
+import { SUCCESSOR } from './successor';
 
 export const DB_NAME = 'fit-strong';
-export const DB_VERSION = 2;
+/** The suite's successor build is one higher (board D121); `upgrade` creates whatever store is missing, so it needs nothing more. */
+export const DB_VERSION = 2 + SUCCESSOR;
 
 /** v1's four stores. */
 export const CORE_STORES = ['observations', 'sessions', 'settings', 'content-state'] as const;

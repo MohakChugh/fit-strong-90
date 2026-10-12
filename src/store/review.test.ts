@@ -991,7 +991,7 @@ describe('Mechanism: what screens are told while saving', () => {
   it('names each cause it can detect', () => {
     const base = { ...store.getState(), status: 'unavailable' as const };
     const say = (code: 'stale' | 'readFailed' | 'quotaExceeded') => store.storageNotice({ ...base, failure: new StoreFailure(code, 'x') });
-    expect(say('stale')?.detail).toMatch(/reload/i);
+    expect(say('stale')?.detail).toMatch(/Close this window and open FitStrong again/);
     expect(say('readFailed')?.detail).toMatch(/could not read/i);
     expect(say('quotaExceeded')?.detail).toMatch(/free some space/i);
     for (const code of ['stale', 'readFailed', 'quotaExceeded'] as const) expect(say(code)?.detail).not.toMatch(/home screen/i);
@@ -1080,7 +1080,7 @@ describe('Mechanism: what is shown when storage cannot be opened', () => {
     expect(store.getState().sessions).toEqual([]);
   });
 
-  it('asks for a reload when the database is newer than this copy of the app', async () => {
+  it('says to open FitStrong again when the database is newer than this copy of the app', async () => {
     const fake = fakeIndexedDB();
     await new Promise<void>(resolve => {
       const req = fake.open(DB_NAME, DB_VERSION + 1);
@@ -1088,7 +1088,7 @@ describe('Mechanism: what is shown when storage cannot be opened', () => {
     });
     await store.start({ factory: fake, broadcast: null });
     expect(store.getState().failure?.code).toBe('stale');
-    expect(store.storageNotice()?.detail).toMatch(/reload/i);
+    expect(store.storageNotice()?.detail).toMatch(/Close this window and open FitStrong again/);
   });
 });
 
