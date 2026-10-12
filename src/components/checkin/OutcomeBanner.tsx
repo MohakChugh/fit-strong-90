@@ -4,6 +4,7 @@ import { SGLT2_UNRECORDED } from '@/engine/health';
 import { CANNOT_SWALLOW, TREAT } from '@/engine/readiness';
 import type { Readiness } from '@/types/checkin';
 import { cn } from '@/lib/utils';
+import { UnsavedClinical } from '@/components/profile/UnsavedClinical';
 import { timeOf } from '@/lib/time';
 import { headline, recheckCountdown } from './copy';
 
@@ -54,6 +55,8 @@ export function OutcomeBanner({ permission: p, readiness, now }: { permission: P
       {p.disposition === 'emergency' && <p className="text-[length:var(--text-body)] font-semibold">{PERMISSION_TEXT.emergencyNoExercise}</p>}
 
       {first && <p className="text-[length:var(--text-body)] leading-snug">{first}</p>}
+      {/* A clinical save the device refused: the way out of the pause, here as wherever it's said (board D197). */}
+      {p.reasons.includes(PERMISSION_TEXT.unsaved) && <UnsavedClinical stated />}
       {rest.length > 0 && (
         <ul className="flex list-disc flex-col gap-1.5 pl-5 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
           {rest.map(r => <li key={r}>{r}</li>)}

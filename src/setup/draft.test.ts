@@ -28,7 +28,7 @@ const {
 const { MINIMAL, NO_CLASSES, NO_CONDITIONS, withC } = await import('./fixtures');
 const { answersOf, setupStateOf } = await import('./state');
 const { rawInvalid } = await import('./graph');
-const { gateCandidates } = await import('./effective');
+const { gateProfile } = await import('./effective');
 const { TRANSFER_FORMAT } = await import('@/store/transfer');
 const CTX = { thisYear: 2026 };
 const NOW = '2026-10-10T09:00:00.000+05:30';
@@ -250,7 +250,7 @@ describe('one store of answers (board D169)', () => {
     expect(stored()?.answers?.conditions).toEqual({ feet: 'unsure' });
   });
 
-  it('Review, the gates and finishing read those answers: a change in a chapter opened from Review and left with Back counts, and Review’s older answers can’t be finished (H5R-01)', async () => {
+  it('Review and finishing read those answers, with every gate held meanwhile: a change in a chapter opened from Review and left with Back counts, and Review’s older answers can’t be finished (H5R-01; board D197)', async () => {
     const answered = withC({ diabetes: 'yes', feet: 'yes' }, { diabetesType: 'type2', feetNumb: 'no', footWound: 'no', footRestriction: 'no', clearance: 'none', targets: 'no', priorDka: 'no', dizzy: 'no' });
     await store.start({ factory: fakeIndexedDB() });
     expect((await store.update(draftOf(answered, 'review'))).ok).toBe(true);
@@ -260,7 +260,8 @@ describe('one store of answers (board D169)', () => {
     await flushAnswers('review');
     const s = store.getState();
     expect(answersOf(setupStateOf(s.settings, s.profile)).footWound).toBe('unsure');
-    expect(gateCandidates(s).map(p => p.health.footStatus)).toContain('current_wound_or_active_charcot');
+    // Unfinished, every gate holds for the profile gap, whatever is stored (board D197).
+    expect(gateProfile(s).needsHealthReview).toBe(true);
     expect((await finishSetup(onReview, CTX, NOW)).kind).toBe('failed');
     expect(await finishSetup(stored()!.answers!, CTX, NOW)).toEqual({ kind: 'home' });
     expect(store.getState().profile?.health.footStatus).toBe('current_wound_or_active_charcot');

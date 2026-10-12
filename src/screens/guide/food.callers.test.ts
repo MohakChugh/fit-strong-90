@@ -22,6 +22,8 @@ vi.mock('react-router-dom', async () => {
     useViewTransitionState: () => false,
     Navigate: () => null,
     Link: ({ children, to }: { children?: unknown; to: string }) => h('a', { href: `#${to}` }, children as never),
+    // Me's editor asks before leaving with health answers not stored (board D198); nothing here leaves.
+    useBlocker: () => ({ state: 'unblocked', proceed() {}, reset() {} }),
   };
 });
 vi.mock('@/components/hig/Sheet', async () => {
@@ -49,7 +51,7 @@ const store = await import('@/store/useStore');
 const { completedSetup } = await import('@/setup/assemble');
 const { MINIMAL } = await import('@/setup/fixtures');
 const { resetSetupSessionForTests } = await import('@/setup/draft');
-const { resetPendingEditsForTests } = await import('@/setup/effective');
+const { resetClinicalUnsavedForTests } = await import('@/setup/effective');
 const NOW = '2026-10-10T09:00:00.000+05:30';
 const CTX = { thisYear: 2026, hasSteps: false };
 /** "How do you eat?" skipped; a peanut allergy, meals only, and "Yes" to food having been hard. */
@@ -66,7 +68,7 @@ beforeEach(async () => {
   local.clear();
   store.resetForTests();
   resetSetupSessionForTests();
-  resetPendingEditsForTests();
+  resetClinicalUnsavedForTests();
   await store.start({ factory: fakeIndexedDB(), broadcast: null });
   expect((await store.update(d => completedSetup(d, WAITING, NOW, CTX))).ok).toBe(true);
   expect(store.getState().profile?.food).toBeUndefined();

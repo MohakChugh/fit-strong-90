@@ -29,7 +29,7 @@ import { glucoseReadingId, withLogged } from '@/engine/readiness';
 import { reachableHistory } from '@/engine/reach';
 import { effectiveCheckIns, pendingCheckInsVersion, subscribePendingCheckIns } from '@/components/checkin/pending';
 import { getSetupSession } from '@/setup/draft';
-import { gateProfile, pendingEditsVersion } from '@/setup/effective';
+import { clinicalUnsavedVersion, gateProfile } from '@/setup/effective';
 import { toDateString } from '@/lib/utils';
 import { getState, subscribe, type StoreState } from '@/store/useStore';
 import { statusOn, type Status } from '@/health/status';
@@ -98,7 +98,7 @@ export function walkInput(clinical: Clinical, now: Date, untimed?: ReadonlySet<s
  * for its health questions, never assumed fine.
  */
 export function deviceClinical(state: Pick<StoreState, 'profile' | 'checkIns' | 'settings'> & { observations?: StoreState['observations'] }): Clinical {
-  // While setup is unfinished, its gap and any stricter answer it has disclosed (H5-05).
+  // The stored profile: with its gap while setup is unfinished (H5-05), held while a clinical answer isn't stored (D197).
   const profile = gateProfile(state);
   // Track's glucose and blood pressure readings count as the check-in's do (scan X2-01).
   return { profile, checkIns: effectiveCheckIns(state.checkIns, profile, state.observations ?? []) };
@@ -156,7 +156,7 @@ export function deviceGate(
     const pending = pendingCheckInsVersion();
     // Setup's answers kept this session only count too (`gateProfile`).
     const session = getSetupSession();
-    const editing = pendingEditsVersion();
+    const editing = clinicalUnsavedVersion();
     if (!memo || memo.state !== state || memo.pending !== pending || memo.session !== session || memo.editing !== editing || memo.day !== day) {
       const all = deviceClinical(state);
       memo = { state, pending, session, editing, day, clinical: { profile: all.profile, checkIns: reachableHistory(all.checkIns, day, all.profile) } };

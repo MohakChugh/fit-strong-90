@@ -1,101 +1,87 @@
 /**
- * The profile every gate reads (journey §4, §6.1; boards D161, D162, D168).
- *
- * While answers are on their way, it carries every profile the person might
- * have, and the engine runs on each (`engine/candidates.ts`):
- * - setup unfinished (Look around first, a v1 Welcome left part-way, a session
- *   that went on without saving): the record's and the draft's, both with the
- *   profile gap, whatever the record holds (H5-05);
- * - a save in Me on its way, or refused: the record's as it is, and the
- *   record's with that save's own changes (H5-08). A refusal doesn't unsay
- *   what the person said, so a refused save stays until it is tried again or
- *   discarded.
- * A finished record, a completed v1 upgrade included, with nothing on its way
- * is read as it is.
+ * The profile every gate reads (journey §4, §6.1; boards D161, D197): the
+ * stored profile, and no other (H5F-01 to H5F-04). Gates, readiness,
+ * reminders and the session player all read it.
+ * - While setup is unfinished, it carries the profile gap, so every movement
+ *   holds, whatever profile is stored (H5-05): the draft's answers aren't
+ *   read, since nothing moves until they're finished.
+ * - While a clinical answer couldn't be stored, it's marked
+ *   `clinicalUnsaved` for this session: every movement holds, water
+ *   reminders pause and no session starts, until the save is tried again
+ *   and stored, or its changes discarded.
+ * A finished record, a completed v1 upgrade included, is read as it is.
  */
+import { useSyncExternalStore } from 'react';
 import type { UserSettings } from '@/types';
 import type { UserProfile } from '@/types/profile';
-import { withProfileChanges, type ProfileChange } from '@/components/profile/wizardSteps';
-import { planningProfile } from '@/engine/candidates';
-import { profileOnlyReadiness } from '@/engine/readiness';
-import { toDateString } from '@/lib/utils';
 import { createDefaultProfile } from '@/profile/defaults';
 import { StoreFailure, type StoreResult } from '@/store/db';
-import { getState } from '@/store/useStore';
-import { healthFrom, painFrom } from './assemble';
+import { getState, subscribe } from '@/store/useStore';
 import { getSetupSession, type SetupSession } from './draft';
-import { answersOf, setupStateOf } from './state';
+import { setupStateOf } from './state';
 
-// ---- A save in Me on its way to being stored, or refused (H5-08, H5R-04; boards D162, D168) ----
+// ---- A clinical answer the device didn't store (board D197) ----
 
-/** One save from Me: the profile changes it owns, and its write, to try again. */
-export interface Submission {
-  id: number;
-  changes: readonly ProfileChange[];
-  refused: boolean;
-  write: () => Promise<StoreResult>;
+/** The clinical save refused, with its own write to try again, for the record it was made in (`StoreState.epoch`). */
+let unsaved: { retry: () => Promise<StoreResult>; epoch: number } | undefined;
+let version = 0;
+const listeners = new Set<() => void>();
+const changed = () => {
+  version += 1;
+  for (const listener of [...listeners]) listener();
+};
+/** Only the record's own: once a backup replaces it, or everything is deleted, its unsaved answers aren't this record's (H5F-09). */
+const current = () => (unsaved && unsaved.epoch === getState().epoch ? unsaved : undefined);
+
+/** A clinical answer this session gave couldn't be stored: every movement holds until it is, or it's discarded. */
+export const clinicalUnsaved = (): boolean => current() !== undefined;
+export const clinicalUnsavedVersion = (): number => version;
+export function subscribeClinicalUnsaved(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
 }
-
-const saves = new Map<number, Submission>();
-let savesEpoch = 0;
-let lastId = 0;
-let savesVersion = 0;
-const savesListeners = new Set<() => void>();
-/** Saves of a record a backup has since replaced are that record's (H5-07). */
-const held = () => {
-  if (savesEpoch !== getState().epoch) {
-    saves.clear();
-    savesEpoch = getState().epoch;
-  }
-  return saves;
-};
-const savesChanged = () => {
-  savesVersion += 1;
-  for (const listener of [...savesListeners]) listener();
-};
-export const subscribePendingEdits = (listener: () => void): (() => void) => {
-  savesListeners.add(listener);
-  return () => void savesListeners.delete(listener);
-};
-export const pendingEditsVersion = (): number => savesVersion;
+export function useClinicalUnsaved(): boolean {
+  useSyncExternalStore(listener => {
+    const stop = subscribe(listener);
+    const off = subscribeClinicalUnsaved(listener);
+    return () => { stop(); off(); };
+  }, () => version, () => version);
+  return clinicalUnsaved();
+}
 
 /**
- * Store a save from Me (Profile & health): `changes`, what it changes on the
- * profile, count for every gate from the tap, beside the record as it is, so
- * a stricter answer applies at once and a release waits until it's stored
- * (D162). A stored write retires only this save (H5R-04). A refused one
- * stays until it's tried again, `replaces` naming it, or discarded.
+ * A clinical save (Me's chapter editor): `write`, held until stored, so the
+ * stored profile, the one every gate reads, changes only once it is, and a
+ * pending save can release nothing. Refused, or with nothing to store to, the
+ * answers aren't the record's, so every gate holds for this session until
+ * they're tried again and stored, or discarded. A save for a record since
+ * replaced leaves nothing behind (H5F-09).
  */
-export async function saveClinicalEdit(changes: readonly ProfileChange[], write: () => Promise<StoreResult>, replaces?: number): Promise<{ saved: StoreResult; id: number }> {
-  const id = ++lastId;
-  held().set(id, { id, changes, refused: false, write });
-  savesChanged();
-  const saved = await write().catch((error: unknown): StoreResult => ({ ok: false, failure: new StoreFailure('unknown', 'The device did not keep it.', error) }));
-  if (replaces !== undefined) held().delete(replaces);
-  if (saved.ok) held().delete(id);
-  else held().set(id, { id, changes, refused: true, write });
-  savesChanged();
-  return { saved, id };
+export async function saveClinical(write: () => Promise<StoreResult>): Promise<StoreResult> {
+  const epoch = getState().epoch;
+  const saved = await write().catch((error: unknown): StoreResult => ({
+    ok: false, failure: error instanceof StoreFailure ? error : new StoreFailure('unknown', 'The device did not keep it.', error),
+  }));
+  unsaved = saved.ok ? undefined : { retry: write, epoch };
+  changed();
+  return saved;
 }
 
-/** The saves the device refused, for Profile & health to offer again. */
-export const refusedSaves = (): Submission[] => [...held().values()].filter(s => s.refused);
-
-/** Try a refused save again. */
-export function retrySave(id: number): Promise<{ saved: StoreResult; id: number }> | undefined {
-  const save = held().get(id);
-  return save ? saveClinicalEdit(save.changes, save.write, id) : undefined;
+/** Try the refused clinical save again: Readiness's and Profile & health's Try again. */
+export function retryClinical(): Promise<StoreResult> | undefined {
+  const refused = current();
+  return refused ? saveClinical(refused.retry) : undefined;
 }
 
-/** The person chose not to keep a refused save: the record's own answers stand. */
-export function discardSave(id: number): void {
-  if (held().delete(id)) savesChanged();
+/** Its changes not kept: the record's own answers stand, and the gates read them again. */
+export function discardClinical(): void {
+  unsaved = undefined;
+  changed();
 }
 
-export function resetPendingEditsForTests(): void {
-  saves.clear();
-  savesEpoch = 0;
-  lastId = 0;
+export function resetClinicalUnsavedForTests(): void {
+  unsaved = undefined;
+  version = 0;
 }
 
 // ---- The profile a gate reads ----
@@ -106,36 +92,13 @@ export interface GateInput {
 }
 
 /**
- * Every profile the person might have: the record's, or with nothing stored
- * the default with its gap (as v1 read it); while setup is unfinished, that
- * with the gap, and with the draft's answers on it; and the record's with
- * each save from Me on its way.
+ * The stored profile, or with none the default with its gap (as v1 read it);
+ * with the gap while setup is unfinished, or setup's session went on without
+ * saving; marked while a clinical save is refused.
  */
-export function gateCandidates(state: GateInput, now: Date = new Date(), session: SetupSession = getSetupSession()): UserProfile[] {
+export function gateProfile(state: GateInput, session: SetupSession = getSetupSession()): UserProfile {
   const base = state.profile ?? createDefaultProfile({ weightKg: state.settings.currentWeight || 0, needsHealthReview: true });
-  const setup = setupStateOf(state.settings, state.profile);
-  const unfinished = setup.stage !== 'done' || session.entered;
-  const stored: UserProfile = unfinished ? { ...base, needsHealthReview: true } : base;
-  const out = [stored];
-  if (unfinished) {
-    const answers = session.unsaved ? session.answers : answersOf(setup);
-    out.push({ ...stored, health: healthFrom(answers, base.health, toDateString(now)), pain: painFrom(answers, base.pain) });
-  }
-  for (const save of held().values()) out.push(withProfileChanges(stored, save.changes));
-  return out;
-}
-
-/**
- * The profile every gate reads. With answers on their way it carries them
- * all as `candidates`, which the engine evaluates. What is read off the
- * profile itself (which questions a check-in asks, a walk's prompts) is the
- * candidate at least as strict as the rest, or the newest when none is, and
- * then every mode holds until the answers are saved.
- */
-export function gateProfile(state: GateInput, now: Date = new Date(), session: SetupSession = getSetupSession()): UserProfile {
-  const all = gateCandidates(state, now, session);
-  if (all.length === 1) return all[0];
-  const newest: UserProfile = { ...all[all.length - 1], candidates: all };
-  const primary = planningProfile(newest, p => profileOnlyReadiness(p)) ?? newest;
-  return { ...primary, candidates: all };
+  const unfinished = setupStateOf(state.settings, state.profile).stage !== 'done' || session.entered;
+  const gapped = unfinished && base.needsHealthReview !== true ? { ...base, needsHealthReview: true } : base;
+  return clinicalUnsaved() ? { ...gapped, clinicalUnsaved: true } : gapped;
 }

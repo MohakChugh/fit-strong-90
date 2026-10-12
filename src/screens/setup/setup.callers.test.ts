@@ -7,15 +7,49 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, type Host, type HostChild, type HostNode } from '@/test/host';
+import type { AppData } from '@/types';
+import type { DailyCheckIn, Mode } from '@/types/checkin';
+import type { CheckpointStep, SessionPlan } from '@/types/plan';
 
-const router = vi.hoisted(() => ({ navigate: vi.fn(), state: null as unknown }));
+type Leave = { currentLocation: { pathname: string; search: string }; nextLocation: { pathname: string; search: string } };
+const router = vi.hoisted(() => ({
+  navigate: vi.fn(), state: null as unknown,
+  // The leave guard's blocker (board D198), as the router keeps it: asked of each navigation, its state changing a render later.
+  shouldBlock: undefined as undefined | ((leave: Leave) => boolean),
+  blocker: 'unblocked' as 'unblocked' | 'blocked' | 'proceeding',
+  proceeded: 0,
+  resets: 0,
+  redraw: new Set<() => void>(),
+}));
 vi.mock('react-router-dom', async () => {
-  const { createElement: h } = await import('react');
+  const { createElement: h, useEffect, useReducer } = await import('react');
   return {
     useNavigate: () => router.navigate,
     useLocation: () => ({ pathname: '/me/profile', search: '?chapter=health', state: router.state }),
     useSearchParams: () => [new URLSearchParams('chapter=health')],
     Link: ({ children, to, onClick }: { children?: unknown; to: string; onClick?: () => void }) => h('a', { href: `#${to}`, onClick }, children as never),
+    useBlocker: (shouldBlock: ((leave: Leave) => boolean) | boolean) => {
+      router.shouldBlock = typeof shouldBlock === 'function' ? shouldBlock : () => shouldBlock;
+      const [, redraw] = useReducer((x: number) => x + 1, 0);
+      useEffect(() => {
+        router.redraw.add(redraw);
+        return () => void router.redraw.delete(redraw);
+      }, []);
+      const later = (next: typeof router.blocker) => setTimeout(() => { router.blocker = next; router.redraw.forEach(r => r()); }, 0);
+      return {
+        state: router.blocker,
+        proceed: () => { router.proceeded += 1; later('proceeding'); },
+        reset: () => { router.resets += 1; later('unblocked'); },
+      };
+    },
+  };
+});
+// Base UI's dialog can't open in this host: a plain one stands in, with its title and its content.
+vi.mock('@/components/hig/Sheet', async () => {
+  const { createElement: h } = await import('react');
+  return {
+    Sheet: ({ open, title, children }: { open: boolean; title?: string; children?: unknown }) =>
+      (open ? h('div', { role: 'dialog', 'aria-label': title }, h('h2', null, title), children as never) : null),
   };
 });
 vi.mock('@/components/hig/navigation', async importOriginal => ({ ...await importOriginal<typeof import('@/components/hig/navigation')>(), cameFrom: () => false }));
@@ -43,8 +77,14 @@ Object.assign(globalThis, {
 const store = await import('@/store/useStore');
 const { ChapterEditor } = await import('./ChapterEditor');
 const { completedSetup } = await import('@/setup/assemble');
-const { gateProfile, resetPendingEditsForTests } = await import('@/setup/effective');
-const { FOOT_WOUND, MINIMAL } = await import('@/setup/fixtures');
+const { gateProfile, resetClinicalUnsavedForTests } = await import('@/setup/effective');
+const { FOOT_WOUND, MINIMAL, NO_CONDITIONS, withMeds } = await import('@/setup/fixtures');
+const { PERMISSION_TEXT, permission, readinessFor } = await import('@/engine/permission');
+const { CLINICAL_UNSAVED, evaluateCheckIn } = await import('@/engine/readiness');
+const { dailyTimes } = await import('@/reminders/schedule');
+const { waterBlock } = await import('@/reminders/water');
+const { scriptFor } = await import('@/session/script');
+const { toDateString } = await import('@/lib/utils');
 const { AUTOSAVE_MS, resetSetupSessionForTests } = await import('@/setup/draft');
 const { withDraft } = await import('@/setup/draft');
 
@@ -66,10 +106,14 @@ let fake: ReturnType<typeof fakeIndexedDB>;
 beforeEach(async () => {
   router.navigate = vi.fn();
   router.state = null;
+  router.shouldBlock = undefined;
+  router.blocker = 'unblocked';
+  router.proceeded = 0;
+  router.resets = 0;
   local.clear();
   store.resetForTests();
   resetSetupSessionForTests();
-  resetPendingEditsForTests();
+  resetClinicalUnsavedForTests();
   fake = fakeIndexedDB();
   await store.start({ factory: fake, broadcast: null });
 });
@@ -80,24 +124,203 @@ afterEach(() => {
 
 const footStatus = () => ({ stored: store.getState().profile?.health.footStatus, gate: gateProfile(store.getState()).health.footStatus });
 
-describe('a clinical edit in Me (H5-08; board D162)', () => {
-  it('releases a hold only once its write is stored', async () => {
+const MODES: readonly Mode[] = ['guided', 'stretch', 'walk'];
+/** The profile every gate reads, as Home, the hubs, the reminders and the player read it (`gateProfile`). */
+const gate = () => gateProfile(store.getState());
+/** Today's check-in, fine unless `over` says otherwise. */
+const today = (over: Partial<DailyCheckIn> = {}): DailyCheckIn =>
+  ({ date: toDateString(new Date(NOW)), urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over });
+/** A mode's answer at that gate, with today's check-in as stored, as a Start asks it. */
+const answer = (mode: Mode, checkIn: DailyCheckIn = today()) =>
+  permission({ profile: gate(), now: new Date(NOW), checkIn: { ...checkIn, readiness: evaluateCheckIn(gate(), checkIn) } }, mode);
+/** Every movement held for answers not stored, and that alone said (board D197). */
+const pausedForUnsaved = () => MODES.every(mode => {
+  const p = answer(mode);
+  return !p.allowed && p.reasons.length === 1 && p.reasons[0] === PERMISSION_TEXT.unsaved;
+});
+const WATER = { enabled: true, glassMl: 250, everyMinutes: 60, from: '09:00', to: '18:00' };
+const withWater = (d: AppData): AppData => ({ ...d, settings: { ...d.settings, habits: { ...d.settings.habits, water: WATER } } });
+/** The day's water reminders, by the profile every gate reads (`dailyTimes`, as the reminders and the calendar file read it). */
+const waterTimes = () => dailyTimes(store.getState().settings.habits, gate()).filter(t => t.habit === 'water');
+/** The glucose check before cardio, as the player says it (`scriptFor`). */
+const CHECK: CheckpointStep = { id: 'check', block: 'cardio', title: 'Glucose check', kind: 'checkpoint', question: 'glucose', seconds: 30 };
+const glucoseLine = () => scriptFor(CHECK, { profile: gate(), plan: {} as SessionPlan, coaching: () => undefined, exposures: () => 0 }).map(c => c.text).join(' ');
+const diskFull = () => fake.control.setWriteError(() => new DOMException('Disk is full', 'QuotaExceededError'));
+/** A leave of Me's editor (Back, a tab, the browser's Back), as the router asks its guard first: whether it was held. */
+const leave = async (h: Host) => {
+  const held = router.shouldBlock?.({ currentLocation: { pathname: '/me/profile', search: '?chapter=health' }, nextLocation: { pathname: '/me/profile', search: '' } }) ?? false;
+  router.blocker = held ? 'blocked' : 'unblocked';
+  router.redraw.forEach(r => r());
+  await h.settle();
+  return held;
+};
+
+describe('a clinical edit in Me (H5-08; boards D162, D197, D198)', () => {
+  it('a pending edit can’t release anything: a healed wound releases walks only once its write is stored, and leaving meanwhile asks first', async () => {
     expect((await store.update(d => completedSetup(d, FOOT_WOUND, NOW, CTX))).ok).toBe(true);
     host = render(createElement(ChapterEditor, { chapter: 'health' }));
     await host.settle();
+    expect(answer('walk').reasons).toContain(PERMISSION_TEXT.footWalk);
     // The wound has healed.
     await host.click(radio(host, 'A wound, an ulcer, or a hot, swollen foot (Charcot foot)?', 'No'));
     fake.control.hold();
     await host.click(host.button('Save', { exact: true }));
     await host.settle();
-    // Still being written: walks stay held, on screen and at every gate.
+    // Still being written: walks stay held, at every gate, and the editor stays, asking before it's left.
     expect(footStatus()).toEqual({ stored: 'current_wound_or_active_charcot', gate: 'current_wound_or_active_charcot' });
+    expect(answer('walk').reasons).toContain(PERMISSION_TEXT.footWalk);
+    expect(host.button('Saving…').props.disabled).toBe(true);
+    expect(await leave(host)).toBe(true);
+    expect(host.text()).toContain('Discard your changes?');
+    await host.click(host.button('Cancel', { exact: true }));
+    await host.settle();
     fake.control.release();
     await host.settle();
     expect(footStatus()).toEqual({ stored: 'healthy', gate: 'healthy' });
+    expect(answer('walk').reasons).not.toContain(PERMISSION_TEXT.footWalk);
+    expect(await leave(host)).toBe(false);
   });
 
-  it('with nothing to store to, a release isn’t taken, not even for this session (K5R-05)', async () => {
+  it('a pending heart “No” keeps water reminders off until it’s stored (H5F-04)', async () => {
+    const { withC } = await import('@/setup/fixtures');
+    const heart = withC({ heart: 'yes' }, { fluidLimit: 'no', clearance: 'vigorous', dizzy: 'no' });
+    expect((await store.update(d => withWater(completedSetup(d, heart, NOW, CTX)))).ok).toBe(true);
+    expect(waterTimes()).toEqual([]);
+    host = render(createElement(ChapterEditor, { chapter: 'health' }));
+    await host.settle();
+    await host.click(host.button(/^Heart or circulation problems/));
+    fake.control.hold();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(gate().health.heartOrVascularDisease).toBe(true);
+    expect(waterBlock(gate(), store.getState().settings.habits)).toContain('heart conditions');
+    expect(waterTimes()).toEqual([]);
+    fake.control.release();
+    await host.settle();
+    expect(store.getState().profile?.health.heartOrVascularDisease).toBe(false);
+    expect(waterTimes().length).toBeGreaterThan(0);
+  });
+
+  it('a refused heart disclosure holds every movement and pauses water reminders, saying that alone, until it’s stored (H5F-01, H5F-02)', async () => {
+    expect((await store.update(d => withWater(completedSetup(d, MINIMAL, NOW, CTX)))).ok).toBe(true);
+    expect(waterTimes().length).toBeGreaterThan(0);
+    host = render(createElement(ChapterEditor, { chapter: 'health' }));
+    await host.settle();
+    await host.click(host.button(/^Heart or circulation problems/));
+    await host.settle();
+    await host.click(radio(host, 'Has a doctor given you a fluid limit?', 'No'));
+    await host.click(radio(host, 'Has a doctor or nurse (clinician) cleared you to exercise?', 'Not yet'));
+    await host.click(radio(host, 'Do you get dizzy when you stand up?', 'No'));
+    diskFull();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('That did not save.');
+    expect(store.getState().profile?.health.heartOrVascularDisease).toBe(false);
+    // No session starts, every mode saying only why.
+    expect(pausedForUnsaved()).toBe(true);
+    // The day's answer says only that, with no advice worked out from answers that aren't stored.
+    const day = readinessFor({ profile: gate(), now: new Date(NOW), checkIn: { ...today(), readiness: evaluateCheckIn(gate(), today()) } });
+    expect([day.reasons.map(r => r.message), day.actions]).toEqual([[CLINICAL_UNSAVED], []]);
+    // Water reminders pause.
+    expect(waterTimes()).toEqual([]);
+    expect(waterBlock(gate(), store.getState().settings.habits)).toBe('Paused until your health answers are saved, since some answers need a fluid limit.');
+    // Tried again and stored: the disclosure is the record's, and holds as it does.
+    fake.control.setWriteError(undefined);
+    await host.click(host.button('Try again', { exact: true }));
+    await host.settle();
+    expect(store.getState().profile?.health.heartOrVascularDisease).toBe(true);
+    expect(gate().clinicalUnsaved).toBeUndefined();
+    expect(waterBlock(gate(), store.getState().settings.habits)).toContain('heart conditions');
+    expect(answer('walk').reasons).not.toContain(PERMISSION_TEXT.unsaved);
+  });
+
+  it('two failed saves leave everything held: a wound disclosed, then taken back, both refused, lift nothing until one is stored or discarded (H5R-04)', async () => {
+    expect((await store.update(d => completedSetup(d, MINIMAL, NOW, CTX))).ok).toBe(true);
+    host = render(createElement(ChapterEditor, { chapter: 'health' }));
+    await host.settle();
+    await host.click(host.button(/^Foot problems: numbness, a wound or an ulcer/));
+    await host.settle();
+    await host.click(radio(host, 'Numbness or loss of feeling in your feet?', 'Yes'));
+    await host.click(radio(host, 'A wound, an ulcer, or a hot, swollen foot (Charcot foot)?', 'Yes, now'));
+    await host.click(radio(host, 'Has a doctor or nurse (clinician) told you to keep weight off a foot?', 'No'));
+    diskFull();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(pausedForUnsaved()).toBe(true);
+    // Taken back, and that refused too.
+    await host.click(host.button(/^Foot problems: numbness, a wound or an ulcer/));
+    await host.settle();
+    await host.click(host.button('Try again', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('That did not save.');
+    expect(pausedForUnsaved()).toBe(true);
+    // Leaving asks first. Cancel stays, still held.
+    expect(await leave(host)).toBe(true);
+    expect(host.text()).toContain('Discard your changes?');
+    await host.click(host.button('Cancel', { exact: true }));
+    await host.settle();
+    expect(router.resets).toBe(1);
+    expect(pausedForUnsaved()).toBe(true);
+    // Discard changes: the record's own answers stand, and the gates read them again.
+    expect(await leave(host)).toBe(true);
+    await host.click(host.button('Discard changes', { exact: true }));
+    await host.settle();
+    expect(router.proceeded).toBe(1);
+    expect(gate().clinicalUnsaved).toBeUndefined();
+    expect(answer('walk').allowed).toBe(true);
+    expect(store.getState().profile?.health.footStatus).toBe('healthy');
+  });
+
+  it('a refused change taken back still holds, and asks before leaving, until a save of it is stored (H5R-04)', async () => {
+    expect((await store.update(d => completedSetup(d, FOOT_WOUND, NOW, CTX))).ok).toBe(true);
+    host = render(createElement(ChapterEditor, { chapter: 'health' }));
+    await host.settle();
+    await host.click(radio(host, 'A wound, an ulcer, or a hot, swollen foot (Charcot foot)?', 'No'));
+    diskFull();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    // Taken back: the answers are the record's again, but what was refused is neither stored over nor discarded.
+    await host.click(radio(host, 'A wound, an ulcer, or a hot, swollen foot (Charcot foot)?', 'Yes, now'));
+    expect(pausedForUnsaved()).toBe(true);
+    expect(await leave(host)).toBe(true);
+    await host.click(host.button('Cancel', { exact: true }));
+    await host.settle();
+    fake.control.setWriteError(undefined);
+    await host.click(host.button('Try again', { exact: true }));
+    await host.settle();
+    expect(gate().clinicalUnsaved).toBeUndefined();
+    expect(await leave(host)).toBe(false);
+  });
+
+  it('the session’s glucose speech uses the stored profile: a lows “No” on its way, or refused, changes nothing it says (H5F-03)', async () => {
+    const lows = withMeds({ insulin: 'yes' }, {
+      conditions: { ...NO_CONDITIONS, diabetes: 'yes' }, diabetesType: 'type2', clearance: 'vigorous', targets: 'no',
+      insulinHow: 'basalOnly', lowsRisk: 'yes', glucoseStartMin: 90, glucoseStartUnit: 'mg/dL', priorDka: 'no', dizzy: 'no', glucoseMonitor: 'meter', glucoseUnit: 'mg/dL',
+    });
+    expect((await store.update(d => completedSetup(d, lows, NOW, CTX))).ok).toBe(true);
+    expect(glucoseLine()).toContain('If you are under 162, have 15 to 20 grams of fast carbs first.');
+    host = render(createElement(ChapterEditor, { chapter: 'medicines' }));
+    await host.settle();
+    await host.click(radio(host, 'A severe low in the last 6 months, or do you often not feel lows coming?', 'No'));
+    diskFull();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('That did not save.');
+    expect(glucoseLine()).toContain('If you are under 162');
+    expect(pausedForUnsaved()).toBe(true);
+    // Tried again, on its way.
+    fake.control.setWriteError(undefined);
+    fake.control.hold();
+    await host.click(host.button('Try again', { exact: true }));
+    await host.settle();
+    expect(glucoseLine()).toContain('If you are under 162');
+    fake.control.release();
+    await host.settle();
+    expect(store.getState().profile?.health.highHypoRisk).toBe(false);
+    expect(glucoseLine()).toContain('If you are under 126');
+  });
+
+  it('with nothing to store to, a release isn’t taken, and everything holds for the session (K5R-05)', async () => {
     store.resetForTests();
     await store.start({ factory: fakeIndexedDB({ openFails: 'error' }), broadcast: null });
     expect((await store.update(d => completedSetup(d, FOOT_WOUND, NOW, CTX))).ok).toBe(false);
@@ -109,22 +332,20 @@ describe('a clinical edit in Me (H5-08; board D162)', () => {
     await host.settle();
     expect(host.text()).toContain('That did not save.');
     expect(footStatus()).toEqual({ stored: 'current_wound_or_active_charcot', gate: 'current_wound_or_active_charcot' });
+    expect(pausedForUnsaved()).toBe(true);
   });
 
-  it('a stricter answer counts from the tap, and keeps counting if its write is refused', async () => {
+  it('a change that isn’t clinical, refused, holds nothing, and leaves without asking', async () => {
     expect((await store.update(d => completedSetup(d, MINIMAL, NOW, CTX))).ok).toBe(true);
-    host = render(createElement(ChapterEditor, { chapter: 'health' }));
+    host = render(createElement(ChapterEditor, { chapter: 'about' }));
     await host.settle();
-    await host.click(host.button(/^Foot problems: numbness, a wound or an ulcer/));
-    await host.settle();
-    await host.click(radio(host, 'Numbness or loss of feeling in your feet?', 'Yes'));
-    await host.click(radio(host, 'A wound, an ulcer, or a hot, swollen foot (Charcot foot)?', 'Yes, now'));
-    await host.click(radio(host, 'Has a doctor or nurse (clinician) told you to keep weight off a foot?', 'No'));
-    fake.control.setWriteError(() => new DOMException('Disk is full', 'QuotaExceededError'));
+    await host.change(host.field('Name (optional)'), { value: 'Kai' });
+    diskFull();
     await host.click(host.button('Save', { exact: true }));
     await host.settle();
     expect(host.text()).toContain('That did not save.');
-    expect(footStatus()).toEqual({ stored: 'healthy', gate: 'current_wound_or_active_charcot' });
+    expect(gate().clinicalUnsaved).toBeUndefined();
+    expect(await leave(host)).toBe(false);
   });
 });
 
@@ -335,7 +556,7 @@ describe('plain words first, the term in brackets (K5-13; board D155)', () => {
 describe('a setup page, its answers kept as they’re given (§6.1; H5-16, K5-17; board D169)', () => {
   const draft = () => store.getState().settings.setup?.draft;
   const SAVE_FAILED = 'Your answers aren’t being saved on this phone.';
-  const page = async (id: 'about.name' | 'about.figure' | 'about.body' | 'medicines.which' | 'health.limits') => {
+  const page = async (id: 'about.name' | 'about.figure' | 'about.body' | 'medicines.which' | 'health.limits' | 'health.conditions') => {
     const { PageFrame } = await import('./PageFrame');
     const { PAGE_VIEWS } = await import('./pages');
     const shown = render(createElement(PageFrame, { id, View: PAGE_VIEWS[id] }));
@@ -522,6 +743,96 @@ describe('a setup page, its answers kept as they’re given (§6.1; H5-16, K5-17
     expect(host.text()).toContain(SAVE_FAILED);
   });
 
+  it('Back waits for its store: refused, the page stays and says so, and a page not about health asks nothing (H5R-16)', async () => {
+    host = await page('about.name');
+    diskFull();
+    await host.change(host.field('Name (optional)'), { value: 'Kai' });
+    await host.click(host.button('Back', { exact: true }));
+    await host.settle();
+    expect(router.navigate).not.toHaveBeenCalled();
+    expect(host.text()).toContain(SAVE_FAILED);
+    expect(host.text()).not.toContain('Discard your changes?');
+    fake.control.setWriteError(undefined);
+    await host.click(host.button('Back', { exact: true }));
+    await host.settle();
+    expect(router.navigate).toHaveBeenCalledWith('/setup', expect.objectContaining({ replace: true }));
+    expect(draft()?.answers?.name).toBe('Kai');
+  });
+
+  it('on a safety page, leaving with its changes refused asks first: Cancel stays, Discard changes drops them and goes (board D198)', async () => {
+    const { answersQueue, withQueued } = await import('@/setup/draft');
+    // As the router does, a navigation asks the page's guard first.
+    router.navigate = vi.fn(() => {
+      if (!router.shouldBlock?.({ currentLocation: { pathname: '/setup/health/conditions', search: '' }, nextLocation: { pathname: '/setup/about/body', search: '' } })) return;
+      router.blocker = 'blocked';
+      router.redraw.forEach(r => r());
+    });
+    host = await page('health.conditions');
+    diskFull();
+    await host.click(host.button(/^Heart or circulation problems/));
+    await host.click(host.button('Back', { exact: true }));
+    await host.settle();
+    expect(router.navigate).not.toHaveBeenCalled();
+    expect(host.text()).toContain('Discard your changes?');
+    await host.click(host.button('Cancel', { exact: true }));
+    await host.settle();
+    expect(host.text()).not.toContain('Discard your changes?');
+    expect(host.text()).toContain(SAVE_FAILED);
+    // The browser's Back asks too.
+    expect(await leave(host)).toBe(true);
+    expect(host.text()).toContain('Discard your changes?');
+    await host.click(host.button('Cancel', { exact: true }));
+    await host.settle();
+    expect(router.resets).toBe(1);
+    // Back again, refused again, and Discard changes: the stored answers stand, and Back goes, asking no more.
+    await host.click(host.button('Back', { exact: true }));
+    await host.settle();
+    await host.click(host.button('Discard changes', { exact: true }));
+    await host.settle();
+    expect(router.navigate).toHaveBeenCalledWith('/setup/about/body', expect.objectContaining({ replace: true }));
+    expect(router.blocker).toBe('unblocked');
+    expect(withQueued({}).conditions).toBeUndefined();
+    expect(answersQueue().refused).toBeUndefined();
+  });
+
+  it('Close on a safety page with its changes refused asks too, and Discard changes goes Home', async () => {
+    const { lookedAround } = await import('@/setup/assemble');
+    expect((await store.update(lookedAround)).ok).toBe(true);
+    host = await page('health.conditions');
+    diskFull();
+    await host.click(host.button(/^Heart or circulation problems/));
+    await host.click(host.button('Close', { exact: true }));
+    await host.settle();
+    expect(router.navigate).not.toHaveBeenCalledWith('/home');
+    await host.click(host.button('Discard changes', { exact: true }));
+    await host.settle();
+    expect(router.navigate).toHaveBeenCalledWith('/home');
+  });
+
+  it('Review shows a change the device refused, with Try again, and Close stores what’s waiting first (H5R-16)', async () => {
+    const { changeAnswers, flushAnswers } = await import('@/setup/draft');
+    const { lookedAround } = await import('@/setup/assemble');
+    const { ReviewPage } = await import('./ReviewPage');
+    expect((await store.update(d => lookedAround(withDraft(d, 'review', MINIMAL)))).ok).toBe(true);
+    diskFull();
+    changeAnswers(MINIMAL, { name: 'Kai' }, {}, 'about.name');
+    expect(await flushAnswers()).toBe('failed');
+    host = render(createElement(ReviewPage));
+    await host.settle();
+    expect(host.text()).toContain(SAVE_FAILED);
+    await host.click(host.button('Close', { exact: true }));
+    await host.settle();
+    expect(router.navigate).not.toHaveBeenCalledWith('/home');
+    fake.control.setWriteError(undefined);
+    await host.click(host.button('Try again', { exact: true }));
+    await host.settle();
+    expect(host.text()).not.toContain(SAVE_FAILED);
+    expect(draft()?.answers?.name).toBe('Kai');
+    await host.click(host.button('Close', { exact: true }));
+    await host.settle();
+    expect(router.navigate).toHaveBeenCalledWith('/home');
+  });
+
   it('a field takes no more than a backup holds: the name by its length, and allergies of the person’s own kept as typed until they fit (H5-18)', async () => {
     const { NAME_MAX } = await import('@/setup/limits');
     host = await page('about.name');
@@ -703,22 +1014,54 @@ describe('body measures on Review and in Profile & health (§4.10, B-24; H5-24)'
   });
 });
 
-describe('a save from Me the device refused, in Profile & health (board D168)', () => {
-  it('stays until it’s tried again or not kept, and says so', async () => {
+describe('a clinical save the device refused, in Profile & health (board D197; H5F-12)', () => {
+  /** Profile & health after a wound disclosed in Me wasn't stored: its write, with whether the next try is stored. */
+  const setUp = async () => {
     const { ProfileHealthScreen } = await import('./ProfileHealthScreen');
-    const { saveClinicalEdit, refusedSaves } = await import('@/setup/effective');
+    const { saveClinical } = await import('@/setup/effective');
     const { StoreFailure } = await import('@/store/db');
     expect((await store.update(d => completedSetup(d, MINIMAL, NOW, CTX))).ok).toBe(true);
-    const profile = store.getState().profile!;
-    await saveClinicalEdit([{ path: ['health', 'footStatus'], value: 'current_wound_or_active_charcot' }], () => Promise.resolve({ ok: false, failure: new StoreFailure('quotaExceeded', 'Storage is full') }));
-    expect(profile.health.footStatus).toBe('healthy');
+    const tries = { stored: false };
+    const wounded = (d: AppData): AppData => ({ ...d, profile: { ...d.profile!, health: { ...d.profile!.health, footStatus: 'current_wound_or_active_charcot' } } });
+    const write = () => (tries.stored ? store.update(wounded) : Promise.resolve({ ok: false as const, failure: new StoreFailure('quotaExceeded', 'Storage is full') }));
+    expect((await saveClinical(write)).ok).toBe(false);
     host = render(createElement(ProfileHealthScreen));
     await host.settle();
-    expect(host.text()).toContain('1 change you made didn’t save on this phone.');
-    await host.click(host.button('Don’t keep them'));
-    await host.settle();
-    expect(refusedSaves()).toEqual([]);
-    expect(host.text()).not.toContain('didn’t save on this phone');
+    // Where focus goes once the way out is gone: the region that says what happened.
+    const region = host.all().find(n => n.props.tabIndex === -1 && n.element && textIn(n).includes(CLINICAL_UNSAVED))!;
+    const focused = { count: 0 };
+    region.element!.focus = () => void (focused.count += 1);
+    return { tries, focused };
+  };
+  const said = (h: Host, text: string) => h.all().some(n => n.props.role === 'status' && textIn(n).includes(text));
+
+  it('says so, and every movement waits; Try again refused again keeps waiting, and stored, says so where focus now is', async () => {
+    const { tries, focused } = await setUp();
+    expect(host!.text()).toContain(CLINICAL_UNSAVED);
+    expect(pausedForUnsaved()).toBe(true);
+    await host!.click(host!.button('Try again', { exact: true }));
+    await host!.settle();
+    expect(said(host!, 'That did not save. Storage is full')).toBe(true);
+    expect(pausedForUnsaved()).toBe(true);
+    tries.stored = true;
+    await host!.click(host!.button('Try again', { exact: true }));
+    await host!.settle();
+    expect(store.getState().profile?.health.footStatus).toBe('current_wound_or_active_charcot');
+    expect(gate().clinicalUnsaved).toBeUndefined();
+    expect(host!.text()).not.toContain(CLINICAL_UNSAVED);
+    expect(said(host!, 'Saved. Movement follows your health answers again.')).toBe(true);
+    expect(focused.count).toBe(1);
+  });
+
+  it('Discard changes: the stored answers stand, said where focus now is', async () => {
+    const { focused } = await setUp();
+    await host!.click(host!.button('Discard changes', { exact: true }));
+    await host!.settle();
+    expect(gate().clinicalUnsaved).toBeUndefined();
+    expect(store.getState().profile?.health.footStatus).toBe('healthy');
+    expect(host!.text()).not.toContain(CLINICAL_UNSAVED);
+    expect(said(host!, 'Not kept. The health answers stored before stand.')).toBe(true);
+    expect(focused.count).toBe(1);
   });
 });
 

@@ -27,7 +27,6 @@ import type { HealthProfile } from '@/types/profile';
 import { MGDL_PER_MMOL, bpMedicinesUnknown, deriveHealth, glucoseStartIsCareTeams, glucoseStartMin, profileRules, takes, type DerivedHealth } from './health';
 import { getMobility } from '@/data/catalog';
 import { prefersHour12, timeOf } from '@/lib/time';
-import { readinessAcross } from './candidates';
 
 export { MGDL_PER_MMOL };
 
@@ -2043,9 +2042,28 @@ function profileContributions(profile: UserProfile): { contributions: Contributi
  * the check-in's day.
  */
 export function evaluateCheckIn(profile: UserProfile, checkIn: DailyCheckIn, recent: DailyCheckIn[] = [], now?: Date): Readiness {
-  // A gate's profile with answers on their way: its planning candidate's readiness (board D168).
-  if (profile.candidates) return readinessAcross(profile, p => evaluateCheckIn(p, checkIn, recent, now));
-  return evaluateWith(profile, checkIn, listedBefore(recent, checkIn.date), now);
+  const r = evaluateWith(profile, checkIn, listedBefore(recent, checkIn.date), now);
+  return profile.clinicalUnsaved ? unsavedReadiness(r) : r;
+}
+
+/** Said while a clinical answer the person gave couldn't be stored (board D197). */
+export const CLINICAL_UNSAVED = 'Your health answers aren’t saved, so movement is paused.';
+export const CLINICAL_UNSAVED_RELEASE = 'Try again to save them, or discard the changes.';
+
+/**
+ * The day's answer while a clinical answer couldn't be stored (board D197):
+ * every movement holds, and that alone is said, since advice worked out from
+ * answers that aren't the person's could be wrong for them (H5F-02). An
+ * emergency stays as it is, and a low is still treated.
+ */
+function unsavedReadiness(r: Readiness): Readiness {
+  if (r.disposition === 'emergency') return r;
+  const outcome = OUTCOME_ORDER.indexOf(r.outcome) >= OUTCOME_ORDER.indexOf('amber') ? r.outcome : 'amber';
+  return {
+    ...r, outcome, disposition: 'hold', release: CLINICAL_UNSAVED_RELEASE, awaitingReading: false, notices: [],
+    reasons: [{ code: 'clinicalUnsaved', message: CLINICAL_UNSAVED, outcome: 'amber', disposition: 'hold' }],
+    actions: r.actions.filter(action => action === TREAT),
+  };
 }
 
 function evaluateWith(profile: UserProfile, checkIn: DailyCheckIn, before: Before, now?: Date): Readiness {
@@ -2179,7 +2197,7 @@ function merge(cs: Contribution[], vigorousLocked: boolean, rpeOnly: boolean): R
  * `recent` it is the profile alone.
  */
 export function profileOnlyReadiness(profile: UserProfile, day?: { date: string; recent: readonly DailyCheckIn[]; now?: Date }): Readiness {
-  if (profile.candidates) return readinessAcross(profile, p => profileOnlyReadiness(p, day));
+  if (profile.clinicalUnsaved) return unsavedReadiness(profileOnlyReadiness({ ...profile, clinicalUnsaved: undefined }, day));
   const base = profileContributions(profile);
   const carried = day ? carriedRules(profile, undefined, day.date, listedBefore(day.recent, day.date), day.now) : { contributions: [], readings: [] };
   const r = merge([...base.contributions, ...carried.contributions], base.vigorousLocked, base.rpeOnly);

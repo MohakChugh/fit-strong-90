@@ -1,25 +1,31 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { AppData } from '@/types';
 import type { DailyCheckIn, Mode } from '@/types/checkin';
-import type { Step } from '@/types/plan';
 import type { HealthProfile, UserProfile } from '@/types/profile';
 import type { SetupAnswers } from '@/types/setup';
-import { profileChanges } from '@/components/profile/wizardSteps';
-import { getMeta } from '@/data/catalog';
-import { deriveHealth, profileGaps } from '@/engine/health';
-import { PERMISSION_TEXT, permission } from '@/engine/permission';
-import { UNSAVED_PLAN, planningProfile } from '@/engine/candidates';
-import { profileOnlyReadiness } from '@/engine/readiness';
-import { buildSessionPlan } from '@/engine/session';
-import { buildStretchPlan } from '@/engine/stretch';
+import { profileGaps } from '@/engine/health';
+import { PERMISSION_TEXT, permission, readinessFor } from '@/engine/permission';
+import { CLINICAL_UNSAVED, CLINICAL_UNSAVED_RELEASE, TREAT, evaluateCheckIn } from '@/engine/readiness';
 import { createDefaultProfile } from '@/profile/defaults';
+import { waterBlock } from '@/reminders/water';
 import { StoreFailure, type StoreResult } from '@/store/db';
+import { fakeIndexedDB } from '@/store/fakeIdb';
+import * as store from '@/store/useStore';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
+import { toDateString } from '@/lib/utils';
 import { deviceClinical, walkInput, walkRefusal } from '@/walk/gate';
 import { lookedAround } from './assemble';
 import type { SetupSession } from './draft';
-import { discardSave, gateCandidates, gateProfile, refusedSaves, resetPendingEditsForTests, retrySave, saveClinicalEdit } from './effective';
+import { clinicalUnsaved, discardClinical, gateProfile, resetClinicalUnsavedForTests, retryClinical, saveClinical } from './effective';
 import { NO_CONDITIONS } from './fixtures';
+
+// The store sweeps localStorage on clear-all; node has none, so give it one.
+const local = new Map<string, string>();
+globalThis.localStorage = {
+  getItem: (k: string) => local.get(k) ?? null, setItem: (k: string, v: string) => void local.set(k, v),
+  removeItem: (k: string) => void local.delete(k), clear: () => local.clear(), key: (i: number) => [...local.keys()][i] ?? null,
+  get length() { return local.size; },
+} as Storage;
 
 const NOW = new Date('2026-10-10T09:00:00+05:30');
 const MODES: readonly Mode[] = ['guided', 'stretch', 'walk'];
@@ -36,44 +42,35 @@ const partway = (answers: SetupAnswers): AppData => {
   return { ...data, profile: REVIEWED, settings: { ...data.settings, onboardingComplete: false, setup: { stage: 'open', draft: { at: 'health.feet', answers } } } };
 };
 
-describe('the profile every gate reads while setup is unfinished (H5-05; board D161)', () => {
-  it('a v1 record left part-way is held for the profile gap, with the draft’s stricter answers counting at once', () => {
+describe('the profile every gate reads while setup is unfinished (H5-05; boards D161, D197)', () => {
+  it('a v1 record left part-way holds every movement for the profile gap, whatever it stores; its draft isn’t read', () => {
     const data = partway(WOUND);
     expect(held(REVIEWED)).toBe(false);
-    const p = gateProfile(data, NOW, NONE);
+    const p = gateProfile(data, NONE);
     expect(p.needsHealthReview).toBe(true);
-    expect(p.health.footStatus).toBe('current_wound_or_active_charcot');
+    expect(p.health).toBe(REVIEWED.health);
     expect(held(p)).toBe(true);
   });
 
   it('so it is after Look around first', () => {
     const looked = lookedAround(partway(WOUND));
     expect(looked.settings.setup?.stage).toBe('lookAround');
-    const p = gateProfile(looked, NOW, NONE);
-    expect(p.needsHealthReview).toBe(true);
-    expect(p.health.footStatus).toBe('current_wound_or_active_charcot');
+    const p = gateProfile(looked, NONE);
+    expect([p.needsHealthReview, p.health]).toEqual([true, REVIEWED.health]);
     expect(held(p)).toBe(true);
   });
 
-  it('a draft’s answer looser than the record’s never loosens it', () => {
-    const data = partway({ conditions: { ...NO_CONDITIONS }, regular: 'no' });
-    const onInsulin = { ...REVIEWED, health: { ...REVIEWED.health, diabetes: 'type2' as const, insulin: 'injections_or_pump' as const } };
-    const p = gateProfile({ ...data, profile: onInsulin }, NOW, NONE);
-    expect(p.health.diabetes).toBe('type2');
-    expect(deriveHealth(p.health).hypoRisk).toBe(true);
-  });
-
-  it('answers kept this session only count as a draft’s do (B-07)', () => {
-    const data = partway({});
-    const p = gateProfile(data, NOW, { unsaved: true, entered: true, answers: WOUND, at: 'review' });
-    expect(p.health.footStatus).toBe('current_wound_or_active_charcot');
-    expect(p.needsHealthReview).toBe(true);
+  it('and while setup goes on without saving, on a finished record (B-07)', () => {
+    const data = fresh();
+    const finished = { ...data, profile: REVIEWED, settings: { ...data.settings, onboardingComplete: true } };
+    const p = gateProfile(finished, { unsaved: true, entered: true, answers: WOUND, at: 'review' });
+    expect([p.needsHealthReview, p.health]).toEqual([true, REVIEWED.health]);
   });
 
   it('a completed v1 upgrade is read as it is', () => {
     const data = fresh();
     const upgraded = { ...data, profile: REVIEWED, settings: { ...data.settings, onboardingComplete: true } };
-    expect(gateProfile(upgraded, NOW, NONE)).toBe(REVIEWED);
+    expect(gateProfile(upgraded, NONE)).toBe(REVIEWED);
   });
 
   it('the walk’s gate reads the same profile', () => {
@@ -84,156 +81,115 @@ describe('the profile every gate reads while setup is unfinished (H5-05; board D
   });
 });
 
-// ---- A save in Me on its way, or refused: the engine runs on each candidate (board D168) ----
+// ---- A clinical save the device refused: held for this session (board D197) ----
 
-const DATE = '2026-10-10';
 const KNOWN: Partial<HealthProfile> = { medicinesReviewed: true, bpMedicinesReviewed: true, currentlyActive: true, clearance: 'vigorous' };
 const done = (profile: UserProfile) => ({ profile, settings: { ...fresh().settings, onboardingComplete: true } });
-const fine = (over: Partial<DailyCheckIn> = {}): DailyCheckIn => ({ date: DATE, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over });
-/** A check-in as stored, with a readiness the gate works out again for each candidate. */
-const ask = (profile: UserProfile, mode: Mode, checkIn: DailyCheckIn = fine()) =>
-  permission({ profile, now: NOW, checkIn: { ...checkIn, readiness: profileOnlyReadiness(createDefaultProfile()) } }, mode);
+const today = (over: Partial<DailyCheckIn> = {}): DailyCheckIn =>
+  ({ date: toDateString(NOW), urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over });
+/** A mode's answer with today's check-in as stored, its readiness worked out for the profile asked. */
+const ask = (profile: UserProfile, mode: Mode, checkIn: DailyCheckIn = today()) =>
+  permission({ profile, now: NOW, checkIn: { ...checkIn, readiness: evaluateCheckIn(profile, checkIn) } }, mode);
 const refused = (): Promise<StoreResult> => Promise.resolve({ ok: false, failure: new StoreFailure('quotaExceeded', 'Storage is full') });
 const stored = (): Promise<StoreResult> => Promise.resolve({ ok: true, value: undefined });
-/** A write that waits until the test says how it went. */
-function slow() {
-  let settle!: (r: StoreResult) => void;
-  const promise = new Promise<StoreResult>(resolve => { settle = resolve; });
-  return { write: () => promise, settle };
-}
-const save = (from: UserProfile, to: UserProfile, write: () => Promise<StoreResult>) => saveClinicalEdit(profileChanges(from, to), write);
-const movements = (steps: Step[]) => steps.filter((s): s is Extract<Step, { kind: 'hold' | 'drill' }> => s.kind === 'hold' || s.kind === 'drill');
+const healthy = createDefaultProfile({ weightKg: 70, needsHealthReview: false, health: { ...KNOWN } });
 
-describe('a save in Me on its way, or refused (H5-08; boards D162, D168)', () => {
-  const healed = createDefaultProfile({ weightKg: 70, needsHealthReview: false, health: { ...KNOWN } });
-  const wounded = { ...healed, health: { ...healed.health, footStatus: 'current_wound_or_active_charcot' as const } };
-  beforeEach(() => resetPendingEditsForTests());
+describe('a clinical save the device refused (board D197; H5F-01 to H5F-04)', () => {
+  beforeEach(() => resetClinicalUnsavedForTests());
 
-  it('each keeps its own identity: a stored save retires only itself, and a refused one stays until discarded (H5R-04)', async () => {
-    const record = done(healed);
-    const walk = () => ask(gateProfile(record, NOW, NONE), 'walk').allowed;
-    expect(walk()).toBe(true);
-    const wound = slow();
-    const telling = save(healed, wounded, wound.write);
-    expect(walk()).toBe(false);
-    // Another save, of something else, stored meanwhile.
-    expect((await save(healed, { ...healed, name: 'Kai' }, stored)).saved.ok).toBe(true);
-    expect(walk()).toBe(false);
-    wound.settle({ ok: false, failure: new StoreFailure('quotaExceeded', 'Storage is full') });
-    const { id } = await telling;
-    expect(refusedSaves().map(s => s.id)).toEqual([id]);
-    expect(walk()).toBe(false);
-    discardSave(id);
-    expect(walk()).toBe(true);
-  });
-
-  it('tried again, a refused save is replaced by the new try; stored, it goes', async () => {
+  it('holds every movement, saying that alone, and pauses water reminders, until tried again and stored', async () => {
+    const record = done(healthy);
+    expect(ask(gateProfile(record, NONE), 'walk').allowed).toBe(true);
     let ok = false;
-    const write = () => (ok ? stored() : refused());
-    const { id } = await save(healed, wounded, write);
-    const again = await retrySave(id)!;
-    expect(refusedSaves().map(s => s.id)).toEqual([again.id]);
-    ok = true;
-    expect((await retrySave(again.id)!).saved.ok).toBe(true);
-    expect(refusedSaves()).toEqual([]);
-  });
-
-  it('a release waits until it’s stored; a refused release releases nothing', async () => {
-    const record = done(wounded);
-    const healing = slow();
-    const releasing = save(wounded, healed, healing.write);
-    expect(ask(gateProfile(record, NOW, NONE), 'walk').allowed).toBe(false);
-    healing.settle({ ok: false, failure: new StoreFailure('quotaExceeded', 'Storage is full') });
-    await releasing;
-    expect(ask(gateProfile(record, NOW, NONE), 'walk').allowed).toBe(false);
-  });
-
-  it('asks for a check-in only when one answers every candidate’s refusal', async () => {
-    // Diabetes added without its medicines: no check-in answers that.
-    await save(healed, { ...healed, health: { ...healed.health, diabetes: 'type2', medicinesReviewed: false } }, refused);
-    const p = permission({ profile: gateProfile(done(healed), NOW, NONE), now: NOW }, 'walk');
-    expect([p.allowed, p.needsCheckIn]).toEqual([false, false]);
-    expect(p.reasons).toEqual(expect.arrayContaining([PERMISSION_TEXT.noCheckIn, PERMISSION_TEXT.medicinesUnknown]));
-  });
-
-  it('a refused save of another chapter never pins a gap the review has since cleared (H5R-18)', async () => {
-    const unreviewed = { ...healed, needsHealthReview: true };
-    await save(unreviewed, { ...unreviewed, name: 'Kai' }, refused);
-    // The review, stored.
-    const record = done(healed);
-    expect(gateCandidates(record, NOW, NONE).every(p => !profileGaps(p).healthUnreviewed)).toBe(true);
-    expect(ask(gateProfile(record, NOW, NONE), 'walk').allowed).toBe(true);
-  });
-});
-
-describe('the engine on each candidate, through its real rules (H5R-05 to H5R-08)', () => {
-  beforeEach(() => resetPendingEditsForTests());
-  const stretch = (profile: UserProfile, focus: 'backHips' | 'hipsLegs') =>
-    buildStretchPlan({ profile, date: DATE, startDate: '2026-09-24', sessions: [], focus, minutes: 15, checkIn: fine(), recentCheckIns: [] });
-
-  it('sciatica added on its way: the nerve gate stays closed, so nothing pulls on the nerve longer than it allows (H5R-05)', async () => {
-    const before = createDefaultProfile({ weightKg: 70, needsHealthReview: false, health: { ...KNOWN }, pain: { areas: ['lowerBack'], worseWith: 'unknown', preference: 'untested' }, ladder: { hinge: 2, squat: 2, neuralGate: true } });
-    const after: UserProfile = { ...before, pain: { ...before.pain, areas: ['lowerBack', 'sciatica'], sciaticaSide: 'left' }, ladder: { ...before.ladder, neuralGate: false } };
-    const longPull = (p: UserProfile) => movements(stretch(p, 'hipsLegs').steps).filter(s => (getMeta(s.exerciseId)?.flags.sciaticTension ?? 0) >= 2 && (s.kind !== 'hold' || s.holdSeconds > 30));
-    // What the record alone would plan.
-    expect(longPull(before).length).toBeGreaterThan(0);
-    const telling = slow();
-    const saving = save(before, after, telling.write);
-    expect(longPull(gateProfile(done(before), NOW, NONE))).toEqual([]);
-    telling.settle({ ok: true, value: undefined });
-    await saving;
-  });
-
-  it('a refused “Not sure” about what makes the back worse keeps the known direction for every plan (H5R-06)', async () => {
-    const flexion = createDefaultProfile({ weightKg: 70, needsHealthReview: false, health: { ...KNOWN }, pain: { areas: ['lowerBack'], worseWith: 'flexion', preference: 'untested' } });
-    const unsure: UserProfile = { ...flexion, pain: { ...flexion.pain, worseWith: 'unknown' } };
-    await save(flexion, unsure, refused);
-    const gate = gateProfile(done(flexion), NOW, NONE);
-    // The engine plans with the candidate that still knows bending makes it worse (stretch.ts's end-range rule reads it).
-    expect(planningProfile(gate, p => profileOnlyReadiness(p))?.pain.worseWith).toBe('flexion');
-    expect(stretch(gate, 'backHips')).toEqual(stretch(flexion, 'backHips'));
-  });
-
-  it('blood pressure treated, then a refused change: the cool-down stays, and where neither profile covers the other, nothing starts (H5R-07)', async () => {
-    const treated = createDefaultProfile({ weightKg: 70, needsHealthReview: false, health: { ...KNOWN, hypertension: 'treated', betaBlocker: false, diuretic: false } });
-    await save(treated, { ...treated, health: { ...treated.health, hypertension: 'untreated' } }, refused);
-    for (const mode of MODES) expect(ask(gateProfile(done(treated), NOW, NONE), mode).codes, mode).toContain('COOL');
-    // Not yet cleared for vigorous exercise: untreated also locks it, so neither candidate is at least as strict as the other.
-    resetPendingEditsForTests();
-    const moderate = { ...treated, health: { ...treated.health, clearance: 'moderate' as const } };
-    await save(moderate, { ...moderate, health: { ...moderate.health, hypertension: 'untreated' } }, refused);
+    expect((await saveClinical(() => (ok ? stored() : refused()))).ok).toBe(false);
+    const gate = gateProfile(record, NONE);
+    expect([gate.clinicalUnsaved, gate.health]).toEqual([true, healthy.health]);
     for (const mode of MODES) {
-      const p = ask(gateProfile(done(moderate), NOW, NONE), mode);
-      expect([p.allowed, p.reasons], mode).toEqual([false, [PERMISSION_TEXT.unsaved]]);
+      const p = ask(gate, mode);
+      expect([p.allowed, p.disposition, p.reasons, p.release, p.restrictions, p.needsCheckIn], mode)
+        .toEqual([false, 'hold', [PERMISSION_TEXT.unsaved], CLINICAL_UNSAVED_RELEASE, [], false]);
     }
+    expect(waterBlock(gate, undefined)).toBe('Paused until your health answers are saved, since some answers need a fluid limit.');
+    // The day's answer, with a check-in or without one yet, says that alone, and at least as cautiously as amber.
+    for (const day of [evaluateCheckIn(gate, today()), readinessFor({ profile: gate, now: NOW })]) {
+      expect([day.outcome, day.disposition, day.reasons.map(r => r.message), day.release]).toEqual(['amber', 'hold', [CLINICAL_UNSAVED], CLINICAL_UNSAVED_RELEASE]);
+    }
+    // Refused again: still held.
+    expect((await retryClinical())?.ok).toBe(false);
+    expect(clinicalUnsaved()).toBe(true);
+    ok = true;
+    expect((await retryClinical())?.ok).toBe(true);
+    expect(clinicalUnsaved()).toBe(false);
+    expect(gateProfile(record, NONE)).toBe(healthy);
   });
 
-  it('a cool-down on its way counts at once: every candidate’s restrictions, the record’s and the save’s', async () => {
-    const untreated = createDefaultProfile({ weightKg: 70, needsHealthReview: false, health: { ...KNOWN, hypertension: 'untreated', betaBlocker: false, diuretic: false } });
-    await save(untreated, { ...untreated, health: { ...untreated.health, hypertension: 'treated' } }, refused);
-    for (const mode of MODES) expect(ask(gateProfile(done(untreated), NOW, NONE), mode).codes, mode).toContain('COOL');
+  it('discarded, the record’s own answers stand, and nothing is left to try again', async () => {
+    await saveClinical(refused);
+    discardClinical();
+    expect(clinicalUnsaved()).toBe(false);
+    expect(retryClinical()).toBeUndefined();
+    expect(ask(gateProfile(done(healthy), NONE), 'walk').allowed).toBe(true);
   });
 
-  it('where no candidate covers the other, each plan is empty and says why (board D168)', async () => {
-    const moderate = createDefaultProfile({ weightKg: 70, needsHealthReview: false, health: { ...KNOWN, clearance: 'moderate', hypertension: 'treated', betaBlocker: false, diuretic: false } });
-    await save(moderate, { ...moderate, health: { ...moderate.health, hypertension: 'untreated' } }, refused);
-    const gate = gateProfile(done(moderate), NOW, NONE);
-    const guided = buildSessionPlan({ profile: gate, date: DATE, startDate: '2026-09-24', sessions: [], checkIn: fine(), recentCheckIns: [], focusOverride: 'upperB' });
-    expect([guided.kind, guided.changes, guided.steps]).toEqual(['none', [UNSAVED_PLAN], []]);
-    expect(stretch(gate, 'backHips')).toMatchObject({ kind: 'none', changes: [UNSAVED_PLAN], steps: [] });
+  it('a save on its way changes nothing any gate reads: only one stored does', async () => {
+    let settle!: (r: StoreResult) => void;
+    const telling = saveClinical(() => new Promise<StoreResult>(resolve => { settle = resolve; }));
+    expect(clinicalUnsaved()).toBe(false);
+    expect(gateProfile(done(healthy), NONE)).toBe(healthy);
+    settle({ ok: false, failure: new StoreFailure('quotaExceeded', 'Storage is full') });
+    await telling;
+    expect(clinicalUnsaved()).toBe(true);
   });
 
-  it('lows possible, and a meter on its way: no intervals while the record has none (H5R-08)', async () => {
-    const health: Partial<HealthProfile> = { ...KNOWN, diabetes: 'type2', insulin: 'injections_or_pump', insulinRegimen: 'basalOnly', glucoseMonitor: 'none' };
-    const none = createDefaultProfile({ weightKg: 70, needsHealthReview: false, equipment: 'fullGym', health });
-    const meter: UserProfile = { ...none, health: { ...none.health, glucoseMonitor: 'meter' } };
-    const reading = fine({ glucose: { value: 150, unit: 'mg/dL', measuredAt: new Date(NOW.getTime() - 5 * 60_000).toISOString() } });
-    const cardio = (p: UserProfile) => buildSessionPlan({ profile: p, date: DATE, startDate: '2026-09-24', sessions: [], checkIn: reading, recentCheckIns: [], focusOverride: 'upperB' }).cardio?.format;
-    expect(cardio(meter)).toBe('intervals');
-    const telling = slow();
-    const saving = save(none, meter, telling.write);
-    expect(cardio(gateProfile(done(none), NOW, NONE))).not.toBe('intervals');
-    telling.settle({ ok: true, value: undefined });
-    await saving;
+  it('a write that throws is refused like any other, its own reason kept', async () => {
+    const saved = await saveClinical(() => Promise.reject(new StoreFailure('conflict', 'Changed elsewhere')));
+    expect(saved.ok ? undefined : saved.failure.message).toBe('Changed elsewhere');
+    expect(clinicalUnsaved()).toBe(true);
+  });
+
+  it('an emergency still says call now, and a low is still treated; nothing else is advised (H5F-02)', async () => {
+    const onInsulin = createDefaultProfile({ weightKg: 70, needsHealthReview: false, health: { ...KNOWN, diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', fluidRestriction: false } });
+    await saveClinical(refused);
+    const gate = gateProfile(done(onInsulin), NONE);
+    expect(ask(gate, 'walk', today({ emergency: ['chest'] })).disposition).toBe('emergency');
+    const reading = (value: number) => today({ glucose: { value, unit: 'mg/dL', measuredAt: new Date(NOW.getTime() - 5 * 60_000).toISOString(), source: 'meter' } });
+    const low = readinessFor({ profile: gate, now: NOW, checkIn: { ...reading(60), readiness: evaluateCheckIn(gate, reading(60)) } });
+    expect(low.actions).toEqual([TREAT]);
+    expect(low.reasons.map(r => r.message)).toEqual([CLINICAL_UNSAVED]);
+    // A high reading's water advice isn't given from answers that may not be the person's: a fluid limit may be among them.
+    expect(evaluateCheckIn(onInsulin, reading(350)).actions.join(' ')).toContain('Drink some water');
+    const high = evaluateCheckIn(gate, reading(350));
+    expect([high.actions, high.reasons.map(r => r.message), high.disposition]).toEqual([[], [CLINICAL_UNSAVED], 'hold']);
+    // With no reading yet, it doesn't ask for one either: nothing starts until the answers are saved.
+    expect(evaluateCheckIn(onInsulin, today()).awaitingReading).toBe(true);
+    expect([evaluateCheckIn(gate, today()).awaitingReading, evaluateCheckIn(gate, today()).notices]).toEqual([false, []]);
+  });
+
+  it('a save for a record since replaced leaves nothing behind (H5F-09)', async () => {
+    store.resetForTests();
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake, broadcast: null });
+    await saveClinical(refused);
+    expect(clinicalUnsaved()).toBe(true);
+    // Everything deleted, in another copy of the app: a new record.
+    const { openDb } = await import('@/store/db');
+    const { commitChange } = await import('@/store/snapshot');
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { reset: true, schemaVersion: 6 } }))).ok).toBe(true);
+    tab.close();
+    expect((await store.reload()).ok).toBe(true);
+    expect(clinicalUnsaved()).toBe(false);
+    expect(retryClinical()).toBeUndefined();
+    // One refused as the record is replaced under it is not the new record's either.
+    let settle!: (r: StoreResult) => void;
+    const telling = saveClinical(() => new Promise<StoreResult>(resolve => { settle = resolve; }));
+    const again = await openDb(fake);
+    expect((await commitChange(again, undefined, () => ({ change: { reset: true, schemaVersion: 6 } }))).ok).toBe(true);
+    again.close();
+    expect((await store.reload()).ok).toBe(true);
+    settle({ ok: false, failure: new StoreFailure('conflict', store.REPLACED) });
+    await telling;
+    expect(clinicalUnsaved()).toBe(false);
+    store.resetForTests();
   });
 });

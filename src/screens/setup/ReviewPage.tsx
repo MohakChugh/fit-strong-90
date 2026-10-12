@@ -7,7 +7,7 @@ import { dayOf, nowAt } from '@/health/observation';
 import { timeOf } from '@/lib/time';
 import { cn } from '@/lib/utils';
 import { measurementsFrom } from '@/setup/assemble';
-import { finishSetup } from '@/setup/draft';
+import { continueUnsaved, finishSetup, flushAnswers, useAnswersQueue } from '@/setup/draft';
 import { CHAPTER_TITLE, firstPageOf, hrefOf, prevPage } from '@/setup/graph';
 import { ACKNOWLEDGEMENT, clearanceNotes, reviewRecord, reviewThings, whyOtherDiabetes } from '@/setup/review';
 import { HANDOFF, deviceNoun, installContext, readInstallEnv } from '@/screens/welcome/install';
@@ -17,7 +17,7 @@ import { chapterSections } from '@/screens/you/summaries';
 import { useStore } from '@/store/useStore';
 import { Missing } from './controls';
 import { SetupShell } from './SetupShell';
-import { useCtx, useSetupAnswers } from './useSetup';
+import { useCtx, useSetupAnswers, type Recovery } from './useSetup';
 
 const clock = (hhmm: string) => {
   const [h, m] = hhmm.split(':').map(Number);
@@ -33,7 +33,8 @@ const clock = (hhmm: string) => {
 export function ReviewPage() {
   const navigate = useNavigate();
   const state = useStore();
-  const { answers } = useSetupAnswers();
+  const { answers, raw } = useSetupAnswers();
+  const queue = useAnswersQueue();
   const ctx = useCtx();
   const [now] = useState(nowAt);
   // The record Review shows, as it's drawn now: finishing it, once another copy has replaced it, is refused (H5R-09).
@@ -63,6 +64,13 @@ export function ReviewPage() {
     navigate(prev && prev !== 'welcome.start' ? hrefOf(prev) : '/setup', { replace: true, state: { back: true } });
   };
 
+  // A change from a page left before Review that the device refused shows here too, with the two ways on (H5R-16).
+  const recovery: Recovery = {
+    failed: queue.refused !== undefined,
+    retry: () => void flushAnswers(),
+    continueUnsaved: () => continueUnsaved('review', answers, raw),
+  };
+
   const start = async () => {
     if (!ack) {
       setAskAck(true);
@@ -78,7 +86,7 @@ export function ReviewPage() {
   };
 
   return (
-    <SetupShell title="Here’s what we’ll do for you" capsule={{ label: 'Review', fraction: 1 }} onBack={back}>
+    <SetupShell title="Here’s what we’ll do for you" capsule={{ label: 'Review', fraction: 1 }} onBack={back} onClose={() => flushAnswers('review')} recovery={recovery}>
       <Group header="What we’ll do">
         {things.map(t => <Row key={t} icon={<CheckIcon />} label={t} />)}
       </Group>

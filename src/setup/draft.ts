@@ -282,6 +282,15 @@ export function waitingOn(id: PageId): boolean {
   return [...queue().keys()].some(f => sets.includes(fieldRoot(f))) || [...queuedRaw.keys()].some(key => rawPage(key) === id);
 }
 
+/** Not kept (board D198): what's waiting from page `id` is dropped, so the answers stored stand. */
+export function discardWaiting(id: PageId): void {
+  const sets = pageDef(id).sets as readonly string[];
+  for (const field of [...queue().keys()]) if (sets.includes(fieldRoot(field))) queued.delete(field);
+  for (const key of [...queuedRaw.keys()]) if (rawPage(key) === id) queuedRaw.delete(key);
+  if (queued.size === 0 && queuedRaw.size === 0) clearQueue();
+  queueChanged();
+}
+
 /**
  * A page's changes, shown at once and stored shortly after, field by field
  * (§6.1; H5-16, K5-17; board D169), each with what its control started from.
