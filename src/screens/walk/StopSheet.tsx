@@ -39,31 +39,39 @@ interface Props {
  * rest records only that the stop is answered. Closing answers nothing: the
  * walk stays held until an answer comes. Each answer waits for the device to
  * keep it before the sheet moves on; refused, it stays here, as given, with
- * Try again (H6R-11, §4.5, B-03).
+ * Try again (H6R-11, §4.5, B-03). While one is being stored, nothing closes
+ * the sheet, its Close and End walk wait, and a way on from the safety
+ * surface waits and says so (H6R-11, board D213).
  */
 export function StopSheet(props: Props) {
   const [step, setStep] = useState<'choose' | 'dizzy'>('choose');
+  // An answer being stored keeps the questions open: closing them would let go of the answer,
+  // and of its Try again, before the device has said whether it kept it (H6R-11, board D213).
+  const [saving, setSaving] = useState(false);
   const title = step === 'dizzy' ? 'Check your glucose now' : 'What’s happening?';
+  // An answer's own way on is the close of the moment it was given, when nothing was being stored.
   const close = () => {
+    if (saving) return;
     props.onClose();
     setStep('choose');
   };
   return (
     <AnsweringStopContext value>
-      <Sheet open={props.open} onOpenChange={o => { if (!o) close(); }} title={title} detent="large">
-        {props.open && <Body {...props} step={step} setStep={setStep} close={close} />}
+      <Sheet open={props.open} onOpenChange={o => { if (!o) close(); }} dismissible={!saving} title={title} detent="large">
+        {props.open && <Body {...props} step={step} setStep={setStep} close={close} saving={saving} setSaving={setSaving} />}
       </Sheet>
     </AnsweringStopContext>
   );
 }
 
-function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close }: Props & {
+function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close, saving, setSaving }: Props & {
   step: 'choose' | 'dizzy';
   setStep: (s: 'choose' | 'dizzy') => void;
   close: () => void;
+  saving: boolean;
+  setSaving: (saving: boolean) => void;
 }) {
   const [leg, setLeg] = useState<LegAnswers>({ ...NO_LEG, spread: false });
-  const [saving, setSaving] = useState(false);
   /** The answer the device refused, to give again as it was. */
   const [retry, setRetry] = useState<(() => void) | null>(null);
 
@@ -99,7 +107,7 @@ function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close }
         <p className="text-[length:var(--text-body)] leading-snug">Sit down somewhere safe. With your diabetes medicines, dizziness can be a low coming on.</p>
         <div className="flex flex-col gap-3">
           <PrimaryButton onClick={() => submit(onLow, close)} disabled={saving}>I feel low</PrimaryButton>
-          <SecondaryButton onClick={close}>Close</SecondaryButton>
+          <SecondaryButton onClick={close} disabled={saving}>Close</SecondaryButton>
         </div>
       </div>
     );
@@ -122,7 +130,7 @@ function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close }
           />
         ))}
       </Group>
-      {onEnd && <SecondaryButton onClick={() => { close(); onEnd(); }}>End walk</SecondaryButton>}
+      {onEnd && <SecondaryButton onClick={() => { close(); onEnd(); }} disabled={saving}>End walk</SecondaryButton>}
       <Group header={STOP_CHOICES.find(c => c.choice === 'leg')!.label}>
         <div className="flex flex-col gap-2 px-4 py-3">
           <span id="walk-leg-reach" className="text-[length:var(--text-subhead)] text-muted-foreground">How far down symptoms reach now</span>

@@ -85,6 +85,7 @@ const { deviceGate } = await import('@/walk/gate');
 const { newWalkId } = await import('@/walk/plan');
 const { startedHref } = await import('@/walk/started');
 const { statusOn } = await import('@/health/status');
+const { NEWS_LABEL } = await import('@/components/checkin/copy');
 /** A walk the shared start flow has just started, as the live screen's address: how every new walk arrives (H6-04). */
 const startedParams = () => new URLSearchParams(startedHref({ kind: 'walk', gps: false, steps: false }).split('?')[1]);
 
@@ -361,6 +362,42 @@ describe('the stop question waits for its answer to save, and keeps it when it d
     await h().settle();
     expect(h().text()).not.toMatch(/What’s happening\?/);
     expect(store.getState().checkIns.find(c => c.date === DAY)?.news ?? []).not.toContain('stopped');
+  });
+
+  it('can’t be closed, nor the walk ended from it, while an answer is still being stored: the answer, and its Try again, stay until the device has said (H6R-11, board D213)', async () => {
+    await stopped();
+    db.control.hold();
+    await h().click(h().button('Just need a rest'));
+    // Closed by its own Close, or a swipe, it stays.
+    await h().click(h().buttons('Close', { exact: true }).at(-1)!);
+    expect(h().text()).toMatch(/What’s happening\?/);
+    expect(h().button('End walk').props.disabled).toBe(true);
+    db.control.release();
+    await h().settle();
+    expect(h().text()).not.toMatch(/What’s happening\?/);
+    expect(store.getState().checkIns.find(c => c.date === DAY)?.news ?? []).not.toContain('stopped');
+  });
+
+  it('keeps "Check your glucose now" open, its Close waiting, while "I feel low" is stored (H6R-11, board D213)', async () => {
+    const insulin = createDefaultProfile({ health: { ...known, diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter' } });
+    const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: { value: 140, unit: 'mg/dL', measuredAt: new Date().toISOString(), source: 'meter' } };
+    await store.update(prev => ({ ...prev, profile: insulin, checkIns: [{ ...morning, readiness: evaluateCheckIn(insulin, morning) }] }));
+    router.params = startedParams();
+    host = render(createElement(LiveWalkScreen));
+    await host.settle();
+    await h().click(h().button('I need to stop'));
+    await h().click(h().button(NEWS_LABEL.dizzy, { exact: true }));
+    await h().settle();
+    expect(h().text()).toMatch(/Check your glucose now/);
+    db.control.hold();
+    await h().click(h().buttons('I feel low', { exact: true }).at(-1)!);
+    // Its own Close waits; the sheet's, or a swipe, closes nothing.
+    expect(h().buttons('Close', { exact: true }).filter(b => b.props.disabled === true)).toHaveLength(1);
+    await h().click(h().buttons('Close', { exact: true }).find(b => !b.props.disabled)!);
+    expect(h().text()).toMatch(/Check your glucose now/);
+    db.control.release();
+    await h().settle();
+    expect(h().text()).not.toMatch(/Sit down somewhere safe/);
   });
 
   it('keeps the leg answers given when saving them is refused', async () => {

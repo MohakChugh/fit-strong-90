@@ -174,8 +174,12 @@ describe('"Say what happened" on the shared safety surface (journey §4.4, K6R-0
     await x().settle();
     expect(asked()).toContain('What’s happening?');
     expect(asked()).toContain(PERMISSION_TEXT.emergencyTitle);
+    // Its way on waits for the answer to be stored, and says so, rather than closing over it (H6R-11).
+    await x().click(x().button('What to do', { exact: true }));
+    expect(asked()).toContain('Waiting for this to finish saving.');
     fake.control.release();
     await x().settle();
+    expect(dialogs()).toBe(0);
   });
 
   it('and when the device refuses the answer, beside Try again, and while it is tried again (H6F-01, board D212)', async () => {
