@@ -251,6 +251,21 @@ describe('moving through setup', () => {
   });
 });
 
+describe('a skip a safety page can’t have, as a backup may name one (K5R-08)', () => {
+  // The foot page, unanswered, "skipped": no page of setup offers that, so it's read as unanswered.
+  const a: SetupAnswers = { ...withC({ diabetes: 'yes', feet: 'yes' }, { diabetesType: 'type2', clearance: 'none', targets: 'no', priorDka: 'no', dizzy: 'no' }), skippedPages: ['health.feet', 'food.pattern'] };
+
+  it('counts as nothing: Review lists the page, a page opened after it goes back to it, and Me lists its chapter', () => {
+    expect(missingPages(a, CTX)).toContain('health.feet');
+    expect(guardFor(a, 'review', CTX)).toBe('health.feet');
+    expect(skippedChapters(a, CTX)).toContain('health');
+  });
+
+  it('a preference page’s skip still counts', () => {
+    expect(missingPages({ ...a, pattern: undefined }, CTX)).not.toContain('food.pattern');
+  });
+});
+
 describe('resuming, and pages opened directly (Review Focus 5)', () => {
   const partway: SetupAnswers = { figure: 'female', conditions: { ...NO_CONDITIONS } };
 

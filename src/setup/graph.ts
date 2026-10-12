@@ -199,7 +199,8 @@ export function prevPage(a: SetupAnswers, from: PageId): PageId | undefined {
   return PAGES.slice(0, PAGE_IDS.indexOf(from)).reverse().find(p => p.when(a, f))?.id;
 }
 
-const skippedOf = (a: SetupAnswers) => new Set<PageId>(a.skippedPages ?? []);
+/** The pages skipped, as only a preference page can be: a safety page "skipped", as a backup may say, is unanswered (K5R-08). */
+const skippedOf = (a: SetupAnswers) => new Set<PageId>((a.skippedPages ?? []).filter(id => isPageId(id) && pageDef(id).skippable));
 
 /**
  * Next, from a chapter opened with Review's Edit: the rest of that chapter,
