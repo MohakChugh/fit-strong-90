@@ -33,7 +33,7 @@ export interface Guide {
    * not known, never none: meal ideas ask first.
    */
   allergies?: AllergyAnswer;
-  /** What meal ideas are filtered by: the food record, or the allergies alone while there's none. */
+  /** What meal ideas are filtered by: the food record with the allergies as known, setup's where the record has none (H5R-10). */
   filter?: Partial<FoodPreferences>;
   /** False before onboarding has stored a profile: food choices are for this visit only. */
   canSaveFood: boolean;
@@ -49,7 +49,7 @@ export function useGuide(): Guide {
   const session = useSetupSession();
   const allergies = useMemo(() => allergyAnswer(food, settings.setup, session), [food, settings.setup, session]);
   const ctx = useMemo(() => ({ ...contextFromProfile(profile, food, { fluidLimit }), ...(allergies ? { allergies } : {}) }), [profile, food, fluidLimit, allergies]);
-  return { ctx, food, ...(allergies ? { allergies, filter: food ?? allergies } : {}), canSaveFood: profile !== undefined };
+  return { ctx, food, ...(allergies ? { allergies, filter: { ...food, ...allergies } } : {}), canSaveFood: profile !== undefined };
 }
 
 /** The allergy answer as a screen shows it: the food record's, setup's, and its own words as typed (board D221). */

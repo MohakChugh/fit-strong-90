@@ -234,6 +234,37 @@ describe('a food record that never answered allergies, as v1’s, asks first, wi
   });
 });
 
+describe('a food record with no allergy answer of its own is filtered by setup’s (H5R-10; board D205)', () => {
+  const V1 = { pattern: 'vegetarian' as const, avoid: [], region: 'north' as const };
+  const MEAL = 'Vegetable poha';
+  // Setup's finished answer, Peanuts; the food record, from v1, never answered allergies.
+  beforeEach(async () => {
+    expect((await store.update(d => ({ ...d, profile: { ...d.profile!, food: V1 } }))).ok).toBe(true);
+    expect(store.getState().settings.setup?.answers?.allergies).toEqual(['peanut']);
+  });
+
+  it('meal ideas leave out a dish with peanuts', async () => {
+    const { default: MealIdeasScreen } = await import('./MealIdeasScreen');
+    const host = render(createElement(MealIdeasScreen));
+    await host.settle();
+    expect(host.text()).not.toContain('Tell us about food allergies first');
+    expect(host.text()).toContain('Moong dal chilla');
+    expect(host.text()).not.toContain(MEAL);
+    host.unmount();
+  });
+
+  it('so does Learn’s search', async () => {
+    const { default: GuideScreen } = await import('./GuideScreen');
+    const host = render(createElement(GuideScreen));
+    await host.settle();
+    await host.change(host.all().find(n => n.type === 'input' && n.props.type === 'search')!, { value: 'poha' });
+    expect(host.text()).not.toContain(MEAL);
+    await host.change(host.all().find(n => n.type === 'input' && n.props.type === 'search')!, { value: 'chilla' });
+    expect(host.text()).toContain('Moong dal chilla');
+    host.unmount();
+  });
+});
+
 describe('a “No food allergies” tap answers only what it was shown (H5F-07, H5F-12; board D221)', () => {
   const V1 = { pattern: 'vegetarian' as const, avoid: [], region: 'north' as const };
   /** A record whose food, from v1, never answered allergies, nor did setup; and the store's database, for another window to write to. */
