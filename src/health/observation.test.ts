@@ -22,3 +22,23 @@ describe('observationProblem, and the order statements are said in', () => {
     expect(observationProblem({ ...first, order: -1 })).toMatch(/order/);
   });
 });
+
+describe('a correction keeps what it replaced (J§4.6, P8S-05)', () => {
+  it('each changed measurement keeps its earlier version, oldest first; a note alone keeps none', () => {
+    const o = newObservation({ id: 'g1', kind: 'glucose', value: 52, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: '2026-10-08T08:58:00+05:30' });
+    const once = reviseObservation(o, { value: 152 }, '2026-10-08T09:06:00+05:30');
+    expect(once.was).toEqual([{ value: 52, unit: 'mg/dL', at: o.at }]);
+    const twice = reviseObservation(once, { at: '2026-10-08T08:59:00+05:30' }, '2026-10-08T09:07:00+05:30');
+    expect(twice.was).toEqual([{ value: 52, unit: 'mg/dL', at: o.at }, { value: 152, unit: 'mg/dL', at: o.at, editedAt: '2026-10-08T09:06:00+05:30' }]);
+    expect(reviseObservation(twice, { note: 'after lunch' }).was).toEqual(twice.was);
+    expect(observationProblem({ ...o, was: [{ value: 52, unit: 'mg/dL', at: 'yesterday' }] })).toMatch(/was/);
+  });
+
+  it('keeps the latest 50 versions, the oldest going first (MAX_CORRECTIONS)', () => {
+    let o = newObservation({ id: 'w1', kind: 'water', value: 100, scope: 'dayTotal', source: 'manual', at: '2026-10-08T08:00:00+05:30' });
+    for (let i = 1; i <= 51; i++) o = reviseObservation(o, { value: 100 + i }, '2026-10-08T09:00:00+05:30');
+    expect(o.was).toHaveLength(50);
+    expect(o.was![0].value).toBe(101);
+    expect(o.was!.at(-1)!.value).toBe(150);
+  });
+});

@@ -97,6 +97,12 @@ export interface Observation {
   /** Set when a stored record is corrected; `at` keeps the original moment. */
   editedAt?: string;
   /**
+   * What earlier corrections replaced, oldest first: each version's value,
+   * unit and time, and when that version was itself corrected. Kept on the
+   * record it corrected, so the history is the reading's own (J§4.6).
+   */
+  was?: { value: number; unit: string; at: string; editedAt?: string }[];
+  /**
    * Commit order, stamped by the store on every write and shared by every open
    * copy of the app. It breaks ties between statements made at the same
    * instant, so "the later one wins" means the later *commit*, not whichever
@@ -409,6 +415,10 @@ export function observationProblem(o: Observation): string | undefined {
   if (o.gen !== undefined && !(kind === 'glucose' && Number.isSafeInteger(o.gen) && o.gen >= 0)) return 'gen is a whole number, on a glucose reading only';
   if (o.restoredFrom !== undefined && (typeof o.restoredFrom !== 'string' || o.restoredFrom === '')) return 'restoredFrom names the record it came from';
   if (o.order !== undefined && !(Number.isSafeInteger(o.order) && o.order >= 0)) return 'order must be a whole number';
+  if (o.was !== undefined && !(Array.isArray(o.was) && o.was.length <= MAX_CORRECTIONS
+    && o.was.every(v => typeof v === 'object' && v !== null && Number.isFinite(v.value) && typeof v.unit === 'string' && isAt(v.at) && (v.editedAt === undefined || isAt(v.editedAt))))) {
+    return 'was lists the versions a correction replaced';
+  }
   return undefined;
 }
 
@@ -462,6 +472,9 @@ export interface ObservationRevision {
   mealStartedAt?: string | null;
 }
 
+/** A record keeps this many earlier versions; the oldest go first beyond it. */
+export const MAX_CORRECTIONS = 50;
+
 /**
  * Apply a correction, held to the same rules as a new record.
  *
@@ -471,6 +484,13 @@ export interface ObservationRevision {
  */
 export function reviseObservation(existing: Observation, patch: ObservationRevision, editedAt: string = nowAt()): Observation {
   const next: Observation = { ...existing };
+  // A changed measurement keeps the version it replaces (P8S-05); a note or a tag alone changes no measurement.
+  const changes = (patch.value !== undefined && patch.value !== existing.value) || (patch.unit !== undefined && patch.unit !== existing.unit)
+    || (typeof patch.at === 'string' && Date.parse(patch.at) !== Date.parse(existing.at));
+  if (changes) {
+    const prior = { value: existing.value, unit: existing.unit, at: existing.at, ...(existing.editedAt ? { editedAt: existing.editedAt } : {}) };
+    next.was = [...(existing.was ?? []), prior].slice(-MAX_CORRECTIONS);
+  }
   if (patch.value !== undefined) next.value = patch.value;
   if (patch.unit !== undefined) next.unit = patch.unit;
   if (patch.at !== undefined) {

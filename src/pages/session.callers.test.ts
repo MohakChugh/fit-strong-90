@@ -1306,6 +1306,8 @@ describe('a low on the reading screen that leaves no exercise today ends the run
     host = undefined;
     local.clear();
     clock(9);
+    // A fresh record for the second case: the first one's emergency high is never seeded over (board D119).
+    expect((await store.clearAll()).ok).toBe(true);
     await feelingLow();
     await h().change(h().field('Glucose now'), { value: '650' });
     await h().click(h().button('Save this reading'));

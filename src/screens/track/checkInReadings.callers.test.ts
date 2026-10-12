@@ -41,7 +41,9 @@ Object.assign(globalThis, { document: { visibilityState: 'visible', addEventList
 
 const store = await import('@/store/useStore');
 const { ReadingDetail } = await import('./RecordDetails');
-const { effectiveCheckIns, reportSymptoms, resetPendingCheckInsForTests, restorePendingCheckInsForTests, saveCheckInRecord } = await import('@/components/checkin/pending');
+const { answerMistakes, effectiveCheckIns, removeCheckInReading, reportSymptoms, resetPendingCheckInsForTests, restorePendingCheckInsForTests, saveCheckInRecord } = await import('@/components/checkin/pending');
+const { MISTAKE_LABEL } = await import('@/components/checkin/HeldProblem');
+const { HOLD_REFUSAL } = await import('@/store/db');
 const { buildCheckIn, emptyForm, formFromRecord } = await import('@/components/checkin/form');
 const { evaluateCheckIn } = await import('@/engine/readiness');
 const { permission } = await import('@/engine/permission');
@@ -136,6 +138,17 @@ async function remove(id: string) {
   return h;
 }
 
+/**
+ * A reading that holds movement can't be deleted until it's said to be typed wrongly (board D119): its
+ * delete is refused, naming it, and "It was a mistake" answers exactly that, as Track's delete offers it
+ * from Plan 8's Task 7. Then Track's own delete goes through.
+ */
+async function sayTypedWrongly(r: Parameters<typeof removeCheckInReading>[0], ids: readonly string[]) {
+  const refused = await removeCheckInReading(r, ids, { profile: PROFILE, update: store.update, date: DAY });
+  expect(refused).toMatchObject({ stored: false, held: { code: 'held' } });
+  expect((await answerMistakes(refused.held!.held, { profile: PROFILE, update: store.update })).stored).toBe(true);
+}
+
 describe('C2-01: a check-in glucose corrected in Track is what every gate reads, and stays corrected', () => {
   const morning: DailyCheckIn = { ...BASE, glucose: { value: 146, unit: 'mg/dL', measuredAt: iso(8, 55), source: 'meter' }, bp: { sys: 124, dia: 78 }, bpReadings: [{ sys: 124, dia: 78, at: iso(8, 56) }] };
 
@@ -159,6 +172,20 @@ describe('C2-01: a check-in glucose corrected in Track is what every gate reads,
     expect(glucoseSeries()).toEqual([46]);
     expect(stored()!.glucose!.value).toBe(46);
     expect(walk().gate.allowed).toBe(false);
+  });
+
+  it('a low corrected away is refused where it was asked, and goes once “It was a mistake” answers it (board D119)', async () => {
+    await seed({ ...BASE, glucose: { value: 46, unit: 'mg/dL', measuredAt: iso(8, 55), source: 'meter' } });
+    expect(walk().gate.allowed).toBe(false);
+    const [reading] = ofDay('glucose');
+    const h = await correctTo(reading.id, '146');
+    expect(h.text()).toContain(HOLD_REFUSAL);
+    expect(stored()!.glucose).toMatchObject({ value: 46 });
+    await h.click(h.button(MISTAKE_LABEL));
+    await h.settle();
+    await reload();
+    expect(stored()!.glucose).toMatchObject({ value: 146, measuredAt: iso(8, 55) });
+    expect(glucoseSeries()).toEqual([146]);
   });
 
   it('counts a correction the device refused for the gates at once, and says it was not saved', async () => {
@@ -252,6 +279,8 @@ describe('C2-01: a check-in reading deleted in Track leaves the record too, and 
   it('removes a glucose and a blood pressure from the record and the series; the next report brings neither back', async () => {
     await seed({ ...BASE, glucose: { value: 410, unit: 'mg/dL', measuredAt: iso(8, 50), source: 'meter' }, bp: { sys: 210, dia: 125 }, bpReadings: [{ sys: 210, dia: 125, at: iso(8, 52) }] });
     expect(ofDay('glucose')).toHaveLength(1);
+    // Each holds movement: said to be typed wrongly first (board D119).
+    await sayTypedWrongly({ kind: 'pressure', at: iso(8, 52), sys: 210, dia: 125 }, store.getState().observations.filter(o => isBpKind(o.kind) && checkInDayOf(o) === DAY).map(o => o.id));
     await remove(ofDay('glucose')[0].id);
     const half = store.getState().observations.find(o => isBpKind(o.kind) && checkInDayOf(o) === DAY)!;
     await remove(half.id);
@@ -286,6 +315,8 @@ describe('C2-01: a check-in reading deleted in Track leaves the record too, and 
 
   it('removes an earlier reading and keeps the latest', async () => {
     await seed({ ...BASE, glucoseEarlier: [{ value: 60, unit: 'mg/dL', measuredAt: iso(8, 0), source: 'meter' }], glucose: { value: 110, unit: 'mg/dL', measuredAt: iso(8, 20), source: 'meter' } });
+    // The earlier low still restricts the day: said to be typed wrongly first (board D119).
+    await sayTypedWrongly({ kind: 'glucose', at: iso(8, 0), value: 60, unit: 'mg/dL' }, [ofDay('glucose').find(o => o.value === 60)!.id]);
     await remove(ofDay('glucose').find(o => o.value === 60)!.id);
     clock(9, 10);
     await report(['dizzy']);
@@ -390,6 +421,10 @@ describe('P-02: a half-entered severe number goes with the measurement Track cor
     await host.change(boxes[1], { value: '80' });
     await host.click(host.button('Save correction'));
     await host.settle();
+    // A severe reading corrected away is refused where it was asked, with v1's way out (board D119).
+    expect(host.text()).toContain(HOLD_REFUSAL);
+    await host.click(host.button(MISTAKE_LABEL));
+    await host.settle();
     await reload();
     expect(stored()!.bpReadings).toEqual([{ sys: 120, dia: 80, at: iso(9, 1) }]);
     expect(severe()).toEqual([]);
@@ -400,6 +435,7 @@ describe('P-02: a half-entered severe number goes with the measurement Track cor
 
   it('and with that 190/100 deleted in Track, the half is deleted with it', async () => {
     await halfThenWhole();
+    await sayTypedWrongly({ kind: 'pressure', at: iso(9, 1), sys: 190, dia: 100 }, pressures().map(o => o.id));
     await remove(pressures()[0].id);
     await reload();
     expect(pressures()).toHaveLength(0);

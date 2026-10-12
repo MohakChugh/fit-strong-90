@@ -55,7 +55,8 @@ import {
   type ObservationTag,
 } from '@/health/observation';
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
-import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult, type TxHandle } from './db';
+import { HoldFailure, JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult, type TxHandle } from './db';
+import { clinicalOf, clockHoldOn, holdLifted, touchesClinical } from './holds';
 import { setStorageReadOnly } from './writable';
 import { exportExcess, exportWarning } from './limits';
 import {
@@ -242,6 +243,11 @@ interface Mutation<T> {
   /** Not an edit the person made (D113): a delete, a restore, background work. Only edits end an Undo (Task 7). */
   edit?: false;
   /**
+   * "Delete all data" (D119): the person's confirmed choice to erase
+   * everything, the one change the engine isn't asked about.
+   */
+  erasesAll?: true;
+  /**
    * What it may do depends on the time: a restore, which an entry past its 7
    * days may no longer make, and expiry (P8S-09). Planned again when its turn
    * comes, inside the transaction that commits it, never from a plan made
@@ -316,6 +322,15 @@ function planOn<T>(m: Mutation<T>, base: Snapshot, read?: TxRead): { planned: Pl
   const planned = m.plan(base, read);
   const change = planned.change === null ? null : m.plain ? planned.change : structuredClone(planned.change);
   const prepared: Prepared = change === null ? { next: base, writes: [] } : prepare(base, change);
+  if (change !== null && !m.erasesAll && touchesClinical(change, base)) {
+    // Asked of what is really there, before and after, for every change that can take a clinical
+    // measurement away, whichever function or caller asked for it (D119, P8S-03): the stored profile,
+    // and the phone's clock changes from the moment each is seen (Plan 5's D197; Plan 6's H6F-02).
+    const now = new Date();
+    const removedDays = base.checkIns.map(c => c.date).filter(d => !prepared.next.checkIns.some(c => c.date === d));
+    const refused = holdLifted(clinicalOf(base, clockPending), clinicalOf(prepared.next, clockPending), now, { clock: clockHoldOn(base.settings, now, clockPending), removedDays });
+    if (refused) throw new HoldFailure(refused.held, refused.release, refused.said);
+  }
   m.cached = { on: base, planned: { ...planned, change }, prepared, ...(read ? { read: true as const } : {}) };
   m.planFailure = undefined;
   return m.cached;
@@ -369,7 +384,8 @@ function enqueue<T>(m: Omit<Mutation<T>, 'settle'>): Promise<StoreResult<T>> {
       }
     } catch (error) {
       const failure = failed(error);
-      note(failure);
+      // A refusal is said where it was asked, never as the storage banner (D119).
+      if (failure.code !== 'held') note(failure);
       resolve({ ok: false, failure });
       return;
     }
@@ -468,7 +484,7 @@ async function commit<T>(m: Mutation<T>): Promise<StoreResult<T>> {
     // stored, which a failure did not change.
     if (outcome.refreshed) committed = durable = outcome.refreshed;
     mirror(committed);
-    lastFailure = outcome.failure;
+    if (outcome.failure.code !== 'held') lastFailure = outcome.failure;
     return { ok: false, failure: m.planFailure ?? outcome.failure };
   }
 
@@ -1648,6 +1664,8 @@ function armExpiry(): void {
  */
 export function clearAll(): Promise<StoreResult> {
   return enqueue<void>({
+    // The person's confirmed choice to erase everything: the engine isn't asked (D119).
+    erasesAll: true,
     // Nothing is shown as cleared until it is (J18).
     hold: true,
     // With nothing it can store to, it can delete nothing there either: it

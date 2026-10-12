@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { heldIn } from '@/test/held';
 import type { AppData, WorkoutSession } from '@/types';
 import type { CheckInRecord, Readiness } from '@/types/checkin';
 import { dayOf, isAt, newObservation, nowAt, type Observation } from '@/health/observation';
@@ -389,14 +390,24 @@ describe('F10 — a same-day recheck must keep the earlier reading', () => {
   it('keeps both glucose readings, each with its own record', async () => {
     await booted();
     const day = today();
-    await saveCheckIn(store, checkIn(day, { glucose: { value: 50, unit: 'mg/dL' } }));
+    await saveCheckIn(store, checkIn(day, { glucose: { value: 90, unit: 'mg/dL' } }));
     await saveCheckIn(store, checkIn(day, { glucose: { value: 110, unit: 'mg/dL' } }));
 
     const readings = () => store.getState().observations.filter(o => o.kind === 'glucose' && o.day === day);
-    expect(readings().map(o => o.value)).toEqual([50, 110]);
+    expect(readings().map(o => o.value)).toEqual([90, 110]);
     expect(new Set(readings().map(o => o.id)).size).toBe(2);
     await store.reload();
-    expect(readings().map(o => o.value)).toEqual([50, 110]);
+    expect(readings().map(o => o.value)).toEqual([90, 110]);
+  });
+
+  it('never lets a record saved over a low take the low away (board D119)', async () => {
+    await booted();
+    const day = today();
+    await saveCheckIn(store, checkIn(day, { glucose: { value: 50, unit: 'mg/dL' } }));
+    const over = await saveCheckIn(store, checkIn(day, { glucose: { value: 110, unit: 'mg/dL' } }));
+    expect(heldIn(over)).toBeDefined();
+    expect(store.getState().checkIns.find(c => c.date === day)?.glucose?.value).toBe(50);
+    expect(store.getState().observations.filter(o => o.kind === 'glucose').map(o => o.value)).toEqual([50]);
   });
 
   it("records today's readings when they were entered, not at a made-up midday", async () => {
@@ -419,9 +430,9 @@ describe('F10 — a same-day recheck must keep the earlier reading', () => {
       ...prev,
       checkIns: [...(prev.checkIns ?? []).filter(c => c.date !== day), checkIn(day, { glucose: { value, unit: 'mg/dL' } })],
     }));
-    await save(50);
+    await save(90);
     await save(110);
-    expect(store.getState().observations.filter(o => o.kind === 'glucose').map(o => o.value)).toEqual([50, 110]);
+    expect(store.getState().observations.filter(o => o.kind === 'glucose').map(o => o.value)).toEqual([90, 110]);
   });
 
   it('does not duplicate a reading when the same check-in is saved again', async () => {
@@ -1221,13 +1232,14 @@ describe('Coordinator: a correction lands on the reading it corrects', () => {
   it('correcting the earlier of two same-time readings changes that record, not the other', async () => {
     await booted();
     const at = '2026-10-08T07:20:00.000+05:30';
-    const record = checkIn('2026-10-08', { glucoseEarlier: [{ value: 52, unit: 'mg/dL', measuredAt: at }], glucose: { value: 110, unit: 'mg/dL', measuredAt: at } });
+    // Readings that hold nothing: a low corrected away is the store's to refuse until it is answered (board D119).
+    const record = checkIn('2026-10-08', { glucoseEarlier: [{ value: 92, unit: 'mg/dL', measuredAt: at }], glucose: { value: 110, unit: 'mg/dL', measuredAt: at } });
     await saveCheckIn(store, record);
     const before = new Map(store.getState().observations.map(o => [o.value, o.id]));
-    await saveCheckIn(store, { ...record, glucoseEarlier: [{ value: 53, unit: 'mg/dL', measuredAt: at }] });
+    await saveCheckIn(store, { ...record, glucoseEarlier: [{ value: 93, unit: 'mg/dL', measuredAt: at }] });
 
     const after = store.getState().observations;
-    expect(after.find(o => o.id === before.get(52))?.value).toBe(53);
+    expect(after.find(o => o.id === before.get(92))?.value).toBe(93);
     const untouched = after.find(o => o.id === before.get(110));
     expect(untouched?.value).toBe(110);
     expect(untouched?.editedAt).toBeUndefined();

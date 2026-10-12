@@ -20,6 +20,8 @@
 
 import type { AppData } from '@/types';
 import type { BpPartialReading, BpReading, CheckInRecord, ClockHold, DailyCheckIn, EmergencyFlag, EpisodeAnswer, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, RedFlag, SymptomReach } from '@/types/checkin';
+import { isHeld, type HeldReading, type HoldFailure } from '@/store/db';
+import { toDateString } from '@/lib/utils';
 import type { UserProfile } from '@/types/profile';
 import { bpPartialId, completes, evaluateCheckIn, newsReadingId, stoppedIn } from '@/engine/readiness';
 import { checkInDayOf, measuredStamp, type Observation } from '@/health/observation';
@@ -410,6 +412,17 @@ export function effectiveCheckIns(
 }
 
 /**
+ * The same, as stored: Track's readings attached and the phone's clock changes, without any answer still
+ * waiting. What the store's guard asks the engine about, before and after a change (board D119): a correction
+ * waiting for its own write is never read as standing beside the reading it corrects.
+ */
+export function storedCheckIns(
+  stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[] = [], clock?: ClockHold,
+): CheckInRecord[] {
+  return withClockHold(effectiveDays(stored, profile, observations, false), clock);
+}
+
+/**
  * B-19: the changes to this phone's clock (`settings.walk.clock`), on every
  * day the gates read, so each gate can tell a reading taken since the latest
  * from one taken before it (board D174). The records as they are without one.
@@ -418,14 +431,15 @@ export function withClockHold<T extends DailyCheckIn>(records: T[], clock: Clock
   return clock ? records.map(c => ({ ...c, clockHold: clock })) : records;
 }
 
-function effectiveDays(stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[]): CheckInRecord[] {
+function effectiveDays(stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[], waitingToo = true): CheckInRecord[] {
   const logged = observations.length ? loggedReadings(observations) : new Map<string, NonNullable<DailyCheckIn['logged']>>();
-  if (waiting.size === 0 && logged.size === 0) return [...stored];
-  const dates = new Set([...stored.map(c => c.date), ...waiting.keys(), ...logged.keys()]);
+  const pending = waitingToo ? [...waiting.keys()] : [];
+  if (pending.length === 0 && logged.size === 0) return [...stored];
+  const dates = new Set([...stored.map(c => c.date), ...pending, ...logged.keys()]);
   return [...dates].sort().flatMap(date => {
     const recent = stored.filter(c => c.date < date);
     const mine = stored.find(c => c.date === date);
-    const record = effectiveRecord(mine, waitingFor(date, mine), profile, recent);
+    const record = effectiveRecord(mine, waitingToo ? waitingFor(date, mine) : undefined, profile, recent);
     const readings = logged.get(date);
     if (!readings) return record ? [record] : [];
     const { readiness: _r, ...plain }: Partial<CheckInRecord> & DailyCheckIn = record ?? { date, urgentSymptoms: false, news: [], readingsOnly: true };
@@ -583,6 +597,24 @@ async function saveWith(
   return { record: saved, stored: result.ok };
 }
 
+/**
+ * "It was a mistake" (board D119): each held measurement, exactly as the
+ * refusal named it, answered as typed wrongly in today's check-in, as the
+ * check-in sheet's "I typed it wrongly" answers one. A later day's answer
+ * settles an earlier day's reading too, as the engine reads them, and it is
+ * kept like any answer: the reading's history is what was measured and what
+ * was said about it (J§4.6, K8-07).
+ */
+export function answerMistakes(held: readonly HeldReading[], deps: { profile: UserProfile; update: StoreUpdate }, now: Date = new Date()): Promise<SaveResult> {
+  const date = toDateString(now);
+  const at = now.toISOString();
+  const answers: EpisodeAnswer[] = held.map(h => ({ kind: h.kind, readings: [h.id], resolution: 'mistake', at }));
+  return saveWith(date, today => {
+    const base: DailyCheckIn = today ?? { date, urgentSymptoms: false, news: [] };
+    return { ...base, resolutions: [...(base.resolutions ?? []), ...answers] };
+  }, deps);
+}
+
 // ============================================================================
 // Correcting a reading typed wrongly (Track T3-01)
 // ============================================================================
@@ -688,6 +720,8 @@ export interface CorrectionResult {
   failure?: string;
   /** A restore that had nothing to put back (K8-06): the check-in holds it already, or has a newer answer. */
   unchanged?: 'already' | 'newer';
+  /** Refused: it would lift a hold the engine hasn't released, or the phone's clock changed (D119). Nothing changed. */
+  held?: HoldFailure;
 }
 
 /**
@@ -708,7 +742,11 @@ export async function correctCheckInPressure(
 ): Promise<CorrectionResult> {
   const { profile, update, date } = deps;
   let record: CheckInRecord | undefined;
+  // What was waiting before this write, given back if it is refused (D119), and read by a plan made again.
+  const prior = { record: waiting.get(date), restored: restored.has(date) };
+  let own: CheckInRecord | undefined;
   const written = update(prev => {
+    if (own !== undefined && waiting.get(date) === own) giveBack(date, own, prior);
     const list = prev.checkIns ?? [];
     const recent = list.filter(x => x.date < date);
     // The same reading of what waits as every other save (`saveWith`): a copy
@@ -720,10 +758,16 @@ export async function correctCheckInPressure(
     if (!record) return prev;
     restored.delete(date);
     waiting.set(date, record);
+    own = record;
     return { ...prev, checkIns: [...list.filter(x => x.date !== date), record] };
   }, { readings: 'correct' });
   publish();
   const result = await written;
+  if (isHeld(result.failure)) {
+    giveBack(date, record, prior);
+    publish();
+    return { matched: record !== undefined, stored: false, failure: result.failure.message, held: result.failure };
+  }
   if (!record) return { matched: false, stored: result.ok };
   if (result.ok) {
     refused.delete(date);
@@ -938,6 +982,14 @@ export function withReadingPutBack(record: DailyCheckIn, k: KeptReading): DailyC
 export const ALREADY_BACK = 'Already back in your check-in.';
 export const NEWER_STAYS = 'Your newer answer stays.';
 
+/** What waited for `date` before a write, back in place of the record that write set, when it is still that record's. */
+function giveBack(date: string, mine: CheckInRecord | undefined, prior: { record: CheckInRecord | undefined; restored: boolean }): void {
+  if (mine === undefined || waiting.get(date) !== mine) return;
+  if (prior.record) waiting.set(date, prior.record);
+  else waiting.delete(date);
+  if (prior.restored) restored.add(date);
+}
+
 /**
  * Change a day's check-in where every movement gate reads it, in the same
  * write as its readings, as `correctCheckInPressure` does: built inside the
@@ -958,11 +1010,7 @@ async function reviseCheckIn(
   const prior = { record: waiting.get(date), restored: restored.has(date) };
   let own: CheckInRecord | undefined;
   const written = update(prev => {
-    if (own !== undefined && waiting.get(date) === own) {
-      if (prior.record) waiting.set(date, prior.record);
-      else waiting.delete(date);
-      if (prior.restored) restored.add(date);
-    }
+    if (own !== undefined && waiting.get(date) === own) giveBack(date, own, prior);
     const list = prev.checkIns ?? [];
     const recent = list.filter(x => x.date < date);
     const mine = list.find(x => x.date === date);
@@ -977,6 +1025,12 @@ async function reviseCheckIn(
   }, options);
   publish();
   const result = await written;
+  if (isHeld(result.failure)) {
+    // Refused before anything was written (D119): what waited before waits again, and nothing else moved.
+    giveBack(date, record, prior);
+    publish();
+    return { matched: record !== undefined, stored: false, failure: result.failure.message, held: result.failure };
+  }
   const failure = result.ok ? {} : { failure: result.failure?.message ?? 'The device did not keep it.' };
   if (!record) return { matched: false, stored: result.ok, ...failure };
   if (result.ok) {

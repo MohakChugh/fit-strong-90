@@ -9,6 +9,8 @@ import { Sheet } from '@/components/hig/Sheet';
 import type { BpReading } from '@/health/aggregate';
 import { atOnDay, checkInDayOf, type Observation, type ObservationTag } from '@/health/observation';
 import { correctCheckInGlucose, correctCheckInPain, correctCheckInPressure, type CorrectionResult } from '@/components/checkin/pending';
+import { HeldProblem } from '@/components/checkin/HeldProblem';
+import { isHeld, type HoldFailure } from '@/store/db';
 import { editObservation, putBloodPressure, update, useStore, type ObservationPatch } from '@/store/useStore';
 import { glucoseEscalation, pressureEscalation } from './escalation';
 import { displayUnitOf, formatValue, hasClockTime, isLabKind, unitLabel, type DisplayPrefs } from './format';
@@ -96,13 +98,16 @@ function EditReadingForm({ observation: o, prefs, onDone, onGuidance }: { observ
   const [tag, setTag] = useState<ObservationTag | undefined>(o.tag);
   const [note, setNote] = useState(o.note ?? '');
   const [error, setError] = useState<string>();
+  // A change refused because the reading still holds movement (D119): said here, with its way out.
+  const [held, setHeld] = useState<HoldFailure>();
+  const clearProblem = () => { setError(undefined); setHeld(undefined); };
   const [busy, setBusy] = useState(false);
   const noteId = useId();
 
   const switchUnit = (next: string) => {
     if (!typed) setRaw(shownIn(next));
     setUnit(next);
-    setError(undefined);
+    clearProblem();
   };
 
   const save = async () => {
@@ -147,7 +152,10 @@ function EditReadingForm({ observation: o, prefs, onDone, onGuidance }: { observ
       if (checkInDay && profile && renumbered) {
         const result = await correctInCheckIn(o, value, storedUnit, { profile, update, date: checkInDay });
         if (result?.matched) {
-          if (!result.stored) return result.failure;
+          if (!result.stored) {
+            if (result.held) setHeld(result.held);
+            return result.failure;
+          }
           // The number went with the record; what is left is the reading's own.
           const { value: _value, unit: _unit, ...rest } = patch;
           void _value; void _unit;
@@ -156,9 +164,11 @@ function EditReadingForm({ observation: o, prefs, onDone, onGuidance }: { observ
       }
       if (Object.keys(own).length === 0) return undefined;
       const result = await editObservation(o.id, own);
-      return result.ok ? undefined : result.failure.message;
+      if (result.ok) return undefined;
+      if (isHeld(result.failure)) setHeld(result.failure);
+      return result.failure.message;
     };
-    setError(undefined);
+    clearProblem();
     setBusy(true);
     const failure = await saveWithGuidance({
       escalation,
@@ -180,7 +190,7 @@ function EditReadingForm({ observation: o, prefs, onDone, onGuidance }: { observ
         label="Value"
         mode={Number.isInteger(o.value) && decimalsFor(o.kind, unit) === 0 ? 'numeric' : 'decimal'}
         value={raw}
-        onChange={v => { setRaw(v); setTyped(true); setError(undefined); }}
+        onChange={v => { setRaw(v); setTyped(true); clearProblem(); }}
         invalid={!!error}
         describedBy={error ? errorId : undefined}
         unit={unitLabel(unit)}
@@ -205,7 +215,9 @@ function EditReadingForm({ observation: o, prefs, onDone, onGuidance }: { observ
           className="min-h-11 rounded-xl bg-grouped-card px-4 py-3 text-[length:var(--text-body)] outline-none ring-1 ring-transparent focus:ring-tint"
         />
       </div>
-      {error && <ErrorText id={errorId}>{error}</ErrorText>}
+      {held
+        ? <HeldProblem failure={held} profile={profile} onAnswered={() => { setHeld(undefined); void save(); }} />
+        : error && <ErrorText id={errorId}>{error}</ErrorText>}
       <PrimaryButton onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save correction'}</PrimaryButton>
     </>
   );
@@ -259,10 +271,13 @@ function EditPressureForm({ reading: r, onDone, onGuidance }: { reading: BpReadi
   const [time, setTime] = useState<string | undefined>(() => (hasClockTime(r.halves[0]) ? toLocalInput(r.at) : undefined));
   const [timeTouched, setTimeTouched] = useState(false);
   const [error, setError] = useState<string>();
+  // A change refused because the reading still holds movement (D119): said here, with its way out.
+  const [held, setHeld] = useState<HoldFailure>();
+  const clearProblem = () => { setError(undefined); setHeld(undefined); };
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
-    setError(undefined);
+    clearProblem();
     // Both numbers, when the reading has both; a missing half is never invented.
     let sys: number | null = r.systolic;
     let dia: number | null = r.diastolic;
@@ -304,7 +319,11 @@ function EditPressureForm({ reading: r, onDone, onGuidance }: { reading: BpReadi
           { profile, update, date: checkInDay },
         );
         // Not in the record (taken out since): only the readings are corrected.
-        if (result.matched) return result.stored ? undefined : result.failure;
+        if (result.matched) {
+          if (result.stored) return undefined;
+          if (result.held) setHeld(result.held);
+          return result.failure;
+        }
       }
       // Both numbers in one write, the reading's halves, context and metadata kept.
       if (sys !== null && dia !== null) {
@@ -313,12 +332,16 @@ function EditPressureForm({ reading: r, onDone, onGuidance }: { reading: BpReadi
           ...(at !== undefined ? { at } : {}),
           ...tagPatch,
         });
-        return result.ok ? undefined : result.failure.message;
+        if (result.ok) return undefined;
+        if (isHeld(result.failure)) setHeld(result.failure);
+        return result.failure.message;
       }
       const half = systolicHalf ?? diastolicHalf;
       if (!half) return undefined;
       const result = await editObservation(half.id, { value: (half === systolicHalf ? sys : dia) as number });
-      return result.ok ? undefined : result.failure.message;
+      if (result.ok) return undefined;
+      if (isHeld(result.failure)) setHeld(result.failure);
+      return result.failure.message;
     };
     // Judged on the corrected numbers, before the write (F01). Either number alone is enough.
     const escalation = changed ? pressureEscalation(sys ?? 0, dia ?? 0, profile) : undefined;
@@ -340,10 +363,10 @@ function EditPressureForm({ reading: r, onDone, onGuidance }: { reading: BpReadi
     <>
       <div className="grid grid-cols-[repeat(auto-fit,minmax(8rem,1fr))] gap-3">
         {systolicHalf || whole
-          ? <NumberField label="Top (systolic)" mode="numeric" value={s} onChange={v => { setS(v); setError(undefined); }} invalid={!!error} describedBy={error ? errorId : undefined} />
+          ? <NumberField label="Top (systolic)" mode="numeric" value={s} onChange={v => { setS(v); clearProblem(); }} invalid={!!error} describedBy={error ? errorId : undefined} />
           : <p className="self-end rounded-xl bg-grouped-card px-4 py-3 text-[length:var(--text-subhead)] text-muted-foreground">Top number not entered</p>}
         {diastolicHalf || whole
-          ? <NumberField label="Bottom (diastolic)" mode="numeric" value={d} onChange={v => { setD(v); setError(undefined); }} invalid={!!error} describedBy={error ? errorId : undefined} />
+          ? <NumberField label="Bottom (diastolic)" mode="numeric" value={d} onChange={v => { setD(v); clearProblem(); }} invalid={!!error} describedBy={error ? errorId : undefined} />
           : <p className="self-end rounded-xl bg-grouped-card px-4 py-3 text-[length:var(--text-subhead)] text-muted-foreground">Bottom number not entered</p>}
       </div>
       {whole && (
@@ -352,7 +375,9 @@ function EditPressureForm({ reading: r, onDone, onGuidance }: { reading: BpReadi
           <TimeRow value={time} onChange={v => { if (v !== undefined) { setTime(v); setTimeTouched(true); } }} />
         </>
       )}
-      {error && <ErrorText id={errorId}>{error}</ErrorText>}
+      {held
+        ? <HeldProblem failure={held} profile={profile} onAnswered={() => { setHeld(undefined); void save(); }} />
+        : error && <ErrorText id={errorId}>{error}</ErrorText>}
       <PrimaryButton onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save correction'}</PrimaryButton>
     </>
   );

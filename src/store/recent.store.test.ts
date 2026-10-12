@@ -338,7 +338,7 @@ describe('a session and what was recorded with it, out and back as they were (P8
     if (!back.ok) throw back.failure;
     expect(pain()).toEqual([expect.objectContaining({
       id: `session:${back.value.id}:backPain`, context: `session:${back.value.id}`, value: 4, restoredFrom: 'session:s9:backPain',
-      editedAt: corrected.editedAt, order: corrected.order,
+      editedAt: corrected.editedAt, order: corrected.order, was: corrected.was,
     })]);
     const again = store.getState().sessions.find(s => s.id === back.value.id)!;
     expect(again.painAfter).toBe(4);
