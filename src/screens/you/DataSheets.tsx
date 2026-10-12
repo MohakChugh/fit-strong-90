@@ -129,7 +129,7 @@ function BackupBody({ device }: { device: string }) {
         </Group>
       )}
       <div className="flex flex-col gap-2">
-        <PrimaryButton disabled={!ready} onClick={() => { if (ready) void hand(ready); }}>
+        <PrimaryButton className={TARGET.primary} disabled={!ready} onClick={() => { if (ready) void hand(ready); }}>
           {!file ? 'Preparing the file…' : deliveryMethod(file) === 'share' ? 'Save or share' : 'Download'}
         </PrimaryButton>
         <p aria-live="polite" className="numeric px-4 text-[length:var(--text-footnote)] text-muted-foreground">

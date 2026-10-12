@@ -160,7 +160,7 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
         {stage.kind === 'problem' && (
           <>
             <Notice tone="error">{stage.message}</Notice>
-            <PrimaryButton onClick={pick}>Choose another file</PrimaryButton>
+            <PrimaryButton className={TARGET.primary} onClick={pick}>Choose another file</PrimaryButton>
           </>
         )}
 
@@ -170,7 +170,7 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
             <Group header="In this file">
               {previewLines(stage.preview).map(line => <Row key={line.label} label={line.label} value={line.count.toLocaleString()} numeric />)}
             </Group>
-            <PrimaryButton onClick={close}>Done</PrimaryButton>
+            <PrimaryButton className={TARGET.primary} onClick={close}>Done</PrimaryButton>
           </>
         )}
 
@@ -214,7 +214,7 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
         {stage.kind === 'done' && (
           <>
             <Notice>{stage.message}</Notice>
-            <PrimaryButton onClick={close}>Done</PrimaryButton>
+            <PrimaryButton className={TARGET.primary} onClick={close}>Done</PrimaryButton>
           </>
         )}
       </Sheet>
@@ -290,7 +290,7 @@ function PreviewBody({ preview, saveRoutes, note, place, device, heldHere, onMer
         <Notice tone="error">This backup is empty, so restoring it would add nothing.</Notice>
       ) : replaceOnly ? (
         <div className="flex flex-col gap-2">
-          <PrimaryButton onClick={onReplace}>Restore</PrimaryButton>
+          <PrimaryButton className={TARGET.primary} onClick={onReplace}>Restore</PrimaryButton>
           <p className="px-4 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
             This {device} will hold exactly what the backup holds, settings and profile included.{preview.keepsOpen ? ` ${keepsOpenLine(device)}` : ''}
           </p>
@@ -314,7 +314,7 @@ function PreviewBody({ preview, saveRoutes, note, place, device, heldHere, onMer
             </Group>
           )}
           <div className="flex flex-col gap-2">
-            <PrimaryButton onClick={() => onMerge(policy)}>Merge into this {device}</PrimaryButton>
+            <PrimaryButton className={TARGET.primary} onClick={() => onMerge(policy)}>Merge into this {device}</PrimaryButton>
             <p className="px-4 pb-2 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
               Keeps everything here and adds what is in the file. Where a record has been changed, the newer copy is kept. Your settings and profile here stay as they are.
             </p>

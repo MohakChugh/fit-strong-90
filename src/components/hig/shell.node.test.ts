@@ -275,6 +275,14 @@ describe('a sheet that will not close yet (review C2-07)', () => {
     expect(read('src/components/hig/targets.ts')).toMatch(/primary: 'min-h-\[60px\]'/);
   });
 
+  it('sizes every primary button of Me → Data, Backup and Restore, as a main target, 60 px at least (§20.4 rule 1, H6R-13)', () => {
+    for (const [file, count] of Object.entries({ 'src/screens/you/DataSheets.tsx': 1, 'src/screens/you/RestoreFlow.tsx': 5 })) {
+      const buttons = read(file).split('\n').filter(line => line.includes('<PrimaryButton'));
+      expect(buttons, file).toHaveLength(count);
+      for (const line of buttons) expect(line, file).toContain('className={TARGET.primary}');
+    }
+  });
+
   it('gives the first walk’s two consent answers the same weight, neither the primary one (§24, K6R-06)', () => {
     const sheet = read('src/screens/walk/PreflightSheet.tsx');
     for (const q of ['keepRoute', 'mapPictures']) {
