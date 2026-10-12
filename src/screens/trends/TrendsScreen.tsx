@@ -13,6 +13,8 @@ import type { CategoryId } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { markInPlace, type Origin } from '@/components/hig/navigation';
+import { numbersView } from '@/food/level';
+import { mealsIn } from '@/food/records';
 import { isDay } from '@/health/observation';
 import { statusOn } from '@/health/status';
 import { TileIcon } from '@/screens/home/Tile';
@@ -26,6 +28,7 @@ import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
 import { RouteThumb } from '@/screens/walk/RouteThumb';
 import { setContentState, useStore } from '@/store/useStore';
 import type { RouteRecord } from '@/walk/routeRecord';
+import { foodRow } from './food';
 import { TREND_ORDER, TRENDS, hasData } from './metrics';
 import { trendContext, trendRow, trendSections, type TrendRowView } from './model';
 import { activities } from './records';
@@ -66,12 +69,18 @@ export default function TrendsScreen() {
   // A week from the rings, or from Home's brief; never one still to come.
   const week = asked !== null && isDay(asked) && mondayOf(asked) <= thisWeek ? mondayOf(asked) : thisWeek;
 
-  const data = useMemo(() => ({ observations: state.observations, sessions: state.sessions, checkIns: state.checkIns }), [state.observations, state.sessions, state.checkIns]);
+  // Meals, and whether their figures are shown at all: Food's row is there only with estimates (D114, B-11).
+  const data = useMemo(
+    () => ({ observations: state.observations, sessions: state.sessions, checkIns: state.checkIns, meals: mealsIn(state.records), numbers: numbersView(state.profile) }),
+    [state.observations, state.sessions, state.checkIns, state.records, state.profile],
+  );
   const prefs = useMemo(() => displayPrefs(state.settings, state.profile, state.observations), [state.settings, state.profile, state.observations]);
   const ctx = useMemo(() => trendContext({ today, data, settings: state.settings, profile: state.profile }), [today, data, state.settings, state.profile]);
   const facts = useMemo(() => weekFacts({ week, data, prefs, ctx }), [week, data, prefs, ctx]);
   const rings = useMemo(() => weekRings(today, data, state.settings), [today, data, state.settings]);
-  const rows = useMemo(() => TREND_ORDER.filter(id => hasData(id, data)).map(id => trendRow(TRENDS[id], data, prefs, ctx)), [data, prefs, ctx]);
+  const rows = useMemo(() => TREND_ORDER.filter(id => hasData(id, data)).map(id => (id === 'food'
+    ? foodRow({ meals: data.meals, ranges: data.numbers.show && data.numbers.ranges, ctx })
+    : trendRow(TRENDS[id], data, prefs, ctx))), [data, prefs, ctx]);
   const recent = useMemo(() => activities(data, prefs, today).slice(0, 5), [data, prefs, today]);
   // A walk's kept route, drawn small beside it (journey §9.5, B-23), as Today's log draws it: our own drawing, never a map picture.
   const routeOf = useMemo(() => new Map(state.records.routes.map(r => [r.walkId as string, r as unknown as RouteRecord])), [state.records.routes]);
@@ -96,7 +105,8 @@ export default function TrendsScreen() {
   // By the registry's groups, at most 5 rows to a region (B-08, H3-22).
   const sections = trendSections(rows);
 
-  if (ctx.since === undefined) {
+  // Meals aren't the record's first day (`firstRecordDay`), so meals alone, with estimates on, still list Food's row (D114).
+  if (ctx.since === undefined && rows.length === 0) {
     return (
       <Screen title="Trends">
         <div className="flex flex-col items-start gap-3 rounded-xl bg-grouped-card p-4">

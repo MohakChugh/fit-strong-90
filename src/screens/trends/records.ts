@@ -13,6 +13,8 @@ import type { DisplayPrefs } from '@/screens/track/format';
 import { recordedMovement, sessionInterval } from '@/screens/track/movement';
 import { addDays } from '@/screens/track/periods';
 import { stepsDayFigure } from '@/screens/track/stepsDay';
+import type { NumbersView } from '@/food/level';
+import type { MealRecord } from '@/food/types';
 import type { WorkoutSession } from '@/types';
 import type { CheckInRecord } from '@/types/checkin';
 import { walkRecords } from '@/walk/record';
@@ -22,6 +24,10 @@ export interface TrendData {
   observations: readonly Observation[];
   sessions: readonly WorkoutSession[];
   checkIns: readonly CheckInRecord[];
+  /** Food (Plan 7), read only while estimates are on (D114). */
+  meals?: readonly MealRecord[];
+  /** `numbersView()`: whether food figures are shown at all (B-11). */
+  numbers?: NumbersView;
 }
 
 /**

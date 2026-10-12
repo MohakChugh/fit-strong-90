@@ -18,7 +18,7 @@ export const SLOT_LABEL: Record<Slot, string> = { breakfast: 'Breakfast', lunch:
 
 const fmt = (n: number) => n.toLocaleString('en-IN');
 /** The person's own carb figure as they gave it, to one decimal, or under 1 g (K7R-07): never rounded off, as it may set a dose. */
-const ownGrams = (g: number) => (g < 1 ? 'under 1 g' : `${g.toLocaleString('en-IN', { maximumFractionDigits: 1 })} g`);
+export const ownGrams = (g: number) => (g < 1 ? 'under 1 g' : `${g.toLocaleString('en-IN', { maximumFractionDigits: 1 })} g`);
 const to = (n: number, step: number, how: 'round' | 'floor' | 'ceil') => Math[how](n / step) * step;
 const carbStep = (n: number) => (n < 10 ? 1 : 5);
 

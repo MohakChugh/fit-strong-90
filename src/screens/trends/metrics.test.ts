@@ -19,12 +19,8 @@ const g = (value: number, unit: 'mg/dL' | 'mmol/L', at: string, tag?: 'fasting' 
   newObservation({ kind: 'glucose', value, unit, at, scope: 'pointInTime', source: 'manual', ...(tag ? { tag } : {}) });
 
 describe('a trend for each category that declares one (B-14)', () => {
-  it('every category’s trend address has a trend here, but Food’s, which Plan 7 builds; Learn declares none; Mood is extra', () => {
+  it('every category’s trend address has a trend here, Food’s included (D114); Learn declares none; Mood is extra', () => {
     for (const c of CATEGORIES) {
-      if (c.id === 'food') {
-        expect(trendDef('food')).toBeUndefined();
-        continue;
-      }
       if (c.trend === undefined) {
         expect(c.id).toBe('learn');
         continue;
@@ -32,14 +28,15 @@ describe('a trend for each category that declares one (B-14)', () => {
       expect(trendDef(c.id)?.id, c.id).toBe(c.id);
       expect(c.trend).toBe(`/trends/${c.id}`);
     }
-    expect(TREND_ORDER).toEqual(['workout', 'stretch', 'walk', 'steps', 'glucose', 'bp', 'back', 'weight', 'water', 'sleep', 'waist', 'labs', 'mood']);
+    expect(TREND_ORDER).toEqual(['workout', 'stretch', 'walk', 'steps', 'food', 'glucose', 'bp', 'back', 'weight', 'water', 'sleep', 'waist', 'labs', 'mood']);
   });
 
   it('finds a trend by its address id, and nothing for anything else', () => {
     expect(trendDef('steps')).toMatchObject({ title: 'Steps', family: 'stated', movement: true });
     expect(trendDef('glucose')).toMatchObject({ family: 'readings', movement: false });
     expect(trendDef('walk')).toMatchObject({ family: 'counted', movement: true });
-    for (const id of ['food', 'learn', 'nope', 'constructor', undefined]) expect(trendDef(id), String(id)).toBeUndefined();
+    expect(trendDef('food')).toMatchObject({ title: 'Food', family: 'stated', movement: false, coverage: ['day with meals logged', 'days with meals logged'] });
+    for (const id of ['learn', 'nope', 'constructor', undefined]) expect(trendDef(id), String(id)).toBeUndefined();
   });
 });
 
