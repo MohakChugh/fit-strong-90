@@ -1339,9 +1339,16 @@ describe('saving a walk with its route and its journal (journey §18.3, A-55)', 
     const later = { start: T + 700_000, end: T + 710_000, coords: [[12.972, 77.591], [12.9725, 77.5912]] as [number, number][], ms: [0, 10_000] };
     await store.putWalkJournal(journalEntry(walked(), T + 600_000, [LINE]));
     // After a reload, before the route has been read back: only the section walked since.
-    await store.putWalkJournal(journalEntry(walked(), T + 720_000, [later]), { keepJournalled: true });
+    const merged = await store.putWalkJournal(journalEntry(walked(), T + 720_000, [later]), { keepJournalled: true });
     let left = await store.readWalkJournals();
     expect(left.ok && left.value[0].route).toEqual([LINE, later]);
+    // It answers with what it stored, both sections, for the page to hold in their place (H6F-08).
+    expect(merged.ok && merged.value.route).toEqual([LINE, later]);
+    // And with a route it left out, without it.
+    await store.setWalkSettings({ saveRoutes: false });
+    const left_out = await store.putWalkJournal(journalEntry(walked(), T + 725_000, [later]));
+    expect(left_out.ok && left_out.value.route).toBeUndefined();
+    await keepsRoutes();
     // A page that holds every line writes them as they are.
     await store.putWalkJournal(journalEntry(walked(), T + 730_000, [later]));
     left = await store.readWalkJournals();

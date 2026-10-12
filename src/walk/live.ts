@@ -102,7 +102,7 @@ export interface JournalPort {
    * `keepJournalled`, the route lines the journal already holds stay beside
    * the checkpoint's (`withJournalled`): this page may not hold them yet.
    */
-  checkpoint(entry: JournalEntry, options?: { keepJournalled?: boolean }): Promise<StoreResult>;
+  checkpoint(entry: JournalEntry, options?: { keepJournalled?: boolean }): Promise<StoreResult<unknown>>;
   /** The latest checkpoint kept for a walk, or nothing when there is none. Rejects when it can't be read: that is not "none" (H6-06). */
   read(id: string): Promise<JournalEntry | undefined>;
 }

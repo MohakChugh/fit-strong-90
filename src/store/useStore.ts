@@ -55,7 +55,7 @@ import {
   type ObservationTag,
 } from '@/health/observation';
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
-import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult } from './db';
+import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult, type TxHandle } from './db';
 import { parseJournalEntry, withJournalled, type JournalEntry } from '@/walk/journal';
 import { sameClockChange, type ClockSeen } from '@/walk/clock';
 import { clockGeneration, erasedGeneration, routeErased, walkSettings, withClockChange, withErase, withPendingClock, type WalkSettings } from '@/walk/consent';
@@ -1244,20 +1244,23 @@ export function writeRecords(write: {
  * stored, read in the write's own transaction: a checkpoint from a tab that
  * hasn't heard yet never writes coordinates back (H6R-06, board D176).
  */
-export function putWalkJournal(entry: JournalEntry, options: { keepJournalled?: boolean } = {}): Promise<StoreResult> {
+export function putWalkJournal(entry: JournalEntry, options: { keepJournalled?: boolean } = {}): Promise<StoreResult<JournalEntry>> {
   const handle = db;
   if (!handle) return Promise.resolve({ ok: false, failure: unavailableFailure() });
+  /** What the transaction stored, which the page's copy takes once it is (H6F-08). */
+  let written = entry;
+  const put = (tx: TxHandle, e: JournalEntry) => { written = e; tx.put(JOURNAL_STORE, e); };
   return handle.transact(tx => {
-    if (!entry.route) return tx.put(JOURNAL_STORE, entry);
+    if (!entry.route) return put(tx, entry);
     tx.get('settings', 'settings', row => {
       const walk = ((row as Doc | undefined)?.value as UserSettings | undefined)?.walk;
       const keeps = walk?.saveRoutes === true && !routeErased(walk, entry.id, entry.walk.plan, entry.walk.startedAt);
-      if (!keeps) return tx.put(JOURNAL_STORE, (({ route: _gone, ...rest }) => { void _gone; return rest; })(entry));
-      if (!options.keepJournalled) return tx.put(JOURNAL_STORE, entry);
+      if (!keeps) return put(tx, (({ route: _gone, ...rest }) => { void _gone; return rest; })(entry));
+      if (!options.keepJournalled) return put(tx, entry);
       // A page still reading the route back: the lines held stay beside what it walked since (H6R-10).
-      tx.get(JOURNAL_STORE, entry.id, stored => tx.put(JOURNAL_STORE, { ...entry, route: withJournalled(parseJournalEntry(stored)?.route, entry.route)! }));
+      tx.get(JOURNAL_STORE, entry.id, stored => put(tx, { ...entry, route: withJournalled(parseJournalEntry(stored)?.route, entry.route)! }));
     });
-  });
+  }).then(result => (result.ok ? { ok: true, value: written } : result));
 }
 
 /** Every readable checkpoint on this device. One that can't be read is left out, never guessed. */
