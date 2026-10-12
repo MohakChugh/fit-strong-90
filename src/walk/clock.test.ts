@@ -4,6 +4,7 @@ import {
   accrueOpen,
   addGapTime,
   CLOCK_JUMP_MS,
+  clockChangeDays,
   daysAround,
   finishWalk,
   heartbeat,
@@ -225,6 +226,19 @@ describe('the open segment', () => {
     expect(w.segments[0].steps).toBe(12);
     const paused = pauseWalk(w, s(10));
     expect(updateOpenSegment(paused, x => ({ ...x, steps: 99 }))).toBe(paused);
+  });
+});
+
+describe('the days a walk’s change to the clock leaves untimed (H6F-03, board D189)', () => {
+  it('are those either side of the change by both clocks, though the clock was set days back', () => {
+    const w = walkFor();
+    const cut = { ...w.segments[0], end: s(600), endedBy: 'clockChange' as const };
+    const back = s(600) - 3 * 86_400_000;
+    const days = clockChangeDays({ ...w, clockChangedAt: back, segments: [cut] });
+    expect(days).toContain(toDateString(new Date(s(600))));
+    expect(days).toContain(toDateString(new Date(back)));
+    // With no segment cut at a change, around the change itself.
+    expect(clockChangeDays({ ...w, clockChangedAt: back })).toEqual(daysAround(back));
   });
 });
 

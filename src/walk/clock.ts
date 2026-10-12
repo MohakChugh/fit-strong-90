@@ -136,12 +136,35 @@ export interface Walk {
   /** B-19: when this walk saw the phone's clock change. A restart then asks for a fresh reading. */
   clockChangedAt?: number;
   /**
+   * B-19: a change this walk saw that the device hasn't stored yet. Loaded
+   * again, the walk hands it to the device before it is carried on, until
+   * the device has stored it (H6F-02, H6F-03, board D189).
+   */
+  clockUnkept?: true;
+  /**
    * B-19, walks recorded before board D174: the glucose readings the device
-   * knew at each change, by identity. Still read, so such a walk isn't lost;
-   * the device keeps the change now (`settings.walk.clock`), and nothing
-   * reads this.
+   * knew at each change, by identity. Such a walk saw the clock change, so
+   * loaded it hands the change to the device, as `clockUnkept` does, and
+   * keeps this until the device has stored it (H6F-03, board D189).
    */
   untimedReadings?: string[];
+}
+
+/** B-19: the walk holds a change to the clock the device has yet to store: its own (`clockUnkept`) or an older version's (`untimedReadings`). */
+export const clockUnkept = (walk: Walk): boolean => walk.clockUnkept === true || walk.untimedReadings !== undefined;
+
+/** B-19: the device has stored the walk's change to the clock: the walk keeps when it was, and nothing more. */
+export function clockKept(walk: Walk): Walk {
+  const { clockUnkept: _kept, untimedReadings: _old, ...rest } = walk;
+  void _kept;
+  void _old;
+  return rest;
+}
+
+/** B-19: the local days either side of the walk's change to the clock, by both clocks: those its readings can't be timed on. */
+export function clockChangeDays(walk: Walk): string[] {
+  const cut = walk.segments.filter(s => s.endedBy === 'clockChange').at(-1);
+  return daysAround(...(cut?.end !== undefined ? [cut.end] : []), walk.clockChangedAt ?? walk.seenAt);
 }
 
 /**
@@ -450,14 +473,15 @@ export function accrueOpen(walk: Walk, ms: number, wall: number): Walk {
  * next opens at the new time. No gap: the walk was watched throughout.
  *
  * The walk keeps the latest change. Which readings it leaves untimed is the
- * device's to keep, not the walk's (`markClockChange`, board D174).
+ * device's to keep, not the walk's (`markClockChange`, board D174); until
+ * the device has stored it, the walk remembers it is unkept (`clockUnkept`).
  */
 export function splitAtClockChange(walk: Walk, wall: number, ms: number): Walk {
   const open = walk.status === 'running' ? openSegment(walk) : undefined;
   if (!open) return walk;
   const end = open.accruedAt + ms;
   const before: Segment = { ...open, end: Math.max(open.start, end), endedBy: 'clockChange', accruedMs: open.accruedMs + ms, accruedAt: end };
-  return { ...walk, clockChangedAt: wall, segments: [...walk.segments.slice(0, -1), before, emptySegment(wall)] };
+  return { ...walk, clockChangedAt: wall, clockUnkept: true, segments: [...walk.segments.slice(0, -1), before, emptySegment(wall)] };
 }
 
 /**

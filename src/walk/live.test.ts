@@ -17,7 +17,7 @@ import type { Fix } from './gps';
 import { createLiveWalk, MOTION_WAIT_MS, NOTICE_MIN_GAP_MS, type GeoError, type JournalPort, type LivePorts, type WalkIntent } from './live';
 import { withJournalled, type JournalEntry } from './journal';
 import { StoreFailure, type StoreResult } from '@/store/db';
-import { clearWalk, loadWalk, type WalkStorage } from './persist';
+import { clearWalk, loadWalk, WALK_KEY, type WalkStorage } from './persist';
 import { walkObservations } from './record';
 
 const T0 = Date.UTC(2026, 9, 8, 13, 0, 0);
@@ -1354,18 +1354,29 @@ describe('B-19: a change to the phone’s clock, asked of the real gate (H6-02)'
   /** One acquired since the device's first change, as the screen that took it stamps it (H6R-03, board D186). */
   const since = (h: number, m: number, value: number) => ({ glucose: { ...reading(h, m, value).glucose, gen: 1 } });
 
-  /** The device: stored check-ins and settings, the production gate over them, the clock changes it keeps, and a check-in save. */
-  function device(who: UserProfile, first: DailyCheckIn) {
-    const store = { checkIns: [{ ...first, readiness: evaluateCheckIn(who, first) }] as CheckInRecord[], settings };
+  /**
+   * The device: stored check-ins and settings, the production gate over them, the clock changes it keeps, and a check-in save.
+   * A change is held at once, as the store holds one; `kept` says when it is stored, at once unless a test holds it back.
+   */
+  function device(who: UserProfile, first: DailyCheckIn, tab?: WalkStorage) {
+    // A reload: the tab's storage as it was, read afresh, as a new page reads it.
+    const storage: WalkStorage | undefined = tab && { getItem: k => tab.getItem(k), setItem: (k, v) => tab.setItem(k, v), removeItem: k => tab.removeItem(k) };
+    const store = { checkIns: [{ ...first, readiness: evaluateCheckIn(who, first) }] as CheckInRecord[], settings, marked: [] as (readonly string[])[] };
     const listeners = new Set<() => void>();
     const read = () => ({ profile: who, checkIns: store.checkIns, settings: store.settings });
     const notify = () => { for (const l of [...listeners]) l(); };
+    /** While held back, each change waits to be stored until `keep` answers it, the oldest first. */
+    let holding = false;
+    const waiting: ((kept: boolean) => void)[] = [];
     const w = world({
+      ...(storage ? { storage } : {}),
       gate: now => deviceGate(read, now),
-      // The device keeps the change, as the store's `markClockChange` does.
+      // The device holds the change, as the store's `markClockChange` does.
       clockChanged: days => {
+        store.marked.push(days);
         store.settings = { ...store.settings, walk: withClockChange(walkSettings(store.settings), days) };
         notify();
+        return holding ? new Promise<boolean>(resolve => { waiting.push(resolve); }) : Promise.resolve(true);
       },
       watchClinical: onChange => {
         listeners.add(onChange);
@@ -1378,8 +1389,86 @@ describe('B-19: a change to the phone’s clock, asked of the real gate (H6-02)'
       notify();
       return { ok: true };
     };
-    return { w, store, save: (a: DailyCheckIn) => saveCheckInRecord(a, { profile: who, update }) };
+    return {
+      w, store, save: (a: DailyCheckIn) => saveCheckInRecord(a, { profile: who, update }),
+      /** From now, each change waits to be stored until `keep` answers it. */
+      holdBack() { holding = true; },
+      keep: (ok: boolean) => waiting.shift()?.(ok),
+    };
   }
+
+  it('seeds the device’s hold from a walk an older version saw the clock change in, before carrying it on, and keeps that walk’s record of it until the hold is stored (H6F-03, board D189)', async () => {
+    const first = device(onInsulin, day(reading(19, 0)));
+    first.w.now = at(19, 1).getTime();
+    const before = createLiveWalk(first.w.ports);
+    before.attach(START);
+    first.w.advance(5 * 60_000);
+    before.pause();
+    before.detach();
+    // As the version before board D174 kept a change it saw: on the walk, by the readings it left untimed.
+    const draft = JSON.parse(first.w.storage!.getItem(WALK_KEY)!);
+    const legacy = { ...draft, clockChangedAt: at(19, 4).getTime(), untimedReadings: [`g:${at(19, 0).toISOString()}:140mg/dL`] };
+    first.w.storage!.setItem(WALK_KEY, JSON.stringify(legacy));
+
+    // This version loads it, the 19:00 reading looking six minutes old.
+    const d = device(onInsulin, day(reading(19, 0)), first.w.storage);
+    d.w.now = at(19, 6).getTime();
+    d.holdBack();
+    const live = createLiveWalk(d.w.ports);
+    expect(live.attach()).toBe('resumed');
+    expect(d.store.marked).toHaveLength(1);
+    expect(d.store.marked[0]).toContain(DAY);
+    expect(live.getSnapshot()!.walk.status).not.toBe('running');
+    expect(walkRefusal(walkInput(deviceClinical({ profile: onInsulin, ...d.store }), new Date(d.w.now)), 'restart')?.reasons).toContain(PERMISSION_TEXT.clockChanged);
+    // Until the device has stored the hold, the walk keeps its record of the change, for a reload to seed again.
+    expect(JSON.parse(d.w.storage!.getItem(WALK_KEY)!).untimedReadings).toEqual(legacy.untimedReadings);
+    d.keep(true);
+    await Promise.resolve();
+    d.w.advance(1000);
+    expect(JSON.parse(d.w.storage!.getItem(WALK_KEY)!).untimedReadings).toBeUndefined();
+    expect(JSON.parse(d.w.storage!.getItem(WALK_KEY)!).clockChangedAt).toBe(legacy.clockChangedAt);
+  });
+
+  it('lets go of its own record of changes to the clock only once the device has stored every one (H6F-03, board D189)', async () => {
+    // Someone the change doesn't hold, so the walk records on through both.
+    const d = device(plain, day());
+    d.w.now = at(19, 1).getTime();
+    d.holdBack();
+    const live = createLiveWalk(d.w.ports);
+    live.attach(START);
+    d.w.advance(60_000);
+    d.w.jumpClock(3_600_000);
+    d.w.advance(1000);
+    d.w.jumpClock(-1_800_000);
+    d.w.advance(1000);
+    expect(d.store.marked).toHaveLength(2);
+    d.keep(true);
+    await Promise.resolve();
+    expect(live.getSnapshot()!.walk.clockUnkept).toBe(true);
+    d.keep(true);
+    await Promise.resolve();
+    expect(live.getSnapshot()!.walk.clockUnkept).toBeUndefined();
+  });
+
+  it('seeds the hold again after a reload when the device never stored a change the walk saw (H6F-02, H6F-03, board D189)', async () => {
+    const d = device(onInsulin, day(reading(19, 0)));
+    d.w.now = at(19, 1).getTime();
+    d.holdBack();
+    const live = createLiveWalk(d.w.ports);
+    live.attach(START);
+    d.w.advance(60_000);
+    d.w.jumpClock(3_600_000);
+    d.w.advance(1000);
+    expect(d.store.marked).toHaveLength(1);
+    // Not stored yet, and the page reloads before a retry lands: the device's settings are as they were.
+    live.detach();
+    expect(JSON.parse(d.w.storage!.getItem(WALK_KEY)!).clockUnkept).toBe(true);
+    const again = device(onInsulin, day(reading(19, 0)), d.w.storage);
+    again.w.now = d.w.now;
+    createLiveWalk(again.w.ports).attach();
+    expect(again.store.marked).toHaveLength(1);
+    expect(walkRefusal(walkInput(deviceClinical({ profile: onInsulin, ...again.store }), new Date(again.w.now)), 'restart')?.reasons).toContain(PERMISSION_TEXT.clockChanged);
+  });
 
   it('holds a walk that is recording when the clock jumps, until a reading taken since the change', async () => {
     const d = device(onInsulin, day(reading(19, 0)));

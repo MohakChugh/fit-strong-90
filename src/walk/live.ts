@@ -17,6 +17,9 @@
 import {
   accrueOpen,
   addGapTime,
+  clockChangeDays,
+  clockKept,
+  clockUnkept,
   creditSteps,
   daysAround,
   finishWalk,
@@ -127,9 +130,9 @@ export interface LivePorts {
    * clocks `seen` holds. The device keeps the change (`markClockChange`), so
    * every gate, this walk's own included, holds someone who can go low until a
    * reading acquired since (board D174), and marks it once though the page saw
-   * it too (H6F-04).
+   * it too (H6F-04). Settles once the device has kept it (H6F-03).
    */
-  clockChanged?(days: readonly string[], seen?: ClockSeen): void;
+  clockChanged?(days: readonly string[], seen?: ClockSeen): Promise<unknown> | void;
   /** Run `fn` after `ms`. Returns a function that cancels it. */
   later(fn: () => void, ms: number): () => void;
   storage: WalkStorage | undefined;
@@ -296,6 +299,28 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
    * over the only copy of it with the little this page has drawn.
    */
   let routeRestore: 'none' | 'loading' | 'failed' = 'none';
+  /** B-19: changes to the clock handed to the device and not yet kept by it (H6F-03). */
+  let telling = 0;
+
+  /**
+   * B-19: hand a change to the clock to the device (`markClockChange`), which
+   * holds every gate from now until it has stored it. Once it has kept every
+   * one handed on, the walk lets go of its own record that one is unkept;
+   * until then that record goes with the walk, so a reload first hands it on
+   * again (H6F-02, H6F-03, board D189).
+   */
+  function tellDevice(days: readonly string[], seen?: ClockSeen) {
+    const told = ports.clockChanged?.(days, seen);
+    if (!told) return;
+    telling += 1;
+    void told.then(() => {
+      telling -= 1;
+      if (telling > 0 || !walk) return;
+      walk = clockKept(walk);
+      persist();
+      emit();
+    });
+  }
 
   const allLines = (): RouteLine[] => [...routeBase, ...(track?.lines ?? [])];
 
@@ -595,7 +620,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     }
     walk = splitAtClockChange(walk, now, step.ms);
     // The device's change, not this walk's: it holds every gate until a reading acquired since (H6R-02).
-    ports.clockChanged?.(daysAround(open.accruedAt, now), { from, to: { wall: now, mono: m } });
+    tellDevice(daysAround(open.accruedAt, now), { from, to: { wall: now, mono: m } });
     if (track) {
       track = newTrack(now);
       trackBase = [];
@@ -689,6 +714,9 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
         // Restored to be read and saved. Whether it may move is a separate
         // question, asked below.
         walk = restoreWalk(stored, now);
+        // A change to the clock the device may never have stored, this version's or an older one's:
+        // handed on again before anything asks whether the walk may go on (H6F-03, board D189).
+        if (clockUnkept(walk)) tellDevice(clockChangeDays(walk));
         // A kept route comes back from the journal, for the drawing and the save,
         // before anything is journalled over it (H6-06).
         if (walk.plan.keepRoute && (ports.keepsRoutes?.() ?? true)) restoreRoute(walk.id);

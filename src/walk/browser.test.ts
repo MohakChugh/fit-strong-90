@@ -56,7 +56,8 @@ describe('the browser’s live walk ports (B-19)', () => {
     expect(ports.mayRun('live')).toBe(true);
     // With the two clocks it was seen between, so the store can tell it from the page's own look at it (H6F-04).
     const seen = { from: { wall: 1, mono: 1 }, to: { wall: 3_600_002, mono: 2 } };
-    ports.clockChanged!([TODAY], seen);
+    // Settling once the device has kept it, so the walk can let go of its own record of it (H6F-03).
+    expect(ports.clockChanged!([TODAY], seen)).toBeInstanceOf(Promise);
     expect(state.marked).toEqual([[TODAY]]);
     expect(state.seen).toEqual([seen]);
     for (const intent of ['start', 'restart', 'live'] as const) expect(ports.mayRun(intent), intent).toBe(false);
