@@ -120,7 +120,7 @@ export function HealthLimits(props: PageProps) {
       )}
       <Missing show={tried && (rawInvalid('health.limits', a, raw)
         || (a.clearance !== undefined && (!targets || a.targets !== undefined) && !pageDone('health.limits', a, props.ctx)))}>
-        Check the numbers: blood pressure between 90 and 250 over 50 and 150, and HbA1c between 4 and 15.
+        Check the numbers: blood pressure between 90 and 250 over 50 and 150, and long-term blood sugar (HbA1c) between 4 and 15 %.
       </Missing>
     </>
   );

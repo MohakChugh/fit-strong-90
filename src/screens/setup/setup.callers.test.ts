@@ -292,7 +292,8 @@ describe('plain words first, the term in brackets (K5-13; board D155)', () => {
     const bare = (text: string) => text.replace(/\([^)]*\)/g, '');
     for (const title of Object.values(PAGE_TITLE)) for (const term of terms) expect(bare(title), title).not.toContain(term);
     for (const id of ['health.feet', 'health.limits', 'medicines.lows', 'medicines.ketones', 'backFeet.history'] as const) {
-      const shown = render(createElement(PAGE_VIEWS[id], { a, raw: {}, set: () => {}, tried: false, ctx: { thisYear: 2026 }, mode: 'setup' }));
+      // Tried, with a figure that can't be taken, so what's said about it shows too (K5R-10).
+      const shown = render(createElement(PAGE_VIEWS[id], { a, raw: { hba1cPercent: '40' }, set: () => {}, tried: true, ctx: { thisYear: 2026 }, mode: 'setup' }));
       await shown.settle();
       const text = shown.text();
       shown.unmount();
