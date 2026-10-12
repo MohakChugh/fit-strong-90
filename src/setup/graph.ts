@@ -15,7 +15,11 @@ import { nameProblem, ownAllergiesProblem, type RawKey } from './limits';
 import { factsOf, has, type Facts } from './facts';
 import { heightProblem, numberFrom, waistProblem, weightProblem } from './units';
 
-export interface Ctx { thisYear: number }
+export interface Ctx {
+  thisYear: number;
+  /** Numbers as typed, where they're known: one that isn't an answer leaves its page unanswered (`pageDone`; H5F-05). */
+  raw?: Readonly<Record<string, string>>;
+}
 
 export interface PageDef {
   id: PageId;
@@ -166,8 +170,9 @@ export function pathFor(a: SetupAnswers): PageId[] {
   return PAGES.filter(p => p.when(a, f)).map(p => p.id);
 }
 
+/** A page answered: so it isn't while a number typed on it isn't an answer, which is neither a value nor a clear (H5F-05; board D199). */
 export function pageDone(id: PageId, a: SetupAnswers, ctx: Ctx): boolean {
-  return pageDef(id).done(a, factsOf(a), ctx);
+  return pageDef(id).done(a, factsOf(a), ctx) && !rawInvalid(id, a, ctx.raw);
 }
 
 /** The page holds an answer that can't be stored as given (`PageDef.invalid`). */
@@ -255,6 +260,10 @@ export function rawInvalid(id: PageId, a: SetupAnswers, raw: Readonly<Record<str
   return Object.entries(raw ?? {}).some(([key, text]) =>
     text.trim() !== '' && a[key.split('.')[0] as keyof SetupAnswers] === undefined && rawPage(key) === id && RAW_FIELDS[key as RawKey]?.(a) === true);
 }
+
+/** The first page on the path with a number typed that isn't an answer: finishing waits for it (H5F-05; board D199). */
+export const rawLeft = (a: SetupAnswers, raw: Readonly<Record<string, string>> | undefined): PageId | undefined =>
+  pathFor(a).find(id => rawInvalid(id, a, raw));
 
 /** A move setup stores before it's made (M22): where to, and the answers stored. */
 export interface PlannedMove { to: PageId; answers: SetupAnswers }

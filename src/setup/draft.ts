@@ -17,13 +17,13 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { AppData } from '@/types';
-import type { PageId, SetupAnswers } from '@/types/setup';
+import type { ChapterId, PageId, SetupAnswers } from '@/types/setup';
 import { nowAt } from '@/health/observation';
 import { StoreFailure, type StoreResult } from '@/store/db';
 import { sameValue } from '@/store/transfer';
 import { getState, subscribe, update } from '@/store/useStore';
 import { completedSetup, lookedAround, measurementsFrom } from './assemble';
-import { RAW_FIELDS, nextMove, pageDef, rawPage, skipMove, type Ctx, type PlannedMove } from './graph';
+import { CHAPTER_TITLE, RAW_FIELDS, chapterOf, nextMove, pageDef, rawLeft, rawPage, skipMove, type Ctx, type PlannedMove } from './graph';
 import { fieldRoot, getField, isSafetyField, mergeAnswers, mergeSkipped, putField, stricterAnswer } from './merge';
 import type { RawKey } from './limits';
 import { prefillAnswers } from './prefill';
@@ -455,6 +455,14 @@ export async function saveDraft(to: PageId, answers: SetupAnswers, opened?: Setu
 
 export type FinishOutcome = { kind: 'home' } | { kind: 'failed'; message: string };
 
+/** Finishing waits for a number typed that isn't an answer yet, named by its chapter (H5F-05; board D199). */
+export const RAW_LEFT = (chapter: ChapterId): string =>
+  `A number you typed in ${CHAPTER_TITLE[chapter]} isn’t an answer yet. Correct it or clear it there, then start again.`;
+const rawHeld = (answers: SetupAnswers, raw: Raw | undefined): FinishOutcome | undefined => {
+  const left = rawLeft(answers, raw);
+  return left === undefined ? undefined : { kind: 'failed', message: RAW_LEFT(chapterOf(left) as ChapterId) };
+};
+
 /** Setup ends without saving (B-07): the app opens for this session only, with the answers here and nothing completed. */
 function enterUnsaved(answers: SetupAnswers): FinishOutcome {
   if (!current().unsaved) continueWithoutSaving('review', answers);
@@ -480,6 +488,8 @@ export async function finishSetup(answers: SetupAnswers, ctx: Ctx, now: string =
   if (current().unsaved) return enterUnsaved(answers);
   if (await flushAnswers() === 'failed' && refused !== undefined) return { kind: 'failed', message: `That did not save. ${refused}` };
   const state = getState();
+  const held = rawHeld(answers, setupStateOf(state.settings, state.profile).draft?.raw);
+  if (held) return held;
   const hasSteps = state.observations.some(o => o.kind === 'steps');
   const done = (d: Pick<AppData, 'settings' | 'profile'>) => setupStateOf(d.settings, d.profile).stage === 'done';
   const saved = await update(d => completedSetup(d, answers, now, { ...ctx, hasSteps }), {

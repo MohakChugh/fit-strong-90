@@ -3,7 +3,7 @@ import { CHAPTER_IDS, PAGE_IDS, type PageId, type SetupAnswers } from '@/types/s
 import { COMPLEX, EVERYTHING, FOOT_WOUND, GLIFLOZIN_NO_DIABETES, INSULIN_NO_DIABETES, JOIN, MINIMAL, NO_CLASSES, NO_CONDITIONS, UNSURE, withC } from './fixtures';
 import {
   PAGES, backFromReview, capsuleOf, chapterComplete, commitPage, firstPageOf, guardFor, hrefOf, missingPages, nextFromReview, nextMove, nextPage, pageAt, pageDef, pageDone,
-  pageInvalid, pathFor, prevPage, resumeAt, skipMove, skippedChapters,
+  pageInvalid, pathFor, prevPage, rawLeft, resumeAt, skipMove, skippedChapters,
 } from './graph';
 
 const CTX = { thisYear: 2026 };
@@ -263,6 +263,30 @@ describe('a skip a safety page can’t have, as a backup may name one (K5R-08)',
 
   it('a preference page’s skip still counts', () => {
     expect(missingPages({ ...a, pattern: undefined }, CTX)).not.toContain('food.pattern');
+  });
+});
+
+describe('a number typed that isn’t an answer counts as unanswered everywhere (H5F-05; board D199)', () => {
+  // On insulin, a care team's start figure of 180 mg/dL replaced with an unfinished “18”: no answer, the text kept.
+  const lows = { ...COMPLEX, glucoseStartMin: undefined, glucoseStartUnit: 'mg/dL' as const };
+  const raw = { glucoseStartMin: '18' };
+
+  it('Review, and any page after it, goes back to the page; Review lists it; setup resumes there', () => {
+    expect(guardFor(lows, 'review', CTX)).toBeUndefined();
+    expect(guardFor(lows, 'review', { ...CTX, raw })).toBe('medicines.lows');
+    expect(guardFor(lows, 'backFeet.where', { ...CTX, raw })).toBe('medicines.lows');
+    expect(missingPages(lows, { ...CTX, raw })).toEqual(['medicines.lows']);
+    expect(resumeAt(lows, 'medicines.somewhere' as PageId, { ...CTX, raw })).toBe('medicines.lows');
+  });
+
+  it('cleared, the text gone, it’s an answer: no figure, the usual one used', () => {
+    expect(guardFor(lows, 'review', { ...CTX, raw: { glucoseStartMin: '' } })).toBeUndefined();
+    expect(rawLeft(lows, { glucoseStartMin: ' ' })).toBeUndefined();
+  });
+
+  it('only while its question shows: a figure for a page off the path doesn’t count', () => {
+    expect(rawLeft(MINIMAL, raw)).toBeUndefined();
+    expect(rawLeft(lows, raw)).toBe('medicines.lows');
   });
 });
 

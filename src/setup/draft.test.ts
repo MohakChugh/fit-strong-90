@@ -21,7 +21,7 @@ vi.mock('sonner', () => ({ toast: (message: string) => void toasts.push(message)
 
 const store = await import('@/store/useStore');
 const {
-  AUTOSAVE_MS, FINISHED_ELSEWHERE, answersQueue, changeAnswers, continueUnsaved, continueWithoutSaving, enterWithoutSaving, finishSetup, flushAnswers,
+  AUTOSAVE_MS, FINISHED_ELSEWHERE, RAW_LEFT, answersQueue, changeAnswers, continueUnsaved, continueWithoutSaving, enterWithoutSaving, finishSetup, flushAnswers,
   getSetupSession, keepInSession, lookAroundFirst, mover, nextFrom, outcomeOf, rawWithQueued, resetSetupSessionForTests, saveDraft, skipFrom,
   waitingOn, withDraft, withFields, withQueued,
 } = await import('./draft');
@@ -227,6 +227,35 @@ describe('finishing (journey §6.2)', () => {
     const s = store.getState();
     expect(setupStateOf(s.settings, s.profile).stage).toBe('open');
     expect(s.settings.setup?.draft?.answers?.classes?.insulin).toBe('yes');
+  });
+
+  it('a number typed that isn’t an answer holds finishing, saying where, and loses nothing; cleared, it finishes as a clear (H5F-05; board D199)', async () => {
+    const { COMPLEX } = await import('./fixtures');
+    await store.start({ factory: fakeIndexedDB() });
+    // A care team's start figure of 180 mg/dL, replaced on its page with an unfinished “18”.
+    const lows = { ...COMPLEX, glucoseStartMin: 180, glucoseStartUnit: 'mg/dL' as const };
+    expect((await store.update(draftOf(lows, 'review'))).ok).toBe(true);
+    changeAnswers(lows, { glucoseStartMin: undefined }, { glucoseStartMin: '18' }, 'medicines.lows');
+    expect(await flushAnswers('review')).toBe('saved');
+    const shown = stored()!.answers!;
+    expect([shown.glucoseStartMin, stored()?.raw]).toEqual([undefined, { glucoseStartMin: '18' }]);
+    expect(await finishSetup(shown, CTX, NOW)).toEqual({ kind: 'failed', message: RAW_LEFT('medicines') });
+    expect(setupStateOf(store.getState().settings, store.getState().profile).stage).toBe('open');
+    expect(stored()?.raw).toEqual({ glucoseStartMin: '18' });
+    // Cleared on its page: no figure, the usual one used.
+    changeAnswers(shown, {}, { glucoseStartMin: '' }, 'medicines.lows');
+    expect(await finishSetup(stored()!.answers!, CTX, NOW)).toEqual({ kind: 'home' });
+    expect(store.getState().profile?.health.clinicianTargets?.glucoseStartMin).toBeUndefined();
+  });
+
+  it('so is a finish planned as another copy types one, inside its transaction (H5F-05)', async () => {
+    const { COMPLEX } = await import('./fixtures');
+    const { completedSetup } = await import('./assemble');
+    const data = withDraft(fresh(), 'review', { ...COMPLEX, glucoseStartMin: undefined });
+    const typed = { ...data, settings: { ...data.settings, setup: { ...data.settings.setup!, draft: { ...data.settings.setup!.draft!, raw: { glucoseStartMin: '18' } } } } };
+    expect(completedSetup(typed, typed.settings.setup!.draft!.answers!, NOW, { ...CTX, hasSteps: false })).toBe(typed);
+    const finished = completedSetup(data, data.settings.setup!.draft!.answers!, NOW, { ...CTX, hasSteps: false });
+    expect(setupStateOf(finished.settings, finished.profile).stage).toBe('done');
   });
 
   it('forgets setup’s session once it’s done (K5-05)', async () => {

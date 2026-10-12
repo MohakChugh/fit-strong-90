@@ -28,6 +28,7 @@ vi.mock('react-router-dom', async () => {
     useLocation: () => ({ pathname: '/me/profile', search: '?chapter=health', state: router.state }),
     useSearchParams: () => [new URLSearchParams('chapter=health')],
     Link: ({ children, to, onClick }: { children?: unknown; to: string; onClick?: () => void }) => h('a', { href: `#${to}`, onClick }, children as never),
+    Navigate: ({ to }: { to: string }) => h('a', { 'data-navigate': to }),
     useBlocker: (shouldBlock: ((leave: Leave) => boolean) | boolean) => {
       router.shouldBlock = typeof shouldBlock === 'function' ? shouldBlock : () => shouldBlock;
       const [, redraw] = useReducer((x: number) => x + 1, 0);
@@ -489,6 +490,39 @@ describe('Review (journey §6.2)', () => {
     host = render(createElement(ReviewPage));
     await host.settle();
     expect(host.text()).toContain('Diabetes shows as “Other” because insulin, or a tablet that can cause lows, is ticked or marked “Not sure”.');
+  });
+});
+
+describe('a number typed that isn’t an answer, at Review (H5F-05; board D199)', () => {
+  it('“Start using FitStrong” waits, saying where, and the text and the answers stay', async () => {
+    const { ReviewPage } = await import('./ReviewPage');
+    const { COMPLEX } = await import('@/setup/fixtures');
+    const { RAW_LEFT, changeAnswers, flushAnswers } = await import('@/setup/draft');
+    // A care team's start figure of 180 mg/dL, replaced with an unfinished “18”, then Back to Review.
+    const lows = { ...COMPLEX, glucoseStartMin: 180, glucoseStartUnit: 'mg/dL' as const };
+    expect((await store.update(d => withDraft(d, 'review', lows))).ok).toBe(true);
+    changeAnswers(lows, { glucoseStartMin: undefined }, { glucoseStartMin: '18' }, 'medicines.lows');
+    expect(await flushAnswers('review')).toBe('saved');
+    host = render(createElement(ReviewPage));
+    await host.settle();
+    await host.click(host.all().find(n => n.props.role === 'checkbox')!);
+    await host.click(host.button('Start using FitStrong', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain(RAW_LEFT('medicines'));
+    expect(store.getState().settings.setup).toMatchObject({ stage: 'open', draft: { raw: { glucoseStartMin: '18' } } });
+    // The hold meanwhile names that chapter, as one with a question left.
+    const { useSafetyLeft } = await import('./useSetup');
+    const Probe = () => createElement('p', null, JSON.stringify(useSafetyLeft() ?? 'none'));
+    host.unmount();
+    host = render(createElement(Probe));
+    await host.settle();
+    expect(host.text()).toContain('"ask":"Answer 1 question about your medicines"');
+    // Opened by its address, Review goes back to the page.
+    host.unmount();
+    const { Guarded } = await import('./routes');
+    host = render(createElement(Guarded, { id: 'review' }));
+    await host.settle();
+    expect(host.all().find(n => n.props['data-navigate'])?.props['data-navigate']).toBe('/setup/medicines/lows');
   });
 });
 
