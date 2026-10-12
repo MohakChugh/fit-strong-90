@@ -81,7 +81,8 @@ describe('a new release waits for this window, and nothing reloads by itself (JÂ
     await startUpdates({ container: b.container, swUrl: '/sw.js', reload });
     expect(updateState().waiting).toBe(false);
     b.install('bbb');
-    await settle();
+    // The count comes back over a message channel, whenever the event loop delivers it.
+    await vi.waitFor(() => expect(updateState().windows).toBe(1));
     expect(updateState()).toMatchObject({ waiting: true, windows: 1, restarting: false });
     // A takeover nobody asked for here (the worker never does one) still reloads nothing.
     b.takeOver();
@@ -111,13 +112,13 @@ describe('a new release waits for this window, and nothing reloads by itself (JÂ
     await settle();
     expect(reload).not.toHaveBeenCalled();
     b.install('bbb');
-    await settle();
+    await vi.waitFor(() => expect(updateState().windows).toBe(1));
     expect(updateState()).toMatchObject({ waiting: true, windows: 1 });
   });
 });
 
 describe('Restart to update (D106, P8S-12, P8S-13)', () => {
-  it('as FitStrongâ€™s only window: the cover first and new work held, then the worker asked once the queued work is done; one reload, at the takeover', async () => {
+  it('as FitStrongâ€™s only window: the cover first and new work held, then the worker asked once the queued work is done; one reload, at the takeover, once the work let in meanwhile is done', async () => {
     const b = browser(worker('aaa', { windows: 1 }));
     const reload = vi.fn();
     const order: string[] = [];
@@ -140,6 +141,18 @@ describe('Restart to update (D106, P8S-12, P8S-13)', () => {
     expect(resume).not.toHaveBeenCalled();
     expect(reload).not.toHaveBeenCalled();
     b.takeOver();
+    // A change to the phone's clock is let in meanwhile (H6F-02): the reload waits for what is queued.
+    await settle();
+    expect(order).toEqual(['hold', 'settled', 'settled']);
+    expect(reload).not.toHaveBeenCalled();
+    done();
+    await settle();
+    expect(reload).toHaveBeenCalledTimes(1);
+    // A second takeover event changes nothing: one reload.
+    b.takeOver();
+    await settle();
+    done();
+    await settle();
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
@@ -188,16 +201,24 @@ describe('Restart to update (D106, P8S-12, P8S-13)', () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
-  it('a takeover that never comes: the restart the person asked for reloads all the same, once', async () => {
+  it('a takeover that never comes: the restart the person asked for reloads all the same, once, after the work let in meanwhile', async () => {
     const b = browser(worker('aaa', { windows: 1 }));
     const reload = vi.fn();
-    await startUpdates({ container: b.container, swUrl: '/sw.js', reload });
+    // The first wait is the restart's own; the second, at the reload, waits for what was let in meanwhile.
+    let waits = 0;
+    let done!: () => void;
+    const settled = () => (++waits === 1 ? Promise.resolve() : new Promise<void>(resolve => { done = resolve; }));
+    await startUpdates({ container: b.container, swUrl: '/sw.js', reload, settled });
     b.install('bbb');
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     expect(await restartToUpdate()).toBe('restarting');
     await vi.advanceTimersByTimeAsync(9_000);
     expect(reload).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(2_000);
+    expect(waits).toBe(2);
+    expect(reload).not.toHaveBeenCalled();
+    done();
+    await vi.advanceTimersByTimeAsync(0);
     expect(reload).toHaveBeenCalledTimes(1);
   });
 });

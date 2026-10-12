@@ -160,3 +160,55 @@ describe('a restart lets in no new work until its worker answers (P8S-13)', () =
     expect((await store.addObservation(water)).ok).toBe(true);
   });
 });
+
+describe('a change to the phone’s clock, seen around a restart, is kept (D106 with Plan 6’s H6F-02)', () => {
+  it('one still waiting to be stored keeps Restart off Home: a reload would lose it', async () => {
+    let failing = false;
+    store.resetForTests();
+    await store.start({ factory: fakeIndexedDB({ failWrite: s => (failing && s === 'settings' ? new DOMException('The write was stopped.', 'AbortError') : undefined) }), broadcast: null });
+    expect(store.getState().status).toBe('ready');
+    failing = true;
+    const marked = store.markClockChange([DAY]);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    // Refused once and waiting to try again: no write is queued, yet the change is held here only.
+    expect(store.getState().saving).toBe(false);
+    expect(store.getState().clockHold).toBeDefined();
+    expect(underWay()).toBe(true);
+    expect(updates.updateLine(WAITING, underWay())).toEqual({ text: updates.UPDATE_READY });
+    failing = false;
+    void marked;
+  });
+
+  it('one seen while the restart waits for its worker is stored all the same, and the reload waits for it', async () => {
+    const pending: (() => void)[] = [];
+    const changes: (() => void)[] = [];
+    const worker = (build: string): WorkerLike => ({
+      postMessage(message, transfer) {
+        const type = (message as { type: string }).type;
+        const answer = () => (transfer[0] as MessagePort).postMessage({ build, windows: 1, restarting: type === 'restart' });
+        if (type === 'restart') pending.push(answer);
+        else answer();
+      },
+    });
+    const registration: RegistrationLike = { waiting: worker('bbb'), installing: null, addEventListener() {} };
+    const container: ContainerLike = { controller: worker('aaa'), register: async () => registration, addEventListener: (_t, fn) => void changes.push(fn) };
+    const reload = vi.fn();
+    await updates.startUpdates({ container, swUrl: '/sw.js', reload, underWay, hold: store.holdNewWork, settled: store.whenSettled });
+    const how = updates.restartToUpdate();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(updates.updateState().restarting).toBe(true);
+    // New work is refused, a change to the clock is not.
+    const water = { kind: 'water', value: 250, scope: 'dayTotal', source: 'manual' } as const;
+    expect((await store.addObservation(water)).ok).toBe(false);
+    const marked = store.markClockChange([DAY]);
+    for (const answer of pending) answer();
+    expect(await how).toBe('restarting');
+    // The takeover, with the change still being written: the reload waits for it.
+    for (const fn of changes) fn();
+    expect(reload).not.toHaveBeenCalled();
+    expect((await marked).ok).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(store.getState().settings.walk?.clock).toBeDefined();
+  });
+});

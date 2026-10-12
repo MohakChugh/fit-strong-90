@@ -227,6 +227,12 @@ interface Mutation<T> {
    * leave the person somewhere they never asked to go (J18).
    */
   hold?: boolean;
+  /**
+   * The device's own safety record, a change to the phone's clock (B-19): let in while a restart to update
+   * holds new work, as nothing else is, and the restart's reload waits for it (board D106 with Plan 6's
+   * H6F-02): a change seen is held until it is stored, a reload included.
+   */
+  safety?: boolean;
   /** The payload came from `JSON.parse` and is already plain data. */
   plain?: boolean;
 }
@@ -328,7 +334,7 @@ function note(failure: StoreFailure): void {
 function enqueue<T>(m: Omit<Mutation<T>, 'settle'>): Promise<StoreResult<T>> {
   return new Promise<StoreResult<T>>(resolve => {
     // A restart to update is under way (D106, P8S-13): nothing new is shown or written.
-    if (!admitting) {
+    if (!admitting && !m.safety) {
       resolve({ ok: false, failure: new StoreFailure('unavailable', RESTARTING_REFUSAL) });
       return;
     }
@@ -1470,6 +1476,9 @@ let clockSeen: { seen: ClockSeen; marked: Promise<StoreResult> }[] = [];
 /** B-19: how soon a refused clock marker is written again (H6F-02). */
 export const CLOCK_RETRY_MS = 5_000;
 
+/** A change to the phone's clock seen here and not stored yet (`markClockChange`): a restart would lose it, so none happens meanwhile (D106 with H6F-02). */
+export const clockChangeWaiting = (): boolean => clockPending.length > 0;
+
 /**
  * B-19: a walk or the page saw this phone's clock change. The device's clock
  * generation moves on, against the settings this transaction finds, so
@@ -1495,6 +1504,7 @@ export function markClockChange(days: readonly string[], seen?: ClockSeen): Prom
   const write = async (): Promise<StoreResult> => {
     const result = await enqueue<void>({
       hold: true,
+      safety: true,
       plan: base => ({ change: { settings: { patch: { walk: withClockChange(walkSettings(base.settings ?? {}), days) } } }, result: () => undefined }),
     });
     if (!result.ok && db) {

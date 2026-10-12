@@ -90,7 +90,18 @@ let state: UpdateState = IDLE;
 let deps: UpdateDeps | undefined;
 let registration: RegistrationLike | undefined;
 let fallback: ReturnType<typeof setTimeout> | undefined;
+let reloading = false;
 const listeners = new Set<() => void>();
+
+/**
+ * The restart's one reload, once the work let in meanwhile is stored: a change to the phone's clock is, and
+ * the page that saw it must not go before it is (D106 with Plan 6's H6F-02).
+ */
+function reloadSettled(): void {
+  if (reloading) return;
+  reloading = true;
+  void Promise.resolve(deps?.settled?.()).then(() => deps?.reload());
+}
 
 function set(patch: Partial<UpdateState>): void {
   state = { ...state, ...patch };
@@ -149,7 +160,7 @@ export async function startUpdates(d: UpdateDeps): Promise<void> {
     if (state.restarting) {
       if (fallback !== undefined) clearTimeout(fallback);
       fallback = undefined;
-      d.reload();
+      reloadSettled();
       return;
     }
     // A first visit taken over by its release's first worker (P8S-11): now that release's,
@@ -196,10 +207,9 @@ export async function restartToUpdate(): Promise<'restarting' | 'others' | 'busy
   await deps?.settled?.();
   const answer = await ask(waiting, 'restart');
   if (answer?.restarting) {
-    const reload = deps?.reload;
     fallback = setTimeout(() => {
       fallback = undefined;
-      if (state.restarting) reload?.();
+      if (state.restarting) reloadSettled();
     }, TAKEOVER_MS);
     return 'restarting';
   }
@@ -246,6 +256,7 @@ export function updateLine(s: UpdateState, underWay: boolean): UpdateLine | unde
 export function resetUpdatesForTests(): void {
   if (fallback !== undefined) clearTimeout(fallback);
   fallback = undefined;
+  reloading = false;
   state = IDLE;
   deps = undefined;
   registration = undefined;
