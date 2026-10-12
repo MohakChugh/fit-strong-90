@@ -212,3 +212,23 @@ describe('a change to the phone’s clock, seen around a restart, is kept (D106 
     expect(store.getState().settings.walk?.clock).toBeDefined();
   });
 });
+
+describe('answers kept only in this window keep Restart off Home: a reload would lose them (D106 with Plan 5’s D197)', () => {
+  it('a clinical save the device refused, until it is stored or discarded; and setup going on without saving', async () => {
+    const effective = await import('@/setup/effective');
+    const { StoreFailure } = await import('@/store/db');
+    effective.resetClinicalUnsavedForTests();
+    expect(underWay()).toBe(false);
+    await effective.saveClinical(async () => ({ ok: false, failure: new StoreFailure('unknown', 'The device did not keep it.') }));
+    expect(effective.clinicalUnsaved()).toBe(true);
+    expect(underWay()).toBe(true);
+    expect(updates.updateLine(WAITING, underWay())).toEqual({ text: updates.UPDATE_READY });
+    effective.discardClinical();
+    expect(underWay()).toBe(false);
+    const draft = await import('@/setup/draft');
+    draft.continueWithoutSaving('about.name', { name: 'Sam' } as never);
+    expect(underWay()).toBe(true);
+    draft.resetSetupSession();
+    expect(underWay()).toBe(false);
+  });
+});

@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { markBack } from '@/components/hig/navigation';
 import {
-  CHANGED_ELSEWHERE, changeAnswers, continueUnsaved, flushAnswers, nextFrom, rawWithQueued, skipFrom, useAnswersQueue, waitingOn, withQueued,
+  CHANGED_ELSEWHERE, changeAnswers, continueUnsaved, discardWaiting, flushAnswers, nextFrom, rawWithQueued, skipFrom, useAnswersQueue, waitingOn, withQueued,
+  type SaveOutcome,
 } from '@/setup/draft';
 import { getState } from '@/store/useStore';
-import { backFromReview, capsuleOf, hrefOf, nextMove, pageDef, pageInvalid, prevPage, rawInvalid } from '@/setup/graph';
+import { SAFETY_CHAPTERS, backFromReview, capsuleOf, chapterOf, hrefOf, nextMove, pageDef, pageInvalid, prevPage, rawInvalid } from '@/setup/graph';
 import { Notice, PlainButton, PrimaryButton } from '@/screens/you/controls';
-import type { PageId, SetupAnswers } from '@/types/setup';
+import type { ChapterId, PageId, SetupAnswers } from '@/types/setup';
 import type { PageView } from './controls';
+import { DiscardGuard } from './DiscardGuard';
 import { SetupShell } from './SetupShell';
 import { PAGE_TITLE } from './titles';
 import { useCtx, useSetupAnswers, type Recovery } from './useSetup';
@@ -22,7 +24,9 @@ import { useCtx, useSetupAnswers, type Recovery } from './useSetup';
  * Edit, Next walks that chapter and then returns to Review, and so does Back
  * from its first page (K5-14). A refused write, a change's or a move's, shows
  * here with Try again and Continue without saving, each from the page as it
- * is now (H5-02, H5R-16).
+ * is now (H5-02, H5R-16): Back and Close wait for theirs, and stay if it's
+ * refused. On a safety page, leaving with its changes refused asks first,
+ * "Discard your changes?" (board D198).
  */
 export function PageFrame({ id, View }: { id: PageId; View: PageView }) {
   const navigate = useNavigate();
@@ -40,6 +44,15 @@ export function PageFrame({ id, View }: { id: PageId; View: PageView }) {
   const raw = rawWithQueued(storedRaw);
   const fromReview = (location.state as { fromReview?: boolean } | null)?.fromReview === true;
   const carry = fromReview ? { fromReview: true } : undefined;
+  // A safety page's own changes the device refused: leaving asks first (board D198), Back's and Close's as the browser's.
+  const safety = SAFETY_CHAPTERS.includes(chapterOf(id) as ChapterId);
+  const refusedHere = safety && queue.refused !== undefined && waitingOn(id);
+  const [asking, setAsking] = useState<() => void>();
+  /** Refused, the page stays, saying so; on a safety page, with its changes still waiting, it asks before `go`. */
+  const stayOrAsk = (outcome: SaveOutcome, go: () => void) => {
+    if (outcome !== 'failed') go();
+    else if (safety && waitingOn(id)) setAsking(() => go);
+  };
 
   const set = (patch: Partial<SetupAnswers>, typed: Readonly<Record<string, string | undefined>> = {}) => changeAnswers(a, patch, typed, id);
   // What's waiting is stored as the page is left, or the app goes to the background (H5-16).
@@ -81,22 +94,31 @@ export function PageFrame({ id, View }: { id: PageId; View: PageView }) {
     },
   };
 
-  const back = () => {
+  const back = async () => {
     const prev = fromReview ? backFromReview(a, id) : prevPage(a, id);
-    // Reopened later, setup resumes on the page Back went to (H5-16).
-    void flushAnswers(prev ?? 'welcome.start');
-    markBack();
-    navigate(prev && prev !== 'welcome.start' ? hrefOf(prev) : '/setup', { replace: true, state: { back: true, ...carry } });
+    // Stored first, with the page Back goes to as the one to resume on (H5-16, H5R-16).
+    stayOrAsk(await flushAnswers(prev ?? 'welcome.start'), () => {
+      markBack();
+      navigate(prev && prev !== 'welcome.start' ? hrefOf(prev) : '/setup', { replace: true, state: { back: true, ...carry } });
+    });
+  };
+  // Close goes Home once it's stored (SetupShell); refused, a safety page asks first.
+  const close = async () => {
+    const outcome = await flushAnswers(id);
+    if (outcome === 'failed') stayOrAsk(outcome, () => navigate('/home'));
+    return outcome;
   };
 
   return (
-    <SetupShell title={PAGE_TITLE[id]} capsule={capsuleOf(id, a)} onBack={back} onClose={() => flushAnswers(id)} recovery={recovery}>
+    <SetupShell title={PAGE_TITLE[id]} capsule={capsuleOf(id, a)} onBack={() => void back()} onClose={close} recovery={recovery}>
       <View a={a} raw={raw} set={set} tried={tried} ctx={ctx} mode="setup" />
       <div className="mt-auto flex flex-col gap-2 pt-2">
         {queue.changedElsewhere && <Notice>{CHANGED_ELSEWHERE}</Notice>}
         <PrimaryButton className="min-h-[3.75rem]" onClick={() => void attempt('next')}>Next</PrimaryButton>
         {pageDef(id).skippable && <PlainButton className="min-h-12" onClick={() => void attempt('skip')}>Skip for now</PlainButton>}
       </div>
+      <DiscardGuard dirty={refusedHere} onDiscard={() => discardWaiting(id)} open={asking !== undefined}
+        onDone={discarded => { setAsking(undefined); if (discarded) asking?.(); }} />
     </SetupShell>
   );
 }

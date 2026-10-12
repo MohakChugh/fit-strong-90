@@ -1439,15 +1439,15 @@ describe('update with readings (journey §18.1: weight and height are dated read
   });
 });
 
-describe('a gate’s profile is never stored as one (board D168)', () => {
-  it('a profile carrying candidates is kept without them', async () => {
+describe('a gate’s profile is never stored as one (board D197)', () => {
+  it('a profile marked for this session’s unsaved answers is kept without the mark', async () => {
     const { createDefaultProfile } = await import('@/profile/defaults');
     const fake = await booted();
     const profile = createDefaultProfile({ weightKg: 70 });
-    expect((await store.update(d => ({ ...d, profile: { ...profile, candidates: [profile, { ...profile, weightKg: 71 }] } }))).ok).toBe(true);
-    expect(store.getState().profile?.candidates).toBeUndefined();
+    expect((await store.update(d => ({ ...d, profile: { ...profile, clinicalUnsaved: true } }))).ok).toBe(true);
+    expect(store.getState().profile?.clinicalUnsaved).toBeUndefined();
     const db = await openDb(fake);
-    expect((await readDoc(db, 'profile') as { candidates?: unknown }).candidates).toBeUndefined();
+    expect((await readDoc(db, 'profile') as { clinicalUnsaved?: unknown }).clinicalUnsaved).toBeUndefined();
     db.close();
   });
 });

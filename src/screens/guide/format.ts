@@ -2,6 +2,7 @@ import type { FoodPreferences } from '@/types/profile';
 import { ownAllergyReading, PATTERN_LABEL, unmatchedAvoid, type SearchResult } from '@/content';
 import { allergenList, allergenName } from '@/food/allergens';
 import { FOOD_COPY } from '@/food/copy';
+import { parseAvoid } from '@/setup/limits';
 
 /** "2026-10-08" → "8 October 2026", read as a local calendar date. */
 export function longDate(iso: string): string {
@@ -32,10 +33,7 @@ export function foodSummary(food: FoodPreferences): string {
   return parts.join(' · ');
 }
 
-/** The comma-separated "leave out" field, as the list the profile stores. */
-export function parseAvoid(text: string): string[] {
-  return [...new Set(text.split(/[,;\n]/).map(s => s.trim()).filter(Boolean))];
-}
+export { parseAvoid } from '@/setup/limits';
 
 /** How many allergies in the person's own words a profile holds, and how long each may be: what an import reads back (`store/importCheck.ts`). */
 const OWN_ALLERGIES_MAX = 30;

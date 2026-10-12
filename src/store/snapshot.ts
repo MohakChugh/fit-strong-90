@@ -371,11 +371,11 @@ function docValue(s: Snapshot, key: Doc['key']): unknown {
 
 const isRecord = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
 
-/** A profile as it is kept: the candidates a gate's profile carries are never stored (board D168). */
+/** A profile as it is kept: the mark a gate's profile carries for this session is never stored (board D197). */
 function stored(profile: UserProfile): UserProfile {
-  if (profile.candidates === undefined) return profile;
-  const { candidates: _gate, ...kept } = profile;
-  void _gate;
+  if (profile.clinicalUnsaved === undefined) return profile;
+  const { clinicalUnsaved: _session, ...kept } = profile;
+  void _session;
   return kept;
 }
 

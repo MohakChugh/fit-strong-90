@@ -21,14 +21,14 @@ vi.mock('sonner', () => ({ toast: (message: string) => void toasts.push(message)
 
 const store = await import('@/store/useStore');
 const {
-  AUTOSAVE_MS, FINISHED_ELSEWHERE, answersQueue, changeAnswers, continueUnsaved, continueWithoutSaving, enterWithoutSaving, finishSetup, flushAnswers,
+  AUTOSAVE_MS, FINISHED_ELSEWHERE, RAW_LEFT, answersQueue, changeAnswers, continueUnsaved, continueWithoutSaving, enterWithoutSaving, finishSetup, flushAnswers,
   getSetupSession, keepInSession, lookAroundFirst, mover, nextFrom, outcomeOf, rawWithQueued, resetSetupSessionForTests, saveDraft, skipFrom,
   waitingOn, withDraft, withFields, withQueued,
 } = await import('./draft');
 const { MINIMAL, NO_CLASSES, NO_CONDITIONS, withC } = await import('./fixtures');
 const { answersOf, setupStateOf } = await import('./state');
 const { rawInvalid } = await import('./graph');
-const { gateCandidates } = await import('./effective');
+const { gateProfile } = await import('./effective');
 const { TRANSFER_FORMAT } = await import('@/store/transfer');
 const CTX = { thisYear: 2026 };
 const NOW = '2026-10-10T09:00:00.000+05:30';
@@ -229,6 +229,35 @@ describe('finishing (journey §6.2)', () => {
     expect(s.settings.setup?.draft?.answers?.classes?.insulin).toBe('yes');
   });
 
+  it('a number typed that isn’t an answer holds finishing, saying where, and loses nothing; cleared, it finishes as a clear (H5F-05; board D199)', async () => {
+    const { COMPLEX } = await import('./fixtures');
+    await store.start({ factory: fakeIndexedDB() });
+    // A care team's start figure of 180 mg/dL, replaced on its page with an unfinished “18”.
+    const lows = { ...COMPLEX, glucoseStartMin: 180, glucoseStartUnit: 'mg/dL' as const };
+    expect((await store.update(draftOf(lows, 'review'))).ok).toBe(true);
+    changeAnswers(lows, { glucoseStartMin: undefined }, { glucoseStartMin: '18' }, 'medicines.lows');
+    expect(await flushAnswers('review')).toBe('saved');
+    const shown = stored()!.answers!;
+    expect([shown.glucoseStartMin, stored()?.raw]).toEqual([undefined, { glucoseStartMin: '18' }]);
+    expect(await finishSetup(shown, CTX, NOW)).toEqual({ kind: 'failed', message: RAW_LEFT('medicines') });
+    expect(setupStateOf(store.getState().settings, store.getState().profile).stage).toBe('open');
+    expect(stored()?.raw).toEqual({ glucoseStartMin: '18' });
+    // Cleared on its page: no figure, the usual one used.
+    changeAnswers(shown, {}, { glucoseStartMin: '' }, 'medicines.lows');
+    expect(await finishSetup(stored()!.answers!, CTX, NOW)).toEqual({ kind: 'home' });
+    expect(store.getState().profile?.health.clinicianTargets?.glucoseStartMin).toBeUndefined();
+  });
+
+  it('so is a finish planned as another copy types one, inside its transaction (H5F-05)', async () => {
+    const { COMPLEX } = await import('./fixtures');
+    const { completedSetup } = await import('./assemble');
+    const data = withDraft(fresh(), 'review', { ...COMPLEX, glucoseStartMin: undefined });
+    const typed = { ...data, settings: { ...data.settings, setup: { ...data.settings.setup!, draft: { ...data.settings.setup!.draft!, raw: { glucoseStartMin: '18' } } } } };
+    expect(completedSetup(typed, typed.settings.setup!.draft!.answers!, NOW, { ...CTX, hasSteps: false })).toBe(typed);
+    const finished = completedSetup(data, data.settings.setup!.draft!.answers!, NOW, { ...CTX, hasSteps: false });
+    expect(setupStateOf(finished.settings, finished.profile).stage).toBe('done');
+  });
+
   it('forgets setup’s session once it’s done (K5-05)', async () => {
     await store.start({ factory: fakeIndexedDB() });
     expect((await store.update(draftOf(MINIMAL, 'review'))).ok).toBe(true);
@@ -250,7 +279,7 @@ describe('one store of answers (board D169)', () => {
     expect(stored()?.answers?.conditions).toEqual({ feet: 'unsure' });
   });
 
-  it('Review, the gates and finishing read those answers: a change in a chapter opened from Review and left with Back counts, and Review’s older answers can’t be finished (H5R-01)', async () => {
+  it('Review and finishing read those answers, with every gate held meanwhile: a change in a chapter opened from Review and left with Back counts, and Review’s older answers can’t be finished (H5R-01; board D197)', async () => {
     const answered = withC({ diabetes: 'yes', feet: 'yes' }, { diabetesType: 'type2', feetNumb: 'no', footWound: 'no', footRestriction: 'no', clearance: 'none', targets: 'no', priorDka: 'no', dizzy: 'no' });
     await store.start({ factory: fakeIndexedDB() });
     expect((await store.update(draftOf(answered, 'review'))).ok).toBe(true);
@@ -260,7 +289,8 @@ describe('one store of answers (board D169)', () => {
     await flushAnswers('review');
     const s = store.getState();
     expect(answersOf(setupStateOf(s.settings, s.profile)).footWound).toBe('unsure');
-    expect(gateCandidates(s).map(p => p.health.footStatus)).toContain('current_wound_or_active_charcot');
+    // Unfinished, every gate holds for the profile gap, whatever is stored (board D197).
+    expect(gateProfile(s).needsHealthReview).toBe(true);
     expect((await finishSetup(onReview, CTX, NOW)).kind).toBe('failed');
     expect(await finishSetup(stored()!.answers!, CTX, NOW)).toEqual({ kind: 'home' });
     expect(store.getState().profile?.health.footStatus).toBe('current_wound_or_active_charcot');
@@ -464,15 +494,41 @@ describe('two copies, each storing only what it changed (H5R-03, H5R-14, K5R-02;
     expect(write(withAnswers({ name: 'Kai' }), { name: [undefined, 'Asha'] }).draft?.answers).toEqual({ name: 'Asha' });
   });
 
-  it('a safety answer both changed keeps the stricter, whichever copy gave it; with neither stricter, the stored one, named (board D190)', () => {
-    const wound = (footWound: 'unsure' | 'past' | 'no') => withAnswers(withC({ diabetes: 'yes', feet: 'yes' }, { feetNumb: 'no', footWound }));
-    // The other copy's "Not sure" holds walks; this one's "No" would release them.
-    expect(write(wound('unsure'), { footWound: ['past', 'no'] })).toMatchObject({ draft: { answers: { footWound: 'unsure' } }, kept: ['footWound'] });
-    expect(write(wound('no'), { footWound: ['past', 'now'] })).toMatchObject({ draft: { answers: { footWound: 'now' } }, kept: [] });
-    // A wound now holds walks, one in the past impact: each holds something the other doesn't.
-    expect(write(wound('past'), { footWound: ['no', 'now'] })).toMatchObject({ draft: { answers: { footWound: 'past' } }, kept: ['footWound'] });
+  it('a Yes, No or Not sure safety answer both changed keeps the earlier in Yes, Not sure, No; any other, the stored one, named (boards D190, D196)', () => {
+    const numb = (feetNumb: 'unsure' | 'no' | 'yes') => withAnswers(withC({ diabetes: 'yes', feet: 'yes' }, { feetNumb, footWound: 'no' }));
+    // The other copy's "Not sure" stays over this one's "No"; this one's "Yes" goes over its "Not sure".
+    expect(write(numb('unsure'), { feetNumb: ['yes', 'no'] })).toMatchObject({ draft: { answers: { feetNumb: 'unsure' } }, kept: ['feetNumb'] });
+    expect(write(numb('unsure'), { feetNumb: ['no', 'yes'] })).toMatchObject({ draft: { answers: { feetNumb: 'yes' } }, kept: [] });
+    // A wound answer, a clearance, a direction: never chosen between.
+    const wound = (footWound: 'past' | 'no') => withAnswers(withC({ diabetes: 'yes', feet: 'yes' }, { feetNumb: 'no', footWound }));
+    expect(write(wound('no'), { footWound: ['past', 'now'] })).toMatchObject({ draft: { answers: { footWound: 'no' } }, kept: ['footWound'] });
     const back = (worseWith: 'flexion' | 'extension') => withAnswers(withC({ pain: 'yes' }, { painAreas: ['lowerBack'], worseWith }));
     expect(write(back('flexion'), { worseWith: ['unknown', 'extension'] })).toMatchObject({ draft: { answers: { worseWith: 'flexion' } }, kept: ['worseWith'] });
+  });
+
+  it('a number typed with no answer yet, written after another copy stored one, isn’t written: the page shows that answer, and says so (H5F-06; board D220)', async () => {
+    await store.start({ factory: fakeIndexedDB() });
+    const bp = withC({ bp: 'yes' }, { bpMedicine: 'no', clearance: 'none', targets: 'yes' });
+    expect((await store.update(d => withDraft(d, 'health.limits', bp))).ok).toBe(true);
+    // Here: a top number typed, the bottom one not yet, so no answer, only the texts, both of them.
+    changeAnswers(bp, { bpPermission: undefined }, { 'bpPermission.sys': '150', 'bpPermission.dia': '' }, 'health.limits');
+    // Meanwhile, another copy stores 170/100.
+    const other = new Map([['bpPermission', { baseline: undefined, value: { sys: 170, dia: 100 } }]]);
+    expect((await store.update(d => withFields(d, other, new Map([['bpPermission.sys', '170'], ['bpPermission.dia', '100']]), undefined))).ok).toBe(true);
+    expect(await flushAnswers()).toBe('saved');
+    expect([stored()?.answers?.bpPermission, stored()?.raw]).toEqual([{ sys: 170, dia: 100 }, { 'bpPermission.sys': '170', 'bpPermission.dia': '100' }]);
+    expect(rawWithQueued(stored()?.raw)).toEqual({ 'bpPermission.sys': '170', 'bpPermission.dia': '100' });
+    expect(answersQueue().changedElsewhere).toBe(true);
+  });
+
+  it('with nothing else stored meanwhile, those texts are written as typed', async () => {
+    await store.start({ factory: fakeIndexedDB() });
+    const bp = withC({ bp: 'yes' }, { bpMedicine: 'no', clearance: 'none', targets: 'yes' });
+    expect((await store.update(d => withDraft(d, 'health.limits', bp))).ok).toBe(true);
+    changeAnswers(bp, { bpPermission: undefined }, { 'bpPermission.sys': '150', 'bpPermission.dia': '' }, 'health.limits');
+    expect(await flushAnswers()).toBe('saved');
+    expect([stored()?.answers?.bpPermission, stored()?.raw]).toEqual([undefined, { 'bpPermission.sys': '150' }]);
+    expect(answersQueue().changedElsewhere).toBe(false);
   });
 
   it('a number whose answer wasn’t written keeps the stored text, so the page shows the answer kept', () => {

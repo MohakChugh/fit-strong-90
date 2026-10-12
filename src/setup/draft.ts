@@ -17,13 +17,13 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { AppData } from '@/types';
-import type { PageId, SetupAnswers } from '@/types/setup';
+import type { ChapterId, PageId, SetupAnswers } from '@/types/setup';
 import { nowAt } from '@/health/observation';
 import { StoreFailure, type StoreResult } from '@/store/db';
 import { sameValue } from '@/store/transfer';
 import { getState, subscribe, update } from '@/store/useStore';
 import { completedSetup, lookedAround, measurementsFrom } from './assemble';
-import { RAW_FIELDS, nextMove, pageDef, rawPage, skipMove, type Ctx, type PlannedMove } from './graph';
+import { CHAPTER_TITLE, RAW_FIELDS, chapterOf, nextMove, pageDef, rawLeft, rawPage, skipMove, type Ctx, type PlannedMove } from './graph';
 import { fieldRoot, getField, isSafetyField, mergeAnswers, mergeSkipped, putField, stricterAnswer } from './merge';
 import type { RawKey } from './limits';
 import { prefillAnswers } from './prefill';
@@ -40,6 +40,8 @@ export const FINISHED_ELSEWHERE = 'Setup was finished in another window of FitSt
 const tell = (message: string) => void import('sonner').then(({ toast }) => toast(message)).catch(() => undefined);
 
 /** Said when an answer changed here was changed in another copy at the same time, and that copy's was kept (board D190). */
+/** A "No food allergies" tap made against an allergy answer another window has since changed (H5F-07; board D221). */
+export const ALLERGIES_CHANGED = 'Your food allergies changed in another window of FitStrong, so this wasn’t saved. Check them, then try again.';
 export const CHANGED_ELSEWHERE = 'Another window of FitStrong changed an answer at the same time, and its answer was kept. Check your answers, then carry on.';
 
 /** `raw` with each text changed in `typed`: an empty one taken away. */
@@ -183,16 +185,21 @@ export function fieldChanges(shown: SetupAnswers, patch: Partial<SetupAnswers>):
 }
 
 /**
- * Changes onto the draft as it is now, inside its transaction (board D190):
- * each written where the stored answer is still what its control started
- * from. Where it isn't, another copy changed it meanwhile: a preference takes
- * this one, the later; a safety answer keeps whichever the engine finds
- * stricter (`stricterAnswer`), and the stored one where neither is. Each
- * answer not written as given is named in `kept`, and its number's text
- * isn't written either, so a page never shows a number its answer isn't.
+ * Changes onto the draft as it is now, inside its transaction (boards D190,
+ * D196): each written where the stored answer is still what its control
+ * started from. Where it isn't, another copy changed it meanwhile: a
+ * preference takes this one, the later; a Yes, No or Not sure safety answer
+ * the earlier in Yes, Not sure, No (`stricterAnswer`); any other safety
+ * answer stays as stored. Each answer not written as given is named in
+ * `kept`, and its number's text isn't written either, so a page never shows
+ * a number its answer isn't. So with texts alone, typed with no answer yet:
+ * written only while the stored answer is still the one they were typed
+ * against (`baselines`, by field); another copy's answer stored meanwhile is
+ * kept, with its texts, and named (H5F-06; board D220).
  */
 export function withFields(
   data: AppData, changes: ReadonlyMap<string, FieldChange>, raw: ReadonlyMap<string, string | undefined>, at: PageId | undefined, kept: string[] = [],
+  baselines: ReadonlyMap<string, unknown> = new Map(),
 ): AppData {
   const setup = setupStateOf(data.settings, data.profile);
   // Another copy finished setup meanwhile: this copy's answers aren't stored onto it (K5R-04).
@@ -200,9 +207,12 @@ export function withFields(
   let answers = setup.draft?.answers ?? prefillAnswers(data.settings, data.profile);
   for (const [field, { baseline, value }] of changes) {
     const stored = getField(answers, field);
-    const chosen = sameValue(stored, baseline) || sameValue(stored, value) || !isSafetyField(field) ? { value } : stricterAnswer(answers, field, stored, value);
+    const chosen = sameValue(stored, baseline) || sameValue(stored, value) || !isSafetyField(field) ? { value } : stricterAnswer(stored, value);
     if (chosen) answers = putField(answers, field, chosen.value);
     if (!chosen || !sameValue(chosen.value, value)) kept.push(field);
+  }
+  for (const root of new Set([...raw.keys()].map(fieldRoot))) {
+    if (![...changes.keys()].some(f => fieldRoot(f) === root) && !sameValue(getField(answers, root), baselines.get(root))) kept.push(root);
   }
   const texts = withTexts(setup.draft?.raw, [...raw].filter(([key]) => !kept.some(f => fieldRoot(f) === fieldRoot(key))));
   const resume = at ?? setup.draft?.at;
@@ -216,6 +226,8 @@ export const AUTOSAVE_MS = 400;
 /** What's waiting to be stored, for the record it was made in (`StoreState.epoch`). */
 const queued = new Map<string, FieldChange>();
 const queuedRaw = new Map<string, string | undefined>();
+/** The answer each number's texts were last typed against, by its field: set with each, so never stale (H5F-06; board D220). */
+const rawBaselines = new Map<string, unknown>();
 let queuedAt: PageId | undefined;
 let queueEpoch = -1;
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -281,6 +293,15 @@ export function waitingOn(id: PageId): boolean {
   return [...queue().keys()].some(f => sets.includes(fieldRoot(f))) || [...queuedRaw.keys()].some(key => rawPage(key) === id);
 }
 
+/** Not kept (board D198): what's waiting from page `id` is dropped, so the answers stored stand. */
+export function discardWaiting(id: PageId): void {
+  const sets = pageDef(id).sets as readonly string[];
+  for (const field of [...queue().keys()]) if (sets.includes(fieldRoot(field))) queued.delete(field);
+  for (const key of [...queuedRaw.keys()]) if (rawPage(key) === id) queuedRaw.delete(key);
+  if (queued.size === 0 && queuedRaw.size === 0) clearQueue();
+  queueChanged();
+}
+
 /**
  * A page's changes, shown at once and stored shortly after, field by field
  * (§6.1; H5-16, K5-17; board D169), each with what its control started from.
@@ -299,7 +320,10 @@ export function changeAnswers(shown: SetupAnswers, patch: Partial<SetupAnswers>,
     const waiting = q.get(field);
     q.set(field, { baseline: waiting ? waiting.baseline : getField(shown, field), value });
   }
-  for (const [key, text] of Object.entries(raw)) queuedRaw.set(key, text);
+  for (const [key, text] of Object.entries(raw)) {
+    queuedRaw.set(key, text);
+    rawBaselines.set(fieldRoot(key), getField(shown, fieldRoot(key)));
+  }
   queuedAt = at;
   changedElsewhere = false;
   queueChanged();
@@ -322,6 +346,7 @@ async function storeQueued(at: PageId | undefined): Promise<SaveOutcome> {
   clearTimeout(timer);
   const changes = new Map(queue());
   const raw = new Map(queuedRaw);
+  const baselines = new Map(rawBaselines);
   const generation = queueEpoch;
   if (current().unsaved) {
     if (at) keepInSession(at, current().answers);
@@ -332,7 +357,7 @@ async function storeQueued(at: PageId | undefined): Promise<SaveOutcome> {
   let written: SetupAnswers = {};
   const result = await update(d => {
     kept.length = 0;
-    const next = withFields(d, changes, raw, at ?? queuedAt, kept);
+    const next = withFields(d, changes, raw, at ?? queuedAt, kept, baselines);
     written = setupStateOf(next.settings, next.profile).draft?.answers ?? {};
     return next;
   }, { generation });
@@ -445,6 +470,14 @@ export async function saveDraft(to: PageId, answers: SetupAnswers, opened?: Setu
 
 export type FinishOutcome = { kind: 'home' } | { kind: 'failed'; message: string };
 
+/** Finishing waits for a number typed that isn't an answer yet, named by its chapter (H5F-05; board D199). */
+export const RAW_LEFT = (chapter: ChapterId): string =>
+  `A number you typed in ${CHAPTER_TITLE[chapter]} isn’t an answer yet. Correct it or clear it there, then start again.`;
+const rawHeld = (answers: SetupAnswers, raw: Raw | undefined): FinishOutcome | undefined => {
+  const left = rawLeft(answers, raw);
+  return left === undefined ? undefined : { kind: 'failed', message: RAW_LEFT(chapterOf(left) as ChapterId) };
+};
+
 /** Setup ends without saving (B-07): the app opens for this session only, with the answers here and nothing completed. */
 function enterUnsaved(answers: SetupAnswers): FinishOutcome {
   if (!current().unsaved) continueWithoutSaving('review', answers);
@@ -470,6 +503,8 @@ export async function finishSetup(answers: SetupAnswers, ctx: Ctx, now: string =
   if (current().unsaved) return enterUnsaved(answers);
   if (await flushAnswers() === 'failed' && refused !== undefined) return { kind: 'failed', message: `That did not save. ${refused}` };
   const state = getState();
+  const held = rawHeld(answers, setupStateOf(state.settings, state.profile).draft?.raw);
+  if (held) return held;
   const hasSteps = state.observations.some(o => o.kind === 'steps');
   const done = (d: Pick<AppData, 'settings' | 'profile'>) => setupStateOf(d.settings, d.profile).stage === 'done';
   const saved = await update(d => completedSetup(d, answers, now, { ...ctx, hasSteps }), {
@@ -508,15 +543,18 @@ export async function lookAroundFirst(generation?: number): Promise<string | und
  * D194): setup's own answer, where meal ideas read it (`setupAllergyAnswer`),
  * stored as setup stores any answer: this session's while setup goes on
  * without saving, the draft's while it's unfinished, else the finished
- * answers. Nothing is written for a record another copy has since replaced.
+ * answers. Only for the record and the answer shown at the tap (`unchanged`):
+ * refused, inside its transaction, once another copy has replaced the record
+ * or changed that answer (H5F-07; board D221).
  */
-export async function answerNoAllergies(): Promise<StoreResult | undefined> {
+export async function answerNoAllergies(unchanged: (d: AppData) => boolean = () => true): Promise<StoreResult | undefined> {
   const none = (a: SetupAnswers) => putField(putField(a, 'allergies', []), 'customAllergies', undefined);
   if (current().unsaved) {
     keepInSession(current().at ?? 'food.allergies', none(current().answers));
     return undefined;
   }
   return update(d => {
+    if (!unchanged(d)) throw new StoreFailure('conflict', ALLERGIES_CHANGED);
     const setup = setupStateOf(d.settings, d.profile);
     if (setup.stage === 'done') return { ...d, settings: { ...d.settings, setup: { ...setup, answers: none(setup.answers ?? {}) } } };
     const now = setup.draft?.answers ?? prefillAnswers(d.settings, d.profile);

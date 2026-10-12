@@ -20,7 +20,7 @@ import { withJoinAnswers } from '@/programme/join';
 import { withWeeklyGoal } from '@/screens/track/weeklyGoal';
 import { sameValue } from '@/store/transfer';
 import { diabetesOf, factsOf, has } from './facts';
-import { REVIEW_ALSO, SAFETY_CHAPTERS, chapterComplete, pageDone, skippedChapters, type Ctx } from './graph';
+import { REVIEW_ALSO, SAFETY_CHAPTERS, chapterComplete, pageDone, rawLeft, skippedChapters, type Ctx } from './graph';
 import { setupStateOf } from './state';
 
 const med = (t: Tri | undefined): MedicineAnswer => (t === 'yes' ? true : t === 'unsure' ? 'unsure' : false);
@@ -265,6 +265,8 @@ export function measurementsFrom(a: SetupAnswers, before: Partial<Pick<UserProfi
 export function completedSetup(data: AppData, a: SetupAnswers, now: string, ctx: Ctx & { hasSteps: boolean }): AppData {
   const prior = setupStateOf(data.settings, data.profile);
   if (prior.stage === 'done' || (prior.draft?.answers !== undefined && !sameValue(prior.draft.answers, a))) return data;
+  // A number typed that isn't an answer, here or in another copy: not finished until it's corrected or cleared (H5F-05).
+  if (rawLeft(a, prior.draft?.raw) !== undefined) return data;
   const today = now.slice(0, 10);
   const profile = profileFrom(a, data.profile, today, ctx);
   const joined = a.programme === 'join' && a.join !== undefined;

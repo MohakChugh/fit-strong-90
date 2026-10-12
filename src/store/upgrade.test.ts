@@ -12,6 +12,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
+import { evaluateCheckIn } from '@/engine/readiness';
+import { toDateString } from '@/lib/utils';
+import type { DailyCheckIn } from '@/types/checkin';
 import { startWalk } from '@/walk/clock';
 import { peekWalk, storeWalk } from '@/walk/persist';
 import { DB_NAME } from './db';
@@ -137,6 +140,13 @@ describe('an older copy meets a database a newer one upgraded (B-21, D107, P8R-0
     // Nor a workout, begun here or begun again (the Workout screen's own gate).
     for (const stage of ['start', 'restart'] as const) {
       expect(older.workout.logGate(input, stage)).toMatchObject({ kind: 'stop', permission: { allowed: false, reasons: [older.gate.READ_ONLY_REASON] } });
+    }
+    // An emergency stays first, as it does through every other hold (Plan 5's board D197): its words, never these.
+    const emergency: DailyCheckIn = { date: toDateString(input.now), urgentSymptoms: true, emergency: ['chest'], news: [] };
+    const urgent = { ...input, checkIn: { ...emergency, readiness: evaluateCheckIn(input.profile, emergency, []) } };
+    for (const mode of ['guided', 'stretch', 'walk'] as const) {
+      expect(older.gate.arrivalGate(urgent, mode, false)).toMatchObject({ allowed: false, disposition: 'emergency' });
+      expect(older.gate.startGate(urgent, mode)).toMatchObject({ allowed: false, disposition: 'emergency' });
     }
     expect((await newer.store.addObservation(glucose(130))).ok).toBe(true);
     // A fresh store in this window, as a test's reset makes one, is read-only no longer.

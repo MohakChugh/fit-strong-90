@@ -46,33 +46,29 @@ describe('a page’s own skip marks, onto the marks as they are now (H5-12)', ()
   });
 });
 
-describe('where both copies changed a safety answer: the stricter, as the engine finds it (K5R-09, H5R-02; board D190)', () => {
+describe('where both copies changed a safety answer (K5R-09, H5R-02, H5F-03; boards D190, D196)', () => {
   const both = (key: keyof SetupAnswers, base: SetupAnswers, stored: unknown, mine: unknown) =>
     mergeAnswersWithConflicts({ ...base, [key]: stored }, base, { ...base, [key]: mine });
   const insulin: SetupAnswers = { conditions: { diabetes: 'yes' }, diabetesType: 'type2', regular: 'yes', classes: { insulin: 'yes' } };
 
-  it('a wound now over none, whichever came last', () => {
+  it('of two Yes, No or Not sure answers, the earlier in Yes, Not sure, No: a disclosure or a doubt is never erased', () => {
+    // A care team's start figure makes lows risk read alike to the start figure, never to everything else it holds (H5F-03).
+    const target = { ...insulin, glucoseStartMin: 90, lowsRisk: 'yes' as const };
+    expect(both('lowsRisk', target, 'unsure', 'no').answers.lowsRisk).toBe('unsure');
+    expect(both('lowsRisk', target, 'no', 'unsure').answers.lowsRisk).toBe('unsure');
+    expect(both('lowsRisk', { ...target, lowsRisk: 'unsure' }, 'yes', 'no').answers.lowsRisk).toBe('yes');
+    // A checklist's row, the same.
+    const heart = mergeAnswersWithConflicts({ conditions: { heart: 'yes' } }, { conditions: { heart: 'unsure' } }, { conditions: { heart: 'no' } });
+    expect(heart).toEqual({ answers: { conditions: { heart: 'yes' } }, conflicts: [] });
+  });
+
+  it('of any other safety answer, neither: the stored one stays, named, for the person to check', () => {
     const feet: SetupAnswers = { conditions: { feet: 'yes' }, feetNumb: 'no', footWound: 'past' };
-    expect(both('footWound', feet, 'now', 'no').answers.footWound).toBe('now');
-    expect(both('footWound', feet, 'no', 'now').answers.footWound).toBe('now');
-  });
-
-  it('type 1 over type 2, no clearance over vigorous, no meter over a meter with lows possible', () => {
-    expect(both('diabetesType', { conditions: { diabetes: 'yes' } }, 'type1', 'type2').answers.diabetesType).toBe('type1');
-    expect(both('clearance', { conditions: { heart: 'yes' } }, 'vigorous', 'none').answers.clearance).toBe('none');
-    expect(both('glucoseMonitor', insulin, 'none', 'meter').answers.glucoseMonitor).toBe('none');
-  });
-
-  it('“Not sure” over No; between two the engine reads alike, the later', () => {
-    expect(both('lowsRisk', insulin, 'unsure', 'no').answers.lowsRisk).toBe('unsure');
-    expect(both('lowsRisk', insulin, 'yes', 'unsure').answers.lowsRisk).toBe('unsure');
-  });
-
-  it('where neither is stricter, the stored answer stays and the answer is named', () => {
+    expect(both('footWound', feet, 'no', 'now')).toMatchObject({ answers: { footWound: 'no' }, conflicts: ['footWound'] });
+    expect(both('clearance', { conditions: { heart: 'yes' } }, 'vigorous', 'none')).toMatchObject({ answers: { clearance: 'vigorous' }, conflicts: ['clearance'] });
+    expect(both('glucoseMonitor', insulin, 'meter', 'none')).toMatchObject({ answers: { glucoseMonitor: 'meter' }, conflicts: ['glucoseMonitor'] });
     const back: SetupAnswers = { conditions: { pain: 'yes' }, painAreas: ['lowerBack'], worseWith: 'unknown' };
-    const merged = both('worseWith', back, 'flexion', 'extension');
-    expect(merged.answers.worseWith).toBe('flexion');
-    expect(merged.conflicts).toEqual(['worseWith']);
+    expect(both('worseWith', back, 'flexion', 'extension')).toMatchObject({ answers: { worseWith: 'flexion' }, conflicts: ['worseWith'] });
   });
 
   it('a preference changed in both: this copy’s, the later', () => {

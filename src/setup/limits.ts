@@ -34,3 +34,11 @@ export function ownAllergiesProblem(list: readonly string[] | undefined): string
   if (list.some(x => x.length > OWN_ALLERGY_LENGTH_MAX)) return `Each allergy in ${OWN_ALLERGY_LENGTH_MAX} characters or fewer.`;
   return null;
 }
+
+/** A comma-separated field ("leave out", allergies of the person's own), as the list the profile stores. */
+export function parseAvoid(text: string): string[] {
+  return [...new Set(text.split(/[,;\n]/).map(s => s.trim()).filter(Boolean))];
+}
+
+/** Own-word allergies typed that can't be stored as given: kept as typed, and no answer until they fit (H5-18, H5F-08). */
+export const ownTextProblem = (text: string): string | null => ownAllergiesProblem(parseAvoid(text));
