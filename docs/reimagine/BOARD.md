@@ -2051,3 +2051,9 @@ What the combination needed: one caller test with all three holds standing toget
 Left as decided (D197), now beside Plan 6's stop: while the pause stands, it is all that's said. Only an emergency and a low's treatment come through it; "Get medical advice today" doesn't. So an unanswered stop's Say what happened (D173) leaves the safety surface and the hubs' Right now until the pause lifts. With the surface empty, walk and stand-up reminders aren't held back for the stop either (`offeredNow`, KV-09). Movement holds at every gate throughout, and the stop asks again once the pause has gone. On `795ae4c` each candidate decided the stop, so it was said with a refused save waiting. Whether a stop should stand beside the pause is for the owner.
 
 Gates: `tsc -b --force` and lint clean, Vitest 267 files and 6,972 tests.
+
+**Acceptance** (port 49831, through the lock; S01, J01, J02, J06, J10, J11, J12, J13, J14, J16, J17, J18, J20, M01, M02, V-J08, V-J10, V-J11, V-J13, V-J17, V-J18, V19, V-J28, V-J37, V02, VJ12 and VJ14; `/tmp/fit-checks/accept-v2-p5r3.log`): **660 cases, 619 passed, 41 failed, in 301.2 min.** The 41 were J13's, in large-dark, small-light and small-dark. Each was a timeout (a 30 s wait for the page, or a locator's 15 s) or an element detached mid-render while the machine stalled. Cases ran for up to 6,266 s, and within J13 the sweep logged 853 `net::ERR_NETWORK_CHANGED` lines, a failed lazy load of the session page, and a blank Walk hub captured before it drew. J13 alone then passed 100 of 100 in 12.1 min (`/tmp/fit-checks/accept-v2-p5r3-j13.log`). Every other journey passed in all four projects. The sweep found what earlier runs found:
+- J20's offline `net::ERR_FAILED` lines;
+- Browse's More menu with no level-1 heading or main landmark (VJ12);
+- the 20 × 20 px stop checkboxes in `/session` and `/walk/live` (J13, J16);
+- V-J18's 41–42 px ketone choices at 320 px.
