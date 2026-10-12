@@ -24,9 +24,11 @@ export function mealPattern(p: FoodPattern | undefined): Exclude<FoodPattern, 'j
 /**
  * Meal ideas' own food question, answered: it changes what it asks and
  * keeps the rest of what was stored (the level, the screening answer, a
- * target). The picker's allergies replace the stored ones when it gives them.
+ * target): the food record's, or with none yet, the answers setup keeps for
+ * one (`waitingFood`; board D192). The picker's allergies replace the stored
+ * ones when it gives them.
  */
-export function withPicked(food: FoodPreferences | undefined, picked: {
+export function withPicked(food: Partial<FoodPreferences> | undefined, picked: {
   pattern: FoodPattern;
   avoid: string[];
   region: Region | 'any';

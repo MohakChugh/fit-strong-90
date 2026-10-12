@@ -75,6 +75,15 @@ export interface CheckInForm {
   /** When the reading in `glucose` was taken; `null` stamps it at save. */
   glucoseAt: string | null;
   glucoseDisplay: 'HI' | 'LO' | null;
+  /**
+   * B-19: the clock generation the reading in the box was acquired in. A
+   * saved reading's own while it is the one in the box, so a number corrected
+   * or retimed there is still that measurement; the generation then, when a
+   * number is typed into the empty box or a meter's HI or LO is chosen, which
+   * is a new reading, the same number or not (H6F-06, H6R-03, board D186).
+   * `null`, or absent, while the box has held no reading.
+   */
+  glucoseGen?: number | null;
   source: GlucoseSource | null;
   /** `null` until chosen. */
   trend: GlucoseTrend | null;
@@ -117,7 +126,7 @@ const defaultSource = (p: UserProfile): GlucoseSource | null =>
 export function emptyForm(profile: UserProfile): CheckInForm {
   return {
     emergency: null, back: { ...NO_BACK }, news: [],
-    glucose: '', unit: profile.health.glucoseUnit, unitConfirmed: false, glucoseAt: null, glucoseDisplay: null, source: defaultSource(profile),
+    glucose: '', unit: profile.health.glucoseUnit, unitConfirmed: false, glucoseAt: null, glucoseDisplay: null, glucoseGen: null, source: defaultSource(profile),
     trend: null, rapid: false, bloodKetones: '', urineKetones: null,
     bp: { s1: '', d1: '', s2: '', d2: '' }, bpSymptoms: false, lowRecovered: false, resolutions: [], sleep: null, energy: null, answered: {},
   };
@@ -199,6 +208,7 @@ export function formFromRecord(record: DailyCheckIn, profile?: UserProfile): Che
     unitConfirmed: g?.unitConfirmed === true,
     glucoseAt: useDisplay ? shown?.measuredAt ?? null : g?.measuredAt ?? null,
     glucoseDisplay: useDisplay && shown ? shown.display : null,
+    glucoseGen: (useDisplay ? shown : g) ? ((useDisplay ? shown : g)!.gen ?? 0) : null,
     source: (useDisplay ? shown?.source : g?.source) ?? null,
     trend: g?.trend ?? null,
     rapid: g?.rapidInsulinLast2h === true,
@@ -497,12 +507,22 @@ function glucoseFromForm(form: CheckInForm, profile: UserProfile, previous: Dail
   const prev = previous?.glucose;
   const prevShown = previous?.glucoseDisplay;
   const at = form.glucoseAt;
+  // B-19: the generation the reading in the box was acquired in. Corrected
+  // or retimed in its box, a saved reading keeps its own, whatever it now
+  // says; typed into a cleared box it is a new one, acquired then, the same
+  // number or not (H6F-06, H6R-03, board D186).
+  const acquired = form.glucoseGen ? { gen: form.glucoseGen } : {};
+  /** The box still holds this saved reading as it was acquired, not one typed in afresh. */
+  const asAcquired = (e: GlucoseEntry | undefined) => !!e && (form.glucoseGen ?? e.gen ?? 0) === (e.gen ?? 0);
   if (form.glucoseDisplay) {
-    if (prevShown && prevShown.display === form.glucoseDisplay && (prevShown.measuredAt ?? null) === at) return { glucoseDisplay: prevShown };
+    if (prevShown && asAcquired(prevShown) && prevShown.display === form.glucoseDisplay && (prevShown.measuredAt ?? null) === at) return { glucoseDisplay: prevShown };
     const source = form.source ?? defaultSource(profile);
     // In this phone's offset, written out: HI and LO are kept here and nowhere else, so their clock is too (H3-01).
     const ms = Date.parse(at ?? stamp);
-    const reading: GlucoseDisplayReading = { display: form.glucoseDisplay, measuredAt: Number.isFinite(ms) ? measuredStamp(new Date(ms)) : at ?? stamp, ...(source ? { source } : {}) };
+    const reading: GlucoseDisplayReading = {
+      display: form.glucoseDisplay, measuredAt: Number.isFinite(ms) ? measuredStamp(new Date(ms)) : at ?? stamp, ...(source ? { source } : {}),
+      ...acquired,
+    };
     return { glucoseDisplay: reading };
   }
   const text = form.glucose.trim();
@@ -511,13 +531,13 @@ function glucoseFromForm(form: CheckInForm, profile: UserProfile, previous: Dail
   const sanity = formSanity(form);
   if (!submitsGlucose(sanity)) return {};
   // The saved reading, resubmitted untouched.
-  if (sameGlucose(prev, value, form.unit, at, form.unitConfirmed)) return { glucose: prev };
+  if (asAcquired(prev) && sameGlucose(prev, value, form.unit, at, form.unitConfirmed)) return { glucose: prev };
   // The same reading with its unit confirmed: one measurement, not a new one.
-  if (prev && form.unitConfirmed && sameGlucose(prev, value, form.unit, at)) {
+  if (prev && asAcquired(prev) && form.unitConfirmed && sameGlucose(prev, value, form.unit, at)) {
     return { glucose: { ...prev, unitConfirmed: true }, corrected: prev };
   }
   // "I meant mmol/L" on an ambiguous low: the same reading with its unit fixed.
-  if (prev && prev.unit === 'mg/dL' && form.unit === 'mmol/L' && prev.value === value
+  if (prev && asAcquired(prev) && prev.unit === 'mg/dL' && form.unit === 'mmol/L' && prev.value === value
     && glucoseSanity(prev.value, prev.unit) === 'ambiguousLow' && (prev.measuredAt ?? null) === at) {
     return { glucose: { ...prev, unit: 'mmol/L' as const }, corrected: prev };
   }
@@ -528,6 +548,7 @@ function glucoseFromForm(form: CheckInForm, profile: UserProfile, previous: Dail
     ...(source ? { source } : {}),
     ...(v.glucoseTrend && form.trend ? { trend: form.trend } : {}),
     ...(v.rapidInsulin && form.rapid ? { rapidInsulinLast2h: true } : {}),
+    ...acquired,
   };
   return { glucose: reading };
 }
@@ -757,17 +778,19 @@ export function carryForward(saved: DailyCheckIn | undefined, next: DailyCheckIn
 
 /**
  * A day without what only the gates attach to it for themselves: the record
- * the device had stored (`durable`, N-01), Track's readings (`logged`, X2-01)
- * and the mark of a day made only of them (`readingsOnly`). None is saved
+ * the device had stored (`durable`, N-01), Track's readings (`logged`, X2-01),
+ * the mark of a day made only of them (`readingsOnly`) and the device's clock
+ * changes (`clockHold`, B-19). None is saved
  * inside a check-in, whatever the answers were built from (P-01): stored, they
  * would act as readings nobody took, skip the day's red flags, or hold a copy
  * of the day nothing else checks, and an import refuses them.
  */
 export function withoutGateFields<T extends DailyCheckIn>(c: T): T {
-  const { durable: _durable, logged: _logged, readingsOnly: _onlyReadings, ...own } = c;
+  const { durable: _durable, logged: _logged, readingsOnly: _onlyReadings, clockHold: _clock, ...own } = c;
   void _durable;
   void _logged;
   void _onlyReadings;
+  void _clock;
   return own as T;
 }
 

@@ -439,3 +439,15 @@ describe('the food prompt among the reminders (journey §7.4, §11.5; board D103
     expect(dueBetween(at(D, '14:00'), at(D, '14:45'), food()).map(o => o.habit)).toEqual(['foodLog']);
   });
 });
+
+describe('reminders read the profile every gate reads (K5R-10)', () => {
+  it('a v1 record left part-way through setup holds water reminders until the health questions are answered', async () => {
+    const { gateProfile } = await import('@/setup/effective');
+    const reviewed = createDefaultProfile({ weightKg: 80, needsHealthReview: false });
+    const habits: HabitSettings = { water: WATER };
+    expect(dailyTimes(habits, reviewed).some(t => t.habit === 'water')).toBe(true);
+    const partWay = gateProfile({ profile: reviewed, settings: { onboardingComplete: false, habits, currentWeight: 80 } });
+    expect(dailyTimes(habits, partWay).some(t => t.habit === 'water')).toBe(false);
+  });
+
+});

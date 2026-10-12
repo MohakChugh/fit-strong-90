@@ -171,6 +171,67 @@ describe('J17: a glucose reading the device refused comes back after a reload, a
   });
 });
 
+describe('B-19: a reading carries the clock generation of its first Save, through a refusal and a reload (H6R-03, board D186)', () => {
+  const DAY = '2026-10-08';
+
+  it('saved before a change to the clock, refused, and saved again after it, it is still from before', async () => {
+    let h = await open('glucose');
+    await h.change(inputs(h, 'decimal')[0], { value: '140' });
+    refuse = true;
+    await h.click(h.button('Save', { exact: true }));
+    expect(glucose()).toHaveLength(0);
+    // The phone's clock changes; the same reading is saved again, here and after a reload.
+    await store.markClockChange([DAY]);
+    refuse = false;
+    await reload();
+    h = await open('glucose');
+    await h.click(h.button('Save', { exact: true }));
+    expect(glucose()).toHaveLength(1);
+    expect(glucose()[0].gen).toBeUndefined();
+  });
+
+  it('keeps the generation of its first Save, not the one its retry finds, here and after a reload', async () => {
+    await store.markClockChange([DAY]);
+    let h = await open('glucose');
+    await h.change(inputs(h, 'decimal')[0], { value: '140' });
+    refuse = true;
+    await h.click(h.button('Save', { exact: true }));
+    expect(loadQuickLogDraft(session)).toMatchObject({ raw: '140', gen: 1 });
+    await store.markClockChange([DAY]);
+    await h.click(h.button('Save', { exact: true }));
+    expect(glucose()).toHaveLength(0);
+    await reload();
+    h = await open('glucose');
+    refuse = false;
+    await h.click(h.button('Save', { exact: true }));
+    expect(glucose()).toHaveLength(1);
+    expect(glucose()[0].gen).toBe(1);
+  });
+
+  it('first saved since the change, it is of the new generation; its box cleared and typed again, it is a new reading', async () => {
+    await store.markClockChange([DAY]);
+    let h = await open('glucose');
+    await h.change(inputs(h, 'decimal')[0], { value: '140' });
+    await h.click(h.button('Save', { exact: true }));
+    expect(glucose()[0].gen).toBe(1);
+
+    h = await open('glucose');
+    await h.change(inputs(h, 'decimal')[0], { value: '132' });
+    refuse = true;
+    await h.click(h.button('Save', { exact: true }));
+    // Cleared after its refused Save, then the reading measured after another change typed in.
+    await store.markClockChange([DAY]);
+    clock(9, 6);
+    await h.change(inputs(h, 'decimal')[0], { value: '' });
+    await h.change(inputs(h, 'decimal')[0], { value: '128' });
+    refuse = false;
+    await h.click(h.button('Save', { exact: true }));
+    const saved = glucose().find(o => o.value === 128)!;
+    expect(saved.gen).toBe(2);
+    expect(Date.parse(saved.at)).toBe(new Date(2026, 9, 8, 9, 6, 0).getTime());
+  });
+});
+
 describe('J17: a dangerous reading refused behind its guidance', () => {
   it('is marked refused at once, though its form is gone, so a reload opens it again', async () => {
     const h = await open('glucose');

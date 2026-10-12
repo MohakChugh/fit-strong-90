@@ -89,12 +89,15 @@ export function answersFromProfile(p: UserProfile, s: Kept): SetupAnswers {
   }
   if (h.metforminSince) a.metforminSince = h.metforminSince.slice(0, 4);
   if (asked.has('priorDka') && h.priorDkaOrInsulinDeficiency !== undefined) a.priorDka = tri(h.priorDkaOrInsulinDeficiency);
+  // How insulin is taken is v2's question: read back only where the record says it, else asked (K5R-07; board D195).
   if (asked.has('insulin') && h.insulin !== 'none') {
-    a.insulinHow = h.insulin === 'automated_delivery' ? 'closedLoop' : h.insulin === 'unsure' ? 'unsure' : h.insulinRegimen ?? 'unsure';
+    const how = h.insulin === 'automated_delivery' ? 'closedLoop' : h.insulin === 'unsure' ? 'unsure' : h.insulinRegimen;
+    if (how) a.insulinHow = how;
   }
   if (d.hypoRisk) a.lowsRisk = h.highHypoRisk ? 'yes' : 'no';
   if (t?.glucoseStartMin !== undefined) { a.glucoseStartMin = t.glucoseStartMin; a.glucoseStartUnit = t.glucoseStartUnit ?? 'mg/dL'; }
-  if (d.ketoneRisk) a.ketoneTest = h.ketoneTest;
+  // Ketone testing: v1 asked it with type 1 or an SGLT2 medicine, so only there is its answer v1's (K5R-07).
+  if (d.ketoneRisk && (h.diabetes === 'type1' || h.sglt2i)) a.ketoneTest = h.ketoneTest;
   // "Anything else?", with dizziness, was asked of everyone.
   a.dizzy = h.dizzyOnStandingOrAutonomicNeuropathy ? 'yes' : 'no';
   if (d.diabetic) { a.glucoseMonitor = h.glucoseMonitor; a.glucoseUnit = h.glucoseUnit; }

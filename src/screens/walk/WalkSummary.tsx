@@ -85,14 +85,16 @@ export function WalkSummary() {
   const origin = walk.plan.from ?? '/home';
   /**
    * Back to where the walk came from, through history, as the session player
-   * closes and as Back goes (M12): the entry behind this summary is the screen
-   * the walk was started on, as it was left. Pushing it again would leave this
-   * summary, gone once saved, behind that screen's Back. With nothing behind
-   * it, as after a fresh launch, the origin takes this entry's place.
+   * closes and as Back goes (M12): when the entry behind this summary is the
+   * screen the walk was started on, as it was left. Pushing it again would
+   * leave this summary, gone once saved, behind that screen's Back. With
+   * another screen behind it, as when the walk was carried on from elsewhere,
+   * or nothing, as after a fresh launch, the origin takes this entry's place
+   * (H6R-14, board D181).
    */
   const leave = () => {
     markBack();
-    if (cameFrom()) navigate(-1);
+    if (cameFrom() === origin) navigate(-1);
     else navigate(origin, { replace: true });
   };
   const ending = endingLine(walk);

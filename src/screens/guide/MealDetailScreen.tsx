@@ -6,7 +6,7 @@ import { allergenList, allergiesOf, allergyWarning } from '@/food/allergens';
 import { FOOD_COPY } from '@/food/copy';
 import { REGION_LABEL } from './format';
 import { componentDetail, measureClaimIds } from './mealText';
-import { ClaimGroup, Lead, Reviewed, SourcesGroup } from './parts';
+import { ClaimGroup, Lead, NoAllergiesRow, Reviewed, SourcesGroup } from './parts';
 import { RoughCarbs } from '@/screens/food/RoughCarbs';
 import { useGuide } from './useGuide';
 
@@ -71,6 +71,7 @@ export default function MealDetailScreen() {
 
       <Group header="Allergens in our recipes" footer={swapped.length > 0 ? `${FOOD_COPY.veganSwap(swapped.join(', '))} ${FOOD_COPY.recipeNote}` : FOOD_COPY.recipeNote}>
         {warning && <p className="px-4 pt-3 text-[length:var(--text-body)] leading-snug text-caution">{warning}</p>}
+        {!allergies && <NoAllergiesRow />}
         <Row
           label={tags.contains.length > 0 ? FOOD_COPY.contains(allergenList(tags.contains)) : FOOD_COPY.noTaggedAllergens}
           {...(tags.mayContain.length > 0 ? { detail: FOOD_COPY.mayContain(allergenList(tags.mayContain)) } : {})}

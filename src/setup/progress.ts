@@ -37,7 +37,9 @@ export function chapterHref(chapter: ChapterId): string {
 }
 
 /** The questions a v1 record was never asked, by chapter (§6.6). */
-const NEW_SINCE_V1: Partial<Record<ChapterId, string>> = { about: 'What to call you', food: 'Logging what you eat', day: 'Your usual meal times' };
+const NEW_SINCE_V1: Partial<Record<ChapterId, string>> = {
+  about: 'What to call you', medicines: 'Insulin and ketones', food: 'Logging what you eat', day: 'Your usual meal times',
+};
 
 /** What a page that may be left asks, for its row. */
 const PAGE_TOPIC: Partial<Record<PageId, string>> = {

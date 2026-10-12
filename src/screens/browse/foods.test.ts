@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { allergyAnswer } from '@/food/allergens';
 import { FOODS } from '@/food/data';
 import type { FoodPreferences } from '@/types/profile';
+import type { SetupRecord } from '@/types/setup';
 import type { BrowseResults } from './browse';
 import { FOOD_ROWS_MAX, foodRows, listsFoods, withFoods } from './foods';
 
@@ -46,22 +48,29 @@ describe('Browse’s food rows (journey §14, D115)', () => {
   });
 });
 
-describe('who Browse lists foods to log for (D115; the owner’s allergy rule)', () => {
+describe('who Browse lists foods to log for (D115; the owner’s allergy rule, Plan 5’s D194)', () => {
   const food = (more: Partial<FoodPreferences>): FoodPreferences => ({ pattern: 'vegetarian', avoid: [], ...more });
+  // As the screen asks: by the one allergy answer Browse's meal ideas wait for.
+  const lists = (f: FoodPreferences | undefined, setup?: SetupRecord) => listsFoods(f, allergyAnswer(f, setup));
 
   it('someone who logs meals, once they have said what they are allergic to, “none” included', () => {
-    expect(listsFoods(food({ level: 'meals', allergies: [] }))).toBe(true);
-    expect(listsFoods(food({ level: 'estimates', allergies: ['peanut'] }))).toBe(true);
+    expect(lists(food({ level: 'meals', allergies: [] }))).toBe(true);
+    expect(lists(food({ level: 'estimates', allergies: ['peanut'] }))).toBe(true);
+    expect(lists(food({ level: 'meals', customAllergies: ['kiwi'] }))).toBe(true);
+  });
+
+  it('someone whose record never answered allergies, once setup’s waiting answer has, as meal ideas show then', () => {
+    expect(lists(food({ level: 'meals' }), { answers: { allergies: [] } })).toBe(true);
   });
 
   it('no one whose allergies are unknown: a food record whose allergies were never answered', () => {
-    expect(listsFoods(food({ level: 'estimates' }))).toBe(false);
-    expect(listsFoods(food({ level: 'meals', hardBefore: 'no' }))).toBe(false);
+    expect(lists(food({ level: 'estimates' }))).toBe(false);
+    expect(lists(food({ level: 'meals', hardBefore: 'no' }))).toBe(false);
   });
 
   it('no one who doesn’t log meals: meal ideas only has no “Log a meal”', () => {
-    expect(listsFoods(food({ level: 'ideas', allergies: [] }))).toBe(false);
-    expect(listsFoods(food({ allergies: [] }))).toBe(false);
-    expect(listsFoods(undefined)).toBe(false);
+    expect(lists(food({ level: 'ideas', allergies: [] }))).toBe(false);
+    expect(lists(food({ allergies: [] }))).toBe(false);
+    expect(lists(undefined, { answers: { allergies: [] } })).toBe(false);
   });
 });

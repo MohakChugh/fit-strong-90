@@ -12,7 +12,7 @@ import type { FoodPreferences } from '@/types/profile';
 import { FoodPicker } from './FoodPicker';
 import { foodSummary, unmatchedNote } from './format';
 import { mealDetail } from './mealText';
-import { ClaimGroup, Lead, Reviewed, SourcesGroup } from './parts';
+import { ClaimGroup, Lead, NoAllergiesRow, Reviewed, SourcesGroup } from './parts';
 import { RoughCarbs } from '@/screens/food/RoughCarbs';
 import { useGuide } from './useGuide';
 
@@ -61,6 +61,7 @@ export default function MealIdeasScreen() {
       )) : (
         <Group>
           <Row onClick={() => setPicking(true)} label={FOOD_COPY.allergiesFirst} detail={FOOD_COPY.allergiesFirstDetail} chevron />
+          <NoAllergiesRow />
         </Group>
       )}
 

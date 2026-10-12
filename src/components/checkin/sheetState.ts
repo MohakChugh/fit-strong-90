@@ -53,7 +53,8 @@ export interface SheetContext {
   recent?: DailyCheckIn[];
 }
 
-const STALE = [PERMISSION_TEXT.stale, PERMISSION_TEXT.staleNoTime, PERMISSION_TEXT.future] as const;
+/** Why the reading a record holds can't be started on: the sheet opens asking for a new one. A change to the clock is one (B-19, H6F-06). */
+const STALE = [PERMISSION_TEXT.stale, PERMISSION_TEXT.staleNoTime, PERMISSION_TEXT.future, PERMISSION_TEXT.clockChanged] as const;
 
 const ask = (record: CheckInRecord | undefined, ctx: SheetContext) =>
   permission({ profile: ctx.profile, checkIn: record, now: ctx.now, ...(ctx.recent ? { recent: ctx.recent } : {}) }, ctx.mode);
@@ -66,7 +67,7 @@ export function openSheet(ctx: SheetContext, saved: CheckInRecord | undefined): 
   const base = record ? formFromRecord(record, ctx.profile) : emptyForm(ctx.profile);
   const g = record?.glucose;
   return {
-    form: fresh ? { ...base, glucose: '', glucoseAt: null, glucoseDisplay: null } : base,
+    form: fresh ? { ...base, glucose: '', glucoseAt: null, glucoseDisplay: null, glucoseGen: null } : base,
     ...(record ? { record } : {}),
     unsaved: false,
     view: record && !p.needsCheckIn ? 'outcome' : 'form',
@@ -153,5 +154,5 @@ export function changeAnswers(state: SheetState): SheetState {
 
 /** Clear the glucose boxes for a re-check. */
 export function newReading(state: SheetState): SheetState {
-  return { ...state, view: 'form', form: { ...state.form, glucose: '', glucoseAt: null, glucoseDisplay: null, lowRecovered: false } };
+  return { ...state, view: 'form', form: { ...state.form, glucose: '', glucoseAt: null, glucoseDisplay: null, glucoseGen: null, lowRecovered: false } };
 }

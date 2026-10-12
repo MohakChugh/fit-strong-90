@@ -13,7 +13,7 @@
 
 import { isDay } from '@/health/observation';
 import { toDateString } from '@/lib/utils';
-import type { EndedBy, Gap, PainAnswer, Segment, Walk, WalkPlan, WalkStatus } from './clock';
+import { lastSeen, type EndedBy, type Gap, type PainAnswer, type Segment, type Walk, type WalkPlan, type WalkStatus } from './clock';
 import { isMeal, isWalkId } from './plan';
 import { offsetAt } from './time';
 
@@ -43,6 +43,7 @@ function isPlan(v: unknown): v is WalkPlan {
     return false;
   }
   if (v.keepRoute !== undefined && typeof v.keepRoute !== 'boolean') return false;
+  if (v.routeGen !== undefined && !(Number.isSafeInteger(v.routeGen) && (v.routeGen as number) >= 0)) return false;
   if (v.stepsDenied !== undefined && v.stepsDenied !== true) return false;
   if (v.from !== undefined && v.from !== '/home' && v.from !== '/hub/walk') return false;
   if (isObject(v.meal) && v.meal.basis !== undefined && v.meal.basis !== 'had') return false;
@@ -129,6 +130,7 @@ export function parseWalk(raw: unknown): Walk | null {
     if (raw.pain.leg !== undefined && !isPain(raw.pain.leg)) return null;
   }
   if (raw.clockChangedAt !== undefined && !isTime(raw.clockChangedAt)) return null;
+  if (raw.clockUnkept !== undefined && (raw.clockUnkept !== true || raw.clockChangedAt === undefined)) return null;
   // The readings a clock change left untimed (B-19): a short list of ids, kept only with the change itself.
   if (raw.untimedReadings !== undefined) {
     if (raw.clockChangedAt === undefined || !Array.isArray(raw.untimedReadings) || raw.untimedReadings.length > 10_000) return null;
@@ -236,6 +238,8 @@ export interface WalkPeek {
   /** `inProgress`: return to it at `/walk/live`. `unsaved`: finished, review and save it at `/walk/summary`. */
   state: 'inProgress' | 'unsaved';
   href: '/walk/live' | '/walk/summary';
+  /** When this device last saw it recording (`lastSeen`): a walk in progress is left open once `leftOpen` says so. */
+  seenAt: number;
 }
 
 /**
@@ -252,5 +256,6 @@ export function peekWalk(storage: WalkStorage | undefined = sessionWalkStorage()
     startedAt: walk.startedAt,
     state: unsaved ? 'unsaved' : 'inProgress',
     href: unsaved ? '/walk/summary' : '/walk/live',
+    seenAt: lastSeen(walk),
   };
 }

@@ -23,6 +23,7 @@ import { usualFor, usualSlot } from '@/food/usual';
 import { prefersHour12 } from '@/lib/time';
 import { mealDetail } from '@/screens/guide/mealText';
 import { ClaimGroup } from '@/screens/guide/parts';
+import { NoAllergiesRow } from '@/screens/guide/parts';
 import { useGuide } from '@/screens/guide/useGuide';
 import { HubFrame, HubSection } from '@/screens/hub/HubFrame';
 import { useClock } from '@/screens/today/clock';
@@ -48,7 +49,7 @@ const RIGHT_NOW_IDEAS = 3;
 
 export default function FoodHubScreen() {
   const { profile, records } = useStore();
-  const { ctx } = useGuide();
+  const { ctx, filter } = useGuide();
   const { pathname, search, state } = useLocation();
   const navigate = useNavigate();
   const stack = useNavStack();
@@ -96,6 +97,12 @@ export default function FoodHubScreen() {
         <Group header={FOOD_COPY.ideasFor(SLOT_LABEL[slot])}>
           {!food ? (
             <Row as={Link} to="/hub/food/ideas" viewTransition label={FOOD_COPY.chooseFood} detail={FOOD_COPY.chooseFoodDetail} chevron />
+          ) : !filter ? (
+            // Ideas only once allergies are known: a record that never answered them asks first (owner decision; Plan 5's board D194).
+            <>
+              <Row as={Link} to="/hub/food/ideas" viewTransition label={FOOD_COPY.allergiesFirst} detail={FOOD_COPY.allergiesFirstDetail} chevron />
+              <NoAllergiesRow />
+            </>
           ) : ideas.length === 0 ? (
             <Row label={FOOD_COPY.noIdeas} detail={FOOD_COPY.noIdeasDetail} />
           ) : (

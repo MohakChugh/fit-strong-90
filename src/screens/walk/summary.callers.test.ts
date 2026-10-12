@@ -245,6 +245,16 @@ describe('Done closes back to where the walk came from, through history (M12)', 
     expect(backPending()).toBe(true);
   });
 
+  it('a walk started on Home and returned to from the Walk hub goes back to Home, not the hub behind it (H6R-14)', async () => {
+    // Started on Home, left there, then carried on from the hub's "Return to walk".
+    walkedFromTheHub();
+    const h = await summary(someone, '/home');
+    await h.click(h.button('Save walk'));
+    await h.settle();
+    await h.click(h.button('Done', { exact: true }));
+    expect(router.navigate.mock.calls).toEqual([['/home', { replace: true }]]);
+  });
+
   it('a walk with nothing recorded goes back the same way once it is discarded', async () => {
     walkedFromTheHub();
     const h = await summary(someone, '/hub/walk', 0);

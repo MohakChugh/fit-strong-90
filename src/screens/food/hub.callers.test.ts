@@ -89,8 +89,9 @@ const store = await import('@/store/useStore');
 const { default: FoodHubScreen } = await import('./FoodHubScreen');
 const food = await import('@/food/store');
 
+/** "No food allergies" answered: a record that never answered them asks first, with no ideas (owner decision; Plan 5's board D194). */
 const person = (f: Partial<FoodPreferences>): UserProfile =>
-  createDefaultProfile({ birthYear: 1970, weightKg: 70, food: { pattern: 'vegetarian', avoid: [], level: 'estimates', hardBefore: 'no', ...f } });
+  createDefaultProfile({ birthYear: 1970, weightKg: 70, food: { pattern: 'vegetarian', avoid: [], level: 'estimates', hardBefore: 'no', allergies: [], ...f } });
 const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti (whole-wheat)', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57 } as const;
 const plate = { kind: 'quick', size: 'normal', name: 'Normal plate' } as const;
 const bhel = { kind: 'custom', customId: 'food-1', name: 'Bhel puri', count: 1, per: { qty: 1, unit: 'plate' }, basis: {}, version: '2026-10-06T09:00:00.000+05:30' } as const;

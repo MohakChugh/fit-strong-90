@@ -1,5 +1,5 @@
 import type { UserProfile } from './profile';
-import type { CheckInRecord } from './checkin';
+import type { CheckInRecord, ClockHold } from './checkin';
 import type { DayFocus } from './plan';
 import type { HabitSettings } from './habits';
 import type { SetupRecord } from './setup';
@@ -225,8 +225,26 @@ export interface UserSettings {
     map: 'on' | 'off' | 'unasked';
     /** The one-time card on how steps are counted has been shown (K-29, B-24). */
     stepCardSeen?: boolean;
-    /** When "Erase all routes" last ran on this phone (B-05): no route of a walk started before it is kept. */
-    routesErasedAt?: number;
+    /**
+     * B-05: "Erase all routes" on this phone. `generation` counts the erases,
+     * and a walk keeps its route only if it began since the latest
+     * (`WalkPlan.routeGen`), whatever the clock says; `walks` are the walks
+     * whose routes it erased, by id, so no file brings one back. This
+     * phone's own: an import or a Replace never changes it (H6R-08, K6R-12,
+     * board D176). `before`: an erase made before board D176, which kept
+     * only when it ran: every route of a walk begun by then is erased
+     * (H6F-07, board D210).
+     */
+    erased?: { generation: number; walks: string[]; before?: number };
+    /**
+     * B-19: changes to this phone's clock, seen by a walk or the page.
+     * `generation` counts them, and a reading acquired here carries the count
+     * it was acquired in (`gen`). Until the current reading is one of the
+     * latest generation, a reading from before the change on `days` can't be
+     * timed, and every movement gate holds someone who can go low. This
+     * phone's own: an import never brings it (board D174, D186).
+     */
+    clock?: ClockHold;
   };
   /**
    * The ids of readings and sessions deleted on this record, kept so that

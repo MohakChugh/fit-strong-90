@@ -1,8 +1,8 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { contextFromProfile, type GuideContext } from '@/content';
 import { allergyAnswer, type AllergyAnswer } from '@/food/allergens';
-import { useSetupSession } from '@/setup/draft';
-import { getState, setProfile, useStore } from '@/store/useStore';
+import { answerNoAllergies, useSetupSession } from '@/setup/draft';
+import { getState, setProfile, update, useStore } from '@/store/useStore';
 import type { FoodPreferences } from '@/types/profile';
 
 /**
@@ -47,6 +47,30 @@ export function useGuide(): Guide {
   const allergies = useMemo(() => allergyAnswer(food, settings.setup, session), [food, settings.setup, session]);
   const ctx = useMemo(() => ({ ...contextFromProfile(profile, food, { fluidLimit }), ...(allergies ? { allergies } : {}) }), [profile, food, fluidLimit, allergies]);
   return { ctx, food, ...(allergies ? { allergies, filter: food ?? allergies } : {}), canSaveFood: profile !== undefined };
+}
+
+/**
+ * "No food allergies", in one tap, where meal ideas ask first (owner
+ * decision; Plan 5's board D194): into the food record, or this visit's
+ * choices with no profile, or with no record at all, into the answer setup
+ * keeps for one (`answerNoAllergies`). Returns the message to show when the
+ * device refused the write.
+ */
+export async function saveNoAllergies(): Promise<string | undefined> {
+  const none = <T extends Partial<FoodPreferences>>(food: T): T => {
+    const next = { ...food, allergies: [] };
+    delete next.customAllergies;
+    return next;
+  };
+  if (!getState().profile && sessionFood) {
+    sessionFood = none(sessionFood);
+    for (const listener of [...listeners]) listener();
+    return undefined;
+  }
+  const result = getState().profile?.food
+    ? await update(d => (d.profile?.food ? { ...d, profile: { ...d.profile, food: none(d.profile.food) } } : d))
+    : await answerNoAllergies();
+  return result && !result.ok ? result.failure.message : undefined;
 }
 
 /**

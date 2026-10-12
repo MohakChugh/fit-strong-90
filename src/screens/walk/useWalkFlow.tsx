@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useGuided } from '@/hooks/useGuided';
-import { getState, setSettings } from '@/store/useStore';
+import { getState, setWalkSettings } from '@/store/useStore';
 import { requestMotion } from '@/walk/browser';
 import type { WalkPlan } from '@/walk/clock';
-import { answered, preflightPages, walkSettings, withConsent, type PreflightAnswer, type WalkSettings } from '@/walk/consent';
+import { answered, answerOf, preflightPages, walkSettings, withConsent, type PreflightAnswer, type WalkSettings } from '@/walk/consent';
 import { storeStartPermission } from '@/walk/gate';
 import { originOf } from '@/walk/plan';
 import { startedHref } from '@/walk/started';
@@ -60,7 +60,8 @@ export function useWalkFlow(onCheckIn: (plan: WalkPlan) => void): { begin(plan: 
     if (!stage) return;
     const next = answered(stage.walk, a);
     // Stored at once, whatever the gate says next: a refused start never asks again (Review Focus 5).
-    void setSettings({ walk: next });
+    // Only the answer given, against this phone's settings as stored then: nothing else in this sheet's copy is written back (H6R-07).
+    void setWalkSettings(answerOf(a));
     if (preflightPages(next, stage.plan).length > 0) setStage({ plan: stage.plan, walk: next });
     else final(stage.plan, next);
   };

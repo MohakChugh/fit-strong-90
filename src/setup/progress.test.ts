@@ -91,6 +91,11 @@ describe('setupProgress, from setup’s state (journey §6.6, §16; board D79)',
     ]);
   });
 
+  it('names an upgrader’s new medicines questions: how insulin is taken, and testing ketones (K5R-07; board D195)', () => {
+    const p = { ...answered, health: { ...answered.health, diabetes: 'type2' as const, insulin: 'injections_or_pump' as const, medicinesReviewed: true } };
+    expect(rows(p, v1)).toContainEqual(['medicines', 'Insulin and ketones', 'new']);
+  });
+
   it('opens Your medicines when diabetes medicines were never answered: movement waits on it', () => {
     const p = { ...answered, health: { ...answered.health, diabetes: 'type2' as const, medicinesReviewed: false } };
     expect(rows(p, v1)).toEqual([['medicines', 'Medicines: not yet reviewed', 'gap']]);

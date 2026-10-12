@@ -1,13 +1,15 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowUpRightIcon } from 'lucide-react';
-import { Group } from '@/components/hig/List';
+import { Group, Row } from '@/components/hig/List';
 import {
   DISCLAIMER, getReading, isForYou, reviewedOn, sourcesFor,
   type CitedSource, type GuideContext, type InAppAction, type ShownClaim,
 } from '@/content';
 import { cn } from '@/lib/utils';
+import { FOOD_COPY } from '@/food/copy';
 import { longDate, SOURCE_LINK_NOTE } from './format';
+import { saveNoAllergies } from './useGuide';
 
 /**
  * Marks a claim that is about this person. Words, not colour alone, and in
@@ -166,4 +168,15 @@ export function ActionLink({ action }: { action: InAppAction }) {
 /** A short paragraph under the title, in the subdued supporting style. */
 export function Lead({ children }: { children: ReactNode }) {
   return <p className="-mt-2 px-1 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{children}</p>;
+}
+
+/** "No food allergies", one tap where meal ideas ask first (owner decision; Plan 5's board D194), saying so if it isn't stored. */
+export function NoAllergiesRow() {
+  const [problem, setProblem] = useState<string>();
+  return (
+    <>
+      <Row onClick={() => void saveNoAllergies().then(setProblem)} label={FOOD_COPY.noAllergies} />
+      {problem && <p role="alert" className="px-4 py-3 text-[length:var(--text-subhead)] leading-snug text-stop">That did not save. {problem}</p>}
+    </>
+  );
 }

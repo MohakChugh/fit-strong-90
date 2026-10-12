@@ -8,9 +8,12 @@ import { promptDefault } from '@/food/prompts';
 import { LevelSheet } from '@/screens/food/LevelSheet';
 import { endFoodUndos, offerFoodUndo, useFoodUndoScope } from '@/screens/food/undo';
 import { ownAllergyStatus } from '@/screens/guide/format';
+import { NoAllergiesRow } from '@/screens/guide/parts';
 import { formatDayShort } from '@/screens/track/format';
 import { ConfirmSheet, NumberField } from '@/screens/track/ui';
 import { useToday } from '@/screens/track/useToday';
+import { getSetupSession } from '@/setup/draft';
+import { waitingFood } from '@/setup/state';
 import { getState, useStore } from '@/store/useStore';
 import type { Meal } from '@/types/habits';
 import { ALLERGEN_IDS, type AllergenId, type FoodPreferences } from '@/types/profile';
@@ -94,10 +97,13 @@ export function FoodScreen() {
   // An allergy removed here can be put back until the person leaves (K7R-01; §20.4 rule 6).
   useFoodUndoScope('/me/food');
 
-  /** Each change is worked out from the stored preferences at the moment it is written. */
-  const edit = async (change: (food: FoodPreferences | undefined) => FoodPreferences | undefined) => {
-    const saved = await changeProfile(current => {
-      const next = change(current.food);
+  /**
+   * Each change is worked out from the stored preferences at the moment it is written, and with no record yet,
+   * the food answers setup keeps for one (board D192).
+   */
+  const edit = async (change: (food: FoodPreferences | undefined, waiting: Partial<FoodPreferences>) => FoodPreferences | undefined) => {
+    const saved = await changeProfile((current, stored) => {
+      const next = change(current.food, waitingFood(stored.setup, getSetupSession()));
       const edited = { ...current };
       if (next) edited.food = next;
       else delete edited.food;
@@ -152,12 +158,14 @@ export function FoodScreen() {
           label="What you eat"
           options={PATTERNS}
           value={food?.pattern}
-          onChange={pattern => void edit(current => ({ avoid: [], ...current, pattern }))}
+          onChange={pattern => void edit((current, waiting) => ({ avoid: [], ...(current ?? waiting), pattern }))}
         />
       </Group>
 
       {food && (
         <Group header={FOOD_COPY.allergiesGroup} footer={FOOD_COPY.allergiesFooter}>
+          {/* Never answered, as in a record from v1: not known, which isn't none, so it's one tap (owner decision; board D194). */}
+          {food.allergies === undefined && food.customAllergies === undefined && <NoAllergiesRow />}
           <CheckRows
             label={FOOD_COPY.allergiesGroup}
             options={ALLERGY_CHOICES}

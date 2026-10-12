@@ -263,7 +263,8 @@ describe('a sheet that will not close yet (review C2-07)', () => {
 
   it('sizes every destructive confirmation as a main target, 60 px at least (§20.4 rule 1, H4-08)', () => {
     const expected: Record<string, number> = {
-      'src/screens/you/DataSheets.tsx': 2, 'src/screens/you/RestoreFlow.tsx': 1, 'src/screens/you/DataScreen.tsx': 1, 'src/screens/you/ProgrammeGroup.tsx': 1,
+      // Delete everything's two steps, and Erase all routes' one style for its two (H6R-15).
+      'src/screens/you/DataSheets.tsx': 3, 'src/screens/you/RestoreFlow.tsx': 1, 'src/screens/you/DataScreen.tsx': 0, 'src/screens/you/ProgrammeGroup.tsx': 1,
     };
     for (const [file, count] of Object.entries(expected)) {
       const buttons = read(file).split('\n').filter(line => line.includes('bg-stop-fill'));
@@ -274,6 +275,30 @@ describe('a sheet that will not close yet (review C2-07)', () => {
       }
     }
     expect(read('src/components/hig/targets.ts')).toMatch(/primary: 'min-h-\[60px\]'/);
+  });
+
+  it('sizes every primary button of Me → Data, Backup and Restore, as a main target, 60 px at least (§20.4 rule 1, H6R-13)', () => {
+    for (const [file, count] of Object.entries({ 'src/screens/you/DataSheets.tsx': 1, 'src/screens/you/RestoreFlow.tsx': 5 })) {
+      const buttons = read(file).split('\n').filter(line => line.includes('<PrimaryButton'));
+      expect(buttons, file).toHaveLength(count);
+      for (const line of buttons) expect(line, file).toContain('className={TARGET.primary}');
+    }
+  });
+
+  it('gives the first walk’s two consent answers the same weight, neither the primary one (§24, K6R-06)', () => {
+    const sheet = read('src/screens/walk/PreflightSheet.tsx');
+    for (const q of ['keepRoute', 'mapPictures']) {
+      expect(sheet, q).toMatch(new RegExp(`<SecondaryButton onClick=\\{\\(\\) => onAnswer\\(\\{ page, (keep|show): true \\}\\)\\}>\\{CONSENT\\.${q}\\.yes\\}</SecondaryButton>`));
+      expect(sheet, q).not.toMatch(new RegExp(`<PrimaryButton[^>]*>\\{CONSENT\\.${q}\\.(yes|no)\\}`));
+    }
+  });
+
+  it('sizes the stop questions’ every choice as a target, 48 px at least and 12 px apart (§20.4 rule 1, K6R-07)', () => {
+    const stop = read('src/screens/walk/StopSheet.tsx');
+    expect(stop).not.toMatch(/min-h-(?:8|9|10|11)\b|min-w-11|gap-1\.5/);
+    expect(stop).toMatch(/role="radiogroup" aria-labelledby="walk-leg-reach" className=\{cn\('flex flex-wrap', TARGET\.gap\)\}/);
+    expect(stop).toMatch(/className=\{cn\('rounded-lg px-3 text-\[length:var\(--text-subhead\)\]', TARGET\.tap,/);
+    expect(stop).toMatch(/<label key=\{q\.key\} className=\{cn\('flex items-start gap-3 px-4 py-3 text-\[length:var\(--text-body\)\] leading-snug', TARGET\.tap\)\}>/);
   });
 
   it('sizes every live walk control as a target, 48 px at least and 12 px apart, and the walk’s main buttons 60 px (§20.4 rule 1, H6-11, KH-10)', () => {
@@ -290,6 +315,8 @@ describe('a sheet that will not close yet (review C2-07)', () => {
     for (const label of ['Check in', 'Turn the voice on', 'Health questions', 'Allow motion and count steps', 'Say what happened', 'Done']) {
       expect(control(label), label).toMatch(/TARGET\.(tap|primary)/);
     }
+    // The one way on from a hold is the main target in its region (K6R-07).
+    for (const label of ['Say what happened', 'Change status', 'Check in', 'Health questions']) expect(control(label), label).toMatch(/TARGET\.primary/);
     // The stop row and the gap notice's choices are main targets, side by side or stacked 12 px apart.
     for (const label of ['I need to stop', 'I feel low', 'Continue walking', 'Finish']) expect(control(label), label).toMatch(/TARGET\.primary/);
     const grids = lines.filter(l => l.includes("'grid grid-cols-1"));
@@ -303,9 +330,12 @@ describe('a sheet that will not close yet (review C2-07)', () => {
 
   it('Me → Data changes both walk answers, erases every route in one call, and has no placeholder left (Task 14, H6-07, KH-07)', () => {
     const data = read('src/screens/you/DataScreen.tsx');
-    expect(data).toMatch(/<Toggle label="Keep walk routes" checked=\{walk\.saveRoutes === true\} onChange=\{on => void setSettings\(\{ walk: \{ \.\.\.walk, saveRoutes: on \} \}\)\} \/>/);
-    expect(data).toMatch(/<Toggle label="Map pictures under routes" checked=\{walk\.map === 'on'\} onChange=\{on => void setSettings\(\{ walk: \{ \.\.\.walk, map: on \? 'on' : 'off' \} \}\)\} \/>/);
-    expect(data).toMatch(/const done = await eraseRoutes\(\);/);
+    // One answer at a time, against what is stored, never this screen's copy of both (H6R-07), and said when refused (K6R-09).
+    expect(data).toMatch(/<Toggle label="Keep walk routes" checked=\{walk\.saveRoutes === true\} onChange=\{on => answer\(\{ saveRoutes: on \}\)\} \/>/);
+    expect(data).toMatch(/<Toggle label="Map pictures under routes" checked=\{walk\.map === 'on'\} onChange=\{on => answer\(\{ map: on \? 'on' : 'off' \}\)\} \/>/);
+    expect(data).toMatch(/void setWalkSettings\(patch\)\.then\(/);
+    expect(data).not.toMatch(/setSettings\(\{ walk/);
+    expect(read('src/screens/you/DataSheets.tsx')).toMatch(/const done = await eraseRoutes\(\);/);
     expect(data).not.toMatch(/Not in this version yet|Plan 6 replaces this group/);
     expect(read('src/screens/you/DataSheets.tsx')).toMatch(/exportRecord\(withRoutes \? \{ include: \['routes'\] \} : \{\}\)/);
     const hub = read('src/screens/hub/WalkHub.tsx');
@@ -315,6 +345,10 @@ describe('a sheet that will not close yet (review C2-07)', () => {
 
   it('the restore preview says what happens to routes on this phone’s own answer, before anything changes (H6-05, B-26)', () => {
     const flow = read('src/screens/you/RestoreFlow.tsx');
+    // Replace's confirmation counts this phone's routes once (K6R-10), in what Replace erases, whose counts
+    // sentence names them (`replaceErases`, H5-25; restore.test.ts pins "the 2 routes").
+    expect(flow).not.toMatch(/go too/);
+    expect(flow).toMatch(/This deletes \{erases \?\? 'what is here'\} on this \{device\}/);
     expect(flow).toMatch(/saveRoutes=\{walkSettings\(state\.settings\)\.saveRoutes\}/);
     expect(flow).toMatch(/\{routeNotes\(preview, saveRoutes\)\.map\(n => <Notice key=\{n\}>\{n\}<\/Notice>\)\}/);
   });
@@ -692,6 +726,10 @@ describe('the safety surface wherever the person is (codex V1-02, V1-03, journey
     const boundary = new ErrorBoundary({ children: null, before: banner });
     boundary.state = { ...state, key: undefined };
     expect(html(boundary.render() as never)).toMatch(/data-urgent-kind="emergency"[\s\S]*This screen didn’t load/);
+  });
+
+  it('the app watches the phone’s clock from the start, beside the store, walking or not (P8S-02, board D185)', () => {
+    expect(read('src/App.tsx')).toMatch(/void start\(\);\s*return startClockWatch\(\);/);
   });
 
   it('is owned once, above the routes, their loading and their failures; the shell only shows it', () => {

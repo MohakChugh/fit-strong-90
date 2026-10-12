@@ -270,6 +270,14 @@ describe('Earlier glucose readings count in the order they were taken, not the o
     const c = ci(D, { glucose: g(64, 8, 9, 25), glucoseEarlier: [g(60, 8, 9, 20), g(58, 8, 9, 0)] });
     expect(withLogged(withLogged(c))).toEqual(withLogged(c));
   });
+
+  it('by when each was taken, never by a clock generation: a 50 from a file at 09:10 is current over this phone’s 120 at 09:05 (H6F-05, board D186)', () => {
+    // Both logged in Track; the phone's own carries the generation it was acquired in, the file's none.
+    const c = ci(D, { logged: { glucose: [{ ...g(120, 8, 9, 5), gen: 1 }, g(50, 8, 9, 10)] } });
+    expect(withLogged(c).glucose?.value).toBe(50);
+    expect(withLogged(ci(D, { glucose: g(140, 8, 8, 0), glucoseEarlier: [{ ...g(120, 8, 9, 5), gen: 1 }, g(50, 8, 9, 10)] })).glucose?.value).toBe(50);
+    expect(evaluateCheckIn(INSULIN, c, [], NOW).reasons.map(x => x.code)).toContain('severeLow');
+  });
 });
 
 describe('R5-06, after an edit: a usable severe number still counts once it is an earlier reading', () => {

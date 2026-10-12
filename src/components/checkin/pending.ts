@@ -19,10 +19,11 @@
  */
 
 import type { AppData } from '@/types';
-import type { BpPartialReading, BpReading, CheckInRecord, DailyCheckIn, EmergencyFlag, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, SymptomReach } from '@/types/checkin';
+import type { BpPartialReading, BpReading, CheckInRecord, ClockHold, DailyCheckIn, EmergencyFlag, EpisodeAnswer, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, RedFlag, SymptomReach } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
-import { completes, evaluateCheckIn } from '@/engine/readiness';
+import { completes, evaluateCheckIn, newsReadingId, stoppedIn } from '@/engine/readiness';
 import { checkInDayOf, measuredStamp, type Observation } from '@/health/observation';
+import { acquiredIn } from '@/walk/consent';
 import { pairBloodPressure } from '@/health/aggregate';
 import { carryForward, withoutGateFields } from './form';
 
@@ -300,7 +301,7 @@ export function withoutAnswersAbout<T extends DailyCheckIn>(day: T, known: Reado
  * later "feeling low" moment of the two, so no reading between them answers it.
  */
 export function neverLooser(kept: DailyCheckIn, other: DailyCheckIn, known: ReadonlySet<string>): DailyCheckIn {
-  const { resolutions: _theirs, ...merged } = strictest(other, kept);
+  const { resolutions: _theirs, ...merged } = strictest(withoutSettled(other, kept, known), kept);
   void _theirs;
   const mine = kept.resolutions ?? [];
   const theirs = withoutAnswersAbout(other, known).resolutions ?? [];
@@ -309,6 +310,35 @@ export function neverLooser(kept: DailyCheckIn, other: DailyCheckIn, known: Read
     .filter((t): t is string => typeof t === 'string' && !Number.isNaN(Date.parse(t)))
     .sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1);
   return { ...merged, ...(resolutions.length ? { resolutions } : {}), ...(felt ? { lowSymptomsAt: felt } : {}) };
+}
+
+/** Where a back red flag is said in a day's answers, for `withoutSettled`. */
+const BACK_FLAG_FIELDS: Partial<Record<RedFlag, readonly (keyof NonNullable<DailyCheckIn['back']>)[]>> = {
+  // A record from before `newWeakness` was asked said it as `newNeuro`.
+  newWeakness: ['newWeakness', 'newNeuro'],
+  backFever: ['feverish'],
+  backSudden: ['suddenSevere'],
+};
+
+/**
+ * The other copy of a day without its reports of what this device knows
+ * (H6R-05, board D175): a news item or red flag the device holds, answered,
+ * or said and unticked since, is the device's to say, so the other copy's
+ * report of it from before, a file's raw news or back answers, reopens
+ * nothing. Anything the device doesn't know is kept, so the day is never
+ * looser for it.
+ */
+function withoutSettled(other: DailyCheckIn, kept: DailyCheckIn, known: ReadonlySet<string>): DailyCheckIn {
+  const knownFlag = (f: RedFlag) => known.has(`flag:${f}@${kept.date}`);
+  const knownNews = (n: NewsItem) => known.has(newsReadingId(kept.date, n)) || ((n === 'footProblem' || n === 'hotSwollenFoot') && knownFlag(n));
+  const news = other.news.filter(n => !knownNews(n));
+  const backFields = (Object.entries(BACK_FLAG_FIELDS) as [RedFlag, readonly (keyof NonNullable<DailyCheckIn['back']>)[]][])
+    .filter(([f]) => knownFlag(f)).flatMap(([, fields]) => fields);
+  if (news.length === other.news.length && !(other.back && backFields.length)) return other;
+  const back = other.back && backFields.length
+    ? { ...other.back, ...Object.fromEntries(backFields.map(k => [k, kept.back?.[k]])) } as NonNullable<DailyCheckIn['back']>
+    : other.back;
+  return { ...other, news, ...(back ? { back } : {}) };
 }
 
 const previousDate = (date: string) => {
@@ -352,6 +382,7 @@ export function loggedReadings(observations: readonly Observation[]): Map<string
     const reading: GlucoseReading = {
       value: o.value, unit, unitConfirmed: true, source: o.source === 'measured' ? 'sensor' : 'meter',
       ...(o.timeUnknown ? {} : { measuredAt: o.at }),
+      ...(o.gen !== undefined ? { gen: o.gen } : {}),
     };
     (day(o.day).glucose ??= []).push(reading);
   }
@@ -370,7 +401,22 @@ export function loggedReadings(observations: readonly Observation[]): Map<string
  * holds only them: evidence for every rule, never a check-in. Nothing here
  * is stored: a save reads the store's own records.
  */
-export function effectiveCheckIns(stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[] = []): CheckInRecord[] {
+export function effectiveCheckIns(
+  stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[] = [], clock?: ClockHold,
+): CheckInRecord[] {
+  return withClockHold(effectiveDays(stored, profile, observations), clock);
+}
+
+/**
+ * B-19: the changes to this phone's clock (`settings.walk.clock`), on every
+ * day the gates read, so each gate can tell a reading taken since the latest
+ * from one taken before it (board D174). The records as they are without one.
+ */
+export function withClockHold<T extends DailyCheckIn>(records: T[], clock: ClockHold | undefined): T[] {
+  return clock ? records.map(c => ({ ...c, clockHold: clock })) : records;
+}
+
+function effectiveDays(stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[]): CheckInRecord[] {
   const logged = observations.length ? loggedReadings(observations) : new Map<string, NonNullable<DailyCheckIn['logged']>>();
   if (waiting.size === 0 && logged.size === 0) return [...stored];
   const dates = new Set([...stored.map(c => c.date), ...waiting.keys(), ...logged.keys()]);
@@ -436,6 +482,15 @@ export interface SymptomReport {
   back?: Partial<NonNullable<DailyCheckIn['back']>>;
 }
 
+/** B-19: a report's reading as it is given, stamped with the clock generation it is acquired in (`acquiredIn`, H6R-03, board D186). */
+export function acquiredReport(r: SymptomReport, generation: number): SymptomReport {
+  return {
+    ...r,
+    ...(r.glucose ? { glucose: acquiredIn(r.glucose, generation) } : {}),
+    ...(r.glucoseDisplay ? { glucoseDisplay: acquiredIn(r.glucoseDisplay, generation) } : {}),
+  };
+}
+
 /**
  * Report symptoms into today's effective check-in and save it, the same way
  * from every screen. Built inside the store's updater, from the latest stored
@@ -448,10 +503,10 @@ export function reportSymptoms(
   deps: { profile: UserProfile; update: StoreUpdate; date: string },
   at: Date = new Date(),
 ): Promise<SaveResult> {
-  return saveWith(deps.date, today => applyReport(today, report, deps.date, at), deps);
+  return saveWith(deps.date, (today, recent) => applyReport(today, report, deps.date, at, recent), deps);
 }
 
-function applyReport(today: CheckInRecord | undefined, r: SymptomReport, date: string, at: Date): DailyCheckIn {
+function applyReport(today: CheckInRecord | undefined, r: SymptomReport, date: string, at: Date, recent: readonly DailyCheckIn[] = []): DailyCheckIn {
   // A day with no record yet — movement that ran past midnight — gets one
   // holding only what was said. Nothing else is filled in, and the
   // emergency question stays unanswered, so it is evidence for every rule
@@ -479,12 +534,22 @@ function applyReport(today: CheckInRecord | undefined, r: SymptomReport, date: s
     ...(r.provoked?.length ? { provoked: [...new Set([...(base.provoked ?? []), ...r.provoked])] } : {}),
     // Laid over today's back answers; nothing is filled in that was not said (J03, J16).
     ...(r.back ? { back: { ...base.back, ...r.back } } : {}),
+    // An answer to "I need to stop" is kept as one, about every stop still
+    // open, today's and earlier days' (H6R-01): so it holds as history, and a
+    // stop coming back from an older copy of a day reopens nothing (H6R-05).
+    ...(gone.has('stopped') ? { resolutions: [...(base.resolutions ?? []), stopAnswered([...recent, base], at)] } : {}),
   };
+}
+
+/** The answer to every stop said and not yet answered, given now. */
+function stopAnswered(days: readonly DailyCheckIn[], at: Date): EpisodeAnswer {
+  const readings = [...new Set(days.filter(stoppedIn).map(c => newsReadingId(c.date, 'stopped')))];
+  return { kind: 'news', readings, resolution: 'resolved', at: at.toISOString() };
 }
 
 async function saveWith(
   date: string,
-  build: (today: CheckInRecord | undefined) => DailyCheckIn,
+  build: (today: CheckInRecord | undefined, recent: readonly CheckInRecord[]) => DailyCheckIn,
   deps: { profile: UserProfile; update: StoreUpdate },
 ): Promise<SaveResult> {
   const { profile, update } = deps;
@@ -495,7 +560,7 @@ async function saveWith(
     const recent = list.filter(x => x.date < date);
     const mine = list.find(x => x.date === date);
     const base = effectiveRecord(mine, waitingFor(date, mine), profile, recent);
-    answers = build(base);
+    answers = build(base, recent);
     record = toStore(profile, carryForward(base, answers), recent);
     // Given on this visit: from here it is answered, not merely kept.
     restored.delete(date);
@@ -504,7 +569,7 @@ async function saveWith(
   });
   publish();
   const result = await written;
-  const saved = record ?? toStore(profile, answers ?? build(undefined), []);
+  const saved = record ?? toStore(profile, answers ?? build(undefined, []), []);
   if (result.ok) {
     refused.delete(date);
     const still = waiting.get(date);

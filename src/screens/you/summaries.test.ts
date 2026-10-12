@@ -306,6 +306,21 @@ describe('chapterSections: Profile & health by chapter (journey §16; Plan 5)', 
     expect(about(undefined).Weight).toBe('72.5 kg');
   });
 
+  it('a measure keeps the precision it was stored with, and says where a reading came from beyond how it was given (H5-24)', () => {
+    const at = '2026-10-08T12:00:00.000+05:30';
+    const p = createDefaultProfile({ weightKg: 72.55, heightCm: 160.55, waistCm: 81.25 });
+    const rows = (observations: Parameters<typeof chapterSections>[3]) =>
+      Object.fromEntries(chapterSections(p, S, '2026-10-10', observations).find(c => c.chapter === 'about')!.rows.map(r => [r.label, r.value]));
+    // A measure from the previous version's body log, which kept only the day.
+    const v1 = (kind: 'weight' | 'height' | 'waist', value: number) =>
+      newObservation({ kind, value, unit: kind === 'weight' ? 'kg' : 'cm', scope: 'pointInTime', source: 'manual', at, timeUnknown: true, context: 'bodyMetric:2026-10-08' });
+    expect(rows([v1('height', 160.55), v1('waist', 81.25), v1('weight', 72.55)])).toMatchObject({
+      Height: `160.55 cm, logged in the previous version ${shortDate(at)}`,
+      Waist: `81.25 cm, logged in the previous version ${shortDate(at)}`,
+      Weight: `72.55 kg, logged in the previous version ${shortDate(at)}`,
+    });
+  });
+
   it('says Not sure where it was said (V-J17)', () => {
     expect(read(profileFrom(UNSURE, undefined, '2026-10-10', { thisYear: 2026 })).medicines.Insulin).toBe('Not sure');
   });
@@ -392,13 +407,14 @@ describe('what Replace keeps (journey §4.6, H6-03)', () => {
 
 describe('routes in a restore (journey §18.3, B-26, Review Focus 4, H6-05)', () => {
   it('says before anything happens that a phone that keeps no routes won’t take the file’s', () => {
-    expect(routeNotes({ records: { routes: 3 }, refusedStores: ['routes'], replaceRemoves: {} })).toEqual(['The file’s 3 routes won’t be added, because this phone doesn’t keep routes.']);
-    expect(routeNotes({ records: { routes: 3 }, refusedStores: ['routes'], replaceRemoves: {} }, false)).toEqual(['The file’s 3 routes won’t be added, because this phone doesn’t keep routes.']);
+    const no = 'The file’s 3 routes won’t be added, because this phone doesn’t keep routes. To add them, turn on Keep walk routes in Me → Data, then restore the file again.';
+    expect(routeNotes({ records: { routes: 3 }, refusedStores: ['routes'], replaceRemoves: {} })).toEqual([no]);
+    expect(routeNotes({ records: { routes: 3 }, refusedStores: ['routes'], replaceRemoves: {} }, false)).toEqual([no]);
   });
 
   it('says how a phone not asked yet takes them: it asks, and the file can be restored again', () => {
     expect(routeNotes({ records: { routes: 1 }, refusedStores: ['routes'], replaceRemoves: {} }, 'unasked')).toEqual([
-      'The file’s 1 route won’t be added, because this phone hasn’t been asked yet whether to keep routes. To add them, turn on Keep walk routes in Me → Data, then restore the file again.',
+      'The file’s 1 route won’t be added, because this phone hasn’t been asked yet whether to keep routes. To add it, turn on Keep walk routes in Me → Data, then restore the file again.',
     ]);
   });
 
@@ -421,7 +437,7 @@ describe('routes in a restore (journey §18.3, B-26, Review Focus 4, H6-05)', ()
 
   it('says this phone’s routes go too when the file’s are refused', () => {
     expect(routeNotes({ records: { routes: 3 }, refusedStores: ['routes'], replaceRemoves: { routes: 2 } })).toEqual([
-      'The file’s 3 routes won’t be added, because this phone doesn’t keep routes.',
+      'The file’s 3 routes won’t be added, because this phone doesn’t keep routes. To add them, turn on Keep walk routes in Me → Data, then restore the file again.',
       'Replacing removes this phone’s 2 routes too.',
     ]);
   });

@@ -3,15 +3,13 @@ import { ArchiveRestoreIcon, DownloadIcon, FileCheckIcon, HousePlusIcon, MapIcon
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { Sheet } from '@/components/hig/Sheet';
-import { TARGET } from '@/components/hig/targets';
-import { cn } from '@/lib/utils';
-import { eraseRoutes, setSettings, useStore } from '@/store/useStore';
+import { setWalkSettings, useStore } from '@/store/useStore';
 import { CONSENT, consentSummary, walkSettings } from '@/walk/consent';
 import { BACKUP_EVERY_DAYS, backupMark, backupNudge, recordSpan } from '@/reminders/backup';
 import { InstallSteps } from '@/screens/welcome/InstallSteps';
 import { deviceNoun, installContext, readInstallEnv } from '@/screens/welcome/install';
-import { Notice, PlainButton, Toggle } from './controls';
-import { BackupSheet, DeleteSheet } from './DataSheets';
+import { Notice, Toggle } from './controls';
+import { BackupSheet, DeleteSheet, EraseRoutesSheet } from './DataSheets';
 import { backupLine, backupState, installStatus, storageLine } from './dataStatus';
 import { RestoreFlow } from './RestoreFlow';
 import { countsSentence, plural, privacyLine, recordCounts } from './summaries';
@@ -43,19 +41,12 @@ export function DataScreen() {
   // This phone's own walk answers (B-26), and the routes it keeps.
   const walk = walkSettings(settings);
   const routes = state.records.routes.length;
-  const [eraseError, setEraseError] = useState<string>();
-  const [erasing, setErasing] = useState(false);
-  const erase = async () => {
-    setErasing(true);
-    const done = await eraseRoutes();
-    setErasing(false);
-    if (done.ok) {
-      setOpen(undefined);
-      setEraseError(undefined);
-    } else {
-      setEraseError(`The routes were not erased. ${done.failure.message}`);
-    }
-  };
+  // Said once the erase is stored, while this screen is open (K6R-11).
+  const [erased, setErased] = useState(false);
+  // A walk answer the device refused to store: the switch stays as it was, and this says why (K6R-09).
+  const [walkProblem, setWalkProblem] = useState<string>();
+  const answer = (patch: Parameters<typeof setWalkSettings>[0]) =>
+    void setWalkSettings(patch).then(r => setWalkProblem(r.ok ? undefined : `That change wasn’t saved. ${r.failure.message}`));
   const nudge = backupNudge(now, backupMark(settings.habits), recordSpan(state), state.revision);
   const backup = backupState(settings.habits);
   const install = installStatus(context, device);
@@ -108,22 +99,24 @@ export function DataScreen() {
           icon={<RouteIcon />}
           label="Keep walk routes"
           detail={walk.saveRoutes === false ? 'New walks don’t keep their route. Routes already kept stay until you erase them.' : consentSummary(walk).routes}
-          accessory={<Toggle label="Keep walk routes" checked={walk.saveRoutes === true} onChange={on => void setSettings({ walk: { ...walk, saveRoutes: on } })} />}
+          accessory={<Toggle label="Keep walk routes" checked={walk.saveRoutes === true} onChange={on => answer({ saveRoutes: on })} />}
         />
         <Row
           icon={<MapIcon />}
           label="Map pictures under routes"
           detail={walk.map === 'unasked' ? `${consentSummary(walk).map}. ${CONSENT.mapPictures.detail}` : CONSENT.mapPictures.detail}
-          accessory={<Toggle label="Map pictures under routes" checked={walk.map === 'on'} onChange={on => void setSettings({ walk: { ...walk, map: on ? 'on' : 'off' } })} />}
+          accessory={<Toggle label="Map pictures under routes" checked={walk.map === 'on'} onChange={on => answer({ map: on ? 'on' : 'off' })} />}
         />
         <Row
-          onClick={() => { setEraseError(undefined); setOpen('erase'); }}
+          onClick={() => setOpen('erase')}
           icon={<Trash2Icon className="text-stop" />}
           label={<span className="text-stop">Erase all routes</span>}
-          detail={routes > 0 ? `${plural(routes, 'route')} kept. Walks keep their time, distance and steps.` : 'No saved routes. Erasing also clears a walk not yet saved.'}
+          detail={routes > 0 ? `${plural(routes, 'route')} kept. Walks keep their time, distance and steps.` : 'No saved routes. Erasing also clears the route of a walk not yet saved. The walk stays.'}
           chevron
         />
       </Group>
+      {walkProblem && <Notice tone="error">{walkProblem}</Notice>}
+      {erased && <Notice>All routes erased.</Notice>}
 
       <Group footer={`Deletes everything the app holds on this ${device} and starts again. It asks twice.`}>
         <Row onClick={() => setOpen('delete')} icon={<Trash2Icon className="text-stop" />} label={<span className="text-stop">Delete everything on this {device}</span>} />
@@ -131,23 +124,7 @@ export function DataScreen() {
 
       <BackupSheet open={open === 'backup'} onOpenChange={next => setOpen(next ? 'backup' : undefined)} device={device} />
       <DeleteSheet open={open === 'delete'} onOpenChange={next => setOpen(next ? 'delete' : undefined)} device={device} />
-      <Sheet open={open === 'erase'} onOpenChange={next => { if (!erasing) setOpen(next ? 'erase' : undefined); }} dismissible={!erasing} title="Erase all routes?" detent="medium">
-        <p className="px-1 text-[length:var(--text-body)] leading-snug">
-          Every route on this {device} is erased: from saved walks, from a walk not yet saved, and from one you’re on now. The walks keep their time, distance and steps. This cannot be undone.
-        </p>
-        {eraseError && <Notice tone="error">{eraseError}</Notice>}
-        <div className={cn('flex flex-col', TARGET.gap)}>
-          <button
-            type="button"
-            disabled={erasing}
-            onClick={() => void erase()}
-            className={cn('press-feedback w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white disabled:opacity-60', TARGET.primary)}
-          >
-            {erasing ? 'Erasing…' : 'Erase routes'}
-          </button>
-          <PlainButton disabled={erasing} className={TARGET.tap} onClick={() => setOpen(undefined)}>Keep my routes</PlainButton>
-        </div>
-      </Sheet>
+      <EraseRoutesSheet open={open === 'erase'} onOpenChange={next => setOpen(next ? 'erase' : undefined)} device={device} onErased={() => setErased(true)} />
       <Sheet open={open === 'install'} onOpenChange={next => setOpen(next ? 'install' : undefined)} title="Add to Home Screen" detent="large">
         <p className="px-1 text-[length:var(--text-body)] leading-snug">
           On the Home Screen the app is kept apart from Safari, which can clear a website’s data after 7 days without a visit. The Home Screen app starts empty, so back up here first and restore the file there.

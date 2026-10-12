@@ -43,8 +43,8 @@ export default function BrowseScreen() {
   const [said, setSaid] = useState({ text: '', n: 0 });
   const [problem, setProblem] = useState<string>();
   const { profile } = useStore();
-  // Foods to log only for someone who logs meals and has said what they're allergic to; a figure only with estimates (B-11, D115).
-  const lists = listsFoods(profile?.food);
+  // Foods to log only for someone who logs meals, once their allergies are known as meal ideas wait for; a figure only with estimates (B-11, D115).
+  const lists = listsFoods(profile?.food, ctx.allergies);
   const numbers = numbersView(profile);
   const show = numbers.show;
   const ranges = numbers.show && numbers.ranges;

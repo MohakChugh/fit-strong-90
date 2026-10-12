@@ -17,8 +17,9 @@ import { sameValue } from '@/store/transfer';
 import type { ObservationInput } from '@/health/observation';
 import { measurementsFrom, profileFrom, settingsFrom } from './assemble';
 import { factsOf } from './facts';
-import { mergeAnswers } from './merge';
-import { REVIEW_ALSO, SAFETY_CHAPTERS, chapterOf, commitPage, pageDef, pageDone, pageInvalid, pathFor, type Ctx } from './graph';
+import { StoreFailure } from '@/store/db';
+import { mergeAnswersWithConflicts } from './merge';
+import { REVIEW_ALSO, SAFETY_CHAPTERS, chapterOf, commitPage, pageDef, pageDone, pageInvalid, pathFor, rawInvalid, type Ctx } from './graph';
 import { setupStateOf } from './state';
 
 export interface ChapterEdit {
@@ -95,17 +96,20 @@ export interface EditorState {
   blocking: PageId[];
 }
 
-export function editorState(opens: Pick<Opens, 'asked' | 'also'>, a: SetupAnswers, opened: SetupAnswers, ctx: Ctx): EditorState {
+/** `raw`: numbers as typed (`PageProps.raw`). */
+export function editorState(opens: Pick<Opens, 'asked' | 'also'>, a: SetupAnswers, opened: SetupAnswers, ctx: Ctx, raw: Readonly<Record<string, string>> = {}): EditorState {
   const chapters = editChapters(opens.asked, a, opened);
   const pages = editPath(chapters, a, opened, ctx, opens.also);
   const committed = pages.reduce((x, id) => commitPage(id, x), a);
   const left = pages.filter(id => !pageDone(id, committed, ctx));
   // A safety page left; a preference page holding an answer that can't be stored (H5-15); or one this edit changed
-  // and left half answered, such as water on with no fluid answer, which would be stored off unsaid (K5-15).
+  // and left half answered, such as water on with no fluid answer, which would be stored off unsaid (K5-15). Any page
+  // with a number typed that isn't an answer yet (H5R-15).
   const changed = (id: PageId) => pageDef(id).sets.some(k => !sameValue(committed[k], opened[k]));
+  const holds = (id: PageId) => left.includes(id) && (!pageDef(id).skippable || pageInvalid(id, committed, ctx) || changed(id));
   return {
     chapters, also: opens.also, pages, committed, left,
-    blocking: left.filter(id => !pageDef(id).skippable || pageInvalid(id, committed, ctx) || changed(id)),
+    blocking: pages.filter(id => holds(id) || rawInvalid(id, committed, raw)),
   };
 }
 
@@ -153,11 +157,32 @@ export function editMeasurements(edit: ChapterEdit, at: string): ObservationInpu
   return measurementsFrom(edit.answers, { weightKg, heightCm, waistCm }, at);
 }
 
-/** The profile an edit stores onto the record as it is now: what the edit changed, and nothing else (scan D-03). */
+/** Said when two copies changed the same safety answer and neither answer is the stricter (board D190). */
+export const ANSWERS_CHANGED = 'Your answers changed in another window of FitStrong. Check them here, then Save again.';
+
+/**
+ * Setup's answers as they will be: this edit's changes onto them as they are
+ * now, a safety answer both copies changed taking the stricter (`merge.ts`).
+ * Refused, by throwing, where neither is stricter: the person decides.
+ */
+function mergedAnswers(data: Pick<AppData, 'profile' | 'settings'>, edit: ChapterEdit): SetupAnswers {
+  const latest = setupStateOf(data.settings, data.profile).answers;
+  if (!latest) return edit.answers;
+  const merged = mergeAnswersWithConflicts(latest, edit.opened, edit.answers);
+  if (merged.conflicts.length) throw new StoreFailure('conflict', ANSWERS_CHANGED);
+  return merged.answers;
+}
+
+/**
+ * The profile an edit stores onto the record as it is now: what the edit
+ * changed, and nothing else (scan D-03), worked out from the answers as they
+ * will be stored, so the answers and the profile never say different things
+ * (H5R-02).
+ */
 export function editedProfile(data: Pick<AppData, 'profile' | 'settings'>, edit: ChapterEdit, today: string, ctx: Ctx): UserProfile {
   const base = data.profile ?? createDefaultProfile({ weightKg: data.settings.currentWeight || 0, needsHealthReview: true });
   const was = profileFrom(edit.opened, base, today, ctx, edit.chapters);
-  const saved = profileFrom(edit.answers, base, today, ctx, edit.chapters);
+  const saved = profileFrom(mergedAnswers(data, edit), base, today, ctx, edit.chapters);
   // The review flags change as any answer does, only when this edit changed them: a save vouches for the answers it
   // showed, never for ones another copy saved meanwhile, such as diabetes added without its medicines (H-DATA, D-03).
   return withProfileChanges(base, profileChanges(was, saved));
@@ -171,7 +196,7 @@ export function editedRecord(data: AppData, edit: ChapterEdit, today: string, ct
   const skipped = CHAPTER_IDS.filter(c => (edit.chapters.includes(c) ? left.has(c) : setup.skipped.includes(c)));
   // Only what this edit changed, onto setup's answers as they are now: another copy's answers and skipped pages stay (H5-13).
   const latest = setup.answers;
-  const changed = latest ? mergeAnswers(latest, edit.opened, edit.answers) : edit.answers;
+  const changed = mergedAnswers(data, edit);
   const skippedPages = [...((latest ?? edit.answers).skippedPages ?? []).filter(p => !edit.chapters.includes(chapterOf(p) as ChapterId)), ...edit.skipped];
   const joins = edit.chapters.includes('movement') && edit.answers.programme === 'join' && edit.answers.join !== undefined && !isEnrolled(data.settings, data.profile);
   const answers: SetupAnswers = { ...changed, skippedPages, ...(joins ? { programme: 'joined' as const } : {}) };

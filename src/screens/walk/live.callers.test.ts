@@ -14,14 +14,18 @@ import type { LiveWalk } from '@/walk/live';
 import { measuredStamp } from '@/health/observation';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
-import { render, type Host } from '@/test/host';
+import { render, type Host, type HostNode } from '@/test/host';
 
 const router = vi.hoisted(() => ({ params: new URLSearchParams(), navigate: vi.fn() }));
-vi.mock('react-router-dom', () => ({
-  useSearchParams: () => [router.params],
-  useNavigate: () => router.navigate,
-  useLocation: () => ({ pathname: '/walk/live', search: '', state: null, key: 'k0' }),
-}));
+vi.mock('react-router-dom', async () => {
+  const { createElement: h } = await import('react');
+  return {
+    useSearchParams: () => [router.params],
+    useNavigate: () => router.navigate,
+    useLocation: () => ({ pathname: '/walk/live', search: '', state: null, key: 'k0' }),
+    Link: ({ to, children }: { to: string; children?: ReactNode }) => h('a', { href: `#${to}` }, children),
+  };
+});
 vi.mock('@/components/ui/sheet', async () => {
   const { createElement: h, createContext, useContext } = await import('react');
   // Close closes, as the vendored sheet's does: through the sheet's own `onOpenChange`.
@@ -41,10 +45,12 @@ vi.mock('@/components/ui/sheet', async () => {
 const walk = vi.hoisted(() => ({ live: undefined as LiveWalk | undefined, kept: new Map<string, string>() }));
 vi.mock('@/walk/browser', async () => {
   const { createLiveWalk } = await import('@/walk/live');
-  const { storeGate, untimedOf, watchClinical } = await import('@/walk/gate');
+  const { storeGate, watchClinical } = await import('@/walk/gate');
+  const { markClockChange } = await import('@/store/useStore');
   return {
     liveWalk: () => (walk.live ??= createLiveWalk({
-      mayRun: (intent, w) => storeGate(intent, untimedOf(w)),
+      mayRun: intent => storeGate(intent),
+      clockChanged: days => void markClockChange(days),
       watchClinical,
       now: () => Date.now(),
       later(fn, ms) {
@@ -79,6 +85,7 @@ const { deviceGate } = await import('@/walk/gate');
 const { newWalkId } = await import('@/walk/plan');
 const { startedHref } = await import('@/walk/started');
 const { statusOn } = await import('@/health/status');
+const { NEWS_LABEL } = await import('@/components/checkin/copy');
 /** A walk the shared start flow has just started, as the live screen's address: how every new walk arrives (H6-04). */
 const startedParams = () => new URLSearchParams(startedHref({ kind: 'walk', gps: false, steps: false }).split('?')[1]);
 
@@ -91,6 +98,7 @@ const stamped = (h: number, m = 0) => measuredStamp(new Date(2026, 9, 9, h, m, 0
 const clock = (h: number, m = 0) => vi.setSystemTime(new Date(2026, 9, 9, h, m, 0));
 
 let host: Host | undefined;
+let db = fakeIndexedDB();
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   clock(9, 5);
@@ -100,7 +108,8 @@ beforeEach(async () => {
   store.resetForTests();
   resetPendingCheckInsForTests();
   router.navigate = vi.fn();
-  await store.start({ factory: fakeIndexedDB(), broadcast: null });
+  db = fakeIndexedDB();
+  await store.start({ factory: db, broadcast: null });
 });
 afterEach(() => {
   host?.unmount();
@@ -268,6 +277,159 @@ describe('Resume asks the status first, as the hubs’ Continue does (H2-01, jou
     expect(statusOn(store.getState().settings.statusPeriods, DAY)).toBe('normal');
     await h().click(h().button('Resume', { exact: true }));
     expect(status()).toBe('running');
+  });
+});
+
+describe('"I feel low" for anyone who can go low, under any hold but an emergency (K6R-01)', () => {
+  /** Walking on a fresh 140, with insulin. */
+  async function walkingOnInsulin() {
+    const p = createDefaultProfile(INSULIN);
+    const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } };
+    await store.update(prev => ({ ...prev, profile: p, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
+    router.params = startedParams();
+    host = render(createElement(LiveWalkScreen));
+    await host.settle();
+    expect(status()).toBe('running');
+    return p;
+  }
+
+  it('stays on the walk screen once "I need to stop" holds it', async () => {
+    await walkingOnInsulin();
+    await h().click(h().button('I need to stop'));
+    await h().click(h().button('Close', { exact: true }));
+    expect(h().text()).toMatch(/You stopped and haven’t said what happened yet/);
+    expect(h().buttons('I feel low', { exact: true })).toHaveLength(1);
+    // Beside "I need to stop", as before the hold.
+    const low = h().button('I feel low', { exact: true });
+    const row = h().all().find(n => n.children.includes(low))!;
+    expect(String(row.props.className)).toContain('min-[360px]:grid-cols-2');
+  });
+
+  it('is the stop question’s first answer, and answers the stop through the low path', async () => {
+    await walkingOnInsulin();
+    clock(9, 10);
+    await h().click(h().button('I need to stop'));
+    const dialog = h().all().find(n => n.props.role === 'dialog')!;
+    const first = dialog && JSON.stringify(dialog).indexOf('I feel low');
+    expect(first).toBeGreaterThan(-1);
+    expect(first).toBeLessThan(JSON.stringify(dialog).indexOf('Dizzy or faint'));
+    // The sheet's own row: the screen behind it is inert while the sheet is open.
+    const inside: HostNode[] = [];
+    const collect = (n: HostNode) => { for (const c of n.children) if (typeof c !== 'string') { inside.push(c); collect(c); } };
+    collect(dialog);
+    const row = h().buttons('I feel low', { exact: true }).find(b => inside.includes(b))!;
+    expect(row).toBeDefined();
+    await h().click(row);
+    await h().settle();
+    expect(today()?.news).toContain('lowSymptoms');
+    expect(today()?.news).not.toContain('stopped');
+    expect(h().text()).not.toMatch(/You stopped and haven’t said what happened yet/);
+    // What follows is the low's own guidance, as "I feel low" on the walk gives it.
+    expect(h().text()).toMatch(/Check your glucose now|What the meter shows|Glucose now/);
+  });
+
+  it('goes for an emergency, which only Finish and save follows', async () => {
+    await walkingOnInsulin();
+    await h().click(h().button('I need to stop'));
+    await h().click(h().button(/^Chest pain/));
+    await h().settle();
+    expect(h().buttons('I feel low', { exact: true })).toHaveLength(0);
+  });
+});
+
+describe('the stop question waits for its answer to save, and keeps it when it doesn’t (H6R-11)', () => {
+  const p = createDefaultProfile({ health: { ...known, diabetes: 'none' } });
+  async function stopped() {
+    const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4 };
+    await store.update(prev => ({ ...prev, profile: p, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
+    router.params = startedParams();
+    host = render(createElement(LiveWalkScreen));
+    await host.settle();
+    await h().click(h().button('I need to stop'));
+    expect(today()?.news).toContain('stopped');
+  }
+  const refuse = () => db.control.setWriteError(() => new DOMException('The device is full.', 'QuotaExceededError'));
+
+  it('stays open on a refused "Just need a rest", says so, and Try again saves it and closes', async () => {
+    await stopped();
+    refuse();
+    await h().click(h().button('Just need a rest'));
+    await h().settle();
+    expect(h().text()).toMatch(/What’s happening\?/);
+    expect(h().text()).toMatch(/didn’t save/);
+    db.control.setWriteError(undefined);
+    await h().click(h().button('Try again', { exact: true }));
+    await h().settle();
+    expect(h().text()).not.toMatch(/What’s happening\?/);
+    expect(store.getState().checkIns.find(c => c.date === DAY)?.news ?? []).not.toContain('stopped');
+  });
+
+  it('can’t be closed, nor the walk ended from it, while an answer is still being stored: the answer, and its Try again, stay until the device has said (H6R-11, board D213)', async () => {
+    await stopped();
+    db.control.hold();
+    await h().click(h().button('Just need a rest'));
+    // Closed by its own Close, or a swipe, it stays.
+    await h().click(h().buttons('Close', { exact: true }).at(-1)!);
+    expect(h().text()).toMatch(/What’s happening\?/);
+    expect(h().button('End walk').props.disabled).toBe(true);
+    db.control.release();
+    await h().settle();
+    expect(h().text()).not.toMatch(/What’s happening\?/);
+    expect(store.getState().checkIns.find(c => c.date === DAY)?.news ?? []).not.toContain('stopped');
+  });
+
+  it('keeps "Check your glucose now" open, its Close waiting, while "I feel low" is stored (H6R-11, board D213)', async () => {
+    const insulin = createDefaultProfile({ health: { ...known, diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter' } });
+    const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: { value: 140, unit: 'mg/dL', measuredAt: new Date().toISOString(), source: 'meter' } };
+    await store.update(prev => ({ ...prev, profile: insulin, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [{ ...morning, readiness: evaluateCheckIn(insulin, morning) }] }));
+    router.params = startedParams();
+    host = render(createElement(LiveWalkScreen));
+    await host.settle();
+    await h().click(h().button('I need to stop'));
+    await h().click(h().button(NEWS_LABEL.dizzy, { exact: true }));
+    await h().settle();
+    expect(h().text()).toMatch(/Check your glucose now/);
+    db.control.hold();
+    await h().click(h().buttons('I feel low', { exact: true }).at(-1)!);
+    // Its own Close waits; the sheet's, or a swipe, closes nothing.
+    expect(h().buttons('Close', { exact: true }).filter(b => b.props.disabled === true)).toHaveLength(1);
+    await h().click(h().buttons('Close', { exact: true }).find(b => !b.props.disabled)!);
+    expect(h().text()).toMatch(/Check your glucose now/);
+    db.control.release();
+    await h().settle();
+    expect(h().text()).not.toMatch(/Sit down somewhere safe/);
+  });
+
+  it('keeps the leg answers given when saving them is refused', async () => {
+    await stopped();
+    await h().click(h().field(/a leg getting weaker/));
+    refuse();
+    await h().click(h().button('Save leg symptoms'));
+    await h().settle();
+    expect(h().text()).toMatch(/didn’t save/);
+    expect(h().field(/a leg getting weaker/).props.checked).toBe(true);
+    db.control.setWriteError(undefined);
+    await h().click(h().button('Try again', { exact: true }));
+    await h().settle();
+    expect(store.getState().checkIns.find(c => c.date === DAY)?.back).toMatchObject({ newWeakness: true });
+  });
+});
+
+describe('an unanswered stop while Away, Unwell or in a flare-up (K6R-02)', () => {
+  it('offers "Say what happened" first, not "Change status"', async () => {
+    const p = createDefaultProfile({ health: { ...known, diabetes: 'none' } });
+    const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4 };
+    await store.update(prev => ({ ...prev, profile: p, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
+    router.params = startedParams();
+    host = render(createElement(LiveWalkScreen));
+    await host.settle();
+    await h().click(h().button('I need to stop'));
+    await h().click(h().button('Close', { exact: true }));
+    await store.setSettings({ statusPeriods: [{ kind: 'unwell', from: DAY }] });
+    await h().settle();
+    expect(h().text()).toMatch(/You stopped and haven’t said what happened yet/);
+    expect(h().buttons('Say what happened', { exact: true })).toHaveLength(1);
+    expect(h().buttons('Change status', { exact: true })).toHaveLength(0);
   });
 });
 

@@ -56,6 +56,20 @@ describe('answers v1 already gave (K-57; journey §6.4, §16)', () => {
     expect(profileFrom(answersFromProfile(p, S), p, TODAY, CTX).food).toEqual(food);
   });
 
+  it('leaves unanswered what v1 never asked: how insulin is taken, and ketone testing beyond type 1 and SGLT2 medicines (K5R-07; board D195)', () => {
+    const insulin = (health: Partial<typeof P01.health>) => answersFromProfile({ ...P01, health: { ...P01.health, insulin: 'injections_or_pump', ...health } }, S);
+    expect(insulin({}).insulinHow).toBeUndefined();
+    // v2 asked it, or the answer says it: read back as given.
+    expect(insulin({ insulinRegimen: 'basalOnly' }).insulinHow).toBe('basalOnly');
+    expect(insulin({ insulin: 'automated_delivery' }).insulinHow).toBe('closedLoop');
+    // v1 asked about severe lows of everyone with diabetes, so that answer is v1's own.
+    expect(insulin({ highHypoRisk: true }).lowsRisk).toBe('yes');
+    // Ketone testing: v1 asked it with type 1 or an SGLT2 medicine, never for "other" diabetes on insulin.
+    expect(insulin({ diabetes: 'other', ketoneTest: 'none' }).ketoneTest).toBeUndefined();
+    expect(insulin({ diabetes: 'type1', ketoneTest: 'urine' }).ketoneTest).toBe('urine');
+    expect(answersFromProfile({ ...P01, health: { ...P01.health, sglt2i: true, ketoneTest: 'blood' } }, S).ketoneTest).toBe('blood');
+  });
+
   it('reads back only what v1 asked, "Not sure" as not sure', () => {
     expect(answersFromProfile(createDefaultProfile({ health: { hypertension: 'unsure' } }), S).conditions?.bp).toBe('unsure');
     const none = answersFromProfile(createDefaultProfile({ health: { medicinesReviewed: true }, pain: { areas: ['knee'], worseWith: 'flexion' } }), S);

@@ -35,6 +35,12 @@ export function answering(report: SymptomReport = {}): SymptomReport {
   return { ...report, newsGone: [...new Set([...(report.newsGone ?? []), 'stopped' as const])] };
 }
 
+/**
+ * "I feel low" as the stop's answer, for anyone who can go low (K6R-01, board
+ * D172): the low path's own report, the stop answered with it.
+ */
+export const STOP_LOW: SymptomReport = answering({ news: ['lowSymptoms'] });
+
 /** One tap on the walk's stop question: what it reports, the stop answered with it, and what comes next. */
 export function stopAnswer(choice: StopChoice, hypoRisk: boolean): { report?: SymptomReport; next: 'close' | 'leg' | 'dizzy' } {
   const { report, next } = onChoice(choice, hypoRisk);

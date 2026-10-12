@@ -4,6 +4,7 @@ import { format, parseISO } from 'date-fns';
 import { CalendarDaysIcon, ClipboardListIcon, SearchIcon, TargetIcon } from 'lucide-react';
 import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
+import { useSayWhatHappened } from '@/components/checkin/sayWhatHappened';
 import { defaultStartLabel } from '@/components/checkin/copy';
 import { HREF, resumeHref, savedRun } from '@/health/recommend';
 import { carriedOn } from '@/session/carryOn';
@@ -38,6 +39,8 @@ export default function WorkoutHub() {
   const g = useHubGate('guided');
   const { guided, state, now, today, status, enrolled } = g;
   const navigate = useNavigate();
+  // An unanswered stop's own questions (K6R-03).
+  const say = useSayWhatHappened();
   const origin = useHubOrigin(category.title);
   const [goalOpen, setGoalOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
@@ -67,6 +70,7 @@ export default function WorkoutHub() {
     go: to => navigate(to, { viewTransition: true, state: origin }),
     status: () => setStatusOpen(true),
     local: () => {},
+    stop: () => say?.(),
   });
 
   const planDetail = !enrolled ? 'Not joined yet' : week.startsOn ? 'Starts soon' : week.finished ? 'The 12 weeks are done' : `Week ${week.week} of 12`;

@@ -16,10 +16,21 @@ export const title = 'Food with logging off, then on';
 
 const LEVEL_SHEET = 'Log what you eat?';
 
-/** The hub with logging off: three ideas for lunch, and the way in to logging. */
+/**
+ * The hub with logging off: three ideas for lunch, and the way in to logging. P01's food record is v1's, which never
+ * asked about allergies, so the ideas wait until they're told: "No food allergies", once, as a person would give it
+ * (owner decision; Plan 5's board D194).
+ */
 async function hubWithLoggingOff(t) {
   const main = await food.openHub(t);
   const ideas = food.group(main, 'Lunch · ideas for you');
+  const none = ideas.getByRole('button', { name: 'No food allergies', exact: true });
+  await t.check(await none.count() === 1 && await ideas.getByRole('link').count() === 1,
+    `“Lunch · ideas for you” doesn’t ask about food allergies first: ${(await ideas.innerText()).replace(/\s+/g, ' ')}`);
+  if (await none.count() === 1) {
+    await ui.tap(none);
+    await none.waitFor({ state: 'detached', timeout: 10000 });
+  }
   await t.check(await ideas.getByRole('link').count() === 3, `“Lunch · ideas for you” lists ${await ideas.getByRole('link').count()} ideas, not 3`);
   await t.check(await ui.row(main, 'Log a meal', 'link').count() === 0, 'Options offers “Log a meal” with logging off');
   return main;

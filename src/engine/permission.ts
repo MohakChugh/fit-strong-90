@@ -24,8 +24,9 @@ import type { CheckInRecord, DailyCheckIn, Disposition, GlucoseEntry, Mode, Modi
 import { DISPOSITION_ORDER } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { toDateString } from '@/lib/utils';
+import { candidatesOf, planningProfile, readinessAcross } from './candidates';
 import { deriveHealth, profileGaps } from './health';
-import { durableView, EMERGENCY_CALL, evaluateCheckIn, glucoseReadingId, profileOnlyReadiness, withLogged } from './readiness';
+import { durableView, EMERGENCY_CALL, evaluateCheckIn, profileOnlyReadiness, withLogged } from './readiness';
 
 export type { Disposition, Mode } from '@/types/checkin';
 
@@ -33,16 +34,12 @@ export interface PermissionInput {
   profile: UserProfile;
   checkIn?: CheckInRecord;
   now: Date;
-  /** Earlier check-ins, any order. Optional: only the two-days-running and spread rules read them. */
-  recent?: DailyCheckIn[];
   /**
-   * B-19: a walk saw the phone's clock change, and these glucose readings, by
-   * `glucoseReadingId`, are the ones the device knew then. They were timed by
-   * the clock as it was, so their ages can't be known. Someone who can go low
-   * then moves only on a reading taken since, in every question, carrying on
-   * included. Absent: no change was seen. Nothing else reads it.
+   * Earlier check-ins, any order. Optional: only the two-days-running and
+   * spread rules read them, and the device's clock changes (`clockHold`) the
+   * gates attach to every day.
    */
-  untimed?: ReadonlySet<string>;
+  recent?: DailyCheckIn[];
 }
 
 export interface Permission {
@@ -83,7 +80,8 @@ export const PERMISSION_TEXT = {
   staleNoTime: 'Add the time you took your glucose reading: with insulin or a sulfonylurea it must be from the last 30 minutes.',
   future: 'Your glucose reading’s time is later than now. Check the time and enter it again.',
   footWalk: 'No walking today: your foot needs protecting. Seated and floor work can still go ahead.',
-  clockChanged: 'Your phone’s clock changed during this walk, so a reading from before the change can’t be timed. Check your glucose again to carry on.',
+  unsaved: 'Your new health answers haven’t been saved yet, so the app can’t tell which to plan with. Save them, or discard them, in Profile & health first.',
+  clockChanged: 'Your phone’s clock changed during a walk, so a reading from before the change can’t be timed. Check your glucose again before you move.',
 } as const;
 
 const RELEASES = {
@@ -93,6 +91,7 @@ const RELEASES = {
   fresh: 'Check your glucose now and add the reading.',
   foot: 'Walking is back once your foot has healed or a clinician says it is fine.',
   provoked: 'Try it again tomorrow, once your symptoms have settled.',
+  unsaved: 'Save your new health answers in Profile & health, or discard them.',
 } as const;
 
 /** Refusals for the rest of the day, by the movement that made symptoms worse (X2-09, J2-04): no answer changes them. */
@@ -217,20 +216,27 @@ function currentGlucose(c: DailyCheckIn): GlucoseEntry | undefined {
 }
 
 /**
- * B-19: after a change to the phone's clock, the current reading must be one
- * taken since, by identity: a time from before the change, compared with
- * times after it, would mix two clocks. In the record the device stored as
- * well as the effective one, so a newer reading it has not kept releases
- * nothing (N-01).
+ * B-19: after a change to the phone's clock, on the days either side of it,
+ * the current reading, the one taken last by its time as every rule reads it,
+ * must be one acquired since: stamped with this phone's latest clock
+ * generation, which a reading retimed, corrected or brought in by an import
+ * never has. Never by its time alone, which would mix two clocks; nor is a
+ * reading made current by its generation, so a newer one from a file is
+ * still treated as it says (H6F-05, board D186). The hold is the
+ * device's (`clockHold`, on every day the gates read), so it reaches every
+ * gate and outlasts the walk that saw the change (H6R-02, H6R-03, board
+ * D174). In the record the device stored as well as the effective one, so a
+ * newer reading it has not kept releases nothing (N-01).
  */
 function clockBlock(input: PermissionInput, checkIn: CheckInRecord | undefined): Block | undefined {
-  const untimed = input.untimed;
-  if (!untimed || !deriveHealth(input.profile.health).hypoRisk) return undefined;
+  const hold = checkIn?.clockHold ?? input.recent?.find(c => c.clockHold)?.clockHold;
+  if (!hold || !deriveHealth(input.profile.health).hypoRisk) return undefined;
+  if (!hold.days.includes(checkIn?.date ?? toDateString(input.now))) return undefined;
   const stored = checkIn ? durableView(checkIn) : undefined;
   const views = checkIn ? [checkIn, ...(stored ? [stored] : [])].map(withLogged) : [];
   const since = views.length > 0 && views.every(v => {
     const g = currentGlucose(v);
-    return g !== undefined && !untimed.has(glucoseReadingId(g, v.date));
+    return g !== undefined && (g.gen ?? 0) >= hold.generation;
   });
   return since ? undefined : { disposition: 'hold', reasons: [PERMISSION_TEXT.clockChanged], release: RELEASES.fresh, needsCheckIn: true };
 }
@@ -248,6 +254,8 @@ function profileRefuses(profile: UserProfile, mode: Mode): boolean {
  * same answer (journey §4.7).
  */
 export function readinessFor(input: PermissionInput): Readiness {
+  // A gate's profile with answers on their way: its planning candidate's readiness (board D168).
+  if (input.profile.candidates) return readinessAcross(input.profile, p => readinessFor({ ...input, profile: p }));
   const { profile, now } = input;
   const today = toDateString(now);
   const checkIn = input.checkIn && input.checkIn.date === today ? input.checkIn : undefined;
@@ -260,7 +268,43 @@ export function readinessFor(input: PermissionInput): Readiness {
   return checkIn ? evaluateCheckIn(profile, checkIn, recent, now) : profileOnlyReadiness(profile, { date: today, recent, now });
 }
 
-function decide(input: PermissionInput, mode: Mode, opts: { fresh: boolean; needToday: boolean; onScreen?: boolean }): Permission {
+type Opts = { fresh: boolean; needToday: boolean; onScreen?: boolean };
+
+/**
+ * The answer across a gate's candidates (board D168): each decided as a
+ * profile of its own. Refused if any candidate refuses, with all their
+ * reasons, the most serious first, and a check-in asked for only if one can
+ * answer every refusal. Allowed, with every candidate's restrictions, only if
+ * every candidate allows it and one of them is at least as strict as all the
+ * others; with none, no single profile can stand for them, so it holds until
+ * the answers are saved.
+ */
+function decide(input: PermissionInput, mode: Mode, opts: Opts): Permission {
+  const all = candidatesOf(input.profile);
+  if (all.length === 1) return decideOne(input.profile.candidates ? { ...input, profile: all[0] } : input, mode, opts);
+  const each = all.map(profile => decideOne({ ...input, profile }, mode, opts));
+  const refusing = each.filter(p => !p.allowed).sort((a, b) => rank(b.disposition) - rank(a.disposition));
+  if (refusing.length) {
+    const top = refusing[0].disposition;
+    // In an emergency, nothing about starting later belongs next to "call now".
+    const shown = top === 'emergency' ? refusing.filter(p => p.disposition === 'emergency') : refusing;
+    const release = top === 'emergency' ? undefined : refusing.find(p => p.release)?.release;
+    return {
+      mode, allowed: false, disposition: top, reasons: [...new Set(shown.flatMap(p => p.reasons))], restrictions: [], codes: [],
+      ...(release ? { release } : {}), needsCheckIn: refusing.every(p => p.needsCheckIn),
+    };
+  }
+  if (!planningProfile(input.profile, profile => readinessFor({ ...input, profile }))) {
+    return { mode, allowed: false, disposition: 'hold', reasons: [PERMISSION_TEXT.unsaved], release: RELEASES.unsaved, restrictions: [], codes: [], needsCheckIn: false };
+  }
+  const codes = ORDER.filter(k => each.some(p => p.codes?.includes(k)));
+  return {
+    mode, allowed: true, disposition: each.some(p => p.disposition === 'adjust') ? 'adjust' : 'reassure',
+    reasons: [...new Set(each.flatMap(p => p.reasons))], restrictions: codes.map(k => RESTRICTIONS[mode][k] as string), codes, needsCheckIn: false,
+  };
+}
+
+function decideOne(input: PermissionInput, mode: Mode, opts: Opts): Permission {
   const { profile, now } = input;
   const today = toDateString(now);
   const checkIn = input.checkIn && input.checkIn.date === today ? input.checkIn : undefined;

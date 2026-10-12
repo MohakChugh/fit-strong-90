@@ -80,10 +80,12 @@ async function seed(profile: UserProfile, records: DailyCheckIn[] = []) {
 }
 
 /** The sheet as Today and the start buttons mount it: the real hook's record, save and earlier days. */
+let onSayWhatHappened = vi.fn();
 function Harness({ mode = 'guided' as Mode }) {
   const g = useGuided();
   return createElement(CheckInBody, {
     open: true, onOpenChange: () => {}, profile: g.profile, date: g.date, initial: g.checkIn, onSave: g.saveCheckIn, onStart, mode, recent: g.checkIns,
+    onSayWhatHappened,
   });
 }
 async function openSheet(mode: Mode = 'guided') {
@@ -1518,5 +1520,120 @@ describe('A saved half-reading, reopened: the symptom question is still asked', 
     const ids = (stored()!.readiness.episodes ?? []).flatMap(e => e.readings).map(x => x.id);
     expect(ids.some(id => id.startsWith('bpp:'))).toBe(false);
     expect(stored()!.readiness.reasons.map(x => x.code)).toContain('bpSevereUnconfirmed');
+  });
+});
+
+describe('an unanswered stop in the check-in: "Say what happened", never a box to untick (journey §4.4, K6R-03)', () => {
+  const plain = createDefaultProfile({ health: { ...known, diabetes: 'none' } });
+  const said = (date: string, news: DailyCheckIn['news']): DailyCheckIn => ({ date, urgentSymptoms: false, emergency: [], news, sleep: 'gt7', energy: 4 });
+
+  it('says it in the same words, and opens the stop’s own questions', async () => {
+    onSayWhatHappened = vi.fn();
+    await seed(plain, [said(DAY, ['stopped'])]);
+    await openSheet();
+    await changeAnswers();
+    expect(h().all().some(n => n.type === 'input' && n.props.type === 'checkbox' && JSON.stringify(n.props).includes('stopped'))).toBe(false);
+    expect(h().text()).not.toContain(NEWS_LABEL.stopped);
+    expect(h().text()).toContain('You stopped and haven’t said what happened yet');
+    await h().click(h().button('Say what happened', { exact: true }));
+    expect(onSayWhatHappened).toHaveBeenCalledTimes(1);
+    // Saving the check-in keeps the stop, "None of these" for today's news included: only its own answer releases it.
+    await none();
+    const nones = h().buttons('None of these', { exact: true });
+    await h().click(nones[nones.length - 1]);
+    await seePlan();
+    expect(stored()?.news).toContain('stopped');
+  });
+
+  it('says it for a stop from an earlier day too', async () => {
+    onSayWhatHappened = vi.fn();
+    await seed(plain, [said('2026-10-08', ['stopped'])]);
+    await openSheet();
+    await none();
+    expect(h().text()).toContain('You stopped and haven’t said what happened yet');
+    expect(h().buttons('Say what happened', { exact: true })).toHaveLength(1);
+  });
+});
+
+describe('after a change to the phone’s clock, through the sheet (B-19, H6R-02, H6R-03, board D174)', () => {
+  const p = createDefaultProfile(PROFILES.insulin);
+  const reading = { value: 140, unit: 'mg/dL' as const, measuredAt: at(2026, 10, 9, 9, 0).toISOString(), source: 'meter' as const };
+  const said = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: reading } satisfies DailyCheckIn;
+
+  it('a reading typed before the change and saved after it is from before: it releases nothing (H6R-03, board D186)', async () => {
+    clock(9, 5);
+    await seed(p);
+    await openSheet('walk');
+    await none();
+    await typeGlucose('128');
+    // The change is seen while the sheet is open, the reading already typed.
+    await store.markClockChange([DAY]);
+    await h().settle();
+    await seePlan();
+    expect(stored()?.glucose).toMatchObject({ value: 128 });
+    expect(stored()?.glucose?.gen ?? 0).toBe(0);
+    expect(startOffered()).toBe(false);
+  });
+
+  it('asks for a new reading, naming the one from before; the same number measured again and typed in, with the time it was measured, lets the walk go (H6F-06, board D186)', async () => {
+    clock(9, 5);
+    await seed(p, [said]);
+    await store.markClockChange([DAY]);
+    await openSheet('walk');
+    // Asked again, not "Start walk": the reading it holds was timed by the clock as it was.
+    expect(h().text()).toContain('Right now, any of these?');
+    expect(startOffered()).toBe(false);
+    await none();
+    // So the box starts empty, and says which reading it was.
+    expect(h().field('Glucose reading').props.value).toBe('');
+    expect(h().text()).toContain('Last reading: 140 mg/dL');
+    // Measured again: the same 140, given the time it was taken by the clock as it is now.
+    await typeGlucose('140');
+    await h().change(h().field('Time measured'), { value: '09:04' });
+    await seePlan();
+    expect(stored()?.glucose).toMatchObject({ value: 140, measuredAt: at(2026, 10, 9, 9, 4).toISOString(), gen: 1 });
+    expect(startOffered()).toBe(true);
+  });
+
+  it('a meter’s HI or LO chosen since the change is a reading acquired since (H6R-03, board D186)', async () => {
+    clock(9, 5);
+    await seed(p, [said]);
+    await store.markClockChange([DAY]);
+    await openSheet('walk');
+    await none();
+    await h().click(h().button('Meter shows HI or LO?'));
+    await h().click(h().button('HI', { exact: true }));
+    await seePlan();
+    expect(stored()?.glucoseDisplay).toMatchObject({ display: 'HI', gen: 1 });
+  });
+
+  it('a reading from before, corrected or retimed in its box but never cleared, is still that reading; cleared and typed again, it is a new one (H6F-06, board D186)', async () => {
+    clock(9, 5);
+    await seed(p, [said]);
+    await openSheet('walk');
+    await changeAnswers();
+    // The change is seen while the sheet is open, its box still holding the 09:00 reading.
+    await store.markClockChange([DAY]);
+    await h().settle();
+    await typeGlucose('138');
+    await seePlan();
+    expect(stored()?.glucose).toMatchObject({ value: 138 });
+    expect(stored()?.glucose?.gen ?? 0).toBe(0);
+    expect(startOffered()).toBe(false);
+    // Given the time it reads now, a few minutes on.
+    clock(9, 8);
+    await changeAnswers();
+    await h().change(h().field('Time measured'), { value: '09:07' });
+    await seePlan();
+    expect(stored()?.glucose).toMatchObject({ value: 138, measuredAt: at(2026, 10, 9, 9, 7).toISOString() });
+    expect(stored()?.glucose?.gen ?? 0).toBe(0);
+    expect(startOffered()).toBe(false);
+    // Cleared, then the reading measured now typed in.
+    await changeAnswers();
+    await typeGlucose('');
+    await typeGlucose('138');
+    await seePlan();
+    expect(stored()?.glucose).toMatchObject({ value: 138, gen: 1 });
+    expect(startOffered()).toBe(true);
   });
 });

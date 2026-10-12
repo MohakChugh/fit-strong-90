@@ -16,8 +16,9 @@ import { Sheet } from '@/components/hig/Sheet';
 import { Group, Row } from '@/components/hig/List';
 import { entryFor, summariseDay } from '@/health/aggregate';
 import { atOnDay, bpContext, nowAt, type ObservationInput, type ObservationTag } from '@/health/observation';
+import { acquiredIn } from '@/walk/consent';
 import {
-  addObservation, addObservations, addToDayTotal, editObservation, useStore,
+  acquisitionStamp, addObservation, addObservations, addToDayTotal, editObservation, useStore,
 } from '@/store/useStore';
 import { glucoseEscalation, meterEscalation, mostUrgent, pressureEscalation, type Escalation } from './escalation';
 import { Guidance, type Shown } from './Guidance';
@@ -239,6 +240,8 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
   const [time, setTime] = useState<string | undefined>(kept?.time);
   // When Save was first tapped: what the time stands for while left at Now.
   const [savedAt, setSavedAt] = useState<string | undefined>(kept?.at);
+  // B-19: the clock generation it was acquired in, at that first Save, kept with it (H6R-03, board D186).
+  const [gen, setGen] = useState<number | undefined>(kept?.gen);
   const [refused, setRefused] = useState(kept?.refused === true);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -255,7 +258,7 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
     ? {
       kind: 'glucose', id, raw, unit,
       ...(tag ? { tag } : {}), ...(meal ? { meal } : {}), ...(time !== undefined ? { time } : {}),
-      ...(savedAt ? { at: savedAt } : {}), ...(refused ? { refused: true as const } : {}),
+      ...(savedAt ? { at: savedAt } : {}), ...(gen ? { gen } : {}), ...(refused ? { refused: true as const } : {}),
     }
     : undefined;
   useKeptDraft(draft);
@@ -268,6 +271,7 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
     const checked = checkValue('glucose', raw, unit);
     if (!checked.ok) return setError(checked.message);
     const moment = savedAt ?? nowAt();
+    const acquired = savedAt ? gen ?? 0 : acquisitionStamp();
     const when = time !== undefined ? resolveTime(time) : { ok: true as const, at: moment };
     if (!when.ok) return setError(when.message);
     let mealStartedAt: string | undefined;
@@ -283,11 +287,11 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
     const ask = time !== undefined || savedAt !== undefined;
     const shown = formatValue(checked.value, 'glucose', unit);
     const figure = shown.replace(` ${unit}`, '');
-    const input: ObservationInput = {
+    const input = acquiredIn<ObservationInput>({
       id, kind: 'glucose', value: checked.value, unit, scope: 'pointInTime', source: 'manual', at: when.at,
       ...(tag ? { tag } : {}),
       ...(mealStartedAt ? { mealStartedAt } : {}),
-    };
+    }, acquired);
     const attempt = async (): Promise<string | undefined> => {
       const result = await addObservation(input);
       if (!result.ok) {
@@ -299,6 +303,7 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
       return undefined;
     };
     setSavedAt(moment);
+    setGen(acquired || undefined);
     setError(undefined);
     setBusy(true);
     const failure = await saveWithGuidance({
@@ -319,7 +324,12 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
             ref={fieldRef}
             label="Reading"
             value={raw}
-            onChange={v => { setRaw(v); setError(undefined); }}
+            onChange={v => {
+              // Emptied, it is no longer the reading first saved: the next one is timed and stamped at its own Save (H6R-03).
+              if (!v.trim()) { setSavedAt(undefined); setGen(undefined); }
+              setRaw(v);
+              setError(undefined);
+            }}
             placeholder={unit === 'mg/dL' ? '112' : '6.2'}
             invalid={!!error}
             describedBy={error ? errorId : undefined}

@@ -20,7 +20,7 @@ import { isDay } from '@/health/observation';
 import { isTextScale } from '@/lib/textSize';
 import { ALLERGEN_IDS } from '@/types/profile';
 import { CHAPTER_IDS, CONDITION_IDS, MEDICINE_CLASSES, PAGE_IDS } from '@/types/setup';
-import { NAME_MAX, OWN_ALLERGIES_MAX, OWN_ALLERGY_LENGTH_MAX } from '@/setup/limits';
+import { NAME_MAX, OWN_ALLERGIES_MAX, OWN_ALLERGY_LENGTH_MAX, RAW_KEYS, typedMax, type RawKey } from '@/setup/limits';
 import { RECORD_STORES } from './records';
 
 type Check = (x: unknown) => boolean;
@@ -112,7 +112,11 @@ const ANSWER_SPEC: Spec = {
 /** Setup's state, field by field (Review Focus 5): a draft at a page this build lacks loses only its page, never its answers. */
 const SETUP_SPEC: Spec = {
   stage: oneOf('open', 'lookAround', 'done'),
-  draft: { at: oneOf(...PAGE_IDS), answers: ANSWER_SPEC },
+  // What was typed (H5R-13, H5-18): only the fields setup has, each as long as its field takes.
+  draft: {
+    at: oneOf(...PAGE_IDS), answers: ANSWER_SPEC,
+    raw: x => isRecord(x) && Object.entries(x).every(([k, v]) => RAW_KEYS.includes(k as RawKey) && typeof v === 'string' && v.length <= typedMax(k as RawKey)),
+  },
   answers: ANSWER_SPEC,
   completedAt: text,
   skipped: listOf(oneOf(...CHAPTER_IDS)),
@@ -150,7 +154,11 @@ const SETTINGS_SPEC: Spec = {
   setup: SETUP_SPEC,
   display: shape({ reduceMotion: bool, reduceTransparency: bool, textScale: x => isTextScale(x) }),
   // Read, but never taken as this phone's answers: an import keeps this device's own (B-26, `withDeviceConsent`).
-  walk: shape({ saveRoutes: oneOf(true, false, 'unasked'), map: oneOf('on', 'off', 'unasked'), stepCardSeen: bool, routesErasedAt: num(0, 8.64e15) }, ['saveRoutes', 'map']),
+  walk: shape({
+    saveRoutes: oneOf(true, false, 'unasked'), map: oneOf('on', 'off', 'unasked'), stepCardSeen: bool,
+    erased: shape({ generation: num(0, Number.MAX_SAFE_INTEGER), walks: listOf(text) }, ['generation', 'walks']),
+    clock: shape({ generation: num(0, Number.MAX_SAFE_INTEGER), days: listOf(day) }, ['generation', 'days']),
+  }, ['saveRoutes', 'map']),
   // List by list: one that cannot be read must not take the others with it,
   // or an older backup could bring back what they keep deleted (D-06, R5-01).
   deleted: { observations: listOf(text), sessions: listOf(text), readings: listOf(text), records: recordOf(oneOf(...RECORD_STORES), listOf(text)) },
@@ -252,9 +260,9 @@ function read(doc: Record<string, unknown>, spec: Spec, path: string): { kept: R
 }
 
 /**
- * Setup's half-typed page answers (`draft.edits`, H5-16) stay on the device
- * they were typed on: never given, they are never restored, so a restore
- * never draws them over its own answers (H5-07).
+ * Pages' answers as an earlier build of this version held them
+ * (`draft.edits`), before they went into the draft's answers as they're
+ * given (board D169): no release stored them, and nothing reads them now.
  */
 function withoutHeld(doc: Record<string, unknown>): Record<string, unknown> {
   const setup = doc.setup;

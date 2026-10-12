@@ -6,6 +6,7 @@
  * Browse, never with the first screen.
  */
 import { BROWSE_GROUPS } from '@/categories';
+import type { AllergyAnswer } from '@/food/allergens';
 import { foodRowDetail } from '@/food/format';
 import { logsMeals, type NumbersView } from '@/food/level';
 import { logHref } from '@/food/links';
@@ -18,12 +19,13 @@ export const FOOD_ROWS_MAX = 6;
 
 /**
  * Whether Browse lists foods to log (D115): for someone who logs meals, since a row opens
- * "Log a meal", which "meal ideas only" doesn't have; and, as Browse's meal ideas do, only once
- * their food allergies are known (the owner's rule): a food record whose `allergies` was never
- * answered doesn't know them. "No food allergies" is an answer, `[]`.
+ * "Log a meal", which "meal ideas only" doesn't have; and only once their food allergies are
+ * known, by the same answer Browse's meal ideas wait for (`allergyAnswer`; the owner's rule,
+ * Plan 5's D194): a food record that never answered them doesn't know them, and "No food
+ * allergies" is an answer, `[]`.
  */
-export function listsFoods(food: FoodPreferences | undefined): boolean {
-  return logsMeals(food) && food?.allergies !== undefined;
+export function listsFoods(food: FoodPreferences | undefined, allergies: AllergyAnswer | undefined): boolean {
+  return logsMeals(food) && allergies !== undefined;
 }
 
 export function foodRows(query: string, foods: readonly Food[], view: NumbersView): Extract<BrowseRow, { kind: 'food' }>[] {

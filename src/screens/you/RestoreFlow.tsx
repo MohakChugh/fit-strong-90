@@ -160,7 +160,7 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
         {stage.kind === 'problem' && (
           <>
             <Notice tone="error">{stage.message}</Notice>
-            <PrimaryButton onClick={pick}>Choose another file</PrimaryButton>
+            <PrimaryButton className={TARGET.primary} onClick={pick}>Choose another file</PrimaryButton>
           </>
         )}
 
@@ -170,7 +170,7 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
             <Group header="In this file">
               {previewLines(stage.preview).map(line => <Row key={line.label} label={line.label} value={line.count.toLocaleString()} numeric />)}
             </Group>
-            <PrimaryButton onClick={close}>Done</PrimaryButton>
+            <PrimaryButton className={TARGET.primary} onClick={close}>Done</PrimaryButton>
           </>
         )}
 
@@ -195,11 +195,8 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
             <p className="px-1 text-[length:var(--text-body)] leading-snug">
               This deletes {erases ?? 'what is here'} on this {device}, and keeps only what is in the file{(total(stage.preview.rejected) || stage.preview.unreadableObservations) > 0 ? ', leaving out the records in it that cannot be read' : ''}. It cannot be undone.
             </p>
-            {(stage.preview.replaceRemoves?.routes ?? 0) > 0 && (
-              <p className="px-1 text-[length:var(--text-body)] leading-snug">{`Your ${plural(stage.preview.replaceRemoves?.routes ?? 0, 'route')} on this ${device} go too.`}</p>
-            )}
             {stage.preview.keepsOpen && <p className="px-1 text-[length:var(--text-body)] leading-snug">{keepsOpenLine(device)}</p>}
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               <button
                 type="button"
                 onClick={() => void apply(stage.raw, stage.preview, 'replace')}
@@ -217,7 +214,7 @@ export function RestoreFlow({ place, note, trigger, purpose = 'restore' }: {
         {stage.kind === 'done' && (
           <>
             <Notice>{stage.message}</Notice>
-            <PrimaryButton onClick={close}>Done</PrimaryButton>
+            <PrimaryButton className={TARGET.primary} onClick={close}>Done</PrimaryButton>
           </>
         )}
       </Sheet>
@@ -300,8 +297,8 @@ export function PreviewBody({ preview, saveRoutes, note, place, device, erases, 
       {preview.isEmpty ? (
         <Notice tone="error">This backup is empty, so restoring it would add nothing.</Notice>
       ) : replaceOnly ? (
-        <div className="flex flex-col gap-2">
-          <PrimaryButton onClick={onReplace}>Restore</PrimaryButton>
+        <div className="flex flex-col gap-3">
+          <PrimaryButton className={TARGET.primary} onClick={onReplace}>Restore</PrimaryButton>
           <p className="px-4 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
             This {device} will hold exactly what the backup holds, settings and profile included.{preview.keepsOpen ? ` ${keepsOpenLine(device)}` : ''}
           </p>
@@ -324,15 +321,15 @@ export function PreviewBody({ preview, saveRoutes, note, place, device, erases, 
               />
             </Group>
           )}
-          <div className="flex flex-col gap-2">
-            <PrimaryButton onClick={() => onMerge(policy)}>Merge into this {device}</PrimaryButton>
+          <div className="flex flex-col gap-3">
+            <PrimaryButton className={TARGET.primary} onClick={() => onMerge(policy)}>Merge into this {device}</PrimaryButton>
             <p className="px-4 pb-2 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
               Keeps everything here and adds what is in the file. Where a record has been changed, the newer copy is kept. Your settings and profile here stay as they are.
             </p>
             <button
               type="button"
               onClick={onReplace}
-              className="press-feedback min-h-11 w-full rounded-xl px-4 text-[length:var(--text-body)] font-medium text-stop"
+              className="press-feedback min-h-12 w-full rounded-xl px-4 text-[length:var(--text-body)] font-medium text-stop"
             >
               {erases ? 'Replace everything here' : 'Replace with this backup'}
             </button>

@@ -2,9 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffe
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { SirenIcon, TriangleAlertIcon } from 'lucide-react';
+import { AnsweringStopContext, useSayWhatHappened } from '@/components/checkin/sayWhatHappened';
 import { markTab, ScreenTopContext, SheetTopContext, type SheetExit } from '@/components/hig/navigation';
 import { cn } from '@/lib/utils';
 import { RIGHT_NOW_ID, UrgentContext, says, useUrgent, type Urgent } from './urgent';
+import { SayWhatHappenedProvider } from './SayWhatHappened';
 
 /** Said in a sheet while its way on waits for it to finish saving (codex W-05). */
 const WAITING = 'Waiting for this to finish saving.';
@@ -31,7 +33,11 @@ function showRightNow(): void {
  * "What to do" brings Home's Right now card into view, where the action is;
  * on any other screen it goes to Home. In a sheet (`exit`) it closes the
  * sheet first, through the sheet's own close, and goes on only once the sheet
- * has closed: never from under a sheet still saving (codex W-05).
+ * has closed: never from under a sheet still saving (codex W-05). For an
+ * unanswered "I need to stop" the safe action is "Say what happened": the
+ * stop's own questions, here, after any sheet has closed (K6R-03). Over those
+ * questions it says every decision but that stop, the one they answer: an
+ * emergency reported there shows in them at once (H6F-01, board D212).
  */
 export function UrgentBanner({ urgent, exit }: { urgent: Urgent; exit?: SheetExit }) {
   const titleId = useId();
@@ -44,6 +50,10 @@ export function UrgentBanner({ urgent, exit }: { urgent: Urgent; exit?: SheetExi
     stop ? 'border-white/90 text-white' : 'border-black/80 text-black',
   );
   const home = pathname === '/home';
+  const say = useSayWhatHappened();
+  const stopFirst = urgent.stop && say;
+  // Over the stop's own questions, the stop is what they answer: every other decision is said there (H6F-01).
+  const answering = useContext(AnsweringStopContext);
   const leave = () => exit?.leave(() => {
     // The sheet has closed: once its dialog has handed focus back, and the page behind it is live again.
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -55,6 +65,7 @@ export function UrgentBanner({ urgent, exit }: { urgent: Urgent; exit?: SheetExi
       }
     }));
   });
+  if (answering && urgent.stop) return null;
   return (
     <section
       aria-labelledby={titleId}
@@ -66,7 +77,9 @@ export function UrgentBanner({ urgent, exit }: { urgent: Urgent; exit?: SheetExi
         <span className="min-w-0">{urgent.headline}</span>
       </h2>
       <p className="text-[length:var(--text-body)] font-medium leading-snug [overflow-wrap:break-word]">{lineOf(urgent)}</p>
-      {exit
+      {stopFirst
+        ? <button type="button" onClick={() => (exit ? exit.leave(() => requestAnimationFrame(() => requestAnimationFrame(say))) : say())} className={button}>Say what happened</button>
+        : exit
         ? <button type="button" onClick={leave} className={button}>What to do</button>
         : home
           ? <button type="button" onClick={showRightNow} className={button}>What to do</button>
@@ -100,10 +113,14 @@ export function UrgentProvider({ children }: { children: ReactNode }) {
   const inSheet = useMemo(() => (urgent
     ? { key: [urgent.kind, urgent.headline, urgent.when].join('|'), draw: (exit: SheetExit) => <UrgentBanner urgent={urgent} exit={exit} /> }
     : null), [urgent]);
+  // The stop's shared questions sit under the sheets' surface too, so a report there that is an
+  // emergency says so in them at once, before and whatever its save (H6F-01, board D212).
   return (
     <UrgentContext value={urgent}>
       <ScreenTopContext value={banner}>
-        <SheetTopContext value={inSheet}>{children}</SheetTopContext>
+        <SheetTopContext value={inSheet}>
+          <SayWhatHappenedProvider>{children}</SayWhatHappenedProvider>
+        </SheetTopContext>
       </ScreenTopContext>
       {createPortal(
         <div aria-live="assertive" aria-atomic="true" className="sr-only">{urgent ? `${urgent.headline}. ${lineOf(urgent)}.` : ''}</div>,

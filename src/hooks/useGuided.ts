@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import {
-  effectiveCheckIns, pendingCheckInsVersion, reportSymptoms as reportInto, resetPendingCheckInsForTests, saveCheckInRecord,
+  acquiredReport, effectiveCheckIns, pendingCheckInsVersion, reportSymptoms as reportInto, resetPendingCheckInsForTests, saveCheckInRecord,
   subscribePendingCheckIns, unstoredCheckIn, type SymptomReport,
 } from '@/components/checkin/pending';
 import { useAppData } from '@/hooks/useLocalStorage';
-import { useStore } from '@/store/useStore';
+import { acquisitionStamp, useStore } from '@/store/useStore';
 import { evaluateCheckIn } from '@/engine/readiness';
 import type { AppData } from '@/types';
 import type { CheckInRecord, DailyCheckIn } from '@/types/checkin';
@@ -78,12 +78,13 @@ export function useGuided(date: string = todayString()) {
   // Answers the device has not stored yet count everywhere, for every day,
   // the moment they are given (round 3 B04).
   const pending = useSyncExternalStore(subscribePendingCheckIns, pendingCheckInsVersion, pendingCheckInsVersion);
-  // Readings logged in Track reach every gate as the check-in's own do (scan X2-01).
-  const { observations } = useStore();
+  // Readings logged in Track reach every gate as the check-in's own do (scan X2-01),
+  // and so do the changes to this phone's clock, from the moment one is seen (B-19, board D174, D188).
+  const { observations, clockHold: clock } = useStore();
   const checkIns = useMemo(
-    () => effectiveCheckIns(data.checkIns ?? [], profile, observations),
+    () => effectiveCheckIns(data.checkIns ?? [], profile, observations, clock),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data.checkIns, profile, pending, observations],
+    [data.checkIns, profile, pending, observations, clock],
   );
   // Today's, evaluated against the profile as it is now: advice stored with
   // the record can be out of date, such as extra water after a fluid limit
@@ -110,9 +111,11 @@ export function useGuided(date: string = todayString()) {
    * said on, the same way from every screen (`reportSymptoms`). The day comes
    * from the moment of the report, not from this screen's last render: a
    * session left open across midnight files 00:05 on the new day (scan M-01).
+   * A reading in it is taken as it is given, so it carries the clock
+   * generation of that moment (B-19, H6R-03, board D186).
    */
   const reportSymptoms = useCallback(
-    (report: SymptomReport, at: Date = new Date()) => reportInto(report, { profile, update, date: toDateString(at) }, at),
+    (report: SymptomReport, at: Date = new Date()) => reportInto(acquiredReport(report, acquisitionStamp()), { profile, update, date: toDateString(at) }, at),
     [profile, update],
   );
 

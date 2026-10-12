@@ -4,17 +4,19 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
+import { useSayWhatHappened } from '@/components/checkin/sayWhatHappened';
 import { mealWalkNow } from '@/health/recommend';
 import { periodOn, type Status } from '@/health/status';
 import { timeOf } from '@/lib/time';
 import { displayPrefs } from '@/screens/track/logKinds';
 import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
+import { useWakeAt } from '@/screens/today/clock';
 import { weekMovement } from '@/screens/today/model';
 import { StatusSheet } from '@/screens/today/StatusSheet';
 import { ChoiceRow, SelectRow, SwitchRow } from '@/screens/walk/parts';
 import { getState, setSettings } from '@/store/useStore';
 import type { Meal } from '@/types/habits';
-import type { WalkKind } from '@/walk/clock';
+import { leftOpen, STALE_AFTER_MS, type WalkKind } from '@/walk/clock';
 import { canLocate, canSenseMotion, requestLocation, requestMotion } from '@/walk/browser';
 import { consentSummary, routeNote, walkSettings } from '@/walk/consent';
 import { timeOfDay } from '@/walk/format';
@@ -70,12 +72,16 @@ export default function WalkHub() {
   const g = useHubGate('walk');
   const { state, now, today, status, hour12 } = g;
   const navigate = useNavigate();
+  // An unanswered stop's own questions (K6R-03).
+  const say = useSayWhatHappened();
   const origin = useHubOrigin(category.title);
   const [params] = useSearchParams();
   const remembered = state.settings.walkDefaults;
   const [statusOpen, setStatusOpen] = useState(false);
   // Read once: a walk under way, or waiting to be saved, comes first.
   const [pending] = useState(() => peekWalk());
+  // The card turns to Review and save the moment the walk is left open, not up to a minute later.
+  useWakeAt(pending ? pending.seenAt + STALE_AFTER_MS : undefined);
   // A meal in view (B-09): one another screen asked about (`?meal=`), or the
   // after-meal walk due now (D26). Read on arrival, at the hub's clock. `usual`
   // when the suggested time is the meal's usual end rather than now.
@@ -206,6 +212,7 @@ export default function WalkHub() {
       go: to => navigate(to, { viewTransition: true, state: origin }),
       status: () => setStatusOpen(true),
       local: showTime,
+      stop: () => say?.(),
     });
   };
   const offering = card.state === 'go' || card.state === 'checkIn' || card.state === 'paused';
@@ -218,6 +225,7 @@ export default function WalkHub() {
   if (pending) {
     const going = pendingWalkCard({
       state: pending.state, started: timeOfDay(pending.startedAt), permission: g.permission, gate: g.gate, status, gaps: g.gaps, stretchOpen: g.stretchOpen,
+      leftOpen: leftOpen(pending.seenAt, now.getTime()),
     });
     const actPending = (k: HubActionKind) => {
       // Ended where it stopped recording, then reviewed: nothing starts recording again (§4.8).
@@ -232,6 +240,7 @@ export default function WalkHub() {
         go: to => navigate(to, { viewTransition: true, state: origin }),
         status: () => setStatusOpen(true),
         local: () => {},
+        stop: () => say?.(),
       });
     };
     return (

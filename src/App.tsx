@@ -3,6 +3,7 @@ import { ScrollRestoration } from 'react-router-dom';
 import { DatabaseZapIcon } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
 import { start, useStore, useStorageNotice } from '@/store/useStore';
+import { startClockWatch } from '@/walk/clockWatch';
 import { forgetPlaces, scrollKeyOf } from '@/components/hig/navigation';
 import { applyTextScale } from '@/lib/textSize';
 import { applyThemeColor } from '@/lib/themeColor';
@@ -76,9 +77,11 @@ function App() {
   // Restarting to update (D106, P8S-13): the cover is up, and nothing under it can be tapped, typed or reached.
   const { restarting } = useUpdates();
 
-  // Open the database, migrate v4 data across and publish it (D13).
+  // Open the database, migrate v4 data across and publish it (D13), and from then
+  // watch the phone's clock, walking or not (B-19, P8S-02, board D185).
   useEffect(() => {
     void start();
+    return startClockWatch();
   }, []);
 
   useEffect(() => {

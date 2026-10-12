@@ -143,11 +143,12 @@ export interface SetupRecord {
     at?: PageId;
     answers?: SetupAnswers;
     /**
-     * What each page left before Next holds, as typed, so closing the app
-     * loses nothing (§6.1; H5-16, K5-17). A page's Next or Skip stores its
-     * answers and takes its entry away.
+     * Numbers as typed on setup's pages, by field (`RAW_FIELDS`), so a page
+     * shows them as typed after the app is closed: "195" on the way to
+     * "1958", "7." on the way to "7.5". Only a text that gives a valid
+     * answer is an answer too (§6.1; H5R-15; board D169).
      */
-    edits?: Partial<Record<PageId, Partial<SetupAnswers>>>;
+    raw?: Readonly<Record<string, string>>;
   };
   /** Finished setup: the answers as given, for editing in Me with the same pages (§16). */
   answers?: SetupAnswers;

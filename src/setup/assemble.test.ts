@@ -201,12 +201,12 @@ describe('finishing, and looking around first', () => {
     expect(completedSetup(fresh(), unsurePain, NOW, { ...CTX, hasSteps: false }).settings.home?.order.check).toContain('back');
   });
 
-  it('looking around keeps the draft, writes no profile, and opens Home (§6.4)', () => {
+  it('looking around keeps the draft, numbers as typed included, writes no profile, and opens Home (§6.4; H5R-12)', () => {
     const data = fresh();
-    data.settings = { ...data.settings, setup: { stage: 'open', skipped: [], draft: { at: 'about.figure', answers: { name: 'Asha' } } } };
+    data.settings = { ...data.settings, setup: { stage: 'open', skipped: [], draft: { at: 'about.figure', answers: { name: 'Asha' }, raw: { birthYear: '195' } } } };
     const after = lookedAround(data);
     expect(after.settings.onboardingComplete).toBe(true);
-    expect(after.settings.setup).toEqual({ stage: 'lookAround', skipped: [], draft: { at: 'about.figure', answers: { name: 'Asha' } } });
+    expect(after.settings.setup).toEqual({ stage: 'lookAround', skipped: [], draft: { at: 'about.figure', answers: { name: 'Asha' }, raw: { birthYear: '195' } } });
     expect(after.profile).toBeUndefined();
   });
 });

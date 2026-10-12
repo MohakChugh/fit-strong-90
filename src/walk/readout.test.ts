@@ -355,7 +355,7 @@ describe('after a walk ended for a low (X2-13)', () => {
 describe('a held walk after a change to the phone’s clock (B-19)', () => {
   it('says why a reading from before the change no longer counts: the engine’s own reason, which the hold card lists', () => {
     expect(PERMISSION_TEXT.clockChanged).toBe(
-      'Your phone’s clock changed during this walk, so a reading from before the change can’t be timed. Check your glucose again to carry on.',
+      'Your phone’s clock changed during a walk, so a reading from before the change can’t be timed. Check your glucose again before you move.',
     );
   });
 });

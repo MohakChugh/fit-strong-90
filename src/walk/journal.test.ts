@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { finishWalk, startWalk } from './clock';
-import { CHECKPOINT_MS, checkpointDue, journalEntry, parseJournalEntry } from './journal';
+import { CHECKPOINT_MS, checkpointDue, journalEntry, parseJournalEntry, withJournalled } from './journal';
 import type { RouteLine } from './routeRecord';
 
 const T = Date.UTC(2026, 9, 8, 13, 0, 0);
@@ -31,5 +31,16 @@ describe('the walk journal (journey §9.4, §18.2)', () => {
     expect(parseJournalEntry({ ...entry, route: [{ ...LINE, ms: [0] }] })).toBeNull();
     expect(parseJournalEntry({ ...entry, walk: { ...W, segments: [] } })).toBeNull();
     expect(parseJournalEntry(finishWalk(W, T + 1, 'finish'))).toBeNull();
+  });
+});
+
+describe('the lines a journal holds, with a checkpoint’s (H6R-10, board D178)', () => {
+  const at = (start: number, points: number) => ({ start, end: start + (points - 1) * 1000, coords: Array.from({ length: points }, (_, i) => [12.97 + i / 10_000, 77.59] as [number, number]), ms: Array.from({ length: points }, (_, i) => i * 1000) });
+  it('keeps each line once, the checkpoint’s where both have it, in the order they began', () => {
+    const held = [at(1000, 2), at(5000, 2)];
+    // The line begun at 5000 has grown since; one begun before both comes with it.
+    expect(withJournalled(held, [at(5000, 4), at(0, 2)])).toEqual([at(0, 2), at(1000, 2), at(5000, 4)]);
+    expect(withJournalled(undefined, [at(0, 2)])).toEqual([at(0, 2)]);
+    expect(withJournalled(held, undefined)).toEqual(held);
   });
 });

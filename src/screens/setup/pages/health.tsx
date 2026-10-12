@@ -1,10 +1,9 @@
-import { useState } from 'react';
 import { Group } from '@/components/hig/List';
 import { factsOf } from '@/setup/facts';
-import { pageDone } from '@/setup/graph';
-import { numberFrom } from '@/setup/units';
+import { FIGURES, figureFrom, pageDone, rawInvalid } from '@/setup/graph';
+import { textOf } from '@/setup/units';
 import { CONDITION_ROWS, TRI } from '../choices';
-import { Ask, Missing, NumberAnswer, TextInput, TriChecklist, type PageProps } from '../controls';
+import { Ask, Missing, NumberAnswer, TriChecklist, type PageProps } from '../controls';
 
 /** "Do you have any of these?": one checklist, "Not sure" on every row (journey §6.2 ch. 3; B-08). */
 export function HealthConditions({ a, set, tried }: PageProps) {
@@ -76,27 +75,28 @@ export function HealthFeet({ a, set, tried }: PageProps) {
   );
 }
 
-/** Two numbers that go together, kept as typed, stored only when both are there. */
-function BpPermission({ a, set }: PageProps) {
-  const [sys, setSys] = useState(a.bpPermission ? String(a.bpPermission.sys) : '');
-  const [dia, setDia] = useState(a.bpPermission ? String(a.bpPermission.dia) : '');
+/** Two numbers that go together, kept as typed, an answer only once both are valid (H5R-15). */
+function BpPermission({ a, raw, set }: PageProps) {
+  const sys = textOf(raw, 'bpPermission.sys', a.bpPermission?.sys);
+  const dia = textOf(raw, 'bpPermission.dia', a.bpPermission?.dia);
   const write = (s: string, d: string) => {
-    const top = numberFrom(s);
-    const bottom = numberFrom(d);
-    set({ bpPermission: top === undefined || bottom === undefined ? undefined : { sys: top, dia: bottom } });
+    const [top, bottom] = [figureFrom(s, FIGURES.bpSys), figureFrom(d, FIGURES.bpDia)];
+    set({ bpPermission: top === undefined || bottom === undefined ? undefined : { sys: top, dia: bottom } }, { 'bpPermission.sys': s, 'bpPermission.dia': d });
   };
   return (
     <>
-      <TextInput label="Top number exercise is fine up to" inputMode="numeric" text={sys} placeholder="170" onText={t => { setSys(t); write(t, dia); }} />
-      <TextInput label="Bottom number exercise is fine up to" inputMode="numeric" text={dia} placeholder="105" onText={t => { setDia(t); write(sys, t); }} />
+      <NumberAnswer label="Top number exercise is fine up to" text={sys} placeholder="170" onText={t => write(t, dia)} />
+      <NumberAnswer label="Bottom number exercise is fine up to" text={dia} placeholder="105" onText={t => write(sys, t)} />
     </>
   );
 }
 
 export function HealthLimits(props: PageProps) {
-  const { a, set, tried } = props;
+  const { a, raw, set, tried } = props;
   const f = factsOf(a);
   const targets = f.bp || f.diabetic;
+  const stop = textOf(raw, 'bpStopSystolic', a.bpStopSystolic);
+  const hba1c = textOf(raw, 'hba1cPercent', a.hba1cPercent);
   return (
     <>
       <Ask label="Has a doctor or nurse (clinician) cleared you to exercise?" header="Has a doctor or nurse (clinician) cleared you to exercise?" tried={tried}
@@ -111,13 +111,16 @@ export function HealthLimits(props: PageProps) {
       )}
       {targets && a.targets === 'yes' && (
         <Group header="Your limits and targets" footer="Only what your doctor or nurse gave you. Leave the rest empty.">
-          {f.bp && <NumberAnswer label="Stop exercise if the top number is above (optional)" placeholder="180" value={a.bpStopSystolic} onChange={bpStopSystolic => set({ bpStopSystolic })} />}
+          {f.bp && <NumberAnswer label="Stop exercise if the top number is above (optional)" placeholder="180" text={stop}
+            onText={t => set({ bpStopSystolic: figureFrom(t, FIGURES.bpStopSystolic) }, { bpStopSystolic: t })} />}
           {f.bp && <BpPermission {...props} />}
-          {f.diabetic && <NumberAnswer label="Long-term blood sugar target (HbA1c), % (optional)" decimals placeholder="7" value={a.hba1cPercent} onChange={hba1cPercent => set({ hba1cPercent })} />}
+          {f.diabetic && <NumberAnswer label="Long-term blood sugar target (HbA1c), % (optional)" decimals placeholder="7" text={hba1c}
+            onText={t => set({ hba1cPercent: figureFrom(t, FIGURES.hba1cPercent) }, { hba1cPercent: t })} />}
         </Group>
       )}
-      <Missing show={tried && a.clearance !== undefined && (!targets || a.targets !== undefined) && !pageDone('health.limits', a, props.ctx)}>
-        Check the numbers: blood pressure between 90 and 250 over 50 and 150, and HbA1c between 4 and 15.
+      <Missing show={tried && (rawInvalid('health.limits', a, raw)
+        || (a.clearance !== undefined && (!targets || a.targets !== undefined) && !pageDone('health.limits', a, props.ctx)))}>
+        Check the numbers: blood pressure between 90 and 250 over 50 and 150, and long-term blood sugar (HbA1c) between 4 and 15 %.
       </Missing>
     </>
   );
