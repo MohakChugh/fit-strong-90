@@ -11,9 +11,9 @@ import { metforminYearProblem } from '@/components/profile/wizardSteps';
 import { DEFAULT_FINISH, mealProblem, windowProblem } from '@/screens/you/habitOptions';
 import type { Meal } from '@/types/habits';
 import { asksAdult, birthYearProblem } from './age';
-import { nameProblem, ownAllergiesProblem } from './limits';
+import { nameProblem, ownAllergiesProblem, type RawKey } from './limits';
 import { factsOf, has, type Facts } from './facts';
-import { heightProblem, waistProblem, weightProblem } from './units';
+import { heightProblem, numberFrom, waistProblem, weightProblem } from './units';
 
 export interface Ctx { thisYear: number }
 
@@ -37,6 +37,14 @@ export interface PageDef {
 
 const always = () => true;
 const inRange = (n: number | undefined, lo: number, hi: number) => n === undefined || (Number.isFinite(n) && n >= lo && n <= hi);
+
+/** The figures a clinician may have given, and the range setup takes each in (journey §6.2 ch. 3). */
+export const FIGURES = { bpStopSystolic: [90, 250], bpSys: [90, 250], bpDia: [50, 150], hba1cPercent: [4, 15] } as const;
+/** A figure as typed, once it's within its range: only then is it an answer (H5R-15). */
+export function figureFrom(text: string, [lo, hi]: readonly [number, number]): number | undefined {
+  const n = numberFrom(text);
+  return n !== undefined && inRange(n, lo, hi) ? n : undefined;
+}
 const okWindow = (w: { on: boolean; everyMinutes: number; from: string; to: string } | undefined) =>
   !w?.on || windowProblem(w.from, w.to, w.everyMinutes) === undefined;
 /**
@@ -44,10 +52,9 @@ const okWindow = (w: { on: boolean; everyMinutes: number; from: string; to: stri
  * low, where exercise never starts, and the engine wouldn't use it
  * (`glucoseStartMin`, engine/health.ts; K5-10, board D152).
  */
-const glucoseOk = (a: SetupAnswers) => {
-  const mmol = (a.glucoseStartUnit ?? a.glucoseUnit) === 'mmol/L';
-  return inRange(a.glucoseStartMin, mmol ? 3.9 : 70, mmol ? 17 : 300);
-};
+export const glucoseStartOk = (n: number | undefined, unit: 'mg/dL' | 'mmol/L' | undefined): boolean =>
+  (unit === 'mmol/L' ? inRange(n, 3.9, 17) : inRange(n, 70, 300));
+const glucoseOk = (a: SetupAnswers) => glucoseStartOk(a.glucoseStartMin, a.glucoseStartUnit ?? a.glucoseUnit);
 
 /** A checklist is one question (B-08): answered once a row is ticked, or "None of these" is (every row No). */
 export function checklistDone<K extends string>(r: Partial<Record<K, Tri>> | undefined, ids: readonly K[]): boolean {
@@ -84,8 +91,8 @@ export const PAGES: readonly PageDef[] = [
   { id: 'health.limits', when: (_a, f) => f.heart || f.kidney || f.eyes || f.bp || f.pain || f.diabetic,
     sets: ['clearance', 'targets', 'bpStopSystolic', 'bpPermission', 'hba1cPercent'], skippable: false,
     done: (a, f) => a.clearance !== undefined && (!(f.bp || f.diabetic) || a.targets !== undefined)
-      && inRange(a.bpStopSystolic, 90, 250) && inRange(a.hba1cPercent, 4, 15)
-      && (a.bpPermission === undefined || (inRange(a.bpPermission.sys, 90, 250) && inRange(a.bpPermission.dia, 50, 150))) },
+      && inRange(a.bpStopSystolic, ...FIGURES.bpStopSystolic) && inRange(a.hba1cPercent, ...FIGURES.hba1cPercent)
+      && (a.bpPermission === undefined || (inRange(a.bpPermission.sys, ...FIGURES.bpSys) && inRange(a.bpPermission.dia, ...FIGURES.bpDia))) },
   { id: 'medicines.regular', when: always, sets: ['regular'], skippable: false, done: a => a.regular !== undefined },
   { id: 'medicines.which', when: (_a, f) => f.medicines, sets: ['classes', 'metforminSince'], skippable: false,
     // The year only while its question shows, metformin ticked: a hidden one never holds Next (H5-27).
@@ -192,7 +199,8 @@ export function prevPage(a: SetupAnswers, from: PageId): PageId | undefined {
   return PAGES.slice(0, PAGE_IDS.indexOf(from)).reverse().find(p => p.when(a, f))?.id;
 }
 
-const skippedOf = (a: SetupAnswers) => new Set<PageId>(a.skippedPages ?? []);
+/** The pages skipped, as only a preference page can be: a safety page "skipped", as a backup may say, is unanswered (K5R-08). */
+const skippedOf = (a: SetupAnswers) => new Set<PageId>((a.skippedPages ?? []).filter(id => isPageId(id) && pageDef(id).skippable));
 
 /**
  * Next, from a chapter opened with Review's Edit: the rest of that chapter,
@@ -213,6 +221,41 @@ export function backFromReview(a: SetupAnswers, from: PageId): PageId {
   return prev !== undefined && chapterOf(prev) === chapterOf(from) ? prev : 'review';
 }
 
+/**
+ * When each number typed (`RAW_KEYS`) shows, with these answers (H5R-15;
+ * board D169). Each is on the page that sets its answer, and counts only
+ * while it shows.
+ */
+export const RAW_FIELDS: Readonly<Record<RawKey, (a: SetupAnswers) => boolean>> = {
+  birthYear: always,
+  heightCm: a => a.metric !== false,
+  'heightCm.ft': a => a.metric === false,
+  'heightCm.inch': a => a.metric === false,
+  weightKg: always,
+  waistCm: always,
+  bpStopSystolic: a => a.targets === 'yes' && factsOf(a).bp,
+  'bpPermission.sys': a => a.targets === 'yes' && factsOf(a).bp,
+  'bpPermission.dia': a => a.targets === 'yes' && factsOf(a).bp,
+  hba1cPercent: a => a.targets === 'yes' && factsOf(a).diabetic,
+  glucoseStartMin: always,
+  metforminSince: a => a.classes?.metformin === 'yes',
+  customAllergies: always,
+};
+
+/** The page a number typed under `key` is on. */
+export const rawPage = (key: string): PageId | undefined => PAGES.find(p => (p.sets as readonly string[]).includes(key.split('.')[0]))?.id;
+
+/**
+ * A number typed on page `id` that isn't a valid answer: its text kept and
+ * its answer not, since a page stores an answer only when its text gives a
+ * valid one (H5R-15). Next, Skip for now and Me's Save wait until it's
+ * fixed or cleared, as for any answer that can't be stored (K5-04).
+ */
+export function rawInvalid(id: PageId, a: SetupAnswers, raw: Readonly<Record<string, string>> | undefined): boolean {
+  return Object.entries(raw ?? {}).some(([key, text]) =>
+    text.trim() !== '' && a[key.split('.')[0] as keyof SetupAnswers] === undefined && rawPage(key) === id && RAW_FIELDS[key as RawKey]?.(a) === true);
+}
+
 /** A move setup stores before it's made (M22): where to, and the answers stored. */
 export interface PlannedMove { to: PageId; answers: SetupAnswers }
 
@@ -230,9 +273,9 @@ export function nextMove(id: PageId, a: SetupAnswers, ctx: Ctx, fromReview: bool
   return { to: fromReview ? nextFromReview(answers, id, ctx) : nextPage(answers, id), answers };
 }
 
-/** "Skip for now": the answers as they were before the page, with the page skipped, and the page after. */
-export function skipMove(id: PageId, before: SetupAnswers, ctx: Ctx, fromReview: boolean): PlannedMove {
-  const answers = { ...before, skippedPages: [...new Set([...(before.skippedPages ?? []), id])] };
+/** "Skip for now": the answers as they are, nothing taken away (board D169), with the page skipped, and the page after. */
+export function skipMove(id: PageId, a: SetupAnswers, ctx: Ctx, fromReview: boolean): PlannedMove {
+  const answers = { ...a, skippedPages: [...new Set([...(a.skippedPages ?? []), id])] };
   return { to: fromReview ? nextFromReview(answers, id, ctx) : nextPage(answers, id), answers };
 }
 

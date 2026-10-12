@@ -149,10 +149,19 @@ async function inventory(t, { textScale } = {}) {
       if (card) await visit(t, card, 'guide-card');
       else t.note('the first topic links to no card');
     } else await t.check(false, 'Guide offers no topic to open');
-    // Meal ideas and the sample week are the Food hub's (§19.3).
-    await visit(t, '/hub/food/ideas');
-    const meal = await page.locator('main a[href^="#/guide/meals/"]').evaluateAll(as => as.map(a => a.getAttribute('href')).find(h => h && !h.endsWith('/week')));
-    if (meal) await visit(t, meal.replace(/^#/, ''), 'guide-meal');
+    // Meal ideas and the sample week are the Food hub's (§19.3), and an idea's page is /hub/food/ideas/<id>. P01's food
+    // record is v1's, which never asked about allergies, so Meal ideas ask first (Plan 5's board D194): the ask is swept,
+    // then "No food allergies", once, as a person would give it, then the ideas and an idea's page.
+    await visit(t, '/hub/food/ideas', 'food-ideas-allergies-first');
+    const none = main.getByRole('button', { name: 'No food allergies', exact: true });
+    if (await none.count()) {
+      await ui.tap(none);
+      await none.waitFor({ state: 'detached', timeout: 10000 });
+      await t.checkpoint('/hub/food/ideas');
+    } else t.note('Meal ideas didn’t ask about food allergies first');
+    const meal = await firstHref(page, '/hub/food/ideas/');
+    await t.check(!!meal, 'Meal ideas offer no meal idea to open');
+    if (meal) await visit(t, meal, 'guide-meal');
     await visit(t, '/hub/food/week');
     await visit(t, '/hub/learn/sources');
     // Browse, v2's list of every category (journey §14).

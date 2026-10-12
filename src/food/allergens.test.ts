@@ -173,13 +173,19 @@ describe('the allergy answer setup keeps for a food record not made yet (Plan 5�
     expect(setupAllergyAnswer({ answers: { allergies: 'peanut' } } as never)).toBeUndefined();
     expect(setupAllergyAnswer({ answers: { allergies: ['peanut', 'unicorn', 7] } } as never)).toEqual({ allergies: ['peanut'] });
   });
-  it('gives the food record’s own allergies wherever there is one, and setup’s only without', () => {
+  it('gives the food record’s own allergies wherever it answered them, and setup’s only without', () => {
     const setup = { answers: { allergies: ['milk' as const] } };
     const vegan: FoodPreferences = { pattern: 'vegan', avoid: [] };
     expect(allergyAnswer({ ...vegan, allergies: ['peanut'] } as FoodPreferences, setup)).toEqual({ allergies: ['peanut'] });
-    expect(allergyAnswer(vegan, setup)).toEqual({});
+    expect(allergyAnswer({ ...vegan, allergies: [] }, setup)).toEqual({ allergies: [] });
     expect(allergyAnswer(undefined, setup)).toEqual({ allergies: ['milk'] });
     expect(allergyAnswer(undefined, undefined)).toBeUndefined();
+  });
+  it('reads a food record that never answered allergies, such as v1’s, as not known, never none (owner decision; board D194)', () => {
+    const v1: FoodPreferences = { pattern: 'vegetarian', avoid: ['mushroom'], region: 'north' };
+    expect(allergyAnswer(v1, undefined)).toBeUndefined();
+    // Setup's answer, where it has one, is still the person's.
+    expect(allergyAnswer(v1, { answers: { allergies: ['milk'] } })).toEqual({ allergies: ['milk'] });
   });
   it('reads this session’s answer while setup goes on without saving, over a draft stored before (Plan 5’s B-07, H5-06)', () => {
     // "No food allergies" was stored; then storage refused, and Peanuts was ticked without saving.

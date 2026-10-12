@@ -306,6 +306,21 @@ describe('chapterSections: Profile & health by chapter (journey §16; Plan 5)', 
     expect(about(undefined).Weight).toBe('72.5 kg');
   });
 
+  it('a measure keeps the precision it was stored with, and says where a reading came from beyond how it was given (H5-24)', () => {
+    const at = '2026-10-08T12:00:00.000+05:30';
+    const p = createDefaultProfile({ weightKg: 72.55, heightCm: 160.55, waistCm: 81.25 });
+    const rows = (observations: Parameters<typeof chapterSections>[3]) =>
+      Object.fromEntries(chapterSections(p, S, '2026-10-10', observations).find(c => c.chapter === 'about')!.rows.map(r => [r.label, r.value]));
+    // A measure from the previous version's body log, which kept only the day.
+    const v1 = (kind: 'weight' | 'height' | 'waist', value: number) =>
+      newObservation({ kind, value, unit: kind === 'weight' ? 'kg' : 'cm', scope: 'pointInTime', source: 'manual', at, timeUnknown: true, context: 'bodyMetric:2026-10-08' });
+    expect(rows([v1('height', 160.55), v1('waist', 81.25), v1('weight', 72.55)])).toMatchObject({
+      Height: `160.55 cm, logged in the previous version ${shortDate(at)}`,
+      Waist: `81.25 cm, logged in the previous version ${shortDate(at)}`,
+      Weight: `72.55 kg, logged in the previous version ${shortDate(at)}`,
+    });
+  });
+
   it('says Not sure where it was said (V-J17)', () => {
     expect(read(profileFrom(UNSURE, undefined, '2026-10-10', { thisYear: 2026 })).medicines.Insulin).toBe('Not sure');
   });

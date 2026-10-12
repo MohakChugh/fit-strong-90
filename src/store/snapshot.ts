@@ -33,6 +33,14 @@ import { RECORD_STORES, emptyRecords, recordKey, sortRecords, type RecordStore, 
 export interface Snapshot {
   /** Moves on every commit; equal revisions mean equal contents. */
   revision: number;
+  /**
+   * Moves on when the whole record is replaced: a backup restored with
+   * Replace, or everything deleted, in the same transaction (H5R-09). Every
+   * copy of the app reads the same number, so what a screen kept for the
+   * record before is dropped wherever it is, and a write planned for it is
+   * refused.
+   */
+  generation: number;
   schemaVersion?: number;
   /** In `compareObservations` order. */
   observations: Observation[];
@@ -51,9 +59,10 @@ export interface Snapshot {
   records: Records;
 }
 
-export function emptySnapshot(revision = 0): Snapshot {
+export function emptySnapshot(revision = 0, generation = 0): Snapshot {
   return {
     revision,
+    generation,
     observations: [],
     sessions: [],
     checkIns: [],
@@ -220,7 +229,8 @@ export function prepare(base: Snapshot, change: Change): Prepared {
   // for the commit, or with `keepOrder` one per step of the order it was given.
   const steps = change.observations?.keepOrder ? [...new Set(given.map(o => o.seq ?? -1))].sort((a, b) => a - b) : [];
   const revision = base.revision + Math.max(1, steps.length);
-  const from = change.reset ? emptySnapshot(base.revision) : base;
+  // Replacing the whole record makes a new one: its generation moves on (H5R-09).
+  const from = change.reset ? emptySnapshot(base.revision, base.generation + 1) : base;
 
   // Each step's place, looked up rather than searched for (C2-04).
   const rank = new Map(steps.map((step, i) => [step, i]));
@@ -284,11 +294,12 @@ export function prepare(base: Snapshot, change: Change): Prepared {
 
   const next: Snapshot = {
     revision,
+    generation: from.generation,
     ...((change.schemaVersion ?? from.schemaVersion) !== undefined ? { schemaVersion: change.schemaVersion ?? from.schemaVersion } : {}),
     observations: mergeObservations(from.observations, puts, removes),
     sessions: mergeSessions(from.sessions, sessionPuts, sessionRemoves),
     ...(settings !== undefined ? { settings } : {}),
-    ...(change.profile === null ? {} : change.profile !== undefined ? { profile: change.profile } : from.profile !== undefined ? { profile: from.profile } : {}),
+    ...(change.profile === null ? {} : change.profile !== undefined ? { profile: stored(change.profile) } : from.profile !== undefined ? { profile: from.profile } : {}),
     checkIns: change.checkIns ?? from.checkIns,
     personalRecords: change.personalRecords ?? from.personalRecords,
     bodyMetrics: change.bodyMetrics ?? from.bodyMetrics,
@@ -313,7 +324,7 @@ export function prepare(base: Snapshot, change: Change): Prepared {
     for (const s of next.sessions) writes.push({ op: 'put', store: 'sessions', value: s });
     for (const [key, value] of Object.entries(next.content)) writes.push({ op: 'put', store: 'content-state', value: { key, value } });
     for (const store of RECORD_STORES) for (const value of next.records[store]) writes.push({ op: 'put', store, value });
-    for (const key of ['schemaVersion', 'settings', 'profile', 'checkIns', 'personalRecords', 'bodyMetrics', 'focusOverrides'] as const) {
+    for (const key of ['generation', 'schemaVersion', 'settings', 'profile', 'checkIns', 'personalRecords', 'bodyMetrics', 'focusOverrides'] as const) {
       const value = docValue(next, key);
       if (value !== undefined) writes.push({ op: 'put', store: 'settings', value: doc(key, value) });
     }
@@ -350,10 +361,19 @@ function docValue(s: Snapshot, key: Doc['key']): unknown {
     case 'bodyMetrics': return s.bodyMetrics;
     case 'focusOverrides': return s.focusOverrides;
     case 'revision': return s.revision;
+    case 'generation': return s.generation;
   }
 }
 
 const isRecord = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+
+/** A profile as it is kept: the candidates a gate's profile carries are never stored (board D168). */
+function stored(profile: UserProfile): UserProfile {
+  if (profile.candidates === undefined) return profile;
+  const { candidates: _gate, ...kept } = profile;
+  void _gate;
+  return kept;
+}
 
 /** Something only the screens' copy of a day carries (`logged`, `readingsOnly`, `durable`), never kept. */
 const screensOnly = (c: DailyCheckIn) => c.logged !== undefined || c.readingsOnly !== undefined || c.durable !== undefined;
@@ -411,6 +431,7 @@ export function fromRows(rows: Rows): Snapshot {
     return Array.isArray(value) ? value.filter(isRecord) as T[] : [];
   };
   const revision = Number(docs.get('revision'));
+  const generation = Number(docs.get('generation'));
   const schemaVersion = docs.get('schemaVersion');
   const settings = docs.get('settings');
   const profile = docs.get('profile');
@@ -427,6 +448,7 @@ export function fromRows(rows: Rows): Snapshot {
 
   return {
     revision: Number.isSafeInteger(revision) && revision >= 0 ? revision : 0,
+    generation: Number.isSafeInteger(generation) && generation >= 0 ? generation : 0,
     ...(typeof schemaVersion === 'number' ? { schemaVersion } : {}),
     observations: (rows.observations.filter(isRecord) as unknown as Observation[]).sort(compareObservations),
     sessions: (rows.sessions.filter(row => isRecord(row) && typeof row.id === 'string') as unknown as WorkoutSession[]).map(keptSession).sort(bySessionOrder),

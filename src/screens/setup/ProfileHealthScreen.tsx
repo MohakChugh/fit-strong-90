@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { TriangleAlertIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
@@ -7,10 +7,11 @@ import { dayOf, nowAt } from '@/health/observation';
 import { calendarStillReminds } from '@/reminders/calendarNotice';
 import { NOT_ADVICE } from '@/reminders/copy';
 import { withFluidAnswer } from '@/reminders/water';
+import { discardSave, pendingEditsVersion, refusedSaves, retrySave, subscribePendingEdits } from '@/setup/effective';
 import { CHAPTER_TITLE } from '@/setup/graph';
 import { chapterHref } from '@/setup/progress';
 import { CalendarStill } from '@/screens/you/CalendarStill';
-import { REVIEW_LABEL, chapterSections, reviewNeeded } from '@/screens/you/summaries';
+import { REVIEW_LABEL, chapterSections, plural, reviewNeeded } from '@/screens/you/summaries';
 import { useStore } from '@/store/useStore';
 
 const REVIEW_FOOTER = {
@@ -28,8 +29,19 @@ export function ProfileHealthScreen() {
   const { settings, profile, observations } = useStore();
   const [today] = useState(() => dayOf(nowAt()));
   const review = reviewNeeded(profile);
+  // A save the device refused stays until it's tried again or not kept (board D168).
+  const version = useSyncExternalStore(subscribePendingEdits, pendingEditsVersion, pendingEditsVersion);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const refused = useMemo(() => refusedSaves(), [version]);
   return (
     <Screen title="Profile & health" back={{ to: '/me', label: 'Me' }}>
+      {refused.length > 0 && (
+        <Group header="Not saved yet" footer="Until they’re saved, movement follows them where they’re stricter, and waits where it can’t tell.">
+          <Row icon={<TriangleAlertIcon className="text-caution" />} label={`${plural(refused.length, 'change')} you made didn’t save on this phone.`} />
+          <Row onClick={() => { for (const s of refused) void retrySave(s.id); }} label={<span className="text-tint">Try again</span>} />
+          <Row onClick={() => { for (const s of refused) discardSave(s.id); }} label={<span className="text-tint">Don’t keep them</span>} />
+        </Group>
+      )}
       {/* Calendar may still remind about a habit an answer here stopped (D-01, D67). */}
       <CalendarStill still={calendarStillReminds(settings.habits, profile, today)} />
       {review && (

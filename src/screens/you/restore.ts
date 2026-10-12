@@ -1,4 +1,6 @@
-import type { UserSettings } from '@/types';
+import type { AppData, UserSettings } from '@/types';
+import { CURRENT_VERSION, migrateData } from '@/services/storage';
+import { sameValue } from '@/store/transfer';
 import type { UserProfile } from '@/types/profile';
 import { answersOf, setupStateOf } from '@/setup/state';
 import { countsSentence, listOf, recordCounts } from './summaries';
@@ -24,11 +26,27 @@ export function restoreLocked(stage: { kind: string }): boolean {
 export function replaceErases(state: RecordState & { profile?: UserProfile; settings: UserSettings }): string | undefined {
   const counts = recordCounts(state);
   const held = counts.readings + counts.sessions + counts.checkIns + counts.bodyMetrics + counts.personalRecords + (counts.routes ?? 0);
-  const answers = answersOf(setupStateOf(state.settings, state.profile));
-  const given = Object.entries(answers).some(([k, v]) => k !== 'metric' && k !== 'skippedPages' && v !== undefined);
+  const setup = setupStateOf(state.settings, state.profile);
+  // A number typed and not yet an answer is one too (H5R-17).
+  const given = Object.entries(answersOf(setup)).some(([k, v]) => k !== 'metric' && k !== 'skippedPages' && v !== undefined)
+    || Object.keys(setup.draft?.raw ?? {}).length > 0;
   const parts = [
     held > 0 ? `the ${countsSentence(counts)}` : undefined,
-    state.profile ? 'your profile and settings' : given ? 'your setup answers so far' : undefined,
+    ...(state.profile ? ['your profile and settings'] : [given ? 'your setup answers so far' : undefined, changed(state.settings) ? 'your settings' : undefined]),
   ].filter((x): x is string => x !== undefined);
   return parts.length > 0 ? listOf(parts) : undefined;
+}
+
+/** What the app keeps for itself rather than the person: setup's own state, the unit before any answer, a backup's marks. */
+const KEPT_FOR_ITSELF: ReadonlySet<string> = new Set(['setup', 'onboardingComplete', 'startDate', 'useMetric', 'currentWeight', 'homeOffered']);
+const HABIT_MARKS: ReadonlySet<string> = new Set(['lastExportAt', 'lastExportSeq', 'lastExportVia', 'lastCheckedExportAt', 'calendarExport']);
+
+/** The person changed a setting from what a new device has: Display, reminders, Home, a goal (H5-25). */
+function changed(settings: UserSettings): boolean {
+  const fresh = migrateData({ version: CURRENT_VERSION } as AppData).settings as unknown as Record<string, unknown>;
+  const own = (o: Record<string, unknown> | undefined) => Object.fromEntries(Object.entries(o ?? {}).filter(([k]) => !HABIT_MARKS.has(k)));
+  return Object.entries(settings).some(([k, v]) => !KEPT_FOR_ITSELF.has(k) && !sameValue(
+    k === 'habits' ? own(v as Record<string, unknown>) : v,
+    k === 'habits' ? own(fresh[k] as Record<string, unknown>) : fresh[k],
+  ));
 }

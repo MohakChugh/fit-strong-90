@@ -34,14 +34,15 @@ export function changeDisplay(edit: (display: NonNullable<UserSettings['display'
 }
 
 /**
- * Change the profile. Someone without one yet gets the defaults marked for
- * review, so choosing a voice can never leave health answers that look
- * confirmed but were never given.
+ * Change the profile, with the settings as they are in the same write.
+ * Someone without one yet gets the defaults marked for review, so choosing a
+ * voice can never leave health answers that look confirmed but were never
+ * given.
  */
-export function changeProfile(edit: (profile: UserProfile) => UserProfile): Promise<StoreResult> {
+export function changeProfile(edit: (profile: UserProfile, settings: UserSettings) => UserProfile): Promise<StoreResult> {
   return update(previous => ({
     ...previous,
-    profile: edit(previous.profile ?? createDefaultProfile({ weightKg: previous.settings.currentWeight || 0, needsHealthReview: true })),
+    profile: edit(previous.profile ?? createDefaultProfile({ weightKg: previous.settings.currentWeight || 0, needsHealthReview: true }), previous.settings),
   }));
 }
 

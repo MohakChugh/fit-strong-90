@@ -23,6 +23,7 @@ globalThis.localStorage = {
 } as Storage;
 
 const store = await import('./useStore');
+type BroadcastLike = import('./useStore').BroadcastLike;
 
 const readiness: Readiness = {
   outcome: 'green', modifiers: [], back: 'green', nerveFlag: false, reasons: [], actions: [],
@@ -1237,6 +1238,54 @@ describe('update with readings (journey §18.1: weight and height are dated read
     const [id] = shown[0];
     await store.update(previous => previous, { addObservations: [{ id, kind: 'waist', value: 95, unit: 'cm', scope: 'pointInTime', source: 'manual' }] });
     expect(waists().map(o => o.value)).toEqual([90]);
+  });
+});
+
+describe('a gate’s profile is never stored as one (board D168)', () => {
+  it('a profile carrying candidates is kept without them', async () => {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const fake = await booted();
+    const profile = createDefaultProfile({ weightKg: 70 });
+    expect((await store.update(d => ({ ...d, profile: { ...profile, candidates: [profile, { ...profile, weightKg: 71 }] } }))).ok).toBe(true);
+    expect(store.getState().profile?.candidates).toBeUndefined();
+    const db = await openDb(fake);
+    expect((await readDoc(db, 'profile') as { candidates?: unknown }).candidates).toBeUndefined();
+    db.close();
+  });
+});
+
+describe('the record’s generation, the same in every copy (H5R-09, K5R-03)', () => {
+  const settle = async (until: () => boolean) => {
+    for (let i = 0; i < 50 && !until(); i++) await new Promise(r => setTimeout(r, 5));
+  };
+
+  it('Replace and Delete everything move it on, in the same transaction, and it is kept', async () => {
+    const fake = await booted();
+    const first = store.getState().epoch;
+    expect((await store.clearAll()).ok).toBe(true);
+    expect(store.getState().epoch).toBe(first + 1);
+    const db = await openDb(fake);
+    expect(await readDoc(db, 'generation')).toBe(first + 1);
+    db.close();
+    store.resetForTests();
+    await store.start({ factory: fake, broadcast: null });
+    expect(store.getState().epoch).toBe(first + 1);
+  });
+
+  it('another copy’s Replace: a write planned for the record before is refused inside its transaction, and this copy moves on', async () => {
+    let channel: BroadcastLike | undefined;
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake, broadcast: () => (channel = { onmessage: null, postMessage() {}, close() {} }) });
+    const before = store.getState().epoch;
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { reset: true, schemaVersion: 6 } }))).ok).toBe(true);
+    tab.close();
+    const late = await store.update(d => ({ ...d, settings: { ...d.settings, useMetric: false } }), { generation: before });
+    expect(late.ok ? undefined : late.failure.message).toBe(store.REPLACED);
+    // Told of the other copy's write, this one takes the new record, and its generation.
+    channel?.onmessage?.({ data: { revision: Number.MAX_SAFE_INTEGER } });
+    await settle(() => store.getState().epoch !== before);
+    expect(store.getState().epoch).toBe(before + 1);
   });
 });
 

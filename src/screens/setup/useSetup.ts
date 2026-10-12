@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
-import { continueWithoutSaving, forgetEdits, mover, saveDraft, useSetupSession, type SaveOutcome } from '@/setup/draft';
+import { continueWithoutSaving, mover, saveDraft, useSetupSession, type Raw, type SaveOutcome } from '@/setup/draft';
 import { CHAPTER_TITLE, hrefOf, type Ctx } from '@/setup/graph';
 import { prefillAnswers } from '@/setup/prefill';
 import { askAbout, safetyLeft } from '@/setup/progress';
@@ -18,12 +18,12 @@ export function useCtx(): Ctx {
  * The answers setup has: this session's when it goes on without saving, else
  * the stored draft's, else what the record already says (K-57, §6.4).
  */
-export function useSetupAnswers(): { answers: SetupAnswers; at: PageId | undefined; setup: SetupState } {
+export function useSetupAnswers(): { answers: SetupAnswers; raw: Raw | undefined; at: PageId | undefined; setup: SetupState } {
   const { settings, profile } = useStore();
   const session = useSetupSession();
   const setup = setupStateOf(settings, profile);
-  if (session.unsaved) return { answers: session.answers, at: session.at, setup };
-  return { answers: setup.draft?.answers ?? prefillAnswers(settings, profile), at: setup.draft?.at, setup };
+  if (session.unsaved) return { answers: session.answers, raw: session.raw, at: session.at, setup };
+  return { answers: setup.draft?.answers ?? prefillAnswers(settings, profile), raw: setup.draft?.raw, at: setup.draft?.at, setup };
 }
 
 /**
@@ -40,11 +40,12 @@ export function useSafetyLeft(): { chapter: string; ask: string } | undefined {
 
 type NavState = Record<string, unknown> | undefined;
 
-/** How a move is made: `state` goes with the navigation; `from`, the page left, has its edits in the draft then (K5-05); `opened`, what it opened with, so only its own changes are stored (H5-12). */
+/** How a move is made: `state` goes with the navigation; `opened`, what the page opened with, so only its own changes are stored (H5-12). */
 export interface MoveOpts {
   state?: NavState;
-  from?: PageId;
   opened?: SetupAnswers;
+  /** The record the page was opened for (`StoreState.epoch`): a store for one since replaced is refused (H5R-09). */
+  generation?: number;
 }
 
 export interface Move {
@@ -68,13 +69,13 @@ export interface Recovery {
   continueUnsaved: () => void;
 }
 
-/** `mover`, with each move carrying its navigation's state ("from Review", "Welcome back") to where it lands, and the page it leaves. */
+/** `mover`, with each move carrying its navigation's state ("Welcome back") to where it lands. */
 function movesWithState(
-  save: (to: PageId, answers: SetupAnswers, from?: PageId, opened?: SetupAnswers) => Promise<SaveOutcome>,
+  save: (to: PageId, answers: SetupAnswers, opened?: SetupAnswers, generation?: number) => Promise<SaveOutcome>,
   on: { moved: (to: PageId, state: NavState) => void; failed: () => void },
 ): (to: PageId, answers: SetupAnswers, opts?: MoveOpts) => void {
   let pending: MoveOpts = {};
-  const move = mover((to, answers) => save(to, answers, pending.from, pending.opened), { moved: to => on.moved(to, pending.state), failed: () => on.failed() });
+  const move = mover((to, answers) => save(to, answers, pending.opened, pending.generation), { moved: to => on.moved(to, pending.state), failed: () => on.failed() });
   return (to, answers, opts = {}) => {
     pending = opts;
     void move(to, answers);
@@ -97,7 +98,6 @@ export function useMove(): Move {
     failed,
     goUnsaved: (to, answers, opts = {}) => {
       continueWithoutSaving(to, answers);
-      if (opts.from) forgetEdits(opts.from);
       setFailed(false);
       navigate(hrefOf(to), opts.state ? { state: opts.state } : undefined);
     },

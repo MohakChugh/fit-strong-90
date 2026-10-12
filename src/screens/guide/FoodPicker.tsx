@@ -5,6 +5,7 @@ import { PATTERN_DETAIL, PATTERN_LABEL, unmatchedAvoid, withPicked, type Pattern
 import { ALLERGENS, setupAllergyAnswer } from '@/food/allergens';
 import { FOOD_COPY } from '@/food/copy';
 import { getSetupSession } from '@/setup/draft';
+import { waitingFood } from '@/setup/state';
 import { CheckRows } from '@/screens/you/controls';
 import type { AllergenId, FoodPreferences } from '@/types/profile';
 import { cn } from '@/lib/utils';
@@ -67,8 +68,10 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
     if (!pattern || saving) return;
     setSaving(true);
     setError(undefined);
-    // Only what this sheet asks, allergies included (B-13): the logging level, the screening answer and a target stay.
-    const next = withPicked(food, { pattern, avoid: parseAvoid(avoid), region, allergies: chosen, customAllergies: parseAllergies(otherAllergies) });
+    // Only what this sheet asks, allergies included (B-13): the logging level, the screening answer and a target stay,
+    // and with no record yet, come from what setup keeps for one (board D192).
+    const kept = food ?? waitingFood(settings.setup, getSetupSession());
+    const next = withPicked(kept, { pattern, avoid: parseAvoid(avoid), region, allergies: chosen, customAllergies: parseAllergies(otherAllergies) });
     const failure = await saveFood(next);
     setSaving(false);
     if (failure) setError(failure);

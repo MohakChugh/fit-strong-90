@@ -1,7 +1,9 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useLocation } from 'react-router-dom';
 import { foodPromptOfferedOn, noteFoodPromptsShown } from '@/food/prompts';
 import { mealsIn } from '@/food/records';
+import { useSetupSession } from '@/setup/draft';
+import { gateProfile, pendingEditsVersion, subscribePendingEdits } from '@/setup/effective';
 import { useStore } from '@/store/useStore';
 import { statusOn } from '@/health/status';
 import { cn } from '@/lib/utils';
@@ -26,7 +28,15 @@ const PAST_THE_MINUTE_MS = 25;
  * Today sets, which quiets every prompt on a day that is not Normal.
  */
 export function ReminderHost() {
-  const { status: storage, settings, profile, observations, records } = useStore();
+  const { status: storage, settings, profile: stored, observations, records } = useStore();
+  // The profile every gate reads: while setup is unfinished, its gap; a Me save on its way, wherever it's stricter (K5R-10).
+  const session = useSetupSession();
+  const editing = useSyncExternalStore(subscribePendingEdits, pendingEditsVersion, pendingEditsVersion);
+  const profile = useMemo(
+    () => gateProfile({ profile: stored, settings }, new Date(), session),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stored, settings, session, editing],
+  );
   const habits = settings.habits;
   const periods = settings.statusPeriods;
   const pending = usePending();

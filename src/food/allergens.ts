@@ -114,12 +114,13 @@ export function setupAllergyAnswer(setup: SetupRecord | undefined, session?: Set
 }
 
 /**
- * The person's allergies as far as they're known (board D205): their food record's wherever there is one, and
- * without one, setup's waiting answer (this session's while setup goes on without saving). Nothing means not
- * known: meal ideas ask first, never treat it as none.
+ * The person's allergies as far as they're known (board D205): their food record's wherever it answered them, and
+ * without that, setup's waiting answer (this session's while setup goes on without saving). A record that never
+ * answered them, as v1's `{ pattern, avoid, region }`, is not known either (owner decision; Plan 5's board D194).
+ * Nothing means not known: meal ideas ask first, never treat it as none.
  */
 export function allergyAnswer(food: AllergyAnswer | undefined, setup: SetupRecord | undefined, session?: SetupSessionAnswers): AllergyAnswer | undefined {
-  if (!food) return setupAllergyAnswer(setup, session);
+  if (food?.allergies === undefined && food?.customAllergies === undefined) return setupAllergyAnswer(setup, session);
   return { ...(food.allergies ? { allergies: food.allergies } : {}), ...(food.customAllergies ? { customAllergies: food.customAllergies } : {}) };
 }
 

@@ -7,6 +7,7 @@ import { DISCLAIMER, search, topicsFor, type ResultKind, type SearchResult } fro
 import { FOOD_COPY } from '@/food/copy';
 import { HubFrame } from '@/screens/hub/HubFrame';
 import { onlyPartial, partialDetail } from './format';
+import { NoAllergiesRow } from './parts';
 import { TOPIC_ICON } from './icons';
 import { useGuide } from './useGuide';
 
@@ -162,7 +163,10 @@ function Results({ query, results, allergiesKnown }: { query: string; results: S
             <Group key={kind} header={KIND_HEADER[kind]}>
               {/* Not known is never none: meal ideas ask about allergies before showing any (board D205). */}
               {kind === 'meal' && !allergiesKnown ? (
-                <Row as={Link} to="/hub/food/ideas" viewTransition label={FOOD_COPY.allergiesFirst} detail={FOOD_COPY.allergiesFirstDetail} chevron />
+                <>
+                  <Row as={Link} to="/hub/food/ideas" viewTransition label={FOOD_COPY.allergiesFirst} detail={FOOD_COPY.allergiesFirstDetail} chevron />
+                  <NoAllergiesRow />
+                </>
               ) : items.map(r => (
                 <Row
                   key={`${r.kind}-${r.id}`}

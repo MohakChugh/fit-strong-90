@@ -36,6 +36,9 @@ export function ReviewPage() {
   const { answers } = useSetupAnswers();
   const ctx = useCtx();
   const [now] = useState(nowAt);
+  // The record Review shows, as it's drawn now: finishing it, once another copy has replaced it, is refused (H5R-09).
+  // A backup restored here redraws Review, so it finishes the restored record (V-J37).
+  const generation = state.epoch;
   const today = dayOf(now);
   const [{ context, device }] = useState(() => {
     const env = readInstallEnv();
@@ -68,7 +71,7 @@ export function ReviewPage() {
     if (busy) return;
     setBusy(true);
     setProblem(undefined);
-    const finished = await finishSetup(answers, ctx);
+    const finished = await finishSetup(answers, ctx, nowAt(), generation);
     setBusy(false);
     if (finished.kind === 'home') navigate('/home', { replace: true });
     else setProblem(finished.message);

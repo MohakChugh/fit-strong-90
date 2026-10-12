@@ -33,8 +33,9 @@ async function refusedNext(t) {
     await ui.heading(page, 'Do you have any of these?');
     await setup.tick(main, 'Not sure: Diabetes');
     await setup.tick(main, 'High blood pressure');
-    // Each change is kept as typed shortly after it's made (H5-16): what's stored before the refused Next includes the ticks.
-    const kept = s => docs(s).settings?.setup?.draft?.edits?.['health.conditions']?.conditions?.bp === 'yes';
+    // Each change goes into the draft's answers shortly after it's made (H5-16, board D169): what's stored before the
+    // refused Next includes the ticks.
+    const kept = s => docs(s).settings?.setup?.draft?.answers?.conditions?.bp === 'yes';
     const stored = docs(await data.waitDb(t, kept, 'the ticks were not kept as typed')).settings?.setup;
     await t.setPageFaults(FAIL_SETTINGS);
     await ui.tap(ui.button(main, 'Next'));

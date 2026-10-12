@@ -1,190 +1,104 @@
 /**
- * The profile every gate reads (journey §4, §6.1; board D161).
+ * The profile every gate reads (journey §4, §6.1; boards D161, D162, D168).
  *
- * While setup is unfinished (Look around first, a v1 Welcome left part-way, a
- * session that went on without saving), the profile gap stands, whatever the
- * record holds, and any answer the draft discloses that is stricter than the
- * record's applies at once (H5-05). A finished record, a completed v1 upgrade
- * included, is read as it is.
- *
- * "Stricter" is field by field (`stricterProfile`): the value the engine
- * treats more cautiously, so a combined profile is never looser than either
- * of the two it comes from. On a tie, the newer answer, as the person's latest.
+ * While answers are on their way, it carries every profile the person might
+ * have, and the engine runs on each (`engine/candidates.ts`):
+ * - setup unfinished (Look around first, a v1 Welcome left part-way, a session
+ *   that went on without saving): the record's and the draft's, both with the
+ *   profile gap, whatever the record holds (H5-05);
+ * - a save in Me on its way, or refused: the record's as it is, and the
+ *   record's with that save's own changes (H5-08). A refusal doesn't unsay
+ *   what the person said, so a refused save stays until it is tried again or
+ *   discarded.
+ * A finished record, a completed v1 upgrade included, with nothing on its way
+ * is read as it is.
  */
 import type { UserSettings } from '@/types';
-import type { HealthProfile, MedicineAnswer, PainArea, PainProfile, UserProfile } from '@/types/profile';
-import type { ChapterId } from '@/types/setup';
-import { glucoseStartMin } from '@/engine/health';
+import type { UserProfile } from '@/types/profile';
+import { withProfileChanges, type ProfileChange } from '@/components/profile/wizardSteps';
+import { planningProfile } from '@/engine/candidates';
+import { profileOnlyReadiness } from '@/engine/readiness';
 import { toDateString } from '@/lib/utils';
 import { createDefaultProfile } from '@/profile/defaults';
-import type { StoreResult } from '@/store/db';
+import { StoreFailure, type StoreResult } from '@/store/db';
 import { getState } from '@/store/useStore';
-import { compact, healthFrom, painFrom } from './assemble';
+import { healthFrom, painFrom } from './assemble';
 import { getSetupSession, type SetupSession } from './draft';
 import { answersOf, setupStateOf } from './state';
 
-type Pick2<T> = (stored: T, newer: T) => T;
+// ---- A save in Me on its way to being stored, or refused (H5-08, H5R-04; boards D162, D168) ----
 
-/** The stricter of two answers by rank; on a tie, the newer one. */
-const ranked = <T>(rank: (v: T) => number): Pick2<T> => (stored, newer) => (rank(newer) >= rank(stored) ? newer : stored);
-const order = <T extends string>(r: Record<T, number>): Pick2<T> => ranked<T>(v => r[v]);
-/** True is the stricter: a condition, a symptom. */
-const yes = ranked<boolean>(v => (v ? 1 : 0));
-/** "Taking it" or "Not sure" over not asked, over No (`takes`, engine/health.ts). */
-const medicine = ranked<MedicineAnswer | undefined>(v => (v === false ? 0 : v === undefined ? 1 : 2));
-/** Not yet reviewed is the stricter: it holds what it vouches for (H-DATA). */
-const reviewed = ranked<boolean | undefined>(v => (v === true ? 0 : 1));
-/** Not a hold either way, such as a monitor or a unit: the newer answer, when there is one. */
-const newer = <T>(stored: T, next: T): T => next ?? stored;
-
-/** Each health field's rule. A `Record` over the profile's own keys, so a field added without one fails the build. */
-const HEALTH: { [K in keyof HealthProfile]-?: Pick2<HealthProfile[K]> } = {
-  diabetes: order({ none: 0, prediabetes: 1, type2: 2, other: 3, type1: 4 }),
-  insulin: order({ none: 0, injections_or_pump: 1, automated_delivery: 1, unsure: 2 }),
-  insulinRegimen: newer,
-  sulfonylureaOrMeglitinide: medicine as Pick2<MedicineAnswer>,
-  sglt2i: medicine as Pick2<MedicineAnswer>,
-  metformin: medicine,
-  metforminSince: newer,
-  priorDkaOrInsulinDeficiency: medicine,
-  medicinesReviewed: reviewed,
-  highHypoRisk: yes,
-  hypertension: order({ none: 0, treated: 1, untreated: 2, unsure: 2 }),
-  betaBlocker: medicine as Pick2<MedicineAnswer>,
-  diuretic: medicine as Pick2<MedicineAnswer>,
-  bpMedicinesReviewed: reviewed,
-  heartOrVascularDisease: yes,
-  kidneyDisease: order({ none: 0, ckd: 1, unsure: 1, dialysis_or_transplant: 2 }),
-  fluidRestriction: medicine,
-  retinopathy: order({ none_or_mild: 0, moderate: 1, unknown: 1, severe_or_proliferative: 2, recent_eye_treatment: 3 }),
-  peripheralNeuropathy: order({ no: 0, unsure: 1, yes: 1 }),
-  footStatus: order({ healthy: 0, past_ulcer_or_charcot: 1, current_wound_or_active_charcot: 2 }),
-  dizzyOnStandingOrAutonomicNeuropathy: yes,
-  glucoseMonitor: newer,
-  glucoseUnit: newer,
-  ketoneTest: newer,
-  bpMonitor: newer,
-  // Inactive is the stricter: with disease and no clearance, light work only.
-  currentlyActive: ranked<boolean>(v => (v ? 0 : 1)),
-  clearance: order({ vigorous: 0, moderate: 1, none: 2 }),
-  // Worked out below, from the rest.
-  clinicianTargets: newer,
-  bpExercisePermission: newer,
-};
-
-/**
- * The care team's numbers, stricter: the start figure that is higher for this
- * person (theirs, or the usual one when theirs is lower), and the lower stop.
- */
-function stricterTargets(a: HealthProfile, b: HealthProfile, merged: HealthProfile): HealthProfile['clinicianTargets'] {
-  const ta = a.clinicianTargets;
-  const tb = b.clinicianTargets;
-  const glucose = glucoseStartMin({ ...merged, clinicianTargets: tb }) >= glucoseStartMin({ ...merged, clinicianTargets: ta }) ? tb : ta;
-  const stops = [ta?.bpStopSystolic, tb?.bpStopSystolic].filter((x): x is number => x !== undefined);
-  return compact({
-    glucoseStartMin: glucose?.glucoseStartMin,
-    glucoseStartUnit: glucose?.glucoseStartUnit,
-    bpStopSystolic: stops.length > 0 ? Math.min(...stops) : undefined,
-    hba1cPercent: tb?.hba1cPercent ?? ta?.hba1cPercent,
-  });
+/** One save from Me: the profile changes it owns, and its write, to try again. */
+export interface Submission {
+  id: number;
+  changes: readonly ProfileChange[];
+  refused: boolean;
+  write: () => Promise<StoreResult>;
 }
 
-/** A clinician's permission only lifts a hold: it stands only where both have one, at the lower of the two. */
-function stricterPermission(a: HealthProfile['bpExercisePermission'], b: HealthProfile['bpExercisePermission']): HealthProfile['bpExercisePermission'] {
-  if (!a || !b) return undefined;
-  const lower = b.sys <= a.sys ? b : a;
-  return { sys: Math.min(a.sys, b.sys), dia: Math.min(a.dia, b.dia), ...(lower.recordedOn ? { recordedOn: lower.recordedOn } : {}) };
-}
-
-export function stricterHealth(a: HealthProfile, b: HealthProfile): HealthProfile {
-  const fields = {} as Record<keyof HealthProfile, unknown>;
-  for (const k of Object.keys(HEALTH) as (keyof HealthProfile)[]) fields[k] = (HEALTH[k] as Pick2<unknown>)(a[k], b[k]);
-  const merged = fields as HealthProfile;
-  const out: HealthProfile = { ...merged, clinicianTargets: stricterTargets(a, b, merged), bpExercisePermission: stricterPermission(a.bpExercisePermission, b.bpExercisePermission) };
-  // A stored record never holds an `undefined` key.
-  for (const k of Object.keys(out) as (keyof HealthProfile)[]) if (out[k] === undefined) delete out[k];
-  return out;
-}
-
-/** Every area either names, with the leg as either says it ("both" when they differ); the learned direction stays. */
-export function stricterPain(a: PainProfile, b: PainProfile): PainProfile {
-  const areas: PainArea[] = [...a.areas, ...b.areas.filter(x => !a.areas.includes(x))];
-  // A leg counts only where that profile has sciatica.
-  const sideOf = (p: PainProfile) => (p.areas.includes('sciatica') ? p.sciaticaSide : undefined);
-  const [sa, sb] = [sideOf(a), sideOf(b)];
-  const side = !areas.includes('sciatica') ? undefined : sa && sb && sa !== sb ? 'both' : sb ?? sa;
-  const neuro = medicine(a.neuroHistory, b.neuroHistory);
-  const out: PainProfile = { ...a, areas, worseWith: b.worseWith };
-  if (side) out.sciaticaSide = side;
-  else delete out.sciaticaSide;
-  if (neuro !== undefined) out.neuroHistory = neuro;
-  return out;
-}
-
-/** Two profiles as one, never looser than either: the health and pain answers, the review gap and the exercise ladder. */
-export function stricterProfile(stored: UserProfile, next: UserProfile): UserProfile {
-  return {
-    ...stored,
-    health: stricterHealth(stored.health, next.health),
-    pain: stricterPain(stored.pain, next.pain),
-    needsHealthReview: stored.needsHealthReview === true || next.needsHealthReview === true,
-    ladder: {
-      ...stored.ladder,
-      hinge: Math.min(stored.ladder.hinge, next.ladder.hinge) as UserProfile['ladder']['hinge'],
-      squat: Math.min(stored.ladder.squat, next.ladder.squat) as UserProfile['ladder']['squat'],
-      neuralGate: stored.ladder.neuralGate || next.ladder.neuralGate,
-    },
-  };
-}
-
-// ---- A clinical edit on its way to being stored (H5-08; board D162) ----------
-
-/** Each chapter edit not yet stored, by the chapters it owns: the profile it would store. */
-const editing = new Map<string, UserProfile>();
-let editingEpoch = 0;
-let editingVersion = 0;
-const editingListeners = new Set<() => void>();
-/** Edits of a record a backup has since replaced are that record's (H5-07). */
-const edits = () => {
-  if (editingEpoch !== getState().epoch) {
-    editing.clear();
-    editingEpoch = getState().epoch;
+const saves = new Map<number, Submission>();
+let savesEpoch = 0;
+let lastId = 0;
+let savesVersion = 0;
+const savesListeners = new Set<() => void>();
+/** Saves of a record a backup has since replaced are that record's (H5-07). */
+const held = () => {
+  if (savesEpoch !== getState().epoch) {
+    saves.clear();
+    savesEpoch = getState().epoch;
   }
-  return editing;
+  return saves;
 };
-const editsChanged = () => {
-  editingVersion += 1;
-  for (const listener of [...editingListeners]) listener();
+const savesChanged = () => {
+  savesVersion += 1;
+  for (const listener of [...savesListeners]) listener();
 };
 export const subscribePendingEdits = (listener: () => void): (() => void) => {
-  editingListeners.add(listener);
-  return () => void editingListeners.delete(listener);
+  savesListeners.add(listener);
+  return () => void savesListeners.delete(listener);
 };
-export const pendingEditsVersion = (): number => editingVersion;
+export const pendingEditsVersion = (): number => savesVersion;
 
 /**
- * Store a chapter edit (Me → Profile & health). Its stricter answers count
- * for every gate from the tap; what it releases waits until `write`, which
- * must be held until stored, is. If the write is refused, those answers keep
- * counting until a save of the same chapters is stored: the person said them,
- * and a refusal doesn't unsay them (§4.5).
+ * Store a save from Me (Profile & health): `changes`, what it changes on the
+ * profile, count for every gate from the tap, beside the record as it is, so
+ * a stricter answer applies at once and a release waits until it's stored
+ * (D162). A stored write retires only this save (H5R-04). A refused one
+ * stays until it's tried again, `replaces` naming it, or discarded.
  */
-export async function saveClinicalEdit(chapters: readonly ChapterId[], planned: UserProfile, write: () => Promise<StoreResult>): Promise<StoreResult> {
-  const key = [...chapters].sort().join(',');
-  edits().set(key, planned);
-  editsChanged();
-  const saved = await write();
-  if (saved.ok) {
-    for (const k of [...edits().keys()]) if (k.split(',').every(c => chapters.includes(c as ChapterId))) edits().delete(k);
-    editsChanged();
-  }
-  return saved;
+export async function saveClinicalEdit(changes: readonly ProfileChange[], write: () => Promise<StoreResult>, replaces?: number): Promise<{ saved: StoreResult; id: number }> {
+  const id = ++lastId;
+  held().set(id, { id, changes, refused: false, write });
+  savesChanged();
+  const saved = await write().catch((error: unknown): StoreResult => ({ ok: false, failure: new StoreFailure('unknown', 'The device did not keep it.', error) }));
+  if (replaces !== undefined) held().delete(replaces);
+  if (saved.ok) held().delete(id);
+  else held().set(id, { id, changes, refused: true, write });
+  savesChanged();
+  return { saved, id };
+}
+
+/** The saves the device refused, for Profile & health to offer again. */
+export const refusedSaves = (): Submission[] => [...held().values()].filter(s => s.refused);
+
+/** Try a refused save again. */
+export function retrySave(id: number): Promise<{ saved: StoreResult; id: number }> | undefined {
+  const save = held().get(id);
+  return save ? saveClinicalEdit(save.changes, save.write, id) : undefined;
+}
+
+/** The person chose not to keep a refused save: the record's own answers stand. */
+export function discardSave(id: number): void {
+  if (held().delete(id)) savesChanged();
 }
 
 export function resetPendingEditsForTests(): void {
-  editing.clear();
-  editingEpoch = 0;
+  saves.clear();
+  savesEpoch = 0;
+  lastId = 0;
 }
+
+// ---- The profile a gate reads ----
 
 export interface GateInput {
   profile?: UserProfile;
@@ -192,20 +106,36 @@ export interface GateInput {
 }
 
 /**
- * The profile every gate reads: the record's, or with nothing stored the
- * default with its gap (as v1 read it). While setup is unfinished, the gap,
- * and the draft's answers wherever they're stricter than the record's. Then
- * any chapter edit on its way, wherever it's stricter (H5-08).
+ * Every profile the person might have: the record's, or with nothing stored
+ * the default with its gap (as v1 read it); while setup is unfinished, that
+ * with the gap, and with the draft's answers on it; and the record's with
+ * each save from Me on its way.
+ */
+export function gateCandidates(state: GateInput, now: Date = new Date(), session: SetupSession = getSetupSession()): UserProfile[] {
+  const base = state.profile ?? createDefaultProfile({ weightKg: state.settings.currentWeight || 0, needsHealthReview: true });
+  const setup = setupStateOf(state.settings, state.profile);
+  const unfinished = setup.stage !== 'done' || session.entered;
+  const stored: UserProfile = unfinished ? { ...base, needsHealthReview: true } : base;
+  const out = [stored];
+  if (unfinished) {
+    const answers = session.unsaved ? session.answers : answersOf(setup);
+    out.push({ ...stored, health: healthFrom(answers, base.health, toDateString(now)), pain: painFrom(answers, base.pain) });
+  }
+  for (const save of held().values()) out.push(withProfileChanges(stored, save.changes));
+  return out;
+}
+
+/**
+ * The profile every gate reads. With answers on their way it carries them
+ * all as `candidates`, which the engine evaluates. What is read off the
+ * profile itself (which questions a check-in asks, a walk's prompts) is the
+ * candidate at least as strict as the rest, or the newest when none is, and
+ * then every mode holds until the answers are saved.
  */
 export function gateProfile(state: GateInput, now: Date = new Date(), session: SetupSession = getSetupSession()): UserProfile {
-  const stored = state.profile ?? createDefaultProfile({ weightKg: state.settings.currentWeight || 0, needsHealthReview: true });
-  const setup = setupStateOf(state.settings, state.profile);
-  let out = stored;
-  if (setup.stage !== 'done' || session.entered) {
-    const answers = session.unsaved ? session.answers : answersOf(setup);
-    const drafted: UserProfile = { ...stored, health: healthFrom(answers, stored.health, toDateString(now)), pain: painFrom(answers, stored.pain) };
-    out = { ...stricterProfile(stored, drafted), needsHealthReview: true };
-  }
-  for (const planned of edits().values()) out = stricterProfile(out, planned);
-  return out;
+  const all = gateCandidates(state, now, session);
+  if (all.length === 1) return all[0];
+  const newest: UserProfile = { ...all[all.length - 1], candidates: all };
+  const primary = planningProfile(newest, p => profileOnlyReadiness(p)) ?? newest;
+  return { ...primary, candidates: all };
 }

@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { ChevronLeftIcon } from 'lucide-react';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { cn } from '@/lib/utils';
-import { useSetupSession } from '@/setup/draft';
+import { useSetupSession, type SaveOutcome } from '@/setup/draft';
 import { PlainButton, PrimaryButton } from '@/screens/you/controls';
 import { useSetupAnswers, type Recovery } from './useSetup';
 
@@ -45,8 +45,8 @@ export function SetupShell({ title, capsule, onBack, onClose, recovery, children
   title: string;
   capsule?: { label: string; fraction: number };
   onBack?: () => void;
-  /** Before Close goes Home: a page keeps what it holds and itself as the page to resume on (H5-16). */
-  onClose?: () => void;
+  /** Before Close goes Home: a page stores what's waiting and itself as the page to resume on (H5-16); refused, it stays, and says so (H5R-16). */
+  onClose?: () => Promise<SaveOutcome>;
   recovery?: Recovery;
   children: ReactNode;
 }) {
@@ -76,7 +76,7 @@ export function SetupShell({ title, capsule, onBack, onClose, recovery, children
             : <span className="min-w-12" aria-hidden />}
           {capsule ? <Capsule {...capsule} /> : <span className="flex-1" aria-hidden />}
           {canClose
-            ? <button type="button" onClick={() => { onClose?.(); navigate('/home'); }} className="press-feedback min-h-12 min-w-12 px-2 text-[length:var(--text-body)] text-tint">Close</button>
+            ? <button type="button" onClick={() => void (onClose?.() ?? Promise.resolve('saved')).then(o => { if (o !== 'failed') navigate('/home'); })} className="press-feedback min-h-12 min-w-12 px-2 text-[length:var(--text-body)] text-tint">Close</button>
             : <span className="min-w-12" aria-hidden />}
         </div>
       </div>

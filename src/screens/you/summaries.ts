@@ -406,11 +406,15 @@ function measured(kind: 'weight' | 'height' | 'waist', value: number, readings: 
     .filter(o => o.kind === kind && Math.abs(o.value - value) < 1e-6)
     .reduce<BodyReading | undefined>((best, o) => (!best || Date.parse(o.at) > Date.parse(best.at) || (o.at === best.at && (o.seq ?? 0) > (best.seq ?? 0)) ? o : best), undefined);
   if (!latest) return 'date not recorded';
-  const how = latest.context === 'profile' ? 'entered' : HOW[latest.source];
+  // Where it came from, where that's more than how it was given: setup or Profile & health, or v1's body log.
+  const how = latest.context === 'profile' ? 'entered'
+    : latest.context?.startsWith('bodyMetric:') ? 'logged in the previous version' : HOW[latest.source];
   return `${how} ${shortDate(latest.at)}${latest.timeUnknown ? '' : ` at ${timeOf(latest.at)}`}`;
 }
 
-/** To a tenth, as stored: 160.5 stays 160.5, 158 stays 158. */
+/** As stored: 160.55 stays 160.55, 158 stays 158 (H5-24). */
+const asStored = (n: number) => String(Math.round(n * 1000) / 1000);
+/** To a tenth, for a value converted to inches: 63.2 in. */
 const tenths = (n: number) => String(Math.round(n * 10) / 10);
 
 /**
@@ -439,9 +443,9 @@ export function chapterSections(
     { label: 'Name', value: profile.name ?? 'Not given' },
     ...(profile.birthYear ? [{ label: 'Born', value: String(profile.birthYear) }] : []),
     { label: 'Body for the exercise demos', value: profile.figure ? FIGURE[profile.figure] : 'Either' },
-    { label: 'Height', value: !profile.heightCm ? 'Not entered' : when('height', profile.heightCm, metric ? `${tenths(profile.heightCm)} cm` : feet(profile.heightCm)) },
+    { label: 'Height', value: !profile.heightCm ? 'Not entered' : when('height', profile.heightCm, metric ? `${asStored(profile.heightCm)} cm` : feet(profile.heightCm)) },
     { label: 'Weight', value: profile.weightKg > 0 ? when('weight', profile.weightKg, `${kgToDisplay(profile.weightKg, metric)} ${metric ? 'kg' : 'lb'}`) : 'Not entered' },
-    ...(profile.waistCm ? [{ label: 'Waist', value: when('waist', profile.waistCm, metric ? `${tenths(profile.waistCm)} cm` : `${tenths(inches(profile.waistCm))} in`) }] : []),
+    ...(profile.waistCm ? [{ label: 'Waist', value: when('waist', profile.waistCm, metric ? `${asStored(profile.waistCm)} cm` : `${tenths(inches(profile.waistCm))} in`) }] : []),
   ];
 
   const eyesOrFeet = diabetic(profile) || h.retinopathy !== 'none_or_mild' || h.footStatus !== 'healthy' || h.peripheralNeuropathy !== 'no';

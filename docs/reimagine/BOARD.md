@@ -1777,3 +1777,106 @@ Branch `feat/v2-p7`, from `0f9fcc4`. Round 2's decisions D180 to D186 are renumb
 **Acceptance, round 3** on `8f4ed60` (`/tmp/fit-checks/accept-p7fix-r3.log`): 72 cases, 68 passed, 0 failed, 4 pending (V-J31's Food trend, Plan 3), in 6.8 min. The sweep had J20's 8 expected console lines and one more: a 3.61:1 contrast reading on V-J03's "Lunch saved" toast at small-dark, whose screenshot shows white on the dark toast. V-J03 run again alone (`accept-p7fix-r3-vj03.log`): 8 of 8, and no sweep finding, so it was read while the toast faded in.
 
 **At the merge into feat/v2-journey.** D205 also reads setup's session while setup goes on without saving (Plan 5's B-07, H5-06), since its answers live there and not in `settings.setup`. It reads the session first, then finished setup, then the draft. Meal ideas, search, a meal idea's page, the picker and the tray all take it, and a food record is still the person's answer. Two things are left for the owner. Browse's search lists meal ideas when no allergy answer is known, and `browse.test.ts` pins meal rows for a context with no food. A food record without an allergy answer, such as v1's, reads as no allergies: D166's handoff also named that case, and D205 covers no food record only.
+
+### 2026-10-12 — [claude] v2 Plan 5 review fixes, round 2 (Codex H5R, Kiro K5R)
+
+Codex's re-check (H5R-01 to H5R-18) and Kiro's (K5R-01 to K5R-10). Worktree `/Users/chumohak/Projects/fit-strong-90-v2-p5`, branch `feat/v2-p5`, from `5513c62` to `4e3a10b`: 15 commits and a merge of feat/v2-journey (`18869f8`). Its decisions are D168, D169 and D190 to D195.
+
+#### Decisions
+| D | Finding | Decision |
+|---|---|---|
+| D168 | H5R-04 to H5R-08, H5R-18, K5R-05 (replaces D161's and D162's field-by-field fold) | While answers are on their way (setup unfinished, a save in Me pending or refused), the gate's profile carries every candidate profile: the record's (with the gap while setup is unfinished), the draft's, and the record's with each Me save's own changes. The engine runs on each. A mode is allowed only if every candidate allows it; its reasons and restriction codes are the union, its disposition the most serious, and a check-in is asked for only if it can answer every refusal. Readiness and plans come from a candidate at least as strict as every other in everything the engine makes of it for the same inputs: readiness, conditions, gaps, and what the builders read for themselves (hypo risk, an unmonitored low, the fluid limit, pain areas, a leaned-on direction, the care team's thresholds). Where none is, every mode holds ("Your new health answers haven't been saved yet…") and plans are empty, until the answers are saved or discarded. What is read off the profile itself (which check-in questions, a walk's prompts) is that candidate, or the newest. Each Me save keeps its identity and owns only its own changes (`profileChanges`): a stored write retires only itself; a refused one stays until tried again (the retry replaces it) or not kept. Profile & health offers both. Me saves need storage (K5R-05). Candidates are never stored. |
+| D169 | H5R-01, H5R-11 to H5R-17, K5R-02, K5R-04, K5R-06 (replaces D158's `draft.edits`) | One store of answers. Each change goes into `draft.answers` about 400 ms after it's made, as a field-by-field delta (a checklist row by row) carrying the value its control started from, inside one transaction (`withFields`). Review, routing, the gates and finishing read only `draft.answers`. A number is kept as typed in `draft.raw` (keys in `RAW_KEYS`, 12 characters at most) and is an answer only once it gives a valid one; the page shows the text, a number that isn't an answer holds Next, Skip and Me's Save, and a hidden question's number goes at the next move. Next stores what's waiting, then plans and stores the move from the stored answers in one transaction, clearing nothing; a change made meanwhile keeps the page open. Skip for now keeps the page's answers too. A refused change shows on every setup page, Welcome included, with Try again and Continue without saving, until stored; Close waits for it. Look around first and finishing store what's waiting first. Backups carry `draft.raw`; an earlier build's `draft.edits` (never released) is not read. A change refused because another copy finished setup is dropped with a toast saying where to check (K5R-04). A cleared answer stays named, so the profile clears it too. |
+| D190 | H5R-02, H5R-03, H5R-14, K5R-02, K5R-09 | When two copies change the same answer: a preference takes the later; a safety answer takes whichever gives the stricter profile, as the engine evaluates it (D168's comparison), and the later where the engine reads them alike. Where neither is stricter, the stored one stays: Me's Save is refused, saying why; setup's autosave keeps the stored one and the page says another window's answer was kept, and that answer's typed number isn't written either. A change is judged against the value its own control started from, never against what the page shows at Save or Next. Me's profile is worked out from the merged answers inside the same transaction. |
+| D192 | H5R-10, K5R-01, H5-20 (completes D164 and D167) | Reduced after merging Plan 7 (its D205 reads setup's waiting allergy answer wherever meals are suggested, so this branch's own reading of it gave way to Plan 7's at the merge, `18869f8`). What stays is the transfer: every path that sets the pattern later puts all of setup's waiting food answers into the new record. `waitingFood(setup, session)` gives the allergies (`setupAllergyAnswer`), the logging level and the screening answer, each read as Plan 7 reads the allergies (this session's first while setup goes on without saving, then the finished answers, then the draft). Meal ideas' and the Sample week's food question (`withPicked(food ?? waitingFood(...))`, `withPicked` taking a partial record), Me → Food (`changeProfile` now passes the settings of the same write), and setup and Profile & health's food chapter (already, through `foodFrom`). |
+| D193 | Owner decision (the coordinator's D168) | Browse's search lists no meal idea while allergies aren't known, as the Guide's search doesn't: one row, "Tell us about food allergies to see meal ideas", to Me → Food, once, only where an idea matched. |
+| D194 | Owner decision (the coordinator's D169) | A food record that never answered allergies (v1's `{ pattern, avoid, region }`, persona P01) is "not known", never "none": `allergyAnswer` falls back to setup's answer, else nothing. Meal ideas, the Food hub's ideas, Learn's search and idea pages ask first, with "No food allergies" as one tap (`NoAllergiesRow` → `saveNoAllergies`); Me → Food offers it while the record never answered. The tap answers into the food record; this visit's choices with no profile; or with no record at all, setup's own answer (`answerNoAllergies`): this session's while unsaved, the draft's while unfinished, else the finished answers. V-J08 and V-J28 answer it once, as a person would. |
+| D195 | K5R-07 | v1's wizard (main's `ProfileWizard`) asked about severe lows of everyone with diabetes, and about ketone testing with type 1 or an SGLT2 medicine, never how insulin is taken. Only what v1 asked is read back for a record without setup's answers: "How do you take insulin?" is left unanswered unless the record says it (a regimen, or a closed loop), and ketone testing is read back only with type 1 or an SGLT2 medicine. Such records list Your medicines under Finish setting up, "Insulin and ketones". The lows answer stays v1's own. |
+| D191 | H5R-09, K5R-03 | The snapshot holds the record's `generation`, kept as its own document, and any reset (Replace, Delete everything, clear-all) moves it on in the same transaction. `StoreState.epoch` is that generation, so every copy of the app, not only the one that did the reset, drops its setup page state, session and pending Me saves when it sees a new one; setup's routes remount on it. Every setup write (Next, Back and Close, autosave, Look around first, finishing, Me's Save) carries the generation its screen was opened for, and `update` refuses one from an older generation inside its transaction, with a message that says so. A copy whose write is refused for this adopts the re-read record in that same transaction. |
+
+#### H5R-04 to H5R-08, H5R-18, K5R-05: the field-ranking fold. FIXED, `b8a35bb` (D168)
+- **Tests, through `permission` and the real stretch, session and cardio builders:**
+  - `effective.test.ts`:
+    - H5R-04: identity, and a refused save stays until discarded; a retry replaces it.
+    - A release waits, and a refused release releases nothing.
+    - H5R-18: a refused About save doesn't pin the cleared gap.
+    - A check-in is asked for only if it answers every refusal.
+    - H5R-05: no long nerve pulls with sciatica added and the gate closed.
+    - H5R-06: the planning candidate keeps flexion, and the routine is the record's.
+    - H5R-07: COOL is kept both ways; where neither covers the other, every mode holds with the unsaved reason.
+    - H5R-08: no intervals with a meter pending.
+    - Where no candidate covers the other, the plans are empty, with the reason.
+  - `candidates.test.ts`: each dominance rule isolated: 14 profile facts, 13 readiness fields, and incomparable pairs.
+  - Caller tests: K5R-05 in memory mode, and Profile & health's refused save with Don't keep.
+  - The store never keeps candidates.
+- **Mutation checks:** about 30 mutants, all killed. Seven needed the isolating cases above.
+
+#### H5R-09 = K5R-03: replacement identity was local to one copy. FIXED, `46a47df` (D191)
+- **Tests:**
+  - `useStore.test.ts`: Replace and clear-all move the generation on in one transaction, and it survives a restart. After another copy's Replace, a write planned before it is refused inside its transaction, and this copy takes the new generation.
+  - `draft.test.ts`: Next, Back, Look around first and finishing are each refused after another copy's Replace, the copy catches up by itself, and finishing onto a record with no draft is refused.
+  - Caller tests: a setup page's Next and Me's Save after another copy's Replace store nothing.
+- **Mutation checks:** 9 mutants, all killed. One survivor showed that a re-read after refusal was redundant, so that line was deleted.
+- **Changed test:** the transfer round trip now leaves out device bookkeeping (`revision`, `generation`).
+
+#### H5R-02, K5R-09: Me's profile and answers could disagree, and safety enums went to the last save. FIXED, `1247505` (D190)
+- **Tests:** `merge.test.ts`: the engine decides footWound, diabetes type, clearance and the monitor; incomparable pairs stay stored and are named. `edit.test.ts`: two copies of Me, one Not sure and one No for lows: the answers and the profile both keep Not sure (H5R-02), and an incomparable pair refuses the save with `ANSWERS_CHANGED`.
+- **Mutation checks:** all killed.
+
+#### H5R-01, H5R-03, H5R-11 to H5R-17, K5R-02, K5R-04, K5R-06: the second answer store. FIXED, `d9b34c8` (D169, D190)
+- **Tests:**
+  - `draft.test.ts`: autosave into `draft.answers`, row by row, kept after a restart; H5R-01 (a Review Edit left with Back counts for Review, the gates and finishing, and Review's older answers are refused; Start using stores what's waiting first); H5R-11 (a correction during a slow Next stays waiting, holds the page, and the next Next routes from it; a correction during a slow autosave is this copy's own); H5R-12 (Look around first keeps everything and stores what's waiting first); H5R-13 (a backup brings answers and `raw`; old `edits` aren't read; `raw` bounded by key and length); H5R-15 (an invalid number is text only; hidden questions hold nothing); H5R-16 (a refused change waits, Try again stores it, Continue without saving takes it); K5R-04 (refused onto a finished setup, with the toast); two copies through `withFields` and the store (H5R-03, H5R-14, K5R-02); the generation cases rewritten for the queue.
+  - Caller tests, through `PageFrame`, `WelcomePage` and `ChapterEditor`: another copy's answer on the same page stays (H5-12, H5R-14); Back, Close and leaving store with the page to resume on; "195" shows after a restart and holds Next, "70." stays "70." with 70 kg as the answer; a start figure valid in mmol/L stops being an answer in mg/dL; a change during a slow Next holds the page (H5R-11); a refused change shows on the page and on Welcome, Try again stores it, and Close stays; Me's Save waits for "195".
+  - `restore.test.ts` (H5R-17), `assemble.test.ts` (Look around keeps `raw`), `merge.test.ts` (a cleared answer clears the profile).
+- **Failing first:** the 9 caller and restore cases, run against the previous source, all failed.
+- **Mutation checks:** 31 mutants, all killed. Three needed new cases: a correction made during a slow autosave, Look around storing what's waiting, and hidden numbers holding nothing.
+- **V-J17:** its wait now reads `draft.answers.conditions.bp`.
+
+#### H5R-10 = K5R-01, H5-20: a waiting allergy wasn't counted where meals are suggested. FIXED, `94b0a25` (D192)
+- **Tests:** `food.callers.test.ts`, through the real screens over the real store, after a finished setup with the pattern skipped and a peanut allergy: Meal ideas leave Vegetable poha out and say so; the poha page says it has the allergy; search leaves it out; Meal ideas', the Sample week's and Me → Food's pattern choice each make a record with the allergy, the level and the screening answer; the food chapter in Profile & health does too. `state.test.ts`: `waitingFood` from finished and draft answers, "No food allergies" kept, nothing once a record exists.
+- **Failing first:** 5 of the 6 first cases failed against the previous source; the chapter editor already carried them.
+- **Mutation checks:** 14 mutants, all killed.
+
+#### Merge of feat/v2-journey (Plan 7 and its D205). `18869f8`
+- 16 conflicted files, both sides kept: Plan 7's guide, content and food screens taken whole (its D205 replaces this branch's own reading of the waiting allergy), with this branch's transfer re-applied in FoodPicker and Me → Food; the Voices card's 48 px targets; Replace's confirmation with Plan 7's routes and open-incident lines at 12 px; `replaceErases` with routes and typed numbers; both permission texts; both new store tests.
+- `food.callers.test.ts` keeps the transfer cases (Meal ideas', Sample week's, Me → Food's, Profile & health's), which pass on the merged screens; 4 mutants killed. The gates: 260 files, 6,822 tests.
+
+#### Owner decisions D168 and D169 (board D193, D194). `7780f8e`
+- **Tests:** `allergens.test.ts`: a v1 record reads as not known, setup's answer where it has one. `browse.test.ts`: with no answer, one row in the meal ideas' place, once, nothing where no idea matched; with an answer, the ideas, as pinned before. `food.callers.test.ts`: with P01's kind of record, Meal ideas, an idea page, Learn's search, the Food hub and Me → Food each ask first, and the one tap shows the ideas; with no record, the tap is setup's answer; while unsaved, the session's; with setup finished, the finished answers; with no profile, this visit's choices. `hub.callers.test.ts`'s person now has "No food allergies".
+- **Mutation checks:** 16 mutants, all killed; one test was tightened so this visit's choices need the tap.
+- **Journeys:** V-J08 and V-J28 answer "No food allergies" once.
+
+#### H5-18 (the unbounded fields, with answers stored as given). FIXED, `40ee6c0`
+- The name field takes no more than `NAME_MAX`. Allergies of the person's own over the limits are kept as typed in `draft.raw` (`customAllergies`, bounded by `typedMax`), with no answer and nothing read as "No food allergies", until they fit; Next and Me's Save wait, saying why. The import check holds each typed field to its own length.
+- Tests: a caller test (the name's limit, an over-long allergy kept as typed across a restart, then fixed); the import check's per-key bound. 6 mutants killed.
+
+#### H5-22, H5-23 (the Voices card and Replace). FIXED, `5285671`
+- The Voices card's voice rows and Preview buttons, its chips and Replace are 48 px, 12 px apart; the voices and single-choice chips use the shared radio keyboard (`radioKeys`, now in its own module, which finds its radios in their group). The 48 px node check covers the Voices card, the chips and the restore flow, with a 12 px spacing check. 6 mutants killed.
+
+#### H5-24 (context and precision). FIXED, `62af870`
+- Metric height and waist show as stored (160.55 cm); a reading from v1's body log says "logged in the previous version", with the day only. 3 mutants killed.
+
+#### H5-25 (settings-only content). FIXED, `771578f`
+- Replace's confirmation counts settings the person changed from a new device's (Display, reminders, Home, a goal) as "your settings"; setup's stage, the unit before any answer and a backup's own marks don't count. 3 mutants killed.
+
+#### K5R-07 (v1's unasked questions). FIXED, `209511b`, `f3e4f18` (D195)
+- Tests in `prefill.test.ts`, `state.test.ts` and `progress.test.ts`. 5 mutants killed.
+
+#### K5R-08 (a safety page "skipped" by a backup). FIXED, `1616c80`
+- `skippedOf` counts only a preference page's skip, so Review, the page guard, the hold's reason and Finish setting up name the page. 1 mutant killed.
+
+#### K5R-10 (reminders and the HbA1c message). FIXED, `0b7c095`
+- The reminder host reads `gateProfile` (setup's gap while unfinished, a Me save on its way): a v1 record left part-way holds water reminders. The limits message says "long-term blood sugar (HbA1c)". A schedule test, a node test of the wiring, and the plain-words caller test with the message showing. 2 mutants killed.
+
+#### K5R-04. FIXED in `d9b34c8`
+- A change refused because another copy finished setup is dropped with a toast, "Setup was finished in another window of FitStrong, so your last answers here weren't saved. Check them in Me → Profile & health." Tested in `draft.test.ts`.
+
+#### Found by the acceptance run: a backup restored on Welcome, or Review, was refused as "replaced". FIXED, `4e3a10b` (D191)
+- V-J11 ("a backup made part-way through setup") and V-J37 failed at step 4: Welcome and Review kept the generation they were opened with, so after a Replace done on them, every move was refused. They draw what the store holds, so they now plan for the generation they draw; a move planned before another copy's Replace reached this one is still refused. A caller test restores on Welcome and on Review, then Get started and Start using go on; the Review mutant is killed.
+
+#### Verification, round 2
+- Gates at `4e3a10b`: tsc, lint, and 261 files, 6,844 tests.
+- Acceptance through the lock (port 50001): V-J10, V-J11, V-J13, V-J17, V-J18, V-J37, J01, J02, J12, J14, M01, V-J08, V-J28, V-J29, J06: 316 cases, 308 passed; the 8 failures were V-J11's part-way case and V-J37, fixed in `4e3a10b`.
+- Rerun of V-J11 and V-J37 at `4e3a10b`: 12 cases, 12 passed (every viewport). V-J18 reports 41 to 42 px check-in radios on small screens (Trace, Small, Large), outside setup.
+
+**At the merge into feat/v2-journey.** No conflicts: `18869f8` had merged feat/v2-journey's head (`d4aad35`), so the tree is this branch's. S01's sweep met D194's ask in Meal ideas for P01, whose food record is v1's. It now checkpoints the ask, answers "No food allergies" once, as V-J08 and V-J28 do, then checkpoints the ideas and opens one at `#/hub/food/ideas/<id>`. Its old `#/guide/meals/` link matched nothing once the ideas moved to the Food hub, so no earlier run had reached an idea's page. Gates: `tsc -b --force` and lint clean, Vitest 261 files and 6,844 tests. Targeted acceptance through the lock (port 49831; S01, J01, J02, J06, J12, J14, J17, J20, M01, V-J08, V-J10, V-J11, VJ12, V-J13, V-J17, V-J18, V-J28, V-J29 and V-J37; `/tmp/fit-checks/accept-v2-p5r2.log`): 424 cases, 424 passed, in 21.5 min. The sweep found what earlier runs found (J20's offline lines, Browse's More menu, V-J18's 41–42 px ketone choices at 320 px), and a 4.34:1 reading on V-J11's "Your record is restored" toast at small-light, whose screenshot shows it fading in.

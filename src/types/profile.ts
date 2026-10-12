@@ -170,6 +170,13 @@ export interface UserProfile {
   name?: string;
   /** v2: the latest waist in cm. Each change is also a dated `waist` reading (journey §18.1). */
   waistCm?: number;
+  /**
+   * Only on the profile a gate reads, while answers are on their way (setup
+   * unfinished, a save in Me pending or refused): every profile the person
+   * might have, each run through the engine (`engine/candidates.ts`; board
+   * D168). Never stored.
+   */
+  candidates?: readonly UserProfile[];
 }
 
 /**

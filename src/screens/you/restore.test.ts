@@ -35,6 +35,27 @@ describe('what Replace erases, so it is asked twice whenever something would go 
     expect(replaceErases(draft({ metric: true, name: 'Kai' }))).toBe('your setup answers so far');
   });
 
+  it('a number typed that isn’t an answer yet is one of them (H5R-17)', () => {
+    const typed = { ...empty, settings: { ...settings, setup: { stage: 'open' as const, draft: { at: 'about.name' as const, answers: { metric: true }, raw: { birthYear: '195' } } } } };
+    expect(replaceErases(typed)).toBe('your setup answers so far');
+  });
+
+  it('settings the person changed, with no profile or answers: Display, reminders, Home, a goal (H5-25, H5R-17)', () => {
+    const changed = (patch: Partial<typeof settings>) => replaceErases({ ...empty, settings: { ...settings, ...patch } });
+    expect(changed({ display: { textScale: 1.3 } as never })).toBe('your settings');
+    expect(changed({ habits: { water: { enabled: true, glassMl: 250, everyMinutes: 120, from: '09:00', to: '21:00' } } })).toBe('your settings');
+    expect(changed({ weeklyMovementGoalMinutes: 90 })).toBe('your settings');
+    const named = draft({ metric: true, name: 'Kai' });
+    expect(replaceErases({ ...named, settings: { ...named.settings, theme: 'dark' } })).toBe('your setup answers so far and your settings');
+  });
+
+  it('but not what the app keeps for itself: the unit, setup’s stage, a backup’s own marks', () => {
+    const kept = (patch: Partial<typeof settings>) => replaceErases({ ...empty, settings: { ...settings, ...patch } });
+    expect(kept({ useMetric: !settings.useMetric })).toBeUndefined();
+    expect(kept({ onboardingComplete: true, setup: { stage: 'lookAround' } })).toBeUndefined();
+    expect(kept({ habits: { lastExportAt: '2026-10-08T19:00:00.000+05:30', lastExportSeq: 4, lastExportVia: 'share' } })).toBeUndefined();
+  });
+
   it('the profile and settings, and the records', () => {
     expect(replaceErases({ ...empty, profile: createDefaultProfile() })).toBe('your profile and settings');
     expect(replaceErases({ ...empty, sessions: [{}, {}], profile: createDefaultProfile() })).toBe('the 2 sessions and your profile and settings');

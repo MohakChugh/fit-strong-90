@@ -9,6 +9,7 @@
 import { BROWSE_GROUPS, CATEGORIES, SHORTCUTS, type BrowseGroupId, type CategoryId } from '@/categories';
 import { search, type GuideContext, type SearchResult } from '@/content';
 import { words } from '@/content/text';
+import { FOOD_COPY } from '@/food/copy';
 import { redirectFor } from '@/redirects';
 
 export type BrowseRow =
@@ -83,6 +84,12 @@ const CONTENT_GROUP: Record<SearchResult['kind'], BrowseGroupId> = { meal: 'eat'
 /** The Guide's links may still name v1's addresses; Browse opens the v2 place (journey §19.3). */
 const placeOf = (to: string) => redirectFor(to, '') ?? to;
 
+/**
+ * In the meal ideas' place while the person's allergies aren't known, as the Guide's search holds them back: one
+ * row, to where they're told (owner decision; board D193).
+ */
+export const ALLERGIES_TO_SEE: BrowseRow = { kind: 'shortcut', id: 'food-allergies', title: FOOD_COPY.allergiesToSee, to: '/me/food' };
+
 export function browse(query: string, ctx: GuideContext, mode: 'browse' | 'pick' = 'browse'): BrowseResults {
   const typed = words(query);
   const entries = ENTRIES.filter(e => (mode === 'browse' || e.row.kind === 'category') && (typed.length === 0 || matches(e.tokens, typed)));
@@ -94,8 +101,10 @@ export function browse(query: string, ctx: GuideContext, mode: 'browse' | 'pick'
   const rows = new Map<BrowseGroupId, BrowseRow[]>(BROWSE_GROUPS.map(g => [g.id, []]));
   for (const e of entries) rows.get(e.group)?.push(e.row);
   for (const r of content) {
+    if (r.kind === 'meal' && !ctx.allergies) continue;
     rows.get(CONTENT_GROUP[r.kind])?.push({ kind: r.kind, id: r.id, title: r.title, detail: r.detail, to: placeOf(r.to), result: r });
   }
+  if (!ctx.allergies && content.some(r => r.kind === 'meal')) rows.get(CONTENT_GROUP.meal)?.push(ALLERGIES_TO_SEE);
   return {
     groups: BROWSE_GROUPS.map(g => ({ id: g.id, title: g.title, rows: rows.get(g.id) ?? [] })).filter(g => g.rows.length > 0),
     partial: onlyPartial && entries.length === 0,

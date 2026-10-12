@@ -6,7 +6,7 @@ import { isEnrolled } from '@/health/recommend';
 import { createDefaultProfile } from '@/profile/defaults';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import { completedSetup, profileFrom } from './assemble';
-import { editChapters, editMeasurements, editOf, editPath, editedRecord, editorOpens, editorState } from './edit';
+import { ANSWERS_CHANGED, editChapters, editMeasurements, editOf, editPath, editedRecord, editorOpens, editorState } from './edit';
 import { keysOfChapter } from './fields';
 import { COMPLEX, GLIFLOZIN_NO_DIABETES, JOIN, MINIMAL, NO_CLASSES, NO_CONDITIONS, withC } from './fixtures';
 import { SAFETY_CHAPTERS, commitPage, pathFor } from './graph';
@@ -365,5 +365,32 @@ describe('a shown page half answered holds Save, with the reason at it (K5-15; b
     const state = editorState(editorOpens('movement', data.profile), noGoal, noGoal, CTX);
     expect(state.left).toContain('movement.goal');
     expect(state.blocking).toEqual([]);
+  });
+});
+
+describe('two copies of Me editing the same answer (H5R-02; board D190)', () => {
+  const insulin = { ...MINIMAL, conditions: { ...NO_CONDITIONS, diabetes: 'yes' as const }, diabetesType: 'type2' as const, regular: 'yes' as const,
+    classes: { ...NO_CLASSES, insulin: 'yes' as const }, insulinHow: 'basalOnly' as const, lowsRisk: 'yes' as const, priorDka: 'no' as const, dizzy: 'no' as const,
+    glucoseMonitor: 'meter' as const, glucoseUnit: 'mg/dL' as const, clearance: 'vigorous' as const, targets: 'no' as const };
+
+  it('the answers and the profile agree: what one copy said “Not sure” to stays, and so does what it holds', () => {
+    const data = finished(insulin);
+    const opened = answersToEdit(data.settings.setup?.answers, data.profile!, data.settings, TODAY, CTX);
+    const save = (d: AppData, lowsRisk: 'unsure' | 'no') =>
+      editedRecord(d, editOf(editorState(editorOpens('medicines', d.profile), { ...opened, lowsRisk }, opened, CTX), opened), TODAY, CTX);
+    // B says Not sure, then A, opened before B saved, says No.
+    const after = save(save(data, 'unsure'), 'no');
+    expect(after.settings.setup?.answers?.lowsRisk).toBe('unsure');
+    expect(after.profile?.health.highHypoRisk).toBe(true);
+  });
+
+  it('where neither answer is stricter, the later save is refused, saying why', () => {
+    const back = { ...MINIMAL, conditions: { ...NO_CONDITIONS, pain: 'yes' as const }, painAreas: ['lowerBack' as const], worseWith: 'unknown' as const, neuroHistory: 'no' as const, clearance: 'vigorous' as const };
+    const data = finished(back);
+    const opened = answersToEdit(data.settings.setup?.answers, data.profile!, data.settings, TODAY, CTX);
+    const save = (d: AppData, worseWith: 'flexion' | 'extension') =>
+      editedRecord(d, editOf(editorState(editorOpens('backFeet', d.profile), { ...opened, worseWith }, opened, CTX), opened), TODAY, CTX);
+    const flexion = save(data, 'flexion');
+    expect(() => save(flexion, 'extension')).toThrow(ANSWERS_CHANGED);
   });
 });
