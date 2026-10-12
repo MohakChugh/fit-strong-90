@@ -1949,6 +1949,8 @@ export function update(updater: (previous: AppData) => AppData, options: UpdateO
             ...change?.observations,
             put: [...(change?.observations?.put ?? []).filter(o => !back.has(o.id)), ...rows],
             remove: (change?.observations?.remove ?? []).filter(id => !back.has(id)),
+            // Each keeps the place it was said in, as every restore does (D110).
+            kept: [...back],
           },
         } : {}),
       } : change;

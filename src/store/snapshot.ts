@@ -86,9 +86,15 @@ export interface Change {
    * a put with none first, and the commit ends on the last.
    * `keepSeq`: each put keeps its own `seq`, the place it had when first said
    * (a restore, D110), so two statements made at one moment keep their order;
-   * one with none takes this commit's.
+   * one with none takes this commit's. `kept`: the same, for these puts only
+   * (rows a restore brings back beside others written new).
+   *
+   * Otherwise a put is said here, now: placed after every statement this
+   * database holds (its `order` raised past theirs), so two copies of the app
+   * saying something at one instant keep the order they were stored in,
+   * wherever the two statements meet later (J17, board D110).
    */
-  observations?: { put?: Observation[]; remove?: string[]; keepOrder?: boolean; keepSeq?: boolean };
+  observations?: { put?: Observation[]; remove?: string[]; keepOrder?: boolean; keepSeq?: boolean; kept?: readonly string[] };
   sessions?: { put?: WorkoutSession[]; remove?: string[] };
   /**
    * Field by field, so that two writers each changing one setting both land:
@@ -222,6 +228,21 @@ function withIds(list: readonly Observation[], ids: readonly string[]): Observat
 }
 
 /**
+ * The highest place (`order`) a snapshot's statements hold, or a number no lower: worked out once for a
+ * snapshot read whole, then carried from each change to the next, so a tap never scans the record (C2-04).
+ */
+const ORDER_FLOORS = new WeakMap<Snapshot, number>();
+function orderFloor(s: Snapshot): number {
+  let floor = ORDER_FLOORS.get(s);
+  if (floor === undefined) {
+    floor = 0;
+    for (const o of s.observations) if (o.order !== undefined && o.order > floor) floor = o.order;
+    ORDER_FLOORS.set(s, floor);
+  }
+  return floor;
+}
+
+/**
  * Apply a change. Pure: the same base and change always give the same next
  * snapshot and the same writes, and slices the change does not touch keep
  * their identity — which is what lets a screen's memo survive a commit.
@@ -238,7 +259,18 @@ export function prepare(base: Snapshot, change: Change): Prepared {
 
   // Each step's place, looked up rather than searched for (C2-04).
   const rank = new Map(steps.map((step, i) => [step, i]));
-  const puts = given.map(o => (keepSeq && o.seq !== undefined ? o : { ...o, seq: steps.length ? base.revision + 1 + rank.get(o.seq ?? -1)! : revision }));
+  const kept = new Set(change.observations?.kept ?? []);
+  // Said here, now: after everything this database holds (J17, D110). An import keeps the file's places.
+  const saidHere = !keepSeq && !change.observations?.keepOrder;
+  let floor = saidHere && given.length > 0 ? orderFloor(base) : 0;
+  const puts = given.map(o => {
+    const keeps = keepSeq || kept.has(o.id);
+    if (keeps && o.seq !== undefined) return o;
+    const seq = steps.length ? base.revision + 1 + rank.get(o.seq ?? -1)! : revision;
+    if (!saidHere || keeps || o.order === undefined) return { ...o, seq };
+    floor = Math.max(o.order, floor + 1);
+    return { ...o, seq, order: floor };
+  });
   const removes = change.observations?.remove ?? [];
   const sessionPuts = lastById(change.sessions?.put ?? []);
   const sessionRemoves = change.sessions?.remove ?? [];
@@ -311,6 +343,10 @@ export function prepare(base: Snapshot, change: Change): Prepared {
     content,
     records,
   };
+  // The floor the next statement said here starts from: no lower than any place this one holds.
+  let nextFloor = from === base ? orderFloor(base) : 0;
+  for (const o of puts) if (o.order !== undefined && o.order > nextFloor) nextFloor = o.order;
+  ORDER_FLOORS.set(next, nextFloor);
 
   const writes: Write[] = [];
   const docs = (keys: Doc['key'][]) => {
