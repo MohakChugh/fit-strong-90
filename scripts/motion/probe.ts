@@ -10,7 +10,7 @@ import { getClip } from '../../src/motion/clips';
 import { skin, surface } from '../../src/motion/probe';
 
 const [id = 'stand', phasesArg = '0'] = process.argv.slice(2);
-const buf = fs.readFileSync('public/models/coach-male.bin');
+const buf = fs.readFileSync('src/assets/models/coach-male.bin');
 const data = parseCharacter(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
 const rig = new Rig(data.bones);
 const clip = getClip(id);

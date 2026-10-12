@@ -5,8 +5,8 @@
  * see https://github.com/makehumancommunity/mpfb2/blob/master/LICENSE.md §C).
  * No Blender needed: shaping, joint placement and skin weights are done here.
  *
- *   node scripts/character/build.mjs --sex=male     # → public/models/coach-male.bin
- *   node scripts/character/build.mjs --sex=female   # → public/models/coach-female.bin
+ *   node scripts/character/build.mjs --sex=male     # → src/assets/models/coach-male.bin
+ *   node scripts/character/build.mjs --sex=female   # → src/assets/models/coach-female.bin
  *
  * Downloads are cached in scripts/character/.cache (git-ignored).
  *
@@ -21,7 +21,7 @@ import zlib from 'node:zlib';
 const args = Object.fromEntries(process.argv.slice(2).map(a => a.replace(/^--/, '').split('=')));
 const SEX = args.sex === 'female' ? 'female' : 'male';
 const CACHE = 'scripts/character/.cache';
-const OUT = `public/models/coach-${SEX}.bin`;
+const OUT = `src/assets/models/coach-${SEX}.bin`;
 const SRC = 'https://raw.githubusercontent.com/makehumancommunity/mpfb2/master/src/mpfb/data';
 
 /** MakeHuman macro sliders (0–1): a young, lean, athletic build. */

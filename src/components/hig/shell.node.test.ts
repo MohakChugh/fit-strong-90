@@ -1128,20 +1128,20 @@ describe('the bars follow the app’s theme (S-17)', () => {
 
 describe('Home Screen icons (S-22)', () => {
   const size = (file: string) => {
-    const png = fs.readFileSync(path.join(ROOT, 'public', file));
+    const png = fs.readFileSync(path.join(ROOT, file));
     expect(png.subarray(1, 4).toString('ascii'), file).toBe('PNG');
     return [png.readUInt32BE(16), png.readUInt32BE(20)];
   };
 
   it('ships PNGs at 180, 192 and 512, with a maskable one', () => {
-    expect(size('apple-touch-icon.png')).toEqual([180, 180]);
-    expect(size('pwa-192x192.png')).toEqual([192, 192]);
-    expect(size('pwa-512x512.png')).toEqual([512, 512]);
-    expect(size('pwa-maskable-512x512.png')).toEqual([512, 512]);
+    expect(size('src/assets/apple-touch-icon.png')).toEqual([180, 180]);
+    expect(size('public/pwa-192x192.png')).toEqual([192, 192]);
+    expect(size('public/pwa-512x512.png')).toEqual([512, 512]);
+    expect(size('public/pwa-maskable-512x512.png')).toEqual([512, 512]);
   });
 
   it('names them in index.html and the manifest', () => {
-    expect(read('index.html')).toContain('<link rel="apple-touch-icon" sizes="180x180" href="/fit-strong-90/apple-touch-icon.png" />');
+    expect(read('index.html')).toContain('<link rel="apple-touch-icon" sizes="180x180" href="/src/assets/apple-touch-icon.png" />');
     const icons: { src: string; type: string; purpose: string }[] = JSON.parse(read('public/manifest.webmanifest')).icons;
     expect(icons.filter(i => i.type === 'image/png').map(i => `${i.src} ${i.purpose}`)).toEqual([
       'pwa-192x192.png any', 'pwa-512x512.png any', 'pwa-maskable-512x512.png maskable',

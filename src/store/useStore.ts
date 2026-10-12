@@ -310,6 +310,11 @@ function note(failure: StoreFailure): void {
 
 function enqueue<T>(m: Omit<Mutation<T>, 'settle'>): Promise<StoreResult<T>> {
   return new Promise<StoreResult<T>>(resolve => {
+    // A restart to update is under way (D106, P8S-13): nothing new is shown or written.
+    if (!admitting) {
+      resolve({ ok: false, failure: new StoreFailure('unavailable', RESTARTING_REFUSAL) });
+      return;
+    }
     const mutation = { ...m, settle: resolve } as Mutation<T>;
     try {
       // Planned now, against what the user is looking at.
@@ -344,6 +349,23 @@ function enqueueTask<T>(run: () => Promise<T>): Promise<T> {
     void pump();
   });
 }
+
+let admitting = true;
+export const RESTARTING_REFUSAL = 'FitStrong is restarting to update, so this wasn’t saved.';
+
+/**
+ * Lets in no new work while FitStrong restarts to update (board D106, Codex
+ * P8S-13): every mutation asked for from now is refused at once, with nothing
+ * shown or written, until the function this gives back is called. Work
+ * already queued carries on (`whenSettled`).
+ */
+export function holdNewWork(): () => void {
+  admitting = false;
+  return () => { admitting = true; };
+}
+
+/** Resolves once every write queued before it has been stored or refused. */
+export const whenSettled = (): Promise<void> => enqueueTask(async () => undefined);
 
 async function pump(): Promise<void> {
   if (pumping) return;
@@ -644,6 +666,7 @@ function adopt(snap: Snapshot): void {
 /** Tests only: drop the connection and the state between cases. */
 export function resetForTests(): void {
   generation += 1;
+  admitting = true;
   db?.close();
   db = undefined;
   channel?.close();

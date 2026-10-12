@@ -6,26 +6,34 @@ import { Toaster } from '@/components/ui/sonner'
 import App from './App'
 import { RootError } from '@/components/hig/ErrorBoundary'
 import { backPending, followRouter, setPlaceCheck } from '@/components/hig/navigation'
-import { getState } from '@/store/useStore'
+import { getState, holdNewWork, whenSettled } from '@/store/useStore'
+import { startUpdates, type ContainerLike } from '@/app/updates'
+import { underWay } from '@/app/underWay'
 import { shouldAnimate, transitionSkipped } from '@/design/motion'
 import { placeExists } from '@/places'
 import { applyTextSize } from '@/lib/textSize'
 import './index.css'
 
-// A deploy replaced the files this page was built from, so a screen it hasn't
-// loaded yet can't load: reload onto the new build (at most every 10 s, so a
-// real outage can't loop). A guided session resumes from its saved progress.
-window.addEventListener('vite:preloadError', () => {
-  const last = Number(sessionStorage.getItem('fit-reload-at') ?? 0);
-  if (Date.now() - last < 10_000) return;
-  sessionStorage.setItem('fit-reload-at', String(Date.now()));
-  window.location.reload();
-});
-
-// Production only: in dev a cached module would mask code changes.
+// Updates the platform's own way (J§21.2, B-21; board D106): a new release installs and
+// waits until no window runs this one, and Home says so. Nothing reloads by itself, not
+// even for a screen that didn't load: a window reads only its own release's files, which
+// stay until its last window closes, so that is a real failure, and its Try again is the
+// person's own (K8-02, K8-10). Production only: in development a cached module would mask
+// code changes.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {})
+  void startUpdates({
+    container: navigator.serviceWorker as unknown as ContainerLike,
+    swUrl: `${import.meta.env.BASE_URL}sw.js`,
+    storage: localStorage,
+    reload: () => window.location.reload(),
+    loaded: new Promise<void>(resolve => {
+      if (document.readyState === 'complete') resolve()
+      else window.addEventListener('load', () => resolve(), { once: true })
+    }),
+    mark: build => { document.documentElement.dataset.build = build },
+    underWay,
+    hold: holdNewWork,
+    settled: whenSettled,
   })
 }
 

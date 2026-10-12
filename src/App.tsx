@@ -12,6 +12,8 @@ import { setupStateOf } from '@/setup/state';
 import { ReminderHost } from '@/reminders/ReminderHost';
 import { ScreenLoading } from '@/components/hig/AppShell';
 import { UrgentProvider } from '@/screens/home/UrgentBanner';
+import { RestartCover } from '@/app/RestartCover';
+import { useUpdates } from '@/app/updates';
 
 /**
  * Set once a saved person has been read, so that if the database later cannot
@@ -71,6 +73,8 @@ function App() {
   const { status, settings, profile } = useStore();
   const session = useSetupSession();
   const [continueUnsaved, setContinueUnsaved] = useState(false);
+  // Restarting to update (D106, P8S-13): the cover is up, and nothing under it can be tapped, typed or reached.
+  const { restarting } = useUpdates();
 
   // Open the database, migrate v4 data across and publish it (D13).
   useEffect(() => {
@@ -117,25 +121,37 @@ function App() {
   // background rather than a spinner: this is usually over in well under the
   // time a spinner would take to stop looking like a glitch.
   if (status === 'loading') return <div className="min-h-dvh bg-grouped-bg" aria-busy="true" />;
-  if (status === 'unavailable' && !continueUnsaved) return <StorageUnavailable onContinue={() => setContinueUnsaved(true)} />;
+  if (status === 'unavailable' && !continueUnsaved) {
+    return (
+      <>
+        <div inert={restarting} className="contents"><StorageUnavailable onContinue={() => setContinueUnsaved(true)} /></div>
+        <RestartCover />
+      </>
+    );
+  }
 
   // The safety decision is owned above the routes, so a screen still loading
   // or one that failed shows it too, as do full-screen tasks and sheets
   // (journey §4.7, codex V1-02, V1-03).
   return (
-    <UrgentProvider>
-      {/* Keyed by place, so a tab returns to where it was scrolled. */}
-      <ScrollRestoration getKey={scrollKeyOf} />
-      {/* Opted-in reminders while the app is open (board D15). */}
-      {settings.onboardingComplete && <ReminderHost />}
-      {/* Unsaved setup that was finished opens the app for this session only (B-07). */}
-      <Suspense fallback={<ScreenLoading full />}>
-        <AppRoutes
-          onboarded={settings.onboardingComplete || session.entered}
-          setupOpen={setupStateOf(settings, profile).stage !== 'done' || session.entered}
-        />
-      </Suspense>
-    </UrgentProvider>
+    <>
+      <div inert={restarting} className="contents">
+        <UrgentProvider>
+          {/* Keyed by place, so a tab returns to where it was scrolled. */}
+          <ScrollRestoration getKey={scrollKeyOf} />
+          {/* Opted-in reminders while the app is open (board D15). */}
+          {settings.onboardingComplete && <ReminderHost />}
+          {/* Unsaved setup that was finished opens the app for this session only (B-07). */}
+          <Suspense fallback={<ScreenLoading full />}>
+            <AppRoutes
+              onboarded={settings.onboardingComplete || session.entered}
+              setupOpen={setupStateOf(settings, profile).stage !== 'done' || session.entered}
+            />
+          </Suspense>
+        </UrgentProvider>
+      </div>
+      <RestartCover />
+    </>
   );
 }
 

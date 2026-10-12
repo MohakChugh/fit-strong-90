@@ -88,6 +88,7 @@ import { NewHomeRow } from './NewHomeRow';
 import { movementLine } from './tileLine';
 import { RIGHT_NOW_ID, SAFETY_KINDS, SLOTS, UrgentContext, recommendSources, withEffectiveToday } from './urgent';
 import { WeekCard } from './WeekCard';
+import { UpdateRow } from './UpdateRow';
 import { WalkRecoveryRow } from './WalkRecoveryRow';
 import { movedDays, restDaysOf, stepsLine, stretchDays, weekDots } from './week';
 
@@ -410,6 +411,9 @@ export function HomeScreen() {
       {/* A walk the app lost mid-way, offered to save (journey §9.4): under the
           Right now card, so an urgent surface always ranks above it (A-57). */}
       <WalkRecoveryRow />
+
+      {/* A release waiting, or just installed (D106): under Right now, so an urgent surface always ranks above it. */}
+      <UpdateRow />
 
       {/* Quiet, and only once today is checked in: a new symptom or reading
           can always be added, whatever the suggestion above says (J03 step 4). */}

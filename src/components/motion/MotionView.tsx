@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { PauseIcon, PlayIcon, XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MODEL_URL } from '@/motion/models';
 
 type Runtime = typeof import('@/motion/runtime');
 type Viewer = InstanceType<Runtime['MotionViewer']>;
@@ -66,7 +67,7 @@ export function MotionView({ exerciseId, name, side = 'left', mistake = null, pl
     let v: Viewer | null = null;
     loadRuntime().then(async mod => {
       if (cancelled || !host.current) return;
-      v = new mod.MotionViewer(host.current, { modelUrl: `${import.meta.env.BASE_URL}models/coach-${figure}.bin` });
+      v = new mod.MotionViewer(host.current, { modelUrl: MODEL_URL[figure] });
       await v.load();
       if (!cancelled) setApi({ mod, v });
     }).catch(() => { if (!cancelled) setFailed(true); });
