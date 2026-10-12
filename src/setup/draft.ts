@@ -503,6 +503,28 @@ export async function lookAroundFirst(generation?: number): Promise<string | und
   return undefined;
 }
 
+/**
+ * "No food allergies" for a food record not made yet (owner decision; board
+ * D194): setup's own answer, where meal ideas read it (`setupAllergyAnswer`),
+ * stored as setup stores any answer: this session's while setup goes on
+ * without saving, the draft's while it's unfinished, else the finished
+ * answers. Nothing is written for a record another copy has since replaced.
+ */
+export async function answerNoAllergies(): Promise<StoreResult | undefined> {
+  const none = (a: SetupAnswers) => putField(putField(a, 'allergies', []), 'customAllergies', undefined);
+  if (current().unsaved) {
+    keepInSession(current().at ?? 'food.allergies', none(current().answers));
+    return undefined;
+  }
+  return update(d => {
+    const setup = setupStateOf(d.settings, d.profile);
+    if (setup.stage === 'done') return { ...d, settings: { ...d.settings, setup: { ...setup, answers: none(setup.answers ?? {}) } } };
+    const now = setup.draft?.answers ?? prefillAnswers(d.settings, d.profile);
+    const change = (field: 'allergies' | 'customAllergies', value: unknown): [string, FieldChange] => [field, { baseline: getField(now, field), value }];
+    return withFields(d, new Map([change('allergies', []), change('customAllergies', undefined)]), new Map([['customAllergies', '']]), undefined);
+  }, { generation: getState().epoch });
+}
+
 export function resetSetupSessionForTests(): void {
   session = EMPTY;
   sessionEpoch = 0;

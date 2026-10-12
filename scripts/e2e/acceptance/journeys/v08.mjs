@@ -1,7 +1,10 @@
 /**
  * V-J08: look up a food (journey §17.1 V-J08, §14). Browse → search
- * "chapatti" → the food and the Guide card. Also a condition (sciatica) and a
- * word nothing has.
+ * "chapatti" → the food and the Guide card. P01's food record is v1's, which
+ * never asked about allergies, so meal ideas wait until they're told: Browse
+ * asks, and "No food allergies" in Me → Food is one tap, as a person would
+ * give it (owner decision; Plan 5's board D193, D194). Also a condition
+ * (sciatica) and a word nothing has.
  */
 import { persona } from '../fixtures/personas.mjs';
 import * as ui from '../lib/ui.mjs';
@@ -28,7 +31,17 @@ export const cases = [
     async run(t) {
       const page = await t.open({ seed: persona('P01'), route: '/home' });
       const main = page.getByRole('main');
-      await t.step(1, 'Browse → search “chapatti”', async () => {
+      await t.step(1, 'Browse → search “chapatti”; meal ideas wait for allergies: Me → Food, “No food allergies”; search again', async () => {
+        await searchBrowse(t, 'chapatti');
+        const ask = ui.row(ui.section(main, 'Eat'), 'Tell us about food allergies to see meal ideas', 'link');
+        await t.must(await ask.count() === 1, `Eat doesn’t ask about food allergies first: ${flat(await main.innerText()).slice(0, 300)}`);
+        await t.check(await ui.row(ui.section(main, 'Eat'), 'Roti, dal and sabzi', 'link').count() === 0, 'Eat lists a meal idea before allergies are known');
+        await t.checkpoint('browse-chapatti-ask');
+        await ui.tap(ask);
+        await ui.heading(page, 'Food');
+        const none = main.getByRole('button', { name: 'No food allergies', exact: true });
+        await ui.tap(none);
+        await none.waitFor({ state: 'detached', timeout: 10000 });
         await searchBrowse(t, 'chapatti');
         await t.must(await ui.row(ui.section(main, 'Eat'), 'Roti, dal and sabzi', 'link').count() === 1, `Eat lists no “Roti, dal and sabzi”: ${flat(await main.innerText()).slice(0, 300)}`);
         await t.check(await ui.row(ui.section(main, 'Learn'), 'Rice, roti and millets', 'link').count() === 1, 'Learn lists no “Rice, roti and millets”');

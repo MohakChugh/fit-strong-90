@@ -11,13 +11,15 @@ import { createElement } from 'react';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, type Host, type HostNode } from '@/test/host';
 
+const where = vi.hoisted(() => ({ pathname: '/hub/food/ideas' }));
 vi.mock('react-router-dom', async () => {
   const { createElement: h } = await import('react');
   return {
     useNavigate: () => () => {},
-    useLocation: () => ({ pathname: '/guide/meals', search: '', state: null }),
+    useLocation: () => ({ pathname: where.pathname, search: '', state: null }),
     useParams: () => ({ mealId: 'b-poha' }),
-    useSearchParams: () => [new URLSearchParams('chapter=food')],
+    useSearchParams: () => [new URLSearchParams('chapter=food'), () => {}],
+    useViewTransitionState: () => false,
     Navigate: () => null,
     Link: ({ children, to }: { children?: unknown; to: string }) => h('a', { href: `#${to}` }, children as never),
   };
@@ -117,6 +119,146 @@ describe('the food answers waiting for an eating pattern go into the record that
     await host.click(host.button('Save', { exact: true }));
     await host.settle();
     expect(store.getState().profile?.food).toMatchObject({ pattern: 'vegetarian', allergies: ['peanut'], level: 'meals', hardBefore: 'yes' });
+    host.unmount();
+  });
+});
+
+describe('a food record that never answered allergies, as v1’s, asks first, with “No food allergies” one tap away (owner decision; board D194)', () => {
+  const V1 = { pattern: 'vegetarian' as const, avoid: [], region: 'north' as const };
+  /** A record from v1: food chosen there, and setup's answers with no allergy answer in them. */
+  const withV1Record = async () => {
+    expect((await store.update(d => {
+      const { allergies: _a, customAllergies: _c, ...answers } = d.settings.setup!.answers!;
+      void _a;
+      void _c;
+      return { ...d, profile: { ...d.profile!, food: V1 }, settings: { ...d.settings, setup: { ...d.settings.setup!, answers } } };
+    })).ok).toBe(true);
+  };
+  const MEAL = 'Vegetable poha';
+
+  it('Meal ideas show none until then, and every one after the tap', async () => {
+    await withV1Record();
+    const { default: MealIdeasScreen } = await import('./MealIdeasScreen');
+    const host = render(createElement(MealIdeasScreen));
+    await host.settle();
+    expect(host.text()).toContain('Tell us about food allergies first');
+    expect(host.text()).not.toContain(MEAL);
+    await host.click(host.button('No food allergies', { exact: true }));
+    await host.settle();
+    expect(store.getState().profile?.food).toEqual({ ...V1, allergies: [] });
+    expect(host.text()).toContain(MEAL);
+    expect(host.text()).not.toContain('Tell us about food allergies first');
+    host.unmount();
+  });
+
+  it('an idea opened directly says so, and the tap answers it there', async () => {
+    await withV1Record();
+    const { default: MealDetailScreen } = await import('./MealDetailScreen');
+    const host = render(createElement(MealDetailScreen));
+    await host.settle();
+    expect(host.text()).toContain('Tell us about food allergies first');
+    await host.click(host.button('No food allergies', { exact: true }));
+    await host.settle();
+    expect(store.getState().profile?.food?.allergies).toEqual([]);
+    expect(host.buttons('No food allergies')).toHaveLength(0);
+    host.unmount();
+  });
+
+  it('Learn’s search holds meal ideas back until then, and offers the tap', async () => {
+    await withV1Record();
+    const { default: GuideScreen } = await import('./GuideScreen');
+    const host = render(createElement(GuideScreen));
+    await host.settle();
+    await host.change(host.all().find(n => n.type === 'input' && n.props.type === 'search')!, { value: 'poha' });
+    expect(host.text()).not.toContain(MEAL);
+    await host.click(host.button('No food allergies', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain(MEAL);
+    host.unmount();
+  });
+
+  it('the Food hub’s ideas for this meal ask first too, and show after the tap', async () => {
+    await withV1Record();
+    where.pathname = '/hub/food';
+    try {
+      const { default: FoodHubScreen } = await import('@/screens/food/FoodHubScreen');
+      const host = render(createElement(FoodHubScreen));
+      await host.settle();
+      expect(host.text()).toContain('Tell us about food allergies first');
+      await host.click(host.button('No food allergies', { exact: true }));
+      await host.settle();
+      expect(host.text()).not.toContain('Tell us about food allergies first');
+      expect(host.all().filter(n => n.type === 'a' && /^#\/hub\/food\/ideas\/./.test(String(n.props.href))).length).toBeGreaterThan(0);
+      host.unmount();
+    } finally {
+      where.pathname = '/hub/food/ideas';
+    }
+  });
+
+  it('Me → Food offers it while the record never answered, and not after', async () => {
+    await withV1Record();
+    const { FoodScreen } = await import('@/screens/you/FoodScreen');
+    const host = render(createElement(FoodScreen));
+    await host.settle();
+    await host.click(host.button('No food allergies', { exact: true }));
+    await host.settle();
+    expect(store.getState().profile?.food).toEqual({ ...V1, allergies: [] });
+    expect(host.buttons('No food allergies')).toHaveLength(0);
+    host.unmount();
+  });
+
+  it('with no record and no answer anywhere, the tap is setup’s answer, kept for the record to come', async () => {
+    const { lookedAround } = await import('@/setup/assemble');
+    store.resetForTests();
+    resetSetupSessionForTests();
+    await store.start({ factory: fakeIndexedDB(), broadcast: null });
+    expect((await store.update(lookedAround)).ok).toBe(true);
+    const { default: MealIdeasScreen } = await import('./MealIdeasScreen');
+    const host = render(createElement(MealIdeasScreen));
+    await host.settle();
+    expect(host.text()).not.toContain(MEAL);
+    await host.click(host.button('No food allergies', { exact: true }));
+    await host.settle();
+    expect(store.getState().settings.setup?.draft?.answers?.allergies).toEqual([]);
+    expect(host.text()).toContain(MEAL);
+    host.unmount();
+  });
+});
+
+describe('the one tap, wherever the answer lives (owner decision; board D194)', () => {
+  it('while setup goes on without saving, it is this session’s answer', async () => {
+    const { answerNoAllergies, continueWithoutSaving, getSetupSession } = await import('@/setup/draft');
+    continueWithoutSaving('food.allergies', { customAllergies: ['kiwi'] });
+    expect(await answerNoAllergies()).toBeUndefined();
+    expect(getSetupSession().answers).toMatchObject({ allergies: [] });
+    expect(getSetupSession().answers.customAllergies).toBeUndefined();
+  });
+
+  it('with setup finished and no food record, it is setup’s finished answer', async () => {
+    const { answerNoAllergies } = await import('@/setup/draft');
+    expect((await store.update(d => {
+      const { allergies: _a, ...answers } = d.settings.setup!.answers!;
+      void _a;
+      return { ...d, settings: { ...d.settings, setup: { ...d.settings.setup!, answers } } };
+    })).ok).toBe(true);
+    expect((await answerNoAllergies())?.ok).toBe(true);
+    expect(store.getState().settings.setup?.answers?.allergies).toEqual([]);
+  });
+
+  it('with no profile, it goes with this visit’s food choices', async () => {
+    const { saveFood, saveNoAllergies } = await import('./useGuide');
+    store.resetForTests();
+    resetSetupSessionForTests();
+    await store.start({ factory: fakeIndexedDB(), broadcast: null });
+    expect(await saveFood({ pattern: 'vegan', avoid: [] })).toBeUndefined();
+    const { default: MealIdeasScreen } = await import('./MealIdeasScreen');
+    const host = render(createElement(MealIdeasScreen));
+    await host.settle();
+    expect(host.text()).toContain('Tell us about food allergies first');
+    expect(await saveNoAllergies()).toBeUndefined();
+    await host.settle();
+    expect(host.text()).not.toContain('Tell us about food allergies first');
+    expect(store.getState().profile).toBeUndefined();
     host.unmount();
   });
 });

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { CATEGORIES, SHORTCUTS } from '@/categories';
-import { TOPICS, contextOf } from '@/content';
+import { TOPICS, contextOf, type GuideContext } from '@/content';
 import { CATEGORY_ALIASES, SHORTCUT_ALIASES, browse } from './browse';
 
 const anyone = contextOf();
-const group = (q: string, id: string, mode: 'browse' | 'pick' = 'browse') => browse(q, anyone, mode).groups.find(g => g.id === id);
-const ids = (q: string, id: string, mode: 'browse' | 'pick' = 'browse') => group(q, id, mode)?.rows.map(r => r.id) ?? [];
+/** Someone who has said "No food allergies": meal ideas show for them (owner decision; board D193). */
+const told: GuideContext = { ...contextOf(), allergies: { allergies: [] } };
+const group = (q: string, id: string, mode: 'browse' | 'pick' = 'browse', ctx: GuideContext = told) => browse(q, ctx, mode).groups.find(g => g.id === id);
+const ids = (q: string, id: string, mode: 'browse' | 'pick' = 'browse', ctx: GuideContext = told) => group(q, id, mode, ctx)?.rows.map(r => r.id) ?? [];
 const row = (q: string, gid: string, id: string) => group(q, gid)?.rows.find(r => r.id === id);
 
 describe('Browse with nothing typed (journey §14)', () => {
@@ -59,8 +61,20 @@ describe('searching (journey §14)', () => {
     expect(ids('gluc meter', 'check')).toEqual([]);
   });
   it('passes the person’s food choices through: a vegan’s search for dahi finds no meal with dahi', () => {
-    const vegan = contextOf(['vegan'], { pattern: 'vegan', avoid: [] });
+    const vegan = { ...contextOf(['vegan'], { pattern: 'vegan', avoid: [], allergies: [] }), allergies: { allergies: [] } };
     expect(browse('dahi', vegan).groups.find(g => g.id === 'eat')?.rows.filter(r => r.kind === 'meal') ?? []).toEqual([]);
+    expect(browse('roti', vegan).groups.find(g => g.id === 'eat')?.rows.some(r => r.kind === 'meal')).toBe(true);
+  });
+  it('lists no meal idea while allergies aren’t known, as the Guide’s search doesn’t: one row asks, and opens Me → Food (owner decision; board D193)', () => {
+    const eat = group('chapatti', 'eat', 'browse', anyone)?.rows ?? [];
+    expect(eat.filter(r => r.kind === 'meal')).toEqual([]);
+    expect(eat).toEqual([{ kind: 'shortcut', id: 'food-allergies', title: 'Tell us about food allergies to see meal ideas', to: '/me/food' }]);
+    // The Guide's answers about food still show.
+    expect(row('chapatti', 'learn', 'card-grains')).toBeDefined();
+    // Once, however many ideas match; and nothing asks where no idea does.
+    expect(group('roti', 'eat', 'browse', anyone)?.rows.filter(r => r.id === 'food-allergies')).toHaveLength(1);
+    expect(group('sciatica', 'eat', 'browse', anyone)).toBeUndefined();
+    expect(ids('', 'eat', 'browse')).toEqual(['food', 'meal-ideas']);
   });
 });
 
@@ -101,7 +115,7 @@ describe('whatever is typed (Review Focus 2)', () => {
     expect(browse('???', anyone)).toEqual(browse('', anyone));
     expect(browse('  ChapaTTi  ', anyone)).toEqual(browse('chapatti', anyone));
     expect(() => browse('x'.repeat(500), anyone)).not.toThrow();
-    const roti = browse('रोटी', anyone);
+    const roti = browse('रोटी', told);
     expect(roti.groups.find(g => g.id === 'eat')?.rows.some(r => r.kind === 'meal')).toBe(true);
     for (const g of roti.groups) for (const r of g.rows) if (r.kind !== 'category') expect(r.to).toMatch(/^\//);
   });

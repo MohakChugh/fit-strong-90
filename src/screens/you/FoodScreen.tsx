@@ -8,6 +8,7 @@ import { promptDefault } from '@/food/prompts';
 import { LevelSheet } from '@/screens/food/LevelSheet';
 import { endFoodUndos, offerFoodUndo, useFoodUndoScope } from '@/screens/food/undo';
 import { ownAllergyStatus } from '@/screens/guide/format';
+import { NoAllergiesRow } from '@/screens/guide/parts';
 import { formatDayShort } from '@/screens/track/format';
 import { ConfirmSheet, NumberField } from '@/screens/track/ui';
 import { useToday } from '@/screens/track/useToday';
@@ -163,6 +164,8 @@ export function FoodScreen() {
 
       {food && (
         <Group header={FOOD_COPY.allergiesGroup} footer={FOOD_COPY.allergiesFooter}>
+          {/* Never answered, as in a record from v1: not known, which isn't none, so it's one tap (owner decision; board D194). */}
+          {food.allergies === undefined && food.customAllergies === undefined && <NoAllergiesRow />}
           <CheckRows
             label={FOOD_COPY.allergiesGroup}
             options={ALLERGY_CHOICES}

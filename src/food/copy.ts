@@ -18,6 +18,10 @@ export const FOOD_COPY = {
   allergiesFirst: 'Tell us about food allergies first',
   allergiesFirstDetail: 'Meal ideas leave out anything you’re allergic to, so we ask before showing any.',
   mealsWithheld: 'Meal ideas wait until you tell us about food allergies.',
+  // Browse's one row in their place, to Me → Food (owner decision; Plan 5's board D193).
+  allergiesToSee: 'Tell us about food allergies to see meal ideas',
+  // One tap where meal ideas ask first (owner decision; Plan 5's board D194).
+  noAllergies: 'No food allergies',
   notChosenYet: 'Not chosen yet',
   notChosenAllergies: 'Not chosen yet — meals for every pattern, without your allergies',
   logWhatYouAte: 'Log what you ate',
