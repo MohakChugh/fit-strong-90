@@ -38,8 +38,22 @@ export async function releaseServer(port, logDir = os.tmpdir()) {
     B: await build('B', { VITE_ACCEPTANCE_SUCCESSOR: '1', FITSTRONG_RELEASE_NUMBER: '200' }, logDir),
   };
   const sw = name => fs.readFileSync(path.join(dirs[name], 'sw.js'), 'utf8');
+  // Each worker numbered as it was built (public/sw.js, Task 2): a build that lost its number would let
+  // the update cases run two releases in no order, so the run stops here, before any case (D121).
+  for (const [name, number] of [['A', 100], ['B', 200]]) {
+    if (!sw(name).includes(`const NUMBER = Number("${number}")`)) throw new Error(`release ${name}'s worker isn't numbered ${number}: see ${path.join(dirs[name], 'sw.js')}`);
+  }
   let current = 'A';
+  /** The worker's own script requests, held while a case keeps new workers back (`holdWorker`). */
+  let held = null;
   const server = http.createServer((req, res) => {
+    if (held && req.headers['service-worker'] === 'script') {
+      held.push(() => serve(req, res));
+      return;
+    }
+    serve(req, res);
+  });
+  function serve(req, res) {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     if (!url.pathname.startsWith(BASE_PATH)) { res.writeHead(404); res.end(); return; }
     const root = dirs[current];
@@ -48,7 +62,7 @@ export async function releaseServer(port, logDir = os.tmpdir()) {
     if (!target.startsWith(root) || !fs.existsSync(target)) { res.writeHead(404); res.end('missing'); return; }
     res.writeHead(200, { 'content-type': TYPES[path.extname(target)] ?? 'application/octet-stream', 'cache-control': 'no-cache' });
     fs.createReadStream(target).pipe(res);
-  });
+  }
   await new Promise(resolve => server.listen(port, '127.0.0.1', resolve));
   return {
     url: `http://127.0.0.1:${port}${BASE_PATH}`,
@@ -56,6 +70,16 @@ export async function releaseServer(port, logDir = os.tmpdir()) {
     use(name) {
       if (!dirs[name]) throw new Error(`no release ${name}`);
       current = name;
+    },
+    /** Keep the worker's script back, as a slow line would, until `releaseWorker`: a first visit stays uncontrolled meanwhile. */
+    holdWorker() {
+      held = held ?? [];
+    },
+    /** Let the worker's script through: its install, and a first release's takeover, follow. */
+    releaseWorker() {
+      const waiting = held ?? [];
+      held = null;
+      for (const go of waiting) go();
     },
     /**
      * A later copy of `from` (its number 50 more) whose worker is new and
