@@ -4,6 +4,7 @@ import { CandyIcon, FlagIcon, HandIcon, PauseIcon, PlayIcon, TriangleAlertIcon }
 import { Screen } from '@/components/hig/Screen';
 import { Sheet } from '@/components/hig/Sheet';
 import { Stat } from '@/components/hig/Stat';
+import { TARGET } from '@/components/hig/targets';
 import { CheckInSheet } from '@/components/checkin/CheckInSheet';
 import { useGuided } from '@/hooks/useGuided';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
@@ -11,14 +12,19 @@ import type { SymptomReport } from '@/components/checkin/pending';
 import type { GlucoseEntry } from '@/types/checkin';
 import { deriveHealth } from '@/engine/health';
 import { PERMISSION_TEXT } from '@/engine/permission';
-import { reachableHistory, walkInput, walkRefusal, type Clinical } from '@/walk/gate';
+import { heldBy, reachableHistory, statusRefusal, untimedOf, walkInput, walkRefusal, type Clinical } from '@/walk/gate';
+import { statusOn } from '@/health/status';
+import { StatusSheet } from '@/screens/today/StatusSheet';
 import { cn, toDateString } from '@/lib/utils';
 import { clock, spokenClock, timeOfDay } from '@/walk/format';
 import { feelLow, lowReading } from '@/walk/low';
-import { walkFromSearch } from '@/walk/plan';
+import { needToStop } from '@/walk/stop';
+import { walkFromSearch, walkSetupHref } from '@/walk/plan';
+import { takeStarted } from '@/walk/started';
+import { walkSettings, withConsent } from '@/walk/consent';
+import { getState, useStore } from '@/store/useStore';
 import {
   STEPS_DENIED,
-  clockLine,
   cueLine,
   distanceFigure,
   draftWarning,
@@ -83,22 +89,22 @@ function Notice({ snapshot, live }: { snapshot: LiveSnapshot; live: LiveWalk }) 
       <p className="text-[length:var(--text-body)] leading-snug">{text.message}</p>
       {notice.kind === 'away' ? (
         <>
-          <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
-            <button type="button" onClick={() => live.dismissNotice()} className="press-feedback min-h-11 rounded-lg bg-tint px-3 text-[length:var(--text-body)] font-semibold text-on-tint">
+          <div className={cn('grid grid-cols-1 min-[360px]:grid-cols-2', TARGET.gap)}>
+            <button type="button" onClick={() => live.dismissNotice()} className={cn('press-feedback rounded-lg bg-tint px-3 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.primary)}>
               Continue walking
             </button>
-            <button type="button" onClick={() => live.finish('finish')} className="press-feedback min-h-11 rounded-lg bg-grouped-bg px-3 text-[length:var(--text-body)] font-semibold text-tint">
+            <button type="button" onClick={() => live.finish('finish')} className={cn('press-feedback rounded-lg bg-grouped-bg px-3 text-[length:var(--text-body)] font-semibold text-tint', TARGET.primary)}>
               Finish
             </button>
           </div>
           {text.add && (
-            <button type="button" onClick={() => live.addAwayTime()} className="min-h-11 self-start text-left text-[length:var(--text-body)] text-tint">
+            <button type="button" onClick={() => live.addAwayTime()} className={cn('self-start text-left text-[length:var(--text-body)] text-tint', TARGET.tap)}>
               {text.add}
             </button>
           )}
         </>
       ) : (
-        <button type="button" onClick={() => live.dismissNotice()} className="min-h-11 min-w-11 self-start text-left text-[length:var(--text-body)] text-tint">
+        <button type="button" onClick={() => live.dismissNotice()} className={cn('self-start text-left text-[length:var(--text-body)] text-tint', TARGET.tap)}>
           Done
         </button>
       )}
@@ -129,20 +135,28 @@ export default function LiveWalkScreen() {
   const day = snapshot ? toDateString(new Date(snapshot.now)) : date;
   const clinical: Clinical = useMemo(() => ({ profile, checkIns: reachableHistory(checkIns, day, profile) }), [profile, checkIns, day]);
   const hypoRisk = deriveHealth(profile.health).hypoRisk;
-  const [sheet, setSheet] = useState<'stop' | 'finish' | 'checkIn' | null>(null);
+  const [sheet, setSheet] = useState<'stop' | 'finish' | 'checkIn' | 'status' | null>(null);
+  // Today's status, which carrying the walk on asks first (H2-01).
+  const { settings } = useStore();
   // The last report from this screen that the device would not keep (N01).
   const [unsaved, setUnsaved] = useState(false);
 
-  // Opening the screen returns to the walk in progress, or starts the one in
-  // the address. A new walk is asked the same permission the Start button
-  // asked, so an old address in the history cannot step around the check-in.
-  // The controller asks again itself, and asks a restored walk the restart
-  // question (F06, B03).
+  // Opening the screen returns to the walk in progress, or starts the one the
+  // shared start flow has just started. The address's fields are choices,
+  // never authorisation (H6-04): an arrival the flow didn't make — a link, a
+  // typed address, history — goes to the Walk hub, whose Start runs the
+  // first-walk questions and B-01's sequence; its meal goes with it. The plan
+  // is the flow's own, the route kept only on this phone's yes as it is now
+  // (KH-12). A new walk is asked the same permission the Start button asked,
+  // and the controller asks again itself, and asks a restored walk the
+  // restart question (F06, B03).
   const open = useEffectEvent(() => {
     const now = new Date();
-    const request = walkFromSearch(params, now.getTime());
+    const asked = walkFromSearch(params, now.getTime());
+    const plan = asked ? takeStarted(asked.id) : undefined;
+    const request = asked && plan ? { id: asked.id, plan: withConsent(plan, walkSettings(getState().settings)) } : undefined;
     const allowed = !!request && !walkRefusal(walkInput(clinical, now), 'start');
-    if (live.attach(allowed ? request : undefined) === 'none') navigate('/walk', { replace: true });
+    if (live.attach(allowed ? request : undefined) === 'none') navigate(walkSetupHref(asked?.plan.meal?.which), { replace: true });
   });
 
   useEffect(() => {
@@ -174,9 +188,11 @@ export default function LiveWalkScreen() {
    * before anyone taps Resume (N06). Resume still asks for itself.
    */
   const question = snapshot.blocked ?? (running ? null : 'restart');
-  const refusal = question ? walkRefusal(walkInput(clinical, new Date(snapshot.now), snapshot.walk.clockChangedAt), question) : undefined;
-  // Only when the hold is the one the clock change causes: a reading that can't be timed (B-19).
-  const clockNote = refusal?.reasons.includes(PERMISSION_TEXT.staleNoTime) ? clockLine(snapshot.walk) : undefined;
+  // After a change to the phone's clock, the readings from before it, which the engine holds on (B-19); its reason says so.
+  // Carrying on asks the status too, after a stop and before any other hold (H2-01).
+  const refusal = question
+    ? heldBy(walkRefusal(walkInput(clinical, new Date(snapshot.now), untimedOf(snapshot.walk)), question), statusRefusal(statusOn(settings.statusPeriods, day), question))
+    : undefined;
   const emergency = refusal?.disposition === 'emergency';
   const low = lowOpen(checkIn, snapshot.walk);
   const action = refusal ? heldAction(refusal, low) : 'none';
@@ -192,8 +208,13 @@ export default function LiveWalkScreen() {
   const full = journalLine(snapshot);
   const cue = profile.voice.muted ? undefined : cueLine({ status: voiceStatus, trouble: voiceTrouble }, typeof navigator === 'undefined' || navigator.onLine);
 
+  /**
+   * "I need to stop": recording stops, and the stop is saved through the
+   * shared path, at the tap (journey §4.4). Closing the question leaves it
+   * standing: the walk stays held until it is answered.
+   */
   const stopNow = () => {
-    live.pause();
+    void needToStop(live, reportSymptoms).then(r => setUnsaved(!r.stored));
     setSheet('stop');
   };
 
@@ -251,7 +272,7 @@ export default function LiveWalkScreen() {
                 <p role="status" className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{cue.text}</p>
                 {cue.unlock && (
                   // In this tap: iOS unlocks audio only inside one (A-53).
-                  <button type="button" onClick={() => void player.unlock(profile.voice.pack ?? 'af_heart')} className="min-h-11 text-[length:var(--text-subhead)] font-semibold text-tint">
+                  <button type="button" onClick={() => void player.unlock(profile.voice.pack ?? 'af_heart')} className={cn('text-[length:var(--text-subhead)] font-semibold text-tint', TARGET.tap)}>
                     Turn the voice on
                   </button>
                 )}
@@ -269,15 +290,24 @@ export default function LiveWalkScreen() {
                   </p>
                   {refusal.reasons.map(r => <p key={r}>{r}</p>)}
                   {refusal.release && <p className="text-muted-foreground">{refusal.release}</p>}
-                  {clockNote && <p className="text-muted-foreground">{clockNote}</p>}
                   <p className="text-muted-foreground">Your walk so far is kept. Finish to save it.</p>
+                  {action === 'stop' && (
+                    <button type="button" onClick={() => setSheet('stop')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
+                      Say what happened
+                    </button>
+                  )}
+                  {action === 'status' && (
+                    <button type="button" onClick={() => setSheet('status')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
+                      Change status
+                    </button>
+                  )}
                   {action === 'checkIn' && (
-                    <button type="button" onClick={() => setSheet('checkIn')} className="press-feedback mt-1 min-h-11 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
+                    <button type="button" onClick={() => setSheet('checkIn')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
                       Check in
                     </button>
                   )}
                   {action === 'profile' && (
-                    <button type="button" onClick={() => navigate('/you/profile')} className="press-feedback mt-1 min-h-11 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
+                    <button type="button" onClick={() => navigate('/you/profile')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
                       Health questions
                     </button>
                   )}
@@ -309,14 +339,15 @@ export default function LiveWalkScreen() {
           )}
 
           <div className="flex flex-col items-center gap-2 text-center">
-            {/* Paused, the time dims, with no pulse (M13, A-67). */}
-            <div role="timer" className={cn(!running && 'opacity-60')}>
+            {/* Paused, the time dims, with no pulse (M13, A-67): the figure only,
+                so its label keeps its contrast. */}
+            <div role="timer">
               <Stat
                 label="Walking time"
                 unit=""
                 size="timer"
                 className="items-center [&>span:last-child]:justify-center"
-                value={<><span aria-hidden>{clock(snapshot.observedMs)}</span><span className="sr-only">{spokenClock(snapshot.observedMs)}</span></>}
+                value={<span className={cn(!running && 'opacity-60')}><span aria-hidden>{clock(snapshot.observedMs)}</span><span className="sr-only">{spokenClock(snapshot.observedMs)}</span></span>}
               />
             </div>
             {target && <p className="text-[length:var(--text-subhead)] text-muted-foreground">{target}</p>}
@@ -347,7 +378,7 @@ export default function LiveWalkScreen() {
                   figure={steps}
                   className="col-span-2 border-t border-separator"
                   action={snapshot.stepsState === 'needsPermission' && (
-                    <button type="button" onClick={() => void live.enableMotion()} className="min-h-11 self-start text-[length:var(--text-body)] text-tint">
+                    <button type="button" onClick={() => void live.enableMotion()} className={cn('self-start text-[length:var(--text-body)] text-tint', TARGET.tap)}>
                       Allow motion and count steps
                     </button>
                   )}
@@ -356,13 +387,13 @@ export default function LiveWalkScreen() {
             </div>
           )}
 
-          <div className={cn('grid grid-cols-1 gap-2', hypoRisk && !refusal && 'min-[360px]:grid-cols-2')}>
-            <button type="button" onClick={stopNow} className="press-feedback flex min-h-12 items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-stop">
+          <div className={cn('grid grid-cols-1', TARGET.gap, hypoRisk && !refusal && 'min-[360px]:grid-cols-2')}>
+            <button type="button" onClick={stopNow} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-stop', TARGET.primary)}>
               <HandIcon className="size-5 shrink-0" aria-hidden />
               I need to stop
             </button>
             {hypoRisk && !refusal && (
-              <button type="button" onClick={reportLow} className="press-feedback flex min-h-12 items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-caution">
+              <button type="button" onClick={reportLow} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-caution', TARGET.primary)}>
                 <CandyIcon className="size-5 shrink-0" aria-hidden />
                 I feel low
               </button>
@@ -427,6 +458,9 @@ export default function LiveWalkScreen() {
         startLabel="Carry on walking"
         onStart={() => { setSheet(null); live.resume(); }}
       />
+
+      {/* Today's status, as the hubs offer it, for a walk the status holds (H2-01). */}
+      <StatusSheet open={sheet === 'status'} onOpenChange={o => { if (!o) setSheet(null); }} today={day} periods={settings.statusPeriods} startDate={settings.startDate} />
 
       <Sheet open={sheet === 'finish'} onOpenChange={o => { if (!o) setSheet(null); }} title="Finish walk" detent="medium">
         <p className="text-[length:var(--text-body)] leading-snug">

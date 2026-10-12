@@ -1,4 +1,3 @@
-import { leaveOut } from './allergens';
 import { CARDS } from './cards';
 import { claims } from './library';
 import { MEALS, SLOTS } from './meals';
@@ -6,7 +5,7 @@ import { isCardVisible, topicsFor, type GuideContext } from './personalise';
 import type { Pattern } from './schema';
 import { normalise, tokens, words } from './text';
 import { TOPICS } from './topics';
-import { componentsFor, isAvoided, suits } from './week';
+import { componentsFor, mealAllowed, suits } from './week';
 
 export type ResultKind = 'topic' | 'card' | 'meal';
 
@@ -104,12 +103,10 @@ export function search(query: string, ctx: GuideContext): SearchResult[] {
   }
 
   const visibleCardIds = new Set(CARDS.filter(c => isCardVisible(c, ctx)).map(c => c.id));
-  // What meal ideas leave out, search leaves out too: the foods typed, allergies and Jain's rule (board D82), and
-  // with no food record yet, the allergies setup holds (board D192).
-  const food = ctx.food ?? ctx.waiting;
-  const out = leaveOut(food);
-  const meals = mealDocsFor(food?.pattern)
-    .filter(d => !isAvoided(MEALS.find(m => m.id === d.id)!, out, food?.pattern));
+  // What meal ideas leave out, search leaves out too: the foods typed, allergies by recipe and the Jain pattern (B-13),
+  // with no food record the allergies setup is keeping (board D205). Not known at all, the screen asks first.
+  const meals = mealDocsFor(ctx.food?.pattern)
+    .filter(d => mealAllowed(MEALS.find(m => m.id === d.id)!, ctx.food ?? ctx.allergies));
   const pool = [...TOPIC_DOCS, ...CARD_DOCS.filter(d => visibleCardIds.has(d.id)), ...meals];
   const phrase = normalise(query);
 

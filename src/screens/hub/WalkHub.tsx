@@ -1,23 +1,25 @@
 import { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { FootprintsIcon } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { format } from 'date-fns';
 import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
 import { mealWalkNow } from '@/health/recommend';
+import { periodOn, type Status } from '@/health/status';
 import { timeOf } from '@/lib/time';
 import { displayPrefs } from '@/screens/track/logKinds';
 import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
 import { weekMovement } from '@/screens/today/model';
 import { StatusSheet } from '@/screens/today/StatusSheet';
-import { ChoiceRow, PrimaryButton, SelectRow, SwitchRow } from '@/screens/walk/parts';
-import { setSettings } from '@/store/useStore';
+import { ChoiceRow, SelectRow, SwitchRow } from '@/screens/walk/parts';
+import { getState, setSettings } from '@/store/useStore';
 import type { Meal } from '@/types/habits';
 import type { WalkKind } from '@/walk/clock';
 import { canLocate, canSenseMotion, requestLocation, requestMotion } from '@/walk/browser';
-import { routeNote, walkSettings } from '@/walk/consent';
+import { consentSummary, routeNote, walkSettings } from '@/walk/consent';
 import { timeOfDay } from '@/walk/format';
-import { peekWalk } from '@/walk/persist';
+import { peekWalk, sessionWalkStorage } from '@/walk/persist';
+import { endOpenWalk } from '@/walk/recovery';
 import {
   AFTER_MEAL_TARGET, MEAL_LABEL, MEAL_STARTED_AGO, MEALS, TARGETS, afterMealSuggestion, choiceChanged, liveHref, mealFromSearch,
   mealMinutesAgo, mealStartedLabel, newWalkId, setupPlan,
@@ -26,7 +28,7 @@ import { HistoryList } from './HistoryList';
 import { HubFrame, HubSection, SeeTrends } from './HubFrame';
 import { useHubGate, useHubOrigin } from './hooks';
 import { MovementCard } from './MovementCard';
-import { actionTarget, movementCard, runAction, type HubActionKind } from './movement';
+import { actionTarget, movementCard, pendingWalkCard, resumeAllowed, runAction, type HubActionKind } from './movement';
 import { goalLine, modeWeek, movementHistory } from './week';
 import { WeekStrip } from './WeekStrip';
 
@@ -41,6 +43,9 @@ const LOCATION_NOTE = {
   unsupported: 'This browser cannot share your location, so the walk will be timed only.',
 } as const;
 
+/** Status as the store holds it at this moment, for the tap itself (journey §4.1). */
+const statusNow = (): Status => periodOn(getState().settings.statusPeriods, format(new Date(), 'yyyy-MM-dd'))?.kind ?? 'normal';
+
 const MOTION_NOTE = {
   denied: 'Motion access is off, so steps cannot be counted. You can allow Motion & Orientation Access in your iPhone’s Settings.',
   unsupported: 'This device has no motion sensor the app can read.',
@@ -54,7 +59,9 @@ const MOTION_NOTE = {
  *   While the gate refuses it says why, as the tile and Home do (§7.5).
  * - Options: the kind of walk, After a meal (which meal, and when it started),
  *   Walk with a target, and How walks are measured.
- * - A walk under way, or waiting to be saved, comes first.
+ * - A walk under way, or waiting to be saved, comes first. Carrying it on
+ *   follows status first, then the gate (`pendingWalkCard`, codex H2-01);
+ *   whenever it can't carry on it can still be reviewed and saved.
  * Every start goes through the shared gate (`useStartMovement`); nothing here
  * decides whether walking is safe.
  */
@@ -209,15 +216,29 @@ export default function WalkHub() {
   ];
 
   if (pending) {
-    const going = pending.state === 'inProgress';
+    const going = pendingWalkCard({
+      state: pending.state, started: timeOfDay(pending.startedAt), permission: g.permission, gate: g.gate, status, gaps: g.gaps, stretchOpen: g.stretchOpen,
+    });
+    const actPending = (k: HubActionKind) => {
+      // Ended where it stopped recording, then reviewed: nothing starts recording again (§4.8).
+      if (k === 'finishWalk') {
+        endOpenWalk(sessionWalkStorage(), Date.now());
+        navigate('/walk/summary', { viewTransition: true });
+        return;
+      }
+      runAction(actionTarget(k, { mode: 'walk', href: pending.href, resumeHref: pending.href, startLabel: 'Carry on walking' }), {
+        // Carrying on is a restart: status is asked again at the tap, then the gate, whose check-in opens here.
+        start: (mode, href, label) => { if (resumeAllowed(statusNow(), 'walk')) g.start(mode, href, label); },
+        go: to => navigate(to, { viewTransition: true, state: origin }),
+        status: () => setStatusOpen(true),
+        local: () => {},
+      });
+    };
     return (
-      <HubFrame category={category}>
-        <HubSection title="Right now">
-          <Group footer={going ? 'Nothing is recorded while the walk screen is closed. Return to carry on.' : 'Nothing is in your record until you save it.'}>
-            <Row icon={<FootprintsIcon />} label={going ? 'A walk is in progress' : 'A walk is waiting to be saved'} detail={`Started ${timeOfDay(pending.startedAt)}`} />
-          </Group>
-          <PrimaryButton className="mt-3 min-h-[60px]" onClick={() => navigate(pending.href, { viewTransition: true })}>{going ? 'Return to walk' : 'Review and save'}</PrimaryButton>
-        </HubSection>
+      <HubFrame category={category} held={going.state === 'held' || going.state === 'stopped' || going.state === 'gap'}>
+        <MovementCard card={going} onAction={actPending} />
+        {g.sheet}
+        <StatusSheet open={statusOpen} onOpenChange={setStatusOpen} today={today} periods={state.settings.statusPeriods} startDate={state.settings.startDate} />
       </HubFrame>
     );
   }
@@ -280,6 +301,9 @@ export default function WalkHub() {
             >
               <SwitchRow label="Measure distance and pace" detail={gpsBusy ? 'Asking for your location…' : gpsNote ?? routeNote(walkSettings(state.settings))} checked={gps} busy={gpsBusy} onToggle={() => void toggleGps()} />
               <SwitchRow label="Count steps" detail={stepsBusy ? 'Asking for motion access…' : stepsNote ?? 'Uses the motion sensor, with the phone in your hand or pocket.'} checked={steps} busy={stepsBusy} onToggle={() => void toggleSteps()} />
+              {/* What this phone keeps, and where to change it (journey §9.1, KH-03). */}
+              <Row as={Link} to="/me/data" viewTransition label="Routes" value={consentSummary(walkSettings(state.settings)).routes} chevron />
+              <Row as={Link} to="/me/data" viewTransition label="Map pictures" value={consentSummary(walkSettings(state.settings)).map} chevron />
             </Group>
           </div>
         </HubSection>

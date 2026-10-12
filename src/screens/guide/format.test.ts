@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { getMeal } from '@/content';
 import { contextOf, search } from '@/content';
 import {
-  AVOID_HELP, foodSummary, longDate, onlyPartial, parseAvoid, partialDetail, SOURCE_LINK_NOTE, unmatchedNote,
+  AVOID_HELP, foodSummary, longDate, onlyPartial, ownAllergyNote, ownAllergyStatus, parseAllergies, parseAvoid, partialDetail, SOURCE_LINK_NOTE, unmatchedNote,
 } from './format';
 import { componentDetail, mealDetail, measureClaimIds } from './mealText';
 
@@ -16,6 +16,17 @@ describe('Guide formatting', () => {
     expect(foodSummary({ pattern: 'vegetarian', avoid: [] })).toBe('Vegetarian');
     expect(foodSummary({ pattern: 'vegan', avoid: ['peanuts'], region: 'south' })).toBe('Vegan · South Indian · no peanuts');
     expect(foodSummary({ pattern: 'eggetarian', avoid: [], region: 'mixed' })).toBe('Vegetarian with eggs');
+  });
+
+  it('names allergies in the summary of what the person eats', () => {
+    expect(foodSummary({ pattern: 'jain', avoid: [], allergies: ['peanut'], customAllergies: ['brinjal'] })).toBe('Jain · allergic to peanut, brinjal');
+  });
+
+  it('keeps allergies in the person’s own words within what a backup can be read back with (30, of 60 characters)', () => {
+    const long = 'x'.repeat(70);
+    expect(parseAllergies(`brinjal, ${long}; Brinjal ,, `)).toEqual(['brinjal', 'x'.repeat(60)]);
+    expect(parseAllergies(Array.from({ length: 31 }, (_, i) => `food${i}`).join(','))).toHaveLength(30);
+    expect(parseAllergies('')).toEqual([]);
   });
 
   it('splits the leave-out field into foods, dropping blanks and repeats', () => {
@@ -65,5 +76,20 @@ describe('partial search results', () => {
     expect(partialDetail(partial[0])).toBe('Matches “insulin”, not “zebra”');
     expect(onlyPartial(search('dal', contextOf()))).toBe(false);
     expect(onlyPartial([])).toBe(false);
+  });
+});
+
+describe('an allergy in the person’s own words, and how it’s read (K7R-02; board D200)', () => {
+  it('says what it is read as, or that we don’t know the word, and nothing when our foods’ words find it', () => {
+    expect(ownAllergyStatus('chaach')).toEqual({ text: 'Read as milk', unknown: false });
+    expect(ownAllergyStatus('peanuts and badam')).toEqual({ text: 'Read as peanut and tree nuts', unknown: false });
+    expect(ownAllergyStatus('kumquat')).toEqual({ text: 'We don’t know this word, so check every meal yourself', unknown: true });
+    expect(ownAllergyStatus('jeera')).toBeUndefined();
+  });
+  it('says it for each entry of the setup field that has a status, in one note', () => {
+    expect(ownAllergyNote(['chaach', 'jeera', 'kumquat'])).toEqual({ text: 'chaach: Read as milk. kumquat: We don’t know this word, so check every meal yourself.', unknown: true });
+    expect(ownAllergyNote(['chaach'])).toEqual({ text: 'chaach: Read as milk.', unknown: false });
+    expect(ownAllergyNote(['jeera'])).toBeUndefined();
+    expect(ownAllergyNote([])).toBeUndefined();
   });
 });

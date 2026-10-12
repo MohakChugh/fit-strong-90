@@ -5,9 +5,9 @@
  * There's no migration step and no interstitial (§6.6).
  */
 import type { AppData, UserSettings } from '@/types';
-import type { UserProfile } from '@/types/profile';
-import type { ChapterId, SetupAnswers, SetupState } from '@/types/setup';
-import type { MealFood } from '@/content/allergens';
+import type { FoodPreferences, UserProfile } from '@/types/profile';
+import type { ChapterId, SetupAnswers, SetupRecord, SetupState } from '@/types/setup';
+import { setupAllergyAnswer } from '@/food/allergens';
 
 /** The chapters a v1 record has new questions in: name, food logging, and meal times for after-meal walks (§6.6, board D79). */
 export function upgradeSkipped(settings: Pick<UserSettings, 'habits'>, profile: UserProfile): ChapterId[] {
@@ -34,22 +34,19 @@ export function setupStateOf(settings: Pick<UserSettings, 'setup' | 'onboardingC
 export const answersOf = (s: SetupState): SetupAnswers => s.draft?.answers ?? s.answers ?? {};
 
 /**
- * The food answers setup holds that no food record does yet: with "How do
- * you eat?" skipped, the allergies, the logging level and the screening
- * answer wait in setup's answers (board D164). Meal ideas leave the
- * allergies out meanwhile, and whatever sets the pattern later takes them
- * all into the new record (H5R-10, K5R-01; board D192).
+ * The food answers setup keeps for a food record not made yet (boards D164,
+ * D167): with "How do you eat?" skipped, the allergies
+ * (`setupAllergyAnswer`), the logging level and the screening answer wait in
+ * setup's answers. Each is read as the allergies are: this session's while
+ * setup goes on without saving, else the finished answers, else the
+ * draft's. Whatever sets the pattern later takes them all into the new
+ * record (H5R-10, K5R-01, H5-20; board D192).
  */
-export function waitingFood(settings: Pick<UserSettings, 'setup' | 'onboardingComplete' | 'habits'>, profile: UserProfile | undefined): MealFood | undefined {
-  if (profile?.food) return undefined;
-  const a = answersOf(setupStateOf(settings, profile));
-  const food: MealFood = {
-    ...(a.allergies !== undefined ? { allergies: [...a.allergies] } : {}),
-    ...(a.customAllergies?.length ? { customAllergies: [...a.customAllergies] } : {}),
-    ...(a.foodLevel !== undefined ? { level: a.foodLevel } : {}),
-    ...(a.hardBefore !== undefined ? { hardBefore: a.hardBefore } : {}),
-  };
-  return Object.keys(food).length > 0 ? food : undefined;
+export function waitingFood(setup: SetupRecord | undefined, session?: { unsaved: boolean; answers: SetupAnswers }): Partial<FoodPreferences> {
+  const all = [session?.unsaved ? session.answers : undefined, setup?.answers, setup?.draft?.answers];
+  const level = all.find(a => a?.foodLevel !== undefined)?.foodLevel;
+  const hardBefore = all.find(a => a?.hardBefore !== undefined)?.hardBefore;
+  return { ...setupAllergyAnswer(setup, session), ...(level ? { level } : {}), ...(hardBefore ? { hardBefore } : {}) };
 }
 
 /** The one-time "FitStrong has a new Home" row (§6.6): once, for a record set up in v1, and never beside a safety state (motion rule 2). */

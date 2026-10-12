@@ -1,5 +1,5 @@
 import { createElement as h, type ReactNode } from 'react';
-import { MemoryRouter, Outlet, useLocation } from 'react-router-dom';
+import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from '@/test/host';
 
@@ -29,6 +29,7 @@ vi.mock('@/components/hig/StorageBanner', () => ({ TaskFrame: ({ children }: { c
 vi.mock('@/components/hig/ErrorBoundary', () => ({ ErrorBoundary: ({ children }: { children: ReactNode }) => children }));
 
 const { AppRoutes } = await import('./routes');
+const { default: TrendsRoutes } = await import('./screens/trends/routes');
 
 /** Every place the app was at, once the redirects have run. */
 async function land(entry: { pathname: string; search?: string; state?: unknown }, onboarded: boolean, setupOpen = false) {
@@ -41,6 +42,24 @@ async function land(entry: { pathname: string; search?: string; state?: unknown 
   render(h(MemoryRouter, { initialEntries: [entry] }, h(Where), h(AppRoutes, { onboarded, setupOpen }), h(Outlet)));
   await new Promise(r => setTimeout(r, 10));
   return [...new Set(places)];
+}
+
+/**
+ * Trends' own subtree, mounted at `/trends/*` as `AppRoutes` mounts it. It is
+ * loaded here at once: the host draws no lazily loaded screen.
+ */
+async function landInTrends(entry: { pathname: string; search?: string; state?: unknown }) {
+  const places: string[] = [];
+  const states: unknown[] = [];
+  function Where() {
+    const l = useLocation();
+    places.push(`${l.pathname}${l.search}`);
+    states.push(l.state);
+    return null;
+  }
+  render(h(MemoryRouter, { initialEntries: [entry] }, h(Where), h(Routes, null, h(Route, { path: '/trends/*', element: h(TrendsRoutes) }), h(Route, { path: '*', element: null }))));
+  await new Promise(r => setTimeout(r, 10));
+  return { places: [...new Set(places)], states };
 }
 
 beforeEach(() => { seen.length = 0; });
@@ -62,9 +81,16 @@ describe('the route table’s redirects keep the query and the state (journey §
     expect(places).toEqual(['/welcome?goal=1', '/home?goal=1']);
   });
 
-  it('the Workout Log’s and Trends’ workout addresses keep the query (D51)', async () => {
-    expect((await land({ pathname: '/trends/workout', search: '?from=bookmark' }, true)).at(-1)).toBe('/trends?from=bookmark');
+  it('the Workout Log’s address keeps the query; Trends’ workout address is the Workout trend (D51, D74)', async () => {
+    expect((await land({ pathname: '/trends/workout', search: '?from=bookmark' }, true)).at(-1)).toBe('/trends/workout?from=bookmark');
     expect((await land({ pathname: '/hub/workout/log/old', search: '?date=2026-10-05' }, true)).at(-1)).toBe('/hub/workout/log?date=2026-10-05');
+  });
+
+  it('Food’s trend address goes to the Food hub with its query and state until Food has a trend; anything deeper has moved (D74)', async () => {
+    const food = await landInTrends({ pathname: '/trends/food', search: '?from=bookmark', state: { path: '/home', label: 'Home' } });
+    expect(food.places.at(-1)).toBe('/hub/food?from=bookmark');
+    expect(food.states.at(-1)).toEqual({ path: '/home', label: 'Home' });
+    expect((await landInTrends({ pathname: '/trends/glucose/deeper' })).places.at(-1)).toBe('/home?moved=1');
   });
 
   it('after “Look around first”, setup carries on at its own address (journey §19.1)', async () => {

@@ -22,7 +22,7 @@ import type { AppData } from '@/types';
 import type { BpPartialReading, BpReading, CheckInRecord, DailyCheckIn, EmergencyFlag, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, SymptomReach } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { completes, evaluateCheckIn } from '@/engine/readiness';
-import { checkInDayOf, type Observation } from '@/health/observation';
+import { checkInDayOf, measuredStamp, type Observation } from '@/health/observation';
 import { pairBloodPressure } from '@/health/aggregate';
 import { carryForward, withoutGateFields } from './form';
 
@@ -268,6 +268,49 @@ function strictest(stored: DailyCheckIn, pending: DailyCheckIn): DailyCheckIn {
   };
 }
 
+/**
+ * A day from elsewhere without its answers about readings this device holds
+ * (§4.6, P8-02): `known`, by the ids answers name them by. Whatever such an
+ * answer says — settled, a mistake, reopened — it neither settles nor
+ * reopens what this device holds; the device's own answers do. An answer
+ * also about readings this device doesn't hold keeps those.
+ */
+export function withoutAnswersAbout<T extends DailyCheckIn>(day: T, known: ReadonlySet<string>): T {
+  if (!day.resolutions?.length || known.size === 0) return day;
+  let changed = false;
+  const resolutions = day.resolutions.flatMap(a => {
+    const readings = a.readings.filter(id => !known.has(id));
+    if (readings.length === a.readings.length) return [a];
+    changed = true;
+    return readings.length ? [{ ...a, readings }] : [];
+  });
+  if (!changed) return day;
+  const { resolutions: _all, ...rest } = day;
+  void _all;
+  return (resolutions.length ? { ...rest, resolutions } : rest) as T;
+}
+
+/**
+ * Two copies of one day as one, never looser than `kept` (H6-03, P8-02):
+ * what an import keeps of this device's day beside the file's. `strictest`,
+ * with the device's copy as the newer one, so its readings stay current and
+ * every reading, answer and symptom either holds is kept; then the answers:
+ * the device's own, and the other's about anything but `known`, the readings
+ * this device holds, so nothing in it settles or reopens one of them; and the
+ * later "feeling low" moment of the two, so no reading between them answers it.
+ */
+export function neverLooser(kept: DailyCheckIn, other: DailyCheckIn, known: ReadonlySet<string>): DailyCheckIn {
+  const { resolutions: _theirs, ...merged } = strictest(other, kept);
+  void _theirs;
+  const mine = kept.resolutions ?? [];
+  const theirs = withoutAnswersAbout(other, known).resolutions ?? [];
+  const resolutions = [...mine, ...theirs.filter(a => !mine.some(k => JSON.stringify(k) === JSON.stringify(a)))];
+  const felt = [kept.lowSymptomsAt, other.lowSymptomsAt]
+    .filter((t): t is string => typeof t === 'string' && !Number.isNaN(Date.parse(t)))
+    .sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1);
+  return { ...merged, ...(resolutions.length ? { resolutions } : {}), ...(felt ? { lowSymptomsAt: felt } : {}) };
+}
+
 const previousDate = (date: string) => {
   const [y, m, d] = date.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
@@ -429,7 +472,8 @@ function applyReport(today: CheckInRecord | undefined, r: SymptomReport, date: s
     news,
     ...(emergency ? { emergency, urgentSymptoms: base.urgentSymptoms || emergency.length > 0 } : {}),
     ...(r.glucose ? { glucose: timed(r.glucose) } : {}),
-    ...(r.glucoseDisplay ? { glucoseDisplay: timed(r.glucoseDisplay) } : {}),
+    // A meter's HI or LO is kept only here, so in this phone's offset, written out (H3-01).
+    ...(r.glucoseDisplay ? { glucoseDisplay: { ...r.glucoseDisplay, measuredAt: r.glucoseDisplay.measuredAt ?? measuredStamp(at) } } : {}),
     ...(reportsLow ? { lowSymptomsAt: at.toISOString() } : {}),
     ...(r.lowRecovered !== undefined ? { lowRecovered: r.lowRecovered } : {}),
     ...(r.provoked?.length ? { provoked: [...new Set([...(base.provoked ?? []), ...r.provoked])] } : {}),

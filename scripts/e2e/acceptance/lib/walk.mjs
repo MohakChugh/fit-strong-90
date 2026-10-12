@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import * as hub from './hub.mjs';
 import * as ui from './ui.mjs';
 import { sheetStart } from './player.mjs';
+import { clipKey } from '../../../voice/key.mjs';
 
 export const WALK_KEY = 'fit-strong-walk';
 
@@ -26,12 +27,38 @@ export const calls = page => page.evaluate(() => ({ ...window.__acc.calls, permi
 /** A fix delivered to every active watcher; returns how many watchers took it. */
 export const emit = (page, lat, lon = 0, accuracy = 3) => page.evaluate(p => window.__acc.emitPosition(p), { lat, lon, accuracy });
 
+const QUESTIONS = [
+  'Keep a record of your route on this phone?',
+  'Show map pictures under your saved routes?',
+  'Counting steps',
+];
+
+/** The first walk's questions (journey §9.1), answered as they come; the step card is tapped through. Returns the titles asked. */
+export async function answerQuestions(t, { keep = false, map = false } = {}) {
+  const page = t.page;
+  const asked = [];
+  for (let i = 0; i < QUESTIONS.length; i++) {
+    const open = [];
+    for (const q of QUESTIONS) if (await page.getByRole('dialog', { name: q }).count()) open.push(q);
+    if (!open.length) break;
+    const title = open[0];
+    const sheet = page.getByRole('dialog', { name: title });
+    asked.push(title);
+    if (title === QUESTIONS[0]) await ui.tap(ui.button(sheet, keep ? 'Yes, keep routes' : 'No, don’t keep routes'));
+    else if (title === QUESTIONS[1]) await ui.tap(ui.button(sheet, map ? 'Show map pictures' : 'No pictures'));
+    else await ui.tap(ui.button(sheet, 'Start walk'));
+    await page.waitForTimeout(400);
+  }
+  return asked;
+}
+
 /**
  * Tap the Walk hub's start ("Start walk", "Check in & start", or B-09's
- * "I had … at …: walk now"); answer the check-in if it opens; land on the
- * live walk.
+ * "I had … at …: walk now"); answer the check-in if it opens, then the first
+ * walk's questions (`consents`, journey §9.1); land on the live walk. The
+ * titles asked are kept in `t.asked`.
  */
-export async function start(t, answers) {
+export async function start(t, answers, consents = {}) {
   const page = t.page;
   await ui.tap(hub.start(page));
   await page.waitForTimeout(400);
@@ -43,9 +70,34 @@ export async function start(t, answers) {
     const go = sheetStart(sheet);
     await t.must(await go.count() === 1, `the check-in does not allow the walk: ${(await sheet.innerText()).replace(/\s+/g, ' ').slice(0, 300)}`);
     await ui.tap(go);
+    await page.waitForTimeout(400);
   }
+  t.asked = await answerQuestions(t, consents);
   await page.waitForURL(/#\/walk\/live/);
   await t.ready();
+}
+
+/** Time passing on a recording walk, a minute at a time at most: B-19 reads a longer step as a change to the clock. */
+export async function elapse(t, ms, step = 60_000) {
+  for (let left = ms; left > 0; left -= step) await t.advance(Math.min(step, left));
+}
+
+/** Every play() of an <audio> so far, with the event it ran inside. */
+export const played = page => page.evaluate(() => [...window.__acc.calls.play]);
+
+/** Whether a recorded line's clip was played (Task 9's cue player plays `<pack>/<key>.m4a`). */
+export async function cueHeard(page, line) {
+  return (await played(page)).some(p => p.src.includes(`/${clipKey(line)}.m4a`) || p.src.startsWith('blob:'));
+}
+
+/** The kept routes, and the walk journals, in a database snapshot. */
+export const routesIn = snap => snap.routes ?? [];
+export const journalsIn = snap => snap.walkJournal ?? [];
+
+/** How many lines the route drawing shows now (one SVG path per line, A-48). */
+export async function drawnLines(page, label = 'Your route so far') {
+  await page.waitForTimeout(1300); // the live drawing redraws at most once a second (K-08)
+  return page.locator(`svg[role="img"][aria-label="${label}"] path`).count();
 }
 
 /** The walk timer as shown (m:ss). */

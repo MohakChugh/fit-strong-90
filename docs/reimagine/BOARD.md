@@ -856,6 +856,83 @@ Follow-ups:
 - Me's "Sources" row (Plan 2's note above): Plan 4's Me links `/hub/learn/sources` directly; `YouHome.tsx` is gone. A wiring test holds it.
 - Checking a backup: an older file from the same date as the latest says both times, "made 8 Oct 2026, 9:05 am, and your latest is from 8 Oct 2026, 6:30 pm", on the device's clock. Dates alone otherwise.
 
+**What changed in existing journeys** (navigation and record shape only, A-76; no safety check loosened):
+- VJ12's "every category opens its real hub" and `lib/hub.mjs`'s Browse route: a category's row is the link named exactly its title, since Plan 4's Browse lists Learn's topics too ("Water" beside Learn's Water topic).
+- J07, step 2: the walk's minutes are checked as before, and Plan 6's energy estimate (B-18) as one more record of the walk.
+- J10, step 4: Done returns to the Walk hub where the walk was started (M12); step 5 reads the record once its screen is in.
+- VJ06, step 3: History is read once the Workout hub's screen is in.
+
+**Result** (ports 49831/49832, load average 17–40 from five agents at once):
+- First full run: 988 cases (Plan 2's 932 and Plan 4's 56), 959 passed, 29 failed, 82.7 min. Fixed: J07, J10, VJ12 as above. J16's one large-dark miss was a timeout and passed 12/12 alone.
+- Final full run: 988 cases, 959 passed, 29 failed, 96.2 min. J07, J10 and VJ12 pass in all four projects. The other 13 failures, J02 (4), J08 (7), VJ06 (1) and VJ14 (1), were timeouts or, in VJ06, a read while the hub was still loading; alone each passed: J02 8/8, J08 16/16, VJ06 4/4 (8/8 with J10 after its wait), VJ14 8/8.
+- **Pending for Plan 6 Task 15:** J11's 16 cases stop at the first walk's "Keep a record of your route on this phone?", which the harness doesn't answer yet. Once it does, J11's step 6 and 7 Done goes to the Walk hub (M12), as J10's now does.
+- Unit suite: 194 files, 5656 tests; `tsc -b` and lint clean.
+
+Left for Plan 6, on its branch before this merge too:
+- **Done pushes the walk's origin** (`navigate(origin)`), so the Walk hub's Back then reads "Your walk": a summary already saved, which sends the person back to the hub. The session player closes back instead (`navigate(-1)` when it came from a screen in the app). M12 says the task "closes back to its actual origin".
+
+### 2026-10-11 — [claude] v2 Plans 2 and 4: Codex's H2 and H4 findings, and Kiro's KH findings, fixed
+
+On `feat/v2-hfix`, from `feat/v2-journey` at `0305bc5`. Each finding first got a test that failed on the code it named. Screens were tested through the acceptance suite: M02 is new (the hubs' own cases), and M01, V-J05, V-J12, V-J14 and V-J39 gained cases. Every fix was then mutation-checked.
+
+**Codex, Plan 2 (hubs)**
+- H2-01, fixed `0284804`: a walk still on the device follows status first (`pendingWalkCard`, §4.8). There is no Carry on while Away or Unwell, and none during a flare. After status come the gate's own words. "Return to walk" goes through the gate at the tap, and its check-in opens on the hub. Whenever the walk can't carry on, "Review and save" ends it where it stopped recording (`endOpenWalk`). The live controller is untouched.
+- H2-02, fixed `dac4569`: a resumed run shows today's words and changes ("Gentle stretch", the restrictions). It says what is left as the player will run it: `carriedOn`, the player's own reconciliation, moved out of SessionPage, which now calls it too.
+- H2-03, fixed `e397759`: each part of a walk counts on its own day, under the shared overlap rules. The finding's case (1,000 entered, then 500 steps before midnight and 500 after) now reads "at least 1,500". The week strip also cuts at midnight (F17). The shapes Plan 3 reads are unchanged.
+- H2-04, fixed `a4b7e27`: the week's glucose and BP readings each show when they were measured and their context ("132/84 mmHg at 7:30 am, morning"). A day with more than two readings opens to a labelled list.
+- H2-05: not changed, as agreed (D48; J07 depends on it).
+- H2-06, fixed `e37e4a7`: `useAddLink` opens the hub's own form for every new `?add=` link, including while the hub is open. It still refuses another metric's form.
+- H2-07, fixed `bef7fcc` (the same as Kiro's KH-10): Paste is `min-h-12 min-w-12`, in rem. **§20.4 rule 1 governs: 48 × 48 px.** Plan 2's header gave 44 px.
+
+**Codex, Plan 4 (Browse and Me)**
+- H4-01, fixed `9f29dba`: ActionMenu reads the urgent decision itself. While one stands it renders nothing, so neither the popup nor its backdrop is left over the safety surface. `onClosed` still runs.
+- H4-03, fixed `876cb61`: `changeHome` and `answerOffer` apply their operation through `update`, to the layout in the transaction's latest state. Capacity is checked and the offers are unioned there, in one write. A group that another tab filled first returns `value: false`.
+- H4-04, fixed `07b4fb9`: Me holds each row's answer above its lists until it is stored, with the reason and the button to try again (§4.5). FinishRow's props and `notNow`'s signature are unchanged. Memory mode can't be reached through the app for an existing person (it offers only Try again), so a unit test covers that path.
+- H4-05, fixed `e5c2437`: each exported event keeps a fingerprint of its note, alert and length. When only those change, Reminders says: "6 a day in Calendar, still worded as before your change."
+- H4-06, fixed `fc7460b`: `useLocalDay` reads the shared clock and wakes at midnight and on return to the app. Goals and Me use it.
+- H4-07, fixed `df2cf2c`: `systemDisplayStore` follows all three media queries and reads them again on return. Display uses it through `useSyncExternalStore`.
+
+**Kiro**
+- KH-01, fixed `b719144` (latent): an unbuildable routine gets its own card state, keeps the area and length choices, and offers "Choose another routine". A bad `?focus=` is dropped on arrival. Real holds still hide Start. No input reaches the builder's refusal while the gate allows a stretch. The probes covered 90 fixed combinations, 3,000 random profiles, every voice pack and device rates down to 0.05. So this was proved at the card level, and checked by eye with the builder forced to refuse.
+- KH-02, fixed `0b391a3`: while walking is held for the feet (`feetHold`: the profile, or today's gate), Steps shows the hold in place of the WHO note and drops the step goal. Totals still save.
+- KH-10: the same as H2-07, above.
+- KH-11, fixed `0226640`: Back & leg's emergency signs are in body text and normal ink, above History.
+- KH-16, fixed `76cfd8e`: "Saved on this device" stays until the next Add, or until the screen is left, never on a timer. History's highlight is unchanged.
+- KH-17, fixed `bcd207b`: Sources and licences now ends with Licences, each from the repository: MakeHuman (MPFB2) assets, CC0 1.0; Kokoro-82M, Apache License 2.0; and © OpenStreetMap contributors, ODbL.
+
+**Also**
+- `ffda8c4`: V-J12's "every category opens its real hub" now finds Browse's row by its exact name. Browse lists a Learn topic called "Water" too, so the case failed in strict mode on `feat/v2-journey`.
+- Failing on `feat/v2-journey` and left for Plan 6, the walk side:
+  - J07 "goals and rest" now stores `activeEnergy` as well;
+  - J10 step 4: Done returns to the walk's origin (M12), not Home.
+- Seen, but outside these findings: these controls are still 44 px:
+  - Me's Segmented and Toggle;
+  - QuickLog's "Add a second reading" and ChoiceChips.
+
+**Acceptance**: one full run through the lock at `ffda8c4`. 1,044 cases: 1,019 passed and 25 failed, in 69 minutes.
+- Every case for these findings passes in all four projects: M01 9/9, M02 8/8, VJ05, VJ12 7/7, VJ14 2/2 and V-J39 2/2. So do VJ04, VJ09, J04, J05, J09, J12, J14, J15 and the screen sweep.
+- J11, all 4 cases in each project, stops at the first walk's route question ("Keep a record of your route on this phone?"), as expected.
+- J10 step 4 and J07 "goals and rest" fail in each project, as on `feat/v2-journey` (above).
+- J02's "main" case timed out on a click at step 5 in large-dark, with the machine under load. Rerun alone through the lock, it passed 2/2.
+
+### 2026-10-10 — [claude] v2 Plan 3 (Trends): decisions recorded before building
+
+From journey §12, §20.2–20.4, §25 (B-10, B-14, B-15, B-16, B-20, B-30, B-32) and motion M21. The plan is `docs/superpowers/plans/2026-10-10-fitstrong-v2-plan-3-trends.md`.
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| D68 | **Statistics by kind of measure (B-15).** *Counted* (minutes of workouts, stretches, walks): a day of the record with nothing is 0, and a day of data; an Away, Unwell or Flare-up day is shaded and is not a day of data, though what was recorded on it counts. Week and Month state the total; 6 Months a week on average (total ÷ days of data × 7); Year a month on average (total ÷ days of data × 30.44). *Stated* (steps, water, sleep): a day without a figure is "Not entered" and not a day of data; every period states a day on average (total ÷ days with a figure), and the 6 Months and Year bars are each week's or month's average a day. *Readings* (glucose, blood pressure, weight, waist, back and leg pain, mood): the average of numeric readings with n, range and lows and highs; 6 Months and Year draw weekly or monthly means with their range. *Labs*: every result, dated, with its interval; no period and no comparison | B-15 asks for each statistic, its weighting and its coverage |
+| D69 | **Steps state "a day on average" in Week and Month too,** where §12.2's table says "sum" | §12.2's own example is "+327 steps a day"; a weekly sum would treat a day not entered as a day without steps (D14) |
+| D70 | **Comparisons:** a finished period against the whole one before; the current one against the same number of days from the start of the one before ("Mon–Thu vs last Mon–Thu", "1–30 Mar vs 1–28 Feb"); 3 days of data in both; a meter LO anywhere in either period hides a readings change | A-42, K-11, B-15 |
+| D71 | **The chosen slot is outlined in body ink, measured at 3:1 or more, and the other bars are not faded** | B-15 overrides M21's "soften to 60%", which can't guarantee 3:1 |
+| D72 | **Stretch days count any session whose mobility block was done (§12.3),** on Trends and on Home's This week alike. Stretch minutes are the stretch routines' | §12.3; one count everywhere |
+| D73 | **Your week** is shown for the week chosen in the 8 rings (this week by default) and suppressed while the status isn't Normal or the safety surface stands. **"Your week in brief"** is a `weekBrief` prompt for last week, from Monday 04:00 until it's opened or the week ends, ranked last in `pickPrompt`; "seen" is kept in content state (`trends:weekBrief`), so it's backed up; Trends always offers it ("Last week in brief"). Each of the 8 rings is drawn against the goal its week had (Plan 2's `weeklyGoalOn`, B-16), and drawn set, never animated (M21), so B-32's ring identity never has a change to animate here | §12.6, B-16, B-20, B-32, L-18 |
+| D74 | **Addresses.** `/trends/workout` is the Workout trend, with the workouts listed under it; a past workout keeps `/trends/workout/:id`. `/trends/food` goes to the Food hub until Plan 7 builds Food's trend. Mood keeps `/trends/mood`, listed under "Other records" only when mood readings exist (they come only from v4 backups); it isn't a category | B-14; B-22, never an empty screen; no record is hidden, and Plan 1 left Mood to Plan 3 |
+
+Built on `feat/v2-p3`, from `feat/v2-journey` at `0305bc5`: Plans 1, 2 and 4, Plan 6 Tasks 1–13, the storage foundation and Plan 1's re-check fixes. The plan was written before Plans 4 and 6 landed, so each task checks its steps against the live code, and its commit records where the build differs. D68–D74 were still free: the board's numbers run to D67, then Plan 6's D85.
+
+KV-25 (Kiro's Plan 1 review, deferred to this plan): the week's ring is keyed by the goal its own week had (`weeklyGoalOn(settings, monday)`, B-16, B-32), never by the goal last chosen. Home's This week and Trends' rings read it the same way, and a test holds them together.
+
 ### 2026-10-10 — [claude] v2 Plan 5 (setup and upgrade): decisions before building
 
 The plan is `docs/superpowers/plans/2026-10-10-fitstrong-v2-plan-5-setup.md`. It folds in B-06, B-07, B-08, B-18, B-24 and B-31, and fills Plan 4's setup-progress seam (D65).
@@ -920,3 +997,783 @@ Where the build differs from the plan's text, and why (each is in its commit too
 Known, not changed here:
 - Profile & health reads a "Not sure" back as the engine stores it: "Diabetes: Other", "Heart or circulation: Yes". The editor shows "Not sure" ticked. A read-back in the person's own words would need the answers passed to `chapterSections`.
 - Me's `FinishRow` (Task 7) shows "Not now" only off a gap row: one line the FinishRow/OfferRow fix branch needs to keep.
+
+### 2026-10-11 — [claude] v2 Plan 7 (Food): where the food data comes from, and the decisions behind it
+
+**Source record** (journey §11.6: written before the food step is built)
+
+| | |
+| --- | --- |
+| Source | USDA FoodData Central (FDC), the SR Legacy dataset, used as ingredients only |
+| Version | SR Legacy, April 2018 release. It's final (FDC no longer updates it), so its values can't change under us. The downloaded file's name and the extraction date are written into `scripts/food/fdc-ingredients.json` (`source.file`, `source.extractedOn`) |
+| Licence | Public domain under CC0 1.0 Universal. FDC: "USDA FoodData Central data are in the public domain and they are not copyrighted. They are published under CC0 1.0 Universal" |
+| Credit, as FDC asks | U.S. Department of Agriculture, Agricultural Research Service, Beltsville Human Nutrition Research Center. FoodData Central. [Internet]. [cited (the extraction date)]. Available from https://fdc.nal.usda.gov/ |
+| Where it shows | Learn → Sources, under "Food data"; the Food hub's footer and "How estimates work"; each food's "What's in it", with its FDC ids |
+| Our recipes | Written by us in `scripts/food/recipes.ts`: home-style, with sunflower oil and gram amounts per serving. The table they make is `src/data/food/foods.json` |
+| Not used (D45) | INDB (no data licence), IFCT 2017 (no electronic product without NIN's written permission), Open Food Facts (ODbL share-alike, and "not for medical purposes"). No number is copied from any of them |
+
+**Read at the source on 2026-10-11** (Plan 7 Task 1 Step 4):
+- The home page's "Licensing" section has the CC0 statement as quoted above. It goes on: "No permission is needed for their use, but we request that users list FoodData Central as the source of the data". Its suggested citation is the Credit row's, with "[cited (enter date)]". The plan's shorter credit was the feasibility research's own wording (§2.2), so the app uses FDC's citation, with the extraction date as the cited date.
+- The "Download Data" page lists SR Legacy as "04/2018" and says: "SR Legacy is the final release of the Standard Reference data type. These data will not be updated."
+- The file: `FoodData_Central_sr_legacy_food_json_2018-04.zip`, downloaded on 2026-10-11 from https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_sr_legacy_food_json_2018-04.zip (13,456,312 bytes, SHA-256 `0fe8ae486a2c8eb42cb96413f058deb51863a46c8fb8eeb4b1fb45006dd338ef`). It holds one file, `FoodData_Central_sr_legacy_food_json_2018-04.json` (210,758,826 bytes, SHA-256 `70d4235ae3a2bdf48a7b9eaa1286a83fa67b6f3270436c9ce8b008213f500129`). The download stays outside the repository; only the extract is committed.
+
+**Decisions.** Plan 7's are D95 to D104, the numbers set aside for it.
+
+| # | Decision | Why |
+| --- | --- | --- |
+| D95 | Carbs are FDC's "Carbohydrate, by difference" (nutrient 205): total carbohydrate, fibre included, labelled "carbs". Energy is FDC's kcal (208), never kJ | It's the figure on Indian (FSSAI) and US labels, and one definition is used everywhere |
+| D96 | Seasonings used at 2 g a serving or less (salt, hing, spices, ginger, garlic, chillies, curry leaves) have no FDC record and add nothing. They still carry allergen and diet tags | Their energy is a few kcal; their allergens matter |
+| D97 | Carb ranges (B-12). Each ingredient varies ±10% (grains, pulses, dairy, eggs), ±20% (vegetables, fruit, coconut, tamarind) or not at all (oil, ghee, sugar, meat, fish). Each unit adds its portion variance: ±20% for a piece or a katori, ±25% for a plate, tablespoon or handful, ±15% for a glass or cup. A weighed portion adds none. Ranges add as intervals. A meal's range sums its known items, and unknown items are listed apart. `scripts/food/expected.ts` is the reviewed expectation for each dish, and a test fails any dish more than 20% away from it | B-12 asks for a defined method, reviewed |
+| D98 | Portions are our own gram table (`src/food/units.ts` and each recipe), always shown with the grams. The person can weigh their own | No source defines a katori (feasibility research §2.3) |
+| D99 | Allergens use Plan 5's canonical ids: peanut, tree nuts, milk, egg, wheat, soy, sesame, fish, shellfish and mustard. Each has aliases in English, Hindi and Hinglish (`src/food/allergens.ts`). "Gluten" reads as wheat, because our recipes use no barley, rye or oats. Coconut isn't a tree nut and isn't canonical, so a coconut allergy is a custom one. A custom allergy is anything else the person names; it's matched by word against every ingredient. Recipes assume sunflower oil, and compounded hing "may contain wheat". With any allergy, only fully tagged dishes are recommended. Logging never hides a food: it says "Contains peanut, which you listed as an allergy". A food the person leaves out (`avoid`) is still matched against a meal idea's own words, as in v1; only allergies reach into the recipes | B-13; setup stores these ids (Plan 5); v1's audit R04 stays true, as a compound such as "coconut milk" names no meal |
+| D100 | Jain means no meat, fish, eggs or honey, and no root vegetables or bulbs (onion, garlic, potato, carrot, radish, beetroot, ginger). This is the app's convention, said in the picker; "Foods to leave out" covers anything else | Setup chapter 7 lists Jain, and v1's templates weren't written for it |
+| D101 | Counts-free is the "Meals only, no numbers" level. It shows no calorie or carb figure and no energy figure from movement anywhere, old records and walk summaries included. It has no food prompts and no targets (B-11). Estimate snapshots are still stored with each item, and never shown in counts-free | Switching to estimates later shows old meals' estimates. B-11 governs what is shown |
+| D102 | The answer to "Has food or weight ever been hard for you?" is kept where Plan 5 keeps it, `food.hardBefore`, on this phone only. It's asked when estimates are chosen and no answer is kept. "Yes" or "Prefer not to say" recommends "Meals only, no numbers" each time estimates are chosen, and estimates stay one tap away | K-22; one copy of the answer, as setup keeps it |
+| D103 | The food prompt is opt-in, in Me → Food: one meal, at one time, with estimates only, in the app only. It's never in a calendar file, which can't know what was logged | J§11.5's caps, B-11 and A-73 |
+| D104 | Each logged item keeps its name, recipe revision, unit, grams and estimate snapshot (B-12), so history reads the same when the table changes. Undo restores a deleted meal under a fresh id, with `restoredFrom`; the deletion record stays (B-05) | J§18.2, B-05 |
+
+Task 1's checks found every name Plans 2, 4, 5 and 6 left under the name this plan expects, so there are no name pairs to record.
+
+### 2026-10-11 — [claude] v2 Plan 7 (Food): acceptance
+
+| Journey | What it proves | Result |
+| --- | --- | --- |
+| V-J03 | A usual lunch in three taps; "Lunch saved" only once stored; no figure counts-free; a refused write keeps the tray | Passed in all four projects |
+| V-J28 | Logging turned on from the hub, in place; estimates only after the screening question, with the answer kept as `food.hardBefore` | Passed in all four projects, once `food.openHub` waits for the hub to load (below) |
+| V-J29 | A peanut allergy keeps poha out of the ideas and warns when it's logged; your own food with no values stays unknown; the partial total | Passed in all four projects |
+| V-J30 | Four taps for an adjusted usual lunch, five for the first-time path; a double tap saves one meal | Passed in all four projects |
+| V-J31 | A meal from 10 days ago corrected with its history, no reading or check-in changed, the urgent low still urgent. Pending: Food's trend | Passed in all four projects, with its one pending item |
+
+Where Task 16 differs from the plan's text, and why:
+- **`food.openHub` waits for the hub's content, past its skeleton** (`ui.LOADING`), as `hub.openHub` does. The hub's skeleton has the title "Food" too. Without the wait, V-J28 counted "Lunch · ideas for you" while the skeleton still showed, found no ideas, and failed in all four projects.
+- **Two test-only changes from `feat/v2-journey` are cherry-picked here**, so the full run tests Plan 7 against the integrated journeys. They are 179239d (VJ12's "Water" row, J07's walk energy record, J10's Done going to the Walk hub) and the VJ06 change in 831e0c9 (History is read once the hub is in). 831e0c9's board entry stays on `feat/v2-journey`.
+
+Runs, port 50021:
+- The five journeys first gave 24 passed, 8 failed and 4 pending. The 8 were V-J28 step 1 (above); the 4 were V-J31's Food trend.
+- The full suite ran 1024 cases in 66.4 min: 1000 passed, 4 were pending (V-J31's Food trend) and 20 failed.
+  - J11's 16 failures all stop at Plan 6's first-walk question, "Keep a record of your route on this phone?", which Plan 6 Task 15 answers in the harness.
+  - VJ12's pick-mode case failed in all four projects at step 3. Task 15 had made "+ Add"'s body lazy, and it wasn't in yet when the sheet showed. Edit Home now loads it as it opens, so the sheet opens with its rows (Plan 7's result, below).
+- VJ12, S01 and J20 ran again after that fix: see Plan 7's result, below.
+
+### 2026-10-11 — [claude] v2 Plan 7 (Food): result
+
+- Food is a hub with three levels: meal ideas only (the default), meals with no numbers (counts-free), and meals with estimates. Turning logging on happens in place, on the hub. Estimates come only after "Has food or weight ever been hard for you?", and the answer is kept as `food.hardBefore`.
+- A meal is logged in the "Log a meal" sheet. A usual meal takes three taps. "Lunch saved" shows only once the meal is stored. Undo stays until the person leaves the screen, at most two deep. Corrections keep their earlier versions.
+- Estimates come from 42 Indian dishes, worked out at build time from FDC SR Legacy ingredients and our own recipes. "Estimated" is before every figure, and carbs show as ranges where K-22 asks.
+- Counts-free shows no calorie, carb or movement-energy figure anywhere, old records included. That covers walk summaries, a walk's own screen, and My Day's reading for an estimate whose walk is gone (B-11, D101).
+- Allergies are hard exclusions from every meal idea. Logging a food that contains one still works, and warns.
+- The food table stays off the first screen. Edit Home loads "+ Add"'s Browse in pick mode as it opens, so the sheet still opens with its rows.
+
+**Reviews.** Codex and Kiro (Task 17 Steps 1–2) were not run, on the coordinator's instruction; the coordinator runs them. A separate Claude agent reviewed the code read-only, against the plan's rules, and found three things:
+
+| Finding | Outcome | Test |
+| --- | --- | --- |
+| Undo on a deleted meal or usual meal could store it twice. A second tap while the first restore saved, or as the toast left, wrote another copy under another fresh id (B-05) | Accepted. `src/screens/food/undo.ts` writes one restore at a time, and none once the record is back | `undo.test.ts`, "stores the record back once…" |
+| A food's portion page showed carbs as a range without "Carb figures are rough estimates. Follow your care team’s plan." (K-22) | Accepted. `PortionPage` now says it under the estimate, as the tray's footer does | `parts.test.ts` |
+| With ranges on, an own food's carbs (a figure the person typed) add up as one figure. A meal of own foods only reads "about 40 g carbs", not a range (J§11.4) | Declined for now. The plan's own test pins this (`format.test.ts`). A range would need a variance for a typed figure, which D97 doesn't define, and choosing one is a new decision that needs a number from the coordinator | — |
+
+**Food data.** The extract (`scripts/food/fdc-ingredients.json`) holds 46 SR Legacy records, taken on 2026-10-11 from the file in the source record above. Four of the plan's descriptions weren't SR Legacy's exact wording. They were corrected from `extract-fdc.ts`'s closest matches:
+- "Wheat flour, whole-grain" became "Wheat flour, whole-grain (Includes foods for USDA's Food Distribution Program)".
+- "Mung beans, mature seeds, sprouted, boiled, drained, without salt" became "Mung beans, mature seeds, sprouted, cooked, boiled, drained, without salt".
+- "Cheese, queso fresco" became "Cheese, fresh, queso fresco".
+- "Chicken, broilers or fryers, thigh, meat only, raw" became "Chicken, broilers or fryers, dark meat, thigh, meat only, raw".
+
+Every dish's standard portion is within 5% of its reviewed expectation (`scripts/food/expected.ts`); the test allows 20%.
+
+Where the tasks differ from the plan's text, and why:
+- **Task 2:** Steps 1, 6 and 8 were already done by Plan 5 (D82), and Step 7 passed as expected.
+- **Task 3:** a custom allergy that names an allergen inside a longer phrase counts as that allergen and also as its own words. "Coconut milk" reads as milk and stays "coconut milk", so the coconut allergy isn't lost.
+- **Task 5:**
+  - The app's credit is FDC's own citation, with the extraction date (see the source record).
+  - `tsconfig.app.json` reads JSON modules.
+  - The content schema has a `dataset` kind for the FDC source.
+  - The estimates claim starts "This app works out…", so the content checker's safety rule passes.
+- **Task 7:** the food picker bounds custom allergies as an import does (`parseAllergies`).
+- **Tasks 10 and 14:** "Added ✓" carries its own tick, with no second icon. A screen's Undo outlives React StrictMode's at-once remount, so returning to Today's log keeps it.
+- **Task 15:**
+  - The chain that put the food table on the first screen ran Home → Edit Home → `@/content` → `content/week.ts` → `@/food/data`. "+ Add"'s body (`src/screens/home/PickBody.tsx`) is now loaded apart.
+  - Edit Home starts that load as it opens. The sheet then renders the loaded body in the frame it opens, chosen once per opening. Until it has loaded, the sheet waits for it. Plain `lazy()` left the sheet empty for a moment, and VJ12's pick-mode case counted its rows then (Task 16's full run).
+  - The walk screens ask `countsFree()` where each figure is drawn.
+  - My Day passes `countsFree` to the timeline, which leaves out an energy reading whose walk is gone.
+  - `track/format.ts` and `track/metrics.ts` are words-only, with the callers that gate them named.
+  - `countsFree.callers.test.ts` drives the real screens over the real store.
+
+Merge notes:
+- **With `feat/v2-p6b`,** `src/screens/walk/WalkSummary.tsx` conflicts on one line: this branch's `rows` against Plan 6b's added `fix`. Keep both, and give `fix` the same gate, `const fix = countsFree(profile) ? undefined : energyFix(energy.estimate);`, since its row asks for an energy estimate.
+  - `src/screens/you/summaries.test.ts`, `src/store/useStore.ts` and `src/store/useStore.test.ts` also conflict, by `git merge-tree`.
+  - `RecordDetails.tsx` merges cleanly.
+- **Trends (Plan 3)** keeps `/trends/food` on the hub. A Food series reads `dailyNutrition(meals, from, to, numbersView(profile))`. With ranges on, carbs need their range, not `carbsG`: `totalsOf` has `carbsLowG` and `carbsHighG`. A walk-energy series must ask `countsFree()` too.
+
+Left for later:
+- The Codex and Kiro reviews, which the coordinator runs.
+- Food's trend (Plan 3).
+- Browse's food results (Plan 8): `searchFoods()`, `foodRowDetail()` and `logHref({ food })` are ready.
+- Recently deleted (Plan 8).
+- A range for own foods' carbs, if the coordinator gives it a decision.
+
+Runs, port 50021:
+- The unit gates pass: 216 test files, 5,846 tests.
+- After the pick-sheet fix, VJ12, S01 and J20 gave 60 of 60 in 6.6 min.
+- With the full run above, every journey passes in all four projects, with two exceptions:
+  - J11 stops at Plan 6's first-walk question.
+  - V-J31 is pending on Food's trend.
+
+### 2026-10-11 — [claude] v2 Plan 3 review fixes (Codex H3, Kiro KT)
+
+On `feat/v2-p3`, from `85855e1` (Tasks 1–14). Task 15 and 16's uncommitted files (`lib/data.mjs`, the v07/v24/v26/v27 journeys and BOARD.md) were left untouched; every commit names its own paths. Each finding: a failing test that reproduces it, the minimal fix, a mutation check, then the gates (`tsc -b --force`, `eslint`, `vitest --maxWorkers=3`).
+
+Overlaps, as the coordinator gave them: H3-03 = KT-04; H3-12 = KT-02; H3-04 ≈ KT-01 and KT-15; H3-08 = KT-07; H3-22 = KT-12's second half.
+
+#### Decisions (the owner's, recorded here, not asked)
+
+Written as D86–D94, which were free on every local branch then (Plan 5 has D75–D84, Plan 6 D85, Plan 7 D95 on). D86–D94 are Plan 6's, so on the merge into `feat/v2-journey` they are D123–D131, here and in the code's comments: D86→D123, D87→D124, D88→D125, D89→D126, D90→D127, D91→D128, D92→D129, D93→D130 and D94→D131. The commits on `feat/v2-p3` keep the old numbers.
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| D123 | **A meter's HI or LO keeps the day and offset it was measured in (H3-01).** New captures (check-in, session reading screen, a reported reading) stamp it with `measuredStamp`: this phone's offset, written out, "+00:00" never "Z". **Legacy fallback:** a display saved before as a bare UTC instant has lost its zone. It is read on this phone's clock, as the check-in's numbers were filed when it was saved (`local` in store/project.ts), and it carries the days a real offset (UTC−12 to UTC+14) could have put it on. A LO hides a change in every period it could have been in; it is drawn and counted on one day | J§4.10, B-15, K-11. The zone of an old UTC stamp can't be reconstructed, so the safe reading is the conservative one |
+| D124 | **A category's day figures come through the shared aggregation (H3-09).** Workout and Stretch ask `recordedMovement` of each day, over the category's own sessions and their own movement records, with its overlap rules (F17, F19); no duration is added by hand. A logged workout's entered minutes stay on its recorded day, the established unplaced rule | J§12.3, A-40: what the ring counts is what the trend counts |
+| D125 | **The movement average uses Normal days with data only (KT-03, KT-08).** Status days (Away, Unwell, Flare-up) and empty planned rest days are left out of both the numerator and the denominator. Their minutes stay in Total, and a note says so: "Includes 10 min on 2 Away days, not in the average.", "Includes 1 rest day with nothing recorded, not in the average." A rest day with movement in it is a day of data. Stated measures keep each entered figure, its day named; readings are never excluded for a status day (J§12.2) | B-15's weighting, applied the same to the numerator and the denominator |
+| D126 | **Your week never counts testing frequency (KT-05).** §12.6, A-15 and K-51 are more specific than §12.1's example. No bare "N readings this week". A clinical fact is said, with its context, only when something is past a line: "2 glucose readings were below 70 mg/dL this week", "1 blood pressure reading was 180/120 mmHg or higher this week". A meter's LO and HI count among the readings past the lines | §12.6, A-15, K-51 |
+| D127 | **Partial steps keep their `atLeast` and `walks` basis everywhere (H3-11):** a day's words, the headline, the Trends row, the chart's average, the highest day, each 6 Months and Year bar, and Your week say "at least". No exact delta between non-comparable quantities: a comparison with a lower-bound day in either window says "No change shown: on some of these days only part of the day's steps is known." | J§9.6; a floor isn't a figure to subtract from |
+| D128 | **Trends' regions hold at most 5 rows (H3-22, KT-12).** Rows group by the registry; a group of more than 5 is cut, in registry order, into parts as even as they can be: "Check" and "Check, continued" (8 → 4 + 4, 6 → 3 + 3). Every category stays one tap away | B-08, journey §20.4 rule 13 |
+| D129 | **Targets (KT-06, H3-19).** An empty Trends' one action is the shared primary button at 60 px. The shared `Segmented` has 48 px segments; every screen that draws it was checked at 320 px/200% and 428 px, light and dark | journey §20.4 rule 1 |
+| D130 | **The statistic beside B-15 (KT-09).** B-15: "a weekly average of daily totals = sum ÷ days with data". *Counted* (workout, stretch, walk minutes): Week and Month state the total; 6 Months states a week on average, (minutes on days of data ÷ days of data) × 7; Year a month on average, × 365.25 ÷ 12 (D68). Days of data are the record's Normal days, empty planned rest days out (D125). The 6 Months and Year bars are each week's or month's total, status days' minutes included, and the average line is named "Average 76 min a week". *Stated* (steps, water, sleep): every period states a day on average, sum ÷ days with a figure (D69); the 6 Months and Year bars are each week's or month's average a day, said "a day on average". §12.2's "weekly/monthly average" is read as B-15's weekly average of daily totals. The families weigh differently on purpose: a counted day with nothing is a real 0, because the app records every activity it knows of, so totals mean something; a stated day with no figure is not entered, never 0, so only an average over the days entered does. Every figure names its statistic, and the chart's average line names its unit and period | B-15, D68, D69, KT-09: consistent as built, now written down |
+| D131 | **Verification placed where it lasts (KT-10, KT-16).** A workout logged at `/hub/workout/log` was verified as stored (an unguided WorkoutSession, its entered minutes in `durationSeconds`) and counted in the Workout trend; a test now builds it through the log screen's own model. The meter HI/LO in mmol/L acceptance case goes in the committed J06 journey, never in the uncommitted V-J files | the owner's instruction for KT-10 and KT-16 |
+
+#### Findings
+
+| Finding | Verdict | Test | Fix | Mutation | Commit |
+| --- | --- | --- | --- | --- | --- |
+| H3-01 (High) | Reproduced: in London, Week of 5 Oct said "Higher than last week · +37 mg/dL" beside a LO measured 00:30 28 Sep (+05:30) | records.test.ts, model.test.ts, form.test.ts; 4 caller tests re-pinned to the new stamp | records.ts `meterReadings` keeps the recorded offset; legacy `couldBe` span and `mayBeIn`; capture via `measuredStamp` | 10/10 killed | `ef44caf` |
+| H3-02 (High) | Reproduced: a sole check-in on Mon 12 Oct holding a LO measured Sun 11 Oct 11:40 pm gave `since` 12 Oct; Glucose's row said "No readings yet" and Previous week stopped | records.test.ts, model.test.ts | `firstRecordDay` counts each meter display on its measured day | 1/1 killed | `579519a` |
+| H3-09 (High) | Reproduced: sessions from 7:30 for 30 min and 7:40 for 15 min made the Workout trend 45 min where the ring counts 30; a session past midnight sat whole on its first day | records.test.ts (5 cases) | `sessionMinutes` asks `recordedMovement` of each day, over the category's sessions and their own movement records; logged workouts' entered minutes kept on their day | 6/6 killed (one is the old sum itself) | `eae3387` |
+| H3-10 (High) | Reproduced: Previous from May–Oct 2026 opened Jun–Nov 2025; `nextWindow` moved a long window one month | periods.test.ts, trends.node.test.ts (new wiring file) | `nextWindow` moves 6 and 12 months; `anchorOf` keeps a window as its last day, none for today's | 6/6 killed | `094b9d4` |
+| KT-01 = H3-04 ≈ KT-15 (Medium) | Reproduced: "Range 54–180 mg/dL" for a 53.9 low; "3.9–6.2 mmol/L" beside "Below 3.9 mmol/L: 1"; 13.9 mmol/L shown "250 mg/dL" beside "Above 250 mg/dL"; points held rounded (6.6 for 118/18) | model.test.ts (4 cases), format.test.ts; 3 tests re-pinned to unrounded points | `displayBoundaries` gains 250 (`le`), `HIGH_GLUCOSE_MGDL` moved to escalation.ts; glucose figures in readingsView via `safeDecimals`; points and lab points keep the unrounded value | 5/5 killed | `c90a059` |
+| H3-12 = KT-02 (Medium) | Reproduced: Monday said "10 more than by this time last week" from one day against one | yourWeek.test.ts | the movement sentence compares only with 3 days of data in both weeks (`dailyStats` counted, from each day's recorded movement) | 5/5 killed | `6ac8112` |
+| H3-03 = KT-04 (Medium) | Reproduced: with a hold that raises no urgent surface, Trends kept Your week's sentences while Home's brief went quiet | yourWeek.test.ts, trends.node.test.ts | `SAFETY_KINDS` is one definition for Home and Trends; `useHeld` reads Home's verdict live from the shared sources and gate; `briefPause` gains `hold` with its own line | 5/5 killed | `4b2f110` |
+| KT-05 (Medium) | Reproduced: "6 glucose readings this week (5 with a number, 1 meter LO); 2 were below 70 mg/dL." | yourWeek.test.ts | D126's sentences; WeekFacts keeps only what is said | 5/5 killed | `b946175` |
+| KT-03 + KT-08 (Medium, Low) | Reproduced: 10 min on an Away day put the week's average at 24 over 4 days with 110 min (27.5); an empty Sunday rest day counted as a 0 day of data | stats.test.ts, model.test.ts | `dailyStats` (counted) leaves status days and empty rest days out of both; `outside` and `restDays` drive the notes | 6/6 killed | `e836842` |
+| H3-05 (Medium) | Reproduced: a lab's large Latest value had only its interval under it; the summary omitted the latest's date; rows read "Tue 30 Dec" for 2025 | model.test.ts, trends.node.test.ts | `labsView.change` "Measured … · interval", summary "measured on …"; year-aware `shortDay` | 4/4 killed | `42d55ca` |
+| H3-06 (Medium) | Reproduced: an evening pressure read "136/86 mmHg at 9:10 pm", its tag dropped | metrics.test.ts | the pressure's words carry its tag, as glucose's do | 1/1 killed | `43b8f7a` |
+| H3-07 (Medium) | Reproduced: leg pain alone read "1 reading with a number" over "No numeric readings"; with both kinds the count included leg | model.test.ts | the headline counts back pain's readings ("No back readings"); the leg stat carries its own count | 3/3 killed | `73799a9` |
+| H3-08 = KT-07 (Medium, Low) | Reproduced: 6 Months drew one "Glucose" range of fasting 100 and after-meal 200 (mean 150); the week's "+37 mg/dL" set a fasting week against a mixed one | model.test.ts, chart.test.ts | a range per plotted series with its shape; words and list per series; like-for-like change, named | 8/8 killed (one case added for a survivor) | `fa30593` |
+| H3-15 (Medium) | Reproduced: a Year's 150/95 was said and listed by its top number only; Back & leg left out leg; a week with only a LO read "No readings" and left the list | model.test.ts | every plotted series said and listed (`fa30593`); each HI and LO said and listed, dated | 3/3 killed here (+ `fa30593`'s) | `2d1e17d` |
+| H3-11 (Medium) | Reproduced: "Lower than last week · −5,000 steps a day" from walks-only days against entered totals; plain averages over lower bounds | model.test.ts, yourWeek.test.ts | D127: "at least" everywhere a lower bound reaches; `compareDaily` refuses a partial window | 7/7 killed | `70066ef` |
+| H3-13 (Medium) | Reproduced: Year set this October's 240 min beside last October's 930; 6 Months set 1–3 May beside 1–2 Nov (2 days) | model.test.ts | each slot's bar covers the same days (6 Months: same days from the start; Year: same month), clipped to today's elapsed days; words and list name the range | 5/5 killed (one case added for a survivor) | `d91e4e1` |
+| H3-14 (Medium) | Reproduced (source): the goal came from `rings.find`, so a week before the 8 rings had none | trends.node.test.ts | `weeklyGoalOn(state.settings, week)` | 1/1 killed | `ed13f73` |
+| H3-20 (Medium) | Reproduced: the row said "Latest Vitamin B12" and opened HbA1c | model.test.ts, trends.node.test.ts | `latestLab` gives the row's words, its `?metric=` and Labs' default | 4/4 killed | `d0a368b` |
+| H3-21 (Medium) | Reproduced: a week with only water and a reading in the lines said "Nothing recorded this week yet." | yourWeek.test.ts, trends.node.test.ts | `recorded` fact; `emptyLine` says "Nothing recorded" only when nothing was, else "Nothing to sum up … Each category's trend shows what was recorded." | 5/5 killed (one case added for a survivor) | `847a4f3` |
+| H3-16 (Medium) | Reproduced (source and browser): no slider, no keys, table `sr-only` only | backLegSeries.test.ts, trends.node.test.ts; browser check at 428 light/dark | whole-plot slider (tap, drag, keys), outlined day, words above, visible Show as list | 6/6 killed | `9655831` |
+| H3-17 (Medium) | Reproduced in Chromium: at 320 px/200% the list's wrapper was 216 px, the table 287 px, two cells clipped | trends.node.test.ts (renders `TrendTable`); browser check at both sizes, light and dark | below 5 rem a column, rows reflow to labelled blocks; only one form displayed | 5/5 killed | `7e71def` |
+| H3-18 (Medium) | Reproduced (source): `touch-pan-y` alone | trends.node.test.ts; Chromium computes `pan-y pinch-zoom` | `touch-pan-y touch-pinch-zoom` | 1/1 killed | `5393e12` |
+| H3-19 (Low) | Reproduced (source): `min-h-11` segments | trends.node.test.ts (renders `Segmented`); browser check of all 6 screens using it | segments and group `min-h-12` | 1/1 killed | `fbe6cc1` |
+| KT-06 (Low) | Reproduced: a 48 px pill | trends.node.test.ts; browser 60 px (102 px at 200%) | shared `PrimaryButton` at 60 px, as WalkHub's | 1/1 killed | `6c45271` |
+| H3-22 = KT-12, second half (Low) | Reproduced: 8 Check rows in one region | model.test.ts, trends.node.test.ts | `trendSections`: at most 5 to a region, balanced, labelled, in order | 5/5 killed (wiring check added for a survivor) | `c19cada` |
+| KT-12, first half (Low) | Reproduced (source and browser): statistic line, compared line and notes at 13 px footnote | trends.node.test.ts; browser 15 px (30 px at 200%) | raised to subhead, still muted | 2/2 killed | `11d93d3` |
+| KT-14 (Low) | Reproduced (source): last week's brief was kept as seen while paused | trends.node.test.ts; browser: Away leaves it unset, Normal keeps it | seen only when not paused | 1/1 killed | `99768ba` |
+| KT-09 (Low) | Not a defect: the choice was undocumented against §12.2, not wrong | — | D130 written beside B-15 (above); labels already name the statistic and period | — | board only |
+| KT-10 (Low) | Not reproduced: `toSession` stores an unguided WorkoutSession with the entered minutes; `activitiesFrom` files it as programme; it reaches the trend through `recordedMovement` | model.test.ts: built through the log screen's model, read through the Workout trend (Total 40 min) | none needed | dropping unguided sessions: killed | `37b7260` (test) |
+| KT-11 (Low) | Not reproduced: 04:00 is a daily boundary (`DAY_EDGES`), Home wakes at it (`useWakeAt(nextBoundary(…))`) and works the brief out from `now` | yourWeek.test.ts: fake-timer test of Home's wiring at Monday 03:59:30 → 04:00 | none needed | dropping 04:00 from `DAY_EDGES`: killed | `a1524c1` (test) |
+| KT-13 (Low) | Reproduced: no "what is mg/dL / mmol/L" link on first sight. Not fixed here: no screen in the app has a unit explanation to link to (the hubs don't either, contrary to "as the hubs do"); the Learn library builds cards only from sourced, reviewed claims with a reading record (integrity.test.ts), and §20.4 rule 5 is app-wide | — | left for the content plan: one sourced explanation of the two units, linked once from every screen that first shows glucose | — | — |
+| (found verifying KT-16) | Reproduced: three 6.6 mmol/L readings averaged 6.599999999999999; the axis was 1e-16 tall, five ticks all "6.6", duplicate React keys | scale.test.ts; browser | `niceDomain` treats a float-dust span as flat | 1/1 killed | `2622d5a` |
+
+Mutation-check note: the tool's shell is zsh, which doesn't split an unquoted `$T`, so an early batch of mutation runs passed one bogus filter, found no test files, and counted the exit as a kill. Every one of those mutations was re-run with arrays and a helper that names the killing test and refuses "no test files"; each was killed by a named test, so the counts in the commits stand.
+| KT-16 (Info) | Reproduced: no acceptance case had a meter HI or LO, or mmol/L, in Trends | J06 case "Trends: a meter's LO and HI in mmol/L (KT-16)": caution line, numeric count, change hidden, 1 below 3.9 and 1 above 13.9 mmol/L, no mg/dL | — (a test) | acceptance: 4/4 projects pass | `56f9ca4` (test) |
+
+#### Judgment calls
+
+- **H3-03: what "a day with a hold" is.** Plan 3 defines it for the brief ("a hold, a re-check or a status that isn't Normal never shows the brief"), and Home goes quiet on the engine's `hold` and `recheck` recommendations. A check-in still to give before starting, including a glucose reading to take again for someone on insulin, is the engine's routine `checkIn` step ("Check in & start"), not a hold. Both reviewers listed it as one; pausing on it would hide Monday's 04:00 brief until each day's check-in, and Home would disagree. Trends now goes quiet exactly when Home's card does.
+- **KT-05 and the uncommitted V-J24.** `v24.mjs` step 3 (owner's, uncommitted) expects "1 glucose reading this week; 1 was below 70 mg/dL."; under D126 the sentence is "1 glucose reading was below 70 mg/dL this week." Not edited here.
+- **KT-07's change.** Kiro offered "compare by the dominant context, or show the change per context". Built: the first kind in the fixed order (fasting or before a meal, after a meal, other times) with 3 days in both periods, named in the line, as blood pressure names its top number. A mean over a mix is never compared. With no such kind: "Comparisons start once one kind of reading, such as fasting, has 3 days in both weeks."
+- **KT-13 left to content.** Writing a health explanation without a source the team has read would break the library's own rules (claims cite sources, with locators and reading records). The unit facts the code relies on (18 mg/dL = 1 mmol/L, `MGDL_PER_MMOL`) are arithmetic, but rule 5 asks for an explanation, linked once, app-wide.
+
+#### Browser checks
+
+Headless Chromium against this worktree's dev server (`npx vite --port 5390 --strictPort --host 127.0.0.1`), through the acceptance harness's launcher, frozen clock and persona seeding. Shots in `/tmp/fit-checks/shots-p3fix/`.
+
+- **Final pass:** Trends, Steps, Glucose (6 Months), Walk (Year), Back & leg (Month) and Labs for P01, at 320 px with 200% text and at 428 px, light and dark: 24 of 24 with no horizontal overflow, no target under 44 px and no console error (`final-*`).
+- **H3-10:** 6 Months and Year page back a whole window (`at=2026-04-30`, `at=2025-10-31`) and Next returns with `at` removed.
+- **H3-03:** with the health profile to finish, Home says "Finish your health profile" and Your week pauses with its hold line; on a Normal day both show as before.
+- **H3-16:** the Pain against loading slider by keys and by a tap on the day with the record, its words, the outline and the list, at 428 px light (P01) and dark (P06); at 320 px/200% the day list stands in, as before.
+- **H3-17:** the list's blocks at 320 px/200%, 216 px wide with nothing clipped; the table at 428 px.
+- **H3-18:** the plot's computed `touch-action` is `pan-y pinch-zoom`.
+- **H3-19:** every screen drawing `Segmented` (Labs trend, Labs hub, Back hub, Today's log, the add sheet's glucose and lab choices): segments 48 px or more, no broken label, no overflow, in all four combinations.
+- **KT-06:** the empty screen's button is 60 px (102 px at 200%) and opens Today's log's Add list.
+- **KT-12:** the statistic line computes 15 px (30 px at 200%).
+- **KT-14:** Away today, "Last week in brief" leaves `trends:weekBrief` unset; Normal keeps it.
+- **KT-16 dry run** (before the acceptance run): the J06 case's checks hold, and exposed the flat-axis defect fixed in `2622d5a`.
+
+#### Acceptance
+
+`/tmp/fit-checks/accept-locked.sh … 49991 /tmp/fit-checks/accept-p3fix.log --only=VJ07,VJ24,VJ26,VJ27,J06,S01`, after the last code commit: **124 cases, 120 passed, 4 failed, in 7.8 min.**
+
+- J06 21/21 in each project (KT-16's new case among them), S01 5/5, VJ07 2/2, VJ26 1/1, VJ27 1/1.
+- **VJ24, step 3, in all four projects:** Home's urgent state was none, so the journey looked for the pre-D126 sentence "1 glucose reading this week; 1 was below 70 mg/dL."; Your week now says "1 glucose reading was below 70 mg/dL this week." (D126, the owner's KT-05 decision). Steps 1, 2 and 4 passed: the reading kept its measured time, the guidance was past-tense, Trends' safety surface matched Home's, the list row read "Low" and "Below 70 mg/dL" counted 1. `v24.mjs` is the owner's uncommitted Task 15 file, not edited here: its step 3 needs the D126 wording.
+
+#### Seen while fixing, outside these findings (not changed)
+
+- The shared `PrimaryButton` is 56 px (`min-h-14`) wherever it is used; §20.4 rule 1 asks 60 px of a primary action. WalkHub and now Trends override it to 60.
+- The add sheet's unit switches (`UnitSwitch`, "Glucose unit", "HbA1c unit") are 44 px; rule 1 asks 48.
+- The engine asks for ketones at glucose of 250 mg/dL **or more** (`atLeast`), but `displayBoundaries` holds only Trends' "above 250" (`le`). A reading of 249.6 still shows as "250 mg/dL" anywhere, where the ketone rule does not apply.
+- `BackLegChart` (track) now reads `slotAt` and `stepValue` from `screens/trends/chart.ts`; they could move to `components/hig/scale.ts` beside the other chart helpers.
+
+### 2026-10-11 — [claude] Plan 6 (Walk): decisions, and the device checks before release
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| D86 | Every start to `/walk/live` goes through `useStartMovement`'s walk path: the first walk's questions (keep routes; map pictures, only while routes are kept; the step card, only when counting steps), then B-01's sequence in the tap that finally starts the walk. Each answer is stored as it's given, so a start the gate refuses keeps them and asks nothing twice. The live screen starts only the latest walk that flow started, and only once (`walk/started.ts`): an address is a choice, never authorisation, so a link, a bookmark or a step back through history goes to the Walk hub with its meal. Each tap is one attempt: Close, another screen or the screen going away gives it up, its audio is dropped and it never navigates; Start answers again once an attempt is over | J§9.1, B-01, A-51, K-09, K-29; V-J19; H6-04, H6-08, KH-12, KH-14 |
+| D87 | B-09's walk is recorded as after the meal "had at" the stated time: tagged `afterMeal`, with no `mealStartedAt`; the summary says "Had at", the note "which you had at" | Plan 2's D50 left it to this plan; B-09 |
+| D88 | A segment's time accrues from the monotonic clock alone. The device clock disagreeing with it by more than 120 s in one step is a change to the clock: the segment closes as `clockChange`, and every reading the device knew then is untimed, by identity, for every question the walk asks, carrying on included. A change of the phone's offset (another zone, daylight saving) moves no clock: the segment closes as `timeZone` and the next opens in the new offset and day. The acceptance suite runs a walk journey's monotonic clock with its frozen wall clock (`sensors.monotonic: 'wall'`), moves recording time at most 60 s at a time, and cues have 65 s of grace for it | B-19, A-75; H6-02, H6-09, H6-10; V-J41 is Plan 8's journey |
+| D89 | The walk journal is IndexedDB `walkJournal`, outside the record (no revision, no backup, no other tab). It's written at every change and every 15 s, with the route only when routes are kept, and retired in the save's own transaction. A walk restored after a reload journals nothing until its route has been read back, and a save with no route in hand reads the journal's inside its own transaction. Home offers a walk whose journal has been quiet for 2 minutes and isn't held by this tab's draft | J§9.4, A-55, A-57; V-J34; H6-06 |
+| D90 | A route is one line per GPS run, never joined across a gap or a dropout. It's kept only on this phone's "Yes" as it is now, whatever an address or a walk's plan says; at most 1,000 lines and 20,000 points; never in `sessionStorage`; in a backup only with "Include your routes". A file's routes come in only on a phone that said Yes, never one from before "Erase all routes", and the preview says how many are left out and why. An import never switches either consent on | B-17, A-48, J§18.3, B-26; H6-04, H6-05, KH-12 |
+| D91 | Map pictures are our own static map: OpenStreetMap's standard tiles for the current view only (at most 9 at 400×300), as plain `<img>`s with the browser's caching and the page's Referer (`strict-origin-when-cross-origin`). The CSP adds `https://tile.openstreetmap.org` to `img-src` and nothing else. None are requested during a live walk, offline, while hidden, or in the history, whose thumbnails are our own SVG. The credit is a visible link under the map, 48 px tall | J§9.5, J§22, B-23, M14; KH-10 |
+| D92 | Energy is (MET − 1) × kg × hours, from the 2024 Adult Compendium for those certainly 19 to 59 this year (D85 for 60 and over). Time without a usable speed counts at 17152 (2.8). It's rounded to the nearest 10, with no figure under 5 kcal or for a speed of 5 mph and over. The weight is the last reading on or before the walk, else the profile's. It's saved as an `activeEnergy` observation whose note says what it used; with no birth year the summary links to Me → Profile & health, at About you | J§12.4, B-16, B-17, B-18, B-31; KH-13 |
+| D93 | "Erase all routes" is one transaction: the routes store emptied with its keys remembered (D-06), every journal rewritten without its route, and `routesErasedAt` set. Every tab's live walk, journal cache and open summary watches that and forgets its route, and neither the store nor an import ever keeps a route that began before it. Deletion records hold ids only today; **Plan 8 must clear route coordinates from its deletion payloads in this same operation** | B-05; H6-07, KH-03, KH-04, KH-05, KH-07 |
+| D94 | Cues are five recorded single sentences at 10, 20, 30, 45 and 60 minutes of recorded time, said within 65 s of the minute. They play through one audio element that the start tap unlocks. There's no device-voice fallback, and a cue stops on pause, a hold, Finish, leaving, mute, a call or headphones out, and is never resumed | J§9.2, A-72, B-01 |
+
+Rechecks and deferrals from the review of this plan:
+- KH-06 rechecked independently on 2026-10-10: values match the source page.
+- KH-09 is deferred to Plan 7 Task 15.
+
+**Checks only an iPhone can do** (before release; record the results here, with the phone and iOS version):
+1. **Motion permission, every cold launch:** the prompt appears from the tap that finally starts the walk (the hub's Start, the check-in's Start, or the step card's), not before the step card. "Don't Allow" gives a walk that says "Steps not counted". Closing the step card while the prompt is up starts nothing afterwards.
+2. **Steps** over 200 counted steps, each within ±10%: a slow gait (about 1.5 steps a second); with a walking stick; and with the phone in the hand, a trouser pocket, a shirt pocket and on a lanyard. A limping gait counts both legs.
+3. **Audio:** the 10-minute cue plays after the start tap. A call, or headphones pulled out mid-cue, stops it, and it doesn't resume. After a reload mid-walk, "Turn the voice on" unlocks it.
+4. **Wake Lock,** in Safari and installed: the screen stays on through a 15-minute walk. When it's refused or released, "Keep this screen on to keep tracking." shows.
+5. **Map pictures on the deployed site:** each tile request carries the site's Referer and returns 200. The credit link opens OpenStreetMap's copyright page.
+6. **A screen lock mid-walk:** "Recording paused while the app was away" on return, and a separate line and segment.
+7. **A clock change mid-walk** (Settings → General → Date & Time, time set by hand): the recorded time stays right, and carrying on asks for a fresh reading. **A time-zone change** (Set Automatically off, another city): the time stays right, a new segment starts in the new zone, and nothing is held for it.
+
+### 2026-10-11 — [claude] Plan 6: the review findings fixed, Tasks 14 to 18, and the full run
+
+Branch `feat/v2-p6b`, from `feat/v2-journey` at `0305bc5`. Every fix below began with a test that failed on the code the finding named, and each new rule's mutants fail a test. Gates at every commit: `tsc -b --force`, `eslint .`, `vitest run`.
+
+| Finding | What a person met | Fix | Commit |
+| --- | --- | --- | --- |
+| H6-01 | Closing "I need to stop" without an answer, Resume carried on | The stop is saved at the tap (`stopped`) and holds until something answers it; every stop answer and the leg questions answer it | `7c10fc0` |
+| H6-02 | After a clock change, a reading from before it could pass as fresh | The readings the device knew at the change are held by identity, in every question the walk asks | `db8733e` |
+| H6-03, P8-02 | Replace, or a take-file Merge, from an older healthy backup cleared an open stop; both could reopen an answered 600 mg/dL | In all three modes the device's incidents, open or answered, keep the records their standing depends on, read as every gate reads them; the file's answers about anything the device holds are left out of every day; the engine decides | `ac7979e`, `c4c3fea`, `e81d296` |
+| H6-04, KH-12 | A link or a step back through history could start a walk, or keep a route | Only the latest walk the start flow started, taken once; the route only on this phone's Yes as it is now | `70e4630`, `fce9664` |
+| H6-05 | A file's routes came onto a phone that said No | Routes come in only on a Yes, never from before an erase; the preview says how many are left out and why | `c8dc5ff` |
+| H6-06 | A reload could journal over the only copy of a kept route | Nothing is journalled until the route is read back; loading, unreadable and none are told apart; the save reads the journal's route in its own transaction | `43da571` |
+| H6-07, KH-03, KH-04, KH-05, KH-07 (Task 14) | No way to change the walk consents, erase routes for good, or keep routes out of a backup | Me → Data's Walks and maps: both consents, "Erase all routes" in one transaction across routes, journals, caches, live walks and tabs, and "Include your routes" | `138bc27` |
+| H6-08, KH-14 | A start given up while iOS asked could still navigate later; Start could look dead after a start that came back | Each tap is one attempt: Close, another screen or unmount gives it up and drops its audio; Start answers again once an attempt is over | `fce9664` |
+| H6-09 | Small changes to the phone's clock added or took away walking time | Time accrues from the monotonic clock alone; the device clock only says it changed | `52e8245` |
+| H6-10 | A time-zone change left the open segment in the old offset and day | The offset is checked on its own; the segment closes as `timeZone`, the next opens in the new zone's day | `8857401` |
+| H6-11, KH-10 | Route and live walk controls 44 px tall, 8 px apart | 48 × 48 px at least, 12 px apart, from one shared size; main targets 60 px; large text reflows | `f6a8992` |
+| H4-02 | "Check a backup" couldn't tell a file missing parts of what it held | Backups carry a manifest; Check says whole, incomplete or can't tell | `97beb96` |
+| H4-08 | Destructive confirmations under 60 px | The shared main-target size | `e18ccc6` |
+| H2-01, live half | Resume carried a walk on while Unwell, Away or in a flare-up | Carrying on asks the status first, as the hubs' Continue does; the hold says why and offers Change status | `05fac64` |
+| KH-13 | "Add your birth year" led nowhere useful | It links to Me → Profile & health, at About you | `2644490` |
+| KH-18 | Save and Discard squeezed side by side on a small phone | Stacked below 20rem at the row's own text size | `4bab262` |
+| M12 (integrator) | After a save, the Walk hub's Back said "Your walk" and bounced | Done goes back through history, as the session player does; with nothing behind it, the origin in place | `e617b6a`, checked in J10 and J11 |
+| Sweep | "Walking time" at 2.36:1 while paused | Only the figure dims | `cb348d3` |
+
+Also: `feat/v2-journey`'s `179239d` and `831e0c9` cherry-picked (acceptance files only) as `6c50d52` and `af3a2fc`; Task 15 in `d7255b2` (J10 and J11, J10 with the M12 check), Task 16 in `9be6960` (V02, V19, V20), Task 17 in `9c73b78` (V33, V34, V16), Task 18's entry above in `8286e27`, and the import incident view's caching in `e81d296`.
+
+The acceptance harness: `sensors.monotonic: 'wall'` runs a walk journey's monotonic clock with its frozen wall clock (H6-09), `t.allowRequests` exempts only the map pictures a journey's person said Yes to (B-23), and after an offline reload V16 sets offline again, since Playwright's reloaded page otherwise reads `navigator.onLine` as true.
+
+Left for later, not in this round's findings:
+- StopSheet, the low-reading guidance and the walk's SelectRow still have 44 px controls (never under 44, but not 48).
+- At 200% text on a 320 px phone the live walk's half-width "Pause" button overflows with its icon (as before this round).
+- Codex and Kiro's reviews of this round are the user's to run.
+
+Production build: `npm run build` succeeds, and the CSP's `img-src` is `'self' data: blob: https://tile.openstreetmap.org` (written HTML-escaped in `dist/index.html`).
+
+**Acceptance.** The first full run (1012 cases) passed 1007. The five failures were the journeys, not the app: J17's partial-save walk counted 2.02 minutes, its monotonic clock keeping real time while the journey froze the wall clock (H6-09), and V02 small-dark read the walk's tab copy a moment before the live screen stored it, under load. `ee5d9f6` runs J17's walk on the wall-following clock and has V02 and V19 wait for the stored walk; no assertion was changed or removed. **The final full run, on `ee5d9f6`: 1012 cases, 1012 passed, 0 failed, in 63.5 min**, J10, J11, V02, V16, V19, V20, V33 and V34 included in all four projects. Its screen sweep (not failures): offline `net::ERR_FAILED` console lines in J20 and V16, as expected; Browse's More menu exposing no level-1 heading or main landmark (VJ12, Plan 4's); and the 20 × 20 px checkboxes inside 44 px rows on the stop questions in `/session` and `/walk/live` (J13, J16), as before.
+
+### 2026-10-11 — [claude] v2 integration: Plan 6's Tasks 14–19 and the walk review fixes merged into feat/v2-journey
+
+`feat/v2-p6b` (28 commits from `0305bc5`, at `6da4c94`) merged into `feat/v2-journey` at `91dd82c` as `f5dab1c`. Seven files conflicted. Each kept both sides' intent, and the merge commit says how, file by file. What a reader of either plan should know:
+- **Counts-free hides the walk summary's "Add your birth year" row too** (KH-13; B-11, D101): its `fix` takes the gate Plan 7 gave the energy row. Plan 7's guard (`boundaries.node.test.ts`) checks whole files, so it passes either way. `summary.callers.test.ts` now holds the row: no link counts-free, the link for the same walk with estimates. The ungated version fails it.
+- **The Walk hub** keeps the integrated branch's pending-walk card (H2-01) and gains Plan 6's Routes and Map pictures rows (Task 14).
+- **J10** takes Plan 6's "Back to Home" step (M12: Done goes back through history). The integrated branch's other J10 fixes stay.
+- **Backups and imports cover Plan 7's stores.** The import that keeps this device's incidents (H6-03, P8-02) and the H4-02 manifest read every v2 store the same way. A backup's manifest counts meals, usual meals and own foods, and each merges by its own rule.
+- `179239d` and `831e0c9`'s hunks are in the tree once: Plan 6's `6c50d52` and `af3a2fc` are the same hunks.
+
+**Gates:** `tsc -b --force` and lint clean. Vitest: 250 files, 6,454 tests, Plan 7's counts-free guard and Plan 6's tests included.
+
+**Acceptance** (port 49831, through the lock, load average 14–21): **1,156 cases. 1,151 passed, 1 failed and 4 pending, in 77.5 min.**
+- J11 (16) now passes with Plan 6 Task 15's harness. Since the first integration it had stopped at the first walk's route question. J10 (4) passes with its "Back to Home" step. V02, V16, V19, V20, V33 and V34 pass in all four projects, as does every other plan's journey.
+- V-J31 (4) is pending on Food's trend, as agreed.
+- One case timed out at step 2 in small-dark: M02's "H2-01: in Normal, Return to walk asks the gate at the tap" (`waitForURL(/walk/live)`, 10 s). Alone, M02 passed 36/36. The walk in this case was left open the day before. The live screen finishes it as stale the moment it arrives (`attach` → `returnToWalk`, away more than 3 h) and moves to the summary, so the step passes only if its wait starts first. That code path is the same on `91dd82c`.
+- Plan 3's uncommitted journeys (V07, V24, V26 and V27) aren't in the tree, so they didn't run.
+- The screen sweep found the same as earlier runs:
+  - offline `net::ERR_FAILED` lines (J20, V16);
+  - Browse's More menu with no level-1 heading or main landmark (VJ12);
+  - the 20 px stop checkboxes in `/session` and `/walk/live` (J13, J16);
+  - the check-in's ketone choices at 41–42 × 44 px at 320 px (V-J18), as in Plan 5's runs.
+
+Left for later:
+- **The Walk hub offers "Return to walk" for a walk that will only be finished.** `peekWalk` reads any unfinished walk as in progress. After more than 3 h away (`STALE_AFTER_MS`), the live screen ends the walk at once, after the check-in and "Carry on walking": "This walk was left open, so it was finished at 9:02 am". Offering "Review and save" for such a walk is a decision for H2-01's owner. It would also make M02's step 2 deterministic.
+
+### 2026-10-12 — [claude] v2 Plan 5 review fixes (Codex H5, Kiro K5)
+
+Worktree `/Users/chumohak/Projects/fit-strong-90-v2-p5`, branch `feat/v2-p5`, from `214ef04`.
+Baseline at 214ef04: `tsc -b --force` 0, `npm run lint` 0, `vitest run --maxWorkers=3` 210 files and 5,865 tests passing.
+
+Principle for every fix: an answer path never gives the engine weaker inputs than the person supplied, and "Not sure" or unanswered never becomes "No" (§6.1, §4).
+
+#### Decisions (owner: "don't ask"; numbered from D150)
+
+| D | Finding | Decision |
+|---|---|---|
+| D150 | K5-08 | Allergies get their own page, which can't be skipped, with a one-tap "No food allergies". The rest of chapter 7 stays skippable. |
+| D151 | K5-09 | "Not sure" is added to eye treatment in the last 3 months, a foot wound now, dialysis or transplant, and the weight-off-foot limit. Each "Not sure" maps to the stricter value. |
+| D152 | K5-10 | A usual glucose start figure must be at least 70 mg/dL or 3.9 mmol/L, with an error that says why. |
+| D153 | K5-11 | Review says why a diabetes 'other' interpretation was made. |
+| D154 | K5-12 | "Your day" is split into 3–4 skippable pages. The minimal path stays at 20 pages or fewer and the complex path at 30 or fewer. The published graph is updated. |
+| D155 | K5-13 | Plain words first, with the term in brackets, e.g. "a doctor or nurse (clinician)". |
+| D156 | K5-14 | Back from a chapter opened from Review returns to Review. |
+| D157 | K5-15 | Save is blocked when a shown page is half-answered, with the reason next to it. |
+| D158 | H5-16, K5-17 | A debounced, durable autosave of answers, keeping raw number text. Back and Close checkpoint the position. Next still waits for confirmation. |
+| D159 | H5-22 | The body picture is illustrative only, and selection uses the labelled list. Every control is at least 48×48 px, with 12 px gaps. |
+| D160 | H5-23 | The shared radio groups get real radio-group keyboard behaviour: a roving tab stop, arrow keys and selection, done once in the shared controls. |
+| D161 | H5-05 | While setup is unfinished, gates use one conservative effective profile: the required gap, plus any stricter answers disclosed in the draft. A completed v1 upgrade is unaffected. |
+| D162 | H5-08 | Stricter clinical answers take effect at once. A restriction is released only after the write is confirmed. |
+| D163 | K5-02 | K5-02's second remedy (in Me, never fill checklist rows that were empty on open) is not adopted. Every non-default eye or foot value is now read back, so a conditions row that opens empty holds the default and its "No" writes the same value. B-08's "unticked is No" stays: the medicines checklist has no other way to answer No per row, and an unvouched medicine value is exactly what the `medicinesUnknown` review asks. The K5-16 committed-save upgrade cases check that no engine input weakens. |
+| D164 | H5-20 | A food record keeps needing its pattern (D82). Plan 7 on `feat/v2-journey` indexes its labels by `food.pattern`, so making it optional would break that build at the merge. Logging and screening answers given after a skipped pattern wait, as given, in setup's own answers. Profile & health and Review read them from there, Your food stays under Finish setting up, and the profile takes them once the pattern is answered. |
+| D165 | H5-12, H5-13 | Answers changed in one copy are written onto the answers as they are now, change by change, and row by row for the conditions and medicine checklists. Where both copies changed the same Yes, No or Not sure, the stricter value stays, since "Not sure" is never turned into "No" (§6.1). For any other answer, the later save wins, as the person's latest. A draft's resume page is checked again against the merged answers when setup resumes (`resumeAt`) or opens a page (`guardFor`). |
+| D166 | H5-18 | Setup and backups share one set of limits (`src/setup/limits.ts`). Allergies left unknown, for example by a backup's unreadable list, keep Your food open under Finish setting up ("Food allergies"). Meal ideas still read unknown allergies as none (`leaveOut`, Plan 7). That is a handoff to Plan 7, not changed on this branch, to avoid conflicting with Plan 7's own allergen code on `feat/v2-journey`. |
+| D167 | K5-08 | Allergies have their own page, `food.allergies`, that can't be skipped, and "No food allergies" is one tap. The pattern and logging pages stay skippable. A food record still needs its pattern (D164), so with the pattern skipped the allergy answer waits, as given, in setup's own answers, as the logging answers do. Review and Profile & health read it from there, Your food stays under Finish setting up ("What you eat"), and Me's Your food stores it with the pattern once that's answered. Handoff to Plan 7, with D166: with no food record, its food picker starts empty and its search offers meals unfiltered. Both should read allergies as unknown, and the picker can't take setup's answer from the profile. |
+
+#### Findings
+
+(Filled in as each one is done: verdict, test, fix, mutation check, commit.)
+
+##### H5-10 = K5-01 (High): Me's health review prefilled unconfirmed defaults. FIXED, `1d08d48`
+- Verdict: reproduced. `answersToEdit` on an unreviewed type 1 profile gave dizzy No, severe lows No and ketone test None as answers. Answering only the home cuff left `blocking` empty, so one Save cleared `needsHealthReview`.
+- Test: `prefill.test.ts`. A pending review opens with no safety answers, with or without stored answers. A Save that answered only the cuff is blocked at `health.conditions` and keeps the review.
+- Fix: `withoutUnreviewed` in `prefill.ts`, one clearing rule for setup's prefill and Me's review. `editorState` and `editorOpens` in `edit.ts` hold the editor's logic as pure functions, which `ChapterEditor` uses.
+- Mutant: dropping the rule from `answersToEdit` was killed (2 tests).
+- Acceptance helpers: `reviewAsP01` (J02, J17) and J12 step 6 answer every question the review asks again.
+
+##### H5-11 (High): unreviewed activity history defaulted to Yes. FIXED, `43da680`
+- Verdict: reproduced. `active` was read from `currentlyActive` (default true) and never cleared. The review cleared without asking it, so `lightOnly` was skipped for an inactive diabetic without clearance.
+- Test: `prefill.test.ts` (no `active` prefilled, focus kept) and `edit.test.ts`. The review blocks on `movement.focus` and stays pending. Answered No, it clears and `lightOnly` is true. A focus changed there is saved, and `skipped` is unchanged.
+- Fix: `active` is cleared with the safety keys. `REVIEW_ALSO = ['movement.focus']` (graph.ts) is shown in the review and required to clear it (assemble.ts). The review saves what that page sets, writing only what changed (edit.ts).
+- Mutants: 4, all killed (prefill clearing, clearing rule, `editPath` `also`, settings ownership).
+
+##### H5-01 (High): partial restored answers bypassed the insulin and lows follow-ups. FIXED, `f1be582`
+- Verdict: reproduced. Stored answers without `conditions` made `answersToEdit` delete the reconstructed chip. Insulin added in Me then gave `diabetesOf` undefined, with no lows or ketone pages, diabetes 'none', and `hypoRisk` false.
+- Tests: `facts.test.ts` (insulin or a lows tablet with no chip is 'other'), `prefill.test.ts` (a missing stored answer keeps the record's), and `edit.test.ts`, the full scenario. It blocks on limits, lows and ketones; once answered, the profile is 'other' with `hypoRisk` true.
+- Fix: `answersToEdit` keeps a reconstructed answer when the stored one is absent. `diabetesOf` reads a lows medicine as 'other' even with no chip (two independent defences).
+- Mutants: each is killed by its own test. The full scenario needs both removed to fail.
+
+##### H5-03 ≈ K5-02 (High): eyes and feet read back only with diabetes, and the foot chip outranked a clinician's limit. FIXED, `800f205`
+- Verdict: both reproduced. Saving Your health on a record without diabetes, with one row ticked, turned `recent_eye_treatment` (red) into `none_or_mild` and a foot wound into healthy. Unticking feet with the limit Yes wrote healthy at once.
+- Tests: `prefill.test.ts` (non-default values are read back without diabetes), `facts.test.ts` (the limit holds walks with the chip unticked), and `edit.test.ts`. Unticking feet brings `backFeet.history`, keeps `footStatus` and FOOT; the limit answered No releases. The red outcome and the wound survive a reachable Save.
+- Fix: read-back in prefill.ts. `footLimit` and `footHeld` in facts.ts. Precedence in `healthFrom`. The history page stays while the limit stands (graph.ts, backFeet.tsx). `editChapters` brings Your back and feet when the chip goes and the limit stands.
+- Mutants: 7, all killed. Decision D163 covers K5-02's second remedy.
+
+##### H5-04 = K5-03 (High): Your day and coach asked the fluid limit but never wrote it. FIXED, `b8fb891`
+- Verdict: reproduced. A day-only save left `health.fluidRestriction` undefined and only turned the reminder off.
+- Test: `edit.test.ts`, through the chapter-restricted save. Water on with Yes, Not sure and No gives true, 'unsure' and false; the reminder is on only with No.
+- Fix: in `profileFrom`, the day chapter writes `fluidRestriction` with health's own conversion.
+- Mutant: dropping the write was killed.
+
+##### H5-02 (High): Try again saved an obsolete answer and followed its obsolete route. FIXED, `45f5130`
+- Verdict: reproduced by reading the code. `useMove.retry` replayed `failed.answers` and `failed.to`, and `continueUnsaved` the same snapshot. Browser reproduction: V-J17's two new cases, run on a snapshot of the unfixed tree (see the acceptance section).
+- Tests: `setup.pages.test.ts`, `nextMove` and `skipMove` plan from the current answers (a corrected page goes to `health.bp`, not `health.diabetes`). V-J17's new cases "Try again stores the page as corrected" and "Continue without saving keeps the page as corrected".
+- Fix: `useMove` keeps only that a store was refused. Each page's `Recovery` runs its own move again from the page as it is now (`PageFrame`, `WelcomePage`). `goUnsaved` handles B-07.
+- Mutation: the unfixed snapshot is the mutant. It must fail the two new V-J17 cases, and the fixed snapshot must pass them.
+
+##### H5-06 (High): storage unavailable from launch bypassed B-07. FIXED, `21d18d8`
+- Verdict: reproduced. With the store in memory mode, a Next's 'session' outcome never set `unsaved`, and Review's completion completed the profile in memory.
+- Tests: `draft.test.ts`. Storage refused from the start: `saveDraft` gives an unsaved session with the answers. `finishSetup` enters without saving with no profile, `onboardingComplete` unset and stage not done. A `needsStorage` write in memory mode changes nothing.
+- Fix: `saveDraft` (from useMove) enters the explicit unsaved mode on any 'session' outcome. `finishSetup` (from ReviewPage) never completes in that mode, and its write `needsStorage`, so storage going during the finish is refused too. `UpdateOptions.needsStorage` passes through to the store's existing mechanism.
+- Mutants: 4, all killed. A redundant status pre-check was removed after its mutant survived, leaving one mechanism.
+
+##### H5-07 = K5-05 (High): restore left the previous setup's answers in memory. FIXED, `c6366c9`
+- Verdict: reproduced. After a Replace, the page edits and an unsaved session from before survived, and edits stayed after Next and finish.
+- Tests: `draft.test.ts`. A successful Next forgets its page's edits and a refused one keeps them. Replace leaves no edits or unsaved session, showing the backup's draft. Merge keeps the session. Look around and finish forget the pages.
+- Fix: `StoreState.epoch` moves on a Replace import or clear-all. Setup's session and page edits are scoped to it (draft.ts). `saveDraft(from)` and Continue without saving forget the page left. `finishSetup` resets. `lookAroundFirst` clears the page edits. The page key includes the epoch (remount).
+- Mutants: 6, all killed.
+
+##### H5-09 (High): an in-flight completion could overwrite another tab's finished setup. FIXED, `ee14087`
+- Verdict: reproduced. A finish planned after another tab had finished replaced its foot limit with healthy and added a stale weight reading. A finish of answers changed since Review (insulin) completed over the change.
+- Tests: `draft.test.ts`. After another tab finished, a finish goes Home and keeps that tab's record with none of its readings. With the draft changed, it fails with the reason, the stage stays open and the change is kept.
+- Fix: `completedSetup`, planned inside the write, changes nothing when setup is done or the stored draft isn't the one Review showed. The update option `addObservationsWhen` adds readings only when this write finishes setup. `finishSetup` tells the person when the answers changed in another window.
+- Mutants: 5, all killed.
+
+##### H5-05 (High): "Look around first" didn't guarantee the profile-gap hold. FIXED, `d482831`
+- Verdict: reproduced. `deviceClinical` and `useGuided` read the stored reviewed profile of a v1 record left part-way, ignoring setup's stage and its draft.
+- Tests: `effective.test.ts`. A part-way record with a drafted wound is held for the gap with the wound applied, after Look around too. A looser draft never loosens. Unsaved answers count. A completed upgrade returns the stored profile itself. The walk gate reads the same. Every health field's rule is checked both ways round.
+- Fix: `src/setup/effective.ts`. `gateProfile` (D161) is the one profile every gate reads, through `useGuided` and `deviceClinical`. `stricterProfile`, `stricterHealth` and `stricterPain` merge field by field; the rule table is a Record over `HealthProfile`'s keys. `useSetupSession` got a server snapshot.
+- Ten caller and walk test files seeded "profile + onboardingComplete unset". That state is only ever setup left part-way, now held by design, so their fixtures say setup is finished.
+- Mutants: 8, all killed.
+
+##### H5-08 (High): a clinical edit could release a hold before its write succeeded. FIXED, `10e415a`
+- Verdict: reproduced through the real ChapterEditor (`setup.callers.test.ts`). With the old optimistic save, a healed wound showed healthy while its write was held, and a refused new wound vanished.
+- Tests: the caller test (release waits for the stored write; a stricter answer counts while refused) and `effective.test.ts` (a refused edit outlasts another chapter's save and goes with its own chapters' stored save).
+- Fix: `saveClinicalEdit` (D162) holds chapter edits on their way, keyed by chapters, and the gate folds them in. ChapterEditor writes with `hold: true`.
+- Mutants: the old save fails both caller tests. No hold, no fold, keep-on-refusal and the same-chapters rule are each killed.
+
+#### Acceptance
+
+- After the Highs: a snapshot of `10e415a`, run through the shared lock with `--only=V-J10,V-J11,V-J13,V-J17,V-J18,V-J37,J01,J02,J12,J14,M01` in all four projects. 188 of 188 cases passed in 10.2 min (`/tmp/fit-checks/accept-p5fix-highs.log`).
+- H5-02 in the browser (V-J17's two new cases). On a snapshot of the unfixed tree, 0 of 2 passed: both went to "Which type of diabetes?". On `45f5130`, 4 of 4 passed, and all of V-J17 there passed 8 of 8.
+
+##### I-01 (integrator): the food logging level read-back used words other than Plan 7's. FIXED, `30c5123`
+- Test: `summaries.test.ts` pins Plan 7's `LEVEL_LABEL` words for each level; it failed before.
+- Fix: `summaries.ts` `LEVEL` uses Plan 7's words word for word. `@/food/copy` isn't on this branch, and adding it would cause an add/add conflict. Once merged, `LEVEL` can become `LEVEL_LABEL`.
+
+##### K5-09 (Low–Med): no "Not sure" on four safety questions. FIXED, `508da7e` (D151)
+- Tests: assemble, facts, pages and importCheck; each failed before.
+- Fix: the types, facts, `healthFrom`, the eyes page, the page options with footers, and the validator.
+- Mutants: 7, all killed.
+
+##### H5-19 (Medium): past neurological history was coupled to current pain. FIXED, `5cb7a07`
+- Tests: assemble (no pain keeps the history, and its question sets it without pain), pages (the page stays with a history), and edit (Me's Your back and feet offers the question). Each failed before.
+- Fix: `painFrom` keeps or sets the history whatever the chip. The history page's `when` includes a history. The view shows the question with pain, a history kept, or in Me. Me's fallback page list adds the history page.
+- Mutants: 4, all killed.
+
+##### K5-18 (Low): pain "Not sure" reached only the first Home layout. FIXED, `a7b9bad`
+- Test: `homeLayout.test.ts`, with setup's answers holding Not sure, Back & leg is relevant. It failed on the assertion.
+- Fix: `homeAnswers` reads `backUnsure` from setup's own answers; `useHomeLayout` (and so Me's offers) uses it.
+- Mutant: killed.
+
+##### H5-15 = K5-04 (Medium): Me saved invalid or underage birth years, and first-run Skip got past the age gate. FIXED, `7e9bd38`
+- Tests: `setup.callers.test.ts` (the real PageFrame: Skip with 2015 stays and says why; cleared, it skips) and `edit.test.ts` (Save waits for 195, 2015, and 2008 with No or no answer). Both failed before.
+- Fix: `PageDef.invalid` and `pageInvalid` (graph.ts). PageFrame's Skip on an invalid page stays. Me's `blocking` includes invalid preference pages.
+- Mutants: 4, all killed.
+
+##### H5-27 (Medium): a hidden metformin year blocked Next. FIXED, `bb04485`
+- Test: `setup.pages.test.ts`; it failed before.
+- Fix: the year is checked only while metformin is Yes, and `commitPage` drops a hidden one.
+- Mutants: 2, killed.
+
+##### H5-21 (Medium): clearing the metformin year didn't clear the stored year. FIXED, `17f9286`
+- Tests: `setup.callers.test.ts` (the real ChapterEditor, which failed before), assemble and importCheck.
+- Fix: an emptied field is `''`, meaning no year. In `healthFrom`, `''` clears, undefined keeps and a new year replaces. The validator accepts `''`.
+- Mutants: 3, all killed.
+
+##### H5-26 (Medium): visible usual meal times weren't accepted as shown. FIXED, `4019d6d`
+- Tests: pages (the committed page stores the shown times) and edit (an upgrader's unchanged day chapter saves). Both failed before.
+- Fix: `finishFor` lives in graph.ts. `commitPage('day.meals')` stores the shown times, and DayMeals checks the shown times.
+- Mutants: 2, killed.
+
+##### K5-10 (Low): glucose start figures below 70 mg/dL were silently unused. FIXED, `4435460` (D152)
+- Test: the pages test fails before. Fix: bounds of 70–300 mg/dL and 3.9–17 mmol/L, with an error that says why. Mutant: killed.
+
+##### H5-20 (Medium): skipping the eating pattern dropped the later food answers. FIXED, `95a9ca4` (D164)
+- Test: `edit.test.ts`. The answers are kept and read back, and the profile takes them once the pattern is answered. The read-back failed before.
+- Fix: `chapterSections` reads the level from setup's answers while there's no food record. The food contract is unchanged (D164).
+- Mutant: killed.
+
+##### H5-14 (Medium): an unrelated chapter save could invent a body reading. FIXED, `b3b3433`
+- Tests: `setup.callers.test.ts`, the real ChapterEditor; it failed before with a 68 kg reading. Also `edit.test.ts` for `editMeasurements`.
+- Fix: `editMeasurements` makes readings only from About you's measures that this edit changed from what it opened with.
+- Mutants: 2, killed.
+
+##### H5-13 (Medium): an unrelated Me edit overwrote another copy's raw answers. FIXED, `0dc6b4b` (D165)
+- Tests: `edit.test.ts`, two copies of Me: B's Not sure and B's skipped goal outlast A's name save; it failed before. Also `merge.test.ts`.
+- Fix: `merge.ts`, `mergeAnswers` (row by row for checklists; the stricter Yes, No or Not sure where both changed). `editedRecord` stores the merged answers and keeps other chapters' skip marks.
+- Mutants: 6, all killed. The first run's two survivors each became a new test.
+
+##### H5-12 (Medium): concurrent draft saves replaced answers from other pages. FIXED, `61ceebd` (D165)
+- Tests: `draft.test.ts` (tab A's name and tab B's health answers both survive; it failed before), `merge.test.ts` (`mergeSkipped`), and `setup.callers.test.ts` (PageFrame hands over its opened answers).
+- Fix: `withDraft` and `saveDraft` merge the page's own changes and skip mark onto the draft as stored, planned inside the write. `MoveOpts` carries what the page opened with.
+- Mutants: 6, all killed.
+
+##### H5-17 (Medium): a rejected imported profile left the health hold impossible to repair through setup. FIXED, `ff76b6f`
+- Tests: state (done with no profile reads as lookAround) and prefill (the kept setup answers carry on, the clinical ones are asked again). Both failed before.
+- Fix: `setupStateOf` treats done with no profile as Look around (app open, every hold applies, `/setup` reachable). `prefillAnswers` carries on from setup's kept answers less the clinical ones.
+- Mutants: 3, all killed.
+
+##### H5-18 (Medium): setup accepted data its own backup validator rejects. FIXED, `c2e4f07` (D166)
+- Tests: pages (the limits), progress (Your food stays open while allergies are unanswered) and importCheck (a backup holds everything setup takes at the limits).
+- Fix: `src/setup/limits.ts` is shared by importCheck and setup. An answer over a limit is invalid, cannot be skipped or saved, and shows an error at the field. Finish setting up keeps "Food allergies" open.
+- Mutants: 6, all killed. Meal ideas reading unknown allergies as none is a handoff to Plan 7 (D166).
+
+##### H5-25 = K5-06 (Medium): replacing a draft-only record skipped the second confirmation. FIXED, `ae1a3ba`
+- Test: `restore.test.ts`, `replaceErases`; it failed before.
+- Fix: RestoreFlow asks twice whenever `replaceErases` names something. The confirmation says what goes, including "your setup answers so far".
+- Mutants: 3, all killed. The sheet itself is covered by a browser check (below).
+
+##### K5-15 (Low): skippable pages saved half answered in Me. FIXED, `d4979ca` (D157)
+- Tests:
+  - `edit.test.ts`: water on with no fluid answer, walks with no meal, and allergies unticked each hold Save; a page left as it opened doesn't.
+  - Caller tests: Your food in Me, and estimates chosen after "Yes".
+  - All of them failed before the fix.
+- Fix: a preference page this edit changed, and left unanswered, holds Save as a safety page does. The page says why at the question, and the food-logging suggestion now says what it waits for.
+- Mutants: 3, all killed.
+
+##### K5-14 (Low): Back from a chapter opened from Review walked into the chapter before. FIXED, `f220cb4` (D156)
+- Tests: `backFromReview` in the graph, and a caller test through PageFrame with `fromReview`; both failed before.
+- Fix: Back from the chapter's first page goes to Review, still carrying `fromReview`.
+- Mutants: 2, both killed.
+
+##### K5-11 (Low): Review never said why diabetes read as "Other". FIXED, `ab82e34` (D153)
+- Tests: `review.test.ts` (`whyOtherDiabetes`) and a host render of Review; both failed before.
+- Fix: Your health's footer on Review gives one of three reasons:
+  - a medicine that can cause lows, with diabetes No, unanswered or prediabetes;
+  - "Not sure" about diabetes;
+  - the type unknown.
+- Mutants: 5, all killed.
+
+##### K5-07 (Medium): the hold always said "your health" or "your medicines". FIXED, `76ba6b2`
+- Tests:
+  - `progress.test.ts` (`safetyLeft`, `askAbout`, Me's row);
+  - `movement.test.ts` (the hub's action);
+  - `tileLine.test.ts` (`gapChapter`);
+  - a host test of `useSafetyLeft` through the store.
+- Fix: while setup is unfinished, the hold names the first safety chapter with a page left, and how many: the tile line ("Finish setting up · your back and feet"), the hub ("Answer 2 questions about your back and feet") and Me's row. A finished setup's review keeps its words. `hub.mjs` accepts the new label.
+- Mutants: 9, all killed. The wiring into Home and the hubs is checked in the browser.
+
+##### K5-08 (Medium): allergies sat on a skippable page. FIXED, `1602e35` (D150, D167)
+- Tests:
+  - the graph (the page can't be skipped, "No food allergies" answers it, counts and reach);
+  - `edit.test.ts` (an allergy answer waits with a skipped pattern, is read back, and is stored with the pattern);
+  - a caller test through PageFrame (no Skip, and Next waits for the answer);
+  - `progress.test.ts` (the topic).
+- Fix: `food.allergies` is its own page that can't be skipped. The minimal path is 16 pages, the complex one 27.
+- Mutants: 5, all killed (one after adding the topic test).
+
+##### K5-12 (Medium, UX): Your day was one page of about ten controls. FIXED, `d2bc373` (D154)
+- Tests: the graph (four pages, each skippable, with their own `done`); walks off with a foot held; counts of 19 and 30; reach; the import check keeps the old `day.reminders` in a backup's skipped pages; progress topics.
+- Fix: four pages: water (with the fluid limit), sitting breaks, after-meal walks (not shown while a foot is held), and quiet hours with delivery. The minimal path is 19 pages (20 or fewer), the complex one 30 (30 or fewer).
+- Mutants: 10, all killed.
+- The views use base-ui's Switch, which the test host can't render, so they're checked in the browser.
+
+##### K5-13 (Low, UX): jargon. FIXED, `f462273` (D155)
+- Test: a host render of the health, medicines and back-and-feet pages, and every title: each term appears only in brackets after plain words.
+- Fix:
+  - "a doctor or nurse (clinician)"
+  - "a hot, swollen foot (Charcot foot)"
+  - "very ill from high ketones (diabetic ketoacidosis, or DKA)"
+  - "a pump that adjusts itself (closed-loop system)"
+  - "long-term blood sugar target (HbA1c)"
+  - Diuretic and CGM already read this way.
+  - The acceptance helper and journeys J03, J12 and J14 use the new words.
+- Mutants: 7, all killed.
+
+##### H5-16 = K5-17 (Medium): answers weren't kept until Next, and Back didn't keep the position. FIXED, `50fc0bc` (D158)
+- Tests:
+  - `draft.test.ts`: stored 500 ms after a change, as typed (195 stays 195), and read on a new session; Back stores the page it goes to; Next takes its page's held answers away, and a change waiting through a slow write never puts them back; Look around first drops them; without saving, the session keeps `at`, and the draft's kept answers aren't drawn over the session's; a change from a record a backup replaced is dropped; a backup never brings them.
+  - Caller tests: Back, Close after Look around first, and leaving the page.
+- Fix: `draft.edits` by page; `autosaveEdits`, `flushEdits` and `flushPending`. The import drops `draft.edits`, so half-typed answers stay on the device that typed them (H5-07).
+- V-J17 now waits for the ticks to be kept before it reads the stored setup. The early run of V-J17, J01, J02, M01 and V-J13 passed 56/56.
+- Mutants: 14, all killed (three after adding the tests).
+
+##### H5-22 (Medium): tap targets under 48 px, and the clickable body picture. FIXED, `06f36fc`, `82dbd50` (D159)
+- Tests:
+  - a host render of the shared controls (each tappable at least 48 px);
+  - the body picture has no tap handlers, and the list chooses;
+  - `targets.node.test.ts`: no `h-10`, `h-11`, `min-h-10` or `min-h-11` in setup or its controls, which covers the switch.
+- Fix: these controls are now 48 px or more: TextInput, NumberAnswer, TimeField, Toggle (h-12), Segmented and PlainButton. The picture only shows what's chosen.
+- Mutants: 6, all killed.
+- `82dbd50` fixes the type check: the node-only file check had to live in a `.node.test.ts`.
+
+##### H5-23 (Medium): radio groups had no radio-group keyboard. FIXED, `054c286` (D160)
+- Test: ChoiceRows and Segmented each have one tab stop (the chosen option, else the first), and the arrows move, choose and wrap; any other key is the button's own.
+- Fix: `radioKeys` in the shared controls, written once.
+- Mutants: 5, all killed.
+- Handoff: the other screens' radio groups are outside setup and outside D160 (walk, track, check-in, today, move, the voice card).
+
+##### H5-24 (Medium): Review and Profile & health showed body measures undated and rounded. FIXED, `8f795da`
+- Tests: `summaries.test.ts` (entered or logged, date and time, the day only when that's all that was kept, "date not recorded", the latest matching reading wins, to a tenth in inches); caller tests of Review (the readings finishing will add) and Profile & health.
+- Fix: `chapterSections` takes the body readings.
+- Mutants: 8, all killed.
+
+##### K5-16 (Low): the upgrade test didn't cover the committed save. ADDED, `5513c62`
+- New cases: each persona, plus four records without diabetes (eye treatment, moderate eye disease, a foot wound, numb feet not sure), Saves every chapter as the editor does. The questions v1 never asked are answered as the record says. The health record (apart from the BP-medicine review flag the shown rows vouch for) and every permission stay.
+- Mutants: the four that revert K5-02's read-back are all killed.
+
+#### Verification at `5513c62`
+- **Gates:** `tsc -b --force` 0, lint 0, and vitest 214 files with 6,019 tests passing. The baseline was 210 files and 5,865 tests.
+- **Acceptance:** 188/188 passed, 0 failed, all four projects (`/tmp/fit-checks/accept-p5fix.log`). The run was on the worktree, through the shared lock, with `--only=V-J10,V-J11,V-J13,V-J17,V-J18,V-J37,J01,J02,J12,J14,M01`.
+- **Early run after H5-16:** V-J17, J01, J02, M01 and V-J13 passed 56/56 (`/tmp/fit-checks/accept-p5fix-h516.log`).
+- **Browser checks:** headless Chromium against `npx vite --port 5400 --strictPort --host 127.0.0.1`, at 320 px with 200% text and at 428 px, light and dark. 160/160 checks passed, and no tap target was under 48 px on any setup page checked. Screenshots and `report.json` are in `/tmp/fit-checks/shots-p5fix/`, and the script is `/tmp/fit-checks/p5fix-browser.mjs`.
+- **What the browser checks covered:**
+  - H5-16: a reload resumes with the year as typed.
+  - H5-23: one tab stop, arrows move, choose and wrap, and Tab leaves the group.
+  - K5-09: four "Not sure" options.
+  - K5-13: plain-words copy.
+  - H5-22: the picture has no tap areas, and the switches are 48 px.
+  - K5-07: the tile line, the hub's action and Me's row.
+  - K5-08: no Skip on allergies.
+  - K5-12: four pages, and the fluid limit isn't asked twice.
+  - H5-24: Review and Profile & health.
+  - K5-14: Back to Review.
+  - H5-19: Me's nerve question.
+  - H5-25: the second confirmation at Welcome.
+
+### 2026-10-12 — [claude] v2 Plan 7 review fixes (Codex H7/H7R/H7F, Kiro K7/K7R)
+
+Worktree `/Users/chumohak/Projects/fit-strong-90-v2-p7`, branch `feat/v2-p7`, from `610d832` (Plan 7's first merge into feat/v2-journey, `94c6ce9`), in three rounds to `8f4ed60`: 63 commits. Its decisions are D132–D149 and D200–D208. Round 2's D180–D186 were renumbered D200–D206 (`5ebc371`), since D180–D189 are Plan 6's.
+
+#### Round 1 (2026-10-11): the Codex (H7) and Kiro (K7) findings fixed
+
+Branch `feat/v2-p7`, from `610d832`. Each fix began with a test that failed on the code the finding named; each new rule's mutants fail a test. Gates at every commit: `tsc -b --force`, `eslint .`, `vitest run --maxWorkers=3`.
+
+**Decisions.** D132 to D142 are the owner's, given with the task. D143 onward are this round's own, within D132–D149.
+
+| # | Decision | Findings |
+| --- | --- | --- |
+| D132 | Never invent a variance. With ranges on, an own food's carbs stay out of the closed estimate range and are named apart: "Estimated about 30–50 g carbs in logged foods, plus 40 g from foods you entered yourself". With only own foods: "40 g from foods you entered yourself". One estimated figure is never printed as if it were a range | H7-05, K7-05 |
+| D133 | Counts-free is true at level `meals`, and also whenever `hardBefore` is `yes` or `preferNot` and the level isn't `estimates` | K7-04 |
+| D134 | Each meal item keeps a full snapshot of its own food (name, quantity, unit, nutrient basis and definition version), so an item reads on its own. Import refuses an incomplete snapshot; a missing definition is fine. Corrections scale the item's own snapshot | H7-09, H7-10 |
+| D135 | A correction is planned against the current record, with a version and existence check. On conflict the draft is kept and the sheet says what changed. A deleted meal comes back only through restore, under a fresh id | H7-08 |
+| D136 | In a merge, an incoming record whose `restoredFrom` names a record held here is one logical record: the held original takes its tombstone, the restored copy is kept, and the preview says so | H7-11 |
+| D137 | "Clear food preferences" never clears allergies (each is removed on its own, with a visible Remove), and it asks once, with a specific label | K7-03 |
+| D138 | Right now has at most 5 choices: up to 2 usual meals, ideas to fill, and "Log what you ate" | K7-06 |
+| D139 | "Log a meal" has a sticky Save footer. Opened from a usual meal, it shows the tray and Save first. Usual meals are offered for the latest meal not yet logged today, not only the clock's meal | K7-07 |
+| D140 | The local day a food prompt was offered is remembered, across preference changes and reloads | H7-21 |
+| D141 | 48 px targets, 12 px gaps, a visible "Remove", and a stepper that reflows at 200% text in a 320 px container | H7-16, H7-17, K7-08, K7-09 |
+| D142 | Deferred to Plan 8: H7-15 (Undo through detail routes; Plan 8 Task 7 replaces Plan 7's food Undo with one provenance-scoped stack) and K7-11 (editing and removing own foods; Plan 8 adds Me → Food → "Your own foods") | H7-15, K7-11 |
+| D143 | Allergen tags have two parts, as B-13 reads: `complete` (every canonical allergen is tagged), which any allergy needs, and `named` (every part is known by name), which a custom allergy also needs. Compounded hing is a blend (it may be cut with wheat or rice flour and a gum): its dishes stay for a canonical allergy and leave a custom one's ideas. Chilli and coriander powder are single spices. A part whose make-up isn't established ("a few seeds or nuts") is neither | K7-02, H7-03 |
+| D144 | The food table lists its ingredients (words, tags, patterns), so a meal idea can name a food none of its dishes holds (`also`), and say how a vegan plate makes a dish (`vegan`: sunflower oil for ghee), read from the ingredients so made. Every part is read against the person's pattern; an unmapped part never suits one. No recipe or revision changed | H7-02, H7-20, K7-18 |
+| D145 | Your own food's allergens: what was ticked "contains"; an allergen its name says "may contain", whatever was ticked; nothing ticked is unknown, and with any allergy says "What’s in it isn’t known. Check it for …"; "None of these" stores `allergens: []`. Its ingredients are never `named`. Logging stays open | H7-04 |
+
+**Findings**
+
+| Finding | Verdict | Test | Fix | Mutation | Commit |
+| --- | --- | --- | --- | --- | --- |
+| H7-01 = K7-01 | Reproduced: a "buttermilk" allergy left 19 ideas, palak paneer among them, where milk leaves 7 | `allergens.test.ts` holds Plan 5's whole list, each word must resolve to its id; `week.test.ts` reads buttermilk, lassi, raita, chaas and thayir as milk through `mealsFor` | Every Plan 5 word is an alias again (buttermilk, chaas, raita, lassi, thayir; omelette; dalia, daliya; meen; seed), with khoa, mawa, malai and chhena | 4 of 4 killed | `cdc0850` |
+| H7-02 | Reproduced: a coverage check found 6 named foods no dish held (lauki and palak; poha's tomato; the sprouts chaat's onion; the seeds salad's carrot and onion); a "spinach" allergy kept roti, dal and sabzi | `mealDishes.node.test.ts` reads every ingredient name a component says and fails one no dish or `also` covers; `week.test.ts` | The food table lists its ingredients; `also` names the six | 6 of 7 killed; the survivor (a missing dish counted Jain-safe) is K7-18's, killed there | `e5cef03` |
+| H7-03 | Reproduced: "Salad with seeds" stayed fully tagged for a soy or chia allergy | `week.test.ts`; `mealDishes.test.ts` requires a dish-less part to say `unknown` | `unknown: true` on "A few seeds or nuts" leaves the idea not fully tagged | 2 of 2 killed | `38eef41` |
+| K7-02 | Reproduced: a "rice flour" or "fenugreek" allergy still saw roti, dal and sabzi and idli with sambar | `allergens.test.ts`, `week.test.ts`, `data.node.test.ts` (only toor dal and sambar unnamed), `compute.test.ts` | D143. Existing test changed: the garlic test's positive control moved from the dal (now unnamed, by design) to poha | 5 of 5 killed | `02fbce3` |
+| K7-18 | Reproduced: an unmapped part passed the Jain dish check | `week.test.ts`, with an unmapped part and a dish the table lacks | A part the map doesn't know, or a dish the table lacks, never suits | 2 of 2 killed | `2aa6e4c` |
+| H7-20 | Reproduced: a vegan's upma, dalia, khichdi and roti, dal and sabzi read milk from their recipes' ghee; a raita part suited a vegan plate | `week.test.ts`: no vegan idea holds milk; synthetic raita, egg and ghee-dal parts; the oil swap | D144. Existing test changed: an unmapped part now hides an idea from a vegetarian too (it stays for a non-vegetarian plate) | 7 of 7 killed | `fd5dd48` |
+| H7-04 | Reproduced through the real sheet: a peanut allergy added "Peanut chutney" with nothing ticked and saw no warning | `allergens.test.ts` (`ownFoodTags`); `sheet.callers.test.ts` drives "Log a meal" over the real store | D145. The name's allergens warn ("May contain peanut…"); nothing ticked is unknown and says "What’s in it isn’t known. Check it for peanut."; "None of these" answers | 6 of 6 killed | `488d7da` |
+| H7-05 = K7-05 | Reproduced: with ranges on, an own food's 30 g read "about 30 g carbs", and mixed into the range with no width | `format.test.ts`, `estimate.test.ts` | D132. `itemCarbs` reads a table food's carbs with its range and an own food's as given; totals keep `ownCarbsG` apart. Existing test changed: `carbsText({ carbsG: 30 }, true)` read "about 30 g carbs", which D132 forbids | 7 of 7 killed (after one more case) | `5439c14` |
+| H7-06 | Reproduced: an item with carbsG 40 and carbsLowG 60 and no upper bound was read, and an import took it | `records.test.ts`: the set rule, and a backup refused whole | The estimate and its range are one set: all three, in order, or none. Existing assertion changed: a weighed item with carbs and no range was accepted. Four fixtures that wrote carbs with no range (the app never does) now carry the set | 2 of 2 killed | `8c714be` |
+| K7-04 | Reproduced: meal ideas only with "Yes" still drew walk kcal on the summary | `level.test.ts`; `countsFree.callers.test.ts` through the walk summary | D133 | 3 of 3 killed | `bd42b6c` |
+| H7-07 | Reproduced: an energy reading with no walk, at its own address, showed "21.4 kcal" counts-free | `countsFree.callers.test.ts` through `ReadingDetail`; a weight keeps its figure | The screen gates on `countsFree()`: time, source and Delete stay; the figure and a correction go | 3 of 3 killed (after one more case) | `5793bfc` |
+| H7-08 | Reproduced through the real sheet: a stale draft wrote over a correction made meanwhile, and brought back a meal deleted meanwhile, clearing its deletion record | `sheet.callers.test.ts` (both); `store.test.ts` (version and existence, a same-time merged copy, a delete still queued) | D135. `saveCorrection` is planned inside the store's mutation against the stored meal, which must still be the record the sheet opened; `writeRecords` takes such a plan. The sheet keeps the draft and says when and how it changed | 5 of 6 killed; the survivor (`corrected(editing)` for `corrected(current)`) is equivalent once the whole record must match | `0f378cf` |
+| H7-09 | Reproduced through the real sheet: logged as 1 plate at 300 kcal, redefined as 100 g at 150 kcal, it read "1 × 100 g · 300 kcal" | `tray.test.ts`; `sheet.callers.test.ts` (More makes 1½ plates 450 kcal) | D134: `per`, `basis` and `version` on every own-food item; it reads and scales from them. A test that pinned the old reworking was replaced | 5 of 5 killed (after one more case) | `3a7c901` |
+| H7-10 | Reproduced: a backup meal naming an own food it didn't hold was taken; the sheet lost its unit and warning | `records.test.ts` (the snapshot rule, a backup with and without one); `sheet.callers.test.ts` (food gone: unit, name warning, what isn't known) | D134: the snapshot is required, a missing food is fine | 6 of 6 killed | `bfca4d3` |
+| H7-11 | Reproduced through the real store: after the merge both the original and its restored copy were kept | `store.test.ts`: merged twice; a copy restored from a meal never here | D136; the preview's `restoredHere`, and Restore says it | 3 of 3 killed | `5d99073` |
+| H7-13 | Reproduced: a carb-variance change passed the guard under the same rev | `compute.test.ts`: a variance, a value, an FDC record; a tag or name changes nothing | `recipe.basis` hashes every FDC record and value and every variance, the portion's included; the guard refuses either hash changing without a new rev | 4 of 4 killed | `1a54977` |
+| H7-14 = K7-10, K7-17 | Reproduced through the hub: a Quick add with no figure left Today silent; This week never said a day was partial | `hub.callers.test.ts` (new, the hub over the real store); `days.test.ts` | Today says what has no estimate on its own; a day reads "· Partial: Bhel puri has no calorie estimate", naming up to two, or with no total says only that. Two day-line assertions that pinned the silence are updated | 4 of 4 killed (after one more case) | `768a795` |
+| H7-12 | Reproduced: 70 g typed, "Add to meal" saved 40 g; an impossible weight didn't stop it | `sheet.callers.test.ts` drives the portion page | The page's action applies the typed weight or stops with "That figure can't be right"; the inner button is "Use this weight" | 3 of 3 killed (after one more case) | `8a1e61b` |
+| H7-18 | Reproduced through the hub: with the profile write refused, the level sheet came back new, its error gone | `hub.callers.test.ts`, with the profile row refused | The hub keeps the level sheet as the flow's owner until its own `onDone`, after the write lands | 2 of 2 killed | `3bf919e` |
+| H7-19 | Reproduced: nothing blocked a route change; a tray went without "Discard this meal?" | `sheet.callers.test.ts`, with a `useBlocker` stand-in driven as a Back: a clean sheet, a draft, a held save, a held delete, a save refused at commit; `back.mjs` in Chromium with the real router | The sheet blocks a route change while it has a draft or is saving (useBlocker, on the data router); Back asks, or waits, then goes or stays. Chromium then showed "Keep editing" not returning to the tray: the router moves its blocker on in a later render. The sheet now remembers that it answered a block until the router has left it; the stand-in moves on in a later render and keeps one key per history entry, as the router does | 6 of 6, then 3 of 3 for the follow-up | `36a8f53`, `b4ffd88` |
+| H7-21 | Reproduced at the runner: shown at 14:30, retimed to 16:00, it showed again | `runner.test.ts` wired as the host is (retime, reload, next day); `prompts.test.ts` | D140: the day is kept on this device (`fit-strong-food-prompt-day`); the schedule offers no other food prompt that day. The host's two wiring lines aren't reachable by a unit test; see the browser checks | 3 of 3 killed | `3ed60d2` |
+| K7-03 | Reproduced: one tap cleared the record, allergies included | `food.callers.test.ts` (new, Me → Food over the real store) | D137: one confirmation, "Clear food choices"; allergies and the screening answer stay, and with them what the person eats; with none, the record goes | 5 of 5 killed | `d98515a` |
+| K7-06 | Reproduced: seven choices in Right now | `hub.callers.test.ts` | D138, read as: up to 2 usual meals, "Log what you ate", ideas to fill, never more than the journey's three (so logging off keeps V-J28's three) | 3 of 3 killed | `0821003` |
+| K7-07 | Reproduced: Save not in a sticky footer; a usual meal opened with search and Common foods first; at 16:00 a usual lunch was gone | `sheet.callers.test.ts`, `hub.callers.test.ts`, `usual.test.ts` | D139: a sticky footer; "Add more" for a usual meal; `usualSlot` is the latest main meal due and not logged, else the clock's | 5 of 5 killed | `49031a5` |
+| H7-16 ≈ K7-08 | Reproduced: steppers, Back to your meal and the fields were 44 px, 8 px apart, and the quantity could shrink to nothing | `parts.test.ts` (the stepper's markup); headless Chromium at 320 px with 200% text and at 428 px, light and dark | D141: 48 px, 12 px apart; in a narrow container (rem breakpoints, so at large text) the quantity takes its own line, and narrower still each button has its own | 4 of 4 killed | `0bbce24` |
+| H7-17 = K7-09 | Reproduced: usual meals and the allergy and leave-out lists had only an X | `food.callers.test.ts` (Me → Food and Your usual meals); Chromium as above | D141: a visible "Remove", 48 px, its item-qualified name kept for VoiceOver; a usual meal's goes below its row in a narrow container | 3 of 3 killed | `f8424ea` |
+| K7-12 | Reproduced: a past day's breakfast switched to dinner saved at 08:30 | `sheet.callers.test.ts` | Until the person sets the time, a past day's meal follows the meal chosen, at its usual hour (`atOn`) | 2 of 2 killed | `ff0d6da` |
+| K7-13 | Reproduced: "Carb figures are rough estimates…" missing on Meal ideas, a meal idea, the sample week and Your usual meals | `food.callers.test.ts`, with ranges, without, and counts-free | `RoughCarbs`, on those four, only while carbs show as ranges | 3 of 3 killed | `f1aaaaf` |
+| K7-14 | Reproduced: a meal idea outside the allergies said only "Outside the food choices you gave" | `allergens.test.ts`; `food.callers.test.ts` (peanut in poha, soy and the seeds salad, idli with sambar for peanut) | The allergy warning's words, in caution ink, on the idea; and for a blend with an own-words allergy, "Not everything in it is known by name. Check it for brinjal.", when logging too | 4 of 4 killed (after one more case) | `5f7c768` |
+| K7-15 | Reproduced: "FDC 170567" on each ingredient | `parts.test.ts` | Each counted ingredient reads "USDA value"; the ids move to a "Sources: USDA FoodData Central record …" line under the list, so each food still shows its FDC ids, as the source record says | 2 of 2 killed | `8948d42` |
+| K7-16 | Reproduced: "Your records are stored on this phone." | `hub.callers.test.ts` | The hub uses Me's `privacyLine(deviceNoun(…))`: B-24's sentence, for this iPhone, iPad or device | 1 of 1 killed | `df26510` |
+
+**Deferred to Plan 8, as the owner decided (D142):** H7-15 (Undo through detail routes) and K7-11 (editing and removing own foods).
+
+**How D138 and D139 were read**
+- D138, "ideas to fill": ideas fill the room left in the five, never more than the journey's three (§11.2). Logging off is three ideas and "Log what you eat"; with two usual meals, two ideas.
+- D139, "the latest meal not yet logged today": the latest main meal (breakfast, lunch, dinner) whose time has come today and isn't logged; with every one logged, the clock's meal. A snack, being optional, never stands in for a main meal still to log.
+
+**Browser checks** (headless Chromium, the dev server on 5420, screenshots in /tmp/fit-checks/shots-p7fix/)
+- `browser.mjs`, 70 of 70, at 320 px with 200% text and at 428 px, light and dark: Save in view before any scroll; stepper targets at least 48 × 48 and at least 12 px apart; the quantity unclipped, on its own line at 200%; the words inside their buttons; "1½ katoris (≈ 225 g)" in full; the portion page's stepper and "Use this weight"; a usual meal's and Me → Food's "Remove" in words at 48 px, clear of its row; the one confirmation for clearing; a vegan khichdi idea saying "sunflower oil instead of ghee", with no milk; no page errors.
+- `longunit.mjs`, 4 of 4, at 320 px with 200% text, light and dark: at the smallest step Less reads "Remove", 216 × 96 px with its word inside; "3 tablespoons (≈ 45 g)" reads in full, unclipped.
+- `back.mjs`, 8 of 8, with the real router: a clean sheet closes on Back; with food in the tray Back asks "Discard this meal?" and stays; Keep editing returns to the tray with the food; a second Back asks again; Discard leaves for the hub; no page errors.
+- `prompt.mjs`, 6 of 6: the lunch prompt shows at 13:30 and its day is kept; moved to 14:00 in Me → Food, no second prompt, nor after a reload. With either of the host's two wiring lines removed, the second prompt shows, so this check covers what the unit tests can't reach.
+
+**For the merge and later plans**
+- Plan 3 (Food trend): with ranges on, carbs are `carbsLowG`–`carbsHighG` for the table's foods, and `ownCarbsG` apart for the person's own (D132); `carbsG` is every figure added, for ranges off.
+- `writeRecords` now takes a plan over the stored records (H7-08); a caller passing an object is unchanged.
+- The food table has an `ingredients` list and each dish `recipe.basis` and `allergens.named`; `foods.json` was rebuilt with scripts/food/build.ts, which bumped no rev.
+
+**Left for later, not in these findings**
+- At 200% text in a 320 px container, Me → Food's add-a-word field clips its placeholder ("For ex…") beside "Add".
+- `hub.callers.test.ts` and `sheet.callers.test.ts` stand in a `useBlocker` that a test drives as a Back; a real two-tab correction is the store's existing revision check, not driven here.
+
+**Acceptance** (`/tmp/fit-checks/accept-locked.sh … 50021 …`, `--only=V-J03,V-J28,V-J29,V-J30,V-J31,J20,S01`; the ids are `V-J03` and so on, as run.mjs reads them)
+- On `df26510`: 72 cases, 68 passed, 0 failed, 4 pending (V-J31's Food trend, Plan 3), in 7.1 min (`/tmp/fit-checks/accept-p7fix.log`).
+- On the final tree, `b4ffd88`: 72 cases, 68 passed, 0 failed, 4 pending (V-J31's Food trend, Plan 3), in 7.0 min (`/tmp/fit-checks/accept-p7fix-final.log`). The sweep has only J20's 8 expected console lines (its offline and failed-lazy-screen cases), as before: no target, contrast or layout finding.
+
+#### Round 2 (2026-10-12): Codex's re-check (H7R) and Kiro's (K7R), and the partials
+
+Branch `feat/v2-p7`, from `b4ffd88`. As in round 1: each fix began with a test that failed on the code named, each new rule's mutants fail a test, and every commit passed `tsc -b --force`, `eslint .` and `vitest run --maxWorkers=3`. Mutants were run one at a time: two run side by side once left a mutant in place, which was found, put right and rerun.
+
+**Decisions.** D146 to D149 and D200 to D206. Where the owner gave the rule, it's quoted as given; the rest are this round's readings of it.
+
+| # | Decision | Findings |
+| --- | --- | --- |
+| D146 | An own-food item logged before snapshots (none of `per`, `basis`, `version`) is given its snapshot once, from its own food as held, when that food still gives the figures it was logged with. Otherwise its food is gone, or isn't the version logged, so it keeps its name and count with no figure ("No estimate", "1½ portions") and is never dropped. One transaction at start, planned again against what's stored. Schema 6 stays (§18.3 and J18/J19 pin it): the rows say what's left, so a start with none writes nothing. A backup made before snapshots is read the same way, from the file's own food, else this device's | H7R-01 |
+| D147 | Restores are settled on what the merge takes, for meals and usual meals only (`RecordRule.restores`). A copy new here takes the place of this device's record only when it came back from that record and equals it apart from id and `restoredFrom`; the original then takes its deletion record and isn't also written. Otherwise this device's is kept and the copy left out, and Restore says so when they differ. A restore of a restore names the same original; older chains are followed through the records known. Two devices' copies of one original keep the copy each holds | H7R-02, K7R-03, H7-11 |
+| D148 | An own-food item's figures must be its basis at its count, rounded as the stepper rounds: refused, not recomputed, as a damaged file is (A-56) | H7R-03 |
+| D149 | Equal carb ends of 1 g or more are a single figure: no range, so no carb estimate; a file holding one is refused. A tiny weighed portion's ends may meet under 1 g ("under 1 g carbs") | H7-05 |
+| D200 | An own-words allergy says how it's read: "Read as milk", or, in caution ink, "We don't know this word, so check every meal yourself" when no alias names it and no one food or ingredient of ours goes by all its words; nothing more when our foods' words find it. Milk also takes chaach, mattha, taak, moru, majjiga, makhan and shrikhand, and the table's own spellings of chaas (chhachh, majjige, mor), found only as words until now | K7R-02 |
+| D201 | Removing an allergy in Me → Food, a chip or own words, offers the food Undo: "Peanut removed from your allergies · Undo", standing until the person leaves the screen; it comes back in its place, never twice | K7R-01 |
+| D202 | Your own food's checklist says "Anything you leave unticked is treated as not in it", and for each of the person's allergies left unticked, quietly, "You didn't tick peanut. Check it.", once the list is answered (anything ticked, "None of these" included). Before an answer what's in it is unknown (D145), and the tray says so | K7R-04 |
+| D203 | The shared Sheet header's Close stays at §20.4 rule 1's 44 px floor: it's every sheet's, not Plan 7's alone. For Plan 8 (Hardening) to raise app-wide | K7-08 (partial) |
+| D204 | B-24's map pictures sentence is Plan 6's: its Task 14 (`138bc27`, already on feat/v2-journey) adds it to Me's `privacyLine`, which the hub uses. No change here; the hub's test reads Me's line, so the merge carries it | K7-16 (partial) |
+| D205 | With no food record, allergies are not known, never "none" (Plan 5's D166, D167). `setupAllergyAnswer` reads the answer setup's 'food.allergies' page keeps in `settings.setup.answers` (else the draft), tolerating its absence. With it, Meal ideas, search, a meal idea's page and the tray leave out or warn of those allergies, and the picker starts from it; with none, they say "Tell us about food allergies first" before offering any idea | Plan 5 handoff |
+| D206 | An own food's allergen tags aren't in the item's snapshot: its warning reads the food as it is now (Codex's second boundary). In Plan 7 only a merged newer definition can change them; Plan 8, which adds editing own foods (K7-11), should take the tags into the snapshot | Codex note, not changed |
+
+**Findings**
+
+| Finding | Verdict | Test | Fix | Mutation | Commit |
+| --- | --- | --- | --- | --- | --- |
+| H7R-01 | Reproduced with rows 610d832's own saveMeal, saveCorrection and stepper wrote: none of the five meals or the usual meal read | `store.test.ts` (start, a refused part-way upgrade, a pre-snapshot backup from the file's food or this device's), `records.test.ts`, `sheet.callers.test.ts` | D146. Two assertions that pinned refusing a bare item now read it | 12 of 12 killed, a two-commit mutant among them | `6297ee5` |
+| H7R-02, K7R-03 (H7-11's partial) | Reproduced six ways: a losing copy removed a record; own foods honoured `restoredFrom`; a correction here was replaced; S named only R; both devices' copies kept; a file's original put and removed at once | `merge.test.ts` (ten cases, two real devices each), `restore.test.ts` (Restore's two sentences) | D147 | 16 of 18 killed; one equivalent (a record's `restoredFrom` never changes, so its origin reads alike from either version); one showed dead logic, removed (a newer version of a record here can never equal an unchanged original) | `0ee7ff2` |
+| H7R-03 | Reproduced: 1 plate of 300 kcal and 40 g held as 600 and 80 was taken | `records.test.ts` (Codex's file, the rounding, a meal, an earlier version, a usual meal) | D148 | 4 of 4 killed | `58ce3b6` |
+| H7-05 (partial) | Reproduced: carbs 40, 40 and 40 read "about 40 g carbs" | `format.test.ts`, `records.test.ts`, and a sweep of every food at every count and weighed gram: none has equal ends | D149 | 5 of 6 killed; one equivalent (the item text's fallback is unreachable once `itemCarbs` holds the range) | `8ae0c2c` |
+| H7R-04, H7-19 (partial) | Reproduced: Keep editing lost a typed 70 g; an own-food form or a Quick add left on Back with an empty tray | `sheet.callers.test.ts` (portion, own food, Quick add, Close over a page, a page left as it was); Chromium below | The question is asked over the page, kept mounted and hidden; each page says while it holds unsaved input. Chromium then showed a Back right after typing still leaving: the page now says so in a layout effect | 10 of 10 killed; the layout effect's mutant (a passive effect) fails in Chromium | `44d745b`, `b7d115c` |
+| H7R-05 (K7-12's partial) | Reproduced: the picker showed 08:30 while Save recorded 20:30 | `sheet.callers.test.ts` | An open, untouched picker shows its captured moment as it is now | 2 of 2 killed | `1eeaf20` |
+| H7-12 (partial) | Reproduced: 0.4 g reached the tray, and the save was refused. The sweep found the same at the other end: 1,856 g of coconut chutney or 1,704 g of peanuts as a portion, and More past what an item holds (5,000 kcal × 2½) | `sheet.callers.test.ts` (0.4, −5, abc, 2001 g, 1.8 kg of peanuts; More on the page and in the tray), `tray.test.ts` | The page checks the item by the store's own rule; More stops before an item the store refuses (`moreFits`) | 6 of 7 killed; one equivalent (a guard the store's rule covers), removed | `1a1a130` |
+| H7-21 (partial) | Reproduced: with storage refused, every check read "not offered" | `prompts.test.ts` | The day is also kept in memory: never repeated while open | 2 of 2 killed | `c800252` |
+| K7R-01 | Reproduced: removal went at once, no Undo | `food.callers.test.ts` (chip, own words in place, typed again before Undo, ends on leaving) | D201 | 5 of 5 killed | `3837245` |
+| K7R-02 | Reproduced: "kumquat" said nothing; chaach, taak, moru, majjiga, makhan and shrikhand were own words | `allergens.test.ts`, `week.test.ts` (readings; every food the table names by a milk word is tagged milk), `format.test.ts`, `food.callers.test.ts` (Me → Food rows, setup's note, caution ink) | D200. Against the table: only mattha names one of its foods (chaas, milk) | 9 of 10 killed; one equivalent (a blank guard), removed | `d2bd7b2` |
+| K7R-04 | Reproduced: ticking Soy on "Satay sauce" said nothing to a peanut allergy | `sheet.callers.test.ts` | D202 | 4 of 4 killed | `8ba10d8` |
+| K7R-05 | Reproduced: after lunch, a skipped breakfast was offered | `usual.test.ts` (and the boundaries from `slotAt`) | Only main meals after the latest one logged; hours from `slotAt`. One assertion changes: with dinner logged at 21:00 it's dinner, not lunch | 4 of 4 killed | `8cf56b8` |
+| K7R-06 | Reproduced: the footer held the reason, Save and Delete | `sheet.callers.test.ts`; Chromium below (320 px at 200%, the conflict) | The reason in the scroll, brought into view; only Save held; Delete after it. Chromium then showed the reason scrolled under Save at 428 px: scroll margins (6rem, 1rem) | 2 of 2 killed; the margins' mutant fails in Chromium | `a81e56f`, `0f9fcc4` |
+| K7R-07 | Reproduced: 12.5 read "13 g", 0.4 "0 g" | `format.test.ts`. One assertion pinned 42.5 as 43 | To one decimal as given, or "under 1 g", in items and totals | 3 of 3 killed | `71685af` |
+| K7R-08 | Reproduced: two h-11 fields | `food.callers.test.ts` | h-12 | 1 of 1 killed | `c5b327e` |
+| K7R-09 | Reproduced: "this phone" on any device | `hub.callers.test.ts`; V-J28's check takes iPhone, iPad or device, as J17's do | `deviceNoun` | 1 of 1 killed | `c82491c` |
+| K7-13 (partial) | Reproduced: no line on your own food or Quick add | `sheet.callers.test.ts` | The line on both, only with ranges | 2 of 2 killed | `7a3aa4d` |
+| K7-08 (partial) | Reproduced: narrow usual-meal row at gap-0; the time field 44 px | `food.callers.test.ts`, `sheet.callers.test.ts` | 12 px when narrow; the shared TimeRow at 48 px (Track's forms too). Close: D203 | 2 of 2 killed | `9f46b3d` |
+| K7-16 (partial) | Confirmed: the map sentence is missing here, and Plan 6 adds it | `hub.callers.test.ts` reads Me's line | D204 | 1 of 1 killed (a fixed sentence) | `4c731a7` |
+| Plan 5 handoff (D166, D167) | Reproduced: with no food record, a waiting peanut answer hid nothing; with no answer, ideas showed | `allergens.test.ts` (the accessor, finished setup, the draft, bad rows), `food.callers.test.ts` (Meal ideas, search, a meal idea's page, the picker), `sheet.callers.test.ts` (the tray's warning) | D205 | 10 of 10 killed | `335c43d` |
+
+**Browser checks** (headless Chromium, the real router, screenshots in /tmp/fit-checks/shots-p7fix/r2-*)
+- `r2.mjs`, 86 of 86, at 320 px with 200% text and at 428 px, light and dark. H7R-04: Back with a weight typed asks, the page hidden; Keep editing finds 70 g and Done applies it; an emptied tray closes on Back; an own-food form with the tray empty is asked about and kept, a Back right after typing included; Close over Quick add asks and keeps it. K7R-06, the conflict: the reason starts in view above the held Save and scrolls clear of it (at 320 px with 200% its four sentences can't fit above Save, so it starts under the title and scrolls on); only "Save meal" is held, 169 of 640 px at 200%, 85 of 926 at 428; Delete follows. K7R-02's two readings, the unknown in caution ink; K7R-01's toast with Undo, which puts the chip back (above the tab bar once its entrance has settled); K7R-04's rule and line; K7R-08's fields 48 px (96 at 200%); D205: no answer asks first and offers no idea, a waiting peanut answer shows 24 ideas without poha and starts the picker ticked.
+- `h7r01-browser.mjs`, 3 of 3 then 9 of 9: the pre-fix build (610d832, served from an archive on 5421) wrote its own rows into a Chromium profile's IndexedDB, all five own-food items without snapshots; the fixed build on the same origin and profile read all four meals and the usual meal, with snapshots stored, Today showing them, and the snack reading "1½ portions · No estimate".
+- Round 1's `browser.mjs` 70 of 70, `back.mjs` 8 of 8, `prompt.mjs` 6 of 6 and `longunit.mjs` 4 of 4 again on the round-2 tree.
+
+**For the merge and later plans**
+- `RecordRule.restores` (meals, usual meals), and `restored()` names a copy's original. Plan 8's provenance-scoped Undo (D142) should keep that.
+- `GuideContext.allergies`, `useGuide().allergies` and `.filter`, `mealsFor`/`mealAllowed` taking `Partial<FoodPreferences>`, `setupAllergyAnswer`/`allergyAnswer`: Plan 5's merge brings the 'food.allergies' page and `skippedPages`; nothing here names its type.
+- The hub's privacy test now reads Me's `privacyLine`, so Plan 6's sentence (`138bc27`) passes at the merge; `summaries.test.ts` there pins it.
+- V-J28's screening note check takes iPhone, iPad or device.
+- The shared TimeRow input is 48 px, in Track's forms too.
+
+**Left for later, not in these findings**
+- A refused correction also raises the store's "That did not save · Details" banner, as every refused write does, beside the sheet's own reason. Left as the store's rule.
+- The Sheet header's Close at 44 px (D203), and own-food allergen tags in the snapshot (D206).
+
+**Acceptance, round 2** (`/tmp/fit-checks/accept-locked.sh … 50021 …`, `--only=V-J03,V-J28,V-J29,V-J30,V-J31,J20,S01`)
+- On the final tree, `0f9fcc4`: 72 cases, 68 passed, 0 failed, 4 pending (V-J31's Food trend, Plan 3), in 6.8 min (`/tmp/fit-checks/accept-p7fix-r2.log`). The sweep has only J20's 8 expected console lines, as before.
+
+#### Round 3 (2026-10-12): Codex's final verification (H7F) and the last partials
+
+Branch `feat/v2-p7`, from `0f9fcc4`. Round 2's decisions D180 to D186 are renumbered D200 to D206, in the code, the tests and this board (`5ebc371`, on its own), since D180 to D189 are Plan 6's. Round 3's are D207 and D208. Same method: a failing test first, mutants one at a time, the three gates at every commit.
+
+| # | Decision | Findings |
+| --- | --- | --- |
+| D207 | Round 3's rules, as Codex described each. (a) An allergy Undo reads the stored record back and says it's back only when it is, else why (food choices cleared; 30 own words already); Clearing ends any allergy Undo standing (§20.4 rule 6); an own word goes back as `addAvoid` adds one, in its place where there's room. (b) An old own-food item's figures are checked before D146 makes them unknown: one that can't be read leaves the item as it is, refused. (c) At start, a table food held with equal carb ends of 1 g or more (valid before D149) has no carb estimate, all else kept; a file holding one is still refused. (d) A table food scaled on its own figures keeps a real range a range, its ends rounded outwards where rounding would meet them; ends that were one figure all along have no carb estimate once they'd reach 1 g. (e) Search announces the results it shows, naming the meal ideas held back | H7F-01 to H7F-06 |
+| D208 | Every sheet's Close is a 48 × 48 target now, not left to Plan 8: D203 is superseded | K7-08 (partial) |
+
+| Finding | Verdict | Test | Fix | Mutation | Commit |
+| --- | --- | --- | --- | --- | --- |
+| H7F-01 (High) and H7F-04 | Reproduced: after Clear took the record, Undo wrote nothing and said "Peanut is back"; Undo made 31 own words, and "brinjal" beside "Brinjal" | `food.callers.test.ts` (Clear then Undo, 30 words, another case) | D207 (a) | 6 of 6 killed; two checks of a record left covered each other, so the one before the write went | `37fcc11` |
+| H7F-05 | Reproduced: kcal −1, 20,000, "300" and bad carbs were made unknown and the meal taken | `records.test.ts` | D207 (b) | 3 of 3 killed | `986e73a` |
+| H7F-03 | Reproduced: a stored meal with carbs 40, 40 and 40 left history, its edits and a usual meal with it | `store.test.ts` (and a tiny portion under 1 g kept; an item never valid not put right) | D207 (c), in the start's one pass | 3 of 3 meaningful mutants killed | `d06058b` |
+| H7F-02 | Reproduced: Less turned 2.35 (2.32–2.38) into 1.2, 1.2 and 1.2, which Save refused; a 0.4 g single figure grew past 1 g and stopped More | `tray.test.ts` (and 2.22–2.28 halved: 1.1–1.2) | D207 (d); the redundant clamp went | 5 of 5 killed | `bf30fad` |
+| H7R-01 (partial) | Reproduced: with the start's write refused, only 1 of 5 old meals read that session | `store.test.ts` (read while refused; a save meanwhile writes its own record only; the next start writes the rest) | The store holds the rows as they'll be stored, from the same plan, under the revision stored | 1 of 1 killed (the refreshed-base branch, after another copy wrote, isn't driven) | `2063a31` |
+| H7-11 (partial) | Reproduced: the mixed backup merged again into an empty device brought M back beside R | `merge.test.ts` (merged twice; a device holding R alone before) | A file's own original its copy stands in for takes a deletion record, whether the copy is new here or held | 3 of 3 killed | `afdac95` |
+| H7F-06 (Low) | Reproduced: "13 results" for "rice", with four shown and the gate row | `food.callers.test.ts` | The live count is what's shown, and "Meal ideas wait until you tell us about food allergies." | 2 of 2 killed | `64a0dc0` |
+| K7-08 (partial) | The shared Close was 44 px | `shell.node.test.ts` | D208 | 1 of 1 killed | `8f4ed60` |
+| K7-16 (partial) | Skipped, as asked: the map sentence is in feat/v2-journey's `privacyLine`, and the hub's test reads Me's line | none | none | none | none |
+
+**Browser checks** on `8f4ed60`: `r2.mjs` 86 of 86, `browser.mjs` 70 of 70, `back.mjs` 8 of 8.
+
+**Acceptance, round 3** on `8f4ed60` (`/tmp/fit-checks/accept-p7fix-r3.log`): 72 cases, 68 passed, 0 failed, 4 pending (V-J31's Food trend, Plan 3), in 6.8 min. The sweep had J20's 8 expected console lines and one more: a 3.61:1 contrast reading on V-J03's "Lunch saved" toast at small-dark, whose screenshot shows white on the dark toast. V-J03 run again alone (`accept-p7fix-r3-vj03.log`): 8 of 8, and no sweep finding, so it was read while the toast faded in.
+
+**At the merge into feat/v2-journey.** D205 also reads setup's session while setup goes on without saving (Plan 5's B-07, H5-06), since its answers live there and not in `settings.setup`. It reads the session first, then finished setup, then the draft. Meal ideas, search, a meal idea's page, the picker and the tray all take it, and a food record is still the person's answer. Two things are left for the owner. Browse's search lists meal ideas when no allergy answer is known, and `browse.test.ts` pins meal rows for a context with no food. A food record without an allergy answer, such as v1's, reads as no allergies: D166's handoff also named that case, and D205 covers no food record only.

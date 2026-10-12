@@ -66,20 +66,23 @@ describe('where setup stands (journey §6.6, §19.1; board D80)', () => {
   });
 });
 
-describe('the food answers waiting for an eating pattern (H5R-10, K5R-01; board D192)', () => {
+describe('the food answers setup keeps for a food record not made yet (H5R-10, K5R-01, H5-20; board D192)', () => {
   const answers = { allergies: ['peanut' as const], customAllergies: ['brinjal'], foodLevel: 'meals' as const, hardBefore: 'yes' as const };
   const waiting = { allergies: ['peanut'], customAllergies: ['brinjal'], level: 'meals', hardBefore: 'yes' };
 
-  it('are setup’s, finished or still a draft, as the food record would hold them', () => {
-    expect(waitingFood({ onboardingComplete: true, setup: { stage: 'done', answers } }, v1)).toEqual(waiting);
-    expect(waitingFood({ onboardingComplete: true, setup: { stage: 'lookAround', draft: { answers } } }, undefined)).toEqual(waiting);
+  it('are read as the allergies are: this session’s while setup goes on without saving, else the finished answers, else the draft’s', () => {
+    expect(waitingFood({ stage: 'done', answers })).toEqual(waiting);
+    expect(waitingFood({ stage: 'lookAround', draft: { answers } })).toEqual(waiting);
+    expect(waitingFood({ stage: 'open', draft: { answers: { ...answers, foodLevel: 'ideas' } } }, { unsaved: true, answers: { ...answers, foodLevel: 'estimates' } }))
+      .toEqual({ ...waiting, level: 'estimates' });
+    // A session that's saving reads as the record does.
+    expect(waitingFood({ stage: 'open', draft: { answers } }, { unsaved: false, answers: { foodLevel: 'estimates' } })).toEqual(waiting);
     // "No food allergies" is an answer too.
-    expect(waitingFood({ onboardingComplete: true, setup: { stage: 'done', answers: { allergies: [] } } }, v1)).toEqual({ allergies: [] });
+    expect(waitingFood({ stage: 'done', answers: { allergies: [] } })).toEqual({ allergies: [] });
   });
 
-  it('are nothing once a food record holds them, or when setup holds none', () => {
-    const fed = { ...v1, food: { pattern: 'vegan' as const, avoid: [] } };
-    expect(waitingFood({ onboardingComplete: true, setup: { stage: 'done', answers } }, fed)).toBeUndefined();
-    expect(waitingFood({ onboardingComplete: true, setup: { stage: 'done', answers: { name: 'Kai' } } }, v1)).toBeUndefined();
+  it('are nothing where setup keeps none', () => {
+    expect(waitingFood({ stage: 'done', answers: { name: 'Kai' } })).toEqual({});
+    expect(waitingFood(undefined)).toEqual({});
   });
 });

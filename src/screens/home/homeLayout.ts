@@ -3,16 +3,18 @@
  * More and Me's offers (journey §5.1, §14).
  *
  * It's the person's own layout once one is stored, or else the defaults from
- * their answers, the same as Home draws. Every change is made to the layout
- * as it stands at that moment, a change still being written included, so
- * quick taps build on each other, as in Edit Home.
+ * their answers, the same as Home draws. Each change is an operation, applied
+ * in the store's own transaction to the layout as it stands there (codex
+ * H4-03): another tab's change since is built on, never written over, and a
+ * change ahead of it that failed is never carried forward. What it would
+ * make now is said at once, as in Edit Home.
  */
 import { useMemo } from 'react';
 import { categoryById, defaultHome, relevantCategories, type CategoryId, type HomeAnswers } from '@/categories';
 import { createDefaultProfile } from '@/profile/defaults';
 import type { StoreResult } from '@/store/db';
-import { getState, setSettings, useStore } from '@/store/useStore';
-import type { HomeLayout, UserSettings } from '@/types';
+import { getState, update, useStore } from '@/store/useStore';
+import type { AppData, HomeLayout, UserSettings } from '@/types';
 import type { UserProfile } from '@/types/profile';
 import { answersOf, setupStateOf } from '@/setup/state';
 import { addButton, addTile, storedLayout } from './layout';
@@ -46,25 +48,49 @@ export function layoutNow(fallback: HomeLayout): HomeLayout {
   return storedLayout(getState().settings.home) ?? fallback;
 }
 
-/** One Edit Home operation on the layout as it stands, then stored; `undefined` when it changed nothing. */
+/** The layout a record holds, or the defaults. */
+const layoutIn = (data: AppData, fallback: HomeLayout): HomeLayout => storedLayout(data.settings.home) ?? fallback;
+
+/**
+ * One Edit Home operation: `next` is what it makes of the layout as it stands
+ * now, and `saved` applies it again where it is written, to the layout as it
+ * stands then. `undefined` when it changes nothing now.
+ */
 export function changeHome(fallback: HomeLayout, op: (layout: HomeLayout) => HomeLayout): { next: HomeLayout; saved: Promise<StoreResult> } | undefined {
   const before = layoutNow(fallback);
   const next = op(before);
-  return next === before ? undefined : { next, saved: setSettings({ home: next }) };
+  if (next === before) return undefined;
+  const saved = update(previous => {
+    const at = layoutIn(previous, fallback);
+    const made = op(at);
+    return made === at ? previous : { ...previous, settings: { ...previous.settings, home: made } };
+  });
+  return { next, saved };
 }
 
 /**
  * "Add Glucose to Home?" answered (journey §5.1). Either answer means it is
- * never offered again; Add also puts the tile at the end of its group, in
- * the same write. When that group has filled meanwhile, nothing is written
- * and `undefined` comes back, so the offer stays to answer.
+ * never offered again; Add also puts the tile at the end of its group, in the
+ * same write. The group's room and the answers so far are read where it is
+ * written, so another tab's answers are kept and a group it filled meanwhile
+ * is never overfilled (codex H4-03). When there is no room, nothing is
+ * written and the offer stays to answer: `undefined` when there is none now,
+ * and `value: false` when another tab took it first.
  */
-export function answerOffer(fallback: HomeLayout, id: CategoryId, add: boolean): Promise<StoreResult> | undefined {
-  const offered = getState().settings.homeOffered ?? [];
-  const homeOffered = offered.includes(id) ? [...offered] : [...offered, id];
-  if (!add) return setSettings({ homeOffered });
-  const before = layoutNow(fallback);
-  if (before.order[categoryById(id).group].includes(id)) return setSettings({ homeOffered });
-  if (addButton(before, id).disabled) return undefined;
-  return setSettings({ home: addTile(before, id), homeOffered });
+export function answerOffer(fallback: HomeLayout, id: CategoryId, add: boolean): Promise<StoreResult<boolean>> | undefined {
+  const { group } = categoryById(id);
+  const room = (layout: HomeLayout) => layout.order[group].includes(id) || !addButton(layout, id).disabled;
+  if (add && !room(layoutNow(fallback))) return undefined;
+  // Whether the write that lands answered it: the updater runs again if what it read changes before its turn.
+  let answered = false;
+  const saved = update(previous => {
+    const offered = previous.settings.homeOffered ?? [];
+    const homeOffered = offered.includes(id) ? offered : [...offered, id];
+    const at = layoutIn(previous, fallback);
+    answered = !add || room(at);
+    if (!answered) return previous;
+    const home = add && !at.order[group].includes(id) ? { home: addTile(at, id) } : {};
+    return homeOffered === offered && !('home' in home) ? previous : { ...previous, settings: { ...previous.settings, ...home, homeOffered } };
+  });
+  return saved.then(r => (r.ok ? { ok: true, value: answered } : r));
 }

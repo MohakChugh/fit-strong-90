@@ -57,12 +57,12 @@ import {
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
 import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult } from './db';
 import { parseJournalEntry, type JournalEntry } from '@/walk/journal';
-import type { RouteRecord } from '@/walk/routeRecord';
+import { routeRecord, type RouteRecord } from '@/walk/routeRecord';
 import type { WalkInput } from '@/walk/record';
-import { SCHEMA_VERSION, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
+import { SCHEMA_VERSION, giveSnapshots, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
 import { liftBodyMetric, liftCheckIn, liftSessionPain } from './project';
-import { RECORD_RULES, recordKey, recordProblem, type RecordStore, type Records, type StoredRecord } from './records';
-import { commitChange, emptySnapshot, prepare, readSnapshot, type Change, type Prepared, type Snapshot } from './snapshot';
+import { RECORD_RULES, RECORD_STORES, recordKey, recordProblem, type RecordStore, type Records, type StoredRecord } from './records';
+import { commitChange, emptySnapshot, prepare, readSnapshot, type Change, type Prepared, type Snapshot, type TxRead } from './snapshot';
 import {
   encode,
   planImport,
@@ -187,9 +187,12 @@ interface Planned<T> {
 }
 
 interface Mutation<T> {
-  plan: (base: Snapshot) => Planned<T>;
+  /** `read`: what the commit read inside its own transaction, when it asked (`journal`); absent when planned for the screen. */
+  plan: (base: Snapshot, read?: TxRead) => Planned<T>;
+  /** Walk journal entries the plan needs, read inside the commit's own transaction (H6-06): by key, or every one. */
+  journal?: readonly string[] | 'all';
   /** The plan for one exact base, and what it does to it. */
-  cached?: { on: Snapshot; planned: Planned<T>; prepared: Prepared };
+  cached?: { on: Snapshot; planned: Planned<T>; prepared: Prepared; read?: true };
   /** The last attempt to plan against the current base threw. */
   planFailure?: StoreFailure;
   settle: (result: StoreResult<T>) => void;
@@ -269,12 +272,12 @@ export function subscribe(listener: Listener): () => void {
  * getters — is refused here, before it is ever shown (F25): structured cloning
  * is what IndexedDB will do with it, so the clone is what is kept.
  */
-function planOn<T>(m: Mutation<T>, base: Snapshot): { planned: Planned<T>; prepared: Prepared } {
-  if (m.cached && m.cached.on === base) return m.cached;
-  const planned = m.plan(base);
+function planOn<T>(m: Mutation<T>, base: Snapshot, read?: TxRead): { planned: Planned<T>; prepared: Prepared } {
+  if (!read && m.cached && m.cached.on === base && !m.cached.read) return m.cached;
+  const planned = m.plan(base, read);
   const change = planned.change === null ? null : m.plain ? planned.change : structuredClone(planned.change);
   const prepared: Prepared = change === null ? { next: base, writes: [] } : prepare(base, change);
-  m.cached = { on: base, planned: { ...planned, change }, prepared };
+  m.cached = { on: base, planned: { ...planned, change }, prepared, ...(read ? { read: true as const } : {}) };
   m.planFailure = undefined;
   return m.cached;
 }
@@ -389,13 +392,14 @@ async function commit<T>(m: Mutation<T>): Promise<StoreResult<T>> {
     return { ok: false, failure: unavailableFailure() };
   }
 
-  const outcome = await commitChange(handle, committed, (base, refreshed) => {
-    if (!refreshed && m.cached && m.cached.on === base) {
+  const outcome = await commitChange(handle, committed, (base, refreshed, read) => {
+    // A plan that reads the journal is made again here, with what this transaction read.
+    if (!m.journal && !refreshed && m.cached && m.cached.on === base) {
       return m.cached.planned.change === null ? null : { change: m.cached.planned.change, prepared: m.cached.prepared };
     }
-    const fresh = planOn(m, base);
+    const fresh = planOn(m, base, m.journal ? read : undefined);
     return fresh.planned.change === null ? null : { change: fresh.planned.change, prepared: fresh.prepared };
-  });
+  }, m.journal ? { journal: m.journal } : {});
 
   if (!outcome.ok) {
     // What the failed transaction saw is still what is stored: adopt it, so a
@@ -559,6 +563,9 @@ async function boot(options: StartOptions): Promise<void> {
     return;
   }
   if (stopped()) { handle.close(); return; }
+  // Own foods logged before snapshots, given theirs once (board D146, H7R-01).
+  snap = await giveSnapshots(handle, snap);
+  if (stopped()) { handle.close(); return; }
 
   db = handle;
   migration = migrated.value;
@@ -719,7 +726,7 @@ let lastId = 0;
 let withinId = 0;
 
 /** An id made once, at the call, so a re-planned mutation keeps the id it was shown with. */
-function freshId(prefix = ''): string {
+export function freshId(prefix = ''): string {
   const now = Date.now();
   if (now === lastId) withinId += 1;
   else { lastId = now; withinId = 0; }
@@ -1156,6 +1163,42 @@ export function removeRecords(store: RecordStore, keys: readonly string[]): Prom
   });
 }
 
+/** Records to put and keys to remove, store by store. */
+export interface RecordsWrite {
+  put?: Partial<Record<RecordStore, readonly StoredRecord[]>>;
+  remove?: Partial<Record<RecordStore, readonly string[]>>;
+}
+
+/**
+ * Records in several stores as one change (Plan 7): a meal saved with a new
+ * usual meal and the person's own foods. Every put is checked first, and one
+ * refusal writes nothing. Keys no longer stored are passed over. Given a
+ * plan, it's worked out against the records as stored when it's written, as
+ * every mutation is, and may refuse by throwing a `StoreFailure` (a
+ * correction of a meal changed or deleted elsewhere, H7-08).
+ */
+export function writeRecords(write: RecordsWrite | ((records: Readonly<Records>) => RecordsWrite)): Promise<StoreResult> {
+  return enqueue<void>({
+    plan: base => {
+      const w = typeof write === 'function' ? write(base.records) : write;
+      const refused: FailureDetail[] = [];
+      const records: NonNullable<Change['records']> = {};
+      for (const store of RECORD_STORES) {
+        const put = w.put?.[store] ?? [];
+        put.forEach((r, index) => {
+          const problem = recordProblem(store, r);
+          if (problem) refused.push({ index, ...(recordKey(store, r) ? { id: recordKey(store, r) } : {}), reason: `${RECORD_RULES[store].label.one} ${index + 1}: ${problem}` });
+        });
+        const wanted = new Set(w.remove?.[store] ?? []);
+        const remove = base.records[store].map(r => recordKey(store, r)).filter(k => wanted.has(k));
+        if (put.length > 0 || remove.length > 0) records[store] = { ...(put.length > 0 ? { put: [...put] } : {}), ...(remove.length > 0 ? { remove } : {}) };
+      }
+      if (refused.length > 0) throw new StoreFailure('invalid', `Nothing was saved. ${refused.map(d => d.reason).join('; ')}`, undefined, refused);
+      return { change: Object.keys(records).length > 0 ? { records } : null, result: () => undefined };
+    },
+  });
+}
+
 // ============================================================================
 // A walk: its recovery journal, and saving it with its route (journey §9.4, §18.3)
 // ============================================================================
@@ -1196,31 +1239,86 @@ export interface SaveWalkInput {
   observations: readonly WalkInput[];
   /** Only when the person keeps routes. */
   route?: RouteRecord;
+  /**
+   * The walk keeps its route, which began at this moment (ISO with its
+   * offset): with no `route` given, the one in the walk's journal is read
+   * inside the save's own transaction (H6-06). A route still loading on
+   * screen, or never read back after a reload, is then never lost when the
+   * journal is retired with the save.
+   */
+  routeStartedAt?: string;
+}
+
+/** The route a walk's journal entry holds, as the routes store keeps it, or nothing. */
+function journalRoute(raw: unknown, walkId: string, startedAt: string): RouteRecord | undefined {
+  const lines = parseJournalEntry(raw)?.route;
+  return lines ? routeRecord(walkId, startedAt, lines) : undefined;
 }
 
 /**
  * A walk, its route and the retirement of its recovery state, in one
  * transaction (journey §18.3, A-55). A retry, or a second tap, writes only
- * what is missing; the journal goes either way.
+ * what is missing; the journal goes either way, and with the route it held.
  */
 export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
   const fixed = input.observations.map(o => ({ ...o, at: o.at ?? nowAt() }));
+  const fromJournal = !input.route && input.routeStartedAt !== undefined;
   return enqueue<void>({
-    plan: base => {
+    ...(fromJournal ? { journal: [input.walkId] } : {}),
+    plan: (base, read) => {
       const wanted = new Set(fixed.map(o => o.id));
       const held = new Set(base.observations.filter(o => wanted.has(o.id)).map(o => o.id));
       const records = fixed.filter(o => !held.has(o.id)).map(o => newObservation(o));
+      // The screen's route, or the journal's, read in this transaction.
+      const given = input.route ?? (fromJournal && read ? journalRoute(read.journal[input.walkId], input.walkId, input.routeStartedAt!) : undefined);
+      // Never a route of a walk that began before the last "Erase all routes", whichever screen saves it (B-05).
+      const erasedAt = base.settings?.walk?.routesErasedAt;
+      const erased = given !== undefined && erasedAt !== undefined && !(Date.parse(given.startedAt) > erasedAt);
       let route: StoredRecord | undefined;
-      if (input.route) {
-        const problem = recordProblem('routes', input.route);
+      // Kept only on this phone's yes, as it is when the walk is saved, whatever the walk was given (H6-04).
+      if (given && !erased && base.settings?.walk?.saveRoutes === true) {
+        const problem = recordProblem('routes', given);
         if (problem) throw new StoreFailure('invalid', `The route could not be saved: ${problem}.`);
-        if (!base.records.routes.some(r => r.walkId === input.walkId)) route = input.route as unknown as StoredRecord;
+        if (!base.records.routes.some(r => r.walkId === input.walkId)) route = given as unknown as StoredRecord;
       }
       return {
         change: {
           ...(records.length > 0 ? { observations: { put: records } } : {}),
           ...(route ? { records: { routes: { put: [route] } } } : {}),
           journal: { remove: [input.walkId] },
+        },
+        result: () => undefined,
+      };
+    },
+  });
+}
+
+/**
+ * B-05: every route on this device erased for good, in one transaction: the
+ * saved routes (remembered as deleted, so no merge brings them back), the
+ * route in every walk journal, read and rewritten inside the same
+ * transaction so no checkpoint slips between, and, through
+ * `routesErasedAt`, which every tab's live walk watches, the route a walk is
+ * recording now. From then on no route of a walk that began before it is
+ * kept, by a save or an import. The walks stay. Deletion records hold ids
+ * only in this build (D-06); Plan 8 clears its payloads here when it adds
+ * them (D93).
+ */
+export function eraseRoutes(): Promise<StoreResult> {
+  const at = Date.now();
+  return enqueue<void>({
+    journal: 'all',
+    plan: (base, read) => {
+      const keys = base.records.routes.map(r => recordKey('routes', r));
+      const stripped = Object.values(read?.journal ?? {})
+        .filter((e): e is { id: string; route?: unknown } => typeof e === 'object' && e !== null && 'route' in e && typeof (e as { id?: unknown }).id === 'string')
+        .map(({ route: _erased, ...rest }) => { void _erased; return rest; });
+      const walk = base.settings?.walk ?? { saveRoutes: 'unasked' as const, map: 'unasked' as const };
+      return {
+        change: {
+          ...(keys.length > 0 ? { records: { routes: { remove: keys } } } : {}),
+          ...(stripped.length > 0 ? { journal: { put: stripped } } : {}),
+          settings: { patch: { walk: { ...walk, routesErasedAt: Math.max(at, walk.routesErasedAt ?? 0) } } },
         },
         result: () => undefined,
       };

@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { DISCLAIMER, idsShown, MEAL_INTRO, resolveGroups, sampleWeek, SLOTS, unmatchedAvoid } from '@/content';
+import { FOOD_COPY } from '@/food/copy';
 import type { FoodPreferences } from '@/types/profile';
 import { FoodPicker } from './FoodPicker';
 import { foodSummary, unmatchedNote } from './format';
 import { ClaimGroup, Lead, Reviewed, SourcesGroup } from './parts';
+import { RoughCarbs } from '@/screens/food/RoughCarbs';
 import { useGuide } from './useGuide';
 
 /**
@@ -14,14 +16,18 @@ import { useGuide } from './useGuide';
  * starting point to adapt; portions and targets stay with the care team.
  */
 export default function SampleWeekScreen() {
-  const { ctx, food, waiting, canSaveFood } = useGuide();
+  const { ctx, food, canSaveFood } = useGuide();
+  const { state } = useLocation();
+  // Opened from the Food hub's Options, Back goes there; from Meal ideas, back to it.
+  const back = (state as { from?: string } | null)?.from === 'hub' ? { to: '/hub/food', label: 'Food' } : { to: '/hub/food/ideas', label: 'Meal ideas' };
   const [picking, setPicking] = useState(false);
   const [intro] = resolveGroups([MEAL_INTRO], ctx);
   const shown = idsShown([intro]);
 
   return (
-    <Screen title="Sample week" back={{ to: '/guide/meals', label: 'Meal ideas' }}>
+    <Screen title="Sample week" back={back}>
       <Lead>A week you can adapt — swap any meal for one you prefer from Meal ideas.</Lead>
+      <RoughCarbs />
 
       <Group footer={unmatchedNote(unmatchedAvoid(food?.avoid, food?.pattern))}>
         <Row
@@ -38,7 +44,7 @@ export default function SampleWeekScreen() {
       <SourcesGroup claimIds={shown} />
       <Reviewed claimIds={shown} />
 
-      <FoodPicker open={picking} onOpenChange={setPicking} food={food} waiting={waiting} canSave={canSaveFood} />
+      <FoodPicker open={picking} onOpenChange={setPicking} food={food} canSave={canSaveFood} />
     </Screen>
   );
 }
@@ -53,7 +59,7 @@ function Week({ food }: { food: FoodPreferences }) {
           <Row
             key={slot.id}
             as={Link}
-            to={`/guide/meals/${meal.id}`}
+            to={`/hub/food/ideas/${meal.id}`}
             state={{ from: 'week' }}
             viewTransition
             label={meal.name}
@@ -61,7 +67,7 @@ function Week({ food }: { food: FoodPreferences }) {
             chevron
           />
         ) : (
-          <Row key={slot.id} label="No idea left" detail={`${slot.title} · every idea has a food you chose to leave out`} />
+          <Row key={slot.id} label="No idea left" detail={FOOD_COPY.noIdeaLeft(slot.title)} />
         );
       })}
     </Group>

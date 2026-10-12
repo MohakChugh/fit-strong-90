@@ -1,0 +1,335 @@
+{
+  "source": {
+    "name": "USDA FoodData Central",
+    "url": "https://fdc.nal.usda.gov/",
+    "licence": "CC0 1.0 Universal (public domain)",
+    "credit": "U.S. Department of Agriculture, Agricultural Research Service, Beltsville Human Nutrition Research Center. FoodData Central. [Internet]. [cited 2026-10-11]. Available from https://fdc.nal.usda.gov/.",
+    "dataset": "SR Legacy",
+    "file": "FoodData_Central_sr_legacy_food_json_2018-04.json",
+    "extractedOn": "2026-10-11"
+  },
+  "records": [
+    {
+      "fdcId": 167747,
+      "dataType": "SR Legacy",
+      "description": "Lemon juice, raw",
+      "kcal": 22,
+      "carbsG": 6.9
+    },
+    {
+      "fdcId": 167763,
+      "dataType": "SR Legacy",
+      "description": "Tamarinds, raw",
+      "kcal": 239,
+      "carbsG": 62.5
+    },
+    {
+      "fdcId": 168409,
+      "dataType": "SR Legacy",
+      "description": "Cucumber, with peel, raw",
+      "kcal": 15,
+      "carbsG": 3.63
+    },
+    {
+      "fdcId": 168462,
+      "dataType": "SR Legacy",
+      "description": "Spinach, raw",
+      "kcal": 23,
+      "carbsG": 3.63
+    },
+    {
+      "fdcId": 168893,
+      "dataType": "SR Legacy",
+      "description": "Wheat flour, whole-grain (Includes foods for USDA's Food Distribution Program)",
+      "kcal": 340,
+      "carbsG": 72
+    },
+    {
+      "fdcId": 168943,
+      "dataType": "SR Legacy",
+      "description": "Sorghum flour, whole-grain",
+      "kcal": 359,
+      "carbsG": 76.6
+    },
+    {
+      "fdcId": 169137,
+      "dataType": "SR Legacy",
+      "description": "Mung beans, mature seeds, sprouted, cooked, boiled, drained, without salt",
+      "kcal": 21,
+      "carbsG": 4.19
+    },
+    {
+      "fdcId": 169232,
+      "dataType": "SR Legacy",
+      "description": "Gourd, white-flowered (calabash), raw",
+      "kcal": 14,
+      "carbsG": 3.39
+    },
+    {
+      "fdcId": 169260,
+      "dataType": "SR Legacy",
+      "description": "Okra, raw",
+      "kcal": 33,
+      "carbsG": 7.45
+    },
+    {
+      "fdcId": 169655,
+      "dataType": "SR Legacy",
+      "description": "Sugars, granulated",
+      "kcal": 387,
+      "carbsG": 100
+    },
+    {
+      "fdcId": 169715,
+      "dataType": "SR Legacy",
+      "description": "Semolina, enriched",
+      "kcal": 360,
+      "carbsG": 72.8
+    },
+    {
+      "fdcId": 169756,
+      "dataType": "SR Legacy",
+      "description": "Rice, white, long-grain, regular, raw, unenriched",
+      "kcal": 365,
+      "carbsG": 80
+    },
+    {
+      "fdcId": 169757,
+      "dataType": "SR Legacy",
+      "description": "Rice, white, long-grain, regular, unenriched, cooked without salt",
+      "kcal": 130,
+      "carbsG": 28.2
+    },
+    {
+      "fdcId": 169961,
+      "dataType": "SR Legacy",
+      "description": "Beans, snap, green, raw",
+      "kcal": 31,
+      "carbsG": 6.97
+    },
+    {
+      "fdcId": 169986,
+      "dataType": "SR Legacy",
+      "description": "Cauliflower, raw",
+      "kcal": 25,
+      "carbsG": 4.97
+    },
+    {
+      "fdcId": 169997,
+      "dataType": "SR Legacy",
+      "description": "Coriander (cilantro) leaves, raw",
+      "kcal": 23,
+      "carbsG": 3.67
+    },
+    {
+      "fdcId": 170000,
+      "dataType": "SR Legacy",
+      "description": "Onions, raw",
+      "kcal": 40,
+      "carbsG": 9.34
+    },
+    {
+      "fdcId": 170026,
+      "dataType": "SR Legacy",
+      "description": "Potatoes, flesh and skin, raw",
+      "kcal": 77,
+      "carbsG": 17.5
+    },
+    {
+      "fdcId": 170169,
+      "dataType": "SR Legacy",
+      "description": "Nuts, coconut meat, raw",
+      "kcal": 354,
+      "carbsG": 15.2
+    },
+    {
+      "fdcId": 170172,
+      "dataType": "SR Legacy",
+      "description": "Nuts, coconut milk, raw (liquid expressed from grated meat and water)",
+      "kcal": 230,
+      "carbsG": 5.54
+    },
+    {
+      "fdcId": 170393,
+      "dataType": "SR Legacy",
+      "description": "Carrots, raw",
+      "kcal": 41,
+      "carbsG": 9.58
+    },
+    {
+      "fdcId": 170419,
+      "dataType": "SR Legacy",
+      "description": "Peas, green, raw",
+      "kcal": 81,
+      "carbsG": 14.4
+    },
+    {
+      "fdcId": 170440,
+      "dataType": "SR Legacy",
+      "description": "Potatoes, boiled, cooked without skin, flesh, without salt",
+      "kcal": 86,
+      "carbsG": 20
+    },
+    {
+      "fdcId": 170457,
+      "dataType": "SR Legacy",
+      "description": "Tomatoes, red, ripe, raw, year round average",
+      "kcal": 18,
+      "carbsG": 3.89
+    },
+    {
+      "fdcId": 170483,
+      "dataType": "SR Legacy",
+      "description": "Drumstick pods, raw",
+      "kcal": 37,
+      "carbsG": 8.53
+    },
+    {
+      "fdcId": 170688,
+      "dataType": "SR Legacy",
+      "description": "Bulgur, dry",
+      "kcal": 342,
+      "carbsG": 75.9
+    },
+    {
+      "fdcId": 171025,
+      "dataType": "SR Legacy",
+      "description": "Oil, sunflower, linoleic, (approx. 65%)",
+      "kcal": 884,
+      "carbsG": 0
+    },
+    {
+      "fdcId": 171265,
+      "dataType": "SR Legacy",
+      "description": "Milk, whole, 3.25% milkfat, with added vitamin D",
+      "kcal": 61,
+      "carbsG": 4.8
+    },
+    {
+      "fdcId": 171284,
+      "dataType": "SR Legacy",
+      "description": "Yogurt, plain, whole milk",
+      "kcal": 61,
+      "carbsG": 4.66
+    },
+    {
+      "fdcId": 171287,
+      "dataType": "SR Legacy",
+      "description": "Egg, whole, raw, fresh",
+      "kcal": 143,
+      "carbsG": 0.72
+    },
+    {
+      "fdcId": 171952,
+      "dataType": "SR Legacy",
+      "description": "Fish, carp, raw",
+      "kcal": 127,
+      "carbsG": 0
+    },
+    {
+      "fdcId": 172223,
+      "dataType": "SR Legacy",
+      "description": "Cheese, fresh, queso fresco",
+      "kcal": 299,
+      "carbsG": 2.98
+    },
+    {
+      "fdcId": 172430,
+      "dataType": "SR Legacy",
+      "description": "Peanuts, all types, raw",
+      "kcal": 567,
+      "carbsG": 16.1
+    },
+    {
+      "fdcId": 172436,
+      "dataType": "SR Legacy",
+      "description": "Pigeon peas (red gram), mature seeds, raw",
+      "kcal": 343,
+      "carbsG": 62.8
+    },
+    {
+      "fdcId": 173044,
+      "dataType": "SR Legacy",
+      "description": "Guavas, common, raw",
+      "kcal": 68,
+      "carbsG": 14.3
+    },
+    {
+      "fdcId": 173227,
+      "dataType": "SR Legacy",
+      "description": "Beverages, tea, black, brewed, prepared with tap water",
+      "kcal": 1,
+      "carbsG": 0.3
+    },
+    {
+      "fdcId": 173412,
+      "dataType": "SR Legacy",
+      "description": "Butter oil, anhydrous",
+      "kcal": 876,
+      "carbsG": 0
+    },
+    {
+      "fdcId": 173424,
+      "dataType": "SR Legacy",
+      "description": "Egg, whole, cooked, hard-boiled",
+      "kcal": 155,
+      "carbsG": 1.12
+    },
+    {
+      "fdcId": 173475,
+      "dataType": "SR Legacy",
+      "description": "Spearmint, fresh",
+      "kcal": 44,
+      "carbsG": 8.41
+    },
+    {
+      "fdcId": 173627,
+      "dataType": "SR Legacy",
+      "description": "Chicken, broilers or fryers, dark meat, thigh, meat only, raw",
+      "kcal": 121,
+      "carbsG": 0
+    },
+    {
+      "fdcId": 173744,
+      "dataType": "SR Legacy",
+      "description": "Beans, kidney, red, mature seeds, raw",
+      "kcal": 337,
+      "carbsG": 61.3
+    },
+    {
+      "fdcId": 173756,
+      "dataType": "SR Legacy",
+      "description": "Chickpeas (garbanzo beans, bengal gram), mature seeds, raw",
+      "kcal": 378,
+      "carbsG": 63
+    },
+    {
+      "fdcId": 173806,
+      "dataType": "SR Legacy",
+      "description": "Peanuts, all types, dry-roasted, without salt",
+      "kcal": 587,
+      "carbsG": 21.3
+    },
+    {
+      "fdcId": 173944,
+      "dataType": "SR Legacy",
+      "description": "Bananas, raw",
+      "kcal": 89,
+      "carbsG": 22.8
+    },
+    {
+      "fdcId": 174256,
+      "dataType": "SR Legacy",
+      "description": "Mung beans, mature seeds, raw",
+      "kcal": 347,
+      "carbsG": 62.6
+    },
+    {
+      "fdcId": 174259,
+      "dataType": "SR Legacy",
+      "description": "Mungo beans, mature seeds, raw",
+      "kcal": 341,
+      "carbsG": 59
+    }
+  ]
+}

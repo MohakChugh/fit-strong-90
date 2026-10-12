@@ -906,3 +906,171 @@ describe('a reading deleted from a check-in, and an older backup merged (R5-01)'
     expect(glucose(a.store.getState().observations)).toEqual([[110, '12:00']]);
   });
 });
+
+describe('a meal deleted and brought back on another device, merged (B-05; board D136, D147)', () => {
+  const AT = '2026-10-08T13:10:00.000+05:30';
+  const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57 } as const;
+  const lunch = { id: 'meal-1', at: AT, day: '2026-10-08', meal: 'lunch' as const, items: [roti], level: 'estimates' as const, loggedAt: AT, edits: [] };
+  /** A device as `device` is, set up (settings of its own), with its own food actions. */
+  async function phone() {
+    const d = await device();
+    expect((await d.store.setSettings({ theme: 'system' })).ok).toBe(true);
+    const food = await import('@/food/store');
+    const { mealsIn, customFoodsIn } = await import('@/food/records');
+    return { ...d, food, meals: () => mealsIn(d.store.getState().records), own: () => customFoodsIn(d.store.getState().records) };
+  }
+  /** Two devices holding the same lunch: B set up from A's backup. */
+  async function pair() {
+    const a = await phone();
+    expect((await a.food.saveMeal(lunch)).ok).toBe(true);
+    const b = await phone();
+    expect((await b.store.importRecord(await a.backup(), 'merge')).ok).toBe(true);
+    return { a, b };
+  }
+  const restore = async (p: Awaited<ReturnType<typeof phone>>, id: string) => {
+    const meal = p.meals().find(m => m.id === id)!;
+    expect((await p.food.deleteMeal(id)).ok).toBe(true);
+    const back = await p.food.restoreMeal(meal);
+    if (!back.ok) throw back.failure;
+    return back.value;
+  };
+  const merged = async (into: Awaited<ReturnType<typeof phone>>, file: unknown) => {
+    const preview = into.store.previewRecord(file);
+    if (!preview.ok) throw new Error(preview.reason);
+    expect((await into.store.importRecord(file, 'merge')).ok).toBe(true);
+    return { restoredHere: preview.restoredHere, restoredKept: preview.restoredKept };
+  };
+
+  it('takes the copy in place of the original when it is the original unchanged, once', async () => {
+    const { a, b } = await pair();
+    const r = await restore(b, 'meal-1');
+    expect(await merged(a, await b.backup())).toEqual({ restoredHere: 1, restoredKept: 0 });
+    expect(a.meals()).toEqual([r]);
+    expect(a.store.getState().settings.deleted?.records?.meals).toEqual(['meal-1']);
+  });
+
+  it('keeps a correction made here since, with its history, leaves the copy out, and says so (K7R-03)', async () => {
+    const { a, b } = await pair();
+    await restore(b, 'meal-1');
+    expect((await a.food.saveCorrection(lunch, { at: AT, meal: 'lunch', items: [{ ...roti, count: 3, kcal: 306 }] }, '2026-10-08T14:00:00.000+05:30')).ok).toBe(true);
+    const fixed = a.meals()[0];
+    expect(fixed.edits).toHaveLength(1);
+    expect(await merged(a, await b.backup())).toEqual({ restoredHere: 0, restoredKept: 1 });
+    expect(a.meals()).toEqual([fixed]);
+    expect(a.store.getState().settings.deleted?.records?.meals).toBeUndefined();
+  });
+
+  it('reads restores of restores as one meal: M, then R, then S, each copy naming M (H7-11)', async () => {
+    const { a, b } = await pair();
+    const r = await restore(b, 'meal-1');
+    const s = await restore(b, r.id);
+    expect([r.restoredFrom, s.restoredFrom]).toEqual(['meal-1', 'meal-1']);
+    expect(await merged(a, await b.backup())).toEqual({ restoredHere: 1, restoredKept: 0 });
+    expect(a.meals()).toEqual([s]);
+  });
+
+  it('follows a chain made before copies named their original, through the records it knows (H7-11)', async () => {
+    const { a, b } = await pair();
+    const r = await restore(b, 'meal-1');
+    await merged(a, await b.backup());
+    expect(a.meals()).toEqual([r]);
+    // B brings R back again under a build that named only the copy it came from.
+    const s = { ...r, id: 'meal-s', restoredFrom: r.id };
+    const file = await b.backup() as { records: { meals: unknown[] }; settings: { deleted?: { records?: { meals?: string[] } } } };
+    const older = { ...file, records: { ...file.records, meals: [s] }, settings: { ...file.settings, deleted: { records: { meals: ['meal-1', r.id] } } } };
+    expect(await merged(a, older)).toEqual({ restoredHere: 1, restoredKept: 0 });
+    expect(a.meals()).toEqual([s]);
+  });
+
+  it('keeps one copy when both devices bring the same meal back, each keeping its own (H7-11)', async () => {
+    const { a, b } = await pair();
+    const r = await restore(a, 'meal-1');
+    const s = await restore(b, 'meal-1');
+    expect(await merged(a, await b.backup())).toEqual({ restoredHere: 0, restoredKept: 0 });
+    expect(a.meals()).toEqual([r]);
+    expect(await merged(b, await a.backup())).toEqual({ restoredHere: 0, restoredKept: 0 });
+    expect(b.meals()).toEqual([s]);
+    // Corrected on one, the other's copy is left out and the preview says so.
+    expect((await a.food.saveCorrection(r, { at: AT, meal: 'dinner', items: r.items }, '2026-10-08T15:00:00.000+05:30')).ok).toBe(true);
+    expect(await merged(a, await b.backup())).toEqual({ restoredHere: 0, restoredKept: 1 });
+    expect(a.meals().map(m => [m.id, m.meal])).toEqual([[r.id, 'dinner']]);
+  });
+
+  it('never removes a meal for a copy that loses the merge (H7R-02)', async () => {
+    const a = await phone();
+    const other = { ...lunch, id: 'meal-2', meal: 'dinner' as const };
+    expect((await a.food.saveMeal(lunch)).ok).toBe(true);
+    expect((await a.food.saveMeal(other)).ok).toBe(true);
+    expect((await a.food.saveCorrection(lunch, { at: AT, meal: 'lunch', items: [{ ...roti, count: 3, kcal: 306 }] }, '2026-10-08T14:00:00.000+05:30')).ok).toBe(true);
+    const held = a.meals();
+    // A file whose older copy of meal-1 says it came back from meal-2.
+    const file = await a.backup() as { records: { meals: Record<string, unknown>[] } };
+    const older = { ...file, records: { ...file.records, meals: [{ ...lunch, restoredFrom: 'meal-2' }] } };
+    expect(await merged(a, older)).toEqual({ restoredHere: 0, restoredKept: 0 });
+    expect(a.meals()).toEqual(held);
+  });
+
+  it('reads restoredFrom only where records are restored: never on own foods (H7R-02)', async () => {
+    const a = await phone();
+    const T = '2026-10-08T09:00:00.000+05:30';
+    const lemon = { id: 'food-1', name: 'Lemon rice', per: { qty: 1, unit: 'plate' }, kcal: 333, createdAt: T, updatedAt: '2026-10-08T12:00:00.000+05:30' };
+    const kheer = { id: 'food-2', name: 'Kheer', per: { qty: 1, unit: 'katori' }, createdAt: T, updatedAt: T };
+    expect((await a.store.writeRecords({ put: { customFoods: [lemon, kheer] } })).ok).toBe(true);
+    const file = await a.backup() as { records: Record<string, unknown[]> };
+    const odd = { ...file, records: { ...file.records, customFoods: [{ ...lemon, updatedAt: T, restoredFrom: 'food-2' }, { ...kheer, id: 'food-3', restoredFrom: 'food-2' }] } };
+    expect(await merged(a, odd)).toEqual({ restoredHere: 0, restoredKept: 0 });
+    expect(a.own().map(f => f.id)).toEqual(['food-1', 'food-2', 'food-3']);
+  });
+
+  it('brings in one meal from a file holding an original and its copy, never writing and removing the same one (H7-11)', async () => {
+    const { a, b } = await pair();
+    const r = await restore(b, 'meal-1');
+    // A file made before this fix, by a device that had merged and kept both.
+    const file = await b.backup() as { records: { meals: unknown[] }; settings: Record<string, unknown> };
+    const both = { ...file, records: { ...file.records, meals: [lunch, r] }, settings: { ...file.settings, deleted: undefined } };
+    expect(await merged(a, both)).toEqual({ restoredHere: 1, restoredKept: 0 });
+    expect(a.meals()).toEqual([r]);
+    // On a device with neither, the copy stands in for the original it equals, and the original's deletion is
+    // remembered, so the same file merged again brings it in no more (H7-11).
+    const c = await phone();
+    expect(await merged(c, both)).toEqual({ restoredHere: 0, restoredKept: 0 });
+    expect(c.meals()).toEqual([r]);
+    expect(c.store.getState().settings.deleted?.records?.meals).toEqual(['meal-1']);
+    await merged(c, both);
+    expect(c.meals()).toEqual([r]);
+    // A device that took the copy alone before this, with no deletion to go by: the original isn't brought in beside it.
+    const took = await phone();
+    expect((await took.store.writeRecords({ put: { meals: [r as unknown as Record<string, unknown>] } })).ok).toBe(true);
+    await merged(took, both);
+    expect(took.meals()).toEqual([r]);
+    expect(took.store.getState().settings.deleted?.records?.meals).toEqual(['meal-1']);
+    // And when the file's original is a later correction, that one is kept, and the copy left out.
+    const later = { ...lunch, meal: 'dinner' as const, editedAt: '2026-10-08T16:00:00.000+05:30', edits: [{ replacedAt: '2026-10-08T16:00:00.000+05:30', at: AT, meal: 'lunch' as const, items: [roti] }] };
+    const d = await phone();
+    expect((await d.food.saveMeal(lunch)).ok).toBe(true);
+    const newer = { ...both, records: { ...both.records, meals: [later, r] } };
+    expect(await merged(d, newer)).toEqual({ restoredHere: 0, restoredKept: 1 });
+    expect(d.meals()).toEqual([later]);
+    // Its copy brought back after that correction: the copy alone, the correction neither written nor kept beside it.
+    const e = await phone();
+    expect((await e.food.saveMeal(lunch)).ok).toBe(true);
+    const copy = { ...later, id: 'meal-r2', restoredFrom: 'meal-1' };
+    expect(await merged(e, { ...both, records: { ...both.records, meals: [later, copy] } })).toEqual({ restoredHere: 1, restoredKept: 0 });
+    expect(e.meals()).toEqual([copy]);
+  });
+
+  it('keeps one of two copies of one meal in a file, and clears a pair this device kept before (H7-11)', async () => {
+    const a = await phone();
+    expect((await a.food.saveMeal(lunch)).ok).toBe(true);
+    const file = await a.backup() as { records: { meals: unknown[] } };
+    const r = { ...lunch, id: 'meal-r', restoredFrom: 'meal-1' };
+    const s = { ...lunch, id: 'meal-s', restoredFrom: 'meal-1' };
+    expect(await merged(a, { ...file, records: { ...file.records, meals: [r, s] } })).toEqual({ restoredHere: 1, restoredKept: 0 });
+    expect(a.meals()).toEqual([r]);
+    // A device that kept an original and its copy side by side, before this fix, keeps the copy once it is merged again.
+    const b = await phone();
+    expect((await b.store.writeRecords({ put: { meals: [lunch, r] } })).ok).toBe(true);
+    expect(await merged(b, { ...file, records: { ...file.records, meals: [r] } })).toEqual({ restoredHere: 1, restoredKept: 0 });
+    expect(b.meals()).toEqual([r]);
+  });
+});

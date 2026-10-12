@@ -158,6 +158,18 @@ const WHY_NOT: Record<EnergyNone, string> = {
   tooShort: 'Too short for an energy estimate.',
 };
 
+/**
+ * Where the missing birth year is given (KH-13): Me → Profile & health, at
+ * the About you chapter Plan 5 builds there; until then the profile opens as
+ * usual and the parameter is ignored.
+ */
+export const BIRTH_YEAR_HREF = '/me/profile?chapter=about';
+
+/** The way to an estimate the walk couldn't have, when there is one to take: only a missing birth year has its own screen. */
+export function energyFix(e: EnergyEstimate): { label: string; to: string } | undefined {
+  return e.kind === 'none' && e.reason === 'unknownAge' ? { label: 'Add your birth year', to: BIRTH_YEAR_HREF } : undefined;
+}
+
 /** The words for an estimate: its figure, and what it was worked out from (B-17), with the weight it used (B-16). */
 export function energyText(e: EnergyEstimate, weight?: WeightUsed): { value: string; detail: string } {
   if (e.kind === 'none') return { value: 'No estimate', detail: WHY_NOT[e.reason] };

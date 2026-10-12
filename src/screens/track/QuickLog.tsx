@@ -9,7 +9,9 @@
 import { useEffect, useId, useRef, useState, type Ref } from 'react';
 import { flushSync } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeftIcon, DumbbellIcon } from 'lucide-react';
+import { ChevronLeftIcon, DumbbellIcon, UtensilsIcon } from 'lucide-react';
+import { logsMeals } from '@/food/level';
+import { logHref } from '@/food/links';
 import { Sheet } from '@/components/hig/Sheet';
 import { Group, Row } from '@/components/hig/List';
 import { entryFor, summariseDay } from '@/health/aggregate';
@@ -139,6 +141,18 @@ export function QuickLog({ open, onOpenChange, initial, onSaved, prefs, day }: {
               // and bring the person straight back. Leaving My Day closes it.
               onClick={() => navigate(pastDay ? `/hub/workout/log?date=${pastDay}` : '/hub/workout/log', { viewTransition: true })}
             />
+            {logsMeals(profile?.food) && (
+              <Row
+                as="button"
+                type="button"
+                icon={<UtensilsIcon aria-hidden />}
+                label="Meal"
+                detail={pastDay ? `Log a meal for ${formatDayShort(pastDay, current)}` : 'What you ate, in Food'}
+                chevron
+                // As Workout: only a navigation. "Log a meal" opens over the Food hub, and closing it comes back here.
+                onClick={() => navigate(logHref(pastDay ? { day: pastDay } : {}), { viewTransition: true })}
+              />
+            )}
           </Group>
         </>
       )}
@@ -628,7 +642,8 @@ function PressureForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
         <button
           type="button"
           onClick={addSecond}
-          className="press-feedback -my-1 min-h-11 self-start px-1 text-[length:var(--text-body)] font-medium text-tint"
+          // 48 px tall at the least, in rem so it grows with the text size (journey §20.4 rule 1).
+          className="press-feedback -my-1 min-h-12 self-start px-1 text-[length:var(--text-body)] font-medium text-tint"
         >
           Add a second reading
         </button>
@@ -925,7 +940,8 @@ function TotalForm({ kind, fieldRef, onSaved, prefs }: FormProps & { kind: 'step
               () => setError('Paste isn’t available here. Type the number instead.'),
             );
           }}
-          className="press-feedback min-h-11 self-start rounded-full bg-tint/10 px-4 text-[length:var(--text-body)] font-semibold text-tint"
+          // 48 by 48 at the least, in rem so it grows with the text size (journey §20.4 rule 1; codex H2-07).
+          className="press-feedback min-h-12 min-w-12 self-start rounded-full bg-tint/10 px-4 text-[length:var(--text-body)] font-semibold text-tint"
         >
           Paste
         </button>

@@ -598,6 +598,9 @@ button, [role="button"], a {
      the body colour on both, as on iOS (15:1 or better). */
   --segment-track: oklch(0.915 0.004 286);
   --segment-thumb: oklch(1 0 0);
+  /* Trends (B-15): the period before, drawn behind the current one in grey
+     and striped, 3:1 or more on the card (src/design/tokens.node.test.ts). */
+  --trend-previous: oklch(0.6 0 0);
   /* v2 category colours (journey §20.3): graphics, then ink for text and icons.
      Measured on the card, where tiles, rings and charts sit: graphics 3:1, ink
      4.5:1 (src/design/tokens.node.test.ts). Food was 0.7, under 3:1. On the bare
@@ -636,6 +639,7 @@ button, [role="button"], a {
      text on it is 6:1. */
   --segment-track: oklch(0.26 0.003 286);
   --segment-thumb: oklch(0.5 0.004 286);
+  --trend-previous: oklch(0.62 0 0);
   --cat-move: oklch(0.72 0.18 30);      --cat-move-ink: oklch(0.8 0.14 30);
   --cat-workout: oklch(0.75 0.16 55);   --cat-workout-ink: oklch(0.82 0.13 60);
   --cat-stretch: oklch(0.72 0.11 190);  --cat-stretch-ink: oklch(0.8 0.09 190);

@@ -8,8 +8,9 @@
  * evening meal), which is a study result and is worded as one.
  */
 
+import { FOOD_COPY } from '@/food/copy';
 import type { Meal } from '@/types/habits';
-import type { DailyTime, HabitId } from './schedule';
+import type { HabitId, InAppTime } from './schedule';
 
 export const HABIT_LABEL: Record<HabitId, string> = {
   water: 'Water',
@@ -38,7 +39,7 @@ export interface ReminderText {
 }
 
 /** The words for one reminder. `glassMl` is the user's own glass size. */
-export function reminderText(time: Pick<DailyTime, 'habit' | 'meal'>, glassMl?: number): ReminderText {
+export function reminderText(time: Pick<InAppTime, 'habit' | 'meal'>, glassMl?: number): ReminderText {
   switch (time.habit) {
     case 'water':
       return {
@@ -52,5 +53,7 @@ export function reminderText(time: Pick<DailyTime, 'habit' | 'meal'>, glassMl?: 
         title: `A short walk after ${(time.meal ? MEAL_LABEL[time.meal] : 'your meal').toLowerCase()}?`,
         detail: 'Ten easy minutes, if you feel up to it.',
       };
+    case 'foodLog':
+      return { title: FOOD_COPY.promptTitle(time.meal ? MEAL_LABEL[time.meal] : 'Your meal'), detail: FOOD_COPY.promptDetail };
   }
 }

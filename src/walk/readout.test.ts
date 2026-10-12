@@ -10,7 +10,6 @@ import { PERMISSION_TEXT, type Permission } from '@/engine/permission';
 import type { CheckInRecord } from '@/types/checkin';
 import {
   STEPS_DENIED,
-  clockLine,
   noRouteLine,
   splitRows,
   cueLine,
@@ -354,9 +353,8 @@ describe('after a walk ended for a low (X2-13)', () => {
 });
 
 describe('a held walk after a change to the phone’s clock (B-19)', () => {
-  it('says why a reading from before the change no longer counts, and nothing otherwise', () => {
-    expect(clockLine({})).toBeUndefined();
-    expect(clockLine({ clockChangedAt: 1_760_000_000_000 })).toBe(
+  it('says why a reading from before the change no longer counts: the engine’s own reason, which the hold card lists', () => {
+    expect(PERMISSION_TEXT.clockChanged).toBe(
       'Your phone’s clock changed during this walk, so a reading from before the change can’t be timed. Check your glucose again to carry on.',
     );
   });

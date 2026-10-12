@@ -1,7 +1,8 @@
 /**
  * V-J39: calendar copies after a fluid limit is added (journey §17.2 V-J39,
  * §15; A-78). Reminders records what each calendar file holds, says when the
- * copies may be out of date and what to do, and a new file replaces them.
+ * copies may be out of date and what to do, and a new file replaces them. A
+ * changed glass size, at the same times, dates them too (codex H4-05).
  */
 import { docs } from '../lib/harness.mjs';
 import { persona } from '../fixtures/personas.mjs';
@@ -16,6 +17,38 @@ const flat = s => s.replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ');
 const HABITS = {
   water: { enabled: true, glassMl: 250, everyMinutes: 120, from: '09:00', to: '21:00' },
   sittingBreak: { enabled: true, everyMinutes: 60, from: '10:00', to: '16:00' },
+};
+
+const glassSize = {
+  name: 'out of date after the glass size changes, at the same times (codex H4-05)',
+  async run(t) {
+    const page = await t.open({
+      seed: persona('P02', { patch: { settings: { habits: HABITS }, profile: { health: { fluidRestriction: false } } } }),
+      route: '/home',
+      capabilities: { share: 'absent' },
+    });
+    const main = page.getByRole('main');
+    const shown = async () => flat(await main.innerText());
+    await t.step(1, 'Me → Reminders → Add to Calendar: a fresh file reads as up to date', async () => {
+      await g.openHabits(t);
+      const cal = await g.openHabitSheet(t, 'Add to Calendar');
+      const file = await g.download(t, () => ui.tap(ui.button(cal, 'Add to Calendar')));
+      await t.check(g.parseIcs(file.text).events.some(e => /250 ml/.test(e.DESCRIPTION ?? '')), 'the file’s water events do not say 250 ml');
+      await ui.tap(ui.button(cal, 'Close'));
+      await cal.waitFor({ state: 'hidden' });
+      await t.check(!/may be out of date/.test(await shown()), 'a fresh file reads as out of date');
+    });
+    await t.step(2, 'Water → 150 ml glass → Save, the times unchanged: the copies may be out of date, still worded as before', async () => {
+      const ws = await g.openHabitSheet(t, 'Water');
+      await ui.tap(ws.getByRole('radiogroup', { name: 'Glass size' }).getByRole('radio', { name: '150 ml', exact: true }));
+      await ui.tap(ui.button(ws, 'Save'));
+      await ws.waitFor({ state: 'hidden' });
+      const text = await shown();
+      await t.checkpoint('reminders-glass-out-of-date');
+      await t.check(/Your calendar copies may be out of date/.test(text), `no out-of-date warning after the glass size changed: ${text.slice(0, 300)}`);
+      await t.check(/Glass of water: 6 a day in Calendar, still worded as before your change\./.test(text), `the warning does not say what changed: ${text.slice(0, 400)}`);
+    }, { input: 'glass 150 ml' });
+  },
 };
 
 export const cases = [{
@@ -72,4 +105,4 @@ export const cases = [{
       await t.checkpoint('reminders-replaced');
     });
   },
-}];
+}, glassSize];

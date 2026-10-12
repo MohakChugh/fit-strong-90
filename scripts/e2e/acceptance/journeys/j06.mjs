@@ -9,7 +9,7 @@
  * through My Day → Add (v1's Track, now Today's log).
  */
 import { docs } from '../lib/harness.mjs';
-import { persona } from '../fixtures/personas.mjs';
+import { C0, persona } from '../fixtures/personas.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as g from '../lib/guide.mjs';
 
@@ -432,9 +432,10 @@ function cadenceCase(row) {
         await t.check(!/must|required|overdue!/i.test(today.match(/HbA1c due[^]*?Add a result/)?.[0] ?? ''), 'the HbA1c suggestion is phrased as a mandate');
       });
       await t.step(3, 'The HbA1c chart states both conditions and identifies recommendation 6.2', async () => {
-        // HbA1c's chart is its trend's (Plan 3; v1's chart until then).
-        await t.goto('/trends/labs?metric=hba1c');
-        await ui.tap(ui.radio(page.getByRole('main').getByRole('radiogroup', { name: 'Period' }), 'Year'));
+        // v1's HbA1c chart said this under the result. In v2 the result's interpretation and cadence are the Labs
+        // hub's, under its latest result; the Labs trend is the dated results alone (Plan 3, journey §12.2, A-45).
+        await t.goto('/hub/labs?metric=hba1c');
+        await ui.loaded(page);
         const text = (await page.getByRole('main').innerText()).replace(/\s+/g, ' ');
         await t.checkpoint('hba1c-metric');
         await t.check(/twice a year|6 months/.test(text) && /3 months/.test(text) && /treatment change/.test(text),
@@ -504,8 +505,51 @@ function bmiCase(row) {
   };
 }
 
+// ---------------------------------------------------------------- Trends: a meter's LO and HI, in mmol/L (Kiro KT-16)
+
+/**
+ * P01 reading in mmol/L: 6.0 on Monday to Wednesday last week and 6.6 this
+ * week, a meter LO on Tuesday at 1 pm and a HI on Wednesday at 9 pm, each in
+ * the day's check-in (the store files the numbers as readings; the HI and
+ * LO stay in the check-in, K-11). Glucose's Week keeps the LO and HI out of
+ * the average and says so above it in caution ink, hides the change because
+ * of the LO (B-15), and judges them at ADA's 3.9 and 13.9 mmol/L.
+ */
+async function meterTrend(t) {
+  const at = (day, time) => `${day}T${time}:00.000+05:30`;
+  const day = (date, value, display) => ({
+    ...structuredClone(C0), date, glucose: { value, unit: 'mmol/L', measuredAt: at(date, '07:30') },
+    ...(display ? { glucoseDisplay: { display: display[0], measuredAt: at(date, display[1]), source: 'meter' } } : {}),
+  });
+  const seed = persona('P01', {
+    patch: {
+      profile: { health: { glucoseUnit: 'mmol/L' } },
+      checkIns: [
+        day('2026-09-28', 6), day('2026-09-29', 6), day('2026-09-30', 6),
+        day('2026-10-05', 6.6), day('2026-10-06', 6.6, ['LO', '13:00']), day('2026-10-07', 6.6, ['HI', '21:00']),
+      ],
+    },
+  });
+  const page = await t.open({ seed, route: '/trends/glucose' });
+  const main = page.getByRole('main');
+  await t.step(1, 'Trends → Glucose, this week: the LO and HI out of the average, said in caution ink; no change; the lines in mmol/L', async () => {
+    await ui.heading(page, 'Glucose');
+    const text = (await main.innerText()).replace(/\s+/g, ' ');
+    const meter = main.getByText('Not in the average: 1 LO and 1 HI. The meter showed these instead of a number.', { exact: true });
+    await t.check(await meter.count() === 1, `the meter's LO and HI aren't said above the average: ${text.slice(0, 400)}`);
+    await t.check(/\btext-caution\b/.test((await meter.first().getAttribute('class')) ?? ''), 'the meter line isn’t in caution ink');
+    await t.check(text.includes('5 readings: 3 with a number, 1 meter LO and 1 meter HI'), `the count doesn’t say which readings are numeric: ${text.slice(0, 400)}`);
+    await t.check(text.includes('No change shown: a meter LO has no number, so an average would leave out the lowest reading.') && !/Higher than|Lower than|The same as/.test(text),
+      `a change is shown beside a LO: ${text.slice(0, 400)}`);
+    await t.check(/Below 3\.9 mmol\/L 1\b/.test(text) && /Above 13\.9 mmol\/L 1\b/.test(text), `the lows and highs aren’t counted at 3.9 and 13.9 mmol/L: ${text.slice(0, 500)}`);
+    await t.check(text.includes('6.6') && !/\bmg\/dL\b/.test(text), `the readings aren’t in mmol/L: ${text.slice(0, 300)}`);
+    await t.checkpoint('trends-meter-mmol');
+  }, { input: 'P01 in mmol/L; 6.0 on 28–30 Sep, 6.6 on 5–7 Oct; LO 6 Oct 1:00 pm, HI 7 Oct 9:00 pm' });
+}
+
 export const cases = [
   { name: 'P01 main', run: main },
+  { name: 'Trends: a meter’s LO and HI in mmol/L (KT-16)', run: meterTrend },
   ...MONITORING.map(monitoringCase),
   ...CADENCE.map(cadenceCase),
   ...LABS.map(labCase),

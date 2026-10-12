@@ -150,6 +150,17 @@ describe('niceDomain', () => {
     expect(domain.max).toBeGreaterThanOrEqual(11.1);
   });
 
+  it('treats a flat series whose average is a hair off it as flat, with distinct round ticks', () => {
+    // Three readings of 6.6 average to 6.599999999999999: never an axis 1e-16 tall with five ticks all "6.6".
+    const average = (6.6 + 6.6 + 6.6) / 3;
+    const domain = niceDomain([6.6, 6.6, 6.6], { include: [average] });
+    const ticks = niceTicks(domain);
+    expect(domain.max - domain.min).toBeGreaterThan(0.5);
+    expect(new Set(ticks.map(t => t.toFixed(1))).size).toBe(ticks.length);
+    expect(domain.min).toBeLessThan(6.6);
+    expect(domain.max).toBeGreaterThan(6.6);
+  });
+
   it('gives a single reading an axis rather than a zero-height plot', () => {
     const domain = niceDomain([72]);
     expect(domain.min).toBeLessThan(72);

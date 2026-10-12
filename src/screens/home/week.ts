@@ -10,11 +10,11 @@
 import type { DayOfWeek, StatusPeriod, WorkoutSession } from '@/types';
 import { WEEK } from '@/engine/templates';
 import type { Observation } from '@/health/observation';
-import { activitiesFrom } from '@/health/recommend';
 import { STATUS_LABEL, statusOn, weekdayOf, type Status } from '@/health/status';
 import { recordedMovement } from '@/screens/track/movement';
 import { addDays, weekOf } from '@/screens/track/periods';
 import { stepsDayFigure } from '@/screens/track/stepsDay';
+import { stretchedDays } from '@/screens/trends/records';
 
 // ============================================================================
 // Day dots
@@ -104,12 +104,12 @@ export function dotLabel(dot: WeekDot): string {
 // ============================================================================
 
 /**
- * The days this week with a stretch done: a session saved as a stretch, whole
- * or part of one, as the recommendation counts a stretch done (`activitiesFrom`).
+ * The days this week with a stretch done, or a session whose mobility block
+ * was done (journey §12.3): the count Trends gives, so the two never disagree.
  */
 export function stretchDays(today: string, sessions: readonly WorkoutSession[]): number {
   const { from, to } = weekOf(today);
-  return new Set(activitiesFrom(sessions, []).filter(a => a.mode === 'stretch' && a.day >= from && a.day <= to).map(a => a.day)).size;
+  return [...stretchedDays(sessions)].filter(d => d >= from && d <= to).length;
 }
 
 /** "Stretched 3 days", or that there has been none yet. */

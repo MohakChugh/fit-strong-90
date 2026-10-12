@@ -30,6 +30,7 @@
  * (`migrateToV6`), never moved from its v4 blob again.
  */
 
+import { customFoodsIn, keptReadable } from '@/food/records';
 import { migrateData } from '@/services/storage';
 import type { AppData, WorkoutSession } from '@/types';
 import type { CheckInRecord } from '@/types/checkin';
@@ -37,6 +38,7 @@ import type { Observation } from '@/health/observation';
 import { StoreFailure, readDoc, toFailure, type Db, type StoreResult } from './db';
 import { commitChange, emptySnapshot, prepare, type Change, type Snapshot } from './snapshot';
 import { liftBodyMetric, liftCheckIn, liftSessionPain, type SkippedRecord } from './project';
+import type { Records, StoredRecord } from './records';
 
 export type { SkippedRecord } from './project';
 
@@ -305,4 +307,35 @@ export async function migrateToV6(db: Db): Promise<StoreResult<{ from: number; a
       : null);
   if (!committed.ok) return { ok: false, failure: committed.failure };
   return { ok: true, value: { from: marker, alreadyDone: committed.value.resolution === null } };
+}
+
+/** The meals and usual meals an item is kept readable in (`keptReadable`): an own food given its snapshot, a flat range none. Or nothing. */
+function snapshotsChange(records: Records): Change | null {
+  const give = keptReadable(customFoodsIn(records));
+  const changed = (list: readonly StoredRecord[]) => list.map(give).filter((r, i) => r !== list[i]) as StoredRecord[];
+  const meals = changed(records.meals);
+  const savedMeals = changed(records.savedMeals);
+  if (meals.length === 0 && savedMeals.length === 0) return null;
+  return { records: { ...(meals.length > 0 ? { meals: { put: meals } } : {}), ...(savedMeals.length > 0 ? { savedMeals: { put: savedMeals } } : {}) } };
+}
+
+/**
+ * Own-food items logged before snapshots, each given one once (board D146, H7R-01), and a table food held
+ * with equal carb ends given no carb estimate (H7F-03, D207): every meal, earlier
+ * version and usual meal in one transaction, planned again against what is stored if another copy wrote
+ * meanwhile. Schema 6 stays: the rows themselves say what's left to do, so there is nothing else to mark,
+ * and a start with none writes nothing. A device that can't write it now keeps its rows as they are, and
+ * tries again next start; meanwhile they're read as they'll be stored, so nothing leaves history for the
+ * session (H7R-01). The snapshot it leaves the store holding.
+ */
+export async function giveSnapshots(db: Db, known: Snapshot): Promise<Snapshot> {
+  if (snapshotsChange(known.records) === null) return known;
+  const committed = await commitChange(db, known, base => {
+    const change = snapshotsChange(base.records);
+    return change ? { change } : null;
+  });
+  if (committed.ok) return committed.value.next;
+  const base = committed.refreshed ?? known;
+  const change = snapshotsChange(base.records);
+  return change ? { ...base, records: prepare(base, change).next.records } : base;
 }

@@ -18,6 +18,7 @@ import {
   accrueOpen,
   addGapTime,
   creditSteps,
+  daysAround,
   finishWalk,
   heartbeat,
   leaveWalk,
@@ -31,6 +32,7 @@ import {
   segmentDistance,
   splitAtClockChange,
   splitAtMidnight,
+  splitAtOffsetChange,
   startWalk,
   stepOf,
   updateOpenSegment,
@@ -93,7 +95,7 @@ export type WalkIntent = 'start' | 'restart' | 'live';
 export interface JournalPort {
   /** Keep this checkpoint (journey §9.4). Resolves whether it was kept. */
   checkpoint(entry: JournalEntry): Promise<StoreResult>;
-  /** The latest checkpoint kept for a walk, if any. */
+  /** The latest checkpoint kept for a walk, or nothing when there is none. Rejects when it can't be read: that is not "none" (H6-06). */
   read(id: string): Promise<JournalEntry | undefined>;
 }
 
@@ -115,6 +117,12 @@ export interface LivePorts {
   now(): number;
   /** The monotonic clock, ms (B-19). Absent: the device clock, so no change is ever seen. */
   monotonic?(): number;
+  /**
+   * B-19: the glucose readings this device knows on `days`, by identity, at
+   * the moment a change to the clock is seen. They were timed by the clock as
+   * it was, so the gate asks for one taken since. Absent: none known.
+   */
+  readingsNow?(days: readonly string[]): readonly string[];
   /** Run `fn` after `ms`. Returns a function that cancels it. */
   later(fn: () => void, ms: number): () => void;
   storage: WalkStorage | undefined;
@@ -124,6 +132,12 @@ export interface LivePorts {
   wakeLock?: WakeLockPort;
   /** Where the walk is kept against a closed or crashed app (journey §9.4). */
   journal?: JournalPort;
+  /**
+   * This phone's own consent to keep routes, as it is now (H6-04): asked at
+   * every journal write, so a walk keeps its route only while the answer is
+   * yes. Absent: the walk's plan alone decides.
+   */
+  keepsRoutes?(): boolean;
 }
 
 /** A gap shorter than this is recorded but not announced: a glance at a notification. */
@@ -262,6 +276,13 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
   let routeBase: RouteLine[] = [];
   let lastCheckpoint: number | undefined;
   let journalFull = false;
+  /**
+   * The route kept before this page, after a reload (H6-06): `loading` until
+   * the journal answers, `failed` to be read again at the next checkpoint.
+   * Until it is back, nothing is journalled: a checkpoint now would write
+   * over the only copy of it with the little this page has drawn.
+   */
+  let routeRestore: 'none' | 'loading' | 'failed' = 'none';
 
   const allLines = (): RouteLine[] => [...routeBase, ...(track?.lines ?? [])];
 
@@ -281,13 +302,39 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     draftKept = storeWalk(ports.storage, walk);
     const now = ports.now();
     if (!ports.journal || (checkpoint === 'due' && !checkpointDue(lastCheckpoint, now))) return;
+    if (routeRestore === 'loading') return;
     lastCheckpoint = now;
-    const entry = journalEntry(walk, now, walk.plan.keepRoute ? allLines() : undefined);
+    if (routeRestore === 'failed') {
+      // Read again, a checkpoint's interval later; the walk itself is kept in the tab's draft meanwhile.
+      restoreRoute(walk.id);
+      return;
+    }
+    const keep = walk.plan.keepRoute === true && (ports.keepsRoutes?.() ?? true);
+    const entry = journalEntry(walk, now, keep ? allLines() : undefined);
     void ports.journal.checkpoint(entry).then(result => {
       const full = !result.ok && result.failure.code === 'quotaExceeded';
       if (full === journalFull) return;
       journalFull = full;
       emit();
+    });
+  }
+
+  /** Bring back the route kept before this page, merged under this page's own lines, then checkpoint it (H6-06). */
+  function restoreRoute(id: string) {
+    const journal = ports.journal;
+    if (!journal) return;
+    routeRestore = 'loading';
+    journal.read(id).then(entry => {
+      if (walk?.id !== id || routeRestore !== 'loading') return;
+      routeRestore = 'none';
+      if (entry?.route && walk.plan.keepRoute) {
+        const known = new Set(allLines().map(l => l.start));
+        routeBase = [...entry.route.filter(l => !known.has(l.start)), ...routeBase];
+      }
+      persist();
+      emit();
+    }, () => {
+      if (walk?.id === id && routeRestore === 'loading') routeRestore = 'failed';
     });
   }
 
@@ -534,18 +581,39 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
       walk = accrueOpen(walk, step.ms, now);
       return;
     }
-    walk = splitAtClockChange(walk, now, step.ms);
+    // Which readings were timed by the clock as it was: every one the device knows now, by identity (H6-02).
+    walk = splitAtClockChange(walk, now, step.ms, ports.readingsNow?.(daysAround(open.accruedAt, now)) ?? []);
     if (track) {
       track = newTrack(now);
       trackBase = [];
     }
   }
 
-  /** What every sensor callback and transition does first: accrue, then split at local midnight. Says whether a segment closed (either split opens a new one). */
+  /**
+   * The phone's offset changed (H6-10): a new segment from now, in the new
+   * zone, and GPS a fresh track with it, as at midnight.
+   */
+  function catchUpOffset(now: number) {
+    if (!walk || walk.status !== 'running') return;
+    const split = splitAtOffsetChange(walk, now);
+    if (split === walk) return;
+    walk = split;
+    if (track) {
+      track = newTrack(now);
+      trackBase = [];
+    }
+  }
+
+  /**
+   * What every sensor callback and transition does first: accrue, then split
+   * at local midnight, then at a change of time zone. Says whether a segment
+   * closed (each split opens a new one).
+   */
   function advance(now: number): boolean {
     const before = walk?.segments.length ?? 0;
     accrueNow(now);
     catchUpMidnight(now);
+    catchUpOffset(now);
     return (walk?.segments.length ?? 0) !== before;
   }
 
@@ -608,16 +676,9 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
         // Restored to be read and saved. Whether it may move is a separate
         // question, asked below.
         walk = restoreWalk(stored, now);
-        // A kept route comes back from the journal, for the drawing and the save.
-        const id = walk.id;
-        if (walk.plan.keepRoute && ports.journal) {
-          void ports.journal.read(id).then(entry => {
-            if (!entry?.route || walk?.id !== id || !walk.plan.keepRoute) return;
-            const known = new Set(allLines().map(l => l.start));
-            routeBase = [...entry.route.filter(l => !known.has(l.start)), ...routeBase];
-            emit();
-          });
-        }
+        // A kept route comes back from the journal, for the drawing and the save,
+        // before anything is journalled over it (H6-06).
+        if (walk.plan.keepRoute && (ports.keepsRoutes?.() ?? true)) restoreRoute(walk.id);
       } else if (request && lastStartedId(ports.storage) !== request.id) {
         if (!mayRun('start')) return 'none';
         walk = startWalk(request.id, request.plan, now);
@@ -663,6 +724,7 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
       persist();
       walk = null;
       routeBase = [];
+      routeRestore = 'none';
       lastCheckpoint = undefined;
       journalFull = false;
       notice = null;
@@ -748,6 +810,8 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
 
     forgetRoute() {
       if (!walk) return;
+      // Nothing to bring back any more: a late answer is let go.
+      routeRestore = 'none';
       routeBase = [];
       track?.forgetPoints();
       walk = { ...walk, plan: { ...walk.plan, keepRoute: false } };

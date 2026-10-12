@@ -6,8 +6,9 @@
  */
 import { differenceInCalendarDays, format } from 'date-fns';
 import type { Observation } from '@/health/observation';
-import { finishWalk, openSegment, type Walk } from './clock';
+import { finishWalk, openSegment, restoreWalk, type Walk } from './clock';
 import { JOURNAL_STALE_MS, type JournalEntry } from './journal';
+import { loadWalk, storeWalk, type WalkStorage } from './persist';
 import { hasRecord, summarise, walkObservationIds } from './record';
 
 /** Finished where the last checkpoint left it (B-19): an interrupted segment ends at its last checkpoint. */
@@ -15,6 +16,21 @@ export function interruptedWalk(walk: Walk): Walk {
   if (walk.status === 'finished') return walk;
   const open = openSegment(walk);
   return finishWalk(walk, open ? open.accruedAt : walk.seenAt, 'interrupted');
+}
+
+/**
+ * The walk still open on this device, ended where it stopped recording, so
+ * its summary can save it: the Walk hub's "Review and save" while status
+ * or the gate won't let it carry on (codex H2-01). Nothing records while the
+ * walk screen is closed, so nothing walked is lost, and nothing starts
+ * recording again. False when there is no walk.
+ */
+export function endOpenWalk(storage: WalkStorage | undefined, now: number): boolean {
+  const walk = loadWalk(storage);
+  if (!walk) return false;
+  // Kept for this page even when the browser refuses the write, so the summary opened next still has it.
+  if (walk.status !== 'finished') storeWalk(storage, finishWalk(restoreWalk(walk, now), now, 'stop'));
+  return true;
 }
 
 export interface Recoverable {

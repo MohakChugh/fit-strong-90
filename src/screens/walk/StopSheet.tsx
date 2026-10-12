@@ -4,7 +4,7 @@ import { Sheet } from '@/components/hig/Sheet';
 import type { SymptomReport } from '@/components/checkin/pending';
 import type { SymptomReach } from '@/types/checkin';
 import { cn } from '@/lib/utils';
-import { LEG_QUESTIONS, legReport, NO_LEG, onChoice, REACH, REACH_LABEL, SPREAD_QUESTION, STOP_CHOICES, type LegAnswers, type StopChoice } from '@/walk/stop';
+import { answering, LEG_QUESTIONS, legReport, NO_LEG, REACH, REACH_LABEL, SPREAD_QUESTION, STOP_CHOICES, stopAnswer, type LegAnswers, type StopChoice } from '@/walk/stop';
 import { PrimaryButton, SecondaryButton } from './parts';
 
 interface Props {
@@ -14,7 +14,7 @@ interface Props {
   hypoRisk: boolean;
   /** How far down symptoms reached earlier today, so "further" can be told. */
   before: SymptomReach | undefined;
-  /** Into today's check-in through the shared path. */
+  /** Into today's check-in through the shared path. Every answer answers the stop the tap saved (§4.4). */
   onReport: (report: SymptomReport) => void;
   /** The "I feel low" path. */
   onLow: () => void;
@@ -24,12 +24,14 @@ interface Props {
 /**
  * "I need to stop" (safety consistency with the player's B09 and its "Stop:
  * something's wrong"; acceptance J16 step 6). Recording is already paused
- * when this opens. One tap says what is happening, in the check-in's own
- * words; leg symptoms — spread further down, new weakness or foot drop, and
- * the emergencies — are answered on the same screen, from the builder the
- * player uses. The answer goes into today's check-in and the walk screen
- * behind shows what the engine makes of it: an emergency there offers only
- * "Finish and save". A rest records nothing.
+ * when this opens, and the stop already saved (journey §4.4). One tap says
+ * what is happening, in the check-in's own words; leg symptoms — spread
+ * further down, new weakness or foot drop, and the emergencies — are answered
+ * on the same screen, from the builder the player uses. The answer goes into
+ * today's check-in, answering the stop, and the walk screen behind shows what
+ * the engine makes of it: an emergency there offers only "Finish and save". A
+ * rest records only that the stop is answered. Closing answers nothing: the
+ * walk stays held until an answer comes.
  */
 export function StopSheet(props: Props) {
   const [step, setStep] = useState<'choose' | 'dizzy'>('choose');
@@ -53,7 +55,7 @@ function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close }
   const [leg, setLeg] = useState<LegAnswers>({ ...NO_LEG, spread: false });
 
   const choose = (choice: StopChoice) => {
-    const { report, next } = onChoice(choice, hypoRisk);
+    const { report, next } = stopAnswer(choice, hypoRisk);
     if (report) onReport(report);
     if (next === 'dizzy') setStep('dizzy');
     else close();
@@ -112,7 +114,7 @@ function Body({ hypoRisk, before, onReport, onLow, onEnd, step, setStep, close }
         ))}
       </Group>
       {/* Walking is what was being done: it stops for the day (X2-09). */}
-      <PrimaryButton onClick={() => { onReport(legReport(leg, before, 'brisk-walking')); close(); }}>Save leg symptoms</PrimaryButton>
+      <PrimaryButton onClick={() => { onReport(answering(legReport(leg, before, 'brisk-walking'))); close(); }}>Save leg symptoms</PrimaryButton>
     </div>
   );
 }

@@ -277,3 +277,15 @@ export function backLegTable(data: BackLegData): BackLegTableRow[] {
   }
   return [...rows.values()].sort((a, b) => a.day.localeCompare(b.day));
 }
+
+/** A day's facts in words, as the day-by-day list says them: what the chart's slider and callout read for that day (H3-16). */
+export function backLegDayText(r: BackLegTableRow | undefined): string {
+  if (!r) return 'Nothing recorded';
+  return [
+    `Back pain ${r.back.length > 0 ? r.back.join(', ') : 'not entered'}`,
+    `Leg pain ${r.leg.length > 0 ? r.leg.join(', ') : 'not entered'}`,
+    ...(r.reach ? [`Reached: ${REACH_LABELS[r.reach]}`] : []),
+    ...(r.sessions.length > 0 ? [`Session: ${r.sessions.join('; ')}`] : []),
+    ...(r.worse ? ['Worse during a session'] : []),
+  ].join(' · ');
+}

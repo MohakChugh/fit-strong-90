@@ -33,7 +33,8 @@ function radioKeys<T extends string>(ids: readonly T[], value: T, onChange: (val
 
 /**
  * iOS's segmented control: a radio group, because exactly one is chosen.
- * Each segment is a full 44 px tall target even though the pill looks slimmer.
+ * Each segment is a full 48 px tall target even though the pill looks slimmer
+ * (journey §20.4 rule 1, H3-19).
  */
 export function Segmented<T extends string>({ label, options, value, onChange, className }: {
   label: string;
@@ -48,7 +49,7 @@ export function Segmented<T extends string>({ label, options, value, onChange, c
       aria-label={label}
       // Segments keep their labels whole: when the text is too large for one
       // row, they wrap onto another rather than truncate or split a word.
-      className={cn('flex min-h-11 w-full flex-wrap gap-0.5 rounded-[0.6rem] bg-segment-track p-0.5', className)}
+      className={cn('flex min-h-12 w-full flex-wrap gap-0.5 rounded-[0.6rem] bg-segment-track p-0.5', className)}
     >
       {options.map(option => {
         const selected = option.id === value;
@@ -62,7 +63,7 @@ export function Segmented<T extends string>({ label, options, value, onChange, c
             onClick={() => onChange(option.id)}
             onKeyDown={radioKeys(options.map(o => o.id), value, onChange)}
             className={cn(
-              'min-h-11 min-w-fit flex-[1_1_0%] rounded-lg px-1.5 py-1 text-[length:var(--text-subhead)] leading-tight text-foreground transition-[background-color,box-shadow]',
+              'min-h-12 min-w-fit flex-[1_1_0%] rounded-lg px-1.5 py-1 text-[length:var(--text-subhead)] leading-tight text-foreground transition-[background-color,box-shadow]',
               selected ? 'bg-segment-thumb font-semibold shadow-[0_3px_8px_rgb(0_0_0/0.12),0_3px_1px_rgb(0_0_0/0.04)]' : 'font-medium',
             )}
           >
@@ -223,7 +224,8 @@ export function ChoiceChips<T extends string>({ legend, options, value, onChange
               aria-pressed={selected}
               onClick={() => onChange(selected ? undefined : option.id)}
               className={cn(
-                'press-feedback min-h-11 rounded-full px-4 text-[length:var(--text-subhead)] font-medium ring-1',
+                // 48 px tall at the least, in rem so it grows with the text size (journey §20.4 rule 1).
+                'press-feedback min-h-12 rounded-full px-4 text-[length:var(--text-subhead)] font-medium ring-1',
                 selected ? 'bg-tint text-on-tint ring-tint' : 'bg-grouped-card text-foreground ring-separator',
               )}
             >

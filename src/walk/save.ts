@@ -12,10 +12,13 @@ import { isoAt } from './time';
 
 export function walkSave(walk: Walk, extra: { route?: readonly RouteLine[]; energy?: WalkInput } = {}): SaveWalkInput {
   const first = walk.segments[0];
-  const route = walk.plan.keepRoute && extra.route ? routeRecord(walk.id, isoAt(first.start, first.offsetMin), extra.route) : undefined;
+  const startedAt = isoAt(first.start, first.offsetMin);
+  const route = walk.plan.keepRoute && extra.route ? routeRecord(walk.id, startedAt, extra.route) : undefined;
   return {
     walkId: walk.id,
     observations: [...walkObservations(walk), ...(extra.energy ? [extra.energy] : [])],
     ...(route ? { route } : {}),
+    // Without the lines in hand, the save reads them from the journal in its own transaction (H6-06).
+    ...(walk.plan.keepRoute && !route ? { routeStartedAt: startedAt } : {}),
   };
 }

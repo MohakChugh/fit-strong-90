@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { JournalEntry } from './journal';
 
-const stored = vi.hoisted(() => ({ rows: [] as JournalEntry[], puts: [] as JournalEntry[] }));
+const stored = vi.hoisted(() => ({ rows: [] as JournalEntry[], puts: [] as JournalEntry[], unreadable: false }));
 vi.mock('@/store/useStore', () => ({
   putWalkJournal: async (e: JournalEntry) => { stored.puts.push(e); return { ok: true, value: undefined }; },
-  readWalkJournals: async () => ({ ok: true, value: stored.rows }),
+  readWalkJournals: async () => (stored.unreadable ? { ok: false, failure: new Error('unreadable') } : { ok: true, value: stored.rows }),
 }));
 
 const { cachedJournal, forgetCachedRoutes, journalPort } = await import('./journalPort');
@@ -33,5 +33,12 @@ describe('the browser’s walk journal (journey §9.4, B-05)', () => {
     expect(cachedJournal('walk-dddd')).toBeDefined();
     expect(cachedJournal('walk-dddd')?.route).toBeUndefined();
     expect(cachedJournal('walk-aaaa')?.route).toBeUndefined();
+  });
+
+  it('says a journal it can’t read can’t be read, never that it holds nothing (H6-06)', async () => {
+    stored.unreadable = true;
+    await expect(journalPort().read('walk-eeee')).rejects.toThrow('unreadable');
+    stored.unreadable = false;
+    expect(await journalPort().read('walk-eeee')).toBeUndefined();
   });
 });

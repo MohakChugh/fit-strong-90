@@ -45,15 +45,22 @@ export function storageLine(usage: number | undefined): string {
   return usage === undefined || !Number.isFinite(usage) || usage < 0 ? 'Not known in this browser' : `About ${fileSize(usage)}`;
 }
 
-export type CheckOutcome = 'latest' | 'other' | 'undated' | 'damaged';
+export type CheckOutcome = 'latest' | 'other' | 'undated' | 'damaged' | 'incomplete' | 'unverifiable';
 
-/** A file read back: whole and the last backup's own snapshot, or why it isn't (B-25). */
+/**
+ * A file read back: whole and the last backup's own snapshot, or why it isn't
+ * (B-25). Whole means every record readable and all of what its manifest says
+ * it held still there (H4-02): a file that keeps the latest date and lost a
+ * collection is not checked.
+ */
 export function checkOutcome(
-  preview: Pick<ImportPreview, 'exportedAt' | 'rejected' | 'unreadableObservations' | 'unreadableFields'>,
+  preview: Pick<ImportPreview, 'exportedAt' | 'rejected' | 'unreadableObservations' | 'unreadableFields' | 'complete'>,
   latest: string | undefined,
 ): CheckOutcome {
   const rejected = Object.values(preview.rejected ?? {}).reduce((n, k) => n + (k ?? 0), 0);
   if (rejected + preview.unreadableObservations + (preview.unreadableFields?.length ?? 0) > 0) return 'damaged';
+  if (preview.complete === 'partial') return 'incomplete';
+  if (preview.complete !== 'whole') return 'unverifiable';
   if (!preview.exportedAt) return 'undated';
   return preview.exportedAt === latest ? 'latest' : 'other';
 }
@@ -74,6 +81,8 @@ export function checkedLine(outcome: CheckOutcome, made: string | undefined, lat
   switch (outcome) {
     case 'latest': return `Checked. This is your latest backup, made ${shortDate(made ?? '')}, and it reads back whole.`;
     case 'damaged': return 'Parts of this file can’t be read, so it isn’t a whole backup. Make a new one.';
+    case 'incomplete': return 'Parts of your record that this backup held are missing from the file, so it isn’t a whole backup. Make a new one.';
+    case 'unverifiable': return 'This file doesn’t say what it held, so the app can’t tell whether it’s whole. Make a new backup, then check that one.';
     case 'undated': return 'This file reads back, but it doesn’t say when it was made, so it can’t be matched to your latest backup.';
     case 'other': return latest
       ? `This file reads back, but it isn’t your latest backup: it was made ${madeOn(made ?? '', latest, hour12)}, and your latest is from ${madeOn(latest, made ?? '', hour12)}.`

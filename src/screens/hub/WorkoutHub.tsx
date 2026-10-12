@@ -6,7 +6,8 @@ import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
 import { defaultStartLabel } from '@/components/checkin/copy';
 import { HREF, resumeHref, savedRun } from '@/health/recommend';
-import { loadProgress, minutesLeft, type SavedProgress } from '@/session/persistence';
+import { carriedOn } from '@/session/carryOn';
+import { loadProgress, type SavedProgress } from '@/session/persistence';
 import { workoutNormal } from '@/screens/home/tileLine';
 import { programmeWeek, weekView } from '@/screens/move/plan';
 import { weekMovement } from '@/screens/today/model';
@@ -55,7 +56,8 @@ export default function WorkoutHub() {
     ...(g.recommendation.action.mode === 'guided' && g.recommendation.reason ? { reason: g.recommendation.reason } : {}),
     gaps: g.gaps, stretchOpen: g.stretchOpen,
     ...(rest ? { rest } : {}),
-    ...(saved ? { saved: { minutesLeft: minutesLeft(saved), label: saved.plan.label } } : {}),
+    // What is left as the player will run it, held to today from where it stopped (codex H2-02).
+    ...(saved ? { saved: { minutesLeft: leftOf(saved, guided, now), label: saved.plan.label } } : {}),
   });
   const ctx = { mode: 'guided' as const, href: HREF.guided, startLabel: defaultStartLabel('guided', recovery), recovery, ...(saved ? { resumeHref: resumeHref(saved) } : {}) };
   const act = (kind: HubActionKind) => runAction(actionTarget(kind, ctx), {
@@ -105,4 +107,10 @@ export default function WorkoutHub() {
       <GoalSheet open={goalOpen} onOpenChange={setGoalOpen} goal={state.settings.weeklyMovementGoalMinutes} />
     </HubFrame>
   );
+}
+
+/** Minutes left of a saved session as carrying it on would run it now (`carriedOn`). */
+function leftOf(saved: SavedProgress, guided: ReturnType<typeof useHubGate>['guided'], now: Date): number {
+  const { data, checkIns, checkIn, profile, date, plan: todayPlan } = guided;
+  return carriedOn(saved, { data, checkIns, checkIn, profile, date, todayPlan }, { profile, ...(checkIn ? { checkIn } : {}), now, recent: checkIns }).minutesLeft;
 }

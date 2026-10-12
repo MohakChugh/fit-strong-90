@@ -414,3 +414,28 @@ describe('dailyTimes, with an open foot wound (content re-check R03)', () => {
     expect(stillDue(first, at(D, '09:31'), context(habits, { profile: wound }))).toBe(false);
   });
 });
+
+describe('the food prompt among the reminders (journey §7.4, §11.5; board D103)', () => {
+  const eating = createDefaultProfile({ weightKg: 80, food: { pattern: 'vegetarian', avoid: [], level: 'estimates', logReminder: { meal: 'lunch', at: '14:30' } } });
+  const food = (over: Partial<ReminderContext> = {}) => context({ water: WATER }, { profile: eating, ...over });
+  it('shows in the app at its time, and never in a calendar file', () => {
+    expect(occurrencesOn(D, food()).filter(o => o.habit === 'foodLog')).toEqual([{ habit: 'foodLog', meal: 'lunch', minute: 870, day: D, id: `foodLog:lunch@${D}T14:30` }]);
+    expect(dailyTimes({ water: WATER }, eating).some(t => (t.habit as string) === 'foodLog')).toBe(false);
+  });
+  it('doesn’t show once that meal is logged, in quiet hours, or on a day that isn’t Normal', () => {
+    const lunchLogged = food({ mealLogged: (day, meal) => day === D && meal === 'lunch' });
+    expect(occurrencesOn(D, lunchLogged).some(o => o.habit === 'foodLog')).toBe(false);
+    expect(occurrencesOn(NEXT, lunchLogged).some(o => o.habit === 'foodLog')).toBe(true);
+    expect(occurrencesOn(D, context({ water: WATER, quietHours: { from: '14:00', to: '15:00' } }, { profile: eating })).some(o => o.habit === 'foodLog')).toBe(false);
+    expect(occurrencesOn(D, food({ status: 'flare' }))).toEqual([]);
+  });
+  it('goes the moment the meal is logged, if it is already waiting', () => {
+    const [prompt] = occurrencesOn(D, food()).filter(o => o.habit === 'foodLog');
+    expect(stillDue(prompt, at(D, '14:40'), food())).toBe(true);
+    expect(stillDue(prompt, at(D, '14:40'), food({ mealLogged: () => true }))).toBe(false);
+  });
+  it('is the next reminder the host waits for, and comes due when its time comes', () => {
+    expect(nextAfter(at(D, '13:30'), food())).toMatchObject({ habit: 'foodLog', minute: 870 });
+    expect(dueBetween(at(D, '14:00'), at(D, '14:45'), food()).map(o => o.habit)).toEqual(['foodLog']);
+  });
+});

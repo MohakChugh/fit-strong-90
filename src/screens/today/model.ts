@@ -146,7 +146,9 @@ export function planRow(input: {
 export type Prompt =
   | { kind: 'due'; item: DueItem }
   | { kind: 'reminder'; item: Pending }
-  | { kind: 'water'; totalMl?: number; goalMl?: number; glassMl: number };
+  | { kind: 'water'; totalMl?: number; goalMl?: number; glassMl: number }
+  /** "Your week in brief": last week's, from Monday 04:00 until it's opened (journey §12.6, B-20). */
+  | { kind: 'weekBrief'; week: string };
 
 /** `HH:MM` as minutes after midnight, or undefined for anything else. */
 function minuteOf(clock: string | undefined): number | undefined {
@@ -167,7 +169,8 @@ export function within(now: Date, from: string | undefined, to: string | undefin
  * At most one prompt (codex-vision §4), in this order: the most relevant due
  * item, which is guidance with its source; then the newest reminder still
  * waiting, which is a habit the person asked for and stays here once its
- * banner has stepped out of view; then their water habit. Away or unwell,
+ * banner has stepped out of view; then their water habit, then last week's
+ * brief. Away or unwell,
  * nothing is asked of them; during a flare-up a due test still shows, but
  * habit prompts go quiet (D25). Under an emergency or a "get advice today"
  * nothing else asks for attention, and beside a hold or a re-check no habit
@@ -188,6 +191,8 @@ export function pickPrompt(input: {
   waterBlocked: boolean;
   /** Reminders shown and not yet answered, newest first (`usePending`). */
   waiting: readonly Pending[];
+  /** Last week's brief, when `weekBriefFor` offers one. It ranks last of all (L-18). */
+  weekBrief?: { week: string };
 }): Prompt | undefined {
   const { now, day, status, settings } = input;
   if (input.stopped || status === 'away' || status === 'unwell') return undefined;
@@ -210,10 +215,12 @@ export function pickPrompt(input: {
 
   const habits = settings.habits;
   const water = habits?.water;
-  const firstOrNothing = first ? { kind: 'due' as const, item: first } : undefined;
+  // Last of all: a first result never entered, then Your week in brief (§12.6, L-18). Neither shows when quiet.
+  const brief = input.weekBrief ? { kind: 'weekBrief' as const, week: input.weekBrief.week } : undefined;
+  const last = first ? { kind: 'due' as const, item: first } : brief;
   // Turning in-app reminders off (to rely on Calendar) quiets this too.
-  if (!water?.enabled || habits?.inApp === false || input.waterBlocked || !within(now, water.from, water.to)) return firstOrNothing;
-  if (habits?.quietHours && within(now, habits.quietHours.from, habits.quietHours.to)) return firstOrNothing;
+  if (!water?.enabled || habits?.inApp === false || input.waterBlocked || !within(now, water.from, water.to)) return last;
+  if (habits?.quietHours && within(now, habits.quietHours.from, habits.quietHours.to)) return last;
   const total = entryFor(summariseDay(day, [...input.observations]), 'water', 'dayTotal')?.total;
   return {
     kind: 'water',

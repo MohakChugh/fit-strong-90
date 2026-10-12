@@ -1,0 +1,51 @@
+/**
+ * What we expect each dish's standard portion to come to, worked out by hand
+ * from typical FDC SR Legacy values when the recipes were written (board
+ * D97). This is the recipes' review: data.node.test.ts fails any dish more
+ * than 20% (or 5 kcal, or 1 g) away, which is how a wrong FDC record (raw for
+ * cooked, say) is caught. A new recipe gets its line here too.
+ */
+export const EXPECTED: Readonly<Record<string, { kcal: number; carbsG: number }>> = {
+  roti: { kcal: 102, carbsG: 21.6 },
+  paratha: { kcal: 180, carbsG: 28.8 },
+  'aloo-paratha': { kcal: 226, carbsG: 39.3 },
+  'jowar-roti': { kcal: 144, carbsG: 30.4 },
+  rice: { kcal: 195, carbsG: 42.3 },
+  idli: { kcal: 115, carbsG: 23.9 },
+  'plain-dosa': { kcal: 188, carbsG: 29.9 },
+  poha: { kcal: 255, carbsG: 37.4 },
+  upma: { kcal: 214, carbsG: 34.7 },
+  'vegetable-dalia': { kcal: 183, carbsG: 33 },
+  'moong-dal-chilla': { kcal: 165, carbsG: 23.6 },
+  'moong-dal-khichdi': { kcal: 178, carbsG: 30.9 },
+  'toor-dal': { kcal: 142, carbsG: 19.6 },
+  'moong-dal': { kcal: 133, carbsG: 19.4 },
+  sambar: { kcal: 121, carbsG: 18.7 },
+  rajma: { kcal: 150, carbsG: 21.5 },
+  'chana-masala': { kcal: 162, carbsG: 22 },
+  'mixed-veg-sabzi': { kcal: 83, carbsG: 7.8 },
+  'bhindi-sabzi': { kcal: 81, carbsG: 8.3 },
+  'aloo-gobhi': { kcal: 97, carbsG: 11.7 },
+  'palak-paneer': { kcal: 196, carbsG: 6.8 },
+  'paneer-bhurji': { kcal: 253, carbsG: 4.1 },
+  poriyal: { kcal: 93, carbsG: 8.4 },
+  'cucumber-tomato-salad': { kcal: 17, carbsG: 4 },
+  dahi: { kcal: 61, carbsG: 4.7 },
+  raita: { kcal: 52, carbsG: 4.5 },
+  'coconut-chutney': { kcal: 81, carbsG: 5.4 },
+  'mint-chutney': { kcal: 7, carbsG: 1.4 },
+  'egg-bhurji': { kcal: 189, carbsG: 3.1 },
+  'boiled-egg': { kcal: 78, carbsG: 0.6 },
+  'egg-curry': { kcal: 213, carbsG: 4.2 },
+  'fish-curry': { kcal: 155, carbsG: 2.2 },
+  'chicken-curry': { kcal: 183, carbsG: 3.7 },
+  'chicken-stew': { kcal: 233, carbsG: 9 },
+  'roasted-chana': { kcal: 113, carbsG: 18.9 },
+  'sprouts-chaat': { kcal: 20, carbsG: 4.3 },
+  'roasted-peanuts': { kcal: 176, carbsG: 6.5 },
+  chaas: { kcal: 37, carbsG: 2.8 },
+  chai: { kcal: 51, carbsG: 7.7 },
+  milk: { kcal: 122, carbsG: 9.6 },
+  banana: { kcal: 89, carbsG: 22.8 },
+  guava: { kcal: 68, carbsG: 14.3 },
+};

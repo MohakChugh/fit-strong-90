@@ -16,13 +16,14 @@ export function restoreLocked(stage: { kind: string }): boolean {
 
 /**
  * What a restore with Replace would delete here, in words, or nothing when it
- * deletes nothing (journey §20.4.6): the records, and the profile and
- * settings, or setup's answers so far. Anything it names is asked twice
- * (H5-25, K5-06). The unit, set before any answer, is not an answer.
+ * deletes nothing (journey §20.4.6): the records, kept walk routes included
+ * (Plan 6), and the profile and settings, or setup's answers so far. Anything
+ * it names is asked twice (H5-25, K5-06). The unit, set before any answer, is
+ * not an answer.
  */
 export function replaceErases(state: RecordState & { profile?: UserProfile; settings: UserSettings }): string | undefined {
   const counts = recordCounts(state);
-  const held = counts.readings + counts.sessions + counts.checkIns + counts.bodyMetrics + counts.personalRecords;
+  const held = counts.readings + counts.sessions + counts.checkIns + counts.bodyMetrics + counts.personalRecords + (counts.routes ?? 0);
   const setup = setupStateOf(state.settings, state.profile);
   // A number typed and not yet an answer is one too (H5R-17).
   const given = Object.entries(answersOf(setup)).some(([k, v]) => k !== 'metric' && k !== 'skippedPages' && v !== undefined)

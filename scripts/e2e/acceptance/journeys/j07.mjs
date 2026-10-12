@@ -93,7 +93,8 @@ async function setStepsGoal(t, control, value) {
 // ---------------------------------------------------------------- goals and rest
 
 async function goalsAndRest(t) {
-  const page = await t.open({ seed: persona('P01'), route: '/home' });
+  // Its timed walk counts its minutes on the monotonic clock, run with the frozen wall clock (H6-09).
+  const page = await t.open({ seed: persona('P01'), route: '/home', sensors: { monotonic: 'wall' } });
   const main = page.getByRole('main');
 
   await t.step(1, 'Open Track before choosing a goal; open Weekly movement goal', async () => {

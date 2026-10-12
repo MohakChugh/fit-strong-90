@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
@@ -8,7 +8,8 @@ import {
 } from '@/engine/stretch';
 import { resumeHref, savedRun } from '@/health/recommend';
 import { shiftDay } from '@/health/status';
-import { loadProgress, minutesLeft, type SavedProgress } from '@/session/persistence';
+import { carriedOn } from '@/session/carryOn';
+import { loadProgress, type SavedProgress } from '@/session/persistence';
 import { ChoiceRows, Segmented, Wrap } from '@/screens/move/controls';
 import { clock, kitLine, previewRows, talkSeconds, todayLine } from '@/screens/move/preview';
 import { weekMovement } from '@/screens/today/model';
@@ -20,11 +21,13 @@ import { HistoryList } from './HistoryList';
 import { HubFrame, HubSection, SeeTrends } from './HubFrame';
 import { useHubGate, useHubOrigin } from './hooks';
 import { MovementCard } from './MovementCard';
-import { actionTarget, movementCard, resumeAllowed, runAction, stretchReason, type HubActionKind } from './movement';
+import { actionTarget, movementCard, offersRoutines, resumeAllowed, runAction, stretchReason, type HubActionKind } from './movement';
 import { goalLine, modeWeek, movementHistory } from './week';
 import { WeekStrip } from './WeekStrip';
 
 const REFUSED = new Set(['held', 'stopped', 'gap']);
+/** The area choices, which "Choose another routine" brings into view. */
+const AREA_ID = 'stretch-area';
 const routineTitle = (s: StretchSpec) => `${STRETCH_FOCUS_LABEL[s.focus]} · ${s.minutes} min`;
 
 /**
@@ -52,10 +55,9 @@ export default function StretchHub() {
   const runs = [loadProgress(now.getTime(), 'stretch')].filter((p): p is SavedProgress => p !== null);
   const savedToday = savedRun(runs, today, 'today');
   const saved = savedToday && resumeAllowed(status, 'stretch') ? savedToday : undefined;
-  // A saved run, read once, before the routine is built from it: its routine, what is left and where it picks up.
-  const resume = saved
-    ? { spec: saved.plan.stretch ?? specFromPlanId(saved.plan.id), minutesLeft: minutesLeft(saved), label: saved.plan.label, href: resumeHref(saved) }
-    : undefined;
+  // A saved run, read once, before the routine is built from it: its routine, where it picks up, and what is
+  // left as the player will run it, held to today from where it stopped (codex H2-02, B-30).
+  const resume = saved ? resumeOf(saved, guided, now) : undefined;
   const { focus, minutes } = resume?.spec ?? readStretchSpec(params, lastStretch(state.sessions));
   const spec: StretchSpec = { focus, minutes };
   // The effective check-ins, as the player builds from, so "In this routine" never lists what won't run.
@@ -75,23 +77,41 @@ export default function StretchHub() {
     ...(line && plan.kind !== 'none' ? { detail: line } : {}),
     ...(reason ? { reason } : {}),
     // The gate allows it, but the builder can't make this routine today: say so, and offer the other routines.
-    ...(plan.kind === 'none' && g.permission.allowed ? { blocked: line ?? 'This routine cannot be put together safely today. Try another area or length.' } : {}),
+    // A saved run is held to its own steps then, as the player holds it (`todayDose`), so it is still carried on.
+    ...(plan.kind === 'none' && g.permission.allowed && !resume ? { blocked: line ?? 'This routine cannot be put together safely today. Try another area or length.' } : {}),
     gaps: g.gaps, stretchOpen: g.stretchOpen,
     ...(resume ? { saved: { minutesLeft: resume.minutesLeft, label: resume.label } } : {}),
   });
   const ctx = { mode: 'stretch' as const, href: stretchHref(spec), startLabel: 'Start stretch', ...(resume ? { resumeHref: resume.href } : {}) };
+  // "Choose another routine": the area choices, in view and focused on the one chosen.
+  const chooseAnother = () => {
+    const radio = document.getElementById(AREA_ID)?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]');
+    radio?.scrollIntoView({ block: 'center' });
+    radio?.focus();
+  };
   const act = (kind: HubActionKind) => runAction(actionTarget(kind, ctx), {
     start: g.start,
     go: to => navigate(to, { viewTransition: true, state: origin }),
     status: () => setStatusOpen(true),
-    local: () => {},
+    local: chooseAnother,
   });
   // Replace, not push: changing a choice is not a place to go Back to. The page stays where it is.
   const choose = (next: StretchSpec) => setParams({ focus: next.focus, minutes: String(next.minutes) }, { replace: true, preventScrollReset: true });
-  const offering = !REFUSED.has(card.state) && card.state !== 'join';
-  const rows = previewRows(plan);
-  const kit = kitLine(plan);
-  const talk = Math.round(talkSeconds(plan) / 60);
+  // On arrival only, a routine in the address the builder can't make today is let go, so a reload or a link
+  // doesn't keep it; one chosen here stays on screen beside its words, with the choices (kiro KH-01).
+  // Once: the address's own setter changes with the address, and a later choice must stay.
+  const letGo = useRef(chosen && card.state === 'unbuildable');
+  useEffect(() => {
+    if (!letGo.current) return;
+    letGo.current = false;
+    setParams(new URLSearchParams(), { replace: true, preventScrollReset: true });
+  }, [setParams]);
+  const offering = offersRoutines(card.state);
+  // "In this routine" is what will run: while carrying on, what is left of it.
+  const listed = resume ? { ...plan, steps: resume.left } : plan;
+  const rows = previewRows(listed);
+  const kit = kitLine(listed);
+  const talk = Math.round(talkSeconds(listed) / 60);
   const prefs = displayPrefs(state.settings, state.profile, state.observations);
 
   return (
@@ -101,7 +121,7 @@ export default function StretchHub() {
       {offering && rows.length > 0 && (
         <Group
           header="In this routine"
-          footer={[kit, talk > 0 ? `Plus about ${talk} ${talk === 1 ? 'minute' : 'minutes'} of welcome and wrap-up.` : null].filter(Boolean).join(' ')}
+          footer={[resume ? 'What’s left of it, as it runs today.' : null, kit, talk > 0 ? `Plus about ${talk} ${talk === 1 ? 'minute' : 'minutes'} of welcome and wrap-up.` : null].filter(Boolean).join(' ')}
         >
           {/* Names wrap: a movement's name is the one thing in the row that must not be cut short. */}
           {rows.map(r => <Row key={r.id} label={<Wrap>{r.name}</Wrap>} detail={r.dose} value={clock(r.seconds)} numeric />)}
@@ -112,12 +132,14 @@ export default function StretchHub() {
         <HubSection title="Options">
           <div className="flex flex-col gap-4">
             <Group header="Area">
+              <div id={AREA_ID} className="contents">
               <ChoiceRows<StretchFocus>
                 label="Area"
                 options={STRETCH_FOCI.map(f => ({ value: f, label: STRETCH_FOCUS_LABEL[f] }))}
                 value={focus}
                 onChange={f => choose(offeredSpec({ focus: f, minutes }))}
               />
+              </div>
             </Group>
             <section aria-labelledby="stretch-length" className="flex flex-col">
               <h3 id="stretch-length" className="px-4 pb-2 text-[length:var(--text-footnote)] font-medium uppercase tracking-wide text-muted-foreground">Length</h3>
@@ -151,4 +173,12 @@ export default function StretchHub() {
       <StatusSheet open={statusOpen} onOpenChange={setStatusOpen} today={today} periods={state.settings.statusPeriods} startDate={state.settings.startDate} />
     </HubFrame>
   );
+}
+
+/** A saved stretch as carrying it on would run it now: the player's own reconciliation (`carriedOn`). */
+function resumeOf(saved: SavedProgress, guided: ReturnType<typeof useHubGate>['guided'], now: Date) {
+  const spec = saved.plan.stretch ?? specFromPlanId(saved.plan.id);
+  const { data, checkIns, checkIn, profile, date, plan: todayPlan } = guided;
+  const run = carriedOn(saved, { data, checkIns, checkIn, profile, date, todayPlan, spec }, { profile, ...(checkIn ? { checkIn } : {}), now, recent: checkIns });
+  return { spec, minutesLeft: run.minutesLeft, label: saved.plan.label, href: resumeHref(saved), left: run.left };
 }

@@ -40,10 +40,11 @@ export function PlainButton({ className, tone = 'tint', ...props }: ButtonHTMLAt
 }
 
 /**
- * The iOS switch: a 51 × 31 track, accent when on, inside a 51 × 48 control,
- * so the target is a full 48 points tall (§20.4.1; H5-22). The thumb
- * carries no meaning on its own — the switch is announced as on or off with
- * its label.
+ * The iOS switch: a 51 × 31 track, accent when on, inside a control at least
+ * 48 × 48 (journey §20.4 rule 1; H5-22, D159). All of it is in rem, the track,
+ * its inset and the thumb's travel too, so it grows with the text size and the
+ * thumb stays inside the track at every size. The thumb carries no meaning on
+ * its own — the switch is announced as on or off with its label.
  */
 export function Toggle({ checked, onChange, label, disabled }: {
   checked: boolean;
@@ -58,20 +59,20 @@ export function Toggle({ checked, onChange, label, disabled }: {
       onCheckedChange={next => onChange(next)}
       disabled={disabled}
       aria-label={label}
-      className="group/toggle relative inline-flex h-12 w-[51px] shrink-0 items-center outline-none"
+      className="group/toggle relative inline-flex min-h-12 min-w-12 shrink-0 items-center outline-none"
     >
-      {/* The visible track, centred in the 48-point control. */}
+      {/* The visible track, 51 × 31 at 100% text, centred in the control's height. */}
       <span
         aria-hidden
         className={cn(
-          'flex h-[31px] w-full items-center rounded-full p-0.5 transition-colors duration-200',
+          'flex h-[1.9375rem] w-[3.1875rem] items-center rounded-full p-0.5 transition-colors duration-200',
           'bg-separator group-data-[checked]/toggle:bg-tint group-data-[disabled]/toggle:opacity-40',
           'group-focus-visible/toggle:ring-3 group-focus-visible/toggle:ring-tint/40',
         )}
       >
         <SwitchPrimitive.Thumb
           className={cn(
-            'block size-[27px] rounded-full bg-white shadow-sm transition-transform duration-200',
+            'block size-[1.6875rem] rounded-full bg-white shadow-sm transition-transform duration-200',
             'data-[checked]:translate-x-5 data-[unchecked]:translate-x-0',
           )}
         />

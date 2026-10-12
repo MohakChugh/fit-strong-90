@@ -38,7 +38,7 @@ export interface Source {
   /** Who the document is written for. */
   population: string;
   accessed: IsoDate;
-  kind: 'guideline' | 'factsheet' | 'study' | 'label';
+  kind: 'guideline' | 'factsheet' | 'study' | 'label' | 'dataset';
   /** Attribution the licence asks for, shown with the source. */
   licence?: string;
   /**

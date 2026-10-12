@@ -6,8 +6,8 @@
  * (`useStartMovement`). Worked out again at each time boundary, as Home is,
  * so the words never go stale (L-07, B-20).
  */
-import { useMemo } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { useStartMovement } from '@/components/checkin/useStartMovement';
 import { profileGaps } from '@/engine/health';
@@ -60,4 +60,33 @@ export function useHubGate(mode: Mode) {
 export function useHubOrigin(label: string): { path: string; label: string; search?: string } {
   const { pathname, search } = useLocation();
   return { path: pathname, label, ...(search ? { search } : {}) };
+}
+
+/**
+ * A link's `?add=` opens the hub's own form (D55): on arrival, and whenever a
+ * new link reaches the hub while it is already open, as from its own
+ * reminder or a Learn card (codex H2-06). Then the address lets it go.
+ * `accepts` keeps refusing another metric's form.
+ */
+export function useAddLink(accepts: (add: string | null) => boolean): [boolean, (open: boolean) => void] {
+  const [params, setParams] = useSearchParams();
+  const add = params.get('add');
+  const [open, setOpen] = useState(() => accepts(add));
+  // The address lets each link go once handled, so a link there now is a new one, the same link again included:
+  // its form opens in that render, as on arrival. (An address's own key can't tell: a hash typed or set by
+  // another page arrives with none.)
+  const [handled, setHandled] = useState(add);
+  if (add !== handled) {
+    setHandled(add);
+    if (add !== null && accepts(add)) setOpen(true);
+  }
+  useEffect(() => {
+    if (!params.has('add')) return;
+    setParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('add');
+      return next;
+    }, { replace: true });
+  }, [params, setParams]);
+  return [open, setOpen];
 }

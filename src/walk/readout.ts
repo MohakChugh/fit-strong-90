@@ -9,7 +9,7 @@
 import { format } from 'date-fns';
 import { PERMISSION_TEXT, type Permission } from '@/engine/permission';
 import type { CheckInRecord } from '@/types/checkin';
-import { RECHECK_MINUTES, toMgdl, TREAT } from '@/engine/readiness';
+import { RECHECK_MINUTES, STOP_UNANSWERED, toMgdl, TREAT } from '@/engine/readiness';
 import { toDateString } from '@/lib/utils';
 import type { GapCause, Walk, WalkPlan } from './clock';
 import { clock, count, km, pace, span, timeOfDay, wholeMinutes } from './format';
@@ -60,13 +60,6 @@ export function draftWarning(kept: boolean, where: 'live' | 'summary'): string |
 }
 
 /** Shown only while recording, when the screen may go dark and stop it. */
-/** On a held walk after a change to the phone's clock (B-19). */
-export function clockLine(walk: Pick<Walk, 'clockChangedAt'>): string | undefined {
-  return walk.clockChangedAt === undefined
-    ? undefined
-    : 'Your phone’s clock changed during this walk, so a reading from before the change can’t be timed. Check your glucose again to carry on.';
-}
-
 export function wakeHint(snapshot: Pick<LiveSnapshot, 'wake' | 'walk' | 'blocked'>): string | undefined {
   return snapshot.wake === 'unavailable' && snapshot.walk.status === 'running' && !snapshot.blocked
     ? 'Keep this screen on to keep tracking.'
@@ -208,6 +201,14 @@ export function splitRows(splits: readonly Split[]): SummaryRow[] {
   return splits.map(s => ({ label: `Kilometre ${s.km}`, value: `${pace(s.ms / 1000)} min` }));
 }
 
+/** The summary's route while it is read back after a reload (H6-06). */
+export const ROUTE_LOADING = 'Finding your route…';
+/** When it can't be read just now: it is still in the journal, and the save takes it from there (H6-06). */
+export const ROUTE_UNREADABLE = 'Your route couldn’t be read just now. It’s still kept, and it’s saved with the walk.';
+
+/** After "Erase all routes" (B-05), on a summary that had a route on screen. */
+export const ROUTE_ERASED = 'No route: every route on this phone was erased.';
+
 /** In place of a route (journey §9.5, V-J20). Without the walk's plan, as on a saved walk's detail, the plain line. */
 export function noRouteLine(plan?: Pick<WalkPlan, 'gps' | 'keepRoute'>): string {
   if (!plan) return 'No route kept for this walk.';
@@ -286,19 +287,32 @@ export function endingLine(walk: Walk, time: (t: number) => string = t => timeOf
   return undefined;
 }
 
+/** The hubs' words for a walk the status won't let carry on (H2-01, journey §4.8, A-34). */
+export const STATUS_HOLD = {
+  away: 'A walk isn’t carried on while you’re away.',
+  unwell: 'A walk isn’t carried on while you’re unwell.',
+  flare: 'During a flare-up only a stretch is carried on.',
+  release: 'Change your status to carry on.',
+} as const;
+
 /**
  * What a held walk offers besides its reasons (re-audit N01, N06). Help comes
  * first in an emergency, and never a form in its place. After "I feel low",
- * the reading that can answer it. Held for the health questions, the profile
- * where they are answered. Any other hold — no check-in today, a reading too
- * old to restart on, dizziness until today's answers change — the shared
- * check-in, where today's answers are given and changed.
+ * the reading that can answer it. After "I need to stop" with nothing said
+ * since, the stop's own question, which answers it (journey §4.4). Held by
+ * the status, the status sheet, as the hubs offer it (H2-01). Held for the
+ * health questions, the profile where they are answered. Any other hold — no
+ * check-in today, a reading too old to restart on, dizziness until today's
+ * answers change — the shared check-in, where today's answers are given and
+ * changed.
  */
-export type HeldAction = 'emergency' | 'lowReading' | 'profile' | 'checkIn';
+export type HeldAction = 'emergency' | 'lowReading' | 'stop' | 'status' | 'profile' | 'checkIn';
 
 export function heldAction(refusal: Permission, low: boolean): HeldAction {
   if (refusal.disposition === 'emergency') return 'emergency';
   if (low) return 'lowReading';
+  if (refusal.reasons.includes(STOP_UNANSWERED.reason)) return 'stop';
+  if (refusal.reasons.some(r => r === STATUS_HOLD.away || r === STATUS_HOLD.unwell || r === STATUS_HOLD.flare)) return 'status';
   const profile = refusal.reasons.some(r => r === PERMISSION_TEXT.healthUnreviewed || r === PERMISSION_TEXT.medicinesUnknown);
   return profile ? 'profile' : 'checkIn';
 }

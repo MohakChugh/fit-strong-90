@@ -1,10 +1,10 @@
 /**
- * The food answers setup holds while "How do you eat?" waits (H5R-10,
- * K5R-01; board D192), through the real screens over the real store: meal
- * ideas leave the allergies out, and whatever sets the pattern later takes
- * the allergies, the logging level and the screening answer into the new
- * food record. Only the router, the sheet and the browser's globals are
- * stand-ins.
+ * The food answers setup keeps while "How do you eat?" waits (H5R-10,
+ * K5R-01, H5-20; board D192), through the real screens over the real store:
+ * whatever sets the pattern later takes the allergies, the logging level and
+ * the screening answer into the new food record. How meal ideas read the
+ * waiting allergies meanwhile is Plan 7's (its D205). Only the router, the
+ * sheet and the browser's globals are stand-ins.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
@@ -70,33 +70,7 @@ beforeEach(async () => {
   expect(store.getState().profile?.food).toBeUndefined();
 });
 
-describe('the food answers waiting for an eating pattern (H5R-10, K5R-01; board D192)', () => {
-  it('Meal ideas leave the allergy out before a pattern is chosen, and say so', async () => {
-    const { default: MealIdeasScreen } = await import('./MealIdeasScreen');
-    const host = render(createElement(MealIdeasScreen));
-    await host.settle();
-    expect(host.text()).toContain('Not chosen yet — every meal is shown, without your allergies');
-    expect(host.text()).not.toContain('Vegetable poha');
-    host.unmount();
-  });
-
-  it('a meal opened directly says it has the allergy in it', async () => {
-    const { default: MealDetailScreen } = await import('./MealDetailScreen');
-    const host = render(createElement(MealDetailScreen));
-    await host.settle();
-    expect(host.text()).toContain('Has something you’re allergic to');
-    host.unmount();
-  });
-
-  it('search leaves the allergy out too', async () => {
-    const { contextFromProfile, search } = await import('@/content');
-    const { waitingFood } = await import('@/setup/state');
-    const { settings, profile } = store.getState();
-    const found = (ctx: Parameters<typeof search>[1]) => search('poha', ctx).map(r => r.title);
-    expect(found(contextFromProfile(profile))).toContain('Vegetable poha');
-    expect(found(contextFromProfile(profile, undefined, undefined, waitingFood(settings, profile)))).not.toContain('Vegetable poha');
-  });
-
+describe('the food answers waiting for an eating pattern go into the record that takes one (H5R-10, K5R-01, H5-20; board D192)', () => {
   it('Meal ideas’ own food question makes a record with every waiting answer in it', async () => {
     const { default: MealIdeasScreen } = await import('./MealIdeasScreen');
     const host = render(createElement(MealIdeasScreen));

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Permission } from '@/engine/permission';
 import type { WalkPlan } from './clock';
-import { createStarter, type StartPorts } from './start';
+import { createStarter, type MotionAnswer, type StartPorts } from './start';
 
 const PLAN: WalkPlan = { kind: 'walk', gps: true, steps: true };
 const ALLOWED: Permission = { mode: 'walk', allowed: true, disposition: 'reassure', reasons: [], restrictions: [], codes: [], needsCheckIn: false };
@@ -15,9 +15,16 @@ function ports(over: Partial<StartPorts> = {}) {
     unlockAudio: () => { calls.push('audio'); return Promise.resolve(true); },
     gate: () => { calls.push('gate'); return ALLOWED; },
     go: plan => { calls.push('go'); started.push(plan); },
+    dropAudio: () => { calls.push('drop audio'); },
     ...over,
   };
   return { p, calls, started };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(r => { resolve = r; });
+  return { promise, resolve };
 }
 
 describe('the start sequence (B-01)', () => {
@@ -51,14 +58,35 @@ describe('the start sequence (B-01)', () => {
     expect(started).toEqual([]);
   });
 
-  it('starts once however many times the button is tapped', async () => {
-    const { p, started } = ports();
+  it('starts once however many times the button is tapped while it is starting', async () => {
+    const motion = deferred<MotionAnswer>();
+    const { p, started } = ports({ requestMotion: () => motion.promise });
     const starter = createStarter(p);
     const first = starter.tap(PLAN, { voice: false });
     expect(await starter.tap(PLAN, { voice: false })).toEqual({ kind: 'busy' });
-    await first;
     expect(await starter.tap(PLAN, { voice: false })).toEqual({ kind: 'busy' });
+    motion.resolve('granted');
+    expect((await first).kind).toBe('started');
     expect(started).toHaveLength(1);
+  });
+
+  it('answers the next tap once a start has gone, so Start is never dead after one that came back (KH-14)', async () => {
+    const { p, started } = ports();
+    const starter = createStarter(p);
+    await starter.tap(PLAN, { voice: false });
+    expect((await starter.tap(PLAN, { voice: false })).kind).toBe('started');
+    expect(started).toHaveLength(2);
+  });
+
+  it('answers the next tap after a start whose navigation threw (KH-14)', async () => {
+    let blocked = true;
+    const gone: WalkPlan[] = [];
+    const { p } = ports({ go: plan => { if (blocked) throw new Error('blocked'); gone.push(plan); } });
+    const starter = createStarter(p);
+    await expect(starter.tap(PLAN, { voice: false })).rejects.toThrow('blocked');
+    blocked = false;
+    expect((await starter.tap(PLAN, { voice: false })).kind).toBe('started');
+    expect(gone).toEqual([PLAN]);
   });
 
   it('can be tried again after a refusal', async () => {
@@ -80,5 +108,42 @@ describe('the start sequence (B-01)', () => {
   it('still starts when the audio can’t be unlocked: cues are optional', async () => {
     const { p } = ports({ unlockAudio: () => Promise.reject(new Error('NotAllowedError')) });
     expect((await createStarter(p).tap(PLAN, { voice: true })).kind).toBe('started');
+  });
+});
+
+describe('a start given up while its answers are pending (H6-08)', () => {
+  it('never asks the gate or navigates, whenever the answers arrive', async () => {
+    const motion = deferred<MotionAnswer>();
+    const { p, calls, started } = ports({ requestMotion: () => { calls.push('motion'); return motion.promise; } });
+    const starter = createStarter(p);
+    const attempt = starter.tap(PLAN, { voice: true });
+    starter.cancel();
+    motion.resolve('granted');
+    expect(await attempt).toEqual({ kind: 'cancelled' });
+    expect(calls).toEqual(['motion', 'audio', 'drop audio']);
+    expect(started).toEqual([]);
+  });
+
+  it('drops audio only for an attempt in flight: with nothing starting, Close stops nothing', async () => {
+    const { p, calls } = ports();
+    const starter = createStarter(p);
+    starter.cancel();
+    await starter.tap(PLAN, { voice: false });
+    starter.cancel();
+    expect(calls).toEqual(['motion', 'gate', 'go']);
+  });
+
+  it('lets the next tap start at once, and the given-up attempt’s answers decide nothing', async () => {
+    const first = deferred<MotionAnswer>();
+    const answers = [first.promise, Promise.resolve<MotionAnswer>('granted')];
+    const { p, started } = ports({ requestMotion: () => answers.shift()! });
+    const starter = createStarter(p);
+    const given = starter.tap(PLAN, { voice: false });
+    starter.cancel();
+    expect((await starter.tap(PLAN, { voice: false })).kind).toBe('started');
+    first.resolve('denied');
+    expect(await given).toEqual({ kind: 'cancelled' });
+    // The second attempt's own answer: steps kept, the first one's "denied" ignored.
+    expect(started).toEqual([PLAN]);
   });
 });

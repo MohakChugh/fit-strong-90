@@ -4,6 +4,7 @@ import { LibraryIcon, SearchIcon, UtensilsIcon, XIcon } from 'lucide-react';
 import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
 import { DISCLAIMER, search, topicsFor, type ResultKind, type SearchResult } from '@/content';
+import { FOOD_COPY } from '@/food/copy';
 import { HubFrame } from '@/screens/hub/HubFrame';
 import { onlyPartial, partialDetail } from './format';
 import { TOPIC_ICON } from './icons';
@@ -17,7 +18,7 @@ const KIND_HEADER: Record<ResultKind, string> = { topic: 'Topics', card: 'Answer
  * answer that put it there.
  */
 export default function GuideScreen() {
-  const { ctx } = useGuide();
+  const { ctx, filter } = useGuide();
   const [params, setParams] = useSearchParams();
   // The field owns what is typed; the address keeps it, so Back from a result
   // and a reload both return to the same search.
@@ -73,7 +74,7 @@ export default function GuideScreen() {
       </form>
 
       {results ? (
-        <Results query={query} results={results} />
+        <Results query={query} results={results} allergiesKnown={filter !== undefined} />
       ) : (
         <>
           {forYou.length > 0 && (
@@ -127,18 +128,21 @@ function TopicRow({ id, title, detail }: { id: keyof typeof TOPIC_ICON; title: s
   );
 }
 
-function Results({ query, results }: { query: string; results: SearchResult[] }) {
+function Results({ query, results, allergiesKnown }: { query: string; results: SearchResult[]; allergiesKnown: boolean }) {
   const groups = (['topic', 'card', 'meal'] as const)
     .map(kind => ({ kind, items: results.filter(r => r.kind === kind) }))
     .filter(g => g.items.length > 0);
   // Nothing matches every word: say so, and say what each result does match,
   // rather than passing a partial match off as the answer (Codex content audit F22).
   const partial = onlyPartial(results);
+  // What's shown is what's said: meal ideas held back until allergies are known aren't counted, and are named (H7F-06).
+  const withheld = !allergiesKnown && results.some(r => r.kind === 'meal');
+  const shown = withheld ? results.filter(r => r.kind !== 'meal').length : results.length;
 
   return (
     <>
       <p aria-live="polite" className="sr-only">
-        {results.length === 0 ? 'No results' : `${results.length} ${results.length === 1 ? 'result' : 'results'}`}
+        {`${shown === 0 ? 'No results' : `${shown} ${shown === 1 ? 'result' : 'results'}`}${withheld ? `. ${FOOD_COPY.mealsWithheld}` : ''}`}
       </p>
       {results.length === 0 ? (
         <div className="px-4 py-6 text-center">
@@ -156,7 +160,10 @@ function Results({ query, results }: { query: string; results: SearchResult[] })
           )}
           {groups.map(({ kind, items }) => (
             <Group key={kind} header={KIND_HEADER[kind]}>
-              {items.map(r => (
+              {/* Not known is never none: meal ideas ask about allergies before showing any (board D205). */}
+              {kind === 'meal' && !allergiesKnown ? (
+                <Row as={Link} to="/hub/food/ideas" viewTransition label={FOOD_COPY.allergiesFirst} detail={FOOD_COPY.allergiesFirstDetail} chevron />
+              ) : items.map(r => (
                 <Row
                   key={`${r.kind}-${r.id}`}
                   as={Link}

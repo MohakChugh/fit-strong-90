@@ -7,10 +7,12 @@
 
 import type { Fix } from './gps';
 import { createLiveWalk, type GeoError, type GeoPort, type LivePorts, type LiveWalk, type MotionPort, type VisibilityPort, type WakeLockPort } from './live';
-import { storeGate, watchClinical } from './gate';
+import { deviceClinical, readingIds, storeGate, untimedOf, watchClinical } from './gate';
+import { getState, subscribe } from '@/store/useStore';
 import { createWakeLockPort } from './wakeLock';
 import { sessionWalkStorage } from './persist';
-import { journalPort } from './journalPort';
+import { forgetCachedRoutes, journalPort } from './journalPort';
+import { walkSettings } from './consent';
 
 type MotionPermission = 'granted' | 'denied';
 
@@ -149,8 +151,10 @@ function visibilityPort(): VisibilityPort {
 
 export function browserPorts(): LivePorts {
   return {
-    mayRun: (intent, walk) => storeGate(intent, walk?.clockChangedAt),
+    mayRun: (intent, walk) => storeGate(intent, untimedOf(walk)),
     watchClinical,
+    readingsNow: days => readingIds(deviceClinical(getState()).checkIns, days),
+    keepsRoutes: () => walkSettings(getState().settings).saveRoutes === true,
     now: () => Date.now(),
     monotonic: () => performance.now(),
     later(fn, ms) {
@@ -168,8 +172,30 @@ export function browserPorts(): LivePorts {
 
 let shared: LiveWalk | undefined;
 
-/** The one live walk for this tab, created on first use. */
+/**
+ * The one live walk for this tab, created on first use. B-05: "Erase all
+ * routes", in this tab or another, erases the route of the walk being
+ * recorded here too, and this page's journal copies forget theirs. Only an
+ * erase made after the store was read counts: the one already on record is
+ * no news to a walk begun since.
+ */
 export function liveWalk(): LiveWalk {
-  shared ??= createLiveWalk(browserPorts());
-  return shared;
+  if (shared) return shared;
+  const live = createLiveWalk(browserPorts());
+  shared = live;
+  /** The last erase this tab knows of; `null` until the store has been read. */
+  let erased: number | undefined | null = null;
+  const heard = () => {
+    const state = getState();
+    if (state.status === 'loading') return;
+    const at = state.settings.walk?.routesErasedAt;
+    if (erased === null) { erased = at; return; }
+    if (at === undefined || at === erased) return;
+    erased = at;
+    forgetCachedRoutes();
+    live.forgetRoute();
+  };
+  heard();
+  subscribe(heard);
+  return live;
 }

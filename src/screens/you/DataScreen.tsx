@@ -1,18 +1,22 @@
 import { useEffect, useState } from 'react';
-import { ArchiveRestoreIcon, DownloadIcon, FileCheckIcon, HousePlusIcon, MapIcon, Trash2Icon } from 'lucide-react';
+import { ArchiveRestoreIcon, DownloadIcon, FileCheckIcon, HousePlusIcon, MapIcon, RouteIcon, Trash2Icon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { Sheet } from '@/components/hig/Sheet';
-import { useStore } from '@/store/useStore';
+import { TARGET } from '@/components/hig/targets';
+import { cn } from '@/lib/utils';
+import { eraseRoutes, setSettings, useStore } from '@/store/useStore';
+import { CONSENT, consentSummary, walkSettings } from '@/walk/consent';
 import { BACKUP_EVERY_DAYS, backupMark, backupNudge, recordSpan } from '@/reminders/backup';
 import { InstallSteps } from '@/screens/welcome/InstallSteps';
 import { deviceNoun, installContext, readInstallEnv } from '@/screens/welcome/install';
+import { Notice, PlainButton, Toggle } from './controls';
 import { BackupSheet, DeleteSheet } from './DataSheets';
 import { backupLine, backupState, installStatus, storageLine } from './dataStatus';
 import { RestoreFlow } from './RestoreFlow';
-import { countsSentence, privacyLine, recordCounts } from './summaries';
+import { countsSentence, plural, privacyLine, recordCounts } from './summaries';
 
-type Open = 'backup' | 'delete' | 'install' | undefined;
+type Open = 'backup' | 'delete' | 'install' | 'erase' | undefined;
 
 /**
  * What is stored, how safe it is, and the only two ways the record leaves or
@@ -36,6 +40,22 @@ export function DataScreen() {
   });
 
   const counts = recordCounts(state);
+  // This phone's own walk answers (B-26), and the routes it keeps.
+  const walk = walkSettings(settings);
+  const routes = state.records.routes.length;
+  const [eraseError, setEraseError] = useState<string>();
+  const [erasing, setErasing] = useState(false);
+  const erase = async () => {
+    setErasing(true);
+    const done = await eraseRoutes();
+    setErasing(false);
+    if (done.ok) {
+      setOpen(undefined);
+      setEraseError(undefined);
+    } else {
+      setEraseError(`The routes were not erased. ${done.failure.message}`);
+    }
+  };
   const nudge = backupNudge(now, backupMark(settings.habits), recordSpan(state), state.revision);
   const backup = backupState(settings.habits);
   const install = installStatus(context, device);
@@ -82,9 +102,27 @@ export function DataScreen() {
         />
       </Group>
 
-      {/* Plan 6 replaces this group with the walk and map settings, and "Erase all routes" (journey §16 Data). */}
-      <Group header="Walks and maps">
-        <Row icon={<MapIcon />} label="Routes and map pictures" detail="Not in this version yet. Walks keep no route, so there is nothing to show or delete." />
+      {/* This phone's two walk answers, each changeable here (journey §9.1, §16), and erasing every route (B-05). */}
+      <Group header="Walks and maps" footer="Routes stay on this phone. They go into a backup only when you include them.">
+        <Row
+          icon={<RouteIcon />}
+          label="Keep walk routes"
+          detail={walk.saveRoutes === false ? 'New walks don’t keep their route. Routes already kept stay until you erase them.' : consentSummary(walk).routes}
+          accessory={<Toggle label="Keep walk routes" checked={walk.saveRoutes === true} onChange={on => void setSettings({ walk: { ...walk, saveRoutes: on } })} />}
+        />
+        <Row
+          icon={<MapIcon />}
+          label="Map pictures under routes"
+          detail={walk.map === 'unasked' ? `${consentSummary(walk).map}. ${CONSENT.mapPictures.detail}` : CONSENT.mapPictures.detail}
+          accessory={<Toggle label="Map pictures under routes" checked={walk.map === 'on'} onChange={on => void setSettings({ walk: { ...walk, map: on ? 'on' : 'off' } })} />}
+        />
+        <Row
+          onClick={() => { setEraseError(undefined); setOpen('erase'); }}
+          icon={<Trash2Icon className="text-stop" />}
+          label={<span className="text-stop">Erase all routes</span>}
+          detail={routes > 0 ? `${plural(routes, 'route')} kept. Walks keep their time, distance and steps.` : 'No saved routes. Erasing also clears a walk not yet saved.'}
+          chevron
+        />
       </Group>
 
       <Group footer={`Deletes everything the app holds on this ${device} and starts again. It asks twice.`}>
@@ -93,6 +131,23 @@ export function DataScreen() {
 
       <BackupSheet open={open === 'backup'} onOpenChange={next => setOpen(next ? 'backup' : undefined)} device={device} />
       <DeleteSheet open={open === 'delete'} onOpenChange={next => setOpen(next ? 'delete' : undefined)} device={device} />
+      <Sheet open={open === 'erase'} onOpenChange={next => { if (!erasing) setOpen(next ? 'erase' : undefined); }} dismissible={!erasing} title="Erase all routes?" detent="medium">
+        <p className="px-1 text-[length:var(--text-body)] leading-snug">
+          Every route on this {device} is erased: from saved walks, from a walk not yet saved, and from one you’re on now. The walks keep their time, distance and steps. This cannot be undone.
+        </p>
+        {eraseError && <Notice tone="error">{eraseError}</Notice>}
+        <div className={cn('flex flex-col', TARGET.gap)}>
+          <button
+            type="button"
+            disabled={erasing}
+            onClick={() => void erase()}
+            className={cn('press-feedback w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white disabled:opacity-60', TARGET.primary)}
+          >
+            {erasing ? 'Erasing…' : 'Erase routes'}
+          </button>
+          <PlainButton disabled={erasing} className={TARGET.tap} onClick={() => setOpen(undefined)}>Keep my routes</PlainButton>
+        </div>
+      </Sheet>
       <Sheet open={open === 'install'} onOpenChange={next => setOpen(next ? 'install' : undefined)} title="Add to Home Screen" detent="large">
         <p className="px-1 text-[length:var(--text-body)] leading-snug">
           On the Home Screen the app is kept apart from Safari, which can clear a website’s data after 7 days without a visit. The Home Screen app starts empty, so back up here first and restore the file there.

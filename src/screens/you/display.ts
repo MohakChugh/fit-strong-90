@@ -30,12 +30,40 @@ export function displayChoices(display: UserSettings['display'], system: SystemD
   };
 }
 
+const QUERIES = {
+  reducedMotion: '(prefers-reduced-motion: reduce)',
+  reducedTransparency: '(prefers-reduced-transparency: reduce)',
+  moreContrast: '(prefers-contrast: more)',
+} as const satisfies Record<keyof SystemDisplay, string>;
+
 export function readSystemDisplay(win: Pick<Window, 'matchMedia'> = window): SystemDisplay {
   const asks = (query: string) => typeof win.matchMedia === 'function' && win.matchMedia(query).matches;
+  return { reducedMotion: asks(QUERIES.reducedMotion), reducedTransparency: asks(QUERIES.reducedTransparency), moreContrast: asks(QUERIES.moreContrast) };
+}
+
+/**
+ * The device's display settings as they are now, for `useSyncExternalStore`
+ * (codex H4-07): each of the three media queries' changes, and a fresh read
+ * when the app comes back into view, for a change made while it was away.
+ * The same answer is the same object.
+ */
+export function systemDisplayStore(win: Pick<Window, 'matchMedia'> & { document?: Pick<Document, 'addEventListener' | 'removeEventListener'> } = window) {
+  let last = readSystemDisplay(win);
   return {
-    reducedMotion: asks('(prefers-reduced-motion: reduce)'),
-    reducedTransparency: asks('(prefers-reduced-transparency: reduce)'),
-    moreContrast: asks('(prefers-contrast: more)'),
+    read(): SystemDisplay {
+      const now = readSystemDisplay(win);
+      if ((Object.keys(QUERIES) as (keyof SystemDisplay)[]).some(k => now[k] !== last[k])) last = now;
+      return last;
+    },
+    subscribe(onChange: () => void): () => void {
+      const lists = typeof win.matchMedia === 'function' ? Object.values(QUERIES).map(q => win.matchMedia(q)) : [];
+      for (const list of lists) list.addEventListener('change', onChange);
+      win.document?.addEventListener('visibilitychange', onChange);
+      return () => {
+        for (const list of lists) list.removeEventListener('change', onChange);
+        win.document?.removeEventListener('visibilitychange', onChange);
+      };
+    },
   };
 }
 

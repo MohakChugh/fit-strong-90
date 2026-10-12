@@ -1,6 +1,7 @@
-import { useId, useLayoutEffect, useState, type CSSProperties } from 'react';
+import { useContext, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { Menu } from '@base-ui/react/menu';
 import { MOTION, springLinear } from '@/design/motion';
+import { UrgentContext } from '@/screens/home/urgent';
 import { claimModal } from './modal';
 
 /**
@@ -34,6 +35,11 @@ export interface MenuAction {
  * Close close it, and focus goes back to what opened it, or to the screen's
  * title when that has gone. `describe` reads the target the menu last opened
  * for, so its rows stay put while it closes.
+ *
+ * An urgent decision takes it away at once (journey §4.3, M18; codex H4-01):
+ * no exit animation, so neither the popup nor its full-screen backdrop is
+ * left over the safety surface, dimming it or catching its taps. The caller
+ * keeps its target cleared, and the menu stays closed while it stands.
  */
 export function ActionMenu<T extends MenuAnchor>({ target, describe, onClose, onClosed }: {
   target: T | null;
@@ -44,17 +50,33 @@ export function ActionMenu<T extends MenuAnchor>({ target, describe, onClose, on
   onClosed?: () => void;
 }) {
   const titleId = useId();
+  const urgent = useContext(UrgentContext) !== undefined;
   const [shown, setShown] = useState(target);
-  if (target && target !== shown) setShown(target);
-  const open = target !== null;
+  if (!urgent && target && target !== shown) setShown(target);
+  // Gone at once, not closed: what was shown goes with it.
+  if (urgent && shown) setShown(null);
+  const open = target !== null && !urgent;
   useInertPage(open, shown?.opener);
-  if (!shown) return null;
+  // Open, or still closing. Taken away by an urgent decision, it never finishes closing: what it set off is offered now (B-03).
+  const drawn = useRef(false);
+  useLayoutEffect(() => {
+    if (open) drawn.current = true;
+    if (urgent && drawn.current) {
+      drawn.current = false;
+      onClosed?.();
+    }
+  }, [open, urgent, onClosed]);
+  if (!shown || urgent) return null;
   const { title, note, actions } = describe(shown);
   return (
     <Menu.Root
       open={open}
       onOpenChange={(next, details) => { if (!next) onClose(details.reason === 'item-press' ? 'action' : 'dismiss'); }}
-      onOpenChangeComplete={isOpen => { if (!isOpen) onClosed?.(); }}
+      onOpenChangeComplete={isOpen => {
+        if (isOpen) return;
+        drawn.current = false;
+        onClosed?.();
+      }}
     >
       <Menu.Portal>
         <Menu.Backdrop className="fixed inset-0 z-50 bg-black/40 transition-opacity duration-200 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />

@@ -759,6 +759,20 @@ export const SOURCES: Source[] = [
     accessed: '2026-10-08',
     kind: 'study',
   },
+  {
+    id: 'usda-fdc',
+    organisation: 'U.S. Department of Agriculture, Agricultural Research Service',
+    short: 'USDA FDC',
+    title: 'FoodData Central: SR Legacy',
+    edition: 'SR Legacy, April 2018',
+    url: 'https://fdc.nal.usda.gov/',
+    locator: 'Ingredient records by FDC ID, as each food’s recipe lists them',
+    jurisdiction: 'United States',
+    population: 'Food composition, not people',
+    accessed: '2026-10-11',
+    kind: 'dataset',
+    licence: 'USDA FoodData Central data are public domain, under CC0 1.0 Universal. Credit: U.S. Department of Agriculture, Agricultural Research Service, Beltsville Human Nutrition Research Center. FoodData Central. [Internet]. [cited 2026-10-11]. Available from https://fdc.nal.usda.gov/.',
+  },
 ];
 
 /**
@@ -825,6 +839,7 @@ export const READ_AT: Record<string, { url: string; via?: string }> = {
   'aha-bp-2019': { url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC11409525/', via: 'PubMed Central author manuscript, Tables 5 and 9' },
   'who-waist-2011': { url: 'https://iris.who.int/server/api/core/bitstreams/ca408ade-05c9-4b7c-8967-6ee5b5e0ccd8/content', via: 'Report PDF from WHO IRIS, linked from the publication page, read as text; page numbers are the printed ones' },
   'koes-2007': { url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC1895638/', via: 'PubMed Central full text' },
+  'usda-fdc': { url: 'https://fdc.nal.usda.gov/', via: 'SR Legacy JSON download, values extracted by scripts/food/extract-fdc.ts' },
 };
 
 /**

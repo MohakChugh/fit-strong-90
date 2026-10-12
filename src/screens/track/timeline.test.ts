@@ -303,3 +303,40 @@ describe('a day total that belongs to a walk', () => {
     expect(view.rows[0].ids).toEqual(['d']);
   });
 });
+
+describe('meals in Today’s log (Plan 7)', () => {
+  const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57 } as const;
+  const lunch = { id: 'meal-1', at: '2026-10-08T13:10:00.000+05:30', day, meal: 'lunch', items: [roti], level: 'estimates', loggedAt: '2026-10-08T13:15:00.000+05:30', edits: [] } as const;
+  const meals = [{ ...lunch, items: [...lunch.items], edits: [] }];
+
+  it('lists a meal at its time, opening it to correct', () => {
+    const view = assembleDay(day, { ...empty, meals, numbers: { show: true, ranges: false } }, DEFAULT_PREFS);
+    expect(view.rows.map(r => [r.title, r.detail])).toEqual([['Lunch', '13:10 · Roti ×2 · Estimated 200 kcal']]);
+    expect(view.rows[0].ref).toEqual({ type: 'meal', id: 'meal-1' });
+    expect(recordPath(view.rows[0].ref)).toBe('/hub/food/log?edit=meal-1');
+  });
+  it('shows no figure counts-free, though the meal carries its estimate (B-11, Review Focus 3)', () => {
+    expect(assembleDay(day, { ...empty, meals, numbers: { show: false } }, DEFAULT_PREFS).rows[0].detail).toBe('13:10 · Roti ×2');
+    expect(assembleDay(day, { ...empty, meals }, DEFAULT_PREFS).rows[0].detail).toBe('13:10 · Roti ×2');
+    expect(assembleDay(day, { ...empty, meals }, { ...DEFAULT_PREFS, hour12: true }).rows[0].detail).toBe('1:10 pm · Roti ×2');
+  });
+  it('lists a meal after a reading taken at the same moment, by its meal’s name', () => {
+    const glucose = obs({ id: 'g', at: '2026-10-08T13:10:00.000+05:30' });
+    const dinner = [{ ...meals[0], id: 'meal-2', meal: 'dinner' as const }];
+    expect(assembleDay(day, { ...empty, observations: [glucose], meals: dinner }, DEFAULT_PREFS).rows.map(r => [r.key, r.title])).toEqual([['reading:g', 'Glucose'], ['meal:meal-2', 'Dinner']]);
+  });
+  it('lists a meal corrected past midnight on its new day only (Review Focus 4)', () => {
+    const moved = [{ ...meals[0], at: '2026-10-09T00:20:00.000+05:30', day: '2026-10-09' }];
+    expect(assembleDay(day, { ...empty, meals: moved }, DEFAULT_PREFS).rows).toEqual([]);
+    expect(assembleDay('2026-10-09', { ...empty, meals: moved }, DEFAULT_PREFS).rows.map(r => r.key)).toEqual(['meal:meal-1']);
+  });
+});
+
+describe('an energy estimate whose walk is gone (B-11, board D101)', () => {
+  const energy = obs({ id: 'e', kind: 'activeEnergy', unit: 'kcal', value: 21.4, scope: 'sessionObserved', source: 'measured', context: 'walk:gone', at: '2026-10-08T07:00:00.000+05:30' });
+  it('is listed as a reading, but never counts-free, which shows no energy figure from movement', () => {
+    expect(assembleDay(day, { ...empty, observations: [energy] }, DEFAULT_PREFS).rows.map(r => [r.title, r.value])).toEqual([['Active energy', '21 kcal']]);
+    expect(assembleDay(day, { ...empty, observations: [energy], countsFree: false }, DEFAULT_PREFS).rows).toHaveLength(1);
+    expect(assembleDay(day, { ...empty, observations: [energy], countsFree: true }, DEFAULT_PREFS)).toMatchObject({ rows: [], empty: true });
+  });
+});

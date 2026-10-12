@@ -1,59 +1,77 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { CheckIcon } from 'lucide-react';
 import { Sheet } from '@/components/hig/Sheet';
-import { PATTERN_DETAIL, PATTERN_LABEL, unmatchedAvoid, withPicked, type MealFood, type Pattern, type Region } from '@/content';
-import type { FoodPreferences } from '@/types/profile';
+import { PATTERN_DETAIL, PATTERN_LABEL, unmatchedAvoid, withPicked, type Pattern, type Region } from '@/content';
+import { ALLERGENS, setupAllergyAnswer } from '@/food/allergens';
+import { FOOD_COPY } from '@/food/copy';
+import { getSetupSession } from '@/setup/draft';
+import { waitingFood } from '@/setup/state';
+import { CheckRows } from '@/screens/you/controls';
+import type { AllergenId, FoodPreferences } from '@/types/profile';
 import { cn } from '@/lib/utils';
-import { AVOID_HELP, parseAvoid, REGION_LABEL, unmatchedNote } from './format';
+import { useStore } from '@/store/useStore';
+import { AVOID_HELP, ownAllergyNote, parseAllergies, parseAvoid, REGION_LABEL, unmatchedNote } from './format';
 import { saveFood } from './useGuide';
 
 const PATTERNS: Pattern[] = ['vegetarian', 'eggetarian', 'nonVegetarian', 'vegan', 'jain'];
 
 const REGIONS: (Exclude<Region, 'mixed'> | 'any')[] = ['any', 'north', 'south', 'east', 'west'];
 
+const ALLERGY_OPTIONS = ALLERGENS.map(a => ({ value: a.id, label: a.label }));
+
 /**
  * "What do you eat?" — asked the first time Meal ideas opens, not during
  * exercise setup (codex-vision §2). Three answers at most, one required.
  * The full food-preferences editor belongs to You.
  */
-export function FoodPicker({ open, onOpenChange, food, waiting, canSave }: {
+export function FoodPicker({ open, onOpenChange, food, canSave }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   food?: FoodPreferences;
-  /** With no food record, setup's waiting food answers: the record this makes takes them all (board D192). */
-  waiting?: MealFood;
   /** False before a profile exists: the choice lasts for this visit. */
   canSave: boolean;
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Your food" detent="large">
-      <FoodForm food={food} waiting={waiting} canSave={canSave} onDone={() => onOpenChange(false)} />
+      <FoodForm food={food} canSave={canSave} onDone={() => onOpenChange(false)} />
     </Sheet>
   );
 }
 
-function FoodForm({ food, waiting, canSave, onDone }: { food?: FoodPreferences; waiting?: MealFood; canSave: boolean; onDone: () => void }) {
+function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: boolean; onDone: () => void }) {
   const [pattern, setPattern] = useState<Pattern | undefined>(food?.pattern);
   const [region, setRegion] = useState<(typeof REGIONS)[number]>(
     food?.region && food.region !== 'mixed' ? food.region : 'any',
   );
   const [avoid, setAvoid] = useState(food?.avoid.join(', ') ?? '');
+  // With no food record yet, the allergies start from the answer setup is keeping for one (board D205):
+  // this session's while setup goes on without saving (Plan 5's B-07, H5-06).
+  const { settings } = useStore();
+  const [waiting] = useState(() => (food ? undefined : setupAllergyAnswer(settings.setup, getSetupSession())));
+  const [chosen, setChosen] = useState<AllergenId[]>(food?.allergies ?? waiting?.allergies ?? []);
+  const [otherAllergies, setOtherAllergies] = useState((food?.customAllergies ?? waiting?.customAllergies ?? []).join(', '));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   const avoidId = useId();
   const avoidHelp = useId();
   const avoidNote = useId();
+  const allergyId = useId();
+  const allergyHelp = useId();
+  const allergyNote = useId();
   // Said while typing, so an entry that hides nothing is never taken as done.
   const unmatched = unmatchedNote(unmatchedAvoid(parseAvoid(avoid), pattern));
+  // And how each allergy in the person's own words is read, so one that keeps nothing out is never taken as done (K7R-02).
+  const read = ownAllergyNote(parseAllergies(otherAllergies));
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!pattern || saving) return;
     setSaving(true);
     setError(undefined);
-    // Only what this sheet asks: setup's allergies, logging level and screening answer stay (board D82), and with no
-    // record yet, come into the new one (board D192).
-    const next = withPicked(food ?? waiting, { pattern, avoid: parseAvoid(avoid), region });
+    // Only what this sheet asks, allergies included (B-13): the logging level, the screening answer and a target stay,
+    // and with no record yet, come from what setup keeps for one (board D192).
+    const kept = food ?? waitingFood(settings.setup, getSetupSession());
+    const next = withPicked(kept, { pattern, avoid: parseAvoid(avoid), region, allergies: chosen, customAllergies: parseAllergies(otherAllergies) });
     const failure = await saveFood(next);
     setSaving(false);
     if (failure) setError(failure);
@@ -74,6 +92,34 @@ function FoodForm({ food, waiting, canSave, onDone }: { food?: FoodPreferences; 
           />
         ))}
       </Choices>
+
+      <Choices legend="Allergies (optional)">
+        <CheckRows label="Allergies (optional)" options={ALLERGY_OPTIONS} value={chosen} onChange={setChosen} />
+      </Choices>
+
+      <div className="flex flex-col">
+        <label htmlFor={allergyId} className="px-4 pb-2 text-[length:var(--text-footnote)] font-medium uppercase tracking-wide text-muted-foreground">
+          {FOOD_COPY.somethingElse}
+        </label>
+        <input
+          id={allergyId}
+          type="text"
+          value={otherAllergies}
+          onChange={e => setOtherAllergies(e.target.value)}
+          placeholder={FOOD_COPY.somethingElsePlaceholder}
+          autoComplete="off"
+          aria-describedby={read ? `${allergyHelp} ${allergyNote}` : allergyHelp}
+          className="h-12 rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50"
+        />
+        <p id={allergyHelp} className="px-4 pt-2 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
+          {FOOD_COPY.allergiesFooter}
+        </p>
+        {read && (
+          <p id={allergyNote} role="status" className={cn('px-4 pt-2 text-[length:var(--text-footnote)] leading-snug', read.unknown ? 'text-caution' : 'text-muted-foreground')}>
+            {read.text}
+          </p>
+        )}
+      </div>
 
       <Choices legend="Dishes from (optional)">
         {REGIONS.map(r => (
@@ -99,7 +145,7 @@ function FoodForm({ food, waiting, canSave, onDone }: { food?: FoodPreferences; 
           placeholder="For example: peanuts, mushrooms"
           autoComplete="off"
           aria-describedby={unmatched ? `${avoidHelp} ${avoidNote}` : avoidHelp}
-          className="h-11 rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50"
+          className="h-12 rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50"
         />
         <p id={avoidHelp} className="px-4 pt-2 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
           {AVOID_HELP}

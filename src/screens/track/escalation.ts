@@ -54,6 +54,8 @@ export const HYPO_LEVEL_1_MGDL = 70;
 export const HYPO_LEVEL_2_MGDL = 54;
 /** ADA 2026 Table 16.1, the hyperglycaemic crisis boundary the contract uses. */
 export const EXTREME_GLUCOSE_MGDL = 600;
+/** Above this is the high Trends counts (J§12.2: "1 above 250"), the line the check-in's ketone question uses. */
+export const HIGH_GLUCOSE_MGDL = 250;
 /** NICE NG136 1.5.1; inclusive, as the contract's T-BP row states. */
 export const SEVERE_SYSTOLIC = 180;
 export const SEVERE_DIASTOLIC = 120;

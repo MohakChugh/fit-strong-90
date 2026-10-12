@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle2Icon, PlusIcon } from 'lucide-react';
 import { categoryById } from '@/categories';
@@ -13,8 +13,9 @@ import { Interpretation, Segmented } from '@/screens/track/ui';
 import { useToday } from '@/screens/track/useToday';
 import { HistoryList } from './HistoryList';
 import { HubFrame, HubSection, SeeTrends } from './HubFrame';
-import { useHubOrigin } from './hooks';
+import { useAddLink, useHubOrigin } from './hooks';
 import { historyRange, hubAdd, latestFor, readingSpec, weekValues, type ReadingSpec } from './reading';
+import { WeekDay } from './WeekDay';
 
 /**
  * A reading hub (journey §8.2), for Glucose, Blood pressure, Weight, Water,
@@ -43,26 +44,17 @@ function ReadingScreen({ spec }: { spec: ReadingSpec }) {
   // The cadence's "evening" depends on the hour: read from the shared clock, so render stays pure.
   const { now } = useClock();
   const origin = useHubOrigin(category.title);
-  const [params, setParams] = useSearchParams();
+  const [, setParams] = useSearchParams();
   const prefs = useMemo(() => displayPrefs(settings, profile, observations), [settings, profile, observations]);
-  // A link's `?add=` opens this hub's own form on arrival, once, then leaves the address (D55).
-  const [logOpen, setLogOpen] = useState(() => hubAdd(spec, params.get('add')) !== undefined);
-  useEffect(() => {
-    if (!params.has('add')) return;
-    setParams(prev => {
-      const next = new URLSearchParams(prev);
-      next.delete('add');
-      return next;
-    }, { replace: true });
-  }, [params, setParams]);
+  // A link's `?add=` opens this hub's own form, on arrival or while it is open, then leaves the address (D55, codex H2-06).
+  const [logOpen, setLogOpen] = useAddLink(add => hubAdd(spec, add) !== undefined);
+  // "Saved on this device", until the next Add or until the screen is left: never on a timer (§20.4 rule 8; kiro KH-16).
   const [notice, setNotice] = useState<string>();
   const [fresh, setFresh] = useState<readonly string[]>([]);
-  // A brief confirmation, as on Today's log; the reading itself stays in the list.
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(undefined), 4000);
-    return () => clearTimeout(timer);
-  }, [notice]);
+  const add = () => {
+    setNotice(undefined);
+    setLogOpen(true);
+  };
 
   const own = useMemo(() => observations.filter(o => METRICS[spec.metric].kinds.includes(o.kind)), [observations, spec.metric]);
   const latest = useMemo(() => latestFor(spec, observations, { prefs, profile, current }), [spec, observations, prefs, profile, current]);
@@ -114,7 +106,7 @@ function ReadingScreen({ spec }: { spec: ReadingSpec }) {
           )}
           <button
             type="button"
-            onClick={() => setLogOpen(true)}
+            onClick={add}
             className="press-feedback flex min-h-[60px] w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint"
           >
             <PlusIcon className="size-5" aria-hidden />
@@ -152,7 +144,7 @@ function ReadingScreen({ spec }: { spec: ReadingSpec }) {
 
       {week.length > 0 && (
         <HubSection title="This week">
-          <Group>{week.map(d => <Row key={d.day} label={d.name} detail={d.text} />)}</Group>
+          <Group>{week.map(d => <WeekDay key={d.day} day={d} />)}</Group>
         </HubSection>
       )}
 

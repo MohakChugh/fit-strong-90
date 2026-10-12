@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PERMISSION_TEXT, type Permission } from '@/engine/permission';
+import { createDefaultProfile } from '@/profile/defaults';
 import { movementLine, type TileLine } from '@/screens/home/tileLine';
 import {
-  JOIN_HREF, actionTarget, movementCard, restDayOf, resumeAllowed, runAction, sessionParts, stretchReason,
-  type CardInput, type HubActionKind, type HubCard,
+  JOIN_HREF, actionTarget, feetHold, movementCard, offersRoutines, pendingWalkCard, restDayOf, resumeAllowed, runAction, sessionParts, stretchReason,
+  type CardInput, type HubActionKind, type HubCard, type PendingWalkInput,
 } from './movement';
 
 const ok: Permission = { mode: 'stretch', allowed: true, disposition: 'reassure', reasons: [], restrictions: [], needsCheckIn: false };
@@ -125,9 +126,9 @@ describe('movementCard: the hub column of the copy table (journey §7.5)', () =>
     expect(kinds(walk)).toEqual(['start', 'stretch']);
   });
 
-  it('a routine the builder can’t make today says so, with no Start', () => {
+  it('a routine the builder can’t make today says so, with no Start (its own state, kiro KH-01)', () => {
     const c = movementCard(input({ blocked: 'This routine cannot be put together safely today. Try another area or length.' }));
-    expect(c.state).toBe('held');
+    expect(c.state).toBe('unbuildable');
     expect(c.primary).toBeUndefined();
   });
 
@@ -348,5 +349,158 @@ describe('outside the programme, a hold no check-in answers: the Workout tile an
     const tile = movementLine({ mode: 'guided', permission: p, status: 'normal', normal: NOT_JOINED, enrolled: false });
     expect(tile.text).toBe(NOT_JOINED);
     expect(outside(p, 'checkIn', tile).state).toBe('join');
+  });
+});
+
+describe('a walk still on this device: status comes first, then the gate (codex H2-01, journey §4.1, §4.8)', () => {
+  const walkOk: Permission = { ...ok, mode: 'walk' };
+  const pending = (over: Partial<PendingWalkInput> = {}): HubCard => pendingWalkCard({
+    state: 'inProgress', started: '9:00 am', permission: walkOk, gate: 'go', status: 'normal',
+    gaps: { healthUnreviewed: false, medicinesUnknown: false }, stretchOpen: true, ...over,
+  });
+  const carriesOn = (c: HubCard) => kinds(c).includes('carryOn');
+
+  it('Away or Unwell: no Carry on; Review and save, and Change status, with the status said', () => {
+    for (const status of ['away', 'unwell'] as const) {
+      const c = pending({ status });
+      expect(carriesOn(c), status).toBe(false);
+      expect(c.primary, status).toEqual({ kind: 'finishWalk', label: 'Review and save' });
+      expect(kinds(c), status).toContain('status');
+      expect(c.title, status).toBe(status === 'away' ? 'Paused while you’re away' : 'Paused while you’re unwell');
+      expect(c.reasons.join(' '), status).toMatch(status === 'away' ? /away/ : /unwell/);
+    }
+  });
+
+  it('a flare: only a stretch is carried on, so the walk is reviewed and saved, and a stretch offered', () => {
+    const c = pending({ status: 'flare' });
+    expect(carriesOn(c)).toBe(false);
+    expect(c.primary).toEqual({ kind: 'finishWalk', label: 'Review and save' });
+    expect(c.reasons.join(' ')).toMatch(/flare-up/);
+    expect(kinds(c)).toEqual(['finishWalk', 'stretch', 'status']);
+    expect(kinds(pending({ status: 'flare', stretchOpen: false }))).toEqual(['finishWalk', 'status']);
+  });
+
+  it('Normal and allowed: Return to walk, a gate start; with a check-in due it says one comes first', () => {
+    expect(pending().primary).toEqual({ kind: 'carryOn', label: 'Return to walk' });
+    expect(pending().note).toBeUndefined();
+    const due = pending({ permission: held('walk', [PERMISSION_TEXT.noCheckIn], { needsCheckIn: true }), gate: 'checkIn' });
+    expect(due.primary).toEqual({ kind: 'carryOn', label: 'Return to walk' });
+    expect(due.note).toBe('A short check-in comes first.');
+  });
+
+  it('a stop, a profile gap or a hold: the gate’s words, no Carry on, and the walk still reviewed and saved', () => {
+    const stop = pending({ permission: held('walk', ['Chest pain.'], { disposition: 'emergency' }), gate: 'emergency', status: 'unwell' });
+    expect(stop).toMatchObject({ state: 'stopped', tone: 'stop', reasons: ['Chest pain.'], primary: { kind: 'finishWalk', label: 'Review and save' } });
+    // Today's check-in leads on to carrying on once it allows: not while the status refuses that.
+    expect(kinds(stop)).toEqual(['finishWalk']);
+    expect(kinds(pending({ permission: held('walk', ['Chest pain.'], { disposition: 'emergency' }), gate: 'emergency' }))).toEqual(['finishWalk', 'review']);
+    const gap = pending({ permission: held('walk', [PERMISSION_TEXT.medicinesUnknown]), gate: 'hold', gaps: { healthUnreviewed: false, medicinesUnknown: true } });
+    expect(gap).toMatchObject({ state: 'gap', title: 'Your diabetes medicines', primary: { kind: 'finishWalk' } });
+    expect(kinds(gap)).toContain('profile');
+    const hold = pending({ permission: held('walk', [PERMISSION_TEXT.footWalk]), gate: 'hold' });
+    expect(hold).toMatchObject({ state: 'held', title: 'No walk for now', reasons: [PERMISSION_TEXT.footWalk], primary: { kind: 'finishWalk' } });
+    expect(kinds(hold)).toContain('review');
+    for (const c of [stop, gap, hold]) expect(carriesOn(c)).toBe(false);
+  });
+
+  it('a profile gap while setup is unfinished: the action names the chapter it still asks, as the hub’s card does (K5-07 with H2-01)', () => {
+    const ask = 'Answer 2 questions about your back and feet';
+    const gap = pending({ permission: held('walk', [PERMISSION_TEXT.healthUnreviewed]), gate: 'hold', gaps: { healthUnreviewed: true, medicinesUnknown: false, ask } });
+    expect(gap).toMatchObject({ state: 'gap', primary: { kind: 'finishWalk' } });
+    expect(gap.secondary).toContainEqual({ kind: 'profile', label: ask });
+    // A finished setup's review keeps its words.
+    expect(pending({ permission: held('walk', [PERMISSION_TEXT.healthUnreviewed]), gate: 'hold', gaps: { healthUnreviewed: true, medicinesUnknown: false } }).secondary)
+      .toContainEqual({ kind: 'profile', label: 'Answer the questions about your health' });
+  });
+
+  it('a walk waiting to be saved: Review and save, whatever the status or the gate (saving is not movement)', () => {
+    for (const status of ['normal', 'flare', 'unwell', 'away'] as const) {
+      const c = pending({ state: 'unsaved', status, permission: held('walk', ['Chest pain.'], { disposition: 'emergency' }), gate: 'emergency' });
+      expect(c.primary, status).toEqual({ kind: 'saveWalk', label: 'Review and save' });
+      expect(c.title, status).toBe('A walk is waiting to be saved');
+    }
+  });
+
+  it('Return to walk goes through the gate to the walk on this device; Review and save only navigates', () => {
+    const ctx = { mode: 'walk' as const, href: '/walk/live?id=abcd-1234', resumeHref: '/walk/live', startLabel: 'Start walk' };
+    expect(actionTarget('carryOn', ctx)).toEqual({ via: 'gate', mode: 'walk', href: '/walk/live', label: 'Carry on walking' });
+    expect(actionTarget('saveWalk', ctx)).toEqual({ via: 'go', to: '/walk/summary' });
+    expect(actionTarget('finishWalk', ctx)).toEqual({ via: 'local' });
+  });
+});
+
+describe('a run carried on says today’s words and changes, as the tile and a new start do (codex H2-02, journey §7.5)', () => {
+  const saved = { minutesLeft: 6, label: 'Hips & legs stretch' };
+
+  it('allowed with changes: the changes are listed, and named', () => {
+    const p: Permission = { ...ok, disposition: 'adjust', restrictions: ['Gentle range only.'] };
+    const c = movementCard(input({ permission: p, saved }));
+    expect(c.state).toBe('resume');
+    expect(c.today).toBe('With changes for today');
+    expect(c.restrictions).toEqual(['Gentle range only.']);
+    expect(c.detail).toBe('6 min left · Hips & legs stretch');
+  });
+
+  it('a flare: the tile’s "Gentle stretch", with any change listed, and a check-in still named on the button only', () => {
+    const f = movementCard(input({ status: 'flare', line: line('Gentle stretch'), saved }));
+    expect(f.today).toBe('Gentle stretch');
+    expect(f.primary).toEqual({ kind: 'continue', label: 'Continue stretch' });
+    const p: Permission = { ...ok, disposition: 'adjust', restrictions: ['Gentle range only.'] };
+    expect(movementCard(input({ status: 'flare', permission: p, line: line('Gentle stretch'), saved })).restrictions).toEqual(['Gentle range only.']);
+    const due = movementCard(input({
+      status: 'flare', gate: 'checkIn', permission: held('stretch', [PERMISSION_TEXT.noCheckIn], { needsCheckIn: true }),
+      line: line('Gentle stretch · check in first'), saved,
+    }));
+    expect(due.today).toBe('Gentle stretch');
+    expect(due.primary).toEqual({ kind: 'continue', label: 'Check in & continue' });
+    // A change the gate allows only once checked in is not listed before then, as for a new start.
+    expect(due.restrictions).toEqual([]);
+  });
+});
+
+describe('a routine the builder can’t make today: another can be chosen (kiro KH-01)', () => {
+  const words = 'This routine cannot be put together safely today. Try another area or length.';
+
+  it('its own state, the builder’s words, no Start, and a way back to the choices', () => {
+    const c = movementCard(input({ blocked: words }));
+    expect(c.state).toBe('unbuildable');
+    expect(c.reasons).toEqual([words]);
+    expect(c.primary).toBeUndefined();
+    expect(c.secondary).toEqual([{ kind: 'chooseRoutine', label: 'Choose another routine' }]);
+    expect(actionTarget('chooseRoutine', { mode: 'stretch', href: '/session?mode=stretch', startLabel: 'Start stretch' })).toEqual({ via: 'local' });
+  });
+
+  it('keeps the area and length on screen, while a real refusal still hides them', () => {
+    expect(offersRoutines(movementCard(input({ blocked: words })).state)).toBe(true);
+    for (const state of ['held', 'stopped', 'gap', 'join'] as const) expect(offersRoutines(state), state).toBe(false);
+    for (const state of ['go', 'checkIn', 'resume', 'paused'] as const) expect(offersRoutines(state), state).toBe(true);
+  });
+
+  it('a real hold is still the hold, whatever the builder says: the gate never yields', () => {
+    const p = held('stretch', [PERMISSION_TEXT.footWalk]);
+    const c = movementCard(input({ permission: p, gate: 'hold', blocked: words }));
+    expect(c.state).toBe('held');
+    expect(kinds(c)).not.toContain('start');
+    expect(kinds(c)).not.toContain('chooseRoutine');
+  });
+});
+
+describe('feetHold: Steps while walking is held for the feet (kiro KH-02, L-09, K-12)', () => {
+  const RELEASE = 'Walking is back once your foot has healed or a clinician says it is fine.';
+  const wound = createDefaultProfile({ health: { medicinesReviewed: true, diabetes: 'type2', metformin: true, peripheralNeuropathy: 'yes', footStatus: 'current_wound_or_active_charcot' } });
+  const plain = createDefaultProfile({});
+  const footGate = held('walk', [PERMISSION_TEXT.footWalk], { release: RELEASE });
+
+  it('a standing foot restriction, or today’s own foot hold, is the hold, in the gate’s words', () => {
+    expect(feetHold(wound, footGate)).toEqual({ reason: PERMISSION_TEXT.footWalk, release: RELEASE });
+    // A new foot problem in today's check-in holds walking through the gate alone.
+    expect(feetHold(plain, footGate)).toEqual({ reason: PERMISSION_TEXT.footWalk, release: RELEASE });
+    // The standing restriction holds even before the gate is asked about today.
+    expect(feetHold(wound, { ...ok, mode: 'walk' })).toEqual({ reason: PERMISSION_TEXT.footWalk });
+  });
+
+  it('nothing for walking held for another reason, or not held at all', () => {
+    expect(feetHold(plain, held('walk', [PERMISSION_TEXT.noCheckIn], { needsCheckIn: true }))).toBeUndefined();
+    expect(feetHold(plain, { ...ok, mode: 'walk' })).toBeUndefined();
   });
 });

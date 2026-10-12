@@ -16,16 +16,12 @@ const WalkRoutes = lazy(() => import('@/screens/walk/routes'));
 const WalkSummary = lazy(() => import('@/screens/walk/WalkSummary').then(m => ({ default: m.WalkSummary })));
 const LiveWalkScreen = lazy(() => import('@/screens/walk/LiveWalkScreen'));
 const GuideRoutes = lazy(() => import('@/screens/guide/routes'));
-const MealIdeasScreen = lazy(() => import('@/screens/guide/MealIdeasScreen'));
-const MealDetailScreen = lazy(() => import('@/screens/guide/MealDetailScreen'));
-const SampleWeekScreen = lazy(() => import('@/screens/guide/SampleWeekScreen'));
+const FoodRoutes = lazy(() => import('@/screens/food/routes'));
 const BackHub = lazy(() => import('@/screens/hub/BackHub'));
-const MetricFor = lazy(() => import('@/screens/track/MetricDetail').then(m => ({ default: m.MetricFor })));
 const ReadingHub = lazy(() => import('@/screens/hub/ReadingHub'));
 const StepsHub = lazy(() => import('@/screens/hub/StepsHub'));
-const MyDay = lazy(() => import('@/screens/track/MyDay').then(m => ({ default: m.MyDay })));
 const TrackRoutes = lazy(() => import('@/screens/track/routes'));
-const WorkoutRoutes = lazy(() => import('@/screens/workout/routes'));
+const TrendsRoutes = lazy(() => import('@/screens/trends/routes'));
 const TodayWorkoutScreen = lazy(() => import('@/screens/workout/TodayWorkoutScreen'));
 const DayRoutes = lazy(() => import('@/screens/day/routes'));
 const BrowseScreen = lazy(() => import('@/screens/browse/BrowseScreen'));
@@ -69,8 +65,8 @@ function Task({ children }: { children: React.ReactNode }) {
  * live walk and its summary — sit outside the shell: no tab bar to hit by
  * accident mid-exercise.
  *
- * Until Plans 2 to 4 build them, the hubs, Trends and Me are v1's screens at
- * their v2 addresses (journey §19.2, B-22).
+ * Food's trend address opens the Food hub until Food has a trend of its own
+ * (`screens/trends/routes.tsx`, D74).
  */
 export function AppRoutes({ onboarded, setupOpen = false }: { onboarded: boolean; setupOpen?: boolean }) {
   if (!onboarded) {
@@ -101,19 +97,13 @@ export function AppRoutes({ onboarded, setupOpen = false }: { onboarded: boolean
         <Route path="/hub/stretch" element={hub(<StretchHub />)} />
         <Route path="/hub/walk/*" element={hub(<WalkRoutes />)} />
         <Route path="/hub/learn/*" element={hub(<GuideRoutes />)} />
-        <Route path="/hub/food" element={hub(<MealIdeasScreen />)} />
-        <Route path="/hub/food/ideas" element={hub(<MealIdeasScreen />)} />
-        <Route path="/hub/food/ideas/:mealId" element={hub(<MealDetailScreen />)} />
-        <Route path="/hub/food/week" element={hub(<SampleWeekScreen />)} />
+        <Route path="/hub/food/*" element={hub(<FoodRoutes />)} />
         <Route path="/hub/back" element={hub(<BackHub />)} />
         <Route path="/hub/steps" element={hub(<StepsHub />)} />
         <Route path="/hub/:id" element={hub(<ReadingHub />)} />
         <Route path="/day/*" element={<DayRoutes />} />
-        <Route path="/trends" element={<MyDay view="trends" />} />
-        {/* Trends' own address. Until Plan 3 builds it, Trends; the log moved to /hub/workout/log (D51). */}
-        <Route path="/trends/workout" element={<Keeping to="/trends" />} />
-        <Route path="/trends/workout/*" element={<WorkoutRoutes />} />
-        <Route path="/trends/:id" element={<MetricFor trend />} />
+        {/* The Trends tab (journey §12): its root, each category's trend, and a past workout's record (D74). */}
+        <Route path="/trends/*" element={<TrendsRoutes />} />
         <Route path="/browse" element={<BrowseScreen />} />
         <Route path="/me/*" element={<YouRoutes />} />
         <Route path="/track/*" element={<TrackRoutes />} />

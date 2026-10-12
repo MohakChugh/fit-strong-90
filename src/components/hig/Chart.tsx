@@ -1,8 +1,9 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useId, type ReactNode, type RefObject } from 'react';
 import { cn } from '@/lib/utils';
+import { useMeasure } from './useMeasure';
 import {
   MAX_SLOTS, bands, barExtent, clamp, gutterFor, isReading, labelWidth, lineRuns, linePath, niceDomain, niceTicks,
-  placeLabels, plotFrame, plotY, pointXs, recent, textSize, thinLabels,
+  placeLabels, plotFrame, plotY, pointXs, recent, thinLabels,
   type LinearDomain, type Plot,
 } from './scale';
 
@@ -177,38 +178,6 @@ function Figure({ frame, plot, width, height, omitted, table, className, childre
       <DataTable {...table} visible={!plot} />
     </figure>
   );
-}
-
-/**
- * The container's width and text size, measured before the first paint so the
- * chart never flashes at a guessed size. A ResizeObserver keeps both right
- * through rotation and a split view; they change only when the box does, never
- * per frame.
- */
-function useMeasure(): [RefObject<HTMLElement | null>, number, number] {
-  const ref = useRef<HTMLElement>(null);
-  const [width, setWidth] = useState(0);
-  const [fontPx, setFontPx] = useState(13);
-
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const update = (px: number) => {
-      // Floored, never rounded: a chart half a pixel wider than its box is a
-      // horizontal scrollbar at 320 px.
-      setWidth(Math.floor(px));
-      setFontPx(textSize(parseFloat(getComputedStyle(el).fontSize)));
-    };
-    update(el.getBoundingClientRect().width);
-    if (typeof ResizeObserver === 'undefined') return;
-    // The observer's content box ignores transforms, so a parent's press
-    // animation cannot leave the chart measured at its scaled-down width.
-    const ro = new ResizeObserver(([entry]) => update(entry.contentRect.width));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  return [ref, width, fontPx];
 }
 
 function Grid({ ticks, domain, plot }: { ticks: number[]; domain: LinearDomain; plot: Plot }) {

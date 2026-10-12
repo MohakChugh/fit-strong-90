@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import { OUTCOME_ORDER } from '@/types/checkin';
 import type { DailyCheckIn } from '@/types/checkin';
-import { evaluateCheckIn, glucoseSanity, toMgdl, profileOnlyReadiness } from './readiness';
+import { bpPartialId, bpReadingId, evaluateCheckIn, glucoseReadingId, glucoseSanity, ketoneReadingId, readingIdsIn, toMgdl, profileOnlyReadiness } from './readiness';
 
 const base: DailyCheckIn = { date: '2026-10-09', urgentSymptoms: false, news: [], sleep: 'gt7', energy: 4 };
 const ci = (over: Partial<DailyCheckIn> = {}): DailyCheckIn => ({ ...base, ...over });
@@ -401,5 +401,32 @@ describe('blood pressure wording', () => {
     expect(sysOnly).not.toContain('over 120');
     const both = evalWith(treated, { bp: { sys: 190, dia: 125 } }).reasons.find(r => r.code.startsWith('bp'))!.message;
     expect(both).toContain('190 over 125');
+  });
+});
+
+describe('every name a record’s readings go by (§4.6, P8-02)', () => {
+  it('names its glucose, Track’s included, ketones, pressure whole and in halves, news and flags, as answers name them', () => {
+    const day = '2026-10-08';
+    const at = (h: number) => new Date(2026, 9, 8, h).toISOString();
+    const g = { value: 600, unit: 'mg/dL' as const, measuredAt: at(8), source: 'meter' as const };
+    const earlier = { value: 40, unit: 'mg/dL' as const, measuredAt: at(7), source: 'meter' as const };
+    const track = { value: 55, unit: 'mg/dL' as const, measuredAt: at(9), source: 'meter' as const };
+    const k = { kind: 'blood' as const, value: 3.2, measuredAt: at(8) };
+    const kEarlier = { kind: 'urine' as const, category: 'large' as const, measuredAt: at(7) };
+    const bp = { sys: 182, dia: 112, at: at(8) };
+    const bpEarlier = { sys: 186, dia: 114, at: at(7) };
+    const half = { sys: 190, at: at(6) };
+    const c: DailyCheckIn = {
+      date: day, urgentSymptoms: false, emergency: [], news: ['stopped'], newsEarlier: ['dizzy'],
+      glucose: g, glucoseEarlier: [earlier], ketones: k, ketonesEarlier: [kEarlier], bp, bpEarlier: [bpEarlier], bpPartial: [half],
+      back: { newWeakness: true }, flagsEarlier: ['backSudden'], logged: { glucose: [track] },
+    };
+    expect(readingIdsIn(c).sort()).toEqual([
+      glucoseReadingId(g, day), glucoseReadingId(earlier, day), glucoseReadingId(track, day),
+      ketoneReadingId(k, day), ketoneReadingId(kEarlier, day),
+      bpReadingId(bp, day), bpReadingId(bpEarlier, day), bpPartialId(half, day),
+      `news:stopped@${day}`, `news:dizzy@${day}`,
+      `flag:newWeakness@${day}`, `flag:backSudden@${day}`,
+    ].sort());
   });
 });

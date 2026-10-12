@@ -2,15 +2,15 @@
  * A day's steps, said with where they came from (journey §9.6; D10, D14):
  * - with an entered total: that total, "entered at 6:00 pm";
  * - with walks only: "4,210 in FitStrong walks · day total not entered";
- * - when a FitStrong walk started after the total was stated at a real
- *   time: "at least 7,300", with both sources. A past day's total is
+ * - when FitStrong walking started after the total was stated at a real
+ *   time: "at least 7,300", with both sources. Each part of a walk counts
+ *   on its own day (a walk across midnight is split there). A past day's total is
  *   stamped at midday and typed after the day, so it never adds walks
  *   (D52); a corrected total counts from its correction.
  * It is never presented as complete, and a day with nothing says so.
  */
 import { entryFor, summariseDay } from '@/health/aggregate';
 import { compareStatements, type Observation } from '@/health/observation';
-import { walkRecords } from '@/walk/record';
 import { formatClock, hasClockTime } from './format';
 import { formatNumber } from './units';
 
@@ -35,10 +35,13 @@ export function stepsDayFigure(day: string, observations: readonly Observation[]
     const standIn = !stated.editedAt && stated.source === 'manual' && stated.at.slice(11, 23) === '12:00:00.000';
     const at = hasClockTime(stated) && !standIn ? formatClock(asOf, hour12) : undefined;
     const said = stated.editedAt ? 'changed' : 'entered';
-    // Only walks that started after the total was stated are surely not in it, so the sum is a floor.
-    const walked = at === undefined ? 0 : walkRecords(observations)
-      .filter(w => w.day === day && w.steps !== undefined && Date.parse(w.at) > Date.parse(asOf))
-      .reduce((n, w) => n + (w.steps ?? 0), 0);
+    // Only walking that started after the total was stated is surely not in it, so the sum is a floor. Each
+    // part of a walk counts on its own day, by the shared overlap rules (D10, F17): a walk across midnight
+    // adds to each day only its own part, once (codex H2-03).
+    const parts = entryFor(summary, 'steps', 'sessionObserved')?.contributed ?? [];
+    const walked = at === undefined ? 0 : parts
+      .filter(o => o.context?.startsWith('walk:') && Date.parse(o.at) > Date.parse(asOf))
+      .reduce((n, o) => n + o.value, 0);
     if (walked > 0) {
       const steps = entered.total + walked;
       return { kind: 'atLeast', value: `at least ${formatNumber(steps)}`, steps, source: `${formatNumber(entered.total)} ${said} at ${at} + ${formatNumber(walked)} in walks after ${at}` };

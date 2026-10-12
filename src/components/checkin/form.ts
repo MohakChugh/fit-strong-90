@@ -20,6 +20,7 @@ import type {
 } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { deriveHealth } from '@/engine/health';
+import { measuredStamp } from '@/health/observation';
 import { checkedIn } from '@/engine/permission';
 import { bpPartialId, completes, endsTheDay, evaluateCheckIn, flagsIn, glucoseSanity, profileOnlyReadiness, reopenedByReport, severePartial, standingAnswer, toMgdl, type GlucoseSanity } from '@/engine/readiness';
 
@@ -228,11 +229,13 @@ const EMERGENCY_ORDER: EmergencyFlag[] = [
 ];
 const DIABETES_EMERGENCIES: EmergencyFlag[] = ['lowCantTreat', 'dka'];
 const NEWS_ORDER: NewsItem[] = [
-  'unwell', 'vomiting', 'highNotFalling', 'lowSymptoms', 'lowOne', 'lowTwoPlus', 'lowSevere', 'dizzy', 'fainted',
+  'stopped', 'unwell', 'vomiting', 'highNotFalling', 'lowSymptoms', 'lowOne', 'lowTwoPlus', 'lowSevere', 'dizzy', 'fainted',
   'footProblem', 'hotSwollenFoot', 'steroid', 'hot', 'unusualFatigue',
 ];
 const DIABETES_NEWS: NewsItem[] = ['highNotFalling', 'lowSymptoms', 'lowOne', 'lowTwoPlus', 'lowSevere'];
 const FOOT_NEWS: NewsItem[] = ['footProblem', 'hotSwollenFoot'];
+/** Said during movement, never asked: shown only while it stands, so it can be changed (journey §4.4). */
+const SAID_ONLY: NewsItem[] = ['stopped'];
 
 export interface Visible {
   /** Serious readings, today's and earlier days', that the sheet asks about: settled or not, so an answer can be taken back. */
@@ -349,7 +352,7 @@ export function visibleQuestions(
   const emergency = EMERGENCY_ORDER.filter(f => set.has(f) || diabetic || (f === 'dka' && d.ketoneRisk) || !DIABETES_EMERGENCIES.includes(f));
   const footRisk = diabetic || h.peripheralNeuropathy !== 'no';
   const news = NEWS_ORDER.filter(n => form.news.includes(n)
-    || ((diabetic || !DIABETES_NEWS.includes(n)) && (footRisk || !FOOT_NEWS.includes(n))));
+    || (!SAID_ONLY.includes(n) && (diabetic || !DIABETES_NEWS.includes(n)) && (footRisk || !FOOT_NEWS.includes(n))));
   const glucose = diabetic;
   const mg = formMgdl(form);
   const high = form.glucoseDisplay === 'HI' || (mg !== undefined && mg >= 250);
@@ -497,7 +500,9 @@ function glucoseFromForm(form: CheckInForm, profile: UserProfile, previous: Dail
   if (form.glucoseDisplay) {
     if (prevShown && prevShown.display === form.glucoseDisplay && (prevShown.measuredAt ?? null) === at) return { glucoseDisplay: prevShown };
     const source = form.source ?? defaultSource(profile);
-    const reading: GlucoseDisplayReading = { display: form.glucoseDisplay, measuredAt: at ?? stamp, ...(source ? { source } : {}) };
+    // In this phone's offset, written out: HI and LO are kept here and nowhere else, so their clock is too (H3-01).
+    const ms = Date.parse(at ?? stamp);
+    const reading: GlucoseDisplayReading = { display: form.glucoseDisplay, measuredAt: Number.isFinite(ms) ? measuredStamp(new Date(ms)) : at ?? stamp, ...(source ? { source } : {}) };
     return { glucoseDisplay: reading };
   }
   const text = form.glucose.trim();

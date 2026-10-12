@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
@@ -6,7 +6,7 @@ import type { TextScale } from '@/lib/textSize';
 import type { StoreResult } from '@/store/db';
 import { setSettings, useStore, type Theme } from '@/store/useStore';
 import { ChoiceRows, Notice, Toggle, type Choice } from './controls';
-import { TEXT_SIZE_CHOICES, displayChoices, fadeTheme, readSystemDisplay } from './display';
+import { TEXT_SIZE_CHOICES, displayChoices, fadeTheme, systemDisplayStore } from './display';
 import { changeDisplay } from './write';
 
 const THEMES: Choice<Theme>[] = [
@@ -34,8 +34,9 @@ export function DisplayScreen() {
 export function DisplayControls() {
   const { settings } = useStore();
   const reduced = useReducedMotion();
-  // Read once per visit: the device's own settings are changed outside the app.
-  const [system] = useState(() => readSystemDisplay());
+  // The device's own settings, as they are now: they change outside the app, this screen open or not (codex H4-07).
+  const [device] = useState(() => systemDisplayStore());
+  const system = useSyncExternalStore(device.subscribe, device.read, device.read);
   const [problem, setProblem] = useState<string>();
   const choices = displayChoices(settings.display, system);
   const report = (saved: StoreResult) => setProblem(saved.ok ? undefined : `That did not save. ${saved.failure.message}`);

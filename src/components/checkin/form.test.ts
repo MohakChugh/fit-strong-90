@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
+import { measuredStamp } from '@/health/observation';
 import { evaluateCheckIn, glucoseSanity } from '@/engine/readiness';
 import type { CheckInRecord, DailyCheckIn } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
@@ -276,5 +277,41 @@ describe('scan C2-06: clearing one blood-pressure reading leaves the other as it
     const changed = carryForward(saved, build({ ...form, bp: { ...form.bp, s1: '148', at1: at(30) } }, plain, saved));
     expect(changed.bpReadings).toEqual([{ sys: 148, dia: 95, at: at(30) }, { sys: 182, dia: 100, at: at(58) }]);
     expect(changed.bpEarlier).toEqual([{ sys: 150, dia: 95, at: at(60) }]);
+  });
+});
+
+describe('a meter’s HI or LO keeps the clock it was measured on (H3-01, J§4.10)', () => {
+  const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
+
+  it('is saved in this phone’s offset, written out, at the instant it was measured', () => {
+    const lo = build({ ...emptyForm(diabetic), emergency: [], glucoseDisplay: 'LO', glucoseAt: at(5) }, diabetic);
+    expect(lo.glucoseDisplay?.measuredAt).toBe(measuredStamp(new Date(Date.parse(at(5)))));
+    expect(lo.glucoseDisplay?.measuredAt).toMatch(/T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/);
+    expect(Date.parse(lo.glucoseDisplay!.measuredAt!)).toBe(Date.parse(at(5)));
+    // With no time chosen, it is timed at the save.
+    expect(build({ ...emptyForm(diabetic), emergency: [], glucoseDisplay: 'HI' }, diabetic).glucoseDisplay?.measuredAt).toBe(measuredStamp(NOW));
+  });
+
+  it('writes UTC+0 out as +00:00, so it is never taken for a bare UTC stamp saved before', () => {
+    const zone = env.TZ;
+    env.TZ = 'Europe/London';
+    try {
+      expect(measuredStamp(new Date('2026-01-10T07:00:00.000Z'))).toBe('2026-01-10T07:00:00.000+00:00');
+      expect(measuredStamp(new Date('2026-07-10T07:00:00.000Z'))).toBe('2026-07-10T08:00:00.000+01:00');
+    } finally {
+      if (zone === undefined) delete env.TZ;
+      else env.TZ = zone;
+    }
+  });
+});
+
+describe('a stop said during movement, in the check-in (journey §4.4, H6-01)', () => {
+  it('is never asked, and shows while it stands, so today’s answers can change it', () => {
+    expect(visibleQuestions(plain, emptyForm(plain)).news).not.toContain('stopped');
+    expect(visibleQuestions(diabetic, emptyForm(diabetic)).news).not.toContain('stopped');
+    const said = formFromRecord(record(plain, { ...base, news: ['stopped'] }), plain);
+    expect(visibleQuestions(plain, said).news[0]).toBe('stopped');
+    // Kept by a save that leaves it as it is.
+    expect(build(said, plain).news).toContain('stopped');
   });
 });

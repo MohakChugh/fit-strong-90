@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { foodPromptOfferedOn, noteFoodPromptsShown } from '@/food/prompts';
 import type { HabitSettings } from '@/types/habits';
 import { createDefaultProfile } from '@/profile/defaults';
 import { MAX_WAIT_MS, startReminders } from './runner';
@@ -135,5 +136,72 @@ describe('startReminders', () => {
     h.runner.restart();
     expect(h.shown()).toEqual([]);
     expect(h.live()).toEqual([]);
+  });
+});
+
+describe('the food prompt, at most once a day (H7-21; board D140)', () => {
+  const store = new Map<string, string>();
+  const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+  const prompted = (at: string) => createDefaultProfile({
+    weightKg: 80, health: { medicinesReviewed: true },
+    food: { pattern: 'vegetarian', avoid: [], level: 'estimates', hardBefore: 'no', logReminder: { meal: 'lunch', at } },
+  });
+  /** The runner as the host wires it: what's shown is remembered, and the schedule reads that back. */
+  function run(startAt: number, at: string) {
+    let now = startAt;
+    let person = prompted(at);
+    const timers: Timer[] = [];
+    const shown: Occurrence[] = [];
+    const runner = startReminders({
+      now: () => new Date(now),
+      context: () => ({ habits: {}, profile: person, status: 'normal', foodPromptOffered: day => foodPromptOfferedOn(day, storage) }),
+      show: due => {
+        shown.push(...due);
+        noteFoodPromptsShown(due, storage);
+      },
+      later: (go, ms) => {
+        const timer = { at: now + ms, run: go, live: true };
+        timers.push(timer);
+        return () => { timer.live = false; };
+      },
+    });
+    return {
+      shown: () => shown.filter(o => o.habit === 'foodLog').map(o => o.id),
+      advance(to: number) {
+        for (;;) {
+          const next = timers.filter(t => t.live && t.at <= to).sort((a, b) => a.at - b.at)[0];
+          if (!next) break;
+          next.live = false;
+          now = next.at;
+          next.run();
+        }
+        now = to;
+      },
+      retime(next: string) {
+        person = prompted(next);
+        runner.restart();
+      },
+      stop: () => runner.stop(),
+    };
+  }
+  beforeEach(() => store.clear());
+
+  it('shows once a day, though its time is changed after it showed', () => {
+    const h = run(clock(14, 0), '14:30');
+    h.advance(clock(14, 31));
+    expect(h.shown()).toEqual(['foodLog:lunch@2026-10-08T14:30']);
+    h.retime('16:00');
+    h.advance(clock(16, 30));
+    expect(h.shown()).toEqual(['foodLog:lunch@2026-10-08T14:30']);
+  });
+  it('remembers it across a reload, and offers it again the next day', () => {
+    const first = run(clock(14, 0), '14:30');
+    first.advance(clock(14, 31));
+    first.stop();
+    const again = run(clock(15, 0), '16:00');
+    again.advance(clock(16, 30));
+    expect(again.shown()).toEqual([]);
+    again.advance(new Date(2026, 9, 9, 16, 1).getTime());
+    expect(again.shown()).toEqual(['foodLog:lunch@2026-10-09T16:00']);
   });
 });

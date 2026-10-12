@@ -51,6 +51,50 @@ describe('stepsDayFigure (journey §9.6; D10, D14, D52)', () => {
       .toEqual({ kind: 'atLeast', value: 'at least 8,600', steps: 8600, source: '8,200 changed at 9:00 pm + 400 in walks after 9:00 pm' });
   });
 
+  describe('a walk across midnight: each of its parts counts on its own day, once (codex H2-03, F17)', () => {
+    const NEXT = '2026-10-09';
+    /** A walk's part: its own duration and steps, as the live screen splits a walk at midnight. */
+    const part = (id: string, start: string, steps: number, minutes: number) => [
+      newObservation({ id: `${id}d`, kind: 'walkDuration', value: minutes, unit: 'min', scope: 'sessionObserved', source: 'measured', at: start, context: 'walk:w9', coverageMs: minutes * 60_000 }),
+      newObservation({ id: `${id}s`, kind: 'steps', value: steps, unit: 'steps', scope: 'sessionObserved', source: 'measured', at: start, context: 'walk:w9', coverageMs: minutes * 60_000 }),
+    ];
+    const late = [
+      entered(1000, `${DAY}T21:00:00.000+05:30`),
+      ...part('w9a', `${DAY}T23:40:00.000+05:30`, 500, 20),
+      ...part('w9b', `${NEXT}T00:00:00.000+05:30`, 500, 20),
+    ];
+
+    it('1,000 entered, then 500 before midnight and 500 after: at least 1,500 that day, not 2,000', () => {
+      expect(stepsDayFigure(DAY, late, true))
+        .toEqual({ kind: 'atLeast', value: 'at least 1,500', steps: 1500, source: '1,000 entered at 9:00 pm + 500 in walks after 9:00 pm' });
+    });
+
+    it('the next day counts its own 500, and only those', () => {
+      expect(stepsDayFigure(NEXT, late, true)).toEqual({ kind: 'walks', value: '500', steps: 500, source: 'in FitStrong walks · day total not entered' });
+      // With its own total entered before the walk's part that day, the part is already in it.
+      expect(stepsDayFigure(NEXT, [...late, entered(800, `${NEXT}T00:30:00.000+05:30`)], true)).toMatchObject({ kind: 'entered', steps: 800 });
+    });
+
+    it('the cutoff applies to each part: a part after the total counts even when the walk began before it', () => {
+      const paused = [
+        ...part('w9a', `${DAY}T17:00:00.000+05:30`, 300, 10),
+        entered(2000, `${DAY}T17:30:00.000+05:30`),
+        ...part('w9b', `${DAY}T18:00:00.000+05:30`, 700, 15),
+      ];
+      expect(stepsDayFigure(DAY, paused, true)).toMatchObject({ kind: 'atLeast', steps: 2700 });
+    });
+
+    it('only walking adds to it: steps from another session record are not "in walks"', () => {
+      const other = newObservation({ id: 'imp', kind: 'steps', value: 900, unit: 'steps', scope: 'sessionObserved', source: 'imported', at: `${DAY}T22:00:00.000+05:30`, context: 'import:health', coverageMs: 10 * 60_000 });
+      expect(stepsDayFigure(DAY, [...late, other], true)).toMatchObject({ kind: 'atLeast', steps: 1500 });
+    });
+
+    it('overlapping records of the same time count once, by the shared rule (D10)', () => {
+      const twice = [...late, newObservation({ id: 'dup', kind: 'steps', value: 500, unit: 'steps', scope: 'sessionObserved', source: 'measured', at: `${DAY}T23:45:00.000+05:30`, context: 'walk:w8', coverageMs: 5 * 60_000 })];
+      expect(stepsDayFigure(DAY, twice, true)).toMatchObject({ kind: 'atLeast', steps: 1500 });
+    });
+  });
+
   it('nothing at all: "Not entered"', () => {
     expect(stepsDayFigure(DAY, [], true)).toEqual({ kind: 'none', source: 'Not entered' });
   });

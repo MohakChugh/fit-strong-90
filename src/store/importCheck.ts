@@ -59,7 +59,7 @@ const HABIT_SPEC: Spec = {
   lastExportSeq: num(0, Number.MAX_SAFE_INTEGER),
   lastExportVia: oneOf('share', 'download'),
   lastCheckedExportAt: text,
-  calendarExport: recordOf(oneOf(...HABITS), shape({ at: text, until: day, events: num(0, 1000), titles: listOf(text), minutes: listOf(num(0, 1439)) }, ['at', 'until', 'events', 'titles'])),
+  calendarExport: recordOf(oneOf(...HABITS), shape({ at: text, until: day, events: num(0, 1000), titles: listOf(text), minutes: listOf(num(0, 1439)), contents: listOf(text) }, ['at', 'until', 'events', 'titles'])),
 };
 
 const PAIN_AREAS = ['lowerBack', 'sciatica', 'neck', 'shoulder', 'hip', 'knee', 'hamstring', 'calf'] as const;
@@ -154,7 +154,7 @@ const SETTINGS_SPEC: Spec = {
   setup: SETUP_SPEC,
   display: shape({ reduceMotion: bool, reduceTransparency: bool, textScale: x => isTextScale(x) }),
   // Read, but never taken as this phone's answers: an import keeps this device's own (B-26, `withDeviceConsent`).
-  walk: shape({ saveRoutes: oneOf(true, false, 'unasked'), map: oneOf('on', 'off', 'unasked'), stepCardSeen: bool }, ['saveRoutes', 'map']),
+  walk: shape({ saveRoutes: oneOf(true, false, 'unasked'), map: oneOf('on', 'off', 'unasked'), stepCardSeen: bool, routesErasedAt: num(0, 8.64e15) }, ['saveRoutes', 'map']),
   // List by list: one that cannot be read must not take the others with it,
   // or an older backup could bring back what they keep deleted (D-06, R5-01).
   deleted: { observations: listOf(text), sessions: listOf(text), readings: listOf(text), records: recordOf(oneOf(...RECORD_STORES), listOf(text)) },

@@ -4,10 +4,10 @@ import { Screen } from '@/components/hig/Screen';
 import { planOffer } from '@/health/status';
 import { useStore } from '@/store/useStore';
 import { GoalSheet, StepsGoalSheet } from '@/screens/track/GoalSheet';
-import { today as todayOf } from '@/screens/track/periods';
 import { currentStepsGoal } from '@/screens/track/stepsGoal';
 import { formatNumber } from '@/screens/track/units';
 import { pendingWeeklyGoal, weeklyGoalOn } from '@/screens/track/weeklyGoal';
+import { useLocalDay } from '@/screens/today/clock';
 import { MovePlanBack } from '@/screens/today/StatusSheet';
 import { pendingLine, stepsGoalLines, weeklyGoalLines } from './goals';
 import { ProgrammeGroup } from './ProgrammeGroup';
@@ -21,8 +21,8 @@ import { ProgrammeGroup } from './ProgrammeGroup';
  */
 export function GoalsScreen() {
   const { settings } = useStore();
-  // Read once per visit, like the rest of Me's view of today.
-  const [day] = useState(() => todayOf());
+  // Today from the shared clock, a new day at midnight or on return to the app, as the goal sheet reads it (codex H4-06).
+  const { day } = useLocalDay();
   const [open, setOpen] = useState<'weekly' | 'steps'>();
   const weekly = weeklyGoalOn(settings, day);
   const pending = pendingWeeklyGoal(settings, day);

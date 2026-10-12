@@ -1,21 +1,23 @@
 import { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { CircleCheckIcon, TriangleAlertIcon } from 'lucide-react';
+import { cameFrom, markBack } from '@/components/hig/navigation';
 import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
 import { Stat } from '@/components/hig/Stat';
+import { countsFree } from '@/food/level';
 import { useGuided } from '@/hooks/useGuided';
 import { todayString } from '@/lib/utils';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { getState, removeWalk, saveWalk as saveWalkToStore, useStorageNotice, useStore } from '@/store/useStore';
 import type { Walk } from '@/walk/clock';
 import { walkSettings } from '@/walk/consent';
-import { energyText, walkEnergy } from '@/walk/energy';
+import { energyFix, energyText, walkEnergy } from '@/walk/energy';
 import { clock, spokenClock, timeOfDay } from '@/walk/format';
 import { clearWalk, draftStored, loadWalk, sessionWalkStorage, storeWalk } from '@/walk/persist';
 import { hasRecord, saveOutcome, summarise, walkObservationIds, type SaveOutcome } from '@/walk/record';
-import { draftWarning, endingLine, lowAdvice, lowStage, noRouteLine, splitRows, summaryRows, walkSpan, walkTitle } from '@/walk/readout';
+import { ROUTE_ERASED, ROUTE_LOADING, ROUTE_UNREADABLE, draftWarning, endingLine, lowAdvice, lowStage, noRouteLine, splitRows, summaryRows, walkSpan, walkTitle } from '@/walk/readout';
 import { splitsOf } from '@/walk/route';
 import { bboxOf } from '@/walk/routeRecord';
 import { walkSave } from '@/walk/save';
@@ -53,8 +55,12 @@ export function WalkSummary() {
 
   // Re-read while open after a low, so "waiting" turns into "due" on time.
   const now = useNow(walk?.endedBy === 'low', 15_000);
-  // The kept route: saved, or journalled as it was walked (journey §9.5).
-  const lines = useWalkRoute(walk?.id ?? '', walk?.plan.keepRoute === true);
+  // The kept route: saved, or journalled as it was walked (journey §9.5). Kept
+  // only while this phone says yes to keeping routes, as the save asks (H6-04).
+  const keepsRoute = walk?.plan.keepRoute === true && walkSettings(settings).saveRoutes === true;
+  // Loading, unreadable, or here (with no lines when the walk kept none), told apart (H6-06).
+  const route = useWalkRoute(walk?.id ?? '', keepsRoute);
+  const lines = route.state === 'ready' ? route.lines : undefined;
   const reduce = useReducedMotion();
 
   if (!walk) return <Navigate to="/hub/walk" replace />;
@@ -62,17 +68,33 @@ export function WalkSummary() {
 
   const summary = summarise(walk);
   // About how much energy it used, with the weight in effect then (journey §12.4, B-16, B-18).
+  // Kept with the walk at every level; counts-free never shows it (B-11, board D101).
   const energy = walkEnergy(walk, {
     observations,
     ...(profile.birthYear !== undefined ? { birthYear: profile.birthYear } : {}),
     ...(profile.weightKg > 0 ? { profileKg: profile.weightKg } : {}),
   });
-  const rows = summaryRows(walk, summary, { energy: energyText(energy.estimate, energy.weight) });
+  const rows = summaryRows(walk, summary, countsFree(profile) ? {} : { energy: energyText(energy.estimate, energy.weight) });
+  // The way to an estimate it couldn't make, where there is one (KH-13).
+  // Counts-free offers none, since its row asks for an energy estimate (B-11, board D101).
+  const fix = countsFree(profile) ? undefined : energyFix(energy.estimate);
   const box = lines ? bboxOf(lines) : undefined;
   const splits = lines ? splitRows(splitsOf(lines)) : [];
   const mapOn = walkSettings(settings).map === 'on';
   // Done returns to where the walk was started (M12).
   const origin = walk.plan.from ?? '/home';
+  /**
+   * Back to where the walk came from, through history, as the session player
+   * closes and as Back goes (M12): the entry behind this summary is the screen
+   * the walk was started on, as it was left. Pushing it again would leave this
+   * summary, gone once saved, behind that screen's Back. With nothing behind
+   * it, as after a fresh launch, the origin takes this entry's place.
+   */
+  const leave = () => {
+    markBack();
+    if (cameFrom()) navigate(-1);
+    else navigate(origin, { replace: true });
+  };
   const ending = endingLine(walk);
   const back = profile.pain.areas.includes('lowerBack') || profile.pain.areas.includes('sciatica');
   const leg = profile.pain.areas.includes('sciatica');
@@ -101,7 +123,8 @@ export function WalkSummary() {
   const saveWalk = async () => {
     setSave({ kind: 'saving' });
     // One transaction: the records, the route and the journal's retirement
-    // (journey §18.3). A retry writes only what is missing.
+    // (journey §18.3). A retry writes only what is missing. A route not in
+    // hand yet is read from the journal inside it, never left behind (H6-06).
     const result = await saveWalkToStore(walkSave(walk, { ...(lines ? { route: lines } : {}), ...(energy.input ? { energy: energy.input } : {}) }));
     // Saved only by a device that is saving; kept for now otherwise, and the
     // draft — the copy that outlives a reload — stays until it truly is.
@@ -121,10 +144,8 @@ export function WalkSummary() {
       return;
     }
     clearWalk(storage);
-    navigate(walk.plan.from ?? '/hub/walk', { replace: true });
+    leave();
   };
-
-  const done = () => navigate(origin, { viewTransition: true });
 
   return (
     <Screen title="Your walk" back={{ to: origin, label: origin === '/hub/walk' ? 'Walk' : 'Home' }}>
@@ -151,12 +172,15 @@ export function WalkSummary() {
       {lines && box ? (
         <RouteFrame walkId={walk.id} lines={lines} bbox={box} mapOn={mapOn} />
       ) : (
-        <p className="px-1 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{noRouteLine(walk.plan)}</p>
+        <p role={route.state === 'loading' || route.state === 'failed' ? 'status' : undefined} className="px-1 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
+          {route.state === 'loading' ? ROUTE_LOADING : route.state === 'failed' ? ROUTE_UNREADABLE : route.state === 'erased' ? ROUTE_ERASED : noRouteLine({ ...walk.plan, keepRoute: keepsRoute })}
+        </p>
       )}
 
       {rows.length > 0 && (
         <Group>
           {rows.map(r => <Row key={r.label} label={r.label} value={r.value} detail={r.detail} numeric />)}
+          {fix && <Row as={Link} to={fix.to} viewTransition label={fix.label} detail="In Me → Profile & health, for an energy estimate" chevron />}
         </Group>
       )}
 
@@ -202,7 +226,7 @@ export function WalkSummary() {
       </div>
 
       {saved || (save.kind === 'kept' && memoryOnly) ? (
-        <PrimaryButton onClick={done}>Done</PrimaryButton>
+        <PrimaryButton onClick={leave}>Done</PrimaryButton>
       ) : anything ? (
         <>
           <PrimaryButton onClick={() => void saveWalk()} disabled={busy}>
