@@ -190,10 +190,14 @@ export function fieldChanges(shown: SetupAnswers, patch: Partial<SetupAnswers>):
  * the earlier in Yes, Not sure, No (`stricterAnswer`); any other safety
  * answer stays as stored. Each answer not written as given is named in
  * `kept`, and its number's text isn't written either, so a page never shows
- * a number its answer isn't.
+ * a number its answer isn't. So with texts alone, typed with no answer yet:
+ * written only while the stored answer is still the one they were typed
+ * against (`baselines`, by field); another copy's answer stored meanwhile is
+ * kept, with its texts, and named (H5F-06; board D220).
  */
 export function withFields(
   data: AppData, changes: ReadonlyMap<string, FieldChange>, raw: ReadonlyMap<string, string | undefined>, at: PageId | undefined, kept: string[] = [],
+  baselines: ReadonlyMap<string, unknown> = new Map(),
 ): AppData {
   const setup = setupStateOf(data.settings, data.profile);
   // Another copy finished setup meanwhile: this copy's answers aren't stored onto it (K5R-04).
@@ -204,6 +208,9 @@ export function withFields(
     const chosen = sameValue(stored, baseline) || sameValue(stored, value) || !isSafetyField(field) ? { value } : stricterAnswer(stored, value);
     if (chosen) answers = putField(answers, field, chosen.value);
     if (!chosen || !sameValue(chosen.value, value)) kept.push(field);
+  }
+  for (const root of new Set([...raw.keys()].map(fieldRoot))) {
+    if (![...changes.keys()].some(f => fieldRoot(f) === root) && !sameValue(getField(answers, root), baselines.get(root))) kept.push(root);
   }
   const texts = withTexts(setup.draft?.raw, [...raw].filter(([key]) => !kept.some(f => fieldRoot(f) === fieldRoot(key))));
   const resume = at ?? setup.draft?.at;
@@ -217,6 +224,8 @@ export const AUTOSAVE_MS = 400;
 /** What's waiting to be stored, for the record it was made in (`StoreState.epoch`). */
 const queued = new Map<string, FieldChange>();
 const queuedRaw = new Map<string, string | undefined>();
+/** The answer each number's texts were last typed against, by its field: set with each, so never stale (H5F-06; board D220). */
+const rawBaselines = new Map<string, unknown>();
 let queuedAt: PageId | undefined;
 let queueEpoch = -1;
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -309,7 +318,10 @@ export function changeAnswers(shown: SetupAnswers, patch: Partial<SetupAnswers>,
     const waiting = q.get(field);
     q.set(field, { baseline: waiting ? waiting.baseline : getField(shown, field), value });
   }
-  for (const [key, text] of Object.entries(raw)) queuedRaw.set(key, text);
+  for (const [key, text] of Object.entries(raw)) {
+    queuedRaw.set(key, text);
+    rawBaselines.set(fieldRoot(key), getField(shown, fieldRoot(key)));
+  }
   queuedAt = at;
   changedElsewhere = false;
   queueChanged();
@@ -332,6 +344,7 @@ async function storeQueued(at: PageId | undefined): Promise<SaveOutcome> {
   clearTimeout(timer);
   const changes = new Map(queue());
   const raw = new Map(queuedRaw);
+  const baselines = new Map(rawBaselines);
   const generation = queueEpoch;
   if (current().unsaved) {
     if (at) keepInSession(at, current().answers);
@@ -342,7 +355,7 @@ async function storeQueued(at: PageId | undefined): Promise<SaveOutcome> {
   let written: SetupAnswers = {};
   const result = await update(d => {
     kept.length = 0;
-    const next = withFields(d, changes, raw, at ?? queuedAt, kept);
+    const next = withFields(d, changes, raw, at ?? queuedAt, kept, baselines);
     written = setupStateOf(next.settings, next.profile).draft?.answers ?? {};
     return next;
   }, { generation });

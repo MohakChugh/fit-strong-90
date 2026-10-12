@@ -867,6 +867,23 @@ describe('a setup page, its answers kept as they’re given (§6.1; H5-16, K5-17
     expect(router.navigate).toHaveBeenCalledWith('/home');
   });
 
+  it('a number typed after another window stored that answer shows the stored one, and says so (H5F-06; board D220)', async () => {
+    const { withC } = await import('@/setup/fixtures');
+    const { withFields } = await import('@/setup/draft');
+    expect((await store.update(d => withDraft(d, 'health.limits', withC({ bp: 'yes' }, { bpMedicine: 'no', clearance: 'none', targets: 'yes' })))).ok).toBe(true);
+    host = await page('health.limits');
+    await host.change(host.field('Top number exercise is fine up to'), { value: '150' });
+    // Another window stores 170/100 before this one's texts are stored.
+    const other = new Map([['bpPermission', { baseline: undefined, value: { sys: 170, dia: 100 } }]]);
+    expect((await store.update(d => withFields(d, other, new Map([['bpPermission.sys', '170'], ['bpPermission.dia', '100']]), undefined))).ok).toBe(true);
+    await new Promise(r => setTimeout(r, AUTOSAVE_MS + 50));
+    await host.settle();
+    // The two fields by their hints: this host gives sibling fields one id.
+    const shown = (hint: string) => host!.all().find(n => n.type === 'input' && n.props.placeholder === hint)?.props.value;
+    expect([shown('170'), shown('105')]).toEqual(['170', '100']);
+    expect(host.text()).toContain('Another window of FitStrong changed an answer at the same time, and its answer was kept.');
+  });
+
   it('a field takes no more than a backup holds: the name by its length, and allergies of the person’s own kept as typed until they fit (H5-18)', async () => {
     const { NAME_MAX } = await import('@/setup/limits');
     host = await page('about.name');

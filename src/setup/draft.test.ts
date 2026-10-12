@@ -506,6 +506,31 @@ describe('two copies, each storing only what it changed (H5R-03, H5R-14, K5R-02;
     expect(write(back('flexion'), { worseWith: ['unknown', 'extension'] })).toMatchObject({ draft: { answers: { worseWith: 'flexion' } }, kept: ['worseWith'] });
   });
 
+  it('a number typed with no answer yet, written after another copy stored one, isn’t written: the page shows that answer, and says so (H5F-06; board D220)', async () => {
+    await store.start({ factory: fakeIndexedDB() });
+    const bp = withC({ bp: 'yes' }, { bpMedicine: 'no', clearance: 'none', targets: 'yes' });
+    expect((await store.update(d => withDraft(d, 'health.limits', bp))).ok).toBe(true);
+    // Here: a top number typed, the bottom one not yet, so no answer, only the texts, both of them.
+    changeAnswers(bp, { bpPermission: undefined }, { 'bpPermission.sys': '150', 'bpPermission.dia': '' }, 'health.limits');
+    // Meanwhile, another copy stores 170/100.
+    const other = new Map([['bpPermission', { baseline: undefined, value: { sys: 170, dia: 100 } }]]);
+    expect((await store.update(d => withFields(d, other, new Map([['bpPermission.sys', '170'], ['bpPermission.dia', '100']]), undefined))).ok).toBe(true);
+    expect(await flushAnswers()).toBe('saved');
+    expect([stored()?.answers?.bpPermission, stored()?.raw]).toEqual([{ sys: 170, dia: 100 }, { 'bpPermission.sys': '170', 'bpPermission.dia': '100' }]);
+    expect(rawWithQueued(stored()?.raw)).toEqual({ 'bpPermission.sys': '170', 'bpPermission.dia': '100' });
+    expect(answersQueue().changedElsewhere).toBe(true);
+  });
+
+  it('with nothing else stored meanwhile, those texts are written as typed', async () => {
+    await store.start({ factory: fakeIndexedDB() });
+    const bp = withC({ bp: 'yes' }, { bpMedicine: 'no', clearance: 'none', targets: 'yes' });
+    expect((await store.update(d => withDraft(d, 'health.limits', bp))).ok).toBe(true);
+    changeAnswers(bp, { bpPermission: undefined }, { 'bpPermission.sys': '150', 'bpPermission.dia': '' }, 'health.limits');
+    expect(await flushAnswers()).toBe('saved');
+    expect([stored()?.answers?.bpPermission, stored()?.raw]).toEqual([undefined, { 'bpPermission.sys': '150' }]);
+    expect(answersQueue().changedElsewhere).toBe(false);
+  });
+
   it('a number whose answer wasn’t written keeps the stored text, so the page shows the answer kept', () => {
     const data = withAnswers(withC({ bp: 'yes' }, { bpMedicine: 'no', clearance: 'none', targets: 'yes', bpStopSystolic: 160 }), { bpStopSystolic: '160' });
     const { draft, kept } = write(data, { bpStopSystolic: [undefined, 180] }, { bpStopSystolic: '180' });
