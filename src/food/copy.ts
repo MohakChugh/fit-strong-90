@@ -22,6 +22,7 @@ export const FOOD_COPY = {
   allergiesToSee: 'Tell us about food allergies to see meal ideas',
   // One tap where meal ideas ask first (owner decision; Plan 5's board D194).
   noAllergies: 'No food allergies',
+  noAllergiesSaved: 'Saved: no food allergies.',
   notChosenYet: 'Not chosen yet',
   notChosenAllergies: 'Not chosen yet — meals for every pattern, without your allergies',
   logWhatYouAte: 'Log what you ate',

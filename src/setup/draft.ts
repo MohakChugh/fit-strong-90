@@ -40,6 +40,8 @@ export const FINISHED_ELSEWHERE = 'Setup was finished in another window of FitSt
 const tell = (message: string) => void import('sonner').then(({ toast }) => toast(message)).catch(() => undefined);
 
 /** Said when an answer changed here was changed in another copy at the same time, and that copy's was kept (board D190). */
+/** A "No food allergies" tap made against an allergy answer another window has since changed (H5F-07; board D221). */
+export const ALLERGIES_CHANGED = 'Your food allergies changed in another window of FitStrong, so this wasn’t saved. Check them, then try again.';
 export const CHANGED_ELSEWHERE = 'Another window of FitStrong changed an answer at the same time, and its answer was kept. Check your answers, then carry on.';
 
 /** `raw` with each text changed in `typed`: an empty one taken away. */
@@ -541,15 +543,18 @@ export async function lookAroundFirst(generation?: number): Promise<string | und
  * D194): setup's own answer, where meal ideas read it (`setupAllergyAnswer`),
  * stored as setup stores any answer: this session's while setup goes on
  * without saving, the draft's while it's unfinished, else the finished
- * answers. Nothing is written for a record another copy has since replaced.
+ * answers. Only for the record and the answer shown at the tap (`unchanged`):
+ * refused, inside its transaction, once another copy has replaced the record
+ * or changed that answer (H5F-07; board D221).
  */
-export async function answerNoAllergies(): Promise<StoreResult | undefined> {
+export async function answerNoAllergies(unchanged: (d: AppData) => boolean = () => true): Promise<StoreResult | undefined> {
   const none = (a: SetupAnswers) => putField(putField(a, 'allergies', []), 'customAllergies', undefined);
   if (current().unsaved) {
     keepInSession(current().at ?? 'food.allergies', none(current().answers));
     return undefined;
   }
   return update(d => {
+    if (!unchanged(d)) throw new StoreFailure('conflict', ALLERGIES_CHANGED);
     const setup = setupStateOf(d.settings, d.profile);
     if (setup.stage === 'done') return { ...d, settings: { ...d.settings, setup: { ...setup, answers: none(setup.answers ?? {}) } } };
     const now = setup.draft?.answers ?? prefillAnswers(d.settings, d.profile);

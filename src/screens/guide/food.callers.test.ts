@@ -31,8 +31,10 @@ vi.mock('@/components/hig/Sheet', async () => {
   return { Sheet: ({ open, children }: { open: boolean; children?: unknown }) => (open ? h('div', { role: 'dialog' }, children as never) : null) };
 });
 vi.mock('@/components/hig/navigation', async importOriginal => ({ ...await importOriginal<typeof import('@/components/hig/navigation')>(), cameFrom: () => false }));
-vi.mock('sonner', () => ({ toast: Object.assign(() => {}, { success() {}, warning() {}, error() {} }) }));
+const toasts = vi.hoisted(() => [] as string[]);
+vi.mock('sonner', () => ({ toast: Object.assign((text: string) => void toasts.push(text), { success() {}, warning() {}, error() {} }) }));
 
+const title = { focused: 0, focus() { title.focused += 1; } };
 const local = new Map<string, string>();
 globalThis.localStorage = {
   getItem: (k: string) => local.get(k) ?? null, setItem: (k: string, v: string) => void local.set(k, v),
@@ -42,7 +44,12 @@ globalThis.localStorage = {
 Object.assign(globalThis, {
   window: globalThis,
   location: { href: 'http://localhost/' },
-  document: { title: '', activeElement: null, visibilityState: 'visible', addEventListener() {}, removeEventListener() {}, documentElement: { dataset: {}, style: { setProperty() {}, removeProperty() {} } }, body: { nodeType: 1 } },
+  document: {
+    title: '', activeElement: null, visibilityState: 'visible', addEventListener() {}, removeEventListener() {}, documentElement: { dataset: {}, style: { setProperty() {}, removeProperty() {} } }, body: { nodeType: 1 },
+    // The screen's title, where focus goes once a row it was on has gone.
+    querySelector: (selector: string) => (selector === 'main h1' ? title : null),
+  },
+  requestAnimationFrame: (f: () => void) => setTimeout(f, 0),
   matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
   Element: class {}, HTMLElement: class {},
 });
@@ -223,6 +230,146 @@ describe('a food record that never answered allergies, as v1’s, asks first, wi
     await host.settle();
     expect(store.getState().settings.setup?.draft?.answers?.allergies).toEqual([]);
     expect(host.text()).toContain(MEAL);
+    host.unmount();
+  });
+});
+
+describe('a “No food allergies” tap answers only what it was shown (H5F-07, H5F-12; board D221)', () => {
+  const V1 = { pattern: 'vegetarian' as const, avoid: [], region: 'north' as const };
+  /** A record whose food, from v1, never answered allergies, nor did setup; and the store's database, for another window to write to. */
+  const v1Record = async () => {
+    store.resetForTests();
+    resetSetupSessionForTests();
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake, broadcast: null });
+    expect((await store.update(d => {
+      const done = completedSetup(d, WAITING, NOW, CTX);
+      const { allergies: _a, customAllergies: _c, ...answers } = done.settings.setup!.answers!;
+      void [_a, _c];
+      return { ...done, profile: { ...done.profile!, food: V1 }, settings: { ...done.settings, setup: { ...done.settings.setup!, answers } } };
+    })).ok).toBe(true);
+    return fake;
+  };
+  /** Another window of FitStrong writing this record, unseen here until reloaded. */
+  const elsewhere = async (fake: ReturnType<typeof fakeIndexedDB>, change: Record<string, unknown>) => {
+    const { openDb } = await import('@/store/db');
+    const { commitChange } = await import('@/store/snapshot');
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change }))).ok).toBe(true);
+    tab.close();
+  };
+  const open = async () => {
+    const { default: MealIdeasScreen } = await import('./MealIdeasScreen');
+    const host = render(createElement(MealIdeasScreen));
+    await host.settle();
+    return host;
+  };
+
+  it('a peanut allergy another window added meanwhile stays, and the tap says why it wasn’t saved', async () => {
+    const { ALLERGIES_CHANGED } = await import('@/setup/draft');
+    const fake = await v1Record();
+    const host = await open();
+    const tap = host.button('No food allergies', { exact: true });
+    await elsewhere(fake, { profile: { ...store.getState().profile!, food: { ...V1, allergies: ['peanut'] } } });
+    toasts.length = 0;
+    await host.click(tap);
+    await host.settle();
+    expect(host.text()).toContain(ALLERGIES_CHANGED);
+    expect(toasts).toEqual([]);
+    expect((await store.reload()).ok).toBe(true);
+    expect(store.getState().profile?.food?.allergies).toEqual(['peanut']);
+    host.unmount();
+  });
+
+  it('so does one in a backup restored meanwhile with Replace', async () => {
+    const { REPLACED } = await import('@/store/useStore');
+    const fake = await v1Record();
+    const host = await open();
+    const tap = host.button('No food allergies', { exact: true });
+    const s = store.getState();
+    await elsewhere(fake, { reset: true, schemaVersion: 6, settings: { replace: s.settings }, profile: { ...s.profile!, food: { ...V1, allergies: ['peanut'] } } });
+    await host.click(tap);
+    await host.settle();
+    expect(host.text()).toContain(REPLACED);
+    expect((await store.reload()).ok).toBe(true);
+    expect(store.getState().profile?.food?.allergies).toEqual(['peanut']);
+    host.unmount();
+  });
+
+  it('and setup’s waiting answer: one added there meanwhile stays', async () => {
+    const { lookedAround } = await import('@/setup/assemble');
+    const { ALLERGIES_CHANGED } = await import('@/setup/draft');
+    store.resetForTests();
+    resetSetupSessionForTests();
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake, broadcast: null });
+    expect((await store.update(lookedAround)).ok).toBe(true);
+    const host = await open();
+    const tap = host.button('No food allergies', { exact: true });
+    const s = store.getState();
+    await elsewhere(fake, { settings: { patch: { setup: { ...s.settings.setup!, draft: { at: 'food.allergies', answers: { allergies: ['peanut'] } } } } } });
+    await host.click(tap);
+    await host.settle();
+    expect(host.text()).toContain(ALLERGIES_CHANGED);
+    expect((await store.reload()).ok).toBe(true);
+    expect(store.getState().settings.setup?.draft?.answers?.allergies).toEqual(['peanut']);
+    host.unmount();
+  });
+
+  it('and own words another window typed that aren’t an answer yet stay too', async () => {
+    const { lookedAround } = await import('@/setup/assemble');
+    const { ALLERGIES_CHANGED } = await import('@/setup/draft');
+    store.resetForTests();
+    resetSetupSessionForTests();
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake, broadcast: null });
+    expect((await store.update(lookedAround)).ok).toBe(true);
+    const host = await open();
+    const tap = host.button('No food allergies', { exact: true });
+    const s = store.getState();
+    const typed = `peanut, ${'k'.repeat(61)}`;
+    await elsewhere(fake, { settings: { patch: { setup: { ...s.settings.setup!, draft: { at: 'food.allergies', answers: {}, raw: { customAllergies: typed } } } } } });
+    await host.click(tap);
+    await host.settle();
+    expect(host.text()).toContain(ALLERGIES_CHANGED);
+    expect((await store.reload()).ok).toBe(true);
+    expect(store.getState().settings.setup?.draft?.raw?.customAllergies).toBe(typed);
+    host.unmount();
+  });
+
+  it('and setup’s on a record replaced meanwhile', async () => {
+    const { lookedAround } = await import('@/setup/assemble');
+    const { REPLACED } = await import('@/store/useStore');
+    store.resetForTests();
+    resetSetupSessionForTests();
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake, broadcast: null });
+    expect((await store.update(lookedAround)).ok).toBe(true);
+    const host = await open();
+    const tap = host.button('No food allergies', { exact: true });
+    const s = store.getState();
+    await elsewhere(fake, { reset: true, schemaVersion: 6, settings: { replace: { ...s.settings, setup: { ...s.settings.setup!, draft: { at: 'food.allergies', answers: { allergies: ['peanut'] } } } } } });
+    await host.click(tap);
+    await host.settle();
+    expect(host.text()).toContain(REPLACED);
+    expect((await store.reload()).ok).toBe(true);
+    expect(store.getState().settings.setup?.draft?.answers?.allergies).toEqual(['peanut']);
+    host.unmount();
+  });
+
+  it('stored, the row goes, focus goes to the screen’s title, and it says so (H5F-12)', async () => {
+    await v1Record();
+    const { FoodScreen } = await import('@/screens/you/FoodScreen');
+    const host = render(createElement(FoodScreen));
+    await host.settle();
+    toasts.length = 0;
+    title.focused = 0;
+    await host.click(host.button('No food allergies', { exact: true }));
+    await host.settle();
+    await new Promise(r => setTimeout(r, 10));
+    expect(host.buttons('No food allergies')).toHaveLength(0);
+    expect(toasts).toEqual(['Saved: no food allergies.']);
+    expect(title.focused).toBe(1);
     host.unmount();
   });
 });

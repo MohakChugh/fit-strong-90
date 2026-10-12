@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
 import { ArrowUpRightIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import {
@@ -170,12 +171,23 @@ export function Lead({ children }: { children: ReactNode }) {
   return <p className="-mt-2 px-1 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{children}</p>;
 }
 
-/** "No food allergies", one tap where meal ideas ask first (owner decision; Plan 5's board D194), saying so if it isn't stored. */
+/**
+ * "No food allergies", one tap where meal ideas ask first (owner decision;
+ * Plan 5's board D194), for the answer on screen at the tap (board D221),
+ * saying so if it isn't stored. Stored, the row goes: focus goes to the
+ * screen's title, and that it's saved is said (H5F-12).
+ */
 export function NoAllergiesRow() {
   const [problem, setProblem] = useState<string>();
+  const tap = () => void saveNoAllergies().then(failed => {
+    setProblem(failed);
+    if (failed !== undefined) return;
+    toast(FOOD_COPY.noAllergiesSaved);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('main h1')?.focus({ preventScroll: true }));
+  });
   return (
     <>
-      <Row onClick={() => void saveNoAllergies().then(setProblem)} label={FOOD_COPY.noAllergies} />
+      <Row onClick={tap} label={FOOD_COPY.noAllergies} />
       {problem && <p role="alert" className="px-4 py-3 text-[length:var(--text-subhead)] leading-snug text-stop">That did not save. {problem}</p>}
     </>
   );

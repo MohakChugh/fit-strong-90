@@ -1,8 +1,11 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { contextFromProfile, type GuideContext } from '@/content';
-import { allergyAnswer, type AllergyAnswer } from '@/food/allergens';
-import { answerNoAllergies, useSetupSession } from '@/setup/draft';
+import { allergyAnswer, setupAllergyAnswer, type AllergyAnswer } from '@/food/allergens';
+import { ALLERGIES_CHANGED, answerNoAllergies, useSetupSession } from '@/setup/draft';
+import { StoreFailure } from '@/store/db';
+import { sameValue } from '@/store/transfer';
 import { getState, setProfile, update, useStore } from '@/store/useStore';
+import type { AppData } from '@/types';
 import type { FoodPreferences } from '@/types/profile';
 
 /**
@@ -49,14 +52,24 @@ export function useGuide(): Guide {
   return { ctx, food, ...(allergies ? { allergies, filter: food ?? allergies } : {}), canSaveFood: profile !== undefined };
 }
 
+/** The allergy answer as a screen shows it: the food record's, setup's, and its own words as typed (board D221). */
+export const allergiesShown = (d: Pick<AppData, 'profile' | 'settings'>): unknown[] =>
+  [d.profile?.food?.allergies, d.profile?.food?.customAllergies, setupAllergyAnswer(d.settings.setup), d.settings.setup?.draft?.raw?.customAllergies];
+
 /**
  * "No food allergies", in one tap, where meal ideas ask first (owner
  * decision; Plan 5's board D194): into the food record, or this visit's
  * choices with no profile, or with no record at all, into the answer setup
- * keeps for one (`answerNoAllergies`). Returns the message to show when the
- * device refused the write.
+ * keeps for one (`answerNoAllergies`). Only over the answer it was shown:
+ * refused, inside its transaction, once another copy has replaced the record
+ * or changed its allergies (H5F-07; board D221). Returns the message to show
+ * when it wasn't stored.
  */
 export async function saveNoAllergies(): Promise<string | undefined> {
+  // What the person was shown at the tap: the record, and its allergy answer.
+  const generation = getState().epoch;
+  const shown = allergiesShown(getState());
+  const unchanged = (d: AppData) => sameValue(allergiesShown(d), shown);
   const none = <T extends Partial<FoodPreferences>>(food: T): T => {
     const next = { ...food, allergies: [] };
     delete next.customAllergies;
@@ -68,8 +81,11 @@ export async function saveNoAllergies(): Promise<string | undefined> {
     return undefined;
   }
   const result = getState().profile?.food
-    ? await update(d => (d.profile?.food ? { ...d, profile: { ...d.profile, food: none(d.profile.food) } } : d))
-    : await answerNoAllergies();
+    ? await update(d => {
+      if (!unchanged(d)) throw new StoreFailure('conflict', ALLERGIES_CHANGED);
+      return d.profile?.food ? { ...d, profile: { ...d.profile, food: none(d.profile.food) } } : d;
+    }, { generation })
+    : await answerNoAllergies(unchanged);
   return result && !result.ok ? result.failure.message : undefined;
 }
 
