@@ -11,12 +11,14 @@
 import { walkingHeldForFeet } from '@/categories';
 import { defaultStartLabel, headline } from '@/components/checkin/copy';
 import { PERMISSION_TEXT, type Mode, type Permission } from '@/engine/permission';
+import { STOP_UNANSWERED } from '@/engine/readiness';
 import { HREF, type Gate } from '@/health/recommend';
 import type { Status } from '@/health/status';
 import type { UserSettings } from '@/types';
 import type { SessionPlan, StretchFocus } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import { checkInOnly, type TileLine } from '@/screens/home/tileLine';
+import { STALE_AFTER_MS } from '@/walk/clock';
 import { startLabelFor } from '@/screens/today/model';
 
 export type HubActionKind =
@@ -25,7 +27,9 @@ export type HubActionKind =
   /** Walk: the walk still on this device, carried on (a restart, through the gate), reviewed and saved, or ended there and reviewed. */
   | 'carryOn' | 'saveWalk' | 'finishWalk'
   /** Stretch: back to the area and length, when the builder can't make this routine today. */
-  | 'chooseRoutine';
+  | 'chooseRoutine'
+  /** An unanswered "I need to stop": the shared stop questions (journey §4.4, K6R-03). */
+  | 'sayWhatHappened';
 
 export interface HubAction {
   kind: HubActionKind;
@@ -95,6 +99,9 @@ export interface CardInput {
 }
 
 const REVIEW: HubAction = { kind: 'review', label: 'Review today’s check-in' };
+/** The stop's own questions, wherever a stop is still unanswered (K6R-03, board D173). */
+const SAY_WHAT_HAPPENED: HubAction = { kind: 'sayWhatHappened', label: 'Say what happened' };
+const stopUnanswered = (p: Permission) => p.reasons.includes(STOP_UNANSWERED.reason);
 const PAUSED: Record<'away' | 'unwell', string> = { away: 'Paused while you’re away', unwell: 'Paused while you’re unwell' };
 const NOUN: Record<Mode, string> = { guided: 'session', stretch: 'stretch', walk: 'walk' };
 
@@ -114,6 +121,10 @@ export function movementCard(i: CardInput): HubCard {
 
   if (i.gate === 'emergency' || i.gate === 'today') {
     return { ...empty, ...refusal, state: 'stopped', tone: 'stop', title: headline(p).title, secondary: [REVIEW] };
+  }
+  // An unanswered stop is a stop too: before the status, its own questions (K6R-02, K6R-03).
+  if (stopUnanswered(p)) {
+    return { ...empty, ...refusal, state: 'held', tone: 'caution', title: headline(p).title, primary: SAY_WHAT_HAPPENED, secondary: [REVIEW] };
   }
   if (i.status === 'away' || i.status === 'unwell') {
     return {
@@ -197,6 +208,8 @@ export interface PendingWalkInput {
   state: 'inProgress' | 'unsaved';
   /** When it started, as the clock reads it: "9:00 am". */
   started: string;
+  /** Away longer than a walk is carried on (`leftOpen`): coming back would only finish it as left open. */
+  leftOpen?: boolean;
   permission: Permission;
   gate: Gate;
   status: Status;
@@ -209,6 +222,7 @@ const SAVE_WALK: HubAction = { kind: 'saveWalk', label: 'Review and save' };
 const FINISH_WALK: HubAction = { kind: 'finishWalk', label: 'Review and save' };
 const CHANGE_STATUS: HubAction = { kind: 'status', label: 'Change status' };
 const KEPT = 'Nothing has been recorded since the walk screen closed. Save what was recorded, or discard it.';
+const LEFT_OPEN = `After more than ${STALE_AFTER_MS / 3_600_000} hours away, a walk isn’t carried on. Save what was recorded, or discard it.`;
 
 /**
  * The Walk hub's card while a walk is still on this device, before any new
@@ -233,6 +247,10 @@ export function pendingWalkCard(i: PendingWalkInput): HubCard {
   const carryOn = resumeAllowed(i.status, 'walk');
   if (i.gate === 'emergency' || i.gate === 'today') {
     return { ...empty, ...refusal, state: 'stopped', tone: 'stop', title: headline(p).title, detail: started, primary: FINISH_WALK, secondary: carryOn ? [REVIEW] : [] };
+  }
+  // An unanswered stop, before the status: its own questions, and the walk kept to save (K6R-03).
+  if (stopUnanswered(p)) {
+    return { ...empty, ...refusal, state: 'held', tone: 'caution', title: headline(p).title, detail: started, primary: SAY_WHAT_HAPPENED, secondary: [FINISH_WALK] };
   }
   if (i.status === 'away' || i.status === 'unwell') {
     const why = `A walk isn’t carried on while you’re ${i.status}.`;
@@ -259,6 +277,10 @@ export function pendingWalkCard(i: PendingWalkInput): HubCard {
       secondary: [i.gate === 'recheck' ? { kind: 'review', label: 'Enter a new reading' } : REVIEW],
     };
   }
+  // Away longer than the live screen carries a walk on: Return to walk would only land on "left open" (board D184).
+  if (i.leftOpen) {
+    return { ...empty, state: 'unsaved', tone: 'normal', title: 'A walk was left open', detail: started, note: LEFT_OPEN, primary: FINISH_WALK };
+  }
   return {
     ...empty, state: 'resume', tone: 'normal', title: 'A walk is in progress', detail: `${started}. Nothing is recorded while the walk screen is closed.`,
     primary: { kind: 'carryOn', label: 'Return to walk' },
@@ -271,6 +293,8 @@ export type ActionTarget =
   | { via: 'gate'; mode: Mode; href: string; label: string }
   | { via: 'go'; to: string }
   | { via: 'status' }
+  /** The shared stop questions (K6R-03). */
+  | { via: 'stop' }
   | { via: 'local' };
 
 export interface ActionContext {
@@ -319,6 +343,8 @@ export function actionTarget(kind: HubActionKind, c: ActionContext): ActionTarge
       return { via: 'gate', mode: c.mode, href: c.resumeHref ?? c.href, label: 'Carry on walking' };
     case 'saveWalk':
       return { via: 'go', to: '/walk/summary' };
+    case 'sayWhatHappened':
+      return { via: 'stop' };
   }
 }
 
@@ -328,10 +354,13 @@ export function runAction(t: ActionTarget, fx: {
   go: (to: string) => void;
   status: () => void;
   local: () => void;
+  /** Open the shared stop questions. */
+  stop: () => void;
 }): void {
   if (t.via === 'gate') fx.start(t.mode, t.href, t.label);
   else if (t.via === 'go') fx.go(t.to);
   else if (t.via === 'status') fx.status();
+  else if (t.via === 'stop') fx.stop();
   else fx.local();
 }
 

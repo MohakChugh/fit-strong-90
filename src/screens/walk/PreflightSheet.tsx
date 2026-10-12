@@ -42,13 +42,15 @@ export function PreflightSheet({ stage, onAnswer, onCheckIn, onClose }: {
       ) : page === 'keepRoute' ? (
         <div className="flex flex-col gap-3">
           <p className={TEXT}>{CONSENT.keepRoute.detail}</p>
-          <PrimaryButton onClick={() => onAnswer({ page, keep: true })}>{CONSENT.keepRoute.yes}</PrimaryButton>
+          {/* Both answers the same weight: neither is the one to tap without reading (§24, K6R-06). */}
+          <SecondaryButton onClick={() => onAnswer({ page, keep: true })}>{CONSENT.keepRoute.yes}</SecondaryButton>
           <SecondaryButton onClick={() => onAnswer({ page, keep: false })}>{CONSENT.keepRoute.no}</SecondaryButton>
         </div>
       ) : page === 'mapPictures' ? (
         <div className="flex flex-col gap-3">
           <p className={TEXT}>{CONSENT.mapPictures.detail}</p>
-          <PrimaryButton onClick={() => onAnswer({ page, show: true })}>{CONSENT.mapPictures.yes}</PrimaryButton>
+          {/* Map privacy is off until chosen, and neither answer leans (§24, K6R-06). */}
+          <SecondaryButton onClick={() => onAnswer({ page, show: true })}>{CONSENT.mapPictures.yes}</SecondaryButton>
           <SecondaryButton onClick={() => onAnswer({ page, show: false })}>{CONSENT.mapPictures.no}</SecondaryButton>
         </div>
       ) : page === 'stepCard' ? (

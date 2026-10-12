@@ -4,10 +4,13 @@ import {
   accrueOpen,
   addGapTime,
   CLOCK_JUMP_MS,
+  clockChangeDays,
   daysAround,
   finishWalk,
   heartbeat,
+  lastSeen,
   leaveWalk,
+  leftOpen,
   nextMidnight,
   observedMs,
   openSegment,
@@ -16,6 +19,7 @@ import {
   restoreWalk,
   resumeWalk,
   returnToWalk,
+  sameClockChange,
   splitAtClockChange,
   splitAtMidnight,
   splitAtOffsetChange,
@@ -152,6 +156,28 @@ describe('a walk left too long', () => {
   });
 });
 
+describe('when a walk is left open, as the Walk hub reads it (board D184)', () => {
+  /** What coming back at `now` does to `walk`, as the live screen does it: restored, then returned to. */
+  const comesBack = (walk: Walk, now: number) => returnToWalk(restoreWalk(walk, now), now).walk;
+
+  it('says so exactly when coming back would finish it as left open, for a walk away, paused or still marked recording', () => {
+    const away = leaveWalk(walkFor(), s(1200), 'left');
+    const paused = pauseWalk(walkFor(), s(600));
+    const recording = heartbeat(walkFor(), s(900));
+    // Read back after the clock went back: away from the earlier moment, its last heartbeat later.
+    const setBack = restoreWalk(recording, s(800));
+    const cases = [['away', away, s(1200)], ['paused', paused, s(600)], ['recording', recording, s(900)], ['restored after the clock went back', setBack, s(800)]] as const;
+    for (const [name, walk, since] of cases) {
+      expect(lastSeen(walk), name).toBe(since);
+      for (const now of [since + STALE_AFTER_MS, since + STALE_AFTER_MS + 1]) {
+        expect(leftOpen(lastSeen(walk), now), `${name} at +${now - since}`).toBe(comesBack(walk, now).status === 'finished');
+      }
+      expect(leftOpen(lastSeen(walk), since + STALE_AFTER_MS), name).toBe(false);
+      expect(leftOpen(lastSeen(walk), since + STALE_AFTER_MS + 1), name).toBe(true);
+    }
+  });
+});
+
 describe('after a reload', () => {
   it('ends a running segment at the last moment the screen was seen', () => {
     let w = walkFor();
@@ -203,6 +229,19 @@ describe('the open segment', () => {
   });
 });
 
+describe('the days a walk’s change to the clock leaves untimed (H6F-03, board D189)', () => {
+  it('are those either side of the change by both clocks, though the clock was set days back', () => {
+    const w = walkFor();
+    const cut = { ...w.segments[0], end: s(600), endedBy: 'clockChange' as const };
+    const back = s(600) - 3 * 86_400_000;
+    const days = clockChangeDays({ ...w, clockChangedAt: back, segments: [cut] });
+    expect(days).toContain(toDateString(new Date(s(600))));
+    expect(days).toContain(toDateString(new Date(back)));
+    // With no segment cut at a change, around the change itself.
+    expect(clockChangeDays({ ...w, clockChangedAt: back })).toEqual(daysAround(back));
+  });
+});
+
 describe('time under a changed clock (B-19)', () => {
   it('counts the monotonic step, never the device clock’s, while the two agree (H6-09)', () => {
     expect(stepOf({ wall: s(0), mono: 0 }, { wall: s(1), mono: 1000 })).toEqual({ ms: 1000, jumped: false });
@@ -223,14 +262,12 @@ describe('time under a changed clock (B-19)', () => {
     expect(stepOf({ wall: s(0), mono: 5000 }, { wall: s(1), mono: 4000 })).toEqual({ ms: 0, jumped: false });
   });
 
-  it('keeps every reading the device knew at each change, by identity (H6-02)', () => {
-    let w = splitAtClockChange(accrueOpen(walkFor(), 60_000, s(60)), s(3600), 1000, ['g:a']);
-    expect(w.untimedReadings).toEqual(['g:a']);
-    // A reading taken between two changes was timed by a clock that moved again.
-    w = splitAtClockChange(accrueOpen(w, 60_000, s(3660)), s(7200), 1000, ['g:a', 'g:b']);
-    expect(w.untimedReadings).toEqual(['g:a', 'g:b']);
-    w = splitAtClockChange(accrueOpen(w, 60_000, s(7260)), s(9000), 1000);
-    expect(w.untimedReadings).toEqual(['g:a', 'g:b']);
+  it('leaves which readings each change left untimed to the device, which keeps every change (H6-02, H6R-02, board D174)', () => {
+    let w = splitAtClockChange(accrueOpen(walkFor(), 60_000, s(60)), s(3600), 1000);
+    // A reading taken between two changes was timed by a clock that moved again: the device's generation says so (gate.test).
+    w = splitAtClockChange(accrueOpen(w, 60_000, s(3660)), s(7200), 1000);
+    expect(w.untimedReadings).toBeUndefined();
+    expect(w.clockChangedAt).toBe(s(7200));
   });
 
   it('looks for those readings on the days either side of both clocks', () => {
@@ -278,6 +315,36 @@ describe('time under a changed clock (B-19)', () => {
   });
 });
 
+describe('one change to the clock, told apart from another by its own observation (B-19, H6F-04, board D187)', () => {
+  const MIN = 60_000;
+  /** Seen between monotonic `from` and `to` (ms), the clock reading `before` then `after` minutes off its usual place. */
+  const seen = (from: number, to: number, before: number, after: number) => ({
+    from: { wall: T + from + before * MIN, mono: from },
+    to: { wall: T + to + after * MIN, mono: to },
+  });
+  // Set back 20 minutes at monotonic 30 s, as a walk sees it in one second.
+  const walk = seen(29_000, 30_000, 0, -20);
+
+  it('is the same change seen over a span around it, to the same place, the same way and by as much', () => {
+    expect(sameClockChange(walk, seen(0, 60_000, 0, -20))).toBe(true);
+    expect(sameClockChange(seen(0, 60_000, 0, -20), walk)).toBe(true);
+    // A little drift either way is still that change.
+    expect(sameClockChange(walk, seen(0, 60_000, 0.5, -19.5))).toBe(true);
+  });
+
+  it('is another change over a span that doesn’t overlap, or one the other way, or by another amount, or to another place', () => {
+    // The same again, ten minutes later.
+    expect(sameClockChange(walk, seen(659_000, 660_000, -20, -40))).toBe(false);
+    expect(sameClockChange(walk, seen(30_000, 31_000, 0, -20))).toBe(false);
+    // To the same place, but set forward from 40 minutes back.
+    expect(sameClockChange(walk, seen(0, 60_000, -40, -20))).toBe(false);
+    // To the same place, from 20 minutes ahead: by 40.
+    expect(sameClockChange(walk, seen(0, 60_000, 20, -20))).toBe(false);
+    // The same way and by as much, from 10 minutes ahead: to another place.
+    expect(sameClockChange(walk, seen(0, 60_000, 10, -10))).toBe(false);
+  });
+});
+
 describe('a change of time zone mid-walk (H6-10)', () => {
   // The phone's zone, as `getTimezoneOffset` reports it: minutes west of UTC.
   let zone: MockInstance<() => number>;
@@ -321,4 +388,28 @@ describe('a change of time zone mid-walk (H6-10)', () => {
     zone.mockReturnValue(-390);
     expect(startWalk('abc-123', PLAN, START).segments[0]).toMatchObject({ day: '2026-10-09', offsetMin: 390 });
   });
+
+  it('finds midnight in the offset the segment was recorded in, and starts the new offset only at the change (H6R-12)', () => {
+    // 9:30 pm in Paris in winter (UTC+1); at 10:30 pm the phone is set to UTC+3, where it is already half past midnight.
+    zone.mockReturnValue(-60);
+    const start = Date.UTC(2026, 10, 1, 20, 30);
+    let w = accrueOpen(startWalk('abc-123', PLAN, start), 3_600_000, start + 3_600_000);
+    zone.mockReturnValue(-180);
+    // As the live walk does: midnight first, then the offset.
+    w = splitAtOffsetChange(splitAtMidnight(w, start + 3_600_000), start + 3_600_000);
+    expect(w.segments.map(x => [x.endedBy, x.day, x.offsetMin, x.accruedMs])).toEqual([
+      ['timeZone', '2026-11-01', 60, 3_600_000],
+      [undefined, '2026-11-02', 180, 0],
+    ]);
+    // A walk through its own midnight before a change is seen, here to New York, keeps its offset and its day across midnight.
+    zone.mockReturnValue(-60);
+    let night = accrueOpen(startWalk('abc-124', PLAN, Date.UTC(2026, 10, 1, 22, 50)), 1_200_000, Date.UTC(2026, 10, 1, 23, 10));
+    zone.mockReturnValue(300);
+    night = splitAtMidnight(night, Date.UTC(2026, 10, 1, 23, 10));
+    expect(night.segments.map(x => [x.endedBy, x.day, x.offsetMin, x.accruedMs])).toEqual([
+      ['midnight', '2026-11-01', 60, 600_000],
+      [undefined, '2026-11-02', 60, 600_000],
+    ]);
+  });
+
 });

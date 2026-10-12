@@ -154,7 +154,11 @@ const SETTINGS_SPEC: Spec = {
   setup: SETUP_SPEC,
   display: shape({ reduceMotion: bool, reduceTransparency: bool, textScale: x => isTextScale(x) }),
   // Read, but never taken as this phone's answers: an import keeps this device's own (B-26, `withDeviceConsent`).
-  walk: shape({ saveRoutes: oneOf(true, false, 'unasked'), map: oneOf('on', 'off', 'unasked'), stepCardSeen: bool, routesErasedAt: num(0, 8.64e15) }, ['saveRoutes', 'map']),
+  walk: shape({
+    saveRoutes: oneOf(true, false, 'unasked'), map: oneOf('on', 'off', 'unasked'), stepCardSeen: bool,
+    erased: shape({ generation: num(0, Number.MAX_SAFE_INTEGER), walks: listOf(text) }, ['generation', 'walks']),
+    clock: shape({ generation: num(0, Number.MAX_SAFE_INTEGER), days: listOf(day) }, ['generation', 'days']),
+  }, ['saveRoutes', 'map']),
   // List by list: one that cannot be read must not take the others with it,
   // or an older backup could bring back what they keep deleted (D-06, R5-01).
   deleted: { observations: listOf(text), sessions: listOf(text), readings: listOf(text), records: recordOf(oneOf(...RECORD_STORES), listOf(text)) },

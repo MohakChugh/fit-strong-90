@@ -34,7 +34,7 @@
 import { useSyncExternalStore } from 'react';
 import { CURRENT_VERSION, migrateData, resetData } from '@/services/storage';
 import type { AppData, BodyMetric, PersonalRecord, UserSettings, WorkoutSession } from '@/types';
-import type { CheckInRecord } from '@/types/checkin';
+import type { CheckInRecord, ClockHold } from '@/types/checkin';
 import type { DayFocus } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import {
@@ -55,8 +55,10 @@ import {
   type ObservationTag,
 } from '@/health/observation';
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
-import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult } from './db';
-import { parseJournalEntry, type JournalEntry } from '@/walk/journal';
+import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult, type TxHandle } from './db';
+import { parseJournalEntry, withJournalled, type JournalEntry } from '@/walk/journal';
+import { sameClockChange, type ClockSeen } from '@/walk/clock';
+import { clockGeneration, erasedGeneration, routeErased, walkSettings, withClockChange, withErase, withPendingClock, type WalkSettings } from '@/walk/consent';
 import { routeRecord, type RouteRecord } from '@/walk/routeRecord';
 import type { WalkInput } from '@/walk/record';
 import { SCHEMA_VERSION, giveSnapshots, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
@@ -108,6 +110,13 @@ export interface StoreState {
   saving: boolean;
   /** Running as an installed web app; `undefined` when the browser cannot say. */
   installed?: boolean;
+  /**
+   * B-19: the clock hold every gate reads (`settings.walk.clock`), with any
+   * change seen here that the device has not stored yet: held from the
+   * moment it is seen, and released by nothing until it is (H6F-02, board
+   * D188). A reading is stamped by what is stored (`acquisitionStamp`).
+   */
+  clockHold?: ClockHold;
   /**
    * The revision of what is stored, as far as this copy knows. It moves with
    * every commit of anything — a reading, a backdated session, a profile or
@@ -179,6 +188,8 @@ let channel: BroadcastLike | undefined;
 let detachVisibility: (() => void) | undefined;
 /** Bumped by `resetForTests`, so a commit still in flight from an earlier test cannot touch the next one. */
 let generation = 0;
+/** B-19: the days of each change to the clock seen here and not yet stored, held meanwhile (`markClockChange`, H6F-02). */
+let clockPending: (readonly string[])[] = [];
 
 interface Planned<T> {
   /** `null`: nothing to do, and nothing is written. */
@@ -240,6 +251,7 @@ function toState(s: Snapshot): StoreState {
     persisted,
     saving: jobs.some(j => j.kind === 'mutation'),
     installed,
+    clockHold: withPendingClock(settingsOf(s.settings).walk?.clock, clockPending),
     revision: committed.revision,
     epoch: s.generation,
   };
@@ -577,6 +589,31 @@ async function boot(options: StartOptions): Promise<void> {
   coordinate(options);
   recompute();
   publish();
+  convertLegacyErase();
+}
+
+/**
+ * B-05: an erase made before board D176 kept only when it ran
+ * (`routesErasedAt`) and, as deleted, the routes it took. As the app starts,
+ * it becomes this phone's erase record, conservatively: every route of a walk
+ * begun by then (never later than now, so a clock that was ahead drops no
+ * walk recorded since) and every route deleted here, by name. Until that is
+ * stored, the old marker is read as it is (H6F-07, board D210).
+ */
+function convertLegacyErase(): void {
+  const legacy = (s: Snapshot) => (s.settings?.walk as { routesErasedAt?: unknown } | undefined)?.routesErasedAt;
+  if (typeof legacy(committed) !== 'number') return;
+  void enqueue<void>({
+    plan: base => {
+      const at = legacy(base);
+      if (typeof at !== 'number') return { change: null, result: () => undefined };
+      const { routesErasedAt: _old, ...walk } = walkSettings(base.settings ?? {}) as WalkSettings & { routesErasedAt?: number };
+      void _old;
+      const before = Math.max(walk.erased?.before ?? -Infinity, Math.min(at, Date.now()));
+      const walks = [...new Set([...(walk.erased?.walks ?? []), ...(base.settings?.deleted?.records?.routes ?? [])])].sort();
+      return { change: { settings: { patch: { walk: { ...walk, erased: { generation: erasedGeneration(walk), walks, before } } } } }, result: () => undefined };
+    },
+  });
 }
 
 /**
@@ -663,6 +700,8 @@ export function resetForTests(): void {
   persisted = false;
   installed = undefined;
   listeners.clear();
+  clockSeen = [];
+  clockPending = [];
   state = toState(view);
 }
 
@@ -1050,6 +1089,19 @@ export function setSettings(patch: Partial<UserSettings>): Promise<StoreResult> 
   return enqueue<void>({ plan: () => ({ change: { settings: { patch: set as Partial<UserSettings>, unset } }, result: () => undefined }) });
 }
 
+/**
+ * Change this phone's own walk answers, field by field, against the walk
+ * settings the transaction finds (H6R-07, board D176): an answer given from
+ * a screen opened before another tab erased routes, or changed the other
+ * answer, never takes either back. `undefined` leaves a field as it is.
+ */
+export function setWalkSettings(patch: Partial<Pick<WalkSettings, 'saveRoutes' | 'map' | 'stepCardSeen'>>): Promise<StoreResult> {
+  const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+  return enqueue<void>({
+    plan: base => ({ change: { settings: { patch: { walk: { ...walkSettings(base.settings ?? {}), ...given } } } }, result: () => undefined }),
+  });
+}
+
 export function setProfile(profile: UserProfile): Promise<StoreResult> {
   return enqueue<void>({ plan: () => ({ change: { profile }, result: () => undefined }) });
 }
@@ -1206,12 +1258,28 @@ export function writeRecords(write: RecordsWrite | ((records: Readonly<Records>)
 /**
  * A walk's recovery checkpoint, written straight to the journal store: outside
  * the record, so it moves no revision and reaches no other tab or backup.
- * Nothing is kept while storage is unavailable.
+ * Nothing is kept while storage is unavailable. Its route goes in only on
+ * this phone's yes and for a walk no "Erase all routes" has erased, both as
+ * stored, read in the write's own transaction: a checkpoint from a tab that
+ * hasn't heard yet never writes coordinates back (H6R-06, board D176).
  */
-export function putWalkJournal(entry: JournalEntry): Promise<StoreResult> {
+export function putWalkJournal(entry: JournalEntry, options: { keepJournalled?: boolean } = {}): Promise<StoreResult<JournalEntry>> {
   const handle = db;
   if (!handle) return Promise.resolve({ ok: false, failure: unavailableFailure() });
-  return handle.transact(tx => tx.put(JOURNAL_STORE, entry));
+  /** What the transaction stored, which the page's copy takes once it is (H6F-08). */
+  let written = entry;
+  const put = (tx: TxHandle, e: JournalEntry) => { written = e; tx.put(JOURNAL_STORE, e); };
+  return handle.transact(tx => {
+    if (!entry.route) return put(tx, entry);
+    tx.get('settings', 'settings', row => {
+      const walk = ((row as Doc | undefined)?.value as UserSettings | undefined)?.walk;
+      const keeps = walk?.saveRoutes === true && !routeErased(walk, entry.id, entry.walk.plan, entry.walk.startedAt);
+      if (!keeps) return put(tx, (({ route: _gone, ...rest }) => { void _gone; return rest; })(entry));
+      if (!options.keepJournalled) return put(tx, entry);
+      // A page still reading the route back: the lines held stay beside what it walked since (H6R-10).
+      tx.get(JOURNAL_STORE, entry.id, stored => put(tx, { ...entry, route: withJournalled(parseJournalEntry(stored)?.route, entry.route)! }));
+    });
+  }).then(result => (result.ok ? { ok: true, value: written } : result));
 }
 
 /** Every readable checkpoint on this device. One that can't be read is left out, never guessed. */
@@ -1247,6 +1315,8 @@ export interface SaveWalkInput {
    * journal is retired with the save.
    */
   routeStartedAt?: string;
+  /** The erase generation the walk began in (`WalkPlan.routeGen`): an "Erase all routes" since, and no route is kept (B-05). */
+  routeGen?: number;
 }
 
 /** The route a walk's journal entry holds, as the routes store keeps it, or nothing. */
@@ -1262,18 +1332,23 @@ function journalRoute(raw: unknown, walkId: string, startedAt: string): RouteRec
  */
 export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
   const fixed = input.observations.map(o => ({ ...o, at: o.at ?? nowAt() }));
-  const fromJournal = !input.route && input.routeStartedAt !== undefined;
+  const startedAt = input.route?.startedAt ?? input.routeStartedAt;
   return enqueue<void>({
-    ...(fromJournal ? { journal: [input.walkId] } : {}),
+    ...(startedAt !== undefined ? { journal: [input.walkId] } : {}),
     plan: (base, read) => {
       const wanted = new Set(fixed.map(o => o.id));
       const held = new Set(base.observations.filter(o => wanted.has(o.id)).map(o => o.id));
       const records = fixed.filter(o => !held.has(o.id)).map(o => newObservation(o));
-      // The screen's route, or the journal's, read in this transaction.
-      const given = input.route ?? (fromJournal && read ? journalRoute(read.journal[input.walkId], input.walkId, input.routeStartedAt!) : undefined);
-      // Never a route of a walk that began before the last "Erase all routes", whichever screen saves it (B-05).
-      const erasedAt = base.settings?.walk?.routesErasedAt;
-      const erased = given !== undefined && erasedAt !== undefined && !(Date.parse(given.startedAt) > erasedAt);
+      // The screen's route with the journal's, read in this transaction: a screen that never read
+      // back the route walked before a reload saves both, as does one that has none (H6-06, H6R-10).
+      const journalled = startedAt !== undefined && read ? journalRoute(read.journal[input.walkId], input.walkId, startedAt) : undefined;
+      const lines = withJournalled(journalled?.segments, input.route?.segments);
+      const given = lines && startedAt !== undefined ? routeRecord(input.walkId, startedAt, lines) : undefined;
+      // Never a route of a walk an "Erase all routes" erased, whichever screen saves it: by this
+      // phone's own count of erases and the walk's id, never its clock (B-05, K6R-12, board D176),
+      // or one an erase made before board D176 erased, by when it began (H6F-07, board D210).
+      const erased = given !== undefined
+        && routeErased(base.settings?.walk, input.walkId, { ...(input.routeGen !== undefined ? { routeGen: input.routeGen } : {}) }, Date.parse(given.startedAt));
       let route: StoredRecord | undefined;
       // Kept only on this phone's yes, as it is when the walk is saved, whatever the walk was given (H6-04).
       if (given && !erased && base.settings?.walk?.saveRoutes === true) {
@@ -1297,33 +1372,92 @@ export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
  * B-05: every route on this device erased for good, in one transaction: the
  * saved routes (remembered as deleted, so no merge brings them back), the
  * route in every walk journal, read and rewritten inside the same
- * transaction so no checkpoint slips between, and, through
- * `routesErasedAt`, which every tab's live walk watches, the route a walk is
- * recording now. From then on no route of a walk that began before it is
- * kept, by a save or an import. The walks stay. Deletion records hold ids
- * only in this build (D-06); Plan 8 clears its payloads here when it adds
- * them (D93).
+ * transaction so no checkpoint slips between, and, through this phone's
+ * count of erases (`settings.walk.erased`), which every tab's live walk
+ * watches, the route a walk is recording now. From then on no route of a
+ * walk that began before it is kept, by a save, a checkpoint or an import:
+ * by that count and the routes' walk ids, never the clock (H6R-08, K6R-12,
+ * board D176). The walks stay. Deletion records hold ids only in this build
+ * (D-06); Plan 8 clears its payloads here when it adds them (D93).
  */
 export function eraseRoutes(): Promise<StoreResult> {
-  const at = Date.now();
   return enqueue<void>({
+    // Shown only once stored: every tab forgets its routes on seeing it, which a failed erase must not set off (H6R-09).
+    hold: true,
     journal: 'all',
     plan: (base, read) => {
       const keys = base.records.routes.map(r => recordKey('routes', r));
       const stripped = Object.values(read?.journal ?? {})
         .filter((e): e is { id: string; route?: unknown } => typeof e === 'object' && e !== null && 'route' in e && typeof (e as { id?: unknown }).id === 'string')
         .map(({ route: _erased, ...rest }) => { void _erased; return rest; });
-      const walk = base.settings?.walk ?? { saveRoutes: 'unasked' as const, map: 'unasked' as const };
+      // Every route by name, saved, deleted before or journalled, and the count of erases moved on (H6R-08).
+      const journals = Object.values(read?.journal ?? {}).flatMap(e => (typeof e === 'object' && e !== null && typeof (e as { id?: unknown }).id === 'string' ? [(e as { id: string }).id] : []));
+      const walk = withErase(walkSettings(base.settings ?? {}), [...keys, ...journals, ...(base.settings?.deleted?.records?.routes ?? [])]);
       return {
         change: {
           ...(keys.length > 0 ? { records: { routes: { remove: keys } } } : {}),
           ...(stripped.length > 0 ? { journal: { put: stripped } } : {}),
-          settings: { patch: { walk: { ...walk, routesErasedAt: Math.max(at, walk.routesErasedAt ?? 0) } } },
+          settings: { patch: { walk } },
         },
         result: () => undefined,
       };
     },
   });
+}
+
+/**
+ * B-19: the clock generation a glucose reading acquired now is stamped with
+ * (`acquiredIn`), by the screen that takes it, as the device has kept its
+ * changes to the clock (H6R-03, board D186).
+ */
+export function acquisitionStamp(): number {
+  return clockGeneration(state.settings);
+}
+
+/** B-19: the changes to the clock this page has marked, each by the observation that saw it (H6F-04). */
+let clockSeen: { seen: ClockSeen; marked: Promise<StoreResult> }[] = [];
+/** B-19: how soon a refused clock marker is written again (H6F-02). */
+export const CLOCK_RETRY_MS = 5_000;
+
+/**
+ * B-19: a walk or the page saw this phone's clock change. The device's clock
+ * generation moves on, against the settings this transaction finds, so
+ * another tab's change is never lost; from then on every movement gate holds
+ * someone who can go low until a reading acquired since, a finished walk's
+ * next start included (H6R-02, board D174). A change this page has already
+ * marked, seen again by its own observation (`seen`), is not marked twice:
+ * a walk and the page watching the same moment (H6F-04, board D187).
+ *
+ * Held from the moment it is seen (`clockHold`), never shown as stored
+ * before it is, and written again until it is: a refused write takes
+ * nothing back, and nothing acquired meanwhile is stamped with a generation
+ * the device hasn't kept (H6F-02, board D188). Resolves once stored; with
+ * nowhere to store at all, once held for this session as everything is.
+ */
+export function markClockChange(days: readonly string[], seen?: ClockSeen): Promise<StoreResult> {
+  const known = seen && clockSeen.find(c => sameClockChange(c.seen, seen));
+  if (known) return known.marked;
+  // Shown by the write's own publish, and by every one until it is stored.
+  const mine = generation;
+  const waiting = [...days];
+  clockPending = [...clockPending, waiting];
+  const write = async (): Promise<StoreResult> => {
+    const result = await enqueue<void>({
+      hold: true,
+      plan: base => ({ change: { settings: { patch: { walk: withClockChange(walkSettings(base.settings ?? {}), days) } } }, result: () => undefined }),
+    });
+    if (!result.ok && db) {
+      await new Promise(resolve => setTimeout(resolve, CLOCK_RETRY_MS));
+      // A test's reset ends it: nothing from an earlier test writes into the next.
+      return mine === generation ? write() : result;
+    }
+    clockPending = clockPending.filter(d => d !== waiting);
+    publish();
+    return result;
+  };
+  const marked = write();
+  if (seen) clockSeen.push({ seen, marked });
+  return marked;
 }
 
 /** A walk, its route and its recovery state gone in one transaction (F09). Only the observations named go; the walk's pain ratings can stay. */

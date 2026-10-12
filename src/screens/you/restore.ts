@@ -40,12 +40,18 @@ export function replaceErases(state: RecordState & { profile?: UserProfile; sett
 /** What the app keeps for itself rather than the person: setup's own state, the unit before any answer, a backup's marks. */
 const KEPT_FOR_ITSELF: ReadonlySet<string> = new Set(['setup', 'onboardingComplete', 'startDate', 'useMetric', 'currentWeight', 'homeOffered']);
 const HABIT_MARKS: ReadonlySet<string> = new Set(['lastExportAt', 'lastExportSeq', 'lastExportVia', 'lastCheckedExportAt', 'calendarExport']);
+/**
+ * What Replace keeps of this phone whatever the file holds, so it erases none
+ * of it: the walk answers and this phone's records of its clock changes and
+ * erased routes (`withDeviceConsent`; B-26, board D174, D176).
+ */
+const KEPT_BY_REPLACE: ReadonlySet<string> = new Set(['walk']);
 
 /** The person changed a setting from what a new device has: Display, reminders, Home, a goal (H5-25). */
 function changed(settings: UserSettings): boolean {
   const fresh = migrateData({ version: CURRENT_VERSION } as AppData).settings as unknown as Record<string, unknown>;
   const own = (o: Record<string, unknown> | undefined) => Object.fromEntries(Object.entries(o ?? {}).filter(([k]) => !HABIT_MARKS.has(k)));
-  return Object.entries(settings).some(([k, v]) => !KEPT_FOR_ITSELF.has(k) && !sameValue(
+  return Object.entries(settings).some(([k, v]) => !KEPT_FOR_ITSELF.has(k) && !KEPT_BY_REPLACE.has(k) && !sameValue(
     k === 'habits' ? own(v as Record<string, unknown>) : v,
     k === 'habits' ? own(fresh[k] as Record<string, unknown>) : fresh[k],
   ));

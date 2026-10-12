@@ -257,7 +257,9 @@ export const cases = [{
       await t.check((now.observations ?? []).length === 0 && (now.sessions ?? []).length === 0 && (now['content-state'] ?? []).length === 0,
         `stores not empty: ${JSON.stringify({ obs: now.observations?.length, sessions: now.sessions?.length, content: now['content-state']?.length })}`);
       const d = docs(now);
-      const leftover = Object.entries(d).filter(([k, v]) => !['schemaVersion', 'revision'].includes(k)
+      // Device bookkeeping, nothing of the person's: the record's generation outlasts the reset that moves it on,
+      // so every copy of the app drops what it held for the record before (Plan 5's board D191).
+      const leftover = Object.entries(d).filter(([k, v]) => !['schemaVersion', 'revision', 'generation'].includes(k)
         && !(Array.isArray(v) && v.length === 0) && !(v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0));
       await t.check(leftover.length === 0, `settings documents left after Delete everything: ${leftover.map(([k, v]) => `${k}=${JSON.stringify(v).slice(0, 80)}`).join(', ')}`);
       const s = await t.storage();

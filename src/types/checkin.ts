@@ -118,6 +118,16 @@ export interface GlucoseReading {
    * (Codex re-audit F10). Without it a surprising number is held, not read.
    */
   unitConfirmed?: boolean;
+  /**
+   * B-19: this device's clock generation when the reading was acquired here
+   * (`settings.walk.clock`), stamped by the screen that took it: typed into
+   * an empty box, or saved for the first time. One from before a change to
+   * the phone's clock has an earlier one, so it is never read as acquired
+   * since: corrected or retimed, it keeps its own. Never an order: readings
+   * are ordered by their time alone (H6F-05, H6R-03, board D186). Absent:
+   * generation 0, or taken elsewhere (an import drops it).
+   */
+  gen?: number;
 }
 
 /** The device showed HI or LO instead of a number. HI is never given a number: devices differ. */
@@ -125,9 +135,27 @@ export interface GlucoseDisplayReading {
   display: 'HI' | 'LO';
   measuredAt?: string;
   source?: GlucoseSource;
+  /**
+   * B-19: this device's clock generation when the reading was acquired here
+   * (`settings.walk.clock`), stamped by the screen that took it: typed into
+   * an empty box, or saved for the first time. One from before a change to
+   * the phone's clock has an earlier one, so it is never read as acquired
+   * since: corrected or retimed, it keeps its own. Never an order: readings
+   * are ordered by their time alone (H6F-05, H6R-03, board D186). Absent:
+   * generation 0, or taken elsewhere (an import drops it).
+   */
+  gen?: number;
 }
 
 export type GlucoseEntry = GlucoseReading | GlucoseDisplayReading;
+
+/** B-19: the changes to this phone's clock its walks have seen (`settings.walk.clock`, board D174). */
+export interface ClockHold {
+  /** How many there have been. A glucose reading acquired here carries the count it was acquired in (`gen`). */
+  generation: number;
+  /** The days either side of the latest change: a reading on one of them from an earlier generation can't be timed. */
+  days: string[];
+}
 
 /** Urine strips are read on their own scale, never converted to blood mmol/L. */
 export type UrineKetoneCategory = 'negative' | 'trace' | 'small' | 'moderate' | 'large';
@@ -332,6 +360,14 @@ export interface DailyCheckIn {
    * carry `logged` readings to the gates. Never stored, and never a check-in.
    */
   readingsOnly?: true;
+  /**
+   * B-19: the changes to this phone's clock its walks have seen
+   * (`settings.walk.clock`), the device's own, on every day the gates read,
+   * so each can tell whether a reading on one of `days` was taken since.
+   * Attached by `effectiveCheckIns` for the gates only, never stored (board
+   * D174).
+   */
+  clockHold?: ClockHold;
   /**
    * The record the device has stored for this day, attached by
    * `effectiveRecord` while answers it has not stored yet are merged in

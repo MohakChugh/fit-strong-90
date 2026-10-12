@@ -202,12 +202,22 @@ export function toTransferDoc(snapshot: Snapshot, exportedAt: string = nowAt(), 
  * answers outlast a file that holds no settings at all.
  */
 export function withDeviceConsent(file: UserSettings | undefined, device: UserSettings | undefined): UserSettings | undefined {
-  if (file === undefined) return device?.walk ? ({ walk: device.walk } as UserSettings) : undefined;
+  // The routes deleted on this phone stay deleted, whatever the file knows (H6F-07, board D210).
+  const gone = device?.deleted?.records?.routes ?? [];
+  if (file === undefined) {
+    if (!device?.walk && !gone.length) return undefined;
+    return { ...(device?.walk ? { walk: device.walk } : {}), ...(gone.length ? { deleted: { records: { routes: [...gone] } } } : {}) } as UserSettings;
+  }
   const { walk: theirs, ...rest } = file;
   const walk = device?.walk ?? (theirs
     ? { saveRoutes: 'unasked' as const, map: 'unasked' as const, ...(theirs.stepCardSeen ? { stepCardSeen: true } : {}) }
     : undefined);
-  return { ...rest, ...(walk ? { walk } : {}) } as UserSettings;
+  const routes = [...new Set([...(rest.deleted?.records?.routes ?? []), ...gone])];
+  return {
+    ...rest,
+    ...(walk ? { walk } : {}),
+    ...(gone.length ? { deleted: { ...rest.deleted, records: { ...rest.deleted?.records, routes } } } : {}),
+  } as UserSettings;
 }
 
 /** Everything on the device, as one document read in one transaction (F26). */
@@ -382,7 +392,7 @@ export function isCheckInRecord(x: unknown): x is CheckInRecord {
     && optional(x.lowRecovered, isBool)
     // Never kept: what the gates attach to a day for themselves is let go of on
     // the way in (`keptCheckIn`, `keptSession`). One still holding it could not be read.
-    && x.logged === undefined && x.readingsOnly === undefined && x.durable === undefined
+    && x.logged === undefined && x.readingsOnly === undefined && x.durable === undefined && x.clockHold === undefined
     && optional(x.sleep, isText) && optional(x.energy, isNumber) && optional(x.lowSymptomsAt, isAt)
     // A pain slider left untouched is not an answer, so back answers can come
     // without a score (J03, J16). Any value at all for the newer weakness and
@@ -621,15 +631,15 @@ function parse(raw: unknown, foodsHere: readonly CustomFood[] = []): ParseResult
         schemaVersion: SCHEMA_VERSION,
         // A record's commit order is kept as an order, not as numbers: the
         // import restamps it in this database's own sequence (J05).
-        observations: unique(observations, o => o.id, 'observations'),
-        sessions: unique(sessions, s => s.id, 'sessions'),
+        observations: unique(observations.map(withoutGen), o => o.id, 'observations'),
+        sessions: unique(sessions, s => s.id, 'sessions').map(s => (s.checkIn ? { ...s, checkIn: dayWithoutGen(s.checkIn) } : s)),
         // Settings are filled with defaults wherever they are read, so they are
         // kept as the file has them. A profile is not: a hand-made or older
         // file must not hand the planner an incomplete one. (Filling a complete
         // profile changes nothing, so a real export round-trips unchanged.)
         ...(settingsRead ? { settings: settingsRead.settings as unknown as UserSettings } : {}),
         ...(profileRead?.profile ? { profile: createDefaultProfile(profileRead.profile as ProfileInput) } : {}),
-        checkIns,
+        checkIns: checkIns.map(dayWithoutGen),
         personalRecords: unique(personalRecords, r => r.exerciseId, 'personalRecords'),
         bodyMetrics: unique(bodyMetrics, m => m.date, 'bodyMetrics'),
         focusOverrides,
@@ -646,6 +656,31 @@ function stripSeq(o: Observation): Observation {
   const { seq, ...rest } = o;
   void seq;
   return rest;
+}
+
+/**
+ * B-19: a reading's clock generation (`gen`) is the count of one phone's
+ * clock changes, so one in a file means nothing here. It is dropped as the
+ * file is read, and a reading from a file is never read as taken since a
+ * change to this phone's clock (H6R-03, board D174).
+ */
+function withoutGen<T extends { gen?: number }>(e: T): T {
+  if (e.gen === undefined) return e;
+  const { gen: _theirs, ...rest } = e;
+  void _theirs;
+  return rest as T;
+}
+
+/** A day's readings without their clock generations (`withoutGen`). */
+function dayWithoutGen<T extends DailyCheckIn>(c: T): T {
+  const all = [c.glucose, c.glucoseDisplay, ...(c.glucoseEarlier ?? [])];
+  if (!all.some(e => e?.gen !== undefined)) return c;
+  return {
+    ...c,
+    ...(c.glucose ? { glucose: withoutGen(c.glucose) } : {}),
+    ...(c.glucoseDisplay ? { glucoseDisplay: withoutGen(c.glucoseDisplay) } : {}),
+    ...(c.glucoseEarlier ? { glucoseEarlier: c.glucoseEarlier.map(withoutGen) } : {}),
+  };
 }
 
 /** Deep equality for plain JSON-like values: key order, `undefined` fields and NaN handled. */
@@ -780,7 +815,7 @@ function digest(text: string): string {
  * low. Only an old shared id carries this doubt (`sharedOldId`).
  */
 function otherReading(here: Observation, o: Observation): boolean {
-  if (sameValue(stripSeq(here), stripSeq(o))) return false;
+  if (sameValue(stripSeq(withoutGen(here)), stripSeq(o))) return false;
   if (here.editedAt === undefined && o.editedAt === undefined) return true;
   const moved = Date.parse(here.at) !== Date.parse(o.at);
   const changed = here.value !== o.value || here.unit !== o.unit;
@@ -893,7 +928,8 @@ const holds = (r: { disposition?: string }) => DISPOSITION_ORDER.indexOf((r.disp
 /**
  * This device's incidents (journey §4.6, H6-03, P8-02): whether its own
  * record holds movement today at hold or worse — an unresolved low, a stop, a
- * red flag, an emergency answer — asked of the engine as every gate asks it,
+ * red flag, an emergency answer — or refuses one mode, as a foot sore refuses
+ * walking (H6R-04), asked of the engine as every gate asks it,
  * with Track's readings; or still has serious readings, or answers about
  * them, that decide today. If so, every record their standing depends on: the
  * days the engine reads today (`reachableHistory`), with their readings. An
@@ -929,8 +965,11 @@ export function openIncidents(base: Pick<Snapshot, 'checkIns' | 'observations' |
     for (const id of readingIdsIn(c)) known.add(id);
     for (const a of c.resolutions ?? []) for (const id of a.readings) known.add(id);
   }
-  // An answer about a reading decides its standing as much as the reading does (P8-02).
-  if (!holds(r) && (r.episodes?.length ?? 0) === 0 && !reach.some(c => c.resolutions?.length)) return { checkIns: [], observations: [], known };
+  // An answer about a reading decides its standing as much as the reading does (P8-02), and a
+  // refusal of one mode is an incident whatever the day's overall rank: a new foot sore refuses
+  // only walking, and the day's readiness is no hold (H6R-04, board D175).
+  const refuses = r.reasons.some(x => (x.refuses?.length ?? 0) > 0);
+  if (!holds(r) && !refuses && (r.episodes?.length ?? 0) === 0 && !reach.some(c => c.resolutions?.length)) return { checkIns: [], observations: [], known };
   // Track-only days are in the view, so in `reach` whenever they can count.
   const days = new Set(reach.map(c => c.date));
   return {
@@ -1042,6 +1081,15 @@ const takes = (store: RecordStore, device: UserSettings | undefined): boolean =>
 /** The file's records of a store this device takes that it keeps, one by one (`RecordRule.keeps`): an erased route stays erased (B-05). */
 const kept = (store: RecordStore, device: UserSettings | undefined, records: readonly StoredRecord[]): StoredRecord[] =>
   records.filter(r => RECORD_RULES[store].keeps?.(device, r) ?? true);
+/**
+ * What Replace installs of a store: what this device keeps, less the routes
+ * it deleted, which stay deleted whatever the file's settings know, as a merge
+ * leaves them (H6F-07, board D210).
+ */
+const replaced = (store: RecordStore, device: UserSettings | undefined, records: readonly StoredRecord[]): StoredRecord[] => {
+  const gone = new Set(store === 'routes' ? device?.deleted?.records?.routes ?? [] : []);
+  return kept(store, device, records).filter(r => !gone.has(recordKey(store, r)));
+};
 
 /**
  * How a merge reconciles the file with the device.
@@ -1101,8 +1149,8 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy, 
     const here = hereObs.get(o.id);
     if (deletedObservation(o)) { deletedHere += 1; continue; }
     if (!here) { observationPuts.push(o); continue; }
-    // Commit order is each device's own: compare what was said, not when it was stored.
-    if (sameValue(stripSeq(here), stripSeq(o))) continue;
+    // Commit order and clock generation are each device's own: compare what was said, not when it was stored.
+    if (sameValue(stripSeq(withoutGen(here)), stripSeq(o))) continue;
     // A reading an incident here depends on stays as this device holds it: a file's correction never releases one.
     if (incidentReadings.has(o.id)) { conflicts.observations += 1; continue; }
     const theirs = statedAt(o);
@@ -1206,7 +1254,7 @@ function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy, 
     // Two records that say the same are one, whatever readiness each was
     // given: it is worked out from the answers, and a cleaned record's is
     // worked out again below, so it never matches the file's.
-    if (here && sameValue(answersOf(here), answersOf(c))) continue;
+    if (here && sameValue(dayWithoutGen(answersOf(here)), answersOf(c))) continue;
     if (here) {
       conflicts.checkIns += 1;
       if (!takeFile) continue;
@@ -1579,7 +1627,7 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
         bodyMetrics: file.bodyMetrics,
         focusOverrides: file.focusOverrides,
         content: { put: Object.fromEntries((file.contentState ?? []).map(r => [r.key, r.value])) },
-        records: Object.fromEntries(taken.map(s => [s, { put: kept(s, base.settings, file.records?.[s] ?? []) }])),
+        records: Object.fromEntries(taken.map(s => [s, { put: replaced(s, base.settings, file.records?.[s] ?? []) }])),
       },
       report: {
         mode,
@@ -1590,7 +1638,7 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
         personalRecords: file.personalRecords.length,
         bodyMetrics: file.bodyMetrics.length,
         skipped: refused,
-        records: Object.fromEntries(taken.map(s => [s, kept(s, base.settings, file.records?.[s] ?? []).length])),
+        records: Object.fromEntries(taken.map(s => [s, replaced(s, base.settings, file.records?.[s] ?? []).length])),
       },
     };
   }

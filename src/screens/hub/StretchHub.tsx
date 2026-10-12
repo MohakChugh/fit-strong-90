@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
+import { useSayWhatHappened } from '@/components/checkin/sayWhatHappened';
 import {
   lastStretch, offeredSpec, readStretchSpec, specFromPlanId, STRETCH_FOCI, STRETCH_FOCUS_LABEL, STRETCH_MINUTES, stretchHref, stretchOffered,
   stretchPlanFor,
@@ -47,6 +48,8 @@ export default function StretchHub() {
   const g = useHubGate('stretch');
   const { guided, state, now, today, status } = g;
   const navigate = useNavigate();
+  // An unanswered stop's own questions (K6R-03).
+  const say = useSayWhatHappened();
   const origin = useHubOrigin(category.title);
   const [params, setParams] = useSearchParams();
   const [statusOpen, setStatusOpen] = useState(false);
@@ -94,6 +97,7 @@ export default function StretchHub() {
     go: to => navigate(to, { viewTransition: true, state: origin }),
     status: () => setStatusOpen(true),
     local: chooseAnother,
+    stop: () => say?.(),
   });
   // Replace, not push: changing a choice is not a place to go Back to. The page stays where it is.
   const choose = (next: StretchSpec) => setParams({ focus: next.focus, minutes: String(next.minutes) }, { replace: true, preventScrollReset: true });

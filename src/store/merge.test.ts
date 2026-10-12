@@ -434,6 +434,18 @@ describe('a guided session saved with the day’s check-in, backed up and restor
     kept(b, true);
   });
 
+  it('keeps no clock hold in a session’s copy of its day, nor in a check-in: the device’s own, attached for the gates only (B-19, board D174)', async () => {
+    const a = await device();
+    const { held, session } = await sessionSaved(a, true);
+    const clockHold = { generation: 1, days: [DAY] };
+    expect((await a.store.putSession({ ...session, checkIn: { ...held, clockHold } })).ok).toBe(true);
+    expect((await a.store.update(prev => ({ ...prev, checkIns: (prev.checkIns ?? []).map(c => ({ ...c, clockHold })) })))).toMatchObject({ ok: true });
+    expect((await a.store.reload()).ok).toBe(true);
+    expect(a.store.getState().sessions.find(s => s.id === 'guided-1')?.checkIn?.clockHold).toBeUndefined();
+    expect(a.store.getState().checkIns.every(c => c.clockHold === undefined)).toBe(true);
+    kept(a, true);
+  });
+
   it('keeps a day with no check-in but a reading in Track as that reading, without the mark only the screens carry', async () => {
     const a = await device();
     const { held } = await sessionSaved(a, true, false);

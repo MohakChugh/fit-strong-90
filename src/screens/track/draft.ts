@@ -35,6 +35,8 @@ export interface GlucoseDraft {
   time?: string;
   /** The moment Save was first tapped: what an untouched time stands for. */
   at?: string;
+  /** B-19: the clock generation of that first Save, which a retry after a change to the clock keeps (H6R-03, board D186). */
+  gen?: number;
   /** A save of it was refused, so a reload opens it again rather than leaving it to be found. */
   refused?: true;
 }
@@ -87,10 +89,12 @@ export function parseQuickLogDraft(raw: unknown): QuickLogDraft | undefined {
   if (v.kind === 'glucose') {
     if (!fits(v.id, ID) || !fits(v.raw, NUMBER) || (v.unit !== 'mg/dL' && v.unit !== 'mmol/L')) return undefined;
     if (!optional(v.tag, t => GLUCOSE_TAGS.includes(t as string)) || !optional(v.meal, m => fits(m, CLOCK))) return undefined;
+    if (!optional(v.gen, g => Number.isSafeInteger(g) && (g as number) > 0)) return undefined;
     return {
       kind: 'glucose', id: v.id, raw: v.raw, unit: v.unit,
       ...(v.tag !== undefined ? { tag: v.tag as ObservationTag } : {}),
       ...(v.meal !== undefined ? { meal: v.meal as string } : {}),
+      ...(v.gen !== undefined ? { gen: v.gen as number } : {}),
       ...when,
     };
   }

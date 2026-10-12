@@ -19,6 +19,14 @@ describe('what saving a walk writes (journey §18.3)', () => {
     expect(walkSave(walked(true)).route).toBeUndefined();
   });
 
+  it('says which erase generation a kept route began in, so the save keeps it after an erase made before the walk (K6R-12)', () => {
+    const since = finishWalk(startWalk('mgh3k2x1-1a2b3c4d', { kind: 'walk', gps: true, steps: false, keepRoute: true, routeGen: 2 }, T), T + 600_000, 'finish');
+    expect(walkSave(since, { route: [LINE] }).routeGen).toBe(2);
+    expect(walkSave(since).routeGen).toBe(2);
+    expect(walkSave(walked(true)).routeGen).toBe(0);
+    expect(walkSave(walked(false)).routeGen).toBeUndefined();
+  });
+
   it('adds the energy estimate as one more record of the walk', () => {
     const energy = { id: 'mgh3k2x1-1a2b3c4d:activeEnergy', kind: 'activeEnergy' as const, value: 42, scope: 'sessionObserved' as const, source: 'measured' as const, coverageMs: 600_000 };
     expect(walkSave(walked(false), { energy }).observations.at(-1)).toBe(energy);

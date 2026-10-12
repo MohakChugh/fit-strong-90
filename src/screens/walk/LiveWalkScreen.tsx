@@ -12,7 +12,7 @@ import type { SymptomReport } from '@/components/checkin/pending';
 import type { GlucoseEntry } from '@/types/checkin';
 import { deriveHealth } from '@/engine/health';
 import { PERMISSION_TEXT } from '@/engine/permission';
-import { heldBy, reachableHistory, statusRefusal, untimedOf, walkInput, walkRefusal, type Clinical } from '@/walk/gate';
+import { heldBy, reachableHistory, statusRefusal, walkInput, walkRefusal, type Clinical } from '@/walk/gate';
 import { statusOn } from '@/health/status';
 import { StatusSheet } from '@/screens/today/StatusSheet';
 import { cn, toDateString } from '@/lib/utils';
@@ -191,7 +191,7 @@ export default function LiveWalkScreen() {
   // After a change to the phone's clock, the readings from before it, which the engine holds on (B-19); its reason says so.
   // Carrying on asks the status too, after a stop and before any other hold (H2-01).
   const refusal = question
-    ? heldBy(walkRefusal(walkInput(clinical, new Date(snapshot.now), untimedOf(snapshot.walk)), question), statusRefusal(statusOn(settings.statusPeriods, day), question))
+    ? heldBy(walkRefusal(walkInput(clinical, new Date(snapshot.now)), question), statusRefusal(statusOn(settings.statusPeriods, day), question))
     : undefined;
   const emergency = refusal?.disposition === 'emergency';
   const low = lowOpen(checkIn, snapshot.walk);
@@ -225,8 +225,10 @@ export default function LiveWalkScreen() {
   const end = () => live.finish(emergency ? 'emergency' : low || (refusal && lowReportedDuring(checkIn, snapshot.walk)) ? 'low' : 'stop');
 
   /** "I need to stop": what happened, into today's check-in through the shared path. */
-  const reportStop = (r: SymptomReport) => {
-    void reportSymptoms(r, new Date()).then(res => setUnsaved(!res.stored));
+  const reportStop = async (r: SymptomReport): Promise<boolean> => {
+    const res = await reportSymptoms(r, new Date());
+    setUnsaved(!res.stored);
+    return res.stored;
   };
 
   /**
@@ -234,8 +236,10 @@ export default function LiveWalkScreen() {
    * today's check-in through the shared path, so this walk and the next start
    * are held until a reading taken afterwards answers it (N01).
    */
-  const reportLow = () => {
-    void feelLow(live, reportSymptoms).then(r => setUnsaved(!r.stored));
+  const reportLow = async (): Promise<boolean> => {
+    const r = await feelLow(live, reportSymptoms);
+    setUnsaved(!r.stored);
+    return r.stored;
   };
   const saveLowReading = async (reading: GlucoseEntry, symptomsGone: boolean, neededHelp: boolean) => {
     const r = await reportSymptoms(lowReading(reading, symptomsGone, neededHelp), new Date());
@@ -291,23 +295,24 @@ export default function LiveWalkScreen() {
                   {refusal.reasons.map(r => <p key={r}>{r}</p>)}
                   {refusal.release && <p className="text-muted-foreground">{refusal.release}</p>}
                   <p className="text-muted-foreground">Your walk so far is kept. Finish to save it.</p>
+                  {/* The one way on from the hold: a main target (§20.4 rule 1, K6R-07). */}
                   {action === 'stop' && (
-                    <button type="button" onClick={() => setSheet('stop')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
+                    <button type="button" onClick={() => setSheet('stop')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.primary)}>
                       Say what happened
                     </button>
                   )}
                   {action === 'status' && (
-                    <button type="button" onClick={() => setSheet('status')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
+                    <button type="button" onClick={() => setSheet('status')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.primary)}>
                       Change status
                     </button>
                   )}
                   {action === 'checkIn' && (
-                    <button type="button" onClick={() => setSheet('checkIn')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
+                    <button type="button" onClick={() => setSheet('checkIn')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.primary)}>
                       Check in
                     </button>
                   )}
                   {action === 'profile' && (
-                    <button type="button" onClick={() => navigate('/you/profile')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.tap)}>
+                    <button type="button" onClick={() => navigate('/you/profile')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.primary)}>
                       Health questions
                     </button>
                   )}
@@ -387,13 +392,14 @@ export default function LiveWalkScreen() {
             </div>
           )}
 
-          <div className={cn('grid grid-cols-1', TARGET.gap, hypoRisk && !refusal && 'min-[360px]:grid-cols-2')}>
+          {/* "I feel low" stays for anyone who can go low under any hold but an emergency (K6R-01). */}
+          <div className={cn('grid grid-cols-1', TARGET.gap, hypoRisk && !emergency && 'min-[360px]:grid-cols-2')}>
             <button type="button" onClick={stopNow} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-stop', TARGET.primary)}>
               <HandIcon className="size-5 shrink-0" aria-hidden />
               I need to stop
             </button>
-            {hypoRisk && !refusal && (
-              <button type="button" onClick={reportLow} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-caution', TARGET.primary)}>
+            {hypoRisk && !emergency && (
+              <button type="button" onClick={() => void reportLow()} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-caution', TARGET.primary)}>
                 <CandyIcon className="size-5 shrink-0" aria-hidden />
                 I feel low
               </button>

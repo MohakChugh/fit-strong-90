@@ -17,6 +17,9 @@
 import {
   accrueOpen,
   addGapTime,
+  clockChangeDays,
+  clockKept,
+  clockUnkept,
   creditSteps,
   daysAround,
   finishWalk,
@@ -36,6 +39,7 @@ import {
   startWalk,
   stepOf,
   updateOpenSegment,
+  type ClockSeen,
   type EndedBy,
   type Gap,
   type Walk,
@@ -93,8 +97,12 @@ export interface VisibilityPort {
 export type WalkIntent = 'start' | 'restart' | 'live';
 
 export interface JournalPort {
-  /** Keep this checkpoint (journey §9.4). Resolves whether it was kept. */
-  checkpoint(entry: JournalEntry): Promise<StoreResult>;
+  /**
+   * Keep this checkpoint (journey §9.4). Resolves whether it was kept. With
+   * `keepJournalled`, the route lines the journal already holds stay beside
+   * the checkpoint's (`withJournalled`): this page may not hold them yet.
+   */
+  checkpoint(entry: JournalEntry, options?: { keepJournalled?: boolean }): Promise<StoreResult<unknown>>;
   /** The latest checkpoint kept for a walk, or nothing when there is none. Rejects when it can't be read: that is not "none" (H6-06). */
   read(id: string): Promise<JournalEntry | undefined>;
 }
@@ -118,11 +126,14 @@ export interface LivePorts {
   /** The monotonic clock, ms (B-19). Absent: the device clock, so no change is ever seen. */
   monotonic?(): number;
   /**
-   * B-19: the glucose readings this device knows on `days`, by identity, at
-   * the moment a change to the clock is seen. They were timed by the clock as
-   * it was, so the gate asks for one taken since. Absent: none known.
+   * B-19: the phone's clock changed, seen around `days` between the two
+   * clocks `seen` holds. The device keeps the change (`markClockChange`), so
+   * every gate, this walk's own included, holds someone who can go low until a
+   * reading acquired since (board D174), and marks it once though the page saw
+   * it too (H6F-04). Settles once the device has stored it, and never while
+   * it can't, so the walk keeps its own record of the change (H6F-03).
    */
-  readingsNow?(days: readonly string[]): readonly string[];
+  clockChanged?(days: readonly string[], seen?: ClockSeen): Promise<unknown> | void;
   /** Run `fn` after `ms`. Returns a function that cancels it. */
   later(fn: () => void, ms: number): () => void;
   storage: WalkStorage | undefined;
@@ -236,6 +247,12 @@ export interface LiveWalk {
   enableMotion(): Promise<void>;
   /** Erase every point kept for this walk and keep none from now on (B-05). */
   forgetRoute(): void;
+  /**
+   * This phone's answer to keeping routes changed: a checkpoint now, so the
+   * journal holds the route only while it is kept, not until the next one is
+   * due (K6R-14).
+   */
+  routeConsentChanged(): void;
 }
 
 export function createLiveWalk(ports: LivePorts): LiveWalk {
@@ -283,6 +300,28 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
    * over the only copy of it with the little this page has drawn.
    */
   let routeRestore: 'none' | 'loading' | 'failed' = 'none';
+  /** B-19: changes to the clock handed to the device and not yet kept by it (H6F-03). */
+  let telling = 0;
+
+  /**
+   * B-19: hand a change to the clock to the device (`markClockChange`), which
+   * holds every gate from now until it has stored it. Once it has kept every
+   * one handed on, the walk lets go of its own record that one is unkept;
+   * until then that record goes with the walk, so a reload first hands it on
+   * again (H6F-02, H6F-03, board D189).
+   */
+  function tellDevice(days: readonly string[], seen?: ClockSeen) {
+    const told = ports.clockChanged?.(days, seen);
+    if (!told) return;
+    telling += 1;
+    void told.then(() => {
+      telling -= 1;
+      if (telling > 0 || !walk) return;
+      walk = clockKept(walk);
+      persist();
+      emit();
+    });
+  }
 
   const allLines = (): RouteLine[] => [...routeBase, ...(track?.lines ?? [])];
 
@@ -302,16 +341,14 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     draftKept = storeWalk(ports.storage, walk);
     const now = ports.now();
     if (!ports.journal || (checkpoint === 'due' && !checkpointDue(lastCheckpoint, now))) return;
-    if (routeRestore === 'loading') return;
     lastCheckpoint = now;
-    if (routeRestore === 'failed') {
-      // Read again, a checkpoint's interval later; the walk itself is kept in the tab's draft meanwhile.
-      restoreRoute(walk.id);
-      return;
-    }
+    // Read again, a checkpoint's interval later; the walk itself is kept in the tab's draft meanwhile.
+    if (routeRestore === 'failed') restoreRoute(walk.id);
     const keep = walk.plan.keepRoute === true && (ports.keepsRoutes?.() ?? true);
     const entry = journalEntry(walk, now, keep ? allLines() : undefined);
-    void ports.journal.checkpoint(entry).then(result => {
+    // While the route is still being read back, the journal keeps the lines it holds beside what is walked
+    // since, so leaving or finishing now loses neither (H6R-10).
+    void ports.journal.checkpoint(entry, routeRestore === 'none' ? undefined : { keepJournalled: true }).then(result => {
       const full = !result.ok && result.failure.code === 'quotaExceeded';
       if (full === journalFull) return;
       journalFull = full;
@@ -575,14 +612,16 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     const open = walk && walk.status === 'running' ? openSegment(walk) : undefined;
     if (!walk || !open) return;
     const m = mono();
-    const step = stepOf({ wall: open.accruedAt, mono: monoAt ?? m }, { wall: now, mono: m });
+    const from = { wall: open.accruedAt, mono: monoAt ?? m };
+    const step = stepOf(from, { wall: now, mono: m });
     monoAt = m;
     if (!step.jumped) {
       walk = accrueOpen(walk, step.ms, now);
       return;
     }
-    // Which readings were timed by the clock as it was: every one the device knows now, by identity (H6-02).
-    walk = splitAtClockChange(walk, now, step.ms, ports.readingsNow?.(daysAround(open.accruedAt, now)) ?? []);
+    walk = splitAtClockChange(walk, now, step.ms);
+    // The device's change, not this walk's: it holds every gate until a reading acquired since (H6R-02).
+    tellDevice(daysAround(open.accruedAt, now), { from, to: { wall: now, mono: m } });
     if (track) {
       track = newTrack(now);
       trackBase = [];
@@ -676,6 +715,9 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
         // Restored to be read and saved. Whether it may move is a separate
         // question, asked below.
         walk = restoreWalk(stored, now);
+        // A change to the clock the device may never have stored, this version's or an older one's:
+        // handed on again before anything asks whether the walk may go on (H6F-03, board D189).
+        if (clockUnkept(walk)) tellDevice(clockChangeDays(walk));
         // A kept route comes back from the journal, for the drawing and the save,
         // before anything is journalled over it (H6-06).
         if (walk.plan.keepRoute && (ports.keepsRoutes?.() ?? true)) restoreRoute(walk.id);
@@ -806,6 +848,10 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
         listenForMotion(ports.now());
       }
       emit();
+    },
+
+    routeConsentChanged() {
+      if (walk) persist('now');
     },
 
     forgetRoute() {

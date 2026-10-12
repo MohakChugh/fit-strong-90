@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { newObservation } from '@/health/observation';
-import { accrueOpen, leaveWalk, pauseWalk, startWalk } from './clock';
+import { accrueOpen, leaveWalk, pauseWalk, STALE_AFTER_MS, startWalk } from './clock';
 import { JOURNAL_STALE_MS, journalEntry } from './journal';
 import { loadWalk, storeWalk, type WalkStorage } from './persist';
 import { walkObservations } from './record';
@@ -84,6 +84,17 @@ describe('a walk still open on this device, ended from the Walk hub to be review
     const w = loadWalk(storage)!;
     expect(w.status).toBe('finished');
     expect(w.segments.at(-1)!.end).toBeLessThanOrEqual(START + 5 * MIN);
+  });
+
+  it('a walk left open longer than a walk is carried on ends as the live screen ends it: left open, when it was left', () => {
+    const storage = memory();
+    storeWalk(storage, leaveWalk(walking(12), START + 12 * MIN, 'left'));
+    endOpenWalk(storage, START + 12 * MIN + STALE_AFTER_MS + 1);
+    expect(loadWalk(storage)).toMatchObject({ status: 'finished', endedBy: 'stale', finishedAt: START + 12 * MIN });
+    // Under it, as before.
+    storeWalk(storage, leaveWalk(walking(12), START + 12 * MIN, 'left'));
+    endOpenWalk(storage, START + 12 * MIN + STALE_AFTER_MS);
+    expect(loadWalk(storage)).toMatchObject({ status: 'finished', endedBy: 'stop', finishedAt: START + 12 * MIN });
   });
 
   it('a paused walk ends without another second added; a finished one is left as it is; with none, false', () => {

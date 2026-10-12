@@ -56,6 +56,16 @@ describe('what Replace erases, so it is asked twice whenever something would go 
     expect(kept({ habits: { lastExportAt: '2026-10-08T19:00:00.000+05:30', lastExportSeq: 4, lastExportVia: 'share' } })).toBeUndefined();
   });
 
+  it('nor this phone’s own walk answers and records, which Replace keeps whatever the file holds (`withDeviceConsent`; B-26, board D174, D176)', () => {
+    const walk = (w: NonNullable<typeof settings.walk>) => replaceErases({ ...empty, settings: { ...settings, walk: w } });
+    // Keep walk routes answered in Me → Data; a change to the clock the page saw, walking or not (D185); an "Erase all routes".
+    expect(walk({ saveRoutes: true, map: 'off' })).toBeUndefined();
+    expect(walk({ saveRoutes: 'unasked', map: 'unasked', clock: { generation: 1, days: ['2026-10-12'] } })).toBeUndefined();
+    expect(walk({ saveRoutes: false, map: 'unasked', erased: { generation: 1, walks: ['mgk1walk-0001aaaa'] } })).toBeUndefined();
+    // Beside a setting Replace does take, that one is still named.
+    expect(replaceErases({ ...empty, settings: { ...settings, walk: { saveRoutes: true, map: 'on' }, theme: 'dark' } })).toBe('your settings');
+  });
+
   it('the profile and settings, and the records', () => {
     expect(replaceErases({ ...empty, profile: createDefaultProfile() })).toBe('your profile and settings');
     expect(replaceErases({ ...empty, sessions: [{}, {}], profile: createDefaultProfile() })).toBe('the 2 sessions and your profile and settings');

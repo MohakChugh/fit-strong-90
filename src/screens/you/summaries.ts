@@ -122,9 +122,9 @@ export function routeNotes(preview: Pick<ImportPreview, 'records' | 'refusedStor
   // B-05: erased for good, whatever a backup made before holds.
   if (erased > 0) notes.push(`${erased === inFile ? `The file’s ${plural(erased, 'route')}` : `${plural(erased, 'route')} in the file`} ${erased === 1 ? 'is' : 'are'} from before you erased routes on this phone, so ${erased === 1 ? 'it stays' : 'they stay'} erased.`);
   if (refused) {
-    notes.push(saveRoutes === 'unasked'
-      ? `The file’s ${plural(inFile, 'route')} won’t be added, because this phone hasn’t been asked yet whether to keep routes. To add them, turn on Keep walk routes in Me → Data, then restore the file again.`
-      : `The file’s ${plural(inFile, 'route')} won’t be added, because this phone doesn’t keep routes.`);
+    // Either way, how to take them: the same switch, then the same file again (K6R-10).
+    const why = saveRoutes === 'unasked' ? 'this phone hasn’t been asked yet whether to keep routes' : 'this phone doesn’t keep routes';
+    notes.push(`The file’s ${plural(inFile, 'route')} won’t be added, because ${why}. To add ${inFile === 1 ? 'it' : 'them'}, turn on Keep walk routes in Me → Data, then restore the file again.`);
   }
   if (here > 0 && inFile === 0) notes.push(`Replacing removes this phone’s ${plural(here, 'route')}, which the file doesn’t hold.`);
   else if (here > 0 && refused) notes.push(`Replacing removes this phone’s ${plural(here, 'route')} too.`);
