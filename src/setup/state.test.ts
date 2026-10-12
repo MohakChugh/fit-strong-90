@@ -20,6 +20,16 @@ describe('where setup stands (journey §6.6, §19.1; board D80)', () => {
     expect(setupStateOf({ onboardingComplete: true }, undefined)).toEqual({ stage: 'lookAround', skipped: [], upgraded: true });
   });
 
+  it('a v1 insulin user’s medicines wait on how insulin is taken, a question v1 never asked (K5R-07; board D195)', () => {
+    const named = { ...v1, name: 'Asha', food: { pattern: 'vegetarian' as const, avoid: [], level: 'ideas' as const } };
+    const withInsulin = (health: Partial<typeof v1.health>) => setupStateOf({ onboardingComplete: true }, { ...named, health: { ...named.health, ...health } }).skipped;
+    expect(withInsulin({ insulin: 'injections_or_pump' })).toEqual(['medicines']);
+    expect(withInsulin({ insulin: 'injections_or_pump', insulinRegimen: 'pump' })).toEqual([]);
+    expect(withInsulin({ insulin: 'automated_delivery' })).toEqual([]);
+    // Ketone testing, with "other" diabetes on insulin: never asked in v1 either.
+    expect(withInsulin({ diabetes: 'other', insulin: 'automated_delivery', sglt2i: false })).toEqual(['medicines']);
+  });
+
   it('a record set up in v1 is done, waiting only on chapters with new questions (§6.6)', () => {
     expect(setupStateOf({ onboardingComplete: true }, v1)).toEqual({ stage: 'done', skipped: ['about', 'food'], upgraded: true });
     const named = { ...v1, name: 'Asha', food: { pattern: 'vegetarian' as const, avoid: [], level: 'ideas' as const } };

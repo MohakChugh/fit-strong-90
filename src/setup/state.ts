@@ -9,11 +9,19 @@ import type { FoodPreferences, UserProfile } from '@/types/profile';
 import type { ChapterId, SetupAnswers, SetupRecord, SetupState } from '@/types/setup';
 import { setupAllergyAnswer } from '@/food/allergens';
 
-/** The chapters a v1 record has new questions in: name, food logging, and meal times for after-meal walks (§6.6, board D79). */
+/**
+ * The chapters a v1 record has new questions in: name; how insulin is taken,
+ * and ketone testing for "other" diabetes on insulin (K5R-07; board D195);
+ * food logging; and meal times for after-meal walks (§6.6, board D79).
+ */
 export function upgradeSkipped(settings: Pick<UserSettings, 'habits'>, profile: UserProfile): ChapterId[] {
   const walk = settings.habits?.mealWalk;
+  const h = profile.health;
+  const medicines = (h.insulin === 'injections_or_pump' && h.insulinRegimen === undefined)
+    || (h.diabetes === 'other' && h.insulin !== 'none' && !h.sglt2i);
   return [
     ...(profile.name === undefined ? ['about' as const] : []),
+    ...(medicines ? ['medicines' as const] : []),
     ...(profile.food?.level === undefined ? ['food' as const] : []),
     ...(walk?.enabled && walk.meals.some(meal => !walk.finish?.[meal]) ? ['day' as const] : []),
   ];
