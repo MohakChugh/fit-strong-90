@@ -448,6 +448,38 @@ describe('a setup page, its answers kept as they’re given (§6.1; H5-16, K5-17
     expect(draft()?.answers?.name).toBe('Kai');
   });
 
+  it('a backup restored on Welcome itself: Get started carries on in the restored record, and Review finishes it (V-J11, V-J37; H5R-09)', async () => {
+    const { TRANSFER_FORMAT } = await import('@/store/transfer');
+    const { WelcomePage } = await import('./WelcomePage');
+    host = render(createElement(WelcomePage));
+    await host.settle();
+    const backup = {
+      format: TRANSFER_FORMAT, version: 1, exportedAt: '2026-10-08T19:00:00.000+05:30', schemaVersion: 5,
+      settings: { onboardingComplete: false, setup: { stage: 'open', draft: { at: 'health.conditions', answers: { figure: 'female', metric: true } } } },
+      observations: [], sessions: [], checkIns: [], personalRecords: [], bodyMetrics: [], focusOverrides: {}, contentState: [],
+    };
+    expect((await store.importRecord(backup, 'replace')).ok).toBe(true);
+    await host.settle();
+    await host.click(host.button('Get started', { exact: true }));
+    await host.settle();
+    expect(router.navigate).toHaveBeenCalledWith('/setup/health/conditions', { state: { welcomeBack: true } });
+    expect(host.text()).not.toContain(SAVE_FAILED);
+    host.unmount();
+    // Review, open before a restore, finishes the restored record.
+    const { ReviewPage } = await import('./ReviewPage');
+    expect((await store.update(d => withDraft(d, 'review', MINIMAL))).ok).toBe(true);
+    host = render(createElement(ReviewPage));
+    await host.settle();
+    const again = { ...backup, settings: { onboardingComplete: false, setup: { stage: 'open', draft: { at: 'review', answers: MINIMAL } } } };
+    expect((await store.importRecord(again, 'replace')).ok).toBe(true);
+    await host.settle();
+    const agree = host.all().find(n => n.props.role === 'checkbox');
+    if (agree) await host.click(agree);
+    await host.click(host.button('Start using FitStrong', { exact: true }));
+    await host.settle();
+    expect(host.text()).not.toContain('replaced on this device');
+  });
+
   it('Close with the change refused stays, and says so (H5R-16)', async () => {
     const { lookedAround } = await import('@/setup/assemble');
     expect((await store.update(lookedAround)).ok).toBe(true);

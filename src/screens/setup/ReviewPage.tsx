@@ -36,8 +36,9 @@ export function ReviewPage() {
   const { answers } = useSetupAnswers();
   const ctx = useCtx();
   const [now] = useState(nowAt);
-  // The record Review was opened for: finishing it, once another copy has replaced it, is refused (H5R-09).
-  const [generation] = useState(() => state.epoch);
+  // The record Review shows, as it's drawn now: finishing it, once another copy has replaced it, is refused (H5R-09).
+  // A backup restored here redraws Review, so it finishes the restored record (V-J37).
+  const generation = state.epoch;
   const today = dayOf(now);
   const [{ context, device }] = useState(() => {
     const env = readInstallEnv();

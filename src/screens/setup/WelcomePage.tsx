@@ -4,7 +4,7 @@ import { TypeIcon } from 'lucide-react';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
 import { continueUnsaved, flushAnswers, lookAroundFirst, useAnswersQueue } from '@/setup/draft';
-import { getState } from '@/store/useStore';
+import { useStore } from '@/store/useStore';
 import { resumeAt } from '@/setup/graph';
 import { InstallSteps } from '@/screens/welcome/InstallSteps';
 import { deviceNoun, installContext, installLine, readInstallEnv } from '@/screens/welcome/install';
@@ -33,8 +33,9 @@ export function WelcomePage() {
   });
   const [sheet, setSheet] = useState<'display' | 'install'>();
   const [problem, setProblem] = useState<string>();
-  // The record Welcome was opened for: a store for it, once another copy has replaced it, is refused (H5R-09).
-  const [generation] = useState(() => getState().epoch);
+  // The record Welcome shows, as it's drawn now: a move planned from it, once another copy has replaced it, is refused
+  // (H5R-09). A backup restored here redraws Welcome, so Get started goes on in the restored record (V-J11).
+  const { epoch: generation } = useStore();
   const line = installLine(context, device);
 
   // A draft carries on where it stopped, with "Welcome back" (a backup restored here, V-J11); otherwise the first question.
