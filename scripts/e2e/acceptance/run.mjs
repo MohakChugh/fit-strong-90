@@ -24,6 +24,7 @@ import { Case } from './lib/harness.mjs';
 import { writeReport } from './lib/report.mjs';
 import { devServer, previewServer, stopServers } from './lib/servers.mjs';
 import { seedInit } from './lib/inpage.mjs';
+import { norm } from './lib/ids.mjs';
 import { persona } from './fixtures/personas.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).map(a => a.replace(/^--/, '').split(/=(.*)/s).slice(0, 2)).map(([k, v]) => [k, v ?? 'true']));
@@ -34,19 +35,29 @@ if (args.help) {
   process.exit(0);
 }
 
-const only = args.only ? new Set(args.only.split(',').map(s => s.trim().toUpperCase())) : undefined;
+const wanted = args.only ? args.only.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+const only = wanted ? new Set(wanted.map(norm)) : undefined;
 const projects = args.projects ? PROJECTS.filter(p => args.projects.split(',').includes(p.id)) : PROJECTS;
 const concurrency = Number(args.concurrency ?? 4);
 const caseFilter = args.case ? new RegExp(args.case, 'i') : undefined;
 
 // ---------------------------------------------------------------- journeys
 
-const files = fs.readdirSync(path.join(HERE, 'journeys')).filter(f => /^[jmsv]\d\d\.mjs$/.test(f)).sort();
+const files = fs.readdirSync(path.join(HERE, 'journeys')).filter(f => /^[jmpsv]\d\d\.mjs$/.test(f)).sort();
 const journeys = [];
 for (const f of files) {
   const mod = await import(pathToFileURL(path.join(HERE, 'journeys', f)).href);
-  if (only && !only.has(mod.id)) continue;
+  if (only && !only.has(norm(mod.id))) continue;
   journeys.push(mod);
+}
+// A selector that matches no journey is a mistake, even when the others match (P8-20).
+if (wanted) {
+  const found = new Set(journeys.map(j => norm(j.id)));
+  const missing = wanted.filter(w => !found.has(norm(w)));
+  if (missing.length) {
+    console.error(`No journey matches ${missing.join(', ')}.`);
+    process.exit(2);
+  }
 }
 if (!journeys.length) {
   console.error(`No journeys selected (${args.only ?? 'none found'}).`);
