@@ -1547,3 +1547,41 @@ describe('“No regular medicines” after a tablet that can cause lows, or a �
     expect(rawInvalid('medicines.which', { ...metformin, regular: 'no' }, { metforminSince: '19' })).toBe(false);
   });
 });
+
+describe('Me’s chapter editor, open while another copy replaces the record (codex F-setup-05; board D191)', () => {
+  it('once this copy has the new record, the editor starts again from it, and its Save stores into it', async () => {
+    expect((await store.update(d => completedSetup(d, { ...MINIMAL, name: 'Asha' }, NOW, CTX))).ok).toBe(true);
+    host = render(createElement(ChapterEditor, { chapter: 'about' }));
+    await host.settle();
+    await host.change(host.field('Name (optional)'), { value: 'Old' });
+    // A weight half typed, and a Save the device refused: Try again.
+    const weight = () => host!.all().find(n => n.type === 'input' && n.props.placeholder === '65')!;
+    await host.change(weight(), { value: '7' });
+    await host.change(weight(), { value: '72' });
+    diskFull();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.buttons('Try again', { exact: true })).toHaveLength(1);
+    fake.control.setWriteError(undefined);
+    await host.change(weight(), { value: '7' });
+    // Another copy restores a backup with another completed profile: Ravi's.
+    const { profile, settings } = store.getState();
+    const { openDb } = await import('@/store/db');
+    const { commitChange } = await import('@/store/snapshot');
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { reset: true, schemaVersion: 6, profile: { ...profile!, name: 'Ravi' }, settings: { replace: settings } } }))).ok).toBe(true);
+    tab.close();
+    expect((await store.reload()).ok).toBe(true);
+    await host.settle();
+    // The new record's answers, with nothing of the old one's edits, its typing or its refusal left.
+    expect(host.field('Name (optional)').props.value).toBe('Ravi');
+    expect(weight().props.value).toBe('');
+    expect(host.buttons('Save', { exact: true })).toHaveLength(1);
+    expect(host.buttons('Try again', { exact: true })).toHaveLength(0);
+    await host.change(host.field('Name (optional)'), { value: 'Ravi K' });
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('Saved.');
+    expect(store.getState().profile?.name).toBe('Ravi K');
+  });
+});

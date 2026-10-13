@@ -25,6 +25,12 @@ import { useCtx } from './useSetup';
  * one Save. While a health review is pending, the three safety chapters open
  * together, with whether the person exercises now: only all of them
  * answered clear it.
+ *
+ * Opened for one record: once this copy sees another (a backup restored, or
+ * everything deleted, here or in another window), its answers, edits and
+ * generation start again from that one, as setup's pages do (board D191;
+ * codex F-setup-05), and what it last said stays. A save already sent for
+ * the old record is still refused by the store.
  */
 export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
   const { profile } = useStore();
@@ -47,7 +53,17 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
   // A clinical one refused holds every movement till it's stored or not kept (board D197).
   const unsaved = useClinicalUnsaved();
   // The record this editor was opened for: a save for it, once another copy has replaced it, is refused (H5R-09).
-  const [generation] = useState(() => getState().epoch);
+  const [generation, setGeneration] = useState(() => getState().epoch);
+  // Another record seen since: start again from it (board D191; codex F-setup-05).
+  const { epoch } = useStore();
+  if (epoch !== generation) {
+    setGeneration(epoch);
+    setOpened(reopen());
+    setEdits({});
+    setTyped({});
+    setTried(false);
+    setRefused(false);
+  }
   const a: SetupAnswers = { ...opened, ...edits };
   const state = editorState(opens, a, opened, ctx, typed);
   const { pages, blocking } = state;
