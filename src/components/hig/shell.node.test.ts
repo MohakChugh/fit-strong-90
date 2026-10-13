@@ -60,7 +60,7 @@ const { contextOf } = await import('@/content');
 const { BAR_COLOR, themeColorFor } = await import('@/lib/themeColor');
 const { ScreenLoading } = await import('./AppShell');
 const { OwnsUrgent, UrgentBanner } = await import('@/screens/home/UrgentBanner');
-const { UrgentContext } = await import('@/screens/home/urgent');
+const { UrgentContext, UrgentsContext } = await import('@/screens/home/urgent');
 const { Toggle } = await import('@/screens/you/controls');
 const { ChoiceChips } = await import('@/screens/track/ui');
 
@@ -600,9 +600,11 @@ describe('wiring that names the opener (S-10, S-11)', () => {
     expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/const opensOnHoldNow = \(id: CategoryId\) => \{\s*const \{ mode \} = categoryById\(id\);\s*return mode !== undefined && opensOnHold\(permissionFor\(mode\)\);/);
   });
 
-  it('a reminder that invites movement is held back while a safety decision stands, on Home and in the floating banner (kiro KV-09)', () => {
-    expect(read('src/screens/home/HomeScreen.tsx')).toContain('const waiting = offeredNow(usePending(), urgent !== undefined);');
-    expect(read('src/reminders/ReminderHost.tsx')).toMatch(/offeredNow\(pending\.filter\(p => stillDue\(p\.occurrence, now, current\)\), urgent\)/);
+  it('a reminder that invites movement is held back while a safety decision or any hold on movement stands, on Home and in the floating banner (kiro KV-09, board D224)', () => {
+    expect(read('src/screens/home/HomeScreen.tsx')).toContain('const waiting = offeredNow(usePending(), { urgent: urgent !== undefined, held: useMovementHeld() });');
+    const host = read('src/reminders/ReminderHost.tsx');
+    expect(host).toContain('const held = useMovementHeld();');
+    expect(host).toMatch(/offeredNow\(pending\.filter\(p => stillDue\(p\.occurrence, now, current\)\), \{ urgent, held \}\)/);
   });
 
   it('Home’s reading tiles show each last reading with its day, worked out with the day’s figures (kiro KV-17)', () => {
@@ -709,8 +711,9 @@ describe('the safety surface wherever the person is (codex V1-02, V1-03, journey
   const CHEST = 'Chest pain or pressure: call emergency services now.';
   const emergency = { kind: 'emergency', tone: 'stop', headline: 'Call emergency services now', when: 'Emergency answer today', reasons: [CHEST] } as const;
   const surfaces = (nodes: HostNode[]) => nodes.filter(n => n.props['data-urgent-kind'] !== undefined).length;
+  /** A full-screen task under the shell, as `UrgentProvider` hands it the decisions: the first, and every one. */
   const task = (urgent: typeof emergency | { kind: 'low' }, child: ReactNode) =>
-    h(UrgentContext, { value: urgent as never }, h(nav.ScreenTopContext, { value: banner }, h(TaskFrame, null, child)));
+    h(UrgentContext, { value: urgent as never }, h(UrgentsContext, { value: [urgent] as never }, h(nav.ScreenTopContext, { value: banner }, h(TaskFrame, null, child))));
   /** The gate's answers a task's own screen may draw. */
   const callNow = { allowed: false, disposition: 'emergency', reasons: [CHEST] } as const;
   const checkInFirst = { allowed: false, disposition: 'hold', reasons: ['Check in first, so today’s movement fits how you are.'] } as const;

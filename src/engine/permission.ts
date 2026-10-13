@@ -25,7 +25,7 @@ import { DISPOSITION_ORDER } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { toDateString } from '@/lib/utils';
 import { deriveHealth, profileGaps } from './health';
-import { CLINICAL_UNSAVED, CLINICAL_UNSAVED_RELEASE, durableView, EMERGENCY_CALL, evaluateCheckIn, profileOnlyReadiness, withLogged } from './readiness';
+import { CLINICAL_UNSAVED, durableView, EMERGENCY_CALL, evaluateCheckIn, profileOnlyReadiness, withLogged } from './readiness';
 
 export type { Disposition, Mode } from '@/types/checkin';
 
@@ -90,7 +90,6 @@ const RELEASES = {
   fresh: 'Check your glucose now and add the reading.',
   foot: 'Walking is back once your foot has healed or a clinician says it is fine.',
   provoked: 'Try it again tomorrow, once your symptoms have settled.',
-  unsaved: CLINICAL_UNSAVED_RELEASE,
 } as const;
 
 /** Refusals for the rest of the day, by the movement that made symptoms worse (X2-09, J2-04): no answer changes them. */
@@ -269,20 +268,26 @@ type Opts = { fresh: boolean; needToday: boolean; onScreen?: boolean };
 
 /**
  * A mode's answer for the profile every gate reads. While a clinical answer
- * couldn't be stored, every mode holds, saying that alone (board D197): an
- * emergency stays first.
+ * couldn't be stored, every mode holds (boards D197, D224): the day's own
+ * decisions, as the day's answer keeps them, then the pause, never instead of
+ * one, so a stop still asks what happened and advice today is still given.
+ * The holds a check-in or the profile answers give way to it, and no check-in
+ * lifts it. An emergency stays first, as it is.
  */
 function decide(input: PermissionInput, mode: Mode, opts: Opts): Permission {
-  const decided = decideOne(input, mode, opts);
+  const r = readinessFor(input);
+  const decided = decideOne(input, mode, opts, r);
   if (!input.profile.clinicalUnsaved || decided.disposition === 'emergency') return decided;
-  return { mode, allowed: false, disposition: 'hold', reasons: [PERMISSION_TEXT.unsaved], release: RELEASES.unsaved, restrictions: [], codes: [], needsCheckIn: false };
+  return {
+    mode, allowed: false, disposition: r.disposition ?? 'hold', reasons: r.reasons.map(x => x.message),
+    ...(r.release ? { release: r.release } : {}), restrictions: [], codes: [], needsCheckIn: false,
+  };
 }
 
-function decideOne(input: PermissionInput, mode: Mode, opts: Opts): Permission {
+function decideOne(input: PermissionInput, mode: Mode, opts: Opts, r: Readiness): Permission {
   const { profile, now } = input;
   const today = toDateString(now);
   const checkIn = input.checkIn && input.checkIn.date === today ? input.checkIn : undefined;
-  const r = readinessFor(input);
   const blocks: Block[] = [];
 
   if (rank(r.disposition ?? 'reassure') >= rank('hold')) {

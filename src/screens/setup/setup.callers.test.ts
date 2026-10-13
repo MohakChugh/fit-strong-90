@@ -350,12 +350,11 @@ describe('a clinical edit in Me (H5-08; boards D162, D197, D198)', () => {
   });
 });
 
-describe('a refused clinical save beside a clock change and an unanswered stop (boards D170, D174, D197)', () => {
-  it('every movement holds at every gate while any stands, the pause said alone; each lets go only by its own rule, the others holding on', async () => {
+describe('a refused clinical save beside a clock change and an unanswered stop (boards D170, D174, D197, D224)', () => {
+  it('every movement holds at every gate while any stands, the stop said beside the pause; each lets go only by its own rule, the others holding on', async () => {
     const { useContext, useEffect } = await import('react');
     const { UrgentProvider } = await import('@/screens/home/UrgentBanner');
     const { ScreenTopContext } = await import('@/components/hig/navigation');
-    const { UnsavedClinical } = await import('@/components/profile/UnsavedClinical');
     const { useGuided } = await import('@/hooks/useGuided');
     const { resetPendingCheckInsForTests } = await import('@/components/checkin/pending');
     const { allowsMovement, deviceClinical, storeGate, walkInput } = await import('@/walk/gate');
@@ -364,6 +363,9 @@ describe('a refused clinical save beside a clock change and an unanswered stop (
     const { STOPPED } = await import('@/walk/stop');
     resetPendingCheckInsForTests();
     vi.useFakeTimers({ toFake: ['Date'] });
+    // Where the surface's way out of the pause hands focus once it has gone with it: the screen's title (B-03).
+    Object.assign(document, { querySelector: () => null });
+    globalThis.requestAnimationFrame = (f: FrameRequestCallback) => setTimeout(f, 0) as unknown as number;
     try {
       const at = (minutes: number) => new Date(Date.parse(NOW) + minutes * 60_000);
       vi.setSystemTime(at(0));
@@ -388,14 +390,14 @@ describe('a refused clinical save beside a clock change and an unanswered stop (
       };
       expect(gates().asked.every(allowsMovement)).toBe(true);
 
-      // The surface every tab screen draws, with Home's pause, and the shared report path.
+      // The surface every tab screen draws, and the shared report path.
       const seen: { report?: ReturnType<typeof useGuided>['reportSymptoms'] } = {};
       const Report = () => {
         const g = useGuided();
         useEffect(() => { seen.report = g.reportSymptoms; });
         return null;
       };
-      const Screen = () => createElement('main', null, useContext(ScreenTopContext), createElement(UnsavedClinical));
+      const Screen = () => createElement('main', null, useContext(ScreenTopContext));
       host = render(createElement(UrgentProvider, null, createElement(Report), createElement(Screen)));
       await host.settle();
 
@@ -417,13 +419,14 @@ describe('a refused clinical save beside a clock change and an unanswered stop (
       fake.control.setWriteError(undefined);
       await host.settle();
 
-      // All three stand: every mode held at every gate, saying the pause alone (D197).
+      // All three stand: every mode held at every gate, saying the stop and then the pause, never the pause instead (D224);
+      // the clock change, a hold a reading answers, gives way to the pause. The surface says the stop, then the pause.
       let now = gates();
-      expect(now.asked.every(p => !p.allowed && p.reasons.length === 1 && p.reasons[0] === PERMISSION_TEXT.unsaved)).toBe(true);
+      expect(now.asked.every(p => !p.allowed && p.reasons.join('|') === [STOP_UNANSWERED.reason, PERMISSION_TEXT.unsaved].join('|'))).toBe(true);
       expect(now.walk).toEqual([false, false, false]);
-      expect(host.text()).toContain(CLINICAL_UNSAVED);
+      expect(host.text().indexOf(CLINICAL_UNSAVED)).toBeGreaterThan(host.text().indexOf('Say what happened'));
 
-      // The pause's own rule, Discard changes: the stored answers stand, and the stop and the clock change still hold every mode.
+      // The pause's own rule, the surface's Discard changes: the stored answers stand, and the stop and the clock change still hold every mode.
       await host.click(host.button('Discard changes', { exact: true }));
       expect(gate().clinicalUnsaved).toBeUndefined();
       expect(store.getState().profile?.health.highHypoRisk).toBe(true);
@@ -449,6 +452,8 @@ describe('a refused clinical save beside a clock change and an unanswered stop (
     } finally {
       vi.useRealTimers();
       resetPendingCheckInsForTests();
+      Reflect.deleteProperty(document, 'querySelector');
+      Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
     }
   });
 });
@@ -1245,10 +1250,11 @@ describe('body measures on Review and in Profile & health (§4.10, B-24; H5-24)'
   });
 });
 
-describe('a clinical save the device refused, in Profile & health (board D197; H5F-12)', () => {
-  /** Profile & health after a wound disclosed in Me wasn't stored: its write, with whether the next try is stored. */
+describe('a clinical save the device refused, in Profile & health (boards D197, D224; H5F-12)', () => {
+  /** Profile & health under the shell's surface after a wound disclosed in Me wasn't stored: its write, with whether the next try is stored. */
   const setUp = async () => {
     const { ProfileHealthScreen } = await import('./ProfileHealthScreen');
+    const { UrgentProvider } = await import('@/screens/home/UrgentBanner');
     const { saveClinical } = await import('@/setup/effective');
     const { StoreFailure } = await import('@/store/db');
     expect((await store.update(d => completedSetup(d, MINIMAL, NOW, CTX))).ok).toBe(true);
@@ -1256,17 +1262,22 @@ describe('a clinical save the device refused, in Profile & health (board D197; H
     const wounded = (d: AppData): AppData => ({ ...d, profile: { ...d.profile!, health: { ...d.profile!.health, footStatus: 'current_wound_or_active_charcot' } } });
     const write = () => (tries.stored ? store.update(wounded) : Promise.resolve({ ok: false as const, failure: new StoreFailure('quotaExceeded', 'Storage is full') }));
     expect((await saveClinical(write)).ok).toBe(false);
-    host = render(createElement(ProfileHealthScreen));
-    await host.settle();
-    // Where focus goes once the way out is gone: the region that says what happened.
-    const region = host.all().find(n => n.props.tabIndex === -1 && n.element && textIn(n).includes(CLINICAL_UNSAVED))!;
+    // Where focus goes once the way out has gone with the pause: the screen's title (B-03).
     const focused = { count: 0 };
-    region.element!.focus = () => void (focused.count += 1);
+    Object.assign(document, { querySelector: (selector: string) => (selector === 'main h1' ? { focus: () => void (focused.count += 1) } : null) });
+    globalThis.requestAnimationFrame = (f: FrameRequestCallback) => setTimeout(f, 0) as unknown as number;
+    host = render(createElement(UrgentProvider, null, createElement(ProfileHealthScreen)));
+    await host.settle();
     return { tries, focused };
   };
-  const said = (h: Host, text: string) => h.all().some(n => n.props.role === 'status' && textIn(n).includes(text));
+  afterEach(() => {
+    Reflect.deleteProperty(document, 'querySelector');
+    Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
+  });
+  /** Said, at once where it's refused, and politely once the pause has gone. */
+  const said = (h: Host, text: string) => h.all().some(n => (n.props.role === 'alert' || n.props['aria-live'] === 'polite') && textIn(n).includes(text));
 
-  it('says so, and every movement waits; Try again refused again keeps waiting, and stored, says so where focus now is', async () => {
+  it('the shared surface says so, and every movement waits; Try again refused again says so and keeps waiting; stored, the pause goes, said, with focus on the title', async () => {
     const { tries, focused } = await setUp();
     expect(host!.text()).toContain(CLINICAL_UNSAVED);
     expect(pausedForUnsaved()).toBe(true);
@@ -1284,7 +1295,7 @@ describe('a clinical save the device refused, in Profile & health (board D197; H
     expect(focused.count).toBe(1);
   });
 
-  it('Discard changes: the stored answers stand, said where focus now is', async () => {
+  it('Discard changes: the stored answers stand, said, with focus on the title', async () => {
     const { focused } = await setUp();
     await host!.click(host!.button('Discard changes', { exact: true }));
     await host!.settle();

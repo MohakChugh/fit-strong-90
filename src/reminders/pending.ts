@@ -11,7 +11,7 @@
  */
 
 import { useSyncExternalStore } from 'react';
-import { reminderKey, type Occurrence } from './schedule';
+import { reminderKey, type Occurrence, type ReminderKind } from './schedule';
 
 export interface Pending {
   occurrence: Occurrence;
@@ -41,14 +41,20 @@ export function withoutReminder(list: readonly Pending[], id: string): Pending[]
   return list.filter(p => p.occurrence.id !== id);
 }
 
+/** The reminders that invite movement. */
+const MOVES: ReadonlySet<ReminderKind> = new Set(['sittingBreak', 'mealWalk']);
+
 /**
- * What may be offered now. While a safety decision stands (journey §4.7) a
- * reminder that invites movement, a walk or a stand-up, is not offered: the
- * shared surface says what to do instead (§7.4). It is held back, not
- * answered, so it is offered again once the decision has gone.
+ * What may be offered now. A reminder that invites movement, a walk or a
+ * stand-up, is not offered while any hold on movement stands (`held`, the
+ * shared verdict `movementHeld`, board D224), whether or not it raises the
+ * shared surface. While a safety decision stands there (`urgent`, journey
+ * §4.7), only water is: the surface says what to do instead (§7.4). What is
+ * held back is not answered, so it is offered again once the hold has gone.
  */
-export function offeredNow(list: readonly Pending[], urgent: boolean): readonly Pending[] {
-  return urgent ? list.filter(p => p.occurrence.habit === 'water') : list;
+export function offeredNow(list: readonly Pending[], { urgent, held }: { urgent: boolean; held: boolean }): readonly Pending[] {
+  if (urgent) return list.filter(p => p.occurrence.habit === 'water');
+  return held ? list.filter(p => !MOVES.has(p.occurrence.habit)) : list;
 }
 
 let pending: Pending[] = [];

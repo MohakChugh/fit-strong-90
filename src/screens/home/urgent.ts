@@ -1,8 +1,9 @@
 /**
  * The one safety surface (journey §4.7, B-02): every active emergency, stop
- * for today, low being treated and re-check, said the same way on every tab
- * screen, in the engine's own headline, with when it was measured or answered
- * and the safe action now. Ordinary holds (no check-in yet, a profile gap, a
+ * for today, low being treated and re-check, said at once and the same way on
+ * every tab screen, each in the engine's own headline, with when it was
+ * measured or answered and the safe action now; an emergency alone (board
+ * D224). Ordinary holds (no check-in yet, a profile gap, a
  * foot that needs protecting) are not urgent: tiles and hubs say them in
  * their own mode's words.
  *
@@ -14,18 +15,18 @@
 import { createContext, useMemo, useState } from 'react';
 import { headline } from '@/components/checkin/copy';
 import { gateFor } from '@/components/checkin/start';
-import { profileGaps } from '@/engine/health';
 import { readinessFor, type Mode, type Permission } from '@/engine/permission';
-import { RECHECK_MINUTES, STOP_UNANSWERED, profileOnlyReadiness, toMgdl, withLogged } from '@/engine/readiness';
-import { gateOf, nextBoundary, recommend, type RecommendInput, type RecommendationKind } from '@/health/recommend';
+import { ASKS_FOR_A_READING, RECHECK_MINUTES, STOP_UNANSWERED, profileOnlyReadiness, toMgdl, withLogged } from '@/engine/readiness';
+import { nextBoundary, recheckPending, recommend, type RecommendInput, type RecommendationKind } from '@/health/recommend';
 import { useGuided } from '@/hooks/useGuided';
 import { prefersHour12, timeOf } from '@/lib/time';
 import { toDateString } from '@/lib/utils';
 import { useClock, useWakeAt } from '@/screens/today/clock';
+import { checkInOnly } from './tileLine';
 import { loadProgress, type ProgressSlot, type SavedProgress } from '@/session/persistence';
 import { setupStateOf } from '@/setup/state';
 import { useStore, type StoreState } from '@/store/useStore';
-import type { CheckInRecord, Disposition, GlucoseEntry, Reason } from '@/types/checkin';
+import { DISPOSITION_ORDER, type CheckInRecord, type Disposition, type GlucoseEntry, type Reason } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 
 export interface Urgent {
@@ -63,12 +64,6 @@ const READ: Record<string, 'glucose' | 'ketones' | 'bp'> = {
 };
 /** Low glucose, and the reading after it: named as a low (`recheckWhen` names the one a re-check counts from). */
 const LOW_CODES = new Set(['severeLow', 'low', 'lowNotRecovered', 'lowRepeat', 'tooSoon']);
-/**
- * Holds that only ask for a reading to be given or typed again: the check-in
- * says so, and the tiles say "check in first". Not a safety state of the
- * person, so not urgent (journey §4.7: ordinary holds keep their own words).
- */
-const ASKS_FOR_A_READING = new Set(['noReading', 'readingInvalid', 'bpInvalid', 'ketonesInvalid']);
 /** A reading from earlier today, still deciding today (the engine's message says which). */
 const EARLIER = new Set([
   'extremeGlucoseEarlier', 'extremeGlucoseAssessed', 'severeLowEarlier', 'severeLowAssessed',
@@ -150,56 +145,73 @@ export interface UrgentInput {
 
 const MODES: Mode[] = ['guided', 'stretch', 'walk'];
 
+/** The reasons that time a re-check: the re-check's own, said with it while one is due. */
+const RECHECK_CODES = new Set(['severeLow', 'lowRepeat', 'low', 'recheckUnknownTime', 'recheckNoTime', 'tooSoon', 'belowStart', 'falling']);
+
 /**
- * Whether a safety state stands, and what the surface says (journey §4.7,
- * B-02), decided from the engine whatever the Right now card suggests (codex
- * V1-01): an emergency, a stop for today ("get advice today"), a re-check, a
- * low reported with no reading yet, or a symptom or reading that holds every
- * movement (dizziness, repeated lows, a very high reading). Ordinary holds are
- * not urgent: no check-in yet, a profile gap, a foot that needs protecting, a
- * reading still to be given, and limits the profile sets for good.
+ * Every safety state that stands, and what the surface says for each (journey
+ * §4.7, B-02), decided from the engine whatever the Right now card suggests
+ * (codex V1-01). An emergency stands alone: "call now", with nothing beside
+ * it. Otherwise every active decision, at once, in this order (board D224): a
+ * low being treated, reported with no reading yet; the day's own holds, an
+ * unanswered stop's "Say what happened" among them, with any symptom or
+ * reading that holds every movement (dizziness, repeated lows, a very high
+ * reading); a stop for today ("get advice today"); a re-check. Each with its
+ * own headline, when it was measured or answered, the safe action, and the
+ * engine's sentences it stands on. Ordinary holds are not urgent: no check-in
+ * yet, a profile gap, a foot that needs protecting, a reading still to be
+ * given, and limits the profile sets for good.
  */
-export function urgentOf({ profile, checkIn, checkIns, permissions }: UrgentInput, now: Date, hour12: boolean = prefersHour12()): Urgent | undefined {
+export function urgentsOf({ profile, checkIn, checkIns, permissions }: UrgentInput, now: Date, hour12: boolean = prefersHour12()): Urgent[] {
   const all = MODES.map(m => permissions[m]);
   const day = readinessFor({ profile, ...(checkIn ? { checkIn } : {}), now, recent: [...checkIns] });
   // The profile's standing limits are no part of the day's decision.
   const standing = new Set(profileOnlyReadiness(profile).reasons.map(x => x.code));
-  /** The day's own sentences of this weight: every refusal of the gate lists them, in any mode (the engine's `decide`). */
-  const said = (d: Disposition) => day.reasons.filter(x => x.disposition === d && !standing.has(x.code)).map(x => x.message);
+  /** The day's own reasons: every refusal of the gate lists them, in any mode (the engine's `decide`). */
+  const own = day.reasons.filter(x => !standing.has(x.code));
+  const messages = (reasons: typeof own) => reasons.map(x => x.message);
   const emergency = all.find(p => p.disposition === 'emergency');
   if (emergency) {
     const top = day.reasons.find(r => r.disposition === 'emergency');
-    return { kind: 'emergency', tone: 'stop', headline: headline(emergency).title, when: stopWhen('emergency', top, checkIn, hour12), reasons: said('emergency') };
+    return [{ kind: 'emergency', tone: 'stop', headline: headline(emergency).title, when: stopWhen('emergency', top, checkIn, hour12), reasons: messages(own.filter(x => x.disposition === 'emergency')) }];
+  }
+  // A re-check due while movement waits, advice today beside it or not.
+  const rechecking = recheckPending(checkIn) && all.some(p => !p.allowed);
+  const found: Urgent[] = [];
+  // The engine's words for a low reported with no reading yet: check now, and treat it as a low if that can't be done.
+  const low = checkIn ? own.filter(x => FEELING_LOW.has(x.code)) : [];
+  if (checkIn && low.length > 0) {
+    found.push({ kind: 'low', tone: 'caution', headline: 'Check your glucose now', when: `Feeling low${atOrToday(checkIn.lowSymptomsAt, hour12)}`, reasons: messages(low) });
+  }
+  // The day's own holds, every movement's: not a reading still to be given, nor the low or the re-check said on their own.
+  const holds = own.filter(x => x.disposition === 'hold' && !ASKS_FOR_A_READING.has(x.code) && !FEELING_LOW.has(x.code) && !(rechecking && RECHECK_CODES.has(x.code)));
+  if (holds.length > 0) {
+    found.push({
+      kind: 'hold', tone: 'caution',
+      ...(holds.some(x => x.message === STOP_UNANSWERED.reason) ? { stop: true as const } : {}),
+      // The check-in's own headline, for every movement at once; a reading the low or the re-check waits for is theirs.
+      headline: day.awaitingReading && !rechecking && low.length === 0 ? 'Check again before you start' : 'No exercise for now',
+      when: stopWhen('hold', holds[0], checkIn, hour12),
+      reasons: messages(holds),
+    });
   }
   const advice = all.find(p => p.disposition === 'today');
   if (advice) {
     const top = day.reasons.find(r => r.disposition === 'today');
-    return { kind: 'seekHelp', tone: 'stop', headline: headline(advice).title, when: stopWhen('seekHelp', top, checkIn, hour12), reasons: said('today') };
+    found.push({ kind: 'seekHelp', tone: 'stop', headline: headline(advice).title, when: stopWhen('seekHelp', top, checkIn, hour12), reasons: messages(own.filter(x => x.disposition === 'today')) });
   }
-  const gaps = profileGaps(profile);
-  if (all.some(p => gateOf(p, checkIn, gaps.healthUnreviewed || gaps.medicinesUnknown) === 'recheck')) {
-    return {
+  if (rechecking) {
+    found.push({
       kind: 'recheck', tone: 'caution', headline: 'Re-check your glucose', when: recheckWhen(checkIn, hour12), next: recheckNext(checkIn, now, hour12),
-      reasons: said('hold'),
-    };
+      reasons: messages(own.filter(x => RECHECK_CODES.has(x.code))),
+    });
   }
-  if (checkIn && day.reasons.some(x => FEELING_LOW.has(x.code))) {
-    // The engine's words for it: check now, and treat it as a low if that can't be done.
-    return { kind: 'low', tone: 'caution', headline: 'Check your glucose now', when: `Feeling low${atOrToday(checkIn.lowSymptomsAt, hour12)}`, reasons: said('hold') };
-  }
-  // The day's own holds, every movement's: not the profile's standing limits, nor a reading still to be given.
-  const hold = day.reasons.find(x => x.disposition === 'hold' && !standing.has(x.code) && !ASKS_FOR_A_READING.has(x.code));
-  if (hold) {
-    return {
-      kind: 'hold', tone: 'caution',
-      ...(day.reasons.some(x => x.message === STOP_UNANSWERED.reason) ? { stop: true as const } : {}),
-      // The check-in's own headline, for every movement at once.
-      headline: day.awaitingReading ? 'Check again before you start' : 'No exercise for now',
-      when: stopWhen('hold', hold, checkIn, hour12),
-      reasons: said('hold'),
-    };
-  }
-  return undefined;
+  return found;
+}
+
+/** The first of the decisions that stand (`urgentsOf`), or none. */
+export function urgentOf(input: UrgentInput, now: Date, hour12: boolean = prefersHour12()): Urgent | undefined {
+  return urgentsOf(input, now, hour12)[0];
 }
 
 /** How firmly the gate refuses for each kind of decision. */
@@ -207,16 +219,18 @@ const WEIGHT: Record<Urgent['kind'], Disposition> = { emergency: 'emergency', se
 
 /**
  * Whether a screen drawing this answer of the gate says the urgent decision
- * (codex W-01): a refusal as firm, listing every sentence the decision stands
- * on. A full-screen task's own screen that says it lets the shared surface
- * step aside. One drawn earlier, or for another reason, does not, and the
- * surface stays: a session opened before any check-in, still saying "Check in
- * first" after an emergency was answered on another screen, hides nothing.
+ * (codex W-01): a refusal at least as firm, listing every sentence the
+ * decision stands on, as the gate lists every decision under the firmest
+ * (board D224). A full-screen task's own screen that says it lets the shared
+ * surface step aside. One drawn earlier, or for another reason, does not, and
+ * the surface stays: a session opened before any check-in, still saying
+ * "Check in first" after an emergency was answered on another screen, hides
+ * nothing.
  */
 export function says(drawn: { allowed: boolean; disposition: Disposition; reasons: readonly string[] }, urgent: Urgent): boolean {
   // A decision with no sentences of its own can't be shown to be drawn anywhere: the surface stays.
-  return !drawn.allowed && drawn.disposition === WEIGHT[urgent.kind] && urgent.reasons.length > 0
-    && urgent.reasons.every(r => drawn.reasons.includes(r));
+  return !drawn.allowed && DISPOSITION_ORDER.indexOf(drawn.disposition) >= DISPOSITION_ORDER.indexOf(WEIGHT[urgent.kind])
+    && urgent.reasons.length > 0 && urgent.reasons.every(r => drawn.reasons.includes(r));
 }
 
 // ============================================================================
@@ -276,6 +290,28 @@ export function useHeld(): boolean {
   return SAFETY_KINDS.has(recommend({ ...recommendSources({ now, state, plan: guided.plan, checkIns }), permissions: gatesNow(guided) }).kind);
 }
 
+/**
+ * Whether a prompt to move, a walk or a stand-up, is held back now (board
+ * D224): while the walk's gate refuses for anything but a check-in still to
+ * give. So any hold on movement quiets them, whether or not it raises the
+ * shared surface: a stop or any other safety decision, the pause while health
+ * answers aren't saved, a change to the phone's clock, setup unfinished, a
+ * foot to protect. A check-in or a reading still to give holds nothing back:
+ * the walk a prompt leads to asks for it.
+ */
+export function movementHeld(walk: Permission): boolean {
+  return !walk.allowed && !checkInOnly(walk);
+}
+
+/** The shared held verdict, live, as every movement prompt asks it: the floating banner and Home's (`offeredNow`). */
+export function useMovementHeld(): boolean {
+  const { settings } = useStore();
+  const guided = useGuided();
+  const { now } = useClock();
+  useWakeAt(nextBoundary(now, { ...(guided.checkIn ? { checkIn: guided.checkIn } : {}), ...(settings.habits ? { habits: settings.habits } : {}) }));
+  return movementHeld(gateFor(guided, 'walk'));
+}
+
 // ============================================================================
 // The shell's copy
 // ============================================================================
@@ -283,28 +319,33 @@ export function useHeld(): boolean {
 /** Where the surface's "What to do" takes the eye on Home: the Right now card. */
 export const RIGHT_NOW_ID = 'right-now';
 
-/** The urgent decision as the shell worked it out, for every screen in it; nothing outside the shell (full-screen tasks show their own stop). */
+/**
+ * The first urgent decision as the shell worked it out, for every screen in it: whether one stands, and which leads.
+ * Nothing outside the shell (full-screen tasks show their own stop).
+ */
 export const UrgentContext = createContext<Urgent | undefined>(undefined);
+/** Every urgent decision the shell's surface says, in its order (`urgentsOf`, board D224). */
+export const UrgentsContext = createContext<readonly Urgent[]>([]);
 
 /**
- * The urgent decision as it stands, for the shell. Worked out live from the
+ * The urgent decisions as they stand, for the shell. Worked out live from the
  * same inputs as Home's card, again when the clock passes a boundary
- * (`nextBoundary`) and when the app becomes visible; the same object while
+ * (`nextBoundary`) and when the app becomes visible; the same list while
  * the words stay the same.
  */
-export function useUrgent(): Urgent | undefined {
+export function useUrgents(): readonly Urgent[] {
   const state = useStore();
   const guided = useGuided();
   const { now } = useClock();
   const checkIns = useMemo(() => withEffectiveToday(state.checkIns, guided.checkIn), [state.checkIns, guided.checkIn]);
   useWakeAt(nextBoundary(now, { ...(guided.checkIn ? { checkIn: guided.checkIn } : {}), ...(state.settings.habits ? { habits: state.settings.habits } : {}) }));
-  const urgent = urgentOf({ profile: guided.profile, ...(guided.checkIn ? { checkIn: guided.checkIn } : {}), checkIns, permissions: gatesNow(guided) }, now);
-  // The same object while the words are the same, so the screens under it draw again only when it changes.
-  const key = urgent ? JSON.stringify(urgent) : '';
-  const [kept, setKept] = useState({ key, urgent });
+  const urgents = urgentsOf({ profile: guided.profile, ...(guided.checkIn ? { checkIn: guided.checkIn } : {}), checkIns, permissions: gatesNow(guided) }, now);
+  // The same list while the words are the same, so the screens under it draw again only when it changes.
+  const key = JSON.stringify(urgents);
+  const [kept, setKept] = useState({ key, urgents });
   if (kept.key !== key) {
-    setKept({ key, urgent });
-    return urgent;
+    setKept({ key, urgents });
+    return urgents;
   }
-  return kept.urgent;
+  return kept.urgents;
 }

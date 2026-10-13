@@ -108,6 +108,9 @@ describe('a clinical save the device refused (board D197; H5F-01 to H5F-04)', ()
       const p = ask(gate, mode);
       expect([p.allowed, p.disposition, p.reasons, p.release, p.restrictions, p.needsCheckIn], mode)
         .toEqual([false, 'hold', [PERMISSION_TEXT.unsaved], CLINICAL_UNSAVED_RELEASE, [], false]);
+      // Before today's check-in too: a check-in can't lift the pause, so none is asked for first (board D224).
+      const first = permission({ profile: gate, now: NOW }, mode);
+      expect([first.reasons, first.needsCheckIn], mode).toEqual([[PERMISSION_TEXT.unsaved], false]);
     }
     expect(waterBlock(gate, undefined)).toBe('Paused until your health answers are saved, since some answers need a fluid limit.');
     // The day's answer, with a check-in or without one yet, says that alone, and at least as cautiously as amber.
@@ -147,22 +150,30 @@ describe('a clinical save the device refused (board D197; H5F-01 to H5F-04)', ()
     expect(clinicalUnsaved()).toBe(true);
   });
 
-  it('an emergency still says call now, and a low is still treated; nothing else is advised (H5F-02)', async () => {
+  it('an emergency still says call now, and the day’s own decisions stand before the pause, a low treated; nothing else is advised (H5F-02; board D224)', async () => {
     const onInsulin = createDefaultProfile({ weightKg: 70, needsHealthReview: false, health: { ...KNOWN, diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', fluidRestriction: false } });
     await saveClinical(refused);
     const gate = gateProfile(done(onInsulin), NONE);
-    expect(ask(gate, 'walk', today({ emergency: ['chest'] })).disposition).toBe('emergency');
+    // An emergency is as it is without the pause, every word of it: nothing about starting later beside "call now".
+    const chest = today({ emergency: ['chest'] });
+    expect(ask(gate, 'walk', chest).disposition).toBe('emergency');
+    expect(ask(gate, 'walk', chest)).toEqual(ask(onInsulin, 'walk', chest));
     const reading = (value: number) => today({ glucose: { value, unit: 'mg/dL', measuredAt: new Date(NOW.getTime() - 5 * 60_000).toISOString(), source: 'meter' } });
     const low = readinessFor({ profile: gate, now: NOW, checkIn: { ...reading(60), readiness: evaluateCheckIn(gate, reading(60)) } });
     expect(low.actions).toEqual([TREAT]);
-    expect(low.reasons.map(r => r.message)).toEqual([CLINICAL_UNSAVED]);
-    // A high reading's water advice isn't given from answers that may not be the person's: a fluid limit may be among them.
+    // The low as it is, its re-check when it is due, then the pause.
+    expect(low.reasons.map(r => r.message)).toEqual([expect.stringContaining('Glucose 60 mg/dL, from 54 to 69 mg/dL, is a low.'), CLINICAL_UNSAVED]);
+    expect(low.recheckAt).toBe(evaluateCheckIn(onInsulin, reading(60)).recheckAt);
+    // A high reading still holds, in its own words; its water advice isn't given from answers that may not be the person's:
+    // a fluid limit may be among them.
     expect(evaluateCheckIn(onInsulin, reading(350)).actions.join(' ')).toContain('Drink some water');
     const high = evaluateCheckIn(gate, reading(350));
-    expect([high.actions, high.reasons.map(r => r.message), high.disposition]).toEqual([[], [CLINICAL_UNSAVED], 'hold']);
+    expect([high.actions, high.reasons.map(r => r.message), high.disposition, high.awaitingReading])
+      .toEqual([[], [expect.stringContaining('Glucose above 300 mg/dL: no exercise session until it is lower.'), CLINICAL_UNSAVED], 'hold', true]);
     // With no reading yet, it doesn't ask for one either: nothing starts until the answers are saved.
     expect(evaluateCheckIn(onInsulin, today()).awaitingReading).toBe(true);
-    expect([evaluateCheckIn(gate, today()).awaitingReading, evaluateCheckIn(gate, today()).notices]).toEqual([false, []]);
+    const none = evaluateCheckIn(gate, today());
+    expect([none.awaitingReading, none.notices, none.reasons.map(r => r.message), none.release]).toEqual([false, [], [CLINICAL_UNSAVED], CLINICAL_UNSAVED_RELEASE]);
   });
 
   it('a save for a record since replaced leaves nothing behind (H5F-09)', async () => {

@@ -198,6 +198,29 @@ describe('movementLine with the real gate', () => {
     }
   });
 
+  it('while health answers aren’t saved, the clinical line comes first, and the pause’s own only when nothing else stands (board D224)', () => {
+    const at = (time: string) => new Date(`2026-10-08T${time}:00`);
+    const paused: UserProfile = { ...createDefaultProfile({ health: { diabetes: 'type2', metformin: true, medicinesReviewed: true, glucoseMonitor: 'meter' } }), clinicalUnsaved: true };
+    const line = (c: DailyCheckIn, time: string, mode: Mode) => {
+      const today = { ...c, readiness: evaluateCheckIn(paused, c) };
+      return movementLine({
+        mode, permission: permission({ profile: paused, checkIn: today, now: at(time) }, mode), status: 'normal', normal: 'x',
+        ...(today.readiness.recheckAt ? { recheckAt: today.readiness.recheckAt } : {}), now: at(time), hour12: true,
+      });
+    };
+    for (const mode of ['guided', 'stretch', 'walk'] as const) {
+      // A low at 1:30 pm: its re-check, not the pause.
+      expect(line(checkIn({ glucose: { value: 62, unit: 'mg/dL', measuredAt: at('13:30').toISOString() } }), '13:32', mode), mode)
+        .toEqual({ text: 'Waiting for your re-check at 1:45 pm', tone: 'caution' });
+      // An unanswered stop: its own line.
+      expect(line(checkIn({ news: ['stopped'] }), '09:00', mode), mode).toEqual({ text: 'Not now: open to see why', tone: 'caution' });
+      // Advice today: its own, as always.
+      expect(line(checkIn({ news: ['fainted'] }), '09:00', mode), mode).toEqual({ text: 'Not today', tone: 'stop' });
+      // Nothing else standing: the pause.
+      expect(line(checkIn(), '09:00', mode), mode).toEqual({ text: 'Paused: health answers not saved', tone: 'caution' });
+    }
+  });
+
   it('a low waiting for its re-check says so, even before the day’s check-in, as v1’s gate puts the re-check first', () => {
     const glucose = { value: 65, unit: 'mg/dL' as const, measuredAt: minutesAgo(1) };
     // The second is a day begun by a reading typed in the player: the check-in itself is still to come.

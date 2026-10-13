@@ -11,7 +11,6 @@ import { CHAPTER_TITLE } from '@/setup/graph';
 import { chapterHref } from '@/setup/progress';
 import { CalendarStill } from '@/screens/you/CalendarStill';
 import { REVIEW_LABEL, chapterSections, reviewNeeded } from '@/screens/you/summaries';
-import { UnsavedClinical } from '@/components/profile/UnsavedClinical';
 import { useStore } from '@/store/useStore';
 
 const REVIEW_FOOTER = {
@@ -31,8 +30,6 @@ export function ProfileHealthScreen() {
   const review = reviewNeeded(profile);
   return (
     <Screen title="Profile & health" back={{ to: '/me', label: 'Me' }}>
-      {/* A clinical save the device refused: movement waits until it's tried again or discarded (board D197). */}
-      <UnsavedClinical />
       {/* Calendar may still remind about a habit an answer here stopped (D-01, D67). */}
       <CalendarStill still={calendarStillReminds(settings.habits, profile, today)} />
       {review && (
