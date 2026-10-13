@@ -422,7 +422,7 @@ export function emergencyProblems(text) {
 export async function backToTabs(t) {
   const page = t.page;
   if (await page.getByRole('navigation', { name: 'Main' }).count()) return;
-  const back = page.getByRole('button', { name: /^(Back to Today|Back)$/ });
+  const back = page.getByRole('button', { name: /^(Back to Home|Back)$/ });
   if (await back.count() === 1) {
     await ui.tap(back);
     await page.waitForTimeout(400);

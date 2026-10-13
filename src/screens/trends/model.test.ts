@@ -867,3 +867,29 @@ describe('a workout logged by hand counts in the Workout trend (KT-10, J§12.3)'
     expect(view.chart.slots[0].text).toBe('Monday, 5 October: 40 min. Last week: 0 min.');
   });
 });
+
+describe('a glucose change is worked out from the figures as shown, a line’s extra decimal included (codex F-ui-07, KT-01)', () => {
+  const at = (day: string) => `${day}T07:30:00+05:30`;
+  const fasting = (pairs: [string, number][]) => pairs.map(([day, value]) => g(value, at(day), 'fasting'));
+  const earlier = fasting([['2026-09-21', 249], ['2026-09-22', 250], ['2026-09-23', 250]]);
+  const later = fasting([['2026-09-28', 251], ['2026-09-29', 250], ['2026-09-30', 250]]);
+  const view = (week: string, readings: Observation[]) =>
+    readingsView({ def: TRENDS.glucose, window: windowOf('week', week), data: data(readings), prefs, ctx: ctx({ since: '2026-09-21' }) });
+
+  it('250 and 250.3 mg/dL on screen are never “the same”: the change is their difference, 0.3', () => {
+    // The earlier week's mean, 249.67, is shown as 250; the later one's, 250.33, keeps its decimal by the 250 line.
+    expect(view('2026-09-23', earlier).headline).toMatchObject({ value: '250', unit: 'mg/dL' });
+    const shown = view('2026-09-30', [...earlier, ...later]);
+    expect(shown.headline).toMatchObject({ value: '250.3', unit: 'mg/dL' });
+    expect(shown.change.text).toBe('Higher than the week before · +0.3 mg/dL');
+    // The other way round, lower by the same.
+    const back = fasting([['2026-09-28', 249], ['2026-09-29', 250], ['2026-09-30', 250]]);
+    const ahead = fasting([['2026-09-21', 251], ['2026-09-22', 250], ['2026-09-23', 250]]);
+    expect(view('2026-09-30', [...ahead, ...back]).change.text).toBe('Lower than the week before · −0.3 mg/dL');
+  });
+
+  it('figures that need no extra decimal compare as before, in the unit’s precision', () => {
+    const plain = fasting([['2026-09-21', 120], ['2026-09-22', 121], ['2026-09-23', 122], ['2026-09-28', 121.2], ['2026-09-29', 121], ['2026-09-30', 120.9]]);
+    expect(view('2026-09-30', plain).change.text).toBe('The same as the week before');
+  });
+});

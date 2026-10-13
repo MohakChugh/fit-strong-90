@@ -39,7 +39,7 @@ async function refusedEverywhere(t, modes, why) {
 
 /** v1's Track for today is My Day, Today's log (journey §13). */
 async function trackShows(t, values, why) {
-  await sb.tabTo(t.page, 'Track', 'My Day');
+  await sb.tabTo(t.page, 'Track', 'Today’s log');
   await ui.trackDay(t.page, sb.TODAY);
   const text = (await t.page.getByRole('main').innerText()).replace(/\s+/g, ' ');
   for (const v of values) await t.check(v.test(text), `${why}: My Day for today does not show ${v} (${text.slice(0, 300)})`);

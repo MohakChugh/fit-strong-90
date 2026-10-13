@@ -110,7 +110,7 @@ export function fewKindsText(period: TrendPeriod): string {
 /** "Higher than last week · +417 steps a day": the direction in words, and the difference with its unit and statistic (A-41). */
 function changeOf(c: Comparison, against: string, unit: string, decimals: number, period: TrendPeriod, compared?: string): Change {
   if (!c.shown) return { text: c.reason === 'meterLo' ? METER_LO_TEXT : c.reason === 'fewKinds' ? fewKindsText(period) : c.reason === 'partial' ? PARTIAL_TEXT : fewDaysText(period) };
-  const by = formatNumber(c.difference, decimals);
+  const by = formatNumber(c.difference, c.decimals ?? decimals);
   const text = c.direction === 'same' ? `The same as ${against}`
     : c.direction === 'higher' ? `Higher than ${against} · +${by} ${unit}` : `Lower than ${against} · −${by} ${unit}`;
   return { text, direction: c.direction, ...(compared ? { compared } : {}) };
@@ -409,7 +409,7 @@ export function readingsView(input: TrendInput): TrendView {
     // A LO anywhere in either period hides the change, not only on the days compared (B-15).
     : lo > 0 ? { shown: false, reason: 'meterLo' }
       : kinds.length > 1 && !like ? { shown: false, reason: 'fewKinds' }
-        : compareReadings(stat(ranges.current, basis), stat(ranges.previous, basis), d);
+        : compareReadings(stat(ranges.current, basis), stat(ranges.previous, basis), d, 0, lines);
   const by = def.id === 'bp' ? `${unit}, top number` : like ? `${unit}, ${lowerFirst(like.label)}` : unit;
   const change = changeOf(comparison, against, by, d, w.period, ranges && comparedText(w, ranges, ctx.today));
 

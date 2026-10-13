@@ -25,10 +25,12 @@ vi.mock('sonner', () => ({
 const router = vi.hoisted(() => ({ id: '', navigate: vi.fn() }));
 vi.mock('react-router-dom', () => ({
   useParams: () => ({ id: router.id }),
-  useLocation: () => ({ pathname: `/track/reading/${router.id}`, search: '', state: { path: '/day/today', label: 'My Day' } }),
+  useLocation: () => ({ pathname: `/track/reading/${router.id}`, search: '', state: { path: '/day/today', label: 'Today’s log' } }),
   useNavigate: () => router.navigate,
   Link: () => null,
   Navigate: () => null,
+  // A correction sheet holds a Back while it saves (codex F-ui-02); nothing here leaves mid-save.
+  useBlocker: () => ({ state: 'unblocked', proceed() {}, reset() {} }),
 }));
 vi.mock('@/components/hig/Screen', async () => {
   const { createElement: h } = await import('react');

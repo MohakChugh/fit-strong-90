@@ -19,7 +19,7 @@
 import type { DayRange } from '@/health/aggregate';
 import { statusOn, weekdayOf, type Status } from '@/health/status';
 import { daysBetween, daysIn } from '@/screens/track/periods';
-import { roundTo } from '@/screens/track/units';
+import { roundTo, safeDecimals, type Boundary } from '@/screens/track/units';
 import type { DayOfWeek, StatusPeriod } from '@/types';
 import type { TrendPeriod } from './periods';
 
@@ -146,17 +146,28 @@ export const MIN_DAYS = 3;
 export type Direction = 'higher' | 'lower' | 'same';
 
 export type Comparison =
-  | { shown: true; direction: Direction; difference: number }
+  /** `decimals`: the places the difference is worked to, when a figure needed more than the unit's to keep to its side of a line. */
+  | { shown: true; direction: Direction; difference: number; decimals?: number }
   /**
    * `fewKinds`: readings of more than one kind (fasting, after a meal), none on 3 days in both windows (KT-07).
    * `partial`: a day's figure is a lower bound, never set against a whole one (D127, H3-11).
    */
   | { shown: false; reason: 'fewDays' | 'meterLo' | 'fewKinds' | 'partial' };
 
-/** The change as shown: both figures rounded as the screen shows them, so "the same" is the same on screen. */
-export function change(current: number, previous: number, decimals: number): Comparison {
-  const difference = roundTo(roundTo(current, decimals) - roundTo(previous, decimals), decimals);
-  return { shown: true, direction: difference > 0 ? 'higher' : difference < 0 ? 'lower' : 'same', difference: Math.abs(difference) };
+/**
+ * The change as shown: both figures rounded as the screen shows them, so "the same" is the same on screen, a figure by
+ * a line it is judged against with the decimals that keep it on its side (KT-01): 250 and 250.3 mg/dL differ by 0.3,
+ * never "the same" (codex F-ui-07).
+ */
+export function change(current: number, previous: number, decimals: number, lines: readonly Boundary[] = []): Comparison {
+  const now = safeDecimals(current, decimals, lines);
+  const before = safeDecimals(previous, decimals, lines);
+  const places = Math.max(now, before);
+  const difference = roundTo(roundTo(current, now) - roundTo(previous, before), places);
+  return {
+    shown: true, direction: difference > 0 ? 'higher' : difference < 0 ? 'lower' : 'same', difference: Math.abs(difference),
+    ...(places > decimals ? { decimals: places } : {}),
+  };
 }
 
 export function compareDaily(current: DailyStats, previous: DailyStats, statistic: Statistic, decimals: number): Comparison {
@@ -255,12 +266,12 @@ export function readingStats(range: DayRange, points: readonly ReadingPoint[], m
  * period hides it, because the average would leave the lowest reading out
  * (K-11, B-15): `otherLo` counts LOs in the periods outside the compared days.
  */
-export function compareReadings(current: ReadingStats, previous: ReadingStats, decimals: number, otherLo = 0): Comparison {
+export function compareReadings(current: ReadingStats, previous: ReadingStats, decimals: number, otherLo = 0, lines: readonly Boundary[] = []): Comparison {
   if (current.lo + previous.lo + otherLo > 0) return { shown: false, reason: 'meterLo' };
   if (current.days < MIN_DAYS || previous.days < MIN_DAYS || current.mean === undefined || previous.mean === undefined) {
     return { shown: false, reason: 'fewDays' };
   }
-  return change(current.mean, previous.mean, decimals);
+  return change(current.mean, previous.mean, decimals, lines);
 }
 
 /** One lab result, in the display unit. */

@@ -1258,7 +1258,7 @@ describe('a low on the reading screen that leaves no exercise today ends the run
     ended();
     guidance();
     expect(h().text()).toMatch(/No exercise today/);
-    expect(h().buttons('Back to Today')).toHaveLength(1);
+    expect(h().buttons('Back to Home', { exact: true })).toHaveLength(1);
     // The re-check, 15 minutes on, is still recorded here, and the guidance stays.
     clock(9, 25);
     await h().change(h().field('Glucose now'), { value: '58' });
@@ -1758,7 +1758,8 @@ describe('F-safety-01: the player reads what is stored, never a recovery still o
     const saving = saveCheckInRecord(ci({ glucose: { value: 130, unit: 'mg/dL', measuredAt: iso(13, 46), source: 'meter' }, lowRecovered: true }), { profile: p, update: store.update });
     await mount('resume=1');
     expect(h().buttons('Resume', { exact: true })).toHaveLength(0);
-    expect(h().buttons('Back to Today', { exact: true })).toHaveLength(1);
+    // Its way out says Home after a fresh launch (kiro FK-02).
+    expect(h().buttons('Back to Home', { exact: true })).toHaveLength(1);
     db.control.release();
     expect((await saving).stored).toBe(true);
     await mount('resume=1');

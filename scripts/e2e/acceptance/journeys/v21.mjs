@@ -104,8 +104,8 @@ export const cases = [{
       await t.advance(10_000);
       await t.check(same(held, await progress(page)), 'the resume link moved the run while the low holds');
       await t.check(await running(page).count() === 0, 'the resume link runs the player while the low holds');
-      // The session's own screen has no tab bar: its way out is its gate's Back to Today.
-      await ui.tap(page.getByRole('button', { name: 'Back to Today', exact: true }));
+      // The session's own screen has no tab bar: its way out is its gate's Back to Home (Back, when the app saw where it came from).
+      await ui.tap(page.getByRole('button', { name: /^(Back|Back to Home)$/ }));
       await hub.open(t, 'stretch');
       await t.check(!!(await hub.refusal(page)), 'the Stretch hub offers a start while the low holds');
       const starts = (await hub.card(page).getByRole('button').allInnerTexts()).map(flat).filter(l => hub.STARTERS.test(l));

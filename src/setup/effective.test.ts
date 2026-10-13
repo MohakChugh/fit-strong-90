@@ -204,3 +204,38 @@ describe('a clinical save the device refused (board D197; H5F-01 to H5F-04)', ()
     store.resetForTests();
   });
 });
+
+describe('clinical saves from two places (codex F-setup-02)', () => {
+  beforeEach(() => resetClinicalUnsavedForTests());
+
+  it('each place’s refusal is its own: one stored lifts only its own, Try again tries every one, and Discard drops them all', async () => {
+    const tries = { chapter: 0, fluid: 0 };
+    let ok = false;
+    const write = (place: keyof typeof tries) => () => { tries[place] += 1; return ok ? stored() : refused(); };
+    await saveClinical(write('fluid'), 'fluid');
+    await saveClinical(write('chapter'));
+    expect(clinicalUnsaved()).toBe(true);
+    // The chapter's own save, stored, leaves the fluid limit's refusal standing.
+    expect((await saveClinical(stored)).ok).toBe(true);
+    expect(clinicalUnsaved()).toBe(true);
+    // Try again tries the fluid limit's own write, and says its refusal.
+    expect((await retryClinical())?.ok).toBe(false);
+    expect(tries).toEqual({ chapter: 1, fluid: 2 });
+    expect(clinicalUnsaved()).toBe(true);
+    // Both refused, both are tried; stored, nothing is held.
+    await saveClinical(write('chapter'));
+    ok = true;
+    expect((await retryClinical())?.ok).toBe(true);
+    expect(tries).toEqual({ chapter: 3, fluid: 3 });
+    expect(clinicalUnsaved()).toBe(false);
+    // Discarded, from one place or all.
+    ok = false;
+    await saveClinical(write('fluid'), 'fluid');
+    await saveClinical(write('chapter'));
+    discardClinical('fluid');
+    expect(clinicalUnsaved()).toBe(true);
+    discardClinical();
+    expect(clinicalUnsaved()).toBe(false);
+    expect(retryClinical()).toBeUndefined();
+  });
+});

@@ -6,6 +6,7 @@
 
 import { useId, useState } from 'react';
 import { Sheet } from '@/components/hig/Sheet';
+import { useSaveHold } from '@/components/hig/useSaveHold';
 import type { BpReading } from '@/health/aggregate';
 import { atOnDay, checkInDayOf, type Observation, type ObservationTag } from '@/health/observation';
 import { correctCheckInGlucose, correctCheckInPain, correctCheckInPressure, type CorrectionResult } from '@/components/checkin/pending';
@@ -38,6 +39,31 @@ function editUnits(kind: Observation['kind']): readonly string[] {
   }
 }
 
+/**
+ * A correction sheet's save, owned by the sheet (B-03, §4.5; codex F-ui-02):
+ * while one is being written, the form's or the guidance's retry, Close, a
+ * swipe, Escape and a Back wait for it. Refused, the form or the guidance
+ * stays with what it says; stored, a Back held meanwhile goes on.
+ */
+function useCorrectionSave(onOpenChange: (open: boolean) => void, onClose: () => void) {
+  const [saving, setSaving] = useState(0);
+  const settle = useSaveHold(saving > 0);
+  const track = (write: Promise<string | undefined>): Promise<string | undefined> => {
+    setSaving(n => n + 1);
+    const done = (stored: boolean) => {
+      setSaving(n => n - 1);
+      settle(stored);
+    };
+    return write.then(failure => { done(failure === undefined); return failure; }, (error: unknown) => { done(false); throw error; });
+  };
+  const close = (next: boolean) => {
+    if (!next && saving > 0) return;
+    if (!next) onClose();
+    onOpenChange(next);
+  };
+  return { saving: saving > 0, track, close };
+}
+
 export function EditReadingSheet({ open, onOpenChange, observation, prefs }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -45,15 +71,12 @@ export function EditReadingSheet({ open, onOpenChange, observation, prefs }: {
   prefs: DisplayPrefs;
 }) {
   const [shown, setShown] = useState<Shown>();
-  const close = (next: boolean) => {
-    if (!next) setShown(undefined);
-    onOpenChange(next);
-  };
+  const { saving, track, close } = useCorrectionSave(onOpenChange, () => setShown(undefined));
   return (
-    <Sheet open={open} onOpenChange={close} title={shown ? 'What to do' : 'Correct this record'} detent="large">
+    <Sheet open={open} onOpenChange={close} dismissible={!saving} title={shown ? 'What to do' : 'Correct this record'} detent="large">
       {open && (shown
         ? <Guidance shown={shown} onDone={() => close(false)} />
-        : <EditReadingForm observation={observation} prefs={prefs} onDone={() => close(false)} onGuidance={setShown} />)}
+        : <EditReadingForm observation={observation} prefs={prefs} onDone={() => close(false)} onGuidance={setShown} track={track} />)}
     </Sheet>
   );
 }
@@ -70,9 +93,11 @@ interface CorrectionProps {
   onDone: () => void;
   /** Shows the guidance, with the correction's write already started. */
   onGuidance: (shown: Shown) => void;
+  /** Each write, the guidance's retry included, as the sheet waits for it (codex F-ui-02). */
+  track: (write: Promise<string | undefined>) => Promise<string | undefined>;
 }
 
-function EditReadingForm({ observation: o, prefs, onDone, onGuidance }: { observation: Observation; prefs: DisplayPrefs } & CorrectionProps) {
+function EditReadingForm({ observation: o, prefs, onDone, onGuidance, track }: { observation: Observation; prefs: DisplayPrefs } & CorrectionProps) {
   const errorId = useId();
   const current = useToday();
   const { profile } = useStore();
@@ -172,10 +197,10 @@ function EditReadingForm({ observation: o, prefs, onDone, onGuidance }: { observ
     setBusy(true);
     const failure = await saveWithGuidance({
       escalation,
-      write,
+      write: () => track(write()),
       show: pending => escalation && onGuidance({
         figure: formatValue(value, 'glucose', storedUnit).replace(` ${storedUnit}`, ''), unit: storedUnit, escalation,
-        ask: true, pending, retry: write, words: CORRECT_WORDS,
+        ask: true, pending, retry: () => track(write()), words: CORRECT_WORDS,
       }),
     });
     setBusy(false);
@@ -246,20 +271,17 @@ export function EditPressureSheet({ open, onOpenChange, reading }: {
   reading: BpReading;
 }) {
   const [shown, setShown] = useState<Shown>();
-  const close = (next: boolean) => {
-    if (!next) setShown(undefined);
-    onOpenChange(next);
-  };
+  const { saving, track, close } = useCorrectionSave(onOpenChange, () => setShown(undefined));
   return (
-    <Sheet open={open} onOpenChange={close} title={shown ? 'What to do' : 'Correct this reading'} detent="large">
+    <Sheet open={open} onOpenChange={close} dismissible={!saving} title={shown ? 'What to do' : 'Correct this reading'} detent="large">
       {open && (shown
         ? <Guidance shown={shown} onDone={() => close(false)} />
-        : <EditPressureForm reading={reading} onDone={() => close(false)} onGuidance={setShown} />)}
+        : <EditPressureForm reading={reading} onDone={() => close(false)} onGuidance={setShown} track={track} />)}
     </Sheet>
   );
 }
 
-function EditPressureForm({ reading: r, onDone, onGuidance }: { reading: BpReading } & CorrectionProps) {
+function EditPressureForm({ reading: r, onDone, onGuidance, track }: { reading: BpReading } & CorrectionProps) {
   const errorId = useId();
   const { profile } = useStore();
   const whole = rewritable(r);
@@ -348,9 +370,9 @@ function EditPressureForm({ reading: r, onDone, onGuidance }: { reading: BpReadi
     setBusy(true);
     const failure = await saveWithGuidance({
       escalation,
-      write,
+      write: () => track(write()),
       show: pending => escalation && onGuidance({
-        figure: `${sys ?? '–'}/${dia ?? '–'}`, unit: 'mmHg', escalation, ask: true, pending, retry: write, words: CORRECT_WORDS,
+        figure: `${sys ?? '–'}/${dia ?? '–'}`, unit: 'mmHg', escalation, ask: true, pending, retry: () => track(write()), words: CORRECT_WORDS,
       }),
     });
     setBusy(false);

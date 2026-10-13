@@ -83,7 +83,7 @@ const { FOOT_WOUND, MINIMAL, NO_CONDITIONS, withMeds } = await import('@/setup/f
 const { PERMISSION_TEXT, permission, readinessFor } = await import('@/engine/permission');
 const { CLINICAL_UNSAVED, evaluateCheckIn } = await import('@/engine/readiness');
 const { dailyTimes } = await import('@/reminders/schedule');
-const { waterBlock } = await import('@/reminders/water');
+const { fluidRestriction, waterBlock } = await import('@/reminders/water');
 const { scriptFor } = await import('@/session/script');
 const { toDateString } = await import('@/lib/utils');
 const { AUTOSAVE_MS, resetSetupSessionForTests } = await import('@/setup/draft');
@@ -848,6 +848,24 @@ describe('a setup page, its answers kept as they’re given (§6.1; H5-16, K5-17
     expect(draft()?.answers?.metric).toBe(false);
   });
 
+  it('a weight typed with a decimal comma is the same weight in the other units, and stays it typed again (codex F-setup-04)', async () => {
+    host = await page('about.body');
+    const field = (hint: string) => host!.all().find(n => n.type === 'input' && n.props.placeholder === hint)!;
+    await host.change(field('65'), { value: '70,5' });
+    await host.click(radio(host, 'Units', 'ft, in and lb'));
+    await new Promise(r => setTimeout(r, AUTOSAVE_MS + 50));
+    await host.settle();
+    // 70.5 kg is 155.4 lb, shown as such, and still 70.5 kg as answered.
+    expect(field('143').props.value).toBe('155.4');
+    expect(draft()?.answers).toMatchObject({ metric: false, weightKg: 70.5 });
+    // Back in kg: 70.5 again, not 70,5 read as pounds.
+    await host.click(radio(host, 'Units', 'cm and kg'));
+    await new Promise(r => setTimeout(r, AUTOSAVE_MS + 50));
+    await host.settle();
+    expect(field('65').props.value).toBe('70.5');
+    expect(draft()?.answers?.weightKg).toBe(70.5);
+  });
+
   it('a number its unit makes invalid isn’t an answer either: a start figure in mmol/L, then mg/dL (H5R-15)', async () => {
     const { MedicinesLows } = await import('./pages/medicines');
     const { PageFrame } = await import('./PageFrame');
@@ -1341,5 +1359,229 @@ describe('a screen opened for a record another copy has since replaced (H5R-09, 
     expect(host.text()).toContain('That did not save.');
     expect((await store.reload()).ok).toBe(true);
     expect(store.getState().profile).toBeUndefined();
+  });
+});
+
+describe('an answer changed while Me’s Save is being written (codex F-setup-01)', () => {
+  it('the questions can’t be changed until the write is done, so the screen, the record and every gate agree on the answer saved', async () => {
+    expect((await store.update(d => completedSetup(d, FOOT_WOUND, NOW, CTX))).ok).toBe(true);
+    host = render(createElement(ChapterEditor, { chapter: 'health' }));
+    await host.settle();
+    const WOUND = 'A wound, an ulcer, or a hot, swollen foot (Charcot foot)?';
+    await host.click(radio(host, WOUND, 'No'));
+    fake.control.hold();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    // Being written: "Yes, now" again is refused at the tap, as every other question on the screen is.
+    await expect(host.click(radio(host, WOUND, 'Yes, now'))).rejects.toThrow(/is disabled/);
+    const questions = host.all().filter(n => n.props.role === 'radio');
+    const fenced = host.all().filter(n => n.type === 'fieldset' && n.props.disabled).flatMap(n => all(n.children));
+    expect(questions.length).toBeGreaterThan(0);
+    expect(questions.every(q => fenced.includes(q))).toBe(true);
+    fake.control.release();
+    await host.settle();
+    // Stored as it was shown when Save was pressed, and shown as stored: nothing given since is lost.
+    expect(footStatus()).toEqual({ stored: 'healthy', gate: 'healthy' });
+    expect(radio(host, WOUND, 'No').props['aria-checked']).toBe(true);
+    expect(host.text()).toContain('Saved.');
+    // Done: the questions are open again, and the wound can be said again, and saved.
+    await host.click(radio(host, WOUND, 'Yes, now'));
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(footStatus()).toEqual({ stored: 'current_wound_or_active_charcot', gate: 'current_wound_or_active_charcot' });
+  });
+});
+
+describe('a fluid limit given in Me → Reminders → Water (codex F-setup-02; board D197)', () => {
+  const LIMIT = 'Has your care team told you to limit how much you drink?';
+  const storedLimit = () => fluidRestriction(store.getState().profile, store.getState().settings.habits);
+  /** Water reminders on, and "No fluid limit" stored, with no heart or kidney condition. */
+  const noLimit = (d: AppData): AppData => withWater({ ...d, profile: { ...d.profile!, health: { ...d.profile!.health, fluidRestriction: false } } });
+
+  it('refused, it holds every movement and keeps water reminders off, after the sheet closes too, until it’s stored', async () => {
+    const { WaterSheet } = await import('@/screens/you/HabitSheets');
+    const { retryClinical } = await import('@/setup/effective');
+    expect((await store.update(d => noLimit(completedSetup(d, MINIMAL, NOW, CTX)))).ok).toBe(true);
+    expect(storedLimit()).toBe(false);
+    expect(waterTimes().length).toBeGreaterThan(0);
+    host = render(createElement(WaterSheet, { open: true, onOpenChange() {} }));
+    await host.settle();
+    await host.click(radio(host, LIMIT, 'Yes, I have a fluid limit'));
+    diskFull();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('That did not save.');
+    // Not the record's: nothing stored, and the answer the person gave holds, for this session.
+    expect(storedLimit()).toBe(false);
+    expect(pausedForUnsaved()).toBe(true);
+    expect(waterTimes()).toEqual([]);
+    // Closed, it still holds.
+    host.unmount();
+    host = undefined;
+    expect(pausedForUnsaved()).toBe(true);
+    expect(waterTimes()).toEqual([]);
+    // Another chapter of Me saved meanwhile stores nothing of the fluid limit, so it lifts nothing.
+    fake.control.setWriteError(undefined);
+    host = render(createElement(ChapterEditor, { chapter: 'about' }));
+    await host.settle();
+    await host.change(host.field('Name (optional)'), { value: 'Asha' });
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(store.getState().profile?.name).toBe('Asha');
+    expect(storedLimit()).toBe(false);
+    expect(pausedForUnsaved()).toBe(true);
+    expect(waterTimes()).toEqual([]);
+    // Tried again and stored: the limit is the record's, water reminders stay off, and nothing more is held.
+    expect((await retryClinical())?.ok).toBe(true);
+    expect(storedLimit()).toBe(true);
+    expect(pausedForUnsaved()).toBe(false);
+    expect(waterTimes()).toEqual([]);
+  });
+
+  it('given while another window changed it, it is refused and never written over, and the sheet shows the other answer to choose again', async () => {
+    const { WaterSheet } = await import('@/screens/you/HabitSheets');
+    expect((await store.update(d => noLimit(completedSetup(d, MINIMAL, NOW, CTX)))).ok).toBe(true);
+    host = render(createElement(WaterSheet, { open: true, onOpenChange() {} }));
+    await host.settle();
+    await host.click(radio(host, LIMIT, 'Yes, I have a fluid limit'));
+    // Another window, meanwhile: "Not sure".
+    expect((await store.update(d => ({ ...d, profile: { ...d.profile!, health: { ...d.profile!.health, fluidRestriction: 'unsure' } } }))).ok).toBe(true);
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('Your fluid-limit answer changed in another window of FitStrong. Check it here, then Save again.');
+    expect(storedLimit()).toBe('unsure');
+    expect(radio(host, LIMIT, 'Not sure').props['aria-checked']).toBe(true);
+    // Nothing of this sheet's waits: no pause for it.
+    expect(pausedForUnsaved()).toBe(false);
+    // Chosen again, it saves, and while it is being written nothing any gate reads has changed.
+    await host.click(radio(host, LIMIT, 'Yes, I have a fluid limit'));
+    fake.control.hold();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(storedLimit()).toBe('unsure');
+    fake.control.release();
+    await host.settle();
+    expect(storedLimit()).toBe(true);
+  });
+
+  it('given for a record another copy has since replaced, it stores nothing into the new record and leaves no pause behind', async () => {
+    const { WaterSheet } = await import('@/screens/you/HabitSheets');
+    expect((await store.update(d => noLimit(completedSetup(d, MINIMAL, NOW, CTX)))).ok).toBe(true);
+    host = render(createElement(WaterSheet, { open: true, onOpenChange() {} }));
+    await host.settle();
+    await host.click(radio(host, LIMIT, 'Yes, I have a fluid limit'));
+    const { openDb } = await import('@/store/db');
+    const { commitChange } = await import('@/store/snapshot');
+    // Another copy restores a backup of the same record: the same answers, a new record.
+    const { profile, settings } = store.getState();
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { reset: true, schemaVersion: 6, profile, settings: { replace: settings } } }))).ok).toBe(true);
+    tab.close();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect((await store.reload()).ok).toBe(true);
+    expect(storedLimit()).toBe(false);
+    expect(pausedForUnsaved()).toBe(false);
+  });
+
+  it('a water change alone, with the answer unchanged, never puts the sheet’s old answer over another window’s', async () => {
+    const { WaterSheet } = await import('@/screens/you/HabitSheets');
+    expect((await store.update(d => noLimit(completedSetup(d, MINIMAL, NOW, CTX)))).ok).toBe(true);
+    host = render(createElement(WaterSheet, { open: true, onOpenChange() {} }));
+    await host.settle();
+    await host.click(host.button('3 h', { exact: true }));
+    expect((await store.update(d => ({ ...d, profile: { ...d.profile!, health: { ...d.profile!.health, fluidRestriction: true } } }))).ok).toBe(true);
+    // Its main button now reads as for reminders off: the sheet still shows "No limit", chosen when it opened.
+    await host.click(host.button(/^(Save|Turn on)$/));
+    await host.settle();
+    expect(host.text()).toContain('Your fluid-limit answer changed in another window of FitStrong.');
+    expect(storedLimit()).toBe(true);
+    // Nothing of the sheet's was written: its reminders every 3 hours wait with it.
+    expect(store.getState().settings.habits?.water?.everyMinutes).toBe(WATER.everyMinutes);
+  });
+});
+
+describe('“No regular medicines” after a medicine was ticked (codex F-setup-03)', () => {
+  it('answers every class No: Review says no diabetes, asks no insulin questions, and finishing stores none of it', async () => {
+    const { ReviewPage } = await import('./ReviewPage');
+    const { withDraft } = await import('@/setup/draft');
+    const { INSULIN_NO_DIABETES } = await import('@/setup/fixtures');
+    const { pathFor } = await import('@/setup/graph');
+    // Insulin ticked and its questions answered, then, from Review, "Do you take regular medicines?" changed to No.
+    const changed = { ...INSULIN_NO_DIABETES, regular: 'no' as const };
+    expect(changed.classes?.insulin).toBe('yes');
+    expect(pathFor(changed)).not.toContain('medicines.lows');
+    expect((await store.update(d => withDraft(d, 'review', changed))).ok).toBe(true);
+    host = render(createElement(ReviewPage));
+    await host.settle();
+    expect(host.text()).not.toContain('Diabetes shows as “Other”');
+    await host.click(host.all().find(n => n.props.role === 'checkbox')!);
+    await host.click(host.button('Start using FitStrong', { exact: true }));
+    await host.settle();
+    const health = store.getState().profile?.health;
+    expect([health?.diabetes, health?.insulin, health?.sulfonylureaOrMeglitinide]).toEqual(['none', 'none', false]);
+    // The answers ticked before are kept for Back, as setup keeps them; they decide nothing now.
+    expect(store.getState().settings.setup?.answers?.classes?.insulin).toBe('yes');
+  });
+});
+
+describe('“No regular medicines” after a tablet that can cause lows, or a “-gliflozin”, was ticked (codex F-setup-03)', () => {
+  it('asks none of their questions, and the metformin year typed before holds nothing', async () => {
+    const { pathFor, rawInvalid } = await import('@/setup/graph');
+    const diabetes = { ...NO_CONDITIONS, diabetes: 'yes' as const };
+    // With diabetes and a lows tablet, then "No regular medicines": the lows questions go.
+    const lows = withMeds({ lowsTablet: 'yes' }, { conditions: diabetes, diabetesType: 'type2', lowsRisk: 'no' });
+    expect(pathFor(lows)).toContain('medicines.lows');
+    expect(pathFor({ ...lows, regular: 'no' })).not.toContain('medicines.lows');
+    // With diabetes and insulin, the same: neither its lows nor its insulin questions are asked.
+    const insulin = withMeds({ insulin: 'yes' }, { conditions: diabetes, diabetesType: 'type2', insulinHow: 'basalOnly', lowsRisk: 'no' });
+    expect(pathFor(insulin)).toContain('medicines.lows');
+    expect(pathFor({ ...insulin, regular: 'no' })).not.toContain('medicines.lows');
+    // A "-gliflozin" with no diabetes, then "No regular medicines": its ketone questions go.
+    const gliflozin = withMeds({ gliflozin: 'yes' }, { ketoneTest: 'none' });
+    expect(pathFor(gliflozin)).toContain('medicines.ketones');
+    expect(pathFor({ ...gliflozin, regular: 'no' })).not.toContain('medicines.ketones');
+    // Metformin's year, half typed, then "No regular medicines": nothing waits on it.
+    const metformin = withMeds({ metformin: 'yes' });
+    expect(rawInvalid('medicines.which', metformin, { metforminSince: '19' })).toBe(true);
+    expect(rawInvalid('medicines.which', { ...metformin, regular: 'no' }, { metforminSince: '19' })).toBe(false);
+  });
+});
+
+describe('Me’s chapter editor, open while another copy replaces the record (codex F-setup-05; board D191)', () => {
+  it('once this copy has the new record, the editor starts again from it, and its Save stores into it', async () => {
+    expect((await store.update(d => completedSetup(d, { ...MINIMAL, name: 'Asha' }, NOW, CTX))).ok).toBe(true);
+    host = render(createElement(ChapterEditor, { chapter: 'about' }));
+    await host.settle();
+    await host.change(host.field('Name (optional)'), { value: 'Old' });
+    // A weight half typed, and a Save the device refused: Try again.
+    const weight = () => host!.all().find(n => n.type === 'input' && n.props.placeholder === '65')!;
+    await host.change(weight(), { value: '7' });
+    await host.change(weight(), { value: '72' });
+    diskFull();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.buttons('Try again', { exact: true })).toHaveLength(1);
+    fake.control.setWriteError(undefined);
+    await host.change(weight(), { value: '7' });
+    // Another copy restores a backup with another completed profile: Ravi's.
+    const { profile, settings } = store.getState();
+    const { openDb } = await import('@/store/db');
+    const { commitChange } = await import('@/store/snapshot');
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { reset: true, schemaVersion: 6, profile: { ...profile!, name: 'Ravi' }, settings: { replace: settings } } }))).ok).toBe(true);
+    tab.close();
+    expect((await store.reload()).ok).toBe(true);
+    await host.settle();
+    // The new record's answers, with nothing of the old one's edits, its typing or its refusal left.
+    expect(host.field('Name (optional)').props.value).toBe('Ravi');
+    expect(weight().props.value).toBe('');
+    expect(host.buttons('Save', { exact: true })).toHaveLength(1);
+    expect(host.buttons('Try again', { exact: true })).toHaveLength(0);
+    await host.change(host.field('Name (optional)'), { value: 'Ravi K' });
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('Saved.');
+    expect(store.getState().profile?.name).toBe('Ravi K');
   });
 });

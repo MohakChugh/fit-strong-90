@@ -558,3 +558,22 @@ describe('F-walk-04: a held walk says a timed decision whole, its time and what 
     expect(seen()).toMatch(/Re-check now/);
   });
 });
+
+describe('a walk held for the health questions (kiro FK-08)', () => {
+  it('“Health questions” opens Profile & health at its own address, with the walk to go back to', async () => {
+    const p = createDefaultProfile({ health: { ...known, diabetes: 'type2' } });
+    const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } };
+    await store.update(prev => ({ ...prev, profile: p, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
+    router.params = startedParams();
+    host = render(createElement(LiveWalkScreen));
+    await host.settle();
+    expect(status()).toBe('running');
+    // The health questions need looking at again (a restored backup, say): the walk holds, and says what to do.
+    await store.update(prev => ({ ...prev, profile: { ...prev.profile!, needsHealthReview: true } }));
+    await h().settle();
+    expect(status()).not.toBe('running');
+    await h().click(h().button('Health questions'));
+    const { HREF } = await import('@/health/recommend');
+    expect(router.navigate).toHaveBeenCalledWith(HREF.profile, { state: { path: '/walk/live', label: 'Walk', search: `?${router.params}` } });
+  });
+});

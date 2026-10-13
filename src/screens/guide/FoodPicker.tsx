@@ -1,15 +1,16 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { CheckIcon } from 'lucide-react';
 import { Sheet } from '@/components/hig/Sheet';
+import { useSaveHold } from '@/components/hig/useSaveHold';
 import { PATTERN_DETAIL, PATTERN_LABEL, unmatchedAvoid, withPicked, type Pattern, type Region } from '@/content';
-import { ALLERGENS, setupAllergyAnswer } from '@/food/allergens';
+import { ALLERGENS, allergyAnswer } from '@/food/allergens';
 import { FOOD_COPY } from '@/food/copy';
 import { getSetupSession } from '@/setup/draft';
 import { waitingFood } from '@/setup/state';
 import { CheckRows } from '@/screens/you/controls';
 import type { AllergenId, FoodPreferences } from '@/types/profile';
 import { cn } from '@/lib/utils';
-import { useStore } from '@/store/useStore';
+import { getState, useStore } from '@/store/useStore';
 import { AVOID_HELP, ownAllergyNote, parseAllergies, parseAvoid, REGION_LABEL, unmatchedNote } from './format';
 import { saveFood } from './useGuide';
 
@@ -31,27 +32,40 @@ export function FoodPicker({ open, onOpenChange, food, canSave }: {
   /** False before a profile exists: the choice lasts for this visit. */
   canSave: boolean;
 }) {
+  // A save being written: Close, a swipe, Escape and a Back wait for it, so a refusal finds the answers still there
+  // (B-03, §4.5; codex F-food-04).
+  const [saving, setSaving] = useState(false);
+  const settle = useSaveHold(saving);
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title="Your food" detent="large">
-      <FoodForm food={food} canSave={canSave} onDone={() => onOpenChange(false)} />
+    <Sheet open={open} onOpenChange={next => { if (!saving) onOpenChange(next); }} dismissible={!saving} title="Your food" detent="large">
+      <FoodForm food={food} canSave={canSave} saving={saving} setSaving={setSaving} settle={settle} onDone={() => onOpenChange(false)} />
     </Sheet>
   );
 }
 
-function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: boolean; onDone: () => void }) {
+function FoodForm({ food, canSave, saving, setSaving, settle, onDone }: {
+  food?: FoodPreferences;
+  canSave: boolean;
+  saving: boolean;
+  setSaving: (saving: boolean) => void;
+  settle: (stored: boolean) => void;
+  onDone: () => void;
+}) {
   const [pattern, setPattern] = useState<Pattern | undefined>(food?.pattern);
   const [region, setRegion] = useState<(typeof REGIONS)[number]>(
     food?.region && food.region !== 'mixed' ? food.region : 'any',
   );
   const [avoid, setAvoid] = useState(food?.avoid.join(', ') ?? '');
-  // With no food record yet, the allergies start from the answer setup is keeping for one (board D205):
-  // this session's while setup goes on without saving (Plan 5's B-07, H5-06).
+  // The allergies start as known: the food record's, or where it never answered them, as one from v1, or there is
+  // none yet, the answer setup keeps (board D205; codex F-food-06), this session's while setup goes on without saving
+  // (Plan 5's B-07, H5-06). Unchanged, they're saved as they were.
   const { settings } = useStore();
-  const [waiting] = useState(() => (food ? undefined : setupAllergyAnswer(settings.setup, getSetupSession())));
-  const [chosen, setChosen] = useState<AllergenId[]>(food?.allergies ?? waiting?.allergies ?? []);
-  const [otherAllergies, setOtherAllergies] = useState((food?.customAllergies ?? waiting?.customAllergies ?? []).join(', '));
-  const [saving, setSaving] = useState(false);
+  const [known] = useState(() => allergyAnswer(food, settings.setup, getSetupSession()));
+  const [chosen, setChosen] = useState<AllergenId[]>(known?.allergies ?? []);
+  const [otherAllergies, setOtherAllergies] = useState((known?.customAllergies ?? []).join(', '));
   const [error, setError] = useState<string>();
+  // The record this sheet was opened for: once another copy has replaced it, nothing is stored into the new one.
+  const [generation] = useState(() => getState().epoch);
   const avoidId = useId();
   const avoidHelp = useId();
   const avoidNote = useId();
@@ -68,12 +82,13 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
     if (!pattern || saving) return;
     setSaving(true);
     setError(undefined);
-    // Only what this sheet asks, allergies included (B-13): the logging level, the screening answer and a target stay,
-    // and with no record yet, come from what setup keeps for one (board D192).
-    const kept = food ?? waitingFood(settings.setup, getSetupSession());
-    const next = withPicked(kept, { pattern, avoid: parseAvoid(avoid), region, allergies: chosen, customAllergies: parseAllergies(otherAllergies) });
-    const failure = await saveFood(next);
+    // Only what this sheet asks, allergies included (B-13): the logging level, the screening answer and a target stay
+    // as stored when the write is made (codex F-food-02), and with no record yet, come from what setup keeps for one
+    // (board D192).
+    const picked = { pattern, avoid: parseAvoid(avoid), region, allergies: chosen, customAllergies: parseAllergies(otherAllergies) };
+    const failure = await saveFood(stored => withPicked(stored ?? waitingFood(settings.setup, getSetupSession()), picked), generation);
     setSaving(false);
+    settle(!failure);
     if (failure) setError(failure);
     else onDone();
   };

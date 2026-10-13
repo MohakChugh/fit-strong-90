@@ -34,12 +34,18 @@ vi.mock('@base-ui/react/switch', async () => {
   };
 });
 vi.mock('@/components/ui/sheet', async () => {
-  const { createElement, Fragment } = await import('react');
+  const { createContext, createElement, useContext } = await import('react');
+  // Close closes, as the vendored sheet's does: through the sheet's own `onOpenChange`.
+  const Closing = createContext<(open: boolean) => void>(() => {});
   return {
-    Sheet: ({ open, children }: { open: boolean; children?: ReactNode }) => (open ? createElement(Fragment, null, children) : null),
+    Sheet: ({ open, onOpenChange, children }: { open: boolean; onOpenChange: (open: boolean) => void; children?: ReactNode }) =>
+      (open ? createElement(Closing.Provider, { value: onOpenChange }, children) : null),
     SheetContent: ({ children }: { children?: ReactNode }) => createElement('div', { role: 'dialog' }, children),
     SheetTitle: ({ children }: { children?: ReactNode }) => createElement('h2', null, children),
-    SheetClose: ({ children }: { children?: ReactNode }) => createElement('button', { type: 'button' }, children),
+    SheetClose: ({ children }: { children?: ReactNode }) => {
+      const close = useContext(Closing);
+      return createElement('button', { type: 'button', onClick: () => close(false) }, children);
+    },
   };
 });
 
@@ -71,12 +77,15 @@ const ROUTE = { walkId: WALK, version: 1 as const, startedAt: '2026-10-08T09:00:
 /** Whether the next settings write is refused. */
 let refuse = false;
 let host: Host | undefined;
+let db = fakeIndexedDB();
 beforeEach(async () => {
   local.clear();
   refuse = false;
   store.resetForTests();
+  // A full device is found at commit, so a write held mid-way can still be refused (`setQuota`).
+  db = fakeIndexedDB({ quota: 'commit', failWrite: (s, v) => (refuse && s === 'settings' && v.key === 'settings' ? new DOMException('Disk is full', 'QuotaExceededError') : undefined) });
   await store.start({
-    factory: fakeIndexedDB({ failWrite: (s, v) => (refuse && s === 'settings' && v.key === 'settings' ? new DOMException('Disk is full', 'QuotaExceededError') : undefined) }),
+    factory: db,
     broadcast: null,
   });
   await store.setSettings({ walk: { saveRoutes: true, map: 'off' } });
@@ -156,5 +165,30 @@ describe('a walk answer the device refuses, said where it was given (K6R-09)', (
     await x().click(toggle());
     expect(x().text()).not.toContain('That change wasn’t saved.');
     expect(store.getState().settings.walk?.map).toBe('on');
+  });
+});
+
+describe('Delete everything, while it erases (kiro FK-10)', () => {
+  it('can’t be closed while Erasing…, so a refusal is said in it: Nothing was deleted', async () => {
+    await open();
+    await x().click(x().button('Delete everything on this device', { exact: false }));
+    await x().click(x().button('Delete everything', { exact: true }));
+    expect(x().text()).toContain('Erase all of it?');
+    // The device takes its time over the erase, and then refuses it.
+    db.control.hold();
+    await x().click(x().button('Erase all', { exact: true }));
+    expect(x().buttons('Erasing…', { exact: true })).toHaveLength(1);
+    db.control.setQuota(-1);
+    // Close, mid-erase: the sheet stays, with the erase it is waiting on.
+    await x().click(x().button('Close', { exact: true }));
+    expect(x().text()).toContain('Erase all of it?');
+    db.control.release();
+    await x().settle();
+    expect(x().text()).toContain('Nothing was deleted.');
+    expect(store.getState().records.routes).toEqual([ROUTE]);
+    // Once it has settled, Close closes again.
+    db.control.setQuota(undefined);
+    await x().click(x().button('Close', { exact: true }));
+    expect(x().text()).not.toContain('Erase all of it?');
   });
 });

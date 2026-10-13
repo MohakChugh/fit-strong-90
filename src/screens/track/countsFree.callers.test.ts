@@ -25,10 +25,15 @@ vi.mock('react-router-dom', async () => {
     // A plain anchor with its text: My Day's rows are links.
     Link: ({ children }: { children?: unknown }) => h('a', null, children as never),
     Navigate: () => null,
+    // A correction sheet holds a Back while it saves (codex F-ui-02); nothing here leaves mid-save.
+    useBlocker: () => ({ state: 'unblocked', proceed() {}, reset() {} }),
   };
 });
-// sonner styles the page as it loads, and no toast is shown here.
-vi.mock('sonner', () => ({ toast: Object.assign(() => {}, { dismiss: () => {} }) }));
+// sonner styles the page as it loads; a toast is kept here as said, with its action.
+const toasts = vi.hoisted(() => ({ said: [] as { words: string; action?: { label: string; onClick: (e: { preventDefault(): void }) => void } }[] }));
+vi.mock('sonner', () => ({
+  toast: Object.assign((words: string, o?: { action?: (typeof toasts.said)[number]['action'] }) => { toasts.said.push({ words, ...(o?.action ? { action: o.action } : {}) }); }, { dismiss: () => {} }),
+}));
 vi.mock('@/components/hig/Screen', async () => {
   const { createElement: h } = await import('react');
   return { Screen: ({ title, children }: { title: string; children?: unknown }) => h('main', null, h('h1', null, title), children as never) };
@@ -158,6 +163,30 @@ describe('an energy reading’s own screen, counts-free (H7-07)', () => {
     await free.settle();
     expect(free.text()).toMatch(/21(\.4)? kcal|21\.4/);
   });
+  it('says its delete and its Undo in words with no figure, and with the figure once estimates are chosen (codex F-ui-08)', async () => {
+    const { resetUndosForTests } = await import('@/components/hig/undo');
+    for (const [level, said] of [['meals', 'Active energy record'], ['estimates', 'Active energy 100 kcal']] as const) {
+      resetUndosForTests();
+      toasts.said = [];
+      const added = await store.addObservation({ kind: 'activeEnergy', value: 100, scope: 'sessionObserved', source: 'manual', at: nowAt(), coverageMs: 600_000 });
+      expect(added.ok).toBe(true);
+      const id = added.ok ? added.value.id : '';
+      router.id = id;
+      const shown = await show(ReadingDetail, level);
+      const kept = () => store.getState().observations.filter(o => o.kind === 'activeEnergy').length;
+      const before = kept();
+      await shown.click(shown.button('Delete this reading'));
+      await shown.settle();
+      expect(store.getState().observations.some(o => o.id === id), level).toBe(false);
+      expect(toasts.said.map(t => t.words), level).toEqual([`${said} deleted`]);
+      // Undo: back in the record, under an id of its own.
+      toasts.said[0].action!.onClick({ preventDefault() {} });
+      await shown.settle();
+      expect(kept(), level).toBe(before);
+      expect(toasts.said.at(-1)?.words, level).toBe(`${said} restored`);
+    }
+  });
+
   it('keeps a clinical measurement’s figure: only energy from movement goes (B-11)', async () => {
     const added = await store.addObservation({ kind: 'weight', value: 71.5, unit: 'kg', scope: 'pointInTime', source: 'manual', at: nowAt() });
     expect(added.ok).toBe(true);

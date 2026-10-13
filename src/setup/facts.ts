@@ -11,6 +11,13 @@ import type { SetupAnswers, Tri } from '@/types/setup';
 export const has = (t: Tri | undefined): boolean => t === 'yes' || t === 'unsure';
 
 /**
+ * The medicine classes as answered now. "No regular medicines" answers every
+ * class No, as `healthFrom` stores it, whatever was ticked before: those
+ * answers stay for Back and decide nothing (codex F-setup-03).
+ */
+export const classesOf = (a: SetupAnswers): NonNullable<SetupAnswers['classes']> => (a.regular === 'no' ? {} : a.classes ?? {});
+
+/**
  * The diabetes value the engine reads, or `undefined` before the chip is
  * answered. "Not sure", or a type not given yet, is `'other'`. Insulin or a
  * tablet that can cause lows means lows are possible, so with "No",
@@ -19,7 +26,8 @@ export const has = (t: Tri | undefined): boolean => t === 'yes' || t === 'unsure
  */
 export function diabetesOf(a: SetupAnswers): HealthProfile['diabetes'] | undefined {
   const chip = a.conditions?.diabetes;
-  const lowsMedicine = has(a.classes?.insulin) || has(a.classes?.lowsTablet);
+  const k = classesOf(a);
+  const lowsMedicine = has(k.insulin) || has(k.lowsTablet);
   if (chip === undefined) return lowsMedicine ? 'other' : undefined;
   if (chip === 'no') return lowsMedicine ? 'other' : 'none';
   const t = a.diabetesType;
@@ -60,7 +68,7 @@ export interface Facts {
 
 export function factsOf(a: SetupAnswers): Facts {
   const c = a.conditions ?? {};
-  const k = a.classes ?? {};
+  const k = classesOf(a);
   const diabetes = diabetesOf(a);
   const diabetic = diabetes === 'type1' || diabetes === 'type2' || diabetes === 'other';
   const insulin = diabetes === 'type1' || has(k.insulin);

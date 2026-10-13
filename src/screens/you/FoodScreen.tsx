@@ -13,7 +13,7 @@ import { NoAllergiesRow } from '@/screens/guide/parts';
 import { formatDayShort } from '@/screens/track/format';
 import { ConfirmSheet, NumberField } from '@/screens/track/ui';
 import { useToday } from '@/screens/track/useToday';
-import { getSetupSession } from '@/setup/draft';
+import { getSetupSession, useSetupSession } from '@/setup/draft';
 import { waitingFood } from '@/setup/state';
 import { getState, useStore } from '@/store/useStore';
 import type { Meal } from '@/types/habits';
@@ -67,6 +67,16 @@ function putBack(list: readonly string[], item: string, at: number): string[] {
   return [...list.slice(0, place), added[added.length - 1], ...list.slice(place)];
 }
 
+/**
+ * A record that never answered allergies, as one from v1, with the answer setup keeps put in it first (board
+ * D205; codex F-food-06): what's shown is that answer, and a change to it is made to all of it, so one tick or one
+ * word never drops the rest.
+ */
+function withKnownAllergies(food: FoodPreferences, waiting: Partial<FoodPreferences>): FoodPreferences {
+  if (food.allergies !== undefined || food.customAllergies !== undefined) return food;
+  return { ...food, ...(waiting.allergies ? { allergies: waiting.allergies } : {}), ...(waiting.customAllergies ? { customAllergies: waiting.customAllergies } : {}) };
+}
+
 const keeps = (food: FoodPreferences) => (food.allergies?.length ?? 0) > 0 || (food.customAllergies?.length ?? 0) > 0 || food.hardBefore !== undefined;
 
 /** A whole number from a field, within bounds; blank is none; `null` can't be right. */
@@ -84,7 +94,10 @@ function whole(text: string, max: number): number | undefined | null {
  */
 export function FoodScreen() {
   const { profile, settings } = useStore();
-  const food = profile?.food;
+  const session = useSetupSession();
+  const record = profile?.food;
+  // The allergies as known (D205), shown and changed as the record's own (codex F-food-06).
+  const food = record && withKnownAllergies(record, waitingFood(settings.setup, session));
   const level = foodLevel(food);
   // A target and the prompt are for estimates only (journey §11.5, B-11).
   const numbers = numbersView(profile);
@@ -179,7 +192,7 @@ export function FoodScreen() {
             value={food.allergies ?? []}
             onChange={allergies => {
               const gone = (food.allergies ?? []).filter(a => !allergies.includes(a));
-              void edit(current => current && { ...current, allergies }).then(ok => {
+              void edit((current, waiting) => current && { ...withKnownAllergies(current, waiting), allergies }).then(ok => {
                 if (ok) {
                   for (const id of gone) {
                     offerBack(allergenName(id), f => ({ ...f, allergies: ALLERGEN_IDS.filter(a => a === id || f.allergies?.includes(a)) }), f => f.allergies?.includes(id) === true);
@@ -203,13 +216,18 @@ export function FoodScreen() {
             const status = ownAllergyStatus(item);
             return status && (status.unknown ? <span className="text-caution">{status.text}</span> : status.text);
           }}
-          onAdd={entry => edit(current => current && { ...current, customAllergies: addAvoid(current.customAllergies ?? [], entry) })}
+          onAdd={entry => edit((current, waiting) => {
+            if (!current) return current;
+            const known = withKnownAllergies(current, waiting);
+            return { ...known, customAllergies: addAvoid(known.customAllergies ?? [], entry) };
+          })}
           onRemove={item => {
             const at = (food.customAllergies ?? []).indexOf(item);
-            void edit(current => {
+            void edit((current, waiting) => {
               if (!current) return current;
-              const left = (current.customAllergies ?? []).filter(a => a !== item);
-              const next: FoodPreferences = { ...current, customAllergies: left };
+              const known = withKnownAllergies(current, waiting);
+              const left = (known.customAllergies ?? []).filter(a => a !== item);
+              const next: FoodPreferences = { ...known, customAllergies: left };
               if (left.length === 0) delete next.customAllergies;
               return next;
             }).then(ok => {
@@ -314,7 +332,8 @@ export function FoodScreen() {
           confirm={FOOD_COPY.clearConfirm}
           // Clearing is another edit: an allergy Undo standing ends with it, as §20.4 rule 6 has it (H7F-01):
           // the store says so once it is stored (`subscribeEdits`).
-          onConfirm={() => void edit(cleared).then(ok => {
+          // What it keeps is what it says it keeps: the allergies as shown, setup's included (codex F-food-06).
+          onConfirm={() => void edit((current, waiting) => cleared(current && withKnownAllergies(current, waiting))).then(ok => {
             if (!ok) return;
             setClearing(false);
           })}

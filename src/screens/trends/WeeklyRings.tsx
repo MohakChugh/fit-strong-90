@@ -46,7 +46,7 @@ export function WeeklyRings({ rings, chosen, onChoose }: { rings: readonly WeekR
     // Four a row; two below 11.5 rem (a 320 px phone at 200% text), so no date breaks inside a word.
     <div className="@container">
     <div role="radiogroup" aria-label="Week" className="grid grid-cols-4 gap-3 @max-[11.5rem]:grid-cols-2">
-      {rings.map(r => {
+      {rings.map((r, k) => {
         const selected = r.week === chosen;
         return (
           <button
@@ -55,7 +55,9 @@ export function WeeklyRings({ rings, chosen, onChoose }: { rings: readonly WeekR
             role="radio"
             aria-checked={selected}
             aria-label={ringLabel(r)}
-            tabIndex={selected ? 0 : -1}
+            // One place in the Tab order whatever is chosen: the chosen ring, or the first when the address chose a week
+            // before them (H3-14), as a radio group with none checked has (codex F-ui-06).
+            tabIndex={k === i ? 0 : -1}
             onClick={() => onChoose(r.week)}
             onKeyDown={keys}
             className={cn('press-feedback flex min-h-12 flex-col items-center gap-1 rounded-xl bg-grouped-card px-1 py-2', selected && 'ring-2 ring-tint')}

@@ -41,6 +41,7 @@ import { cameFrom } from '@/components/hig/navigation';
 import { SessionGate } from '@/components/checkin/SessionGate';
 import { measuredStamp } from '@/health/observation';
 import { HREF, nextBoundary } from '@/health/recommend';
+import { resumeAllowed } from '@/screens/hub/movement';
 import { AnsweringStop, OwnsUrgent } from '@/screens/home/UrgentBanner';
 import { useClock, useWakeAt } from '@/screens/today/clock';
 import { acquiredIn } from '@/walk/consent';
@@ -102,12 +103,16 @@ function SessionRun() {
     const saved = loadProgress(Date.now(), slot);
     const id = (p: SessionPlan) => `${p.kind === 'stretch' ? 'stretch' : 'guided'}-${p.date}-${generateId()}`;
     const sameRoutine = (p: SessionPlan) => !spec || sameSpec(specFromPlanId(p.id), spec);
-    if (saved && (params.get('resume') === '1' || (saved.plan.date === fresh.date && sameRoutine(saved.plan)))) {
+    // Carried on only as today's status allows (A-34; codex F-ui-01): while Away or Unwell, or a guided hour in a
+    // flare-up, opening the session plainly is a new run, Start anyway's, and the saved one is banked as below.
+    // Asked for by name (`?resume=1`) it is restored, and its arrival holds it on the status (F-safety-03).
+    const carries = resumeAllowed(statusOn(data.settings.statusPeriods, date), mode);
+    if (saved && (params.get('resume') === '1' || (carries && saved.plan.date === fresh.date && sameRoutine(saved.plan)))) {
       return { plan: saved.plan, resumeState: rehydrate(saved.state, saved.clockAt, Date.now(), saved.plan), sessionId: saved.sessionId ?? id(saved.plan) };
     }
-    // Progress from another day or another routine, or too old to resume,
-    // survives here only until the first autosave of this run, so bank its
-    // work before it goes (Review Focus #3).
+    // Progress from another day or another routine, too old to resume, or not
+    // carried on today, survives here only until the first autosave of this
+    // run, so bank its work before it goes (Review Focus #3).
     const old = saved ?? loadExpiredProgress(Date.now(), slot);
     return { plan: fresh, sessionId: id(fresh), ...(old ? { stale: old } : {}) };
   });
@@ -149,8 +154,8 @@ function SessionRun() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stale]);
 
-  // Back where the person started (Move, Today), or Today after a fresh launch.
-  const exit = () => (cameFrom() ? navigate(-1) : navigate('/today', { replace: true }));
+  // Back where the person started (a hub, Home), or Home after a fresh launch.
+  const exit = () => (cameFrom() ? navigate(-1) : navigate('/home', { replace: true }));
 
   const input = useMemo(
     () => ({ profile, ...(checkIn ? { checkIn } : {}), now: new Date(), recent: checkIns }),
@@ -187,7 +192,10 @@ function SessionRun() {
   // Saved progress opened is carried on, so today's status is asked too (F-safety-03, journey §4.8).
   const [arrival] = useState(() => ({ now: input.now, permission: arrivalGate(input, mode, !!resumeState, statusNow()) }));
   if (!arrival.permission.allowed || arrival.permission.needsCheckIn) {
-    return <ArrivalGate arrival={arrival} input={input} mode={mode} resuming={!!resumeState} readiness={checkIn?.readiness} onBack={exit} />;
+    return (
+      <ArrivalGate arrival={arrival} input={input} mode={mode} resuming={!!resumeState} readiness={checkIn?.readiness} onBack={exit}
+        onCheckIn={() => navigate(HREF.checkIn(mode), { replace: true })} />
+    );
   }
   // Afterwards the question is only whether exercise may carry on: a newly
   // reported emergency, stop or low halts it at once; an ageing reading does
@@ -241,21 +249,26 @@ function SessionRun() {
  * refusal has lifted, the arrival's own stays: only a new arrival opens the
  * player, never a change on another screen (re-audit F02).
  */
-function ArrivalGate({ arrival, input, mode, resuming, readiness, onBack }: {
+function ArrivalGate({ arrival, input, mode, resuming, readiness, onBack, onCheckIn }: {
   arrival: { now: Date; permission: Permission };
   input: PermissionInput;
   mode: Mode;
   resuming: boolean;
   readiness?: Readiness;
   onBack: () => void;
+  /** The shared check-in, for a refusal a check-in answers (kiro FK-02). */
+  onCheckIn: () => void;
 }) {
   const { now } = useClock();
   useWakeAt(nextBoundary(now, input.checkIn ? { checkIn: input.checkIn } : {}));
   const { settings } = useStore();
   const current = arrivalGate({ ...input, now }, mode, resuming, statusOn(settings.statusPeriods, toDateString(now)));
   const shown = current.allowed && !current.needsCheckIn ? arrival : { now, permission: current };
-  return <SessionGate permission={shown.permission} {...(readiness ? { readiness } : {})} now={shown.now} onBack={onBack} />;
+  return <SessionGate permission={shown.permission} {...(readiness ? { readiness } : {})} now={shown.now} onBack={onBack} backLabel={exitLabel()} onCheckIn={onCheckIn} />;
 }
+
+/** What the session's way out says, as `exit` goes: back to the screen it came from, or Home after a fresh launch (kiro FK-02). */
+const exitLabel = () => (cameFrom() ? 'Back' : 'Back to Home');
 
 /**
  * What the player's reading screen draws of the gate's answer, with its own
@@ -274,7 +287,7 @@ const statusNow = () => statusOn(getState().settings.statusPeriods, toDateString
 function staleNote(stale: SavedProgress, how: 'kept' | 'lost'): string {
   const day = new Date(`${stale.plan.date}T12:00:00`).toLocaleDateString([], { weekday: 'long' });
   return how === 'kept'
-    ? `Your unfinished session from ${day} could not be added to your history: this device is not saving right now. It is kept here, and Today will add it once saving works again.`
+    ? `Your unfinished session from ${day} could not be added to your history: this device is not saving right now. It is kept here, and Home will add it once saving works again.`
     : `Your unfinished session from ${day} could not be saved: this device has no room for it. Starting now replaces it.`;
 }
 
@@ -407,7 +420,8 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
    * stopped is not asked again just because its reading has aged.
    */
   const mayResume = () => {
-    // Carrying on asks today's status first, as it stands at the tap (F-safety-03, journey §4.8).
+    // Carrying on asks today's status first, as it stands at the tap (F-safety-03, journey §4.8; codex F-ui-01):
+    // after a stop or worse, before any other hold, in the mode's words (`withStatus`, `carryOnRefusal`).
     const p = withStatus(startGate({ ...inputRef.current, now: new Date() }, mode), statusNow());
     if (p.allowed && !p.needsCheckIn) {
       setRefusal(null);
@@ -644,7 +658,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
   if (stopping === 'choose' && !firm && state.status !== 'done') {
     return <StopScreen reach={inputRef.current.checkIn?.back?.reach} onChoice={c => void stopChoice(c)} onLeg={a => stopForLeg(a)} />;
   }
-  if (stop) return <SessionGate permission={stop} readiness={inputRef.current.checkIn?.readiness} now={new Date()} onBack={onExit} />;
+  if (stop) return <SessionGate permission={stop} readiness={inputRef.current.checkIn?.readiness} now={new Date()} onBack={onExit} backLabel={exitLabel()} />;
   if (state.status === 'done') return <Summary plan={plan} state={state} onSave={onSave} onExit={onExit} {...(waiting ? { guidance: waiting } : {})} />;
   if (reading || waiting) {
     const now = new Date();
@@ -691,13 +705,11 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     <div className="fixed inset-0 flex flex-col overflow-y-auto bg-background pt-safe pb-safe">
       {/* Top bar */}
       <div className="flex items-center gap-3 px-3 pt-2">
-        <button type="button" aria-label="End session" onClick={() => { act.pause(); setExitOpen(true); }} className="flex size-12 items-center justify-center rounded-full hover:bg-muted">
-          <XIcon className="size-5" />
-        </button>
+        <IconButton word="End" label="End session" onClick={() => { act.pause(); setExitOpen(true); }}><XIcon aria-hidden /></IconButton>
         <div className="flex-1"><SessionProgress plan={plan} elapsedMs={pos.sessionElapsedMs} /></div>
         <span className="w-14 text-right text-sm font-medium tabular-nums" aria-label="Time left">{fmt(pos.sessionTotalMs - pos.sessionElapsedMs)}</span>
       </div>
-      <div className="flex items-center justify-between px-4 pt-1 text-xs font-semibold uppercase tracking-wider" style={{ color }}>
+      <div className="flex items-center justify-between px-4 pt-1 text-[length:var(--text-footnote)] font-semibold uppercase tracking-wider" style={{ color }}>
         <span>{BLOCK_LABEL[step.block]}{stepNo > 0 && step.kind !== 'talk' ? ` · ${stepNo} of ${blockSteps.length}` : ''}</span>
         {health.hypoRisk && (
           <button type="button" data-main="" onClick={reportLow} className="flex min-h-[3.75rem] items-center gap-1 rounded-full px-3 normal-case tracking-normal text-[var(--safety)] font-semibold">
@@ -714,17 +726,17 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
         </button>
       )}
       {g.voiceTrouble === 'failed' && !g.muted && (
-        <p role="status" className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-xs text-muted-foreground">
+        <p role="status" className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
           The recorded voice couldn’t play, so your phone’s own voice is reading the steps.
         </p>
       )}
       {g.voiceTrouble === 'silent' && !g.muted && (
-        <p role="status" className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-xs text-muted-foreground">
+        <p role="status" className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
           The coach’s voice isn’t playing on this phone right now. Follow the captions below.
         </p>
       )}
       {paused && mixesWithMusic(profile) && (
-        <p className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-xs text-muted-foreground">{SILENT_SWITCH_NOTE}</p>
+        <p className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{SILENT_SWITCH_NOTE}</p>
       )}
 
       {/* Main */}
@@ -742,7 +754,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
               <p className="text-sm text-muted-foreground">{subtitleFor(step, segLabel, fluids)}</p>
             </div>
             {seg.side && (
-              <span className="shrink-0 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide text-[var(--on-ink)]" style={{ background: color }}>
+              <span className="shrink-0 rounded-full px-3 py-1 text-[length:var(--text-footnote)] font-bold uppercase tracking-wide text-[var(--on-ink)]" style={{ background: color }}>
                 {seg.side}
               </span>
             )}
@@ -799,15 +811,19 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
       {/* Controls */}
       {/* At 320 px, or a large text size, the row wraps rather than squeezing a control under 48 px. */}
       <div className="flex flex-wrap items-center justify-around gap-1 border-t px-2 py-2">
-        <IconButton label="Previous" onClick={act.previous}><SkipBackIcon /></IconButton>
-        <IconButton label="Add 15 seconds" onClick={() => act.addTime(15)}><PlusIcon /><span className="text-xs">15</span></IconButton>
-        <button type="button" aria-label={paused ? 'Resume' : 'Pause'} onClick={paused ? act.resume : act.pause}
-          className="flex size-16 items-center justify-center rounded-full text-[var(--on-ink)] shadow-lg press-feedback" style={{ background: color }}>
-          {paused ? <PlayIcon className="size-7" /> : <PauseIcon className="size-7" />}
+        <IconButton word="Previous" onClick={act.previous}><SkipBackIcon aria-hidden /></IconButton>
+        <IconButton word="Add 15 s" label="Add 15 seconds" onClick={() => act.addTime(15)}><PlusIcon aria-hidden /></IconButton>
+        <button type="button" onClick={paused ? act.resume : act.pause} className="flex shrink-0 flex-col items-center gap-0.5 rounded-xl px-1 press-feedback">
+          <span aria-hidden className="flex size-16 items-center justify-center rounded-full text-[var(--on-ink)] shadow-lg" style={{ background: color }}>
+            {paused ? <PlayIcon className="size-7" /> : <PauseIcon className="size-7" />}
+          </span>
+          <span className="text-[length:var(--text-footnote)] font-semibold leading-tight">{paused ? 'Resume' : 'Pause'}</span>
         </button>
-        <IconButton label="Next" onClick={() => act.next('skip')}><SkipForwardIcon /></IconButton>
-        <IconButton label={g.muted ? 'Unmute voice' : 'Mute voice'} onClick={() => act.setMuted(!g.muted)}>{g.muted ? <VolumeXIcon /> : <Volume2Icon />}</IconButton>
-        <IconButton label="How to do it" onClick={() => setInfoOpen(true)} disabled={!coaching}><InfoIcon /></IconButton>
+        <IconButton word="Next" onClick={() => act.next('skip')}><SkipForwardIcon aria-hidden /></IconButton>
+        <IconButton word={g.muted ? 'Unmute' : 'Mute'} label={g.muted ? 'Unmute voice' : 'Mute voice'} onClick={() => act.setMuted(!g.muted)}>
+          {g.muted ? <VolumeXIcon aria-hidden /> : <Volume2Icon aria-hidden />}
+        </IconButton>
+        <IconButton word="How to do it" onClick={() => setInfoOpen(true)} disabled={!coaching}><InfoIcon aria-hidden /></IconButton>
       </div>
 
       <InfoSheet open={infoOpen} onOpenChange={setInfoOpen} coaching={coaching} title={step.title} />
@@ -816,7 +832,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Leave the session?</DialogTitle>
-            <DialogDescription>Your progress is saved. You can resume from Today.</DialogDescription>
+            <DialogDescription>Your progress is saved. You can resume from Home.</DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-col gap-3 sm:flex-row">
             <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" onClick={() => { setExitOpen(false); act.resume(); }}>Keep going</Button>
@@ -896,11 +912,17 @@ function subtitleFor(step: Step, segLabel: string, fluids: ReturnType<typeof flu
   }
 }
 
-function IconButton({ label, onClick, children, disabled }: { label: string; onClick: () => void; children: React.ReactNode; disabled?: boolean }) {
+/**
+ * A player control: its icon over its word, as the tab bar draws one (§20.4
+ * rule 2, B-08; kiro FK-01). `label` names it for VoiceOver where the word
+ * is short for it, and starts with the word, so a spoken "Mute" finds it.
+ */
+function IconButton({ word, label, onClick, children, disabled }: { word: string; label?: string; onClick: () => void; children: React.ReactNode; disabled?: boolean }) {
   return (
     <button type="button" aria-label={label} onClick={onClick} disabled={disabled}
-      className="flex size-12 shrink-0 items-center justify-center gap-0.5 rounded-full hover:bg-muted disabled:opacity-40 press-feedback [&_svg]:size-5">
+      className="flex min-h-12 min-w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl px-1.5 py-1 hover:bg-muted disabled:opacity-40 press-feedback [&_svg]:size-5">
       {children}
+      <span className="text-[length:var(--text-footnote)] font-medium leading-tight">{word}</span>
     </button>
   );
 }
@@ -915,9 +937,9 @@ function Stepper({ label, value, onChange, step, suffix }: { label: string; valu
     <div className="flex items-center justify-between gap-2 rounded-xl border px-2 py-1">
       <span className="text-sm text-muted-foreground pl-1">{label}</span>
       <div className="flex items-center gap-1">
-        <button type="button" aria-label={`Less ${label}`} className="flex size-12 items-center justify-center rounded-full hover:bg-muted" onClick={() => onChange(Math.max(0, +(value - step).toFixed(2)))}><MinusIcon className="size-4" /></button>
+        <IconButton word="Less" label={`Less ${label}`} onClick={() => onChange(Math.max(0, +(value - step).toFixed(2)))}><MinusIcon aria-hidden /></IconButton>
         <span className="min-w-14 text-center text-lg font-bold tabular-nums">{value}{suffix}</span>
-        <button type="button" aria-label={`More ${label}`} className="flex size-12 items-center justify-center rounded-full hover:bg-muted" onClick={() => onChange(+(value + step).toFixed(2))}><PlusIcon className="size-4" /></button>
+        <IconButton word="More" label={`More ${label}`} onClick={() => onChange(+(value + step).toFixed(2))}><PlusIcon aria-hidden /></IconButton>
       </div>
     </div>
   );
@@ -949,7 +971,7 @@ function RestPanel({ plan, index, state, useMetric, onLog }: { plan: SessionPlan
   const base = { stepId: prev.id, kind: 'set' as const, completed: log?.completed ?? true, exerciseId: prev.exerciseId };
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Log the set you just did</p>
+      <p className="text-[length:var(--text-footnote)] font-semibold uppercase tracking-wider text-muted-foreground">Log the set you just did</p>
       {!prev.holdSeconds && !prev.carrySeconds && <Stepper label="Reps" value={reps} step={1} onChange={v => onLog({ ...base, reps: v, weightKg: kg })} />}
       {prev.load.note !== 'bodyweight' && (
         <Stepper label="Weight" value={kg === null ? 0 : kgToDisplay(kg, useMetric)} step={useMetric ? 2.5 : 5} suffix={useMetric ? ' kg' : ' lb'}
@@ -1180,7 +1202,7 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
             {refused?.key === key ? 'Try again' : 'Save this reading'}
           </Button>
           {ended ? (
-            <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onLeave}>Back to Today</Button>
+            <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onLeave}>{exitLabel()}</Button>
           ) : (
             <>
               <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onEnd}>End session</Button>
@@ -1377,13 +1399,13 @@ function StartScreen({ plan, voiceName, muted, setMuted, mix, note, onStart, onE
   return (
     <div className="min-h-dvh flex flex-col bg-background pt-safe pb-safe">
       <div className="flex items-center justify-between px-3 pt-2">
-        <button type="button" aria-label="Back" onClick={onExit} className="flex size-12 items-center justify-center rounded-full hover:bg-muted"><XIcon className="size-5" /></button>
+        <IconButton word="Back" onClick={onExit}><XIcon aria-hidden /></IconButton>
         <span className="text-sm text-muted-foreground">{Math.round(plan.totalSeconds / 60)} minutes</span>
         <span className="size-12" />
       </div>
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-5 px-5 py-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{plan.kind === 'recovery' ? 'Recovery session' : plan.kind === 'stretch' ? 'Stretch' : 'Today'}</p>
+          <p className="text-[length:var(--text-footnote)] font-semibold uppercase tracking-wider text-muted-foreground">{plan.kind === 'recovery' ? 'Recovery session' : plan.kind === 'stretch' ? 'Stretch' : 'Today'}</p>
           <h1 className="text-3xl font-bold tracking-tight">{plan.label}</h1>
         </div>
         {note && <p role="status" className="rounded-xl bg-caution/15 px-4 py-3 text-[length:var(--text-subhead)] leading-snug">{note}</p>}
@@ -1412,7 +1434,7 @@ function StartScreen({ plan, voiceName, muted, setMuted, mix, note, onStart, onE
           </div>
           <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={() => setMuted(!muted)}>{muted ? 'Unmute' : 'Mute'}</Button>
         </div>
-        <p className="text-xs text-muted-foreground">Stop and get help for chest pain, faintness or severe breathlessness. Stop any exercise that sends pain or tingling down your leg.</p>
+        <p className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">Stop and get help for chest pain, faintness or severe breathlessness. Stop any exercise that sends pain or tingling down your leg.</p>
         <div className="mt-auto">
           <Button className="h-16 w-full text-lg" onClick={onStart}><PlayIcon className="size-6" /> Start</Button>
         </div>

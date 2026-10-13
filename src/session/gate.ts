@@ -26,7 +26,7 @@ import { getMeta } from '@/data/catalog';
 import { activeConditions, evaluateFlags } from '@/engine/safety';
 import { evaluateCheckIn, profileOnlyReadiness, STOP_UNANSWERED } from '@/engine/readiness';
 import type { Status } from '@/health/status';
-import { resumeAllowed } from '@/screens/hub/movement';
+import { carryOnRefusal } from '@/screens/hub/movement';
 import { deriveHealth } from '@/engine/health';
 import { checkedIn, onScreenPermission, permission, resumePermission, type Permission, type PermissionInput } from '@/engine/permission';
 import { toDateString } from '@/lib/utils';
@@ -44,26 +44,15 @@ const unlessReadOnly = (p: Permission): Permission => (storageReadOnly() && p.di
   ? { mode: p.mode, allowed: false, disposition: 'hold', reasons: [READ_ONLY_REASON], release: READ_ONLY_RELEASE, restrictions: [], needsCheckIn: false }
   : p);
 
-const NOUN: Record<Mode, string> = { guided: 'session', stretch: 'stretch', walk: 'walk' };
-
-/**
- * Carrying a run on under today's status (journey §4.8, A-34), as the hubs'
- * Carry on is offered (`resumeAllowed`): never while Away or Unwell, and in a
- * flare only a stretch. Undefined when the status allows it.
- */
-export function statusHold(status: Status, mode: Mode): Permission | undefined {
-  if (resumeAllowed(status, mode)) return undefined;
-  const reason = status === 'away' || status === 'unwell' ? `A ${NOUN[mode]} isn’t carried on while you’re ${status}.` : 'During a flare-up only a stretch is carried on.';
-  return { mode, allowed: false, disposition: 'hold', reasons: [reason], release: 'Change your status to carry on.', restrictions: [], needsCheckIn: false };
-}
-
 /**
  * A restart's answer with the status in its place (F-safety-03): a stop or
- * worse first, then the status, then every other hold, as the hubs order
- * them (§4.2). A new start isn't asked: "Start anyway" stays.
+ * worse first, then the status, as the hubs' Carry on is offered
+ * (`carryOnRefusal`, journey §4.8, A-34: never while Away or Unwell, and in a
+ * flare only a stretch), then every other hold, as the hubs order them
+ * (§4.2). A new start isn't asked: "Start anyway" stays.
  */
 export function withStatus(p: Permission, status: Status | undefined): Permission {
-  const held = status === undefined ? undefined : statusHold(status, p.mode);
+  const held = status === undefined ? undefined : carryOnRefusal(status, p.mode);
   if (!held) return p;
   if (!p.allowed && (p.disposition === 'emergency' || p.disposition === 'today' || p.reasons.includes(STOP_UNANSWERED.reason))) return p;
   return held;

@@ -11,16 +11,22 @@ import { createDefaultProfile } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, textOf, type Host } from '@/test/host';
 
-const params = vi.hoisted(() => ({ mealId: 'd-khichdi', q: '' }));
+const params = vi.hoisted(() => ({ mealId: 'd-khichdi', q: '', path: '/me/food' }));
+/** The router's blocker as a sheet asks for it while it saves: whether it holds a leave, and what was done with one held. */
+const nav = vi.hoisted(() => ({ holds: false, state: 'unblocked' as 'unblocked' | 'blocked', proceeded: 0, resets: 0 }));
 vi.mock('react-router-dom', async () => {
   const { createElement: h } = await import('react');
   return {
     useNavigate: () => () => {},
-    useLocation: () => ({ pathname: '/me/food', search: '', state: null, key: 'k0' }),
+    useLocation: () => ({ pathname: params.path, search: '', state: null, key: 'k0' }),
     useParams: () => ({ mealId: params.mealId }),
     useSearchParams: () => [new URLSearchParams(params.q ? { q: params.q } : {}), () => {}],
     Link: ({ children, to }: { children?: unknown; to?: string }) => h('a', { href: to }, children as never),
     Navigate: () => null,
+    useBlocker: (holds: boolean) => {
+      nav.holds = holds;
+      return { state: nav.state, proceed: () => { nav.proceeded += 1; }, reset: () => { nav.resets += 1; } };
+    },
   };
 });
 /** Every toast raised, with its id and action, and every one dismissed. */
@@ -34,11 +40,18 @@ vi.mock('@/components/hig/Screen', async () => {
 });
 vi.mock('@/screens/hub/HubFrame', async () => {
   const { createElement: h } = await import('react');
-  return { HubFrame: ({ children }: { children?: unknown }) => h('main', null, children as never) };
+  return {
+    HubFrame: ({ children }: { children?: unknown }) => h('main', null, children as never),
+    HubSection: ({ title, children }: { title: string; children?: unknown }) => h('section', null, h('h2', null, title), children as never),
+  };
 });
 vi.mock('@/components/hig/Sheet', async () => {
   const { createElement: h } = await import('react');
-  return { Sheet: ({ open, title, children }: { open: boolean; title?: string; children?: unknown }) => (open ? h('div', { role: 'dialog', 'aria-label': title }, children as never) : null) };
+  // Its Close goes through the owner's `onOpenChange`, as the real sheet's does; a swipe asks `dismissible` first.
+  return {
+    Sheet: ({ open, title, onOpenChange, dismissible = true, children }: { open: boolean; title?: string; onOpenChange?: (open: boolean) => void; dismissible?: boolean; children?: unknown }) =>
+      (open ? h('div', { role: 'dialog', 'aria-label': title, 'data-dismissible': dismissible }, h('button', { type: 'button', onClick: () => onOpenChange?.(false) }, 'Close'), children as never) : null),
+  };
 });
 
 const local = new Map<string, string>();
@@ -58,6 +71,7 @@ const { endUndos, followPlace, resetUndosForTests } = await import('@/components
 const { FoodScreen } = await import('./FoodScreen');
 const { default: UsualMealsScreen } = await import('@/screens/food/UsualMealsScreen');
 const food = await import('@/food/store');
+const { FOOD_COPY } = await import('@/food/copy');
 
 let host: Host | undefined;
 beforeEach(async () => {
@@ -443,5 +457,185 @@ describe('a meal idea outside your allergies says why, in caution ink (K7-14)', 
     host = render(createElement((await import('@/screens/guide/MealDetailScreen')).default));
     await host.settle();
     expect(caution(host).filter(t => /listed as an allergy|Check it for/.test(t))).toEqual([]);
+  });
+});
+
+describe('Close or Back while “What do you eat?” is saving (codex F-food-04; B-03, §4.5)', () => {
+  /** The picker open over a person with no food record yet, Vegetarian chosen, and its save sent while another write is held. */
+  async function sending(refuse: boolean) {
+    store.resetForTests();
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake, broadcast: null });
+    await store.update(prev => ({ ...prev, profile: createDefaultProfile({ birthYear: 1970, weightKg: 70 }) }));
+    nav.state = 'unblocked';
+    nav.proceeded = 0;
+    nav.resets = 0;
+    const closed: boolean[] = [];
+    const { FoodPicker } = await import('@/screens/guide/FoodPicker');
+    host = render(createElement(FoodPicker, { open: true, onOpenChange: (o: boolean) => void closed.push(o), canSave: true }));
+    await host.settle();
+    const vegetarian = host.all().find(n => n.type === 'label' && textOf(n.children).startsWith('Vegetarian'))!;
+    await host.click(vegetarian);
+    fake.control.hold();
+    const ahead = store.update(prev => ({ ...prev, settings: { ...prev.settings, currentWeight: 71 } }));
+    const form = host.all().find(n => n.type === 'form')!;
+    const saving = (form.props.onSubmit as (e: unknown) => Promise<void>)({ preventDefault() {} });
+    await host.settle();
+    return {
+      closed,
+      finish: async () => {
+        if (refuse) fake.control.setWriteError(() => new DOMException('Disk is full', 'QuotaExceededError'));
+        fake.control.release();
+        await ahead;
+        await saving;
+        await host!.settle();
+      },
+    };
+  }
+
+  it('Close, a swipe and a Back wait for the save; refused, the answers and the reason stay, and the Back is let go', async () => {
+    const { closed, finish } = await sending(true);
+    expect(host!.all().find(n => n.props.role === 'dialog')?.props['data-dismissible']).toBe(false);
+    await host!.click(host!.button('Close', { exact: true }));
+    expect(closed).toEqual([]);
+    // A Back arrives while it saves: held.
+    expect(nav.holds).toBe(true);
+    nav.state = 'blocked';
+    await host!.settle();
+    await finish();
+    expect(closed).toEqual([]);
+    expect(host!.all().find(n => n.type === 'input' && n.props.type === 'radio' && n.props.checked)).toBeDefined();
+    expect(host!.text()).toMatch(/full|storage|space/i);
+    expect([nav.resets, nav.proceeded]).toEqual([1, 0]);
+    expect(nav.holds).toBe(false);
+    expect(store.getState().profile?.food).toBeUndefined();
+  });
+
+  it('stored, it closes, and a Back held meanwhile goes on', async () => {
+    const { closed, finish } = await sending(false);
+    nav.state = 'blocked';
+    await host!.settle();
+    await finish();
+    expect(closed).toEqual([false]);
+    expect([nav.resets, nav.proceeded]).toEqual([0, 1]);
+    expect(store.getState().profile?.food?.pattern).toBe('vegetarian');
+  });
+});
+
+describe('the Food hub and the sample week, with a food record that never answered allergies (codex F-food-05; board D205)', () => {
+  const ASK = 'Tell us about food allergies first';
+  const ideas = (h: Host) => h.all().map(n => n.props.href).filter((to): to is string => typeof to === 'string' && to.startsWith('/hub/food/ideas/'));
+  /** A v1 food record, vegetarian with nothing to avoid and no allergy answer, and setup's answer: a peanut allergy. */
+  const person = async (setupAllergies?: readonly ['peanut']) => {
+    vi.setSystemTime(new Date(2026, 9, 8, 8, 0, 0));
+    await store.update(prev => ({
+      ...prev,
+      profile: createDefaultProfile({ birthYear: 1970, weightKg: 70, food: { pattern: 'vegetarian', avoid: [] } }),
+      settings: { ...prev.settings, ...(setupAllergies ? { setup: { stage: 'done' as const, answers: { allergies: [...setupAllergies] } } } : {}) },
+    }));
+  };
+  const shown = async (load: () => Promise<{ default: () => unknown }>, path: string) => {
+    params.path = path;
+    host = render(createElement((await load()).default as never));
+    await host.settle();
+    return host;
+  };
+  afterEach(() => { params.path = '/me/food'; });
+
+  it('the Food hub’s breakfast ideas leave the peanut poha out', async () => {
+    await person(['peanut']);
+    const h = await shown(() => import('@/screens/food/FoodHubScreen'), '/hub/food');
+    expect(ideas(h).length).toBeGreaterThan(0);
+    expect(ideas(h)).not.toContain('/hub/food/ideas/b-poha');
+  });
+
+  it('so does the sample week', async () => {
+    await person(['peanut']);
+    const h = await shown(() => import('@/screens/guide/SampleWeekScreen'), '/hub/food/week');
+    expect(ideas(h).length).toBeGreaterThan(0);
+    expect(ideas(h)).not.toContain('/hub/food/ideas/b-poha');
+  });
+
+  it('with no allergy answer anywhere, the sample week asks first, as Meal ideas does, and shows no week', async () => {
+    await person();
+    const h = await shown(() => import('@/screens/guide/SampleWeekScreen'), '/hub/food/week');
+    expect(h.text()).toContain(ASK);
+    expect(ideas(h)).toEqual([]);
+  });
+});
+
+describe('editing food with a record that never answered allergies, and setup’s answer (codex F-food-06; board D205)', () => {
+  const PEANUT = { stage: 'done' as const, answers: { allergies: ['peanut' as const], customAllergies: ['brinjal'] } };
+  const v1 = async () => {
+    await store.update(prev => ({
+      ...prev,
+      profile: createDefaultProfile({ birthYear: 1970, weightKg: 70, food: { pattern: 'vegetarian', avoid: [] } }),
+      settings: { ...prev.settings, setup: PEANUT },
+    }));
+  };
+  const ticked = (h: Host) => h.all().filter(n => n.props.role === 'checkbox' && n.props['aria-checked'] === true).map(n => textOf(n.children));
+
+  it('“What you eat” starts from setup’s answer: a region changed alone keeps the peanut allergy and the own words', async () => {
+    await v1();
+    const { FoodPicker } = await import('@/screens/guide/FoodPicker');
+    host = render(createElement(FoodPicker, { open: true, onOpenChange() {}, food: store.getState().profile!.food, canSave: true }));
+    await host.settle();
+    expect(ticked(host)).toEqual(['Peanuts']);
+    expect(host.field('Something else').props.value).toBe('brinjal');
+    await host.click(host.all().find(n => n.type === 'label' && textOf(n.children).startsWith('South'))!);
+    const form = host.all().find(n => n.type === 'form')!;
+    await (form.props.onSubmit as (e: unknown) => Promise<void>)({ preventDefault() {} });
+    await host.settle();
+    expect(store.getState().profile?.food).toMatchObject({ pattern: 'vegetarian', region: 'south', allergies: ['peanut'], customAllergies: ['brinjal'] });
+  });
+
+  it('Me → Food shows that answer, and a chip ticked adds to it, the own words kept, with no “No food allergies” beside it', async () => {
+    await v1();
+    host = render(createElement(FoodScreen));
+    await host.settle();
+    expect(ticked(host)).toEqual(['Peanuts']);
+    expect(host.text()).toContain('brinjal');
+    expect(host.buttons(/No food allergies/)).toHaveLength(0);
+    await host.click(host.all().find(n => n.props.role === 'checkbox' && textOf(n.children) === 'Milk')!);
+    expect(store.getState().profile?.food).toMatchObject({ allergies: expect.arrayContaining(['peanut', 'milk']), customAllergies: ['brinjal'] });
+  });
+
+  it('a record that answered allergies itself shows its own answer, never setup’s', async () => {
+    await v1();
+    expect((await store.update(prev => ({ ...prev, profile: { ...prev.profile!, food: { pattern: 'vegetarian', avoid: [], allergies: ['milk'] } } }))).ok).toBe(true);
+    host = render(createElement(FoodScreen));
+    await host.settle();
+    expect(ticked(host)).toEqual(['Milk']);
+    expect(host.text()).not.toContain('brinjal');
+  });
+
+  it('a word of setup’s removed there goes, and the chips stay', async () => {
+    await v1();
+    host = render(createElement(FoodScreen));
+    await host.settle();
+    await host.click(host.button('Remove brinjal'));
+    const { allergyAnswer } = await import('@/food/allergens');
+    expect(allergyAnswer(store.getState().profile?.food, store.getState().settings.setup)).toEqual({ allergies: ['peanut'] });
+  });
+
+  it('Clear food preferences keeps what it says it keeps: the pattern, and the allergies as shown', async () => {
+    await v1();
+    host = render(createElement(FoodScreen));
+    await host.settle();
+    await host.click(host.button('Clear food preferences'));
+    await host.click(host.button(FOOD_COPY.clearConfirm));
+    expect(store.getState().profile?.food).toEqual({ pattern: 'vegetarian', avoid: [], allergies: ['peanut'], customAllergies: ['brinjal'] });
+  });
+
+  it('and a word added there joins setup’s, the chips kept', async () => {
+    await v1();
+    host = render(createElement(FoodScreen));
+    await host.settle();
+    await host.change(host.field('Something else'), { value: 'chaach' });
+    const add = host.all().find(n => n.type === 'form' && JSON.stringify(n.children).includes('Something else'));
+    if (add) await (add.props.onSubmit as (e: unknown) => Promise<void>)({ preventDefault() {} });
+    else await host.click(host.button(/^Add/));
+    await host.settle();
+    expect(store.getState().profile?.food).toMatchObject({ allergies: ['peanut'], customAllergies: ['brinjal', 'chaach'] });
   });
 });

@@ -1,5 +1,5 @@
 /**
- * My Day: "What did I do or record?"
+ * Today's log (v1's My Day): "What did I do or record?"
  *
  * One day at a time, every record in the order it happened with where it
  * came from; or, on the other segment, the measures this person keeps. The
@@ -9,7 +9,7 @@
  * It is v2's Today's log (`/day/:date`, the day in the path).
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { CheckCircle2Icon, PlusIcon } from 'lucide-react';
 import { format } from 'date-fns';
@@ -37,9 +37,10 @@ import { DateStepper, PrimaryButton, Segmented } from './ui';
 import { useToday } from './useToday';
 import { weeklyGoalOn } from './weeklyGoal';
 
+// The second view is the measures this person keeps, by name: "Trends" is the tab's (kiro FK-07). Its address stays `?view=trends`.
 const VIEWS = [
   { id: 'timeline', label: 'Timeline' },
-  { id: 'trends', label: 'Trends' },
+  { id: 'trends', label: 'Measures' },
 ] as const;
 
 /**
@@ -66,7 +67,8 @@ export function MyDay({ day: pathDay }: {
   const [params, setParams] = useSearchParams();
   const day = clampDay(pathDay ?? params.get('day'), current);
   const view: View = params.get('view') === 'trends' ? 'trends' : 'timeline';
-  const title = 'My Day';
+  // As Home's row and the journey call it (§13; kiro FK-07).
+  const title = 'Today’s log';
   // `?add=` with no kind opens the list; with a kind, that kind's form.
   const asking = params.has('add');
   const request = parseAddParam(params.get('add'));
@@ -87,12 +89,12 @@ export function MyDay({ day: pathDay }: {
     [state.settings, state.profile, state.observations],
   );
 
-  // A brief confirmation, then gone. The record itself stays in the list.
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(undefined), 4000);
-    return () => clearTimeout(timer);
-  }, [notice]);
+  // "Saved on this device", until the next Add or until the screen is left: never on a timer (§20.4 rule 8;
+  // kiro FK-05, as the hubs' KH-16).
+  const add = () => {
+    setNotice(undefined);
+    setChooserOpen(true);
+  };
 
   // React Router builds each search-param update from the address of the
   // last render, so two updates in one tick — a save moving to its day, then
@@ -140,7 +142,7 @@ export function MyDay({ day: pathDay }: {
   };
 
   // Links out carry where they came from, so a detail screen's Back says
-  // "My Day" and returns here — to this day and view, never to an open sheet.
+  // "Today’s log" and returns here — to this day and view, never to an open sheet.
   const kept = new URLSearchParams(location.search);
   kept.delete('add');
   const search = kept.toString();
@@ -152,13 +154,15 @@ export function MyDay({ day: pathDay }: {
       // Today's log is opened from Home (journey §13); Trends is a tab's root.
       {...(pathDay !== undefined ? { back: { to: '/home', label: 'Home' } } : {})}
       trailing={(
+        // "+ Add" in words (§20.4 rule 2; kiro FK-06), named "Add a record", which starts with it.
         <button
           type="button"
-          onClick={() => setChooserOpen(true)}
+          onClick={add}
           aria-label="Add a record"
-          className="press-feedback flex size-[48px] items-center justify-center rounded-full text-tint"
+          className="press-feedback flex min-h-12 min-w-12 items-center justify-center gap-0.5 rounded-full px-2 text-[length:var(--text-body)] font-semibold text-tint"
         >
-          <PlusIcon className="size-[28px]" strokeWidth={2} aria-hidden />
+          <PlusIcon className="size-[22px] shrink-0" strokeWidth={2.2} aria-hidden />
+          Add
         </button>
       )}
     >
@@ -185,8 +189,8 @@ export function MyDay({ day: pathDay }: {
       </div>
 
       {view === 'timeline'
-        ? <TimelineView day={day} current={current} fresh={fresh} origin={origin} prefs={prefs} onAdd={() => setChooserOpen(true)} onGoal={() => setGoalOpen(true)} />
-        : <TrendsView day={day} current={current} origin={origin} prefs={prefs} onAdd={() => setChooserOpen(true)} onGoal={() => setGoalOpen(true)} />}
+        ? <TimelineView day={day} current={current} fresh={fresh} origin={origin} prefs={prefs} onAdd={add} onGoal={() => setGoalOpen(true)} />
+        : <TrendsView day={day} current={current} origin={origin} prefs={prefs} onAdd={add} onGoal={() => setGoalOpen(true)} />}
 
       <QuickLog
         open={chooserOpen || asking || unsaved !== undefined}

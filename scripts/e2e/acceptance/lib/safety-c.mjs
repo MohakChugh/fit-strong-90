@@ -87,7 +87,8 @@ export async function stepThrough(t, max = 120) {
       const main = document.querySelector('main');
       if ([...document.querySelectorAll('button')].some(b => /Save and finish/.test(b.textContent ?? ''))) return { done: true };
       const title = main?.querySelector('h1')?.textContent?.trim() ?? '';
-      const next = main?.querySelector('button[aria-label="Next"]');
+      // Named by its own word (kiro FK-01), or by a label where the word is short for it.
+      const next = [...(main?.querySelectorAll('button') ?? [])].find(b => (b.getAttribute('aria-label') ?? b.textContent ?? '').trim() === 'Next');
       if (!next || next.disabled) return { title, stuck: true };
       next.click();
       return { title };

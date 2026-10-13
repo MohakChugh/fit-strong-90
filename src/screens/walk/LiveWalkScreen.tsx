@@ -13,6 +13,7 @@ import type { GlucoseEntry } from '@/types/checkin';
 import { deriveHealth } from '@/engine/health';
 import { PERMISSION_TEXT } from '@/engine/permission';
 import { heldBy, reachableHistory, statusRefusal, walkInput, walkRefusal, type Clinical } from '@/walk/gate';
+import { HREF } from '@/health/recommend';
 import { statusOn } from '@/health/status';
 import { StatusSheet } from '@/screens/today/StatusSheet';
 import { cn, toDateString } from '@/lib/utils';
@@ -321,7 +322,8 @@ export default function LiveWalkScreen() {
                     </button>
                   )}
                   {action === 'profile' && (
-                    <button type="button" onClick={() => navigate('/you/profile')} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.primary)}>
+                    // Profile & health's own address (setup itself while setup is unfinished, L-20), with this walk to go back to (kiro FK-08).
+                    <button type="button" onClick={() => navigate(HREF.profile, { state: { path: '/walk/live', label: liveTitle(snapshot.walk), search: `?${params}` } })} className={cn('press-feedback mt-1 self-start rounded-lg bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.primary)}>
                       Health questions
                     </button>
                   )}

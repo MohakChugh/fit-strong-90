@@ -75,7 +75,13 @@ export function Segmented<T extends string>({ label, options, value, onChange, c
   );
 }
 
-/** Previous and next day around the day's name. There is no next from today. */
+/**
+ * Previous day and Next day, in words (§13, §20.4 rule 2, B-08; kiro
+ * FK-06), under the day's name, as Trends' week pager is. There is no next
+ * from today. Each one's name starts with its word, and says the day it goes
+ * to; the day's heading stays between them in the page's order, so it is read
+ * after Previous day, as before.
+ */
 export function DateStepper({ label, sublabel, previousLabel, nextLabel, onPrevious, onNext, nextDisabled }: {
   label: string;
   sublabel?: string;
@@ -85,32 +91,23 @@ export function DateStepper({ label, sublabel, previousLabel, nextLabel, onPrevi
   onNext: () => void;
   nextDisabled: boolean;
 }) {
+  // Side by side while both fit, each its own line when they don't (journey §20.4 rule 7).
+  const pager = 'press-feedback flex min-h-12 flex-[1_1_8rem] items-center justify-center gap-1 rounded-full bg-tint/10 px-3 text-[length:var(--text-subhead)] font-semibold leading-tight text-tint disabled:bg-transparent disabled:text-muted-foreground';
   return (
-    // At a large text size on a small phone the day takes a line of its own, the arrows under it, so a long
-    // month keeps its letters together rather than breaking mid-word.
-    <div className="@container"><div className="flex items-center justify-between gap-1 @max-[16rem]:flex-wrap">
-      <button
-        type="button"
-        onClick={onPrevious}
-        aria-label={previousLabel}
-        className="press-feedback flex size-[48px] shrink-0 items-center justify-center rounded-full text-tint"
-      >
-        <ChevronLeftIcon className="size-[24px]" strokeWidth={2.2} aria-hidden />
+    <div className="flex flex-wrap gap-3">
+      <button type="button" onClick={onPrevious} aria-label={previousLabel} className={cn(pager, 'order-1')}>
+        <ChevronLeftIcon className="size-5 shrink-0" strokeWidth={2.2} aria-hidden />
+        Previous day
       </button>
-      <h2 aria-live="polite" className="min-w-0 flex-1 break-words text-center leading-tight @max-[16rem]:order-first @max-[16rem]:basis-full">
+      <h2 aria-live="polite" className="order-first min-w-0 basis-full break-words text-center leading-tight">
         <span className="block text-[length:var(--text-body)] font-semibold">{label}</span>
         {sublabel && <span className="block text-[length:var(--text-footnote)] text-muted-foreground">{sublabel}</span>}
       </h2>
-      <button
-        type="button"
-        onClick={onNext}
-        disabled={nextDisabled}
-        aria-label={nextLabel}
-        className="press-feedback flex size-[48px] shrink-0 items-center justify-center rounded-full text-tint disabled:text-muted-foreground/35"
-      >
-        <ChevronRightIcon className="size-[24px]" strokeWidth={2.2} aria-hidden />
+      <button type="button" onClick={onNext} disabled={nextDisabled} aria-label={nextLabel} className={cn(pager, 'order-2')}>
+        Next day
+        <ChevronRightIcon className="size-5 shrink-0" strokeWidth={2.2} aria-hidden />
       </button>
-    </div></div>
+    </div>
   );
 }
 

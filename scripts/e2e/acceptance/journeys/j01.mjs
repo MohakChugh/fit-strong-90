@@ -119,7 +119,7 @@ export const cases = [{
       await ui.trackDay(page, '2026-10-08');
       const dayToday = await main.innerText();
       await t.checkpoint('track-today');
-      await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Trends'));
+      await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Measures'));
       await page.waitForTimeout(400);
       const trends = await main.innerText();
       const notEntered = /Steps[^\n]*\n?[^\n]*Not entered/.test(dayToday) || /Steps\n(?:[^\n]*\n)?Not entered/.test(trends);

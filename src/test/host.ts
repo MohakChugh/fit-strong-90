@@ -74,6 +74,8 @@ export class Host {
   private rendering = false;
   private dirty = false;
   private scheduled = false;
+  /** Unmounted: never drawn again, as a React root isn't, so a setter or a store's change arriving later can't bring it back. */
+  private gone = false;
   tree: HostChild[] = [];
   private element: unknown;
 
@@ -90,12 +92,14 @@ export class Host {
 
   /** Run every effect cleanup, as unmounting would. */
   unmount(): void {
+    this.gone = true;
     for (const inst of this.instances.values()) for (const s of inst.slots) { if (typeof s.cleanup === 'function') s.cleanup(); s.unsubscribe?.(); }
     this.instances.clear();
     this.tree = [];
   }
 
   private schedule(): void {
+    if (this.gone) return;
     this.dirty = true;
     if (this.rendering || this.scheduled) return;
     this.scheduled = true;
@@ -107,6 +111,7 @@ export class Host {
 
   /** Render until nothing changes. */
   flush(): void {
+    if (this.gone) return;
     for (let pass = 0; pass < 100; pass++) {
       this.dirty = false;
       this.rendering = true;
@@ -338,9 +343,18 @@ export class Host {
     throw new Error(`host: no field "${String(label)}"`);
   }
 
+  /**
+   * Whether a disabled `<fieldset>` holds `node`: the browser disables every
+   * form control inside one, so a press there does nothing. (Its first
+   * legend's controls stay usable in a browser; none here has any.)
+   */
+  private fenced(node: HostNode): boolean {
+    return this.all().some(n => n.type === 'fieldset' && !!n.props.disabled && allIn(n.children).includes(node));
+  }
+
   /** A press, then everything it set off. */
   async click(node: HostNode): Promise<void> {
-    if (node.props.disabled) throw new Error(`host: "${labelOf(node)}" is disabled`);
+    if (node.props.disabled || this.fenced(node)) throw new Error(`host: "${labelOf(node)}" is disabled`);
     // A checkbox or radio changes on a click.
     if (node.type === 'input' && (node.props.type === 'checkbox' || node.props.type === 'radio') && !node.props.onClick) {
       return this.change(node, { checked: node.props.type === 'radio' ? true : !node.props.checked });

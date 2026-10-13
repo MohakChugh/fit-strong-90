@@ -20,7 +20,19 @@ export function useHeldQuery(query: string, shown: boolean) {
   return {
     shownQuery: held ? frozen : query,
     listProps: {
-      onPointerDown: () => setDown(true),
+      onPointerDown: () => {
+        setDown(true);
+        // The release can land off the list, a press dragged away and let go over the search field: heard by the
+        // page, once, so the list is never left held (codex F-food-08). Not pointer capture, which would take the
+        // row's own click.
+        const up = () => {
+          setDown(false);
+          window.removeEventListener('pointerup', up);
+          window.removeEventListener('pointercancel', up);
+        };
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
+      },
       onPointerUp: () => setDown(false),
       onPointerCancel: () => setDown(false),
       onFocus: () => setFocused(true),

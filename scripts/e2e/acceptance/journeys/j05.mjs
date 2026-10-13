@@ -81,7 +81,7 @@ async function sequence(t) {
     await t.check((detail.match(/Manual entry/g) ?? []).length >= 2, `the statements are not both labelled Manual: ${detail.slice(0, 400)}`);
     await t.checkpoint('steps-detail');
     await ui.tap(main.getByRole('button', { name: /^Back to / }));
-    await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor();
+    await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor();
   }, { input: 'steps 2000 then 2500 for 2026-10-08' });
 
   await t.step(2, 'Add Water 250 ml, then 250 ml', async () => {
@@ -140,7 +140,7 @@ async function sequence(t) {
     await t.check(/ADA/.test(detail) && /after meals/.test(detail), `the after-meal framework (ADA) is not named: ${detail.slice(0, 400)}`);
     await t.checkpoint('after-meal-detail');
     await ui.tap(main.getByRole('button', { name: /^Back to / }));
-    await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor();
+    await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor();
     // The untagged one.
     const plain = main.getByRole('link').filter({ hasText: /8:40|08:40/ }).filter({ hasText: '150 mg/dL' });
     const rowText = flat(await text(plain));
@@ -152,7 +152,7 @@ async function sequence(t) {
     await t.check(!/above (the ADA|your clinician).{0,40}before meals|above.{0,30}(premeal|pre-meal)/i.test(untaggedDetail), `the untagged reading is judged against a premeal target: ${untaggedDetail.slice(0, 400)}`);
     await t.checkpoint('untagged-detail');
     await ui.tap(main.getByRole('button', { name: /^Back to / }));
-    await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor();
+    await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor();
   }, { input: 'glucose 150 mg/dL after a meal, meal 07:00, reading 08:30; glucose 150 at 08:40, no tag' });
 
   await t.step(5, 'Correct the first reading to 155, keeping its time; reload', async () => {
@@ -175,12 +175,12 @@ async function sequence(t) {
     const detail = flat(await text(main));
     await t.check(/155/.test(detail) && /Corrected/.test(detail) && /Meal started/.test(detail), `the corrected reading's detail lacks 155, its correction time or its meal context: ${detail.slice(0, 400)}`);
     await ui.tap(main.getByRole('button', { name: /^Back to / }));
-    await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor();
+    await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor();
   }, { input: 'correct 150 → 155' });
 
   await t.step(6, 'Trends, Back & leg, each record detail, and Back', async () => {
     // Trends: one row per measure, each opening one chart, Back to Trends.
-    await view(page, 'Trends');
+    await view(page, 'Measures');
     await t.checkpoint('trends');
     const trendLinks = await main.getByRole('link').evaluateAll(as => as.map(a => ({ href: a.getAttribute('href'), text: a.innerText.replace(/\s+/g, ' ').trim() })).filter(a => /#\/track\/(metric|back)/.test(a.href ?? '')));
     await t.check(trendLinks.length >= 6, `Trends lists ${trendLinks.length} measures: ${JSON.stringify(trendLinks.map(l => l.text))}`);
@@ -189,7 +189,7 @@ async function sequence(t) {
       await ui.tap(linkTo(main, l.href));
       // A measure's v1 address goes on to its hub or its trend (journey §19.3).
       await waitRoute(t, /^\/(hub|trends)\//);
-      await page.waitForFunction(() => !/^My Day$/.test(document.querySelector('main h1')?.textContent?.trim() ?? 'My Day'), null, { timeout: 15000 });
+      await page.waitForFunction(() => !/^Today’s log$/.test(document.querySelector('main h1')?.textContent?.trim() ?? 'Today’s log'), null, { timeout: 15000 });
       // A hub's skeleton has its title too: read the hub once its content is in.
       await ui.loaded(page);
       const title = (await main.getByRole('heading', { level: 1 }).innerText()).trim();
@@ -216,7 +216,7 @@ async function sequence(t) {
       await ui.tap(main.getByRole('button', { name: /^Back to / }));
       const back = await waitRoute(t, '/day/today?view=trends');
       await t.check(back === '/day/today?view=trends', `Back from ${title} went to ${back}, not to Trends (/day/today?view=trends)`);
-      await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor();
+      await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor();
     }
     // Back & leg, whether or not Trends listed it.
     if (!trendLinks.some(l => /#\/track\/back/.test(l.href))) {
@@ -228,7 +228,7 @@ async function sequence(t) {
     for (const r of rows) {
       await ui.tap(linkTo(main, r.href));
       await waitRoute(t, r.href);
-      await page.waitForFunction(() => !/^My Day$/.test(document.querySelector('main h1')?.textContent?.trim() ?? 'My Day'), null, { timeout: 15000 });
+      await page.waitForFunction(() => !/^Today’s log$/.test(document.querySelector('main h1')?.textContent?.trim() ?? 'Today’s log'), null, { timeout: 15000 });
       const title = (await main.getByRole('heading', { level: 1 }).innerText().catch(() => '?')).trim();
       const body = flat(await text(main));
       if (!/workout|session/.test(r.href)) {
@@ -239,7 +239,7 @@ async function sequence(t) {
       await ui.tap(backButton);
       const back = await waitRoute(t, '/day/today');
       await t.check(back === '/day/today', `Back from ${title} went to ${back}, not today's My Day`);
-      await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor();
+      await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor();
     }
   });
 
@@ -322,7 +322,7 @@ async function sequence(t) {
     await ui.tap(main.getByRole('button', { name: /^Back to / }));
     const back = await waitRoute(t, /^\/day\//);
     await t.check(back.startsWith('/day/') && !back.includes('workout'), `Back from the workout went to ${back}`);
-    await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor({ timeout: 15000 });
+    await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor({ timeout: 15000 });
     await t.check(await data.trackDay(page, TODAY).then(h => h.includes('8 October')), 'Back did not return to the originating My Day day');
     const snap = await t.checkpoint('after-workout-back');
     const sessions = snap.sessions ?? [];
@@ -403,7 +403,7 @@ const fixtureCases = [
         await t.check(/Steps[^]*?2,500 steps/.test(body), `My Day's steps total is not 2,500: ${body.slice(0, 400)}`);
         await t.check(!/2,800/.test(body), `My Day shows 2,800 steps (day total plus the walk’s): ${body.slice(0, 400)}`);
         await t.check(/Walk[^]*?300 steps/.test(body), `the walk does not keep its own 300 measured steps: ${body.slice(0, 400)}`);
-        await view(t.page, 'Trends');
+        await view(t.page, 'Measures');
         const trends = flat(await text(t.page.getByRole('main')));
         await t.check(/Steps[^]*?2,500 steps/.test(trends) && !/2,800/.test(trends), `Trends steps is not 2,500: ${trends.slice(0, 300)}`);
         await t.checkpoint('trends-steps');
@@ -498,7 +498,7 @@ const fixtureCases = [
         const g = (snap.observations ?? []).filter(o => o.id.startsWith('fx-glu'));
         await t.check(g.length === 2 && g.every(o => o.source === 'imported') && g.find(o => o.id === 'fx-glu-mmol')?.unit === 'mmol/L' && g.find(o => o.id === 'fx-glu-mg')?.unit === 'mg/dL',
           `stored: ${JSON.stringify(g)}`);
-        await view(t.page, 'Trends');
+        await view(t.page, 'Measures');
         const trends = flat(await text(t.page.getByRole('main')));
         await t.check(!/Glucose[^]{0,40}\b58\b/.test(trends), `Trends shows an averaged glucose: ${trends.slice(0, 200)}`);
       });
@@ -521,7 +521,7 @@ const fixtureCases = [
         await t.checkpoint('bp-day');
         await t.check(/130\/80 mmHg/.test(body) && /140\/90 mmHg/.test(body), `My Day does not show both 130/80 and 140/90: ${body.slice(0, 400)}`);
         await t.check(!/130\/90|140\/80/.test(body), `My Day mixes the halves: ${body.match(/1[34]0\/[89]0/g)}`);
-        await view(t.page, 'Trends');
+        await view(t.page, 'Measures');
         const trends = flat(await text(t.page.getByRole('main')));
         await t.check(!/130\/90|140\/80/.test(trends), `Trends mixes the halves: ${trends.slice(0, 300)}`);
         await ui.tap(t.page.getByRole('main').getByRole('link', { name: /^Blood pressure/ }));

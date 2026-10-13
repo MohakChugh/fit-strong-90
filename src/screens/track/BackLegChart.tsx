@@ -135,7 +135,7 @@ function DayList({ caption, table, current }: { caption: string; table: BackLegT
 export function BackLegChart({ data, current }: { data: BackLegData; current: string }) {
   const [frame, width, fontPx] = useMeasure<HTMLDivElement>();
   const root = useRef<HTMLElement>(null);
-  const [chosen, setChosen] = useState<number>();
+  const [choice, setChoice] = useState<{ range: string; index: number }>();
   const [listOpen, setListOpen] = useState(false);
   const L = layout(fontPx);
   const days = daysBetween(data.range.from, data.range.to) + 1;
@@ -174,17 +174,21 @@ export function BackLegChart({ data, current }: { data: BackLegData; current: st
 
   // Days up to today can be chosen; days to come have nothing yet.
   const max = current < data.range.from ? 0 : Math.min(days, daysBetween(data.range.from, current) + 1);
+  // A choice belongs to the range it was made in: another period starts with none, as the trend chart's does
+  // (M21), so the words and the slider never point past the range shown (codex F-ui-05).
+  const range = `${data.range.from}:${data.range.to}`;
+  const chosen = choice?.range === range && choice.index < max ? choice.index : undefined;
   const rows = new Map(table.map(r => [r.day, r]));
   const said = (i: number) => {
     const day = addDays(data.range.from, i);
     return `${formatDayLong(day, current)}: ${backLegDayText(rows.get(day))}.`;
   };
-  const choose = (i: number | undefined) => setChosen(i === undefined ? undefined : Math.min(i, max - 1));
+  const choose = (i: number | undefined) => setChoice(i === undefined ? undefined : { range, index: Math.min(i, max - 1) });
   // A tap anywhere outside the chart puts the choice down, as the trend chart's does (M21).
   useEffect(() => {
     if (chosen === undefined) return;
     const away = (e: PointerEvent) => {
-      if (e.target instanceof Node && !root.current?.contains(e.target)) setChosen(undefined);
+      if (e.target instanceof Node && !root.current?.contains(e.target)) setChoice(undefined);
     };
     document.addEventListener('pointerdown', away);
     return () => document.removeEventListener('pointerdown', away);

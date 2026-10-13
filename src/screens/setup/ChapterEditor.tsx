@@ -25,6 +25,12 @@ import { useCtx } from './useSetup';
  * one Save. While a health review is pending, the three safety chapters open
  * together, with whether the person exercises now: only all of them
  * answered clear it.
+ *
+ * Opened for one record: once this copy sees another (a backup restored, or
+ * everything deleted, here or in another window), its answers, edits and
+ * generation start again from that one, as setup's pages do (board D191;
+ * codex F-setup-05), and what it last said stays. A save already sent for
+ * the old record is still refused by the store.
  */
 export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
   const { profile } = useStore();
@@ -47,7 +53,17 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
   // A clinical one refused holds every movement till it's stored or not kept (board D197).
   const unsaved = useClinicalUnsaved();
   // The record this editor was opened for: a save for it, once another copy has replaced it, is refused (H5R-09).
-  const [generation] = useState(() => getState().epoch);
+  const [generation, setGeneration] = useState(() => getState().epoch);
+  // Another record seen since: start again from it (board D191; codex F-setup-05).
+  const { epoch } = useStore();
+  if (epoch !== generation) {
+    setGeneration(epoch);
+    setOpened(reopen());
+    setEdits({});
+    setTyped({});
+    setTried(false);
+    setRefused(false);
+  }
   const a: SetupAnswers = { ...opened, ...edits };
   const state = editorState(opens, a, opened, ctx, typed);
   const { pages, blocking } = state;
@@ -128,20 +144,24 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
   return (
     <Screen title={CHAPTER_TITLE[chapter]} back={{ to: '/me/profile', label: 'Profile & health' }}>
       {reviewing && <Notice>Your health answers need a review. Check each answer, then Save.</Notice>}
-      {pages.map((id, i) => {
-        const View = PAGE_VIEWS[id as keyof typeof PAGE_VIEWS];
-        const own = chapterOf(id);
-        const first = i === 0 || chapterOf(pages[i - 1]) !== own;
-        return (
-          <section key={id} aria-labelledby={`edit-${id}`} className="flex flex-col gap-3">
-            {first && own !== chapter && own !== 'review' && (
-              <p className="px-1 text-[length:var(--text-footnote)] font-semibold uppercase tracking-wide text-muted-foreground">{CHAPTER_TITLE[own]}</p>
-            )}
-            <h2 id={`edit-${id}`} className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug">{PAGE_TITLE[id]}</h2>
-            <View a={a} raw={typed} set={set} tried={tried} ctx={ctx} mode="edit" />
-          </section>
-        );
-      })}
+      {/* While Save is being written its answers can't change: one given meanwhile would be cleared with the edits the
+          write took, unsaved, under "Saved" (codex F-setup-01). The browser disables every control inside. */}
+      <fieldset disabled={busy} className="flex min-w-0 flex-col gap-6">
+        {pages.map((id, i) => {
+          const View = PAGE_VIEWS[id as keyof typeof PAGE_VIEWS];
+          const own = chapterOf(id);
+          const first = i === 0 || chapterOf(pages[i - 1]) !== own;
+          return (
+            <section key={id} aria-labelledby={`edit-${id}`} className="flex flex-col gap-3">
+              {first && own !== chapter && own !== 'review' && (
+                <p className="px-1 text-[length:var(--text-footnote)] font-semibold uppercase tracking-wide text-muted-foreground">{CHAPTER_TITLE[own]}</p>
+              )}
+              <h2 id={`edit-${id}`} className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug">{PAGE_TITLE[id]}</h2>
+              <View a={a} raw={typed} set={set} tried={tried} ctx={ctx} mode="edit" />
+            </section>
+          );
+        })}
+      </fieldset>
       <div className="flex flex-col gap-2">
         <Missing show={tried && blocking.length > 0}>Answer the questions marked above, then Save.</Missing>
         {outcome?.lines.map(line => <Notice key={line} tone={outcome.tone}>{line}</Notice>)}

@@ -149,7 +149,7 @@ export const cases = [
         await t.goto('/session?resume=1');
         await t.check((await t.route()).startsWith('/session'), `/session?resume=1 opened ${await t.route()}, not the saved run`);
         // A new day: the run may first ask for today's check-in (scan M-01), on its own screen.
-        // Arriving, that is the session's gate (`arrivalGate`): today's check-in first, Back to Today its way out.
+        // Arriving, that is the session's gate (`arrivalGate`): today's check-in first, Check in its way on, Back or Back to Home its way out.
         const run = page.getByRole('button', { name: /^(Resume|Start)$/ })
           .or(page.getByRole('heading', { name: /^(Check in to (carry on|start)|Check again before you start)$/ }));
         await t.check(await run.count() >= 1, 'the saved run did not open');

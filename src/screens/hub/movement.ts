@@ -404,6 +404,19 @@ export function resumeAllowed(status: Status, mode: Mode): boolean {
   return status !== 'flare' || mode === 'stretch';
 }
 
+/**
+ * Carrying a saved run on, refused by the status (A-34; codex F-ui-01): in
+ * the mode's own words, as the walk's (`statusRefusal`), or nothing when the
+ * status allows it.
+ */
+export function carryOnRefusal(status: Status, mode: Mode): Permission | undefined {
+  if (resumeAllowed(status, mode)) return undefined;
+  const reason = status === 'away' || status === 'unwell'
+    ? `A ${NOUN[mode]} isn’t carried on while you’re ${status}.`
+    : 'During a flare-up only a stretch is carried on.';
+  return { mode, allowed: false, disposition: 'hold', reasons: [reason], release: 'Change your status to carry on.', restrictions: [], needsCheckIn: false };
+}
+
 /** Today is the programme's rest day; `mobility` when the plan offers the optional rest-day session. */
 export function restDayOf(plan: Pick<SessionPlan, 'kind' | 'focus'>): { mobility: boolean } | undefined {
   if (plan.kind === 'restDay') return { mobility: true };

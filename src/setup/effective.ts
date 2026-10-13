@@ -22,8 +22,15 @@ import { setupStateOf } from './state';
 
 // ---- A clinical answer the device didn't store (board D197) ----
 
-/** The clinical save refused, with its own write to try again, for the record it was made in (`StoreState.epoch`). */
-let unsaved: { retry: () => Promise<StoreResult>; epoch: number } | undefined;
+/**
+ * Where a clinical answer is saved: Me's chapter editor, or the water sheet's
+ * fluid limit (codex F-setup-02). Each one's refused save is its own, tried
+ * again and lifted on its own: one stored by the other holds nothing of it.
+ */
+export type ClinicalPlace = 'chapter' | 'fluid';
+
+/** Each place's clinical save refused, with its own write to try again, for the record it was made in (`StoreState.epoch`). */
+const unsaved = new Map<ClinicalPlace, { retry: () => Promise<StoreResult>; epoch: number }>();
 let version = 0;
 const listeners = new Set<() => void>();
 const changed = () => {
@@ -31,10 +38,10 @@ const changed = () => {
   for (const listener of [...listeners]) listener();
 };
 /** Only the record's own: once a backup replaces it, or everything is deleted, its unsaved answers aren't this record's (H5F-09). */
-const current = () => (unsaved && unsaved.epoch === getState().epoch ? unsaved : undefined);
+const current = () => [...unsaved].filter(([, refused]) => refused.epoch === getState().epoch);
 
 /** A clinical answer this session gave couldn't be stored: every movement holds until it is, or it's discarded. */
-export const clinicalUnsaved = (): boolean => current() !== undefined;
+export const clinicalUnsaved = (): boolean => current().length > 0;
 export const clinicalUnsavedVersion = (): number => version;
 export function subscribeClinicalUnsaved(listener: () => void): () => void {
   listeners.add(listener);
@@ -50,37 +57,47 @@ export function useClinicalUnsaved(): boolean {
 }
 
 /**
- * A clinical save (Me's chapter editor): `write`, held until stored, so the
- * stored profile, the one every gate reads, changes only once it is, and a
- * pending save can release nothing. Refused, or with nothing to store to, the
- * answers aren't the record's, so every gate holds for this session until
- * they're tried again and stored, or discarded. A save for a record since
- * replaced leaves nothing behind (H5F-09).
+ * A clinical save, from Me's chapter editor or the water sheet: `write`,
+ * held until stored, so the stored profile, the one every gate reads, changes
+ * only once it is, and a pending save can release nothing. Refused, or with
+ * nothing to store to, the answers aren't the record's, so every gate holds
+ * for this session until they're tried again and stored, or discarded. A
+ * save for a record since replaced leaves nothing behind (H5F-09).
  */
-export async function saveClinical(write: () => Promise<StoreResult>): Promise<StoreResult> {
+export async function saveClinical(write: () => Promise<StoreResult>, place: ClinicalPlace = 'chapter'): Promise<StoreResult> {
   const epoch = getState().epoch;
   const saved = await write().catch((error: unknown): StoreResult => ({
     ok: false, failure: error instanceof StoreFailure ? error : new StoreFailure('unknown', 'The device did not keep it.', error),
   }));
-  unsaved = saved.ok ? undefined : { retry: write, epoch };
+  if (saved.ok) unsaved.delete(place);
+  else unsaved.set(place, { retry: write, epoch });
   changed();
   return saved;
 }
 
-/** Try the refused clinical save again: Readiness's and Profile & health's Try again. */
+/** Try each refused clinical save again, each on its own: Readiness's and Profile & health's Try again. The first refusal is said. */
 export function retryClinical(): Promise<StoreResult> | undefined {
   const refused = current();
-  return refused ? saveClinical(refused.retry) : undefined;
+  if (refused.length === 0) return undefined;
+  return (async () => {
+    let first: StoreResult | undefined;
+    for (const [place, { retry }] of refused) {
+      const saved = await saveClinical(retry, place);
+      if (!saved.ok) first ??= saved;
+    }
+    return first ?? { ok: true as const, value: undefined };
+  })();
 }
 
-/** Its changes not kept: the record's own answers stand, and the gates read them again. */
-export function discardClinical(): void {
-  unsaved = undefined;
+/** Its changes not kept, from one place or every one: the record's own answers stand, and the gates read them again. */
+export function discardClinical(place?: ClinicalPlace): void {
+  if (place) unsaved.delete(place);
+  else unsaved.clear();
   changed();
 }
 
 export function resetClinicalUnsavedForTests(): void {
-  unsaved = undefined;
+  unsaved.clear();
   version = 0;
 }
 

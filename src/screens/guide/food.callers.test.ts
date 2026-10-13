@@ -81,6 +81,86 @@ beforeEach(async () => {
   expect(store.getState().profile?.food).toBeUndefined();
 });
 
+describe('a food answer saved while another copy changed the profile (codex F-food-02)', () => {
+  /** Meal ideas' "What do you eat?", answered Vegetarian and submitted, as the person does. */
+  async function pickVegetarian(host: Host) {
+    await host.click(radioIn(host, 'Vegetarian'));
+    const form = host.all().find(n => n.type === 'form')!;
+    await (form.props.onSubmit as (e: unknown) => Promise<void>)({ preventDefault() {} });
+    await host.settle();
+  }
+  async function elsewhere(fake: ReturnType<typeof fakeIndexedDB>, change: (d: { profile?: unknown }) => Record<string, unknown>) {
+    const { openDb } = await import('@/store/db');
+    const { commitChange } = await import('@/store/snapshot');
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, base => ({ change: change(base as { profile?: unknown }) as never }))).ok).toBe(true);
+    tab.close();
+  }
+
+  it('keeps a medicine answer another tab stored meanwhile: only the food is written', async () => {
+    store.resetForTests();
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake, broadcast: null });
+    expect((await store.update(d => completedSetup(d, WAITING, NOW, CTX))).ok).toBe(true);
+    expect(store.getState().profile?.health.insulin).toBe('none');
+    const { default: MealIdeasScreen } = await import('./MealIdeasScreen');
+    const host = render(createElement(MealIdeasScreen));
+    await host.settle();
+    // Tab B says insulin; this tab hasn't heard yet.
+    await elsewhere(fake, base => {
+      const p = base.profile as { health: Record<string, unknown> };
+      return { profile: { ...p, health: { ...p.health, insulin: 'injections_or_pump', insulinRegimen: 'basalOnly' } } };
+    });
+    await pickVegetarian(host);
+    expect((await store.reload()).ok).toBe(true);
+    expect(store.getState().profile?.health.insulin).toBe('injections_or_pump');
+    expect(store.getState().profile?.food).toMatchObject({ pattern: 'vegetarian', allergies: ['peanut'] });
+    host.unmount();
+  });
+
+  it('keeps the food record’s own answers the sheet doesn’t ask, as another tab stored them meanwhile: its logging level', async () => {
+    store.resetForTests();
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake, broadcast: null });
+    expect((await store.update(d => completedSetup(d, WAITING, NOW, CTX))).ok).toBe(true);
+    expect((await store.update(d => ({ ...d, profile: { ...d.profile!, food: { pattern: 'vegetarian', avoid: [], allergies: ['peanut'], level: 'meals' } } }))).ok).toBe(true);
+    const { default: SampleWeekScreen } = await import('./SampleWeekScreen');
+    const host = render(createElement(SampleWeekScreen));
+    await host.settle();
+    await host.click(host.all().find(n => n.props.onClick && JSON.stringify(n.children).includes('What you eat'))!);
+    // Tab B turns estimates on; this tab hasn't heard yet.
+    await elsewhere(fake, base => {
+      const p = base.profile as { food: Record<string, unknown> };
+      return { profile: { ...p, food: { ...p.food, level: 'estimates' } } };
+    });
+    await host.click(radioIn(host, 'Vegan'));
+    const form = host.all().find(n => n.type === 'form')!;
+    await (form.props.onSubmit as (e: unknown) => Promise<void>)({ preventDefault() {} });
+    await host.settle();
+    expect((await store.reload()).ok).toBe(true);
+    expect(store.getState().profile?.food).toMatchObject({ pattern: 'vegan', allergies: ['peanut'], level: 'estimates' });
+    host.unmount();
+  });
+
+  it('opened for a record another copy has since replaced, it stores nothing into the new one, and says so', async () => {
+    store.resetForTests();
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake, broadcast: null });
+    expect((await store.update(d => completedSetup(d, WAITING, NOW, CTX))).ok).toBe(true);
+    const { default: MealIdeasScreen } = await import('./MealIdeasScreen');
+    const host = render(createElement(MealIdeasScreen));
+    await host.settle();
+    // A backup of the same record restored in another copy: the same answers, a new record.
+    const { profile, settings } = store.getState();
+    await elsewhere(fake, () => ({ reset: true, schemaVersion: 6, profile, settings: { replace: settings } }));
+    await pickVegetarian(host);
+    expect(host.text()).toContain(store.REPLACED);
+    expect((await store.reload()).ok).toBe(true);
+    expect(store.getState().profile?.food).toBeUndefined();
+    host.unmount();
+  });
+});
+
 describe('the food answers waiting for an eating pattern go into the record that takes one (H5R-10, K5R-01, H5-20; board D192)', () => {
   it('Meal ideas’ own food question makes a record with every waiting answer in it', async () => {
     const { default: MealIdeasScreen } = await import('./MealIdeasScreen');
@@ -442,3 +522,4 @@ describe('the one tap, wherever the answer lives (owner decision; board D194)', 
     host.unmount();
   });
 });
+

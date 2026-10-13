@@ -29,7 +29,7 @@ async function correctGlucose(t, value, to) {
   const page = t.page;
   const main = page.getByRole('main');
   await ui.legacyTab(page, 'Track');
-  await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Trends'));
+  await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Measures'));
   await ui.tap(main.getByRole('link', { name: /^Glucose/ }));
   await page.getByRole('heading', { level: 1, name: 'Glucose', exact: true }).waitFor();
   await ui.tap(main.getByRole('link').filter({ hasText: new RegExp(`^${value} mg/dL`) }));

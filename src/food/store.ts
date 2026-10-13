@@ -8,7 +8,8 @@ import { StoreFailure, type StoreResult } from '@/store/db';
 import { sameValue } from '@/store/transfer';
 import { nowAt } from '@/health/observation';
 import { deleteRecord, freshId, writeRecords } from '@/store/useStore';
-import { corrected, customFoodsIn, mealsIn, stored } from './records';
+import { FOOD_COPY } from './copy';
+import { MEAL_LIMITS, corrected, customFoodsIn, mealsIn, stored } from './records';
 import type { CustomFood, MealRecord, SavedMeal } from './types';
 
 export const newMealId = (): string => freshId('meal-');
@@ -47,7 +48,10 @@ export function saveCorrection(
     if (!current || !sameValue(current, editing)) {
       throw new StoreFailure('conflict', options.describe?.(current) ?? (current ? 'That meal was changed elsewhere.' : 'That meal was deleted.'));
     }
-    return { put: { meals: [stored(corrected(current, next, now))], ...(customFoods.length > 0 ? { customFoods: customFoods.map(stored) } : {}) } };
+    const meal = corrected(current, next, now);
+    // Kept whole or not written: the draft stays, with every earlier version (§4.6; codex F-food-03).
+    if (meal.edits.length > MEAL_LIMITS.edits) throw new StoreFailure('invalid', FOOD_COPY.correctionsFull(MEAL_LIMITS.edits));
+    return { put: { meals: [stored(meal)], ...(customFoods.length > 0 ? { customFoods: customFoods.map(stored) } : {}) } };
   });
 }
 

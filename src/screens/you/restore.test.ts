@@ -5,7 +5,9 @@ import type { SetupAnswers } from '@/types/setup';
 import { createDefaultProfile } from '@/profile/defaults';
 import { CURRENT_VERSION, migrateData } from '@/services/storage';
 import { render } from '@/test/host';
-import type { ImportPreview } from '@/store/transfer';
+import { newObservation } from '@/health/observation';
+import { emptySnapshot, prepare, type Snapshot } from '@/store/snapshot';
+import { planImport, previewImport, toTransferDoc, type ImportPreview } from '@/store/transfer';
 import { replaceErases, restoreLocked } from './restore';
 import { PreviewBody } from './RestoreFlow';
 
@@ -95,5 +97,43 @@ describe('a merge’s preview, for records brought back on another device (board
     expect(text).toContain('2 records in it were brought back on the device the file came from, and differ from this phone’s. Merging keeps this phone’s and leaves the brought-back copies out.');
     expect(shown({ restoredKept: 1 })).toContain('1 record in it was brought back on the device the file came from, and differs from this phone’s. Merging keeps this phone’s and leaves the brought-back copy out.');
     expect(shown({ restoredHere: 0, restoredKept: 0 })).not.toContain('brought back');
+  });
+});
+
+describe('the merge’s help says what a merge keeps, as the merge does it (kiro FK-09)', () => {
+  const AT = '2026-10-01T09:00:00.000+05:30';
+  const LATER = '2026-10-02T08:00:00.000+05:30';
+  const session = (notes: string) => ({ id: 's1', date: '2026-10-01', dayOfWeek: 'thursday', muscleGroup: 'lower', phase: 'foundation', week: 1, status: 'completed', sets: [], startedAt: null, completedAt: null, notes, totalVolume: 0 }) as unknown as Snapshot['sessions'][number];
+  // Here: water as first said, and a session. The file: the water corrected later, and the session told differently.
+  const here: Snapshot = { ...emptySnapshot(), observations: [newObservation({ id: 'water-1', kind: 'water', value: 500, scope: 'dayTotal', source: 'manual', at: AT })], sessions: [session('here')] };
+  const corrected = { ...newObservation({ id: 'water-1', kind: 'water', value: 750, scope: 'dayTotal', source: 'manual', at: AT }), editedAt: LATER };
+  const file = toTransferDoc({ ...emptySnapshot(), observations: [corrected], sessions: [session('file')] }, LATER);
+  const help = (preview: ImportPreview) => {
+    const h = render(createElement(PreviewBody, { preview, saveRoutes: false, place: 'you', device: 'phone', erases: true, onMerge() {}, onReplace() {} }));
+    const text = h.text();
+    h.unmount();
+    return text;
+  };
+
+  it('a record changed later in one copy keeps that change; one that differs with no telling which is newer keeps this phone’s unless the file’s is chosen', () => {
+    const preview = previewImport(file, here);
+    if (!preview.ok) throw new Error(preview.reason);
+    expect(preview.conflicts?.sessions).toBe(1);
+    expect(preview.conflicts?.observations).toBe(0);
+    const text = help(preview);
+    expect(text).toContain('Keeps everything here and adds what is in the file. Where one copy of a record was changed later, that change is kept. Where that can’t be told, this phone’s copy is kept unless you choose the file’s. Your settings and profile here stay as they are.');
+    expect(text).not.toContain('the newer copy is kept');
+    // As the merge does it: the later correction from the file, and this phone's session unless the file's is chosen.
+    const merged = (onConflict: 'keepDevice' | 'takeFile') => prepare(here, planImport(file, 'merge', here, { onConflict }).change).next;
+    expect([merged('keepDevice').observations[0]?.value, merged('keepDevice').sessions[0]?.notes]).toEqual([750, 'here']);
+    expect([merged('takeFile').observations[0]?.value, merged('takeFile').sessions[0]?.notes]).toEqual([750, 'file']);
+  });
+
+  it('with nothing whose newer copy can’t be told, there is no choice to name', () => {
+    const preview = previewImport(toTransferDoc({ ...emptySnapshot(), observations: [corrected] }, LATER), here);
+    if (!preview.ok) throw new Error(preview.reason);
+    const text = help(preview);
+    expect(text).toContain('Keeps everything here and adds what is in the file. Where one copy of a record was changed later, that change is kept. Your settings and profile here stay as they are.');
+    expect(text).not.toContain('unless you choose');
   });
 });
