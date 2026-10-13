@@ -9,7 +9,7 @@ import { waitingFood } from '@/setup/state';
 import { CheckRows } from '@/screens/you/controls';
 import type { AllergenId, FoodPreferences } from '@/types/profile';
 import { cn } from '@/lib/utils';
-import { useStore } from '@/store/useStore';
+import { getState, useStore } from '@/store/useStore';
 import { AVOID_HELP, ownAllergyNote, parseAllergies, parseAvoid, REGION_LABEL, unmatchedNote } from './format';
 import { saveFood } from './useGuide';
 
@@ -52,6 +52,8 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
   const [otherAllergies, setOtherAllergies] = useState((food?.customAllergies ?? waiting?.customAllergies ?? []).join(', '));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  // The record this sheet was opened for: once another copy has replaced it, nothing is stored into the new one.
+  const [generation] = useState(() => getState().epoch);
   const avoidId = useId();
   const avoidHelp = useId();
   const avoidNote = useId();
@@ -68,11 +70,11 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
     if (!pattern || saving) return;
     setSaving(true);
     setError(undefined);
-    // Only what this sheet asks, allergies included (B-13): the logging level, the screening answer and a target stay,
-    // and with no record yet, come from what setup keeps for one (board D192).
-    const kept = food ?? waitingFood(settings.setup, getSetupSession());
-    const next = withPicked(kept, { pattern, avoid: parseAvoid(avoid), region, allergies: chosen, customAllergies: parseAllergies(otherAllergies) });
-    const failure = await saveFood(next);
+    // Only what this sheet asks, allergies included (B-13): the logging level, the screening answer and a target stay
+    // as stored when the write is made (codex F-food-02), and with no record yet, come from what setup keeps for one
+    // (board D192).
+    const picked = { pattern, avoid: parseAvoid(avoid), region, allergies: chosen, customAllergies: parseAllergies(otherAllergies) };
+    const failure = await saveFood(stored => withPicked(stored ?? waitingFood(settings.setup, getSetupSession()), picked), generation);
     setSaving(false);
     if (failure) setError(failure);
     else onDone();

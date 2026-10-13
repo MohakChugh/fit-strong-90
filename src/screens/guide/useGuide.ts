@@ -4,7 +4,7 @@ import { allergyAnswer, setupAllergyAnswer, type AllergyAnswer } from '@/food/al
 import { ALLERGIES_CHANGED, answerNoAllergies, useSetupSession } from '@/setup/draft';
 import { StoreFailure } from '@/store/db';
 import { sameValue } from '@/store/transfer';
-import { getState, setProfile, update, useStore } from '@/store/useStore';
+import { getState, update, useStore } from '@/store/useStore';
 import type { AppData } from '@/types';
 import type { FoodPreferences } from '@/types/profile';
 
@@ -92,14 +92,19 @@ export async function saveNoAllergies(): Promise<string | undefined> {
 /**
  * Save the person's food choices. Returns the message to show when the device
  * refused the write; nothing is swallowed (BUILD-BRIEF, Data).
+ *
+ * The food record is worked out from the profile as stored when the write is
+ * made, and only it is written: an answer another copy stored meanwhile, a
+ * medicine say, stays (codex F-food-02). `generation`, the record the screen
+ * was opened for: once another copy has replaced it, nothing is stored.
  */
-export async function saveFood(food: FoodPreferences): Promise<string | undefined> {
-  const profile = getState().profile;
-  if (!profile) {
-    sessionFood = food;
+export async function saveFood(food: FoodPreferences | ((stored: FoodPreferences | undefined) => FoodPreferences), generation?: number): Promise<string | undefined> {
+  const next = (stored: FoodPreferences | undefined) => (typeof food === 'function' ? food(stored) : food);
+  if (!getState().profile) {
+    sessionFood = next(sessionFood);
     for (const listener of [...listeners]) listener();
     return undefined;
   }
-  const result = await setProfile({ ...profile, food });
+  const result = await update(d => (d.profile ? { ...d, profile: { ...d.profile, food: next(d.profile.food) } } : d), generation === undefined ? {} : { generation });
   return result.ok ? undefined : result.failure.message;
 }
