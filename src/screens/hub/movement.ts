@@ -29,7 +29,9 @@ export type HubActionKind =
   /** Stretch: back to the area and length, when the builder can't make this routine today. */
   | 'chooseRoutine'
   /** An unanswered "I need to stop": the shared stop questions (journey §4.4, K6R-03). */
-  | 'sayWhatHappened';
+  | 'sayWhatHappened'
+  /** Workout, after the twelve weeks: Your plan's two choices (D116). */
+  | 'next';
 
 export interface HubAction {
   kind: HubActionKind;
@@ -38,7 +40,7 @@ export interface HubAction {
   disabled?: boolean;
 }
 
-export type CardState = 'go' | 'checkIn' | 'resume' | 'rest' | 'join' | 'held' | 'gap' | 'stopped' | 'paused' | 'unsaved' | 'unbuildable';
+export type CardState = 'go' | 'checkIn' | 'resume' | 'rest' | 'join' | 'held' | 'gap' | 'stopped' | 'paused' | 'unsaved' | 'unbuildable' | 'done';
 
 export interface HubCard {
   state: CardState;
@@ -84,6 +86,8 @@ export interface CardInput {
   stretchOpen: boolean;
   /** Workout: in the programme (D35). */
   enrolled?: boolean;
+  /** Workout: the twelve weeks are over (D116). */
+  done?: boolean;
   /** Workout: today's session is the recovery one. */
   recovery?: boolean;
   /** Workout: today is a rest day; `mobility` when it offers the optional rest-day session. */
@@ -177,6 +181,13 @@ export function movementCard(i: CardInput): HubCard {
       reason: 'You stopped part-way through. It picks up where you left off.',
       restrictions: changed ? p.restrictions : [],
       primary: { kind: 'continue', label: go ? `Continue ${NOUN[i.mode]}` : 'Check in & continue' },
+    };
+  }
+  if (i.mode === 'guided' && i.done) {
+    // After the twelve weeks nothing is planned or started here; the choice is the person's (D116).
+    return {
+      ...empty, state: 'done', tone: 'normal', title: 'The 12 weeks are done', detail: 'Stretch and Walk carry on as before.',
+      primary: { kind: 'next', label: 'Choose what’s next' }, secondary: instead,
     };
   }
   if (i.rest) {
@@ -331,6 +342,8 @@ export function actionTarget(kind: HubActionKind, c: ActionContext): ActionTarge
       return { via: 'go', to: HREF.profile };
     case 'join':
       return { via: 'go', to: JOIN_HREF };
+    case 'next':
+      return { via: 'go', to: HREF.next };
     case 'stretch':
       return { via: 'go', to: HREF.stretch };
     case 'status':

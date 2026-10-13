@@ -3,7 +3,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import type { Segment, SessionPlan, SetStep, Step } from '@/types/plan';
 import type { RepSync } from '@/components/motion/MotionView';
 import type { RunnerState } from '@/session/runner';
@@ -38,7 +38,7 @@ import type { StretchSpec } from '@/types/plan';
 import { cameFrom } from '@/components/hig/navigation';
 import { SessionGate } from '@/components/checkin/SessionGate';
 import { measuredStamp } from '@/health/observation';
-import { nextBoundary } from '@/health/recommend';
+import { HREF, nextBoundary } from '@/health/recommend';
 import { OwnsUrgent } from '@/screens/home/UrgentBanner';
 import { useClock, useWakeAt } from '@/screens/today/clock';
 import { displayToKg, generateId, kgToDisplay, toDateString } from '@/lib/utils';
@@ -56,6 +56,7 @@ import {
   PlusIcon, MinusIcon, CheckIcon, CandyIcon, HeadphonesIcon, OctagonAlertIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAdmission } from './admission';
 
 /** Two stretch routines are the same when their area and length match. */
 function sameSpec(a: StretchSpec | null, b: StretchSpec): boolean {
@@ -71,7 +72,17 @@ interface Run {
   stale?: SavedProgress;
 }
 
+/**
+ * After the twelve weeks no guided session is planned (D116): a stale link or
+ * bookmark to one opens Your plan's choice instead. Decided once, when the
+ * page opens: a stretch, and a run saved part-way and still resumable, open
+ * as before, and a run under way at midnight stays (P8-19).
+ */
 export default function SessionPage() {
+  return useAdmission() ? <SessionRun /> : <Navigate to={HREF.next} replace />;
+}
+
+function SessionRun() {
   const { data, update, profile, date, plan: todayPlan, checkIn, checkIns, reportSymptoms, saveCheckIn } = useGuided();
   const [params] = useSearchParams();
   const navigate = useNavigate();
@@ -186,7 +197,7 @@ export default function SessionPage() {
         <div className="flex max-w-sm flex-col gap-4 text-center">
           <h1 className="text-[length:var(--text-title-2)] font-bold">{spec ? 'No stretch today' : 'No session today'}</h1>
           {plan.readiness.reasons.filter(r => r.outcome !== 'green').map(r => <p key={r.code} className="text-[length:var(--text-body)]">{r.message}</p>)}
-          <Button className="h-12" onClick={exit}>Back</Button>
+          <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" onClick={exit}>Back</Button>
         </div>
       </div>
     );
@@ -649,10 +660,11 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
   const stepNo = blockSteps.indexOf(step) + 1;
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-background pt-safe pb-safe">
+    // Scrolls at a large text size on a small phone, so its controls stay in reach under the exercise.
+    <div className="fixed inset-0 flex flex-col overflow-y-auto bg-background pt-safe pb-safe">
       {/* Top bar */}
       <div className="flex items-center gap-3 px-3 pt-2">
-        <button type="button" aria-label="End session" onClick={() => { act.pause(); setExitOpen(true); }} className="flex size-11 items-center justify-center rounded-full hover:bg-muted">
+        <button type="button" aria-label="End session" onClick={() => { act.pause(); setExitOpen(true); }} className="flex size-12 items-center justify-center rounded-full hover:bg-muted">
           <XIcon className="size-5" />
         </button>
         <div className="flex-1"><SessionProgress plan={plan} elapsedMs={pos.sessionElapsedMs} /></div>
@@ -661,7 +673,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
       <div className="flex items-center justify-between px-4 pt-1 text-xs font-semibold uppercase tracking-wider" style={{ color }}>
         <span>{BLOCK_LABEL[step.block]}{stepNo > 0 && step.kind !== 'talk' ? ` · ${stepNo} of ${blockSteps.length}` : ''}</span>
         {health.hypoRisk && (
-          <button type="button" onClick={reportLow} className="flex min-h-11 items-center gap-1 rounded-full px-3 normal-case tracking-normal text-[var(--safety)] font-semibold">
+          <button type="button" data-main="" onClick={reportLow} className="flex min-h-[3.75rem] items-center gap-1 rounded-full px-3 normal-case tracking-normal text-[var(--safety)] font-semibold">
             <CandyIcon className="size-4" /> I feel low
           </button>
         )}
@@ -670,7 +682,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
           pack arrived after Start): one tap inside a gesture brings it back. */}
       {g.voiceTrouble === 'blocked' && !g.muted && (
         <button type="button" onClick={act.unlockAudio}
-          className="mx-4 mt-2 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--block-strength-ink)] px-4 text-sm font-semibold text-[var(--on-ink)] press-feedback">
+          className="mx-4 mt-2 flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[var(--block-strength-ink)] px-4 text-sm font-semibold text-[var(--on-ink)] press-feedback">
           <Volume2Icon className="size-4" /> Tap to turn the coach’s voice back on
         </button>
       )}
@@ -689,7 +701,9 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
       )}
 
       {/* Main */}
-      <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pt-2 landscape:flex-row landscape:gap-4">
+      {/* Never squeezed below what it holds: at a large text size the player scrolls instead, and the
+          exercise never sits over the Stop button. */}
+      <div className="flex flex-1 flex-col gap-3 px-4 pt-2 landscape:flex-row landscape:gap-4">
         <FigureSlot step={step} segment={seg} coaching={coaching} demoId={demoIdFor(plan, pos.stepIndex)} sync={repSync(step, seg, pos, segTotal)}
           playing={state.status === 'running'} figure={profile.figure}
           className="min-h-0 shrink-0 h-[min(34dvh,280px)] [@media(max-height:640px)_and_(orientation:portrait)]:h-[21dvh] landscape:h-auto landscape:w-1/2 landscape:shrink" />
@@ -747,7 +761,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
       </div>
 
       {/* Always there while moving or paused: pauses at once, then asks what is wrong (J02, J08, J16). */}
-      <div className="px-4 pb-2 pt-1">
+      <div className="px-4 pb-2 pt-3">
         <button type="button" onClick={openStop}
           className="press-feedback flex min-h-12 w-full flex-col items-center justify-center rounded-xl bg-[var(--safety)]/10 px-4 py-1.5 text-[var(--safety)]">
           <span className="flex items-center gap-1.5 text-[length:var(--text-body)] font-semibold"><OctagonAlertIcon className="size-4" aria-hidden /> Stop: something’s wrong</span>
@@ -756,7 +770,8 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
       </div>
 
       {/* Controls */}
-      <div className="flex items-center justify-around gap-1 border-t px-2 py-2">
+      {/* At 320 px, or a large text size, the row wraps rather than squeezing a control under 48 px. */}
+      <div className="flex flex-wrap items-center justify-around gap-1 border-t px-2 py-2">
         <IconButton label="Previous" onClick={act.previous}><SkipBackIcon /></IconButton>
         <IconButton label="Add 15 seconds" onClick={() => act.addTime(15)}><PlusIcon /><span className="text-xs">15</span></IconButton>
         <button type="button" aria-label={paused ? 'Resume' : 'Pause'} onClick={paused ? act.resume : act.pause}
@@ -776,10 +791,10 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
             <DialogTitle>Leave the session?</DialogTitle>
             <DialogDescription>Your progress is saved. You can resume from Today.</DialogDescription>
           </DialogHeader>
-          <DialogFooter className="flex-col gap-2 sm:flex-row">
-            <Button className="h-12" onClick={() => { setExitOpen(false); act.resume(); }}>Keep going</Button>
-            <Button variant="outline" className="h-12" onClick={() => { g.stopVoice(); onExit(); }}>Save and exit</Button>
-            <Button variant="ghost" className="h-12" onClick={() => { g.stopVoice(); act.finish(); setExitOpen(false); }}>Finish now</Button>
+          <DialogFooter className="flex-col gap-3 sm:flex-row">
+            <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" onClick={() => { setExitOpen(false); act.resume(); }}>Keep going</Button>
+            <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={() => { g.stopVoice(); onExit(); }}>Save and exit</Button>
+            <Button variant="ghost" className="h-auto min-h-12 whitespace-normal py-2" onClick={() => { g.stopVoice(); act.finish(); setExitOpen(false); }}>Finish now</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -857,7 +872,7 @@ function subtitleFor(step: Step, segLabel: string, fluids: ReturnType<typeof flu
 function IconButton({ label, onClick, children, disabled }: { label: string; onClick: () => void; children: React.ReactNode; disabled?: boolean }) {
   return (
     <button type="button" aria-label={label} onClick={onClick} disabled={disabled}
-      className="flex size-12 items-center justify-center gap-0.5 rounded-full hover:bg-muted disabled:opacity-40 press-feedback [&_svg]:size-5">
+      className="flex size-12 shrink-0 items-center justify-center gap-0.5 rounded-full hover:bg-muted disabled:opacity-40 press-feedback [&_svg]:size-5">
       {children}
     </button>
   );
@@ -873,9 +888,9 @@ function Stepper({ label, value, onChange, step, suffix }: { label: string; valu
     <div className="flex items-center justify-between gap-2 rounded-xl border px-2 py-1">
       <span className="text-sm text-muted-foreground pl-1">{label}</span>
       <div className="flex items-center gap-1">
-        <button type="button" aria-label={`Less ${label}`} className="flex size-11 items-center justify-center rounded-full hover:bg-muted" onClick={() => onChange(Math.max(0, +(value - step).toFixed(2)))}><MinusIcon className="size-4" /></button>
+        <button type="button" aria-label={`Less ${label}`} className="flex size-12 items-center justify-center rounded-full hover:bg-muted" onClick={() => onChange(Math.max(0, +(value - step).toFixed(2)))}><MinusIcon className="size-4" /></button>
         <span className="min-w-14 text-center text-lg font-bold tabular-nums">{value}{suffix}</span>
-        <button type="button" aria-label={`More ${label}`} className="flex size-11 items-center justify-center rounded-full hover:bg-muted" onClick={() => onChange(+(value + step).toFixed(2))}><PlusIcon className="size-4" /></button>
+        <button type="button" aria-label={`More ${label}`} className="flex size-12 items-center justify-center rounded-full hover:bg-muted" onClick={() => onChange(+(value + step).toFixed(2))}><PlusIcon className="size-4" /></button>
       </div>
     </div>
   );
@@ -892,7 +907,7 @@ function SetPanel({ step, state, useMetric, onLog, onDone }: { step: SetStep; st
           value={kg === null ? 0 : kgToDisplay(kg, useMetric)} step={useMetric ? 2.5 : 5} suffix={useMetric ? ' kg' : ' lb'}
           onChange={v => onLog({ stepId: step.id, kind: 'set', completed: log?.completed ?? false, reps: log?.reps ?? step.reps, weightKg: displayToKg(v, useMetric), exerciseId: step.exerciseId })} />
       )}
-      <Button variant="outline" className="h-12 text-base" onClick={onDone}><CheckIcon /> Done — next</Button>
+      <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2 text-base" onClick={onDone}><CheckIcon /> Done — next</Button>
     </div>
   );
 }
@@ -921,10 +936,10 @@ function RestPanel({ plan, index, state, useMetric, onLog }: { plan: SessionPlan
 function CheckpointPanel({ step, onAnswer }: { step: Extract<Step, { kind: 'checkpoint' }>; onAnswer: (a: string) => void }) {
   if (step.question === 'glucose') {
     // The number decides, so there is nothing else to tap (F08).
-    return <Button className="h-12 text-base" onClick={() => onAnswer('measured')}>Enter my glucose</Button>;
+    return <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2 text-base" onClick={() => onAnswer('measured')}>Enter my glucose</Button>;
   }
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-3 gap-3">
       {(['better', 'same', 'worse'] as const).map(a => (
         <Button key={a} variant={a === 'worse' ? 'outline' : 'secondary'} className={cn('h-14 text-base capitalize', a === 'worse' && 'border-[var(--safety)] text-[var(--safety)]')} onClick={() => onAnswer(a)}>{a}</Button>
       ))}
@@ -941,7 +956,7 @@ function lastExerciseId(plan: SessionPlan, index: number): string | undefined {
   return undefined;
 }
 
-/** A row on a full-screen question: a whole-width tap target, never under 44 points. */
+/** A row on a full-screen question: a whole-width tap target, never under 48 px. */
 const ROW = 'flex min-h-12 w-full items-start gap-3 rounded-xl bg-grouped-card px-4 py-3 text-left text-[length:var(--text-subhead)]';
 
 /**
@@ -1054,19 +1069,22 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
         {countdown && <p role="status" className="text-[length:var(--text-subhead)] font-semibold">{countdown}</p>}
         {!display && (
           <>
-          <div className="flex items-center gap-2 rounded-xl bg-grouped-card px-4 py-3">
+          {/* The reading and its unit stay together, under the words when the two don't fit beside them (200% text). */}
+          <div className="flex flex-wrap items-center gap-2 rounded-xl bg-grouped-card px-4 py-3">
             <label htmlFor="session-glucose" className="flex-1 text-[length:var(--text-body)]">Glucose now</label>
+            <span className="ml-auto flex min-w-0 max-w-full items-center gap-2">
             <input id="session-glucose" type="text" inputMode="decimal" autoComplete="off" value={value} placeholder="Reading"
               onChange={e => { setValue(e.target.value.replace(',', '.')); setUnitConfirmed(false); }}
-              className="h-11 w-24 rounded-lg bg-muted px-3 text-right text-base tabular-nums outline-none" />
+              className="h-12 w-24 min-w-0 shrink rounded-lg bg-muted px-3 text-right text-base tabular-nums outline-none" />
             <button type="button" onClick={() => { setUnit(unit === 'mg/dL' ? 'mmol/L' : 'mg/dL'); setUnitConfirmed(false); }}
-              aria-label={`Unit: ${unit}. Tap to change.`} className="min-h-11 min-w-[4.25rem] rounded-lg px-1 text-sm text-tint">{unit}</button>
+              aria-label={`Unit: ${unit}. Tap to change.`} className="min-h-12 min-w-12 shrink-0 rounded-lg px-1 text-sm text-tint">{unit}</button>
+            </span>
           </div>
           {/* The check-in's unit question: over 34 mmol/L is past what a meter reads. */}
           {sanity === 'suspectUnit' && (
             <div role="alert" className="flex flex-col gap-2 rounded-xl bg-grouped-card px-4 py-3 text-[length:var(--text-subhead)]">
               <p>That looks like mg/dL rather than mmol/L. Which does your meter show?</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-3">
                 <button type="button" onClick={() => setUnit('mg/dL')} className={UNIT_CHOICE}>{typed} mg/dL</button>
                 <button type="button" onClick={() => setUnitConfirmed(true)} className={UNIT_CHOICE}>{typed} mmol/L, really</button>
               </div>
@@ -1076,7 +1094,7 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
           {sanity === 'ambiguousLow' && (
             <div role="alert" className="flex flex-col gap-2 rounded-xl bg-grouped-card px-4 py-3 text-[length:var(--text-subhead)]">
               <p>Check the unit. Which does your meter show?</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-3">
                 <button type="button" onClick={() => setUnitConfirmed(true)} className={UNIT_CHOICE}>{typed} mg/dL</button>
                 <button type="button" onClick={() => setUnit('mmol/L')} className={UNIT_CHOICE}>{typed} mmol/L</button>
               </div>
@@ -1096,7 +1114,7 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
             {display && <p className="text-[length:var(--text-subhead)] text-muted-foreground">{`A meter shows ${display} when the glucose is past what it can measure.`}</p>}
           </div>
         ) : (
-          <button type="button" onClick={() => setAskDisplay(true)} className="min-h-11 self-start px-1 text-[length:var(--text-body)] font-medium text-tint">
+          <button type="button" onClick={() => setAskDisplay(true)} className="min-h-12 self-start px-1 text-[length:var(--text-body)] font-medium text-tint">
             Meter shows HI or LO?
           </button>
         )}
@@ -1112,14 +1130,14 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
             <span>Someone else had to help me treat this low.</span>
           </label>
         )}
-        <div className="mt-auto flex flex-col gap-2">
-          <Button className="h-12" disabled={!usable || busy} onClick={() => void save()}>Save this reading</Button>
+        <div className="mt-auto flex flex-col gap-3">
+          <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" disabled={!usable || busy} onClick={() => void save()}>Save this reading</Button>
           {ended ? (
-            <Button variant="outline" className="h-12" onClick={onLeave}>Back to Today</Button>
+            <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onLeave}>Back to Today</Button>
           ) : (
             <>
-              <Button variant="outline" className="h-12" onClick={onEnd}>End session</Button>
-              <Button variant="ghost" className="h-12" onClick={onLeave}>Leave, and come back later</Button>
+              <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onEnd}>End session</Button>
+              <Button variant="ghost" className="h-auto min-h-12 whitespace-normal py-2" onClick={onLeave}>Leave, and come back later</Button>
             </>
           )}
         </div>
@@ -1128,8 +1146,8 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
   );
 }
 
-/** A unit answer on the reading screen: a tap target never under 44 points. */
-const UNIT_CHOICE = 'min-h-11 rounded-lg bg-muted px-3 text-tint';
+/** A unit answer on the reading screen: a tap target never under 48 px. */
+const UNIT_CHOICE = 'min-h-12 rounded-lg bg-muted px-3 text-tint';
 
 /**
  * Today's check-in, asked in the player when a restart needs it (scan M-01):
@@ -1161,9 +1179,9 @@ function CheckInScreen({ permission, profile, date, record, recent, mode, starti
         {permission.reasons.slice(0, 2).map(r => <p key={r} className="px-1 text-[length:var(--text-body)]">{r}</p>)}
         <CheckInBody open onOpenChange={() => {}} profile={profile} date={date} {...(record ? { initial: record } : {})} recent={recent}
           onSave={onSave} onStart={onCarryOn} mode={mode} {...(starting ? {} : { startLabel: 'Carry on' })} />
-        <div className="mt-auto flex flex-col gap-2">
-          <Button variant="outline" className="h-12" onClick={onEnd}>End session</Button>
-          <Button variant="ghost" className="h-12" onClick={onLeave}>Leave, and come back later</Button>
+        <div className="mt-auto flex flex-col gap-3">
+          <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onEnd}>End session</Button>
+          <Button variant="ghost" className="h-auto min-h-12 whitespace-normal py-2" onClick={onLeave}>Leave, and come back later</Button>
         </div>
       </div>
     </div>
@@ -1185,10 +1203,10 @@ function LegQuestions({ answers, setAnswers, reachAsked, spreadAsked }: {
       {reachAsked && (
         <div className="flex flex-col gap-2 rounded-xl bg-grouped-card px-4 py-3">
           <span id="leg-reach" className="text-[length:var(--text-body)]">How far down symptoms reach now</span>
-          <div role="radiogroup" aria-labelledby="leg-reach" className="flex flex-wrap gap-1.5">
+          <div role="radiogroup" aria-labelledby="leg-reach" className="flex flex-wrap gap-3">
             {REACH.map(r => (
               <button key={r} type="button" role="radio" aria-checked={answers.reach === r} onClick={() => setAnswers(x => ({ ...x, reach: r }))}
-                className={cn('min-h-11 min-w-11 rounded-lg px-3 text-[length:var(--text-subhead)]', answers.reach === r ? 'bg-tint font-semibold text-on-tint' : 'bg-muted')}>
+                className={cn('min-h-12 min-w-12 rounded-lg px-3 text-[length:var(--text-subhead)]', answers.reach === r ? 'bg-tint font-semibold text-on-tint' : 'bg-muted')}>
                 {REACH_LABEL[r]}
               </button>
             ))}
@@ -1233,9 +1251,9 @@ function SymptomsScreen({ profile, reach, onSave, onEnd }: {
         <h1 ref={heading} tabIndex={-1} className="text-[length:var(--text-title-2)] font-bold leading-tight outline-none">That exercise stops here</h1>
         <p className="text-[length:var(--text-body)]">It is left out for the rest of today. Before carrying on: is any of this true now?</p>
         <LegQuestions answers={a} setAnswers={setA} reachAsked={profile.pain.areas.includes('sciatica')} spreadAsked={false} />
-        <div className="mt-auto flex flex-col gap-2">
-          <Button className="h-12" disabled={busy} onClick={() => void save()}>Save, and carry on without it</Button>
-          <Button variant="outline" className="h-12" onClick={onEnd}>End session</Button>
+        <div className="mt-auto flex flex-col gap-3">
+          <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" disabled={busy} onClick={() => void save()}>Save, and carry on without it</Button>
+          <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onEnd}>End session</Button>
         </div>
       </div>
     </div>
@@ -1278,7 +1296,7 @@ function StopScreen({ reach, onChoice: choose, onLeg }: {
         <fieldset className="flex flex-col gap-2">
           <legend className="pb-2 text-[length:var(--text-body)] font-semibold">{label('leg')}</legend>
           <LegQuestions answers={leg} setAnswers={setLeg} reachAsked spreadAsked />
-          <Button className="h-12" disabled={busy} onClick={() => { setBusy(true); void onLeg(leg).finally(() => setBusy(false)); }}>
+          <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" disabled={busy} onClick={() => { setBusy(true); void onLeg(leg).finally(() => setBusy(false)); }}>
             Save, and leave this movement out today
           </Button>
         </fieldset>
@@ -1295,9 +1313,9 @@ function DizzyScreen({ onLow, onBack }: { onLow: () => void; onBack: () => void 
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-4 px-5 py-6">
         <h1 id="dizzy-title" ref={heading} tabIndex={-1} className="text-[length:var(--text-title-2)] font-bold leading-tight outline-none">Sit down</h1>
         <p className="text-[length:var(--text-body)]">With your medicines, dizziness can be a low. Check your glucose now.</p>
-        <div className="mt-auto flex flex-col gap-2">
-          <Button className="h-12" onClick={onLow}>I feel low</Button>
-          <Button variant="outline" className="h-12" onClick={onBack}>It is not a low</Button>
+        <div className="mt-auto flex flex-col gap-3">
+          <Button data-main="" className="h-auto min-h-[3.75rem] whitespace-normal py-2" onClick={onLow}>I feel low</Button>
+          <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onBack}>It is not a low</Button>
         </div>
       </div>
     </div>
@@ -1310,9 +1328,9 @@ function StartScreen({ plan, voiceName, muted, setMuted, mix, note, onStart, onE
   return (
     <div className="min-h-dvh flex flex-col bg-background pt-safe pb-safe">
       <div className="flex items-center justify-between px-3 pt-2">
-        <button type="button" aria-label="Back" onClick={onExit} className="flex size-11 items-center justify-center rounded-full hover:bg-muted"><XIcon className="size-5" /></button>
+        <button type="button" aria-label="Back" onClick={onExit} className="flex size-12 items-center justify-center rounded-full hover:bg-muted"><XIcon className="size-5" /></button>
         <span className="text-sm text-muted-foreground">{Math.round(plan.totalSeconds / 60)} minutes</span>
-        <span className="size-11" />
+        <span className="size-12" />
       </div>
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-5 px-5 py-4">
         <div>
@@ -1335,14 +1353,15 @@ function StartScreen({ plan, voiceName, muted, setMuted, mix, note, onStart, onE
             </div>
           ))}
         </div>
-        <div className="flex items-center gap-3 rounded-xl bg-muted/60 p-3 text-sm">
+        {/* At a large text size Mute goes under the words rather than pushing the page wider than the phone. */}
+        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-muted/60 p-3 text-sm">
           <HeadphonesIcon className="size-5 shrink-0" />
-          <div className="flex-1">
+          <div className="min-w-0 flex-1 basis-40">
             <p className="font-medium">{muted ? 'Captions only' : voiceName ? `Voice: ${voiceName}` : 'Voice: captions until a voice loads'}</p>
             <p className="text-muted-foreground">Put your earphones in and keep the screen on.</p>
             {mix && !muted && <p className="text-muted-foreground">{SILENT_SWITCH_NOTE}</p>}
           </div>
-          <Button variant="outline" className="h-11" onClick={() => setMuted(!muted)}>{muted ? 'Unmute' : 'Mute'}</Button>
+          <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={() => setMuted(!muted)}>{muted ? 'Unmute' : 'Mute'}</Button>
         </div>
         <p className="text-xs text-muted-foreground">Stop and get help for chest pain, faintness or severe breathlessness. Stop any exercise that sends pain or tingling down your leg.</p>
         <div className="mt-auto">
@@ -1421,18 +1440,18 @@ function Summary({ plan, state, guidance, onSave, onExit }: {
         {/* The wrap-up voice asks for this number, so the question is always here. */}
         <fieldset className="flex flex-col gap-2">
           <legend className="pb-2 text-[length:var(--text-body)] font-medium">How does your back feel now? <span className="text-muted-foreground">(0 = no pain)</span></legend>
-          {/* Keys never narrower than 44 points: at 320 they wrap to a second row. */}
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(2.75rem,1fr))] gap-1.5">
+          {/* Keys never narrower than 48 px, 12 px apart: at 320 they wrap to a second row. */}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(3rem,1fr))] gap-3">
             {Array.from({ length: 11 }, (_, i) => i).map(i => (
               <button key={i} type="button" onClick={() => setPain(i)} aria-pressed={pain === i}
-                className={cn('numeric h-11 min-w-11 rounded-lg text-[length:var(--text-body)] font-semibold', pain === i ? 'bg-tint text-on-tint' : 'bg-grouped-card active:bg-muted')}>{i}</button>
+                className={cn('numeric h-12 min-w-12 rounded-lg text-[length:var(--text-body)] font-semibold', pain === i ? 'bg-tint text-on-tint' : 'bg-grouped-card active:bg-muted')}>{i}</button>
             ))}
           </div>
         </fieldset>
-        <div className="mt-auto flex flex-col gap-2">
+        <div className="mt-auto flex flex-col gap-3">
           {notSaving && <p role="status" className="text-center text-[length:var(--text-subhead)]">This device isn’t saving right now, so this session is kept only until you close the app.</p>}
           {failed && <p role="alert" className="text-center text-[length:var(--text-subhead)] text-stop">This device couldn’t save just now. Your session is still here — try again.</p>}
-          <Button className="h-14 text-base" disabled={saving} onClick={() => void finish()}>
+          <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2 text-base" disabled={saving} onClick={() => void finish()}>
             <CheckIcon /> {notSaving ? 'Finish' : 'Save and finish'}
           </Button>
         </div>

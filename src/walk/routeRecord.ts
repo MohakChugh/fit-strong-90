@@ -32,6 +32,8 @@ export interface RouteRecord {
   startedAt: string;
   segments: RouteLine[];
   bbox: Bbox;
+  /** Restored with its walk (B-05): the walk id it had. */
+  restoredFrom?: string;
 }
 
 /** The most one route holds: about 100 km of walking at a point every 5 m. */

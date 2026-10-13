@@ -88,6 +88,8 @@ export function redirectFor(pathname: string, search: string, { onboarded = true
   if (under(p, '/guide/meals')) return keep(p.replace('/guide/meals/', '/hub/food/ideas/'), search);
   if (p === '/you') return keep('/me', search);
   if (p === '/you/focus') return keep('/me/profile?chapter=movement', search);
+  // Me → Food's own foods (D111), under the old name too, as each of Me's sections is.
+  if (p === '/you/food/own') return keep('/me/food/own', search);
   const you = /^\/you\/([^/]+)$/.exec(p);
   const section = you ? own(YOU, you[1]) : undefined;
   if (section) return keep(`/me/${section}`, search);

@@ -56,6 +56,9 @@ import { LiveRoute } from './RouteView';
 import { useWalkCues } from './useWalkCues';
 import { walkVoice } from '@/walk/voice';
 
+/** Pause or Resume, and Finish: side by side while their words fit, each wrapping inside itself, or stacked (J§20.4 rule 1). */
+const PAUSE_FINISH = 'min-w-[min(100%,10rem)] flex-1 whitespace-normal';
+
 /** A figure's block: a number with its unit, or a word in its place, and how it was observed. */
 function FigureBlock({ label, figure, action, className }: { label: string; figure: Figure; action?: ReactNode; className?: string }) {
   return (
@@ -284,11 +287,13 @@ export default function LiveWalkScreen() {
             )}
           </div>
 
-          <div aria-live="polite">
+          <div aria-live="polite" className="@container">
             {refusal ? (
-              <section role="status" className="flex gap-3 rounded-xl bg-grouped-card p-4">
+              // Narrow for its text size, the icon goes above the words, and the one way on wraps its own words,
+              // so nothing reaches past the phone (200% text on a 320 px phone).
+              <section role="status" className="flex gap-3 rounded-xl bg-grouped-card p-4 @max-[14rem]:flex-col">
                 <TriangleAlertIcon className={cn('mt-0.5 size-5 shrink-0', emergency ? 'text-stop' : 'text-caution')} aria-hidden />
-                <div className="flex min-w-0 flex-col gap-2 text-[length:var(--text-body)] leading-snug">
+                <div className="flex min-w-0 flex-1 flex-col gap-2 text-[length:var(--text-body)] leading-snug [&_button]:max-w-full [&_button]:whitespace-normal">
                   <p className={cn('font-semibold', emergency && 'text-stop')}>
                     {emergency ? PERMISSION_TEXT.emergencyTitle : 'This walk is on hold'}
                   </p>
@@ -394,12 +399,12 @@ export default function LiveWalkScreen() {
 
           {/* "I feel low" stays for anyone who can go low under any hold but an emergency (K6R-01). */}
           <div className={cn('grid grid-cols-1', TARGET.gap, hypoRisk && !emergency && 'min-[360px]:grid-cols-2')}>
-            <button type="button" onClick={stopNow} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-stop', TARGET.primary)}>
+            <button type="button" data-main="" onClick={stopNow} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-stop', TARGET.primary)}>
               <HandIcon className="size-5 shrink-0" aria-hidden />
               I need to stop
             </button>
             {hypoRisk && !emergency && (
-              <button type="button" onClick={() => void reportLow()} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-caution', TARGET.primary)}>
+              <button type="button" data-main="" onClick={() => void reportLow()} className={cn('press-feedback flex items-center justify-center gap-2 rounded-xl bg-grouped-card px-3 text-[length:var(--text-body)] font-medium text-caution', TARGET.primary)}>
                 <CandyIcon className="size-5 shrink-0" aria-hidden />
                 I feel low
               </button>
@@ -420,19 +425,20 @@ export default function LiveWalkScreen() {
             </PrimaryButton>
           </div>
         ) : (
-          <div className="mx-auto grid max-w-2xl grid-cols-2 gap-3">
+          // At 200% text a long label wraps inside its own button, or the two stack, rather than spilling out of a half-width slot.
+          <div className="mx-auto flex max-w-2xl flex-wrap gap-3">
             {running ? (
-              <PrimaryButton onClick={() => live.pause()}>
+              <PrimaryButton onClick={() => live.pause()} className={PAUSE_FINISH}>
                 <PauseIcon className="size-5" aria-hidden />
                 Pause
               </PrimaryButton>
             ) : (
-              <PrimaryButton onClick={carryOn}>
+              <PrimaryButton onClick={carryOn} className={PAUSE_FINISH}>
                 <PlayIcon className="size-5" aria-hidden />
                 Resume
               </PrimaryButton>
             )}
-            <SecondaryButton onClick={() => setSheet('finish')}>
+            <SecondaryButton onClick={() => setSheet('finish')} className={PAUSE_FINISH}>
               <FlagIcon className="size-5" aria-hidden />
               Finish
             </SecondaryButton>

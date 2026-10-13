@@ -18,6 +18,7 @@ globalThis.localStorage = {
 const store = await import('@/store/useStore');
 const food = await import('./store');
 const { corrected, customFoodsIn, mealsIn, savedMealsIn, stored: asStored } = await import('./records');
+const { customItem } = await import('./estimate');
 
 const AT = '2026-10-08T13:10:00.000+05:30';
 const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57 } as const;
@@ -138,35 +139,56 @@ describe('correcting, deleting and restoring (A-22, B-05)', () => {
     expect(mealsIn(store.getState().records)).toEqual([]);
   });
 
-  it('deletes at once, remembers the deletion, and brings the meal back under a fresh id', async () => {
+  it('deletes at once into Recently deleted, and brings the meal back under a fresh id (B-05, D110)', async () => {
     await booted();
-    const m = meal('meal-1');
-    await food.saveMeal(m);
-    expect((await food.deleteMeal('meal-1')).ok).toBe(true);
+    await food.saveMeal(meal('meal-1'));
+    const deleted = await food.deleteMeal('meal-1');
+    if (!deleted.ok) throw deleted.failure;
     expect(store.getState().settings.deleted?.records?.meals).toEqual(['meal-1']);
-    const back = await food.restoreMeal(m);
+    const back = await store.restoreDeleted(deleted.value);
     if (!back.ok) throw back.failure;
-    expect(back.value).toMatchObject({ restoredFrom: 'meal-1', items: m.items });
-    expect(back.value.id).not.toBe('meal-1');
-    expect(mealsIn(store.getState().records).map(x => x.id)).toEqual([back.value.id]);
+    expect(back.value.kind).toBe('meal');
+    expect(mealsIn(store.getState().records)).toEqual([expect.objectContaining({ id: back.value.id, restoredFrom: 'meal-1', items: meal('meal-1').items })]);
     // The original's deletion record stays, so an older backup can't bring it back beside its copy (B-05).
     expect(store.getState().settings.deleted?.records?.meals).toEqual(['meal-1']);
+  });
+
+  it('an own food edited is a new version of it, and changes only the meals logged after (K7-11)', async () => {
+    await booted();
+    const bhel: CustomFood = { id: 'food-1', name: 'Bhel puri', per: { qty: 1, unit: 'plate' }, kcal: 300, createdAt: AT, updatedAt: AT };
+    await food.saveMeal({ ...meal('meal-1'), items: [customItem(bhel, 1)] }, { customFoods: [bhel] });
+    expect((await food.editOwnFood({ ...bhel, name: 'Bhel puri, small plate', kcal: 220 })).ok).toBe(true);
+    const edited = customFoodsIn(store.getState().records)[0];
+    // A new version of the same food: its `updatedAt` moves on, so a merge takes this copy over an older one.
+    expect(edited).toMatchObject({ id: 'food-1', name: 'Bhel puri, small plate', kcal: 220, createdAt: AT });
+    expect(Date.parse(edited.updatedAt)).toBeGreaterThan(Date.parse(AT));
+    // The meal logged before keeps its own snapshot, and the version it was.
+    expect(mealsIn(store.getState().records)[0].items[0]).toMatchObject({ name: 'Bhel puri', basis: { kcal: 300 }, kcal: 300, version: AT });
+    // One logged now takes the new version.
+    await food.saveMeal({ ...meal('meal-2'), items: [customItem(edited, 1)] });
+    expect(mealsIn(store.getState().records).find(m => m.id === 'meal-2')!.items[0])
+      .toMatchObject({ name: 'Bhel puri, small plate', basis: { kcal: 220 }, kcal: 220, version: edited.updatedAt });
+    // One deleted since is never brought back by an edit.
+    const gone = await food.deleteOwnFood('food-1');
+    if (!gone.ok) throw gone.failure;
+    const late = await food.editOwnFood({ ...edited, kcal: 250 });
+    expect(!late.ok && late.failure.code).toBe('conflict');
+    expect(customFoodsIn(store.getState().records)).toEqual([]);
   });
 });
 
 describe('usual meals', () => {
-  it('are removed at once and come back under a fresh id', async () => {
+  it('are removed at once into Recently deleted and come back under a fresh id', async () => {
     await booted();
     const usual: SavedMeal = { id: 'usual-1', name: 'Weekday lunch', meal: 'lunch', items: [roti], savedAt: AT, updatedAt: AT };
     await food.saveMeal(meal('meal-1'), { usual });
-    expect((await food.deleteUsual('usual-1')).ok).toBe(true);
+    const deleted = await food.deleteUsual('usual-1');
+    if (!deleted.ok) throw deleted.failure;
     expect(savedMealsIn(store.getState().records)).toEqual([]);
-    const back = await food.restoreUsual(usual);
+    const back = await store.restoreDeleted(deleted.value);
     if (!back.ok) throw back.failure;
-    expect(back.value).toMatchObject({ restoredFrom: 'usual-1', name: 'Weekday lunch' });
-    expect(savedMealsIn(store.getState().records).map(u => u.id)).toEqual([back.value.id]);
+    expect(savedMealsIn(store.getState().records)).toEqual([expect.objectContaining({ id: back.value.id, restoredFrom: 'usual-1', name: 'Weekday lunch' })]);
     expect(back.value.id).toMatch(/^usual-/);
-    expect(back.value.id).not.toBe('usual-1');
     expect(food.newMealId()).toMatch(/^meal-/);
     expect(food.newCustomId()).toMatch(/^food-/);
   });

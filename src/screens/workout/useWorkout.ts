@@ -16,6 +16,7 @@ import { putSession, update } from '@/store/useStore';
 import type { StoreFailure, StoreResult } from '@/store/db';
 import { planKey, restoreWorkout, resumed, startWorkout, toSession, workoutReducer, type WorkoutState } from './model';
 import { findAlternative } from './alternatives';
+import { noteWorkout } from './underWay';
 import { finalise } from './finalise';
 import { withWorkout } from './records';
 
@@ -67,6 +68,8 @@ export function useWorkout(inputs: WorkoutInputs) {
 
   useEffect(() => {
     memory.live = { key, state };
+    // Outlives the screen, as the workout does: a look at Home mid-rest is still mid-workout (P8S-12).
+    noteWorkout(state.begun && state.status === 'in_progress');
   }, [key, state]);
 
   // A hidden page ends the sitting, as on a walk: coming back is a restart,

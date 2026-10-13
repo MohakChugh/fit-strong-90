@@ -105,6 +105,19 @@ export function getWeekNumber(startDate: string, currentDate?: string): number {
 }
 
 /**
+ * Whether the 12-week programme is over on `today` (J§17.2 #42, board D116):
+ * its 84 days from the start date have passed. Week 12's own days are still
+ * the programme. Rounded, so a day of 23 or 25 hours counts as one.
+ */
+export function programmeDone(startDate: string, today: string): boolean {
+  if (!startDate) return false;
+  const start = parseDateString(startDate).getTime();
+  const now = parseDateString(today).getTime();
+  if (Number.isNaN(start) || Number.isNaN(now)) return false;
+  return Math.round((now - start) / 86_400_000) >= TOTAL_WEEKS * 7;
+}
+
+/**
  * Get the phase for a given week number.
  *
  * Total, so it never throws: out-of-range weeks clamp to the nearest phase.

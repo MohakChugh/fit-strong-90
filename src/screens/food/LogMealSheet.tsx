@@ -23,7 +23,7 @@ import { foodLevel, numbersView } from '@/food/level';
 import type { LogRequest } from '@/food/links';
 import { customFoodsIn, mealsIn, savedMealsIn } from '@/food/records';
 import { commonFoods, searchFoods } from '@/food/search';
-import { deleteMeal, newMealId, newUsualId, restoreMeal, saveCorrection, saveMeal } from '@/food/store';
+import { newMealId, newUsualId, saveCorrection, saveMeal } from '@/food/store';
 import { addFood, moreFits, step, type Lookup } from '@/food/tray';
 import type { CustomFood, Food, FoodItem, MealItem, Slot } from '@/food/types';
 import { countText, portionText } from '@/food/units';
@@ -41,7 +41,7 @@ import { useClock } from '@/screens/today/clock';
 import { useStore } from '@/store/useStore';
 import { FoodRow, ItemRow, OwnFoodPage, PortionPage, QuickPage } from './parts';
 import { useHeldQuery } from './useHeldQuery';
-import { endFoodUndos, offerFoodUndo } from './undo';
+import { deleteMealWithUndo } from './undo';
 
 const SLOTS: Slot[] = ['breakfast', 'lunch', 'snack', 'dinner'];
 const SLOT_OPTIONS = SLOTS.map(id => ({ id, label: SLOT_LABEL[id] }));
@@ -202,8 +202,7 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
       setError(result.failure.code === 'conflict' ? result.failure.message : `${FOOD_COPY.didNotSave} ${result.failure.message}`);
       return;
     }
-    // A save is an unrelated change: any Undo still standing ends (B-04).
-    endFoodUndos();
+    // A save is an edit: the store ends any Undo still standing (B-04, `subscribeEdits`).
     toast(editing ? FOOD_COPY.updated(SLOT_LABEL[slot]) : FOOD_COPY.saved(SLOT_LABEL[slot]), { style: TOAST_STYLE });
     leave();
   };
@@ -212,25 +211,15 @@ export function LogMealSheet({ request, onClose }: { request: LogRequest; onClos
     if (!editing || busy.current) return;
     busy.current = true;
     setSaving(true);
-    const result = await deleteMeal(editing.id);
+    // The screen the sheet goes back to: Today's log, or the hub.
+    const problem = await deleteMealWithUndo(editing, cameFrom() ?? '/hub/food');
     busy.current = false;
     setSaving(false);
-    if (!result.ok) {
+    if (problem) {
       stay();
-      setError(`${FOOD_COPY.didNotSave} ${result.failure.message}`);
+      setError(`${FOOD_COPY.didNotSave} ${problem}`);
       return;
     }
-    const gone = editing;
-    offerFoodUndo({
-      text: FOOD_COPY.deleted(SLOT_LABEL[gone.meal]),
-      restored: FOOD_COPY.restored(SLOT_LABEL[gone.meal]),
-      // The screen the sheet goes back to: Today's log, or the hub.
-      scope: cameFrom() ?? '/hub/food',
-      undo: async () => {
-        const back = await restoreMeal(gone);
-        return back.ok ? undefined : back.failure.message;
-      },
-    });
     leave();
   };
 

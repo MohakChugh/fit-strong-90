@@ -53,7 +53,7 @@ export function StorageBanner({ inHeader = false }: { inHeader?: boolean }) {
       <button
         type="button"
         onClick={() => setDetails(true)}
-        className="press-feedback flex max-h-[30dvh] min-h-11 w-full items-center gap-2 overflow-hidden py-1 text-left pl-[max(min(1rem,20px),env(safe-area-inset-left))] pr-[max(min(1rem,20px),env(safe-area-inset-right))]"
+        className="press-feedback flex max-h-[30dvh] min-h-12 w-full items-center gap-2 overflow-hidden py-1 text-left pl-[max(min(1rem,20px),env(safe-area-inset-left))] pr-[max(min(1rem,20px),env(safe-area-inset-right))]"
       >
         <TriangleAlertIcon className="size-4 shrink-0" aria-hidden />
         <span className="line-clamp-2 min-w-0 flex-1 font-semibold leading-snug">

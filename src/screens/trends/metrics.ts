@@ -3,8 +3,9 @@
  * Mood, which v4 backups can carry but no category owns (D74): what kind of
  * measure it is, its unit and precision, and how its records become the day
  * figures or readings the statistics count (`records.ts`, through v1's
- * aggregation only). Food's trend is Plan 7's: its address goes to the Food
- * hub until then (D74).
+ * aggregation only). Food's trend is its own view (`food.ts`, D114), listed
+ * only while estimates are on; without them its address opens the Food hub
+ * (D74).
  */
 import { CATEGORIES, categoryById } from '@/categories';
 import { pairBloodPressure, type DayRange } from '@/health/aggregate';
@@ -20,7 +21,7 @@ import { mayBeIn, type DayFigure, type LabPoint, type MeterReading, type Reading
 
 export type { TrendData } from './records';
 
-export type TrendId = 'workout' | 'stretch' | 'walk' | 'steps' | 'glucose' | 'bp' | 'back' | 'weight' | 'water' | 'sleep' | 'waist' | 'labs' | 'mood';
+export type TrendId = 'workout' | 'stretch' | 'walk' | 'steps' | 'food' | 'glucose' | 'bp' | 'back' | 'weight' | 'water' | 'sleep' | 'waist' | 'labs' | 'mood';
 export type Family = 'counted' | 'stated' | 'readings' | 'labs';
 export type Shape = 'circle' | 'square' | 'triangle';
 
@@ -59,6 +60,7 @@ export const TRENDS: Record<TrendId, TrendDef> = {
   stretch: fromRegistry('stretch', { family: 'counted', movement: true, ...MINUTES }),
   walk: fromRegistry('walk', { family: 'counted', movement: true, ...MINUTES }),
   steps: fromRegistry('steps', { family: 'stated', movement: true, unit: () => 'steps', decimals: () => 0, per: 'day', coverage: days('day with steps', 'days with steps') }),
+  food: fromRegistry('food', { family: 'stated', movement: false, unit: () => 'kcal', decimals: () => 0, per: 'day', coverage: days('day with meals logged', 'days with meals logged') }),
   glucose: fromRegistry('glucose', { ...READINGS, unit: p => p.glucose, decimals: p => decimalsFor('glucose', p.glucose) }),
   bp: fromRegistry('bp', { ...READINGS, unit: () => 'mmHg', decimals: () => 0 }),
   back: fromRegistry('back', { ...READINGS, unit: () => 'of 10', decimals: () => 1 }),
@@ -70,7 +72,7 @@ export const TRENDS: Record<TrendId, TrendDef> = {
   mood: { id: 'mood', title: 'Mood', ...READINGS, colour: '--tint', unit: () => 'of 5', decimals: () => 1 },
 };
 
-/** The trend at `/trends/{id}`, or nothing: Food's comes in Plan 7, and Learn has none. */
+/** The trend at `/trends/{id}`, or nothing: Learn has none. */
 export function trendDef(id: string | undefined): TrendDef | undefined {
   return id !== undefined && Object.hasOwn(TRENDS, id) ? TRENDS[id as TrendId] : undefined;
 }
@@ -238,6 +240,7 @@ const KINDS_OF: Partial<Record<TrendId, readonly ObservationKind[]>> = {
 
 /** Whether a category has anything to show: Trends lists every category with data, on Home or not (J§12.1, A-29). */
 export function hasData(id: TrendId, data: TrendData): boolean {
+  if (id === 'food') return data.numbers?.show === true && (data.meals?.length ?? 0) > 0;
   if (id === 'workout') return sessionsOf('programme', data.sessions).length > 0;
   if (id === 'stretch') return stretchedDays(data.sessions).size > 0;
   const kinds = KINDS_OF[id] ?? [];

@@ -24,7 +24,7 @@ export function SessionGate({ permission, readiness, now, onBack }: {
           <p className="px-1 text-[length:var(--text-subhead)] text-muted-foreground">Check in again from Today, then start the session.</p>
         )}
         <button type="button" onClick={onBack}
-          className="press-feedback min-h-[3.25rem] w-full rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
+          className="press-feedback min-h-[3.75rem] w-full rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
           Back to Today
         </button>
       </div>

@@ -10,35 +10,20 @@ import { FOOD_COPY } from '@/food/copy';
 import { itemsLine } from '@/food/format';
 import { logHref } from '@/food/links';
 import { savedMealsIn } from '@/food/records';
-import { deleteUsual, restoreUsual } from '@/food/store';
 import type { SavedMeal } from '@/food/types';
 import { Notice } from '@/screens/you/controls';
 import { useStore } from '@/store/useStore';
 import { RoughCarbs } from './RoughCarbs';
-import { offerFoodUndo, useFoodUndoScope } from './undo';
+import { deleteUsualWithUndo } from './undo';
 
 export default function UsualMealsScreen() {
   const { records } = useStore();
   const [error, setError] = useState<string>();
-  useFoodUndoScope('/hub/food/usual');
   const saved = [...savedMealsIn(records)].sort((a, b) => a.name.localeCompare(b.name));
 
   const remove = async (u: SavedMeal) => {
-    const result = await deleteUsual(u.id);
-    if (!result.ok) {
-      setError(`${FOOD_COPY.didNotSave} ${result.failure.message}`);
-      return;
-    }
-    setError(undefined);
-    offerFoodUndo({
-      text: FOOD_COPY.removed(u.name),
-      restored: FOOD_COPY.restored(u.name),
-      scope: '/hub/food/usual',
-      undo: async () => {
-        const back = await restoreUsual(u);
-        return back.ok ? undefined : back.failure.message;
-      },
-    });
+    const problem = await deleteUsualWithUndo(u, '/hub/food/usual');
+    setError(problem ? `${FOOD_COPY.didNotSave} ${problem}` : undefined);
   };
 
   return (

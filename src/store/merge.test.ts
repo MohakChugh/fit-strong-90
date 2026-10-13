@@ -3,6 +3,7 @@ import type { WorkoutSession } from '@/types';
 import type { CheckInRecord, DailyCheckIn, Readiness } from '@/types/checkin';
 import { pairBloodPressure } from '@/health/aggregate';
 import { checkInDayOf, type Observation } from '@/health/observation';
+import { typedWrongly } from '@/test/held';
 import { fakeIndexedDB } from './fakeIdb';
 
 // The store sweeps localStorage on clear-all; node has none, so give it one.
@@ -44,7 +45,15 @@ async function device() {
     if (!exported.ok) throw exported.failure;
     return decode(exported.value.bytes.buffer as ArrayBuffer);
   };
-  return { store, backup };
+  const pending = await import('@/components/checkin/pending');
+  const { createDefaultProfile } = await import('@/profile/defaults');
+  /**
+   * A typo gone the way the person can make it go (board D119): a reading still holding movement is refused,
+   * "It was a mistake" answers it, and the same change goes through.
+   */
+  const mistaken = <R>(change: () => Promise<R>) => typedWrongly(change, held =>
+    pending.answerMistakes(held, { profile: store.getState().profile ?? createDefaultProfile({ needsHealthReview: true }), update: store.update }));
+  return { store, backup, mistaken };
 }
 
 const glucose = (os: readonly Observation[]) => os.filter(o => o.kind === 'glucose').map(o => [o.value, o.at.slice(11, 16)]).sort();
@@ -637,7 +646,7 @@ describe('a merge of an older backup and what was deleted since (D-06)', () => {
     if (!typo.ok) throw typo.failure;
     await a.store.putSession({ ...session });
     const older = await a.backup();
-    expect((await a.store.removeObservation(typo.value.id)).ok).toBe(true);
+    expect((await a.mistaken(() => a.store.removeObservation(typo.value.id))).ok).toBe(true);
     expect((await a.store.removeSession(session.id)).ok).toBe(true);
     // Remembered on the device, not just on screen.
     expect((await a.store.reload()).ok).toBe(true);
@@ -654,7 +663,7 @@ describe('a merge of an older backup and what was deleted since (D-06)', () => {
     const typo = await a.store.addObservation({ kind: 'glucose', value: 600, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: `${DAY}T08:00:00.000+05:30` });
     if (!typo.ok) throw typo.failure;
     const older = await a.backup();
-    await a.store.removeObservation(typo.value.id);
+    await a.mistaken(() => a.store.removeObservation(typo.value.id));
     const later = await a.backup();
 
     const b = await device();
@@ -697,15 +706,21 @@ describe('a merge of an older backup and what was deleted since (D-06)', () => {
 describe('a reading deleted from a check-in, and an older backup merged (R5-01)', () => {
   const at = `${DAY}T08:30:00.000+05:30`;
   const typo: CheckInRecord = { ...checkIn(600, at, 124, 78), energy: 4 };
+  /**
+   * A slip that holds nothing. A 600 can only go once "It was a mistake" has answered it (board D119), and
+   * an incident this device has answered keeps its day as it is here through every merge (Plan 6's H6-03):
+   * a test of which day's record a merge takes deletes this one instead.
+   */
+  const slip: CheckInRecord = { ...checkIn(160, at, 124, 78), energy: 4 };
 
-  /** Delete the 600 the way Track does: out of the day's record and the series in one write. */
-  async function deleteTypo(d: Awaited<ReturnType<typeof device>>) {
+  /** Delete the 600 (or `value`) the way Track does: out of the day's record and the series in one write. */
+  async function deleteTypo(d: Awaited<ReturnType<typeof device>>, value = 600) {
     const { withReadingRemoved } = await import('@/components/checkin/pending');
     const id = d.store.getState().observations.find(o => o.kind === 'glucose')!.id;
-    const removed = await d.store.update(previous => ({
+    const removed = await d.mistaken(() => d.store.update(previous => ({
       ...previous,
-      checkIns: (previous.checkIns ?? []).map(c => (c.date === DAY ? (withReadingRemoved(c, { kind: 'glucose', at, value: 600, unit: 'mg/dL' }) ?? c) as CheckInRecord : c)),
-    }), { removeObservations: [id] });
+      checkIns: (previous.checkIns ?? []).map(c => (c.date === DAY ? (withReadingRemoved(c, { kind: 'glucose', at, value, unit: 'mg/dL' }) ?? c) as CheckInRecord : c)),
+    }), { removeObservations: [id] }));
     expect(removed.ok).toBe(true);
   }
 
@@ -732,9 +747,9 @@ describe('a reading deleted from a check-in, and an older backup merged (R5-01)'
     const a = await device();
     const profile = createDefaultProfile({ weightKg: 80, health: { diabetes: 'type2', metformin: true, medicinesReviewed: true, glucoseMonitor: 'meter' } });
     await a.store.setProfile(profile);
-    await saveCheckIn(a.store, typo);
+    await saveCheckIn(a.store, slip);
     const older = await a.backup();
-    await deleteTypo(a);
+    await deleteTypo(a, 160);
     // The device's record of the day differs in more than the reading, so the file's is taken.
     await saveCheckIn(a.store, { ...a.store.getState().checkIns.find(c => c.date === DAY)!, energy: 2 });
     await a.store.importRecord(older, 'merge', { onConflict: 'takeFile' });
@@ -749,9 +764,9 @@ describe('a reading deleted from a check-in, and an older backup merged (R5-01)'
     const { createDefaultProfile } = await import('@/profile/defaults');
     const a = await device();
     await a.store.setProfile(createDefaultProfile({ weightKg: 80, health: { diabetes: 'type2', metformin: true, medicinesReviewed: true, glucoseMonitor: 'meter' } }));
-    await saveCheckIn(a.store, typo);
+    await saveCheckIn(a.store, slip);
     const older = await a.backup();
-    await deleteTypo(a);
+    await deleteTypo(a, 160);
     await saveCheckIn(a.store, { ...a.store.getState().checkIns.find(c => c.date === DAY)!, energy: 2 });
     // Taken without the deleted reading, and with its readiness worked out again.
     expect((await a.store.importRecord(older, 'merge', { onConflict: 'takeFile' })).ok).toBe(true);
@@ -798,9 +813,9 @@ describe('a reading deleted from a check-in, and an older backup merged (R5-01)'
       const deps = { profile, update: a.store.update, date: DAY };
       const id = a.store.getState().observations.find(o => o.kind === 'glucose')!.id;
       // 600 corrected to 60 in Track, then deleted: one reading, one id, throughout.
-      expect(await correctCheckInGlucose({ at, was: { value: 600, unit: 'mg/dL' }, to: { value: 60, unit: 'mg/dL' } }, deps)).toMatchObject({ matched: true, stored: true });
+      expect(await a.mistaken(() => correctCheckInGlucose({ at, was: { value: 600, unit: 'mg/dL' }, to: { value: 60, unit: 'mg/dL' } }, deps))).toMatchObject({ matched: true, stored: true });
       expect(a.store.getState().observations.filter(o => o.kind === 'glucose').map(o => [o.id, o.value])).toEqual([[id, 60]]);
-      expect(await removeCheckInReading({ kind: 'glucose', at, value: 60, unit: 'mg/dL' }, [id], deps)).toMatchObject({ matched: true, stored: true });
+      expect(await a.mistaken(() => removeCheckInReading({ kind: 'glucose', at, value: 60, unit: 'mg/dL' }, [id], deps))).toMatchObject({ matched: true, stored: true });
       expect(glucose(a.store.getState().observations)).toEqual([]);
 
       // The backup still says 600, which no deletion of the 60 named by number.
@@ -913,8 +928,8 @@ describe('a reading deleted from a check-in, and an older backup merged (R5-01)'
     expect((await a.store.removeObservation(id)).ok).toBe(true);
     await saveCheckIn(a.store, { ...a.store.getState().checkIns.find(c => c.date === DAY)!, energy: 2 });
     expect(glucose(a.store.getState().observations)).toEqual([]);
-    // A new reading at another time is a new reading.
-    await saveCheckIn(a.store, { ...a.store.getState().checkIns.find(c => c.date === DAY)!, glucose: { value: 110, unit: 'mg/dL', measuredAt: `${DAY}T12:00:00.000+05:30` } });
+    // A new reading at another time is a new reading. Put in the 600's place, it's said as a typo first (D119).
+    await a.mistaken(() => saveCheckIn(a.store, { ...a.store.getState().checkIns.find(c => c.date === DAY)!, glucose: { value: 110, unit: 'mg/dL', measuredAt: `${DAY}T12:00:00.000+05:30` } }));
     expect(glucose(a.store.getState().observations)).toEqual([[110, '12:00']]);
   });
 });
@@ -939,12 +954,13 @@ describe('a meal deleted and brought back on another device, merged (B-05; board
     expect((await b.store.importRecord(await a.backup(), 'merge')).ok).toBe(true);
     return { a, b };
   }
+  /** Deleted into Recently deleted and restored from there, as Undo does (board D110). */
   const restore = async (p: Awaited<ReturnType<typeof phone>>, id: string) => {
-    const meal = p.meals().find(m => m.id === id)!;
-    expect((await p.food.deleteMeal(id)).ok).toBe(true);
-    const back = await p.food.restoreMeal(meal);
+    const gone = await p.food.deleteMeal(id);
+    if (!gone.ok) throw gone.failure;
+    const back = await p.store.restoreDeleted(gone.value);
     if (!back.ok) throw back.failure;
-    return back.value;
+    return p.meals().find(m => m.id === back.value.id)!;
   };
   const merged = async (into: Awaited<ReturnType<typeof phone>>, file: unknown) => {
     const preview = into.store.previewRecord(file);

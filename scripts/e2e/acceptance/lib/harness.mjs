@@ -11,7 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { BASE_PATH, MINUTE, NOW } from './env.mjs';
-import { capabilityInit, faultInit, readDatabase, readWebStorage, seedInit, sensorInit, visibilityInit } from './inpage.mjs';
+import { capabilityInit, drawInit, faultInit, mediaInit, readDatabase, readWebStorage, seedInit, sensorInit, updateInit, visibilityInit } from './inpage.mjs';
 import { sweepInPage, unnamedControls } from './sweep.mjs';
 
 export const SEED_GUARD = '__acceptance:seeded';
@@ -56,7 +56,8 @@ export class Case {
    * `route` is the logical hash route (`/today`), or '' for the app root.
    */
   async open({ seed = null, extraStorage, route = '', sensors, visibility = false, capabilities, faults = true,
-    reducedMotion = 'no-preference', contextOptions = {}, time = NOW, textScale, timeout = 12000 } = {}) {
+    reducedMotion = 'no-preference', contextOptions = {}, time = NOW, textScale, timeout = 12000,
+    media = false, updates = false, draws = false, zoneByCdp } = {}) {
     this.time = time;
     const p = this.project;
     this.context = await this.browser.newContext({
@@ -65,7 +66,9 @@ export class Case {
       isMobile: true,
       hasTouch: true,
       locale: 'en-IN',
-      timezoneId: contextOptions.timezoneId ?? 'Asia/Kolkata',
+      // A case that changes the zone mid-way sets it through its own CDP session (`setTimezone`):
+      // Chromium takes one zone override per page, and Playwright's own would be the one in force.
+      ...(zoneByCdp ? {} : { timezoneId: contextOptions.timezoneId ?? 'Asia/Kolkata' }),
       colorScheme: p.scheme,
       reducedMotion,
       acceptDownloads: true,
@@ -85,12 +88,19 @@ export class Case {
     await this.context.addInitScript(sensorInit, sensors ?? {});
     if (visibility) await this.context.addInitScript(visibilityInit);
     if (capabilities) await this.context.addInitScript(capabilityInit, capabilities);
+    if (media) await this.context.addInitScript(mediaInit);
+    if (updates) await this.context.addInitScript(updateInit);
+    if (draws) await this.context.addInitScript(drawInit);
     if (textScale) {
       await this.context.addInitScript(scale => {
         document.addEventListener('DOMContentLoaded', () => { document.documentElement.style.fontSize = `${scale * 100}%`; });
       }, textScale);
     }
     this.page = await this.newPage();
+    if (zoneByCdp) {
+      this.cdp = await this.context.newCDPSession(this.page);
+      await this.cdp.send('Emulation.setTimezoneOverride', { timezoneId: zoneByCdp });
+    }
     await this.page.goto(`${this.base}${route ? `#${route}` : ''}`, { waitUntil: 'domcontentloaded' });
     await this.ready();
     return this.page;
@@ -164,6 +174,21 @@ export class Case {
   async setTime(ms) {
     if (ms < this.time) throw new Error(`Clock cannot go back from ${new Date(this.time).toISOString()} to ${new Date(ms).toISOString()}`);
     await this.advance(ms - this.time);
+  }
+
+  /** The phone's clock set by hand, forwards or back (B-19, V-J41): `Date` jumps; timers and `performance.now()` keep their own time. */
+  async jumpClock(ms) {
+    this.time += ms;
+    await this.context.clock.setFixedTime(this.time);
+    // A second and a half of real time, so the walk's ticks see the jump.
+    await this.page.waitForTimeout(1500);
+  }
+
+  /** The phone moves to another time zone (V-J41). Only for a case opened with `zoneByCdp`. */
+  async setTimezone(zone) {
+    if (!this.cdp) throw new Error('open the case with zoneByCdp to change its time zone');
+    await this.cdp.send('Emulation.setTimezoneOverride', { timezoneId: zone });
+    await this.page.waitForTimeout(300);
   }
 
   // ---------------------------------------------------------------- faults

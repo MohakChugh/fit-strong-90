@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ScreenTopContext } from './navigation';
 import { TabBar } from './TabBar';
+import { useToastSpace } from './toastSpace';
 
 /**
  * While a screen's code loads: nothing of the screen yet, but the shared
@@ -27,7 +28,8 @@ export function ScreenLoading({ full = false }: { full?: boolean }) {
  *
  * The bottom padding lets the last row scroll clear of the floating tab bar:
  * the bar's 4rem at most (tabs of up to 3.5rem in 0.25rem of padding), the
- * gap under it, and a little room above it.
+ * gap under it, and a little room above it. While toasts stand above the
+ * bar, the room they take is kept under the screen too (`useToastSpace`).
  *
  * Every screen in it shows the shared safety surface first (journey §4.7,
  * B-02): Trends, Browse, Me and the hubs as well as Home. The app owns the
@@ -37,6 +39,7 @@ export function ScreenLoading({ full = false }: { full?: boolean }) {
 export function AppShell() {
   const { pathname } = useLocation();
   const first = useContext(ScreenTopContext);
+  const toasts = useToastSpace();
   return (
     <div className="flex min-h-dvh flex-col bg-grouped-bg">
       <main className="flex flex-1 flex-col pb-[calc(4.5rem+max(0.5rem,env(safe-area-inset-bottom)))] lg:pb-0 lg:pl-60">
@@ -45,6 +48,7 @@ export function AppShell() {
             <Outlet />
           </Suspense>
         </ErrorBoundary>
+        {toasts > 0 && <div aria-hidden className="shrink-0" style={{ height: toasts }} />}
       </main>
       <TabBar />
     </div>

@@ -55,6 +55,12 @@ import {
   type RecordStore,
   type StoredRecord,
 } from './records';
+import {
+  IMPORT_LIMITS, countExcess, legacyExcess, refusal, routePoints, shapeExcess, tooLarge, tooManyPoints, unpacksTooLarge, type CountLimit,
+} from './limits';
+
+export { IMPORT_LIMITS } from './limits';
+import { deviceHistory, isLocalKey, lineageIn, throughLineage, withoutRecentCarrier } from './recent';
 
 export const TRANSFER_FORMAT = 'fit-strong-health-record';
 
@@ -138,30 +144,6 @@ export function wholeness(raw: unknown): 'whole' | 'partial' | 'unknown' {
   return digest(JSON.stringify(rest)) === m.digest ? 'whole' : 'partial';
 }
 
-/**
- * The most an import will read, checked before anything is decompressed past
- * it or written.
- *
- * Sized from a lifetime, not a guess. A heavy day is about twenty readings —
- * a check-in's handful, a few glasses of water (each a new statement), a walk
- * — which is 7,300 a year and under half a million in sixty. At roughly 220
- * bytes of JSON each, that is about 100 MB of text. 128 MiB covers it with
- * room, and stays below what an iPhone's web content process can parse: the
- * text, its parsed form and the store's copy together are several times the
- * file. The record caps are generous multiples of the same estimate and exist
- * so a malformed file is refused by its counts before any of it is processed.
- */
-export const IMPORT_LIMITS = {
-  bytes: 128 * 1024 * 1024,
-  observations: 1_000_000,
-  sessions: 100_000,
-  checkIns: 100_000,
-  personalRecords: 10_000,
-  bodyMetrics: 100_000,
-  focusOverrides: 100_000,
-  contentState: 100_000,
-  ...(Object.fromEntries(RECORD_STORES.map(s => [s, RECORD_RULES[s].limit])) as Record<RecordStore, number>),
-} as const;
 
 export interface ExportOptions {
   /**
@@ -183,13 +165,14 @@ export function toTransferDoc(snapshot: Snapshot, exportedAt: string = nowAt(), 
     schemaVersion: SCHEMA_VERSION,
     observations: [...snapshot.observations].sort(compareObservations),
     sessions: snapshot.sessions,
-    ...(snapshot.settings !== undefined ? { settings: snapshot.settings } : {}),
+    ...(snapshot.settings !== undefined ? { settings: withoutRecentCarrier(snapshot.settings)! } : {}),
     ...(snapshot.profile !== undefined ? { profile: snapshot.profile } : {}),
     checkIns: snapshot.checkIns,
     personalRecords: snapshot.personalRecords,
     bodyMetrics: snapshot.bodyMetrics,
     focusOverrides: snapshot.focusOverrides,
-    contentState: Object.entries(snapshot.content).map(([key, value]) => ({ key, value })),
+    // Recently deleted, the lineage and expiry's clock never leave this device (D109, P8R-04).
+    contentState: Object.entries(snapshot.content).filter(([key]) => !isLocalKey(key)).map(([key, value]) => ({ key, value })),
     stores,
     records: Object.fromEntries(stores.map(s => [s, snapshot.records[s]])),
   };
@@ -235,6 +218,8 @@ export interface EncodedTransfer {
   gzip: boolean;
   name: string;
   type: string;
+  /** The JSON's own size, before any gzip: what a restore unpacks it to. */
+  textBytes: number;
 }
 
 /**
@@ -251,13 +236,13 @@ export async function encode(record: TransferDoc): Promise<EncodedTransfer> {
   const json = new TextEncoder().encode(`${text.slice(0, -1)},"manifest":${JSON.stringify(manifest)}}`);
   const day = typeof record.exportedAt === 'string' ? record.exportedAt.slice(0, 10) : nowAt().slice(0, 10);
   const stem = `${TRANSFER_FORMAT}-${day}`;
-  const plain = (): EncodedTransfer => ({ bytes: json, gzip: false, name: `${stem}.json`, type: 'application/json' });
+  const plain = (): EncodedTransfer => ({ bytes: json, gzip: false, name: `${stem}.json`, type: 'application/json', textBytes: json.byteLength });
 
   if (typeof CompressionStream !== 'function') return plain();
   try {
     const gzipped = new Blob([json as BlobPart]).stream().pipeThrough(new CompressionStream('gzip'));
     const bytes = new Uint8Array(await new Response(gzipped).arrayBuffer());
-    return { bytes, gzip: true, name: `${stem}.json.gz`, type: 'application/gzip' };
+    return { bytes, gzip: true, name: `${stem}.json.gz`, type: 'application/gzip', textBytes: json.byteLength };
   } catch {
     return plain();
   }
@@ -267,8 +252,6 @@ export async function encode(record: TransferDoc): Promise<EncodedTransfer> {
 function isGzip(bytes: Uint8Array): boolean {
   return bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
 }
-
-const TOO_LARGE = 'That file is too large to be a record from this app.';
 
 /** Decompress, stopping the moment the text passes `max` — a small file can unpack to gigabytes. */
 async function gunzip(bytes: Uint8Array, max: number): Promise<Uint8Array> {
@@ -281,7 +264,7 @@ async function gunzip(bytes: Uint8Array, max: number): Promise<Uint8Array> {
     total += value.byteLength;
     if (total > max) {
       await reader.cancel().catch(() => undefined);
-      throw new StoreFailure('invalid', TOO_LARGE);
+      throw new StoreFailure('invalid', unpacksTooLarge(max));
     }
     chunks.push(value);
   }
@@ -309,7 +292,7 @@ export interface DecodeOptions {
 export async function decode(input: Uint8Array | ArrayBuffer, options: DecodeOptions = {}): Promise<unknown> {
   const max = options.maxBytes ?? IMPORT_LIMITS.bytes;
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
-  if (bytes.byteLength > max) throw new StoreFailure('invalid', TOO_LARGE);
+  if (bytes.byteLength > max) throw new StoreFailure('invalid', tooLarge(bytes.byteLength, max));
   try {
     const text = isGzip(bytes) ? await gunzip(bytes, max) : bytes;
     return JSON.parse(new TextDecoder().decode(text));
@@ -351,7 +334,8 @@ export function isSessionRecord(x: unknown): x is WorkoutSession {
     && optional(x.exerciseNotes, isRecord) && optional(x.guided, v => typeof v === 'boolean')
     && optional(x.mobility, Array.isArray) && optional(x.cardio, isRecord)
     && optional(x.checkIn, isCheckInRecord) && optional(x.painAfter, isNumber)
-    && optional(x.symptomChecks, isRecord) && optional(x.durationSeconds, isNumber);
+    && optional(x.symptomChecks, isRecord) && optional(x.durationSeconds, isNumber)
+    && optional(x.restoredFrom, isText);
 }
 
 const listOf = (ok: (x: unknown) => boolean) => (x: unknown) => Array.isArray(x) && x.every(ok);
@@ -474,10 +458,16 @@ type ParseResult = { ok: true; parsed: Parsed } | { ok: false; reason: string };
 
 function parse(raw: unknown, foodsHere: readonly CustomFood[] = []): ParseResult {
   if (!isRecord(raw)) return { ok: false, reason: 'That file is not a health record export.' };
+  // Every text and every level of nesting, before anything in the file is read or converted (B-26, Review Focus 5).
+  const shape = shapeExcess(raw);
+  if (shape) return { ok: false, reason: refusal(shape) };
 
   let legacy = false;
   let source: Record<string, unknown> = raw;
   if (raw.format !== TRANSFER_FORMAT) {
+    // A legacy backup's own counts, before converting it makes readings of them (P8-15).
+    const over = legacyExcess(raw);
+    if (over) return { ok: false, reason: refusal(over) };
     let converted: TransferDoc | undefined;
     try {
       converted = fromLegacyBackup(raw);
@@ -542,9 +532,11 @@ function parse(raw: unknown, foodsHere: readonly CustomFood[] = []): ParseResult
     contentState: lists.contentState!.length,
     ...Object.fromEntries(RECORD_STORES.map(s => [s, recordLists[s]?.length ?? 0])),
   };
-  for (const [name, n] of Object.entries(counts) as [keyof CollectionCounts, number][]) {
-    if (n > IMPORT_LIMITS[name]) return { ok: false, reason: `That file holds more ${name} than a lifetime record could (${n}). It is not a record from this app.` };
-  }
+  // The document as it now stands, a legacy one's converted records included.
+  const over = countExcess(counts as Record<CountLimit, number>);
+  if (over) return { ok: false, reason: refusal(over) };
+  const points = routePoints(recordLists.routes);
+  if (points > IMPORT_LIMITS.routePoints) return { ok: false, reason: tooManyPoints(points) };
   // A reading this app cannot read is never left out with its day, even when
   // asked to import the rest: a dangerous one would be lost without a word.
   // The file is refused, saying which day holds what. A session keeps its own
@@ -579,7 +571,8 @@ function parse(raw: unknown, foodsHere: readonly CustomFood[] = []): ParseResult
   const checkIns = keep(checkInsIn, isCheckInRecord, 'checkIns');
   const personalRecords = keep(lists.personalRecords!, isPersonalRecord, 'personalRecords');
   const bodyMetrics = keep(lists.bodyMetrics!, isBodyMetric, 'bodyMetrics');
-  const contentState = keep(lists.contentState!, isContentRow, 'contentState');
+  // Recently deleted, the lineage and expiry's clock are this device's own (D109, P8R-04): a file's are never taken.
+  const contentState = keep(lists.contentState!, isContentRow, 'contentState').filter(r => !isLocalKey(r.key));
   const focusOverrides: Record<string, DayFocus> = {};
   for (const [day, focus] of Object.entries(overrides)) {
     if (isDay(day) && isText(focus)) focusOverrides[day] = focus as DayFocus;
@@ -637,7 +630,8 @@ function parse(raw: unknown, foodsHere: readonly CustomFood[] = []): ParseResult
         // kept as the file has them. A profile is not: a hand-made or older
         // file must not hand the planner an incomplete one. (Filling a complete
         // profile changes nothing, so a real export round-trips unchanged.)
-        ...(settingsRead ? { settings: settingsRead.settings as unknown as UserSettings } : {}),
+        // A `deleted.recent` a file carries is never this device's to restore (D109).
+        ...(settingsRead ? { settings: withoutRecentCarrier(settingsRead.settings as unknown as UserSettings)! } : {}),
         ...(profileRead?.profile ? { profile: createDefaultProfile(profileRead.profile as ProfileInput) } : {}),
         checkIns: checkIns.map(dayWithoutGen),
         personalRecords: unique(personalRecords, r => r.exerciseId, 'personalRecords'),
@@ -1111,6 +1105,9 @@ const replaced = (store: RecordStore, device: UserSettings | undefined, records:
  *   left out whole.
  */
 function planMerge(file: TransferDoc, base: ImportBase, policy: ConflictPolicy, now: Date = new Date()): MergePlan {
+  // A file's references to records restored here under new ids name those records (B-05, D110, P8-09),
+  // through this device's own lineage, which no file can change (P8R-04).
+  file = throughLineage(file, lineageIn(base.content ?? {}));
   const conflicts = zero();
   const takeFile = policy === 'takeFile';
   // This device's incidents, open or answered, and what they depend on: no
@@ -1626,7 +1623,9 @@ export function planImport(raw: unknown, mode: ImportMode, base: Snapshot, optio
         personalRecords: file.personalRecords,
         bodyMetrics: file.bodyMetrics,
         focusOverrides: file.focusOverrides,
-        content: { put: Object.fromEntries((file.contentState ?? []).map(r => [r.key, r.value])) },
+        // This device's history stays through a Replace, as through every import (P8S-08): its lineage and
+        // expiry's clock. Recently deleted's entries go with the records they describe.
+        content: { put: { ...Object.fromEntries((file.contentState ?? []).map(r => [r.key, r.value])), ...deviceHistory(base.content) } },
         records: Object.fromEntries(taken.map(s => [s, { put: replaced(s, base.settings, file.records?.[s] ?? []) }])),
       },
       report: {

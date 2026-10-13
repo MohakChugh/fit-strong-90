@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DailyCheckIn } from '@/types/checkin';
 import { flagsIn } from '@/engine/readiness';
-import { neverLooser, withoutAnswersAbout } from './pending';
+import { neverLooser, takenOut, withReadingPutBack, withoutAnswersAbout } from './pending';
 
 const DAY = '2026-10-08';
 const at = (h: number, m: number) => new Date(2026, 9, 8, h, m).toISOString();
@@ -64,5 +64,28 @@ describe('two copies of one day, never looser than this device’s (H6-03)', () 
     const merged = neverLooser(day({ news: ['lowSymptoms'], lowSymptomsAt: at(13, 30) }), day({ news: ['lowSymptoms'], lowSymptomsAt: at(7, 0) }), new Set());
     expect(merged.lowSymptomsAt).toBe(at(13, 30));
     expect(neverLooser(day({ lowSymptomsAt: at(7, 0) }), day({ lowSymptomsAt: at(13, 30) }), new Set()).lowSymptomsAt).toBe(at(13, 30));
+  });
+});
+
+describe('a check-in reading taken out and put back as it was (D110, D111, K8-06)', () => {
+  const day = '2026-10-08';
+  const g = (value: number, hhmm: string) => ({ value, unit: 'mg/dL' as const, measuredAt: `${day}T${hhmm}:00.000+05:30`, source: 'meter' as const });
+  const rec = { date: day, urgentSymptoms: false, news: [], glucoseEarlier: [g(60, '08:00')], glucose: g(110, '08:20'), bpReadings: [{ sys: 190, dia: 100, at: `${day}T08:30:00.000+05:30` }], bp: { sys: 190, dia: 100 }, back: { pain: 6 } };
+
+  it('puts the latest glucose back as the latest, the one promoted back before it', () => {
+    const out = takenOut(rec, { kind: 'glucose', at: g(110, '08:20').measuredAt, value: 110, unit: 'mg/dL' })!;
+    expect(out.record.glucose?.value).toBe(60);
+    expect(withReadingPutBack(out.record, out.kept)).toMatchObject({ glucose: { value: 110 }, glucoseEarlier: [{ value: 60 }] });
+  });
+
+  it('puts a blood pressure reading back with its average, and a pain score unless it is there or answered again', () => {
+    const bp = takenOut(rec, { kind: 'pressure', at: rec.bpReadings[0].at, sys: 190, dia: 100 })!;
+    expect(bp.record.bpReadings).toBeUndefined();
+    expect(withReadingPutBack(bp.record, bp.kept)).toMatchObject({ bpReadings: [{ sys: 190, dia: 100 }], bp: { sys: 190, dia: 100 } });
+    const pain = takenOut(rec, { kind: 'backPain', value: 6 })!;
+    expect(withReadingPutBack(pain.record, pain.kept)).toMatchObject({ back: { pain: 6 } });
+    expect(withReadingPutBack({ ...pain.record, back: { pain: 2 } }, pain.kept)).toBe('newer');
+    expect(withReadingPutBack(rec, pain.kept)).toBe('already');
+    expect(withReadingPutBack(rec, bp.kept)).toBe('already');
   });
 });

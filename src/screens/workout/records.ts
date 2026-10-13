@@ -117,6 +117,18 @@ export function withoutWorkout(data: AppData, sessionId: string): AppData {
   return { ...data, sessions, personalRecords: repRecords(sessions, data.personalRecords.filter(r => !setHere(r))) };
 }
 
+/**
+ * A deleted workout put back (B-05, D110, D111): under a fresh id with
+ * `restoredFrom`, its personal records worked out again from every set, and
+ * saying the pain score its own record came back with, corrected since or
+ * not (P8S-06). The ladder is left as it is, as a delete left it.
+ */
+export function withWorkoutBack(data: AppData, session: WorkoutSession, id: string, painAfter?: number): AppData {
+  const back = { ...session, id, restoredFrom: session.id, ...(painAfter !== undefined ? { painAfter } : {}) };
+  const sessions = [back, ...data.sessions.filter(s => s.id !== id)].sort(byDateDescending);
+  return { ...data, sessions, personalRecords: repRecords(sessions, data.personalRecords) };
+}
+
 export interface NewBest {
   exerciseId: string;
   weight: number;

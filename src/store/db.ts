@@ -22,9 +22,12 @@
  */
 
 import { RECORD_RULES, RECORD_STORES, type RecordStore } from './records';
+import { SUCCESSOR } from './successor';
+import type { EpisodeKind } from '@/types/checkin';
 
 export const DB_NAME = 'fit-strong';
-export const DB_VERSION = 2;
+/** The suite's successor build is one higher (board D121); `upgrade` creates whatever store is missing, so it needs nothing more. */
+export const DB_VERSION = 2 + SUCCESSOR;
 
 /** v1's four stores. */
 export const CORE_STORES = ['observations', 'sessions', 'settings', 'content-state'] as const;
@@ -53,6 +56,8 @@ export type FailureCode =
   | 'conflict'
   /** This copy was closed so a newer version could open the database; it must reload. */
   | 'stale'
+  /** A change to a clinical record refused: it would lift a hold the engine hasn't released, or the phone's clock changed (D119). Nothing was written. */
+  | 'held'
   /** Part of a multi-step action happened. The message says which part. */
   | 'partial'
   /** Stored records could not be read, so nothing new is written over them. */
@@ -78,6 +83,37 @@ export class StoreFailure extends Error {
     if (details !== undefined) this.details = details;
   }
 }
+
+export const HOLD_REFUSAL = 'This reading is keeping movement on hold, so it can’t be changed or removed yet.';
+export const MISTAKE_HINT = 'If it was typed wrongly, choose ‘It was a mistake’.';
+/** While the phone's clock change holds the device (Plan 6, board D174): no reading's age can be known (P8S-02). */
+export const CLOCK_REFUSAL = 'Your phone’s clock changed, so FitStrong can’t be sure when your readings were taken. For now, readings can’t be changed or removed. You can still add a new one.';
+
+/** A measurement, by the name the engine gives it (`glucoseReadingId`, `bpReadingId`, …), and the kind of incident it would be. */
+export interface HeldReading {
+  kind: EpisodeKind;
+  id: string;
+}
+
+/**
+ * A change refused because it would lift a hold (board D119). `held`: the
+ * measurements it takes away that "It was a mistake" can answer; none when
+ * the phone's clock change holds everything (`said` then gives the words),
+ * or when nothing it takes away is a measurement, as a check-in removed for
+ * its answers alone (`release`, the engine's own words, then follows).
+ */
+export class HoldFailure extends StoreFailure {
+  readonly held: readonly HeldReading[];
+  readonly release?: string;
+
+  constructor(held: readonly HeldReading[], release?: string, said?: string) {
+    super('held', said ?? [HOLD_REFUSAL, held.length > 0 ? MISTAKE_HINT : release].filter(Boolean).join(' '));
+    this.held = held;
+    if (release !== undefined) this.release = release;
+  }
+}
+
+export const isHeld = (failure: unknown): failure is HoldFailure => failure instanceof HoldFailure;
 
 export type StoreResult<T = void> = { ok: true; value: T } | { ok: false; failure: StoreFailure };
 

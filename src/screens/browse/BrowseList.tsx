@@ -66,7 +66,8 @@ export function SearchField({ value, onChange, label = 'Search' }: { value: stri
  * Browse's groups (journey §14):
  * - a category row opens its hub, and has a labelled More beside it;
  * - a shortcut row opens its target;
- * - a Guide topic, answer or meal opens its page.
+ * - a Guide topic, answer or meal opens its page;
+ * - a food from the food table opens "Log a meal" at its portion (D115).
  * A partial result says what it matches and what it doesn't.
  */
 export function BrowseRows({ results, origin, held, onMore }: {
@@ -83,6 +84,7 @@ export function BrowseRows({ results, origin, held, onMore }: {
           {g.rows.map(r => {
             if (r.kind === 'category') return <CategoryRow key={`category-${r.id}`} id={r.id} origin={origin} held={held} onMore={onMore} />;
             if (r.kind === 'shortcut') return <Row key={`shortcut-${r.id}`} as={Link} to={r.to} state={origin} viewTransition label={r.title} chevron />;
+            if (r.kind === 'food') return <Row key={`food-${r.id}`} as={Link} to={r.to} state={origin} viewTransition label={r.title} detail={r.detail} chevron />;
             return (
               <Row
                 key={`${r.kind}-${r.id}`}

@@ -8,11 +8,11 @@ import { restLeftMs, type Rest } from './model';
 import { useNow } from './useNow';
 
 /** The one primary action on a screen. */
-export const primary = 'press-feedback flex min-h-14 w-full items-center justify-center rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint disabled:opacity-50';
+export const primary = 'press-feedback flex min-h-[3.75rem] w-full items-center justify-center rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint disabled:opacity-50';
 /** A secondary action, quieter but still a full-size target. */
 export const secondary = 'press-feedback flex min-h-12 w-full items-center justify-center rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] font-medium text-tint';
 /** A plain text action inside a card. */
-export const quiet = 'press-feedback inline-flex min-h-11 items-center px-1 text-[length:var(--text-body)] text-tint';
+export const quiet = 'press-feedback inline-flex min-h-12 items-center px-1 text-[length:var(--text-body)] text-tint';
 
 /** A caution or stop message, always with words and an icon, never colour alone. */
 export function Notice({ tone, title, children, role = 'status' }: {
@@ -61,7 +61,7 @@ export function NumberStepper({ id, label, noun, value, onChange, onStep, inputM
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={id} className="text-[length:var(--text-footnote)] text-muted-foreground">{label}</label>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         <StepButton label={`Less ${noun}`} onClick={() => onStep(-1)}><MinusIcon /></StepButton>
         <input
           id={id}

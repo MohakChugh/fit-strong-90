@@ -88,7 +88,7 @@ export function ActionMenu<T extends MenuAnchor>({ target, describe, onClose, on
             style={GROW}
             className="max-h-[calc(100dvh-2rem)] w-[min(20rem,calc(100vw-2rem))] origin-[var(--transform-origin)] overflow-y-auto overscroll-contain rounded-2xl bg-grouped-card py-1 text-foreground shadow-2xl outline-none transition-[transform,opacity] duration-[var(--grow-ms)] ease-[var(--grow-ease)] data-[ending-style]:scale-90 data-[ending-style]:opacity-0 data-[starting-style]:scale-90 data-[starting-style]:opacity-0"
           >
-            <p id={titleId} className="px-4 pb-1 pt-3 text-[length:var(--text-footnote)] font-medium uppercase tracking-wide text-muted-foreground [overflow-wrap:break-word]">{title}</p>
+            <h2 id={titleId} className="px-4 pb-1 pt-3 text-[length:var(--text-footnote)] font-medium uppercase tracking-wide text-muted-foreground [overflow-wrap:break-word]">{title}</h2>
             {note && <p className="px-4 pb-2 text-[length:var(--text-subhead)] leading-snug text-muted-foreground [overflow-wrap:break-word]">{note}</p>}
             {actions.map(a => (
               <Menu.Item key={a.label} className={ITEM} disabled={a.disabled} onClick={a.onSelect}>{a.label}</Menu.Item>

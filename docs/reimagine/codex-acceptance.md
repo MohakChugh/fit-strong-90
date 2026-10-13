@@ -20,8 +20,8 @@ Run every journey in Chromium in these four projects:
 
 | Project | Viewport, CSS pixels | Appearance |
 |---|---|---|
-| Large light | 430 × 932 | Light |
-| Large dark | 430 × 932 | Dark |
+| Large light | 428 × 926 | Light |
+| Large dark | 428 × 926 | Dark |
 | Small light | 320 × 568 | Light |
 | Small dark | 320 × 568 | Dark |
 
@@ -33,6 +33,7 @@ Use touch emulation, `locale=en-IN` and `timezoneId=Asia/Kolkata`. Freeze the in
 4. Normalise hash routes before assertions. For example, the logical route `/track?day=2026-10-07` is the part after `#`, within the deployment's base URL. An HTTP path outside that base is not a valid deep link.
 5. Capture console errors, uncaught exceptions, requests, screenshots and a database snapshot at each checkpoint. Store runner artifacts outside the repository. Fault tests may allow only the exact browser resource error intentionally injected, never a blanket console allowlist.
 6. A journey passes only when its UI, permission, recovery and persistence assertions all pass. A missing control or unrepresentable required safety answer is a failure, not a skipped case.
+7. The release run is `npm run e2e:acceptance -- --strict`. A pending case fails it, and so does any case not passed in each of its projects: all four, unless the case names its own, as PERF01 does (D121).
 
 Text in backticks identifies a visible label or required text fragment. Locate labelled inputs by their accessible name. For a row whose accessible name includes its subtitle, locate the exact visible label and its enclosing semantic button or link. Scope repeated `None of these` controls to their named section. An ambiguous locator is a test failure. Do not select the first matching element to conceal it.
 
@@ -724,10 +725,10 @@ Apply these checks at **every visible checkpoint**, not only the four roots. Inc
 
 | Check | Unambiguous pass condition |
 |---|---|
-| Horizontal layout | `document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1` at 320 and 430. No essential label/value/control clipped by overflow hiding. All content is reachable by vertical scroll. |
+| Horizontal layout | `document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1` at 320 and 428. No essential label/value/control clipped by overflow hiding. All content is reachable by vertical scroll. |
 | Errors | No unexpected console error, uncaught exception or unhandled rejection. Only an explicitly identified fault-test browser resource failure may be exempted. |
 | Landmarks and heading | Exactly one main landmark; one exposed level-1 screen heading with the correct title. Compact duplicate title is aria-hidden. Main tab navigation named; active destination observable, including Move on Walk routes. |
-| Controls | Every actionable item has a nonempty accessible name and correct button/link/input/checkbox/radio/switch role. Keyboard can reach it, with arrow navigation inside composite controls. Minimum 44 × 44 CSS-pixel target; focus visibly indicated. Numeric inputs use appropriate input mode and readable size. |
+| Controls | Every actionable item has a nonempty accessible name and correct button/link/input/checkbox/radio/switch role. Keyboard can reach it, with arrow navigation inside composite controls. Targets at least 48 × 48 CSS px (44 is the floor every journey's sweep reports), a main target at least 60 px tall (a filled primary, or one marked `data-main`: I feel low, I need to stop, a toast's Undo and Close, Restore, Your plan's choices, Restart to update), at least 12 px between bezelled controls, no two controls overlapping unless the inner one is marked `data-embedded`, and every control's words fitting it (J§20.4 rule 1, D122). Every screen has one main landmark and one level-1 heading, and every open sheet or menu a heading of its own. Nothing is wider than the screen, the page or an open sheet, and no control is cut off by the screen's edge or a box around it (a sheet's Close, a unit shown as "mg/"). A standing toast never takes more than 40% of the screen's height, never wraps one word to a line, and two never take more than half of it. S02 holds every screen of S01's inventory, the screens a task runs on and Plan 8's own to it at 100% and 200% text, and fails on any finding. Excused, and nothing else: a link inside running text; the segments of one segmented control; a control marked as drawn inside another; a control that can't be tapped now (measured by the part of it that can be seen); a bar fixed in place against what scrolls under it; and the rows of one list, which share their group's card. Focus visibly indicated. Numeric inputs use appropriate input mode and readable size. |
 | Focus/navigation | Forward navigation focuses the destination heading/main; Back returns to origin. Dialog open moves focus inside; Tab/Shift-Tab remain inside; Escape/Close returns to opener. Background content is inert while a sheet is open. Route change closes obsolete sheets. |
 | Dark/light legibility | Measure actual foreground/background contrast, including tint on grouped background, on-tint on tint, caution text/fill and stop text/fill. WCAG 2.2 AA: at least 4.5:1 ordinary text, 3:1 large text; warnings/selection also have words/state, not colour alone. No wrong-theme first rendered frame or unreadable native inputs. |
 | Small/large text | Repeat screen sweep with 200% text enlargement. No lost Start, Stop, Save, emergency text, source label, unit or close control; sheets scroll as needed. Pinch zoom is not disabled. |

@@ -41,6 +41,8 @@ interface Prepared {
   revision: number;
   /** The record it was made from (`version` below). */
   version: readonly unknown[];
+  /** The record is past a limit a restore applies; the file still holds everything (D108). */
+  warning?: string;
 }
 
 /**
@@ -78,8 +80,8 @@ function BackupBody({ device }: { device: string }) {
         setOutcome({ tone: 'error', text: `The backup could not be made. ${made.failure.message}` });
         return;
       }
-      const { bytes, name, type, exportedAt, revision } = made.value;
-      setPrepared({ file: new File([bytes as BlobPart], name, { type }), exportedAt, revision, version });
+      const { bytes, name, type, exportedAt, revision, warning } = made.value;
+      setPrepared({ file: new File([bytes as BlobPart], name, { type }), exportedAt, revision, version, ...(warning ? { warning } : {}) });
       setHanded(false);
       setOutcome(previous => (previous?.tone === 'error' ? undefined : previous));
     });
@@ -129,6 +131,7 @@ function BackupBody({ device }: { device: string }) {
         </Group>
       )}
       <div className="flex flex-col gap-2">
+        {ready?.warning && <Notice tone="status">{ready.warning}</Notice>}
         <PrimaryButton className={TARGET.primary} disabled={!ready} onClick={() => { if (ready) void hand(ready); }}>
           {!file ? 'Preparing the file…' : deliveryMethod(file) === 'share' ? 'Save or share' : 'Download'}
         </PrimaryButton>

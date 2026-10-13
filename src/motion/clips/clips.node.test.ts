@@ -10,7 +10,7 @@ import { getCoaching } from '@/data/coaching';
 import { CATALOG, getMeta } from '@/data/catalog';
 import type { Clip, Equipment, Mistake, Pose, PoseKey, Vec3 } from '../types';
 
-const buf = fs.readFileSync('public/models/coach-male.bin');
+const buf = fs.readFileSync('src/assets/models/coach-male.bin');
 const data = parseCharacter(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
 const rig = new Rig(data.bones);
 const PHASES = Array.from({ length: 8 }, (_, i) => i / 8);

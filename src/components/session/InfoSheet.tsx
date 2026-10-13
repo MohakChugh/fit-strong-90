@@ -56,7 +56,7 @@ export function CoachingDetails({ c }: { c: Coaching }) {
       </div>
       {c.sources.length > 0 && (
         <details className="text-xs text-muted-foreground">
-          <summary className="cursor-pointer min-h-11 flex items-center">Sources</summary>
+          <summary className="cursor-pointer min-h-12 flex items-center">Sources</summary>
           <ul className="flex flex-col gap-1 break-all">
             {c.sources.map(s => <li key={s}><a className="underline" href={s} target="_blank" rel="noopener noreferrer">{s}</a></li>)}
           </ul>

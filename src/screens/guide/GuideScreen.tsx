@@ -57,17 +57,18 @@ export default function GuideScreen() {
           placeholder="Search foods and topics"
           value={query}
           onChange={e => change(e.target.value)}
-          className="h-11 w-full rounded-xl bg-grouped-card pl-10 pr-11 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50 [&::-webkit-search-cancel-button]:appearance-none"
+          className="h-12 w-full rounded-xl bg-grouped-card pl-10 pr-12 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50 [&::-webkit-search-cancel-button]:appearance-none"
         />
         {query && (
           <button
             type="button"
             aria-label="Clear search"
+            data-embedded=""
             onClick={() => {
               change('');
               input.current?.focus();
             }}
-            className="absolute right-0 top-0 flex size-11 items-center justify-center text-muted-foreground"
+            className="absolute right-0 top-0 flex size-12 items-center justify-center text-muted-foreground"
           >
             <XIcon className="size-5" aria-hidden />
           </button>

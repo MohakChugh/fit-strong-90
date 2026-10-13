@@ -39,11 +39,15 @@ import { StoreFailure, readDoc, toFailure, type Db, type StoreResult } from './d
 import { commitChange, emptySnapshot, prepare, type Change, type Snapshot } from './snapshot';
 import { liftBodyMetric, liftCheckIn, liftSessionPain, type SkippedRecord } from './project';
 import type { Records, StoredRecord } from './records';
+import { SUCCESSOR } from './successor';
 
 export type { SkippedRecord } from './project';
 
-/** The data schema (journey §18.3): 6 adds the v2 record stores, which IndexedDB 2 creates empty. */
-export const SCHEMA_VERSION = 6;
+/**
+ * The data schema (journey §18.3): 6 adds the v2 record stores, which IndexedDB 2 creates empty. The suite's
+ * successor build is 7 (board D121): `migrateToV6` stamps it over any marker from 5 up, its empty migration.
+ */
+export const SCHEMA_VERSION = 6 + SUCCESSOR;
 /**
  * The marker the v4 → v5 move first wrote. A device at or past it has moved,
  * whatever the current schema is: running the move again would replace the
@@ -83,7 +87,19 @@ export interface Projection {
  */
 export function observationsFromCheckIn(record: CheckInRecord): Projection {
   const lifted = liftCheckIn(record, { existing: [] });
-  return { observations: lifted.put, skipped: lifted.skipped };
+  return { observations: lifted.put.map(unsaid), skipped: lifted.skipped };
+}
+
+/**
+ * A measurement lifted from an old record, not said now: no place of its own (`order`, P8R-06), so a
+ * conversion is the same however often it runs, and its commit order decides, as for every statement
+ * from before this release.
+ */
+function unsaid(o: Observation): Observation {
+  if (o.order === undefined) return o;
+  const { order: _now, ...rest } = o;
+  void _now;
+  return rest;
 }
 
 /**
@@ -120,7 +136,7 @@ export function projectV4(data: AppData): Projection {
     if (metric && typeof metric.date === 'string') take(liftBodyMetric(metric.date, metric, observations));
   }
 
-  return { observations, skipped };
+  return { observations: observations.map(unsaid), skipped };
 }
 
 /** The observations a v4 blob yields, without the skip report. */

@@ -62,6 +62,10 @@ const WORDS_ONLY: Record<string, string> = {
   'src/screens/food/parts.tsx': 'LogMealSheet.tsx passes numbersView() to every part',
   'src/screens/track/format.ts': 'only titles activeEnergy: its figure shows with its walk, in WalkSummary.tsx, RecordDetails.tsx and MyDay.tsx, which ask countsFree()',
   'src/screens/track/metrics.ts': 'gives activeEnergy no metric: its figure is its walk’s, in RecordDetails.tsx, which asks countsFree()',
+  'src/screens/browse/foods.ts': 'BrowseScreen.tsx passes numbersView()',
+  'src/screens/trends/food.ts': 'CategoryTrend.tsx and TrendsScreen.tsx pass numbersView() and draw no Food trend without it',
+  'src/screens/trends/metrics.ts': 'names Food’s unit only: Food’s figures are food.ts’s, which CategoryTrend.tsx and TrendsScreen.tsx gate with numbersView()',
+  'src/screens/track/recentRows.ts': 'RecentlyDeleted.tsx passes countsFree() to recentRow, as it is now (P8S-10)',
 };
 
 describe('the food table stays out of the first screen (Global Constraints)', () => {

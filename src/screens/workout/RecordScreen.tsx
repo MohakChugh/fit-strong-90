@@ -7,13 +7,16 @@ import { nameOf } from '@/data/catalog';
 import { update, useStore } from '@/store/useStore';
 import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
-import { asItStands, newBests, withActiveMinutes, withEditedSet, withoutWorkout, withWorkout, type NewBest } from './records';
+import { asItStands, newBests, withActiveMinutes, withEditedSet, withWorkout, type NewBest } from './records';
+import { deleteWorkout, restoreWorkout } from './deletion';
+import { offerUndo } from '@/components/hig/undo';
+import { useOrigin } from '@/screens/track/useOrigin';
 import { resumable } from './resume';
 import {
   bodyweightExercise, dayText, durationText, exerciseLogs, sessionTitle, setLine, sourceLabel, STATUS_LABEL, timeText, totals,
 } from './summary';
 import { Notice, primary, secondary } from './parts';
-import { ActiveTimeSheet, DeleteSheet, EditSetSheet } from './sheets';
+import { ActiveTimeSheet, EditSetSheet } from './sheets';
 
 const ANSWER_LABEL = { better: 'Better', same: 'Same', worse: 'Worse' } as const;
 
@@ -27,9 +30,13 @@ export default function RecordScreen() {
   const { id = '' } = useParams();
   const saved = (useLocation().state as { saved?: boolean } | null)?.saved === true;
   const navigate = useNavigate();
+  const { origin, leave } = useOrigin();
   const { sessions, personalRecords, settings } = useStore();
   const [openedAt] = useState(() => Date.now());
   const [gone, setGone] = useState(false);
+  // Kept here, not in Record: a delete leaves the screen at once, so Record goes until the device answers,
+  // and one the device refused comes back with its reason (B-04).
+  const [failure, setFailure] = useState<string | null>(null);
   const session = sessions.find(s => s.id === id);
   const today = todayString();
 
@@ -44,13 +51,14 @@ export default function RecordScreen() {
   }
   return (
     <Record session={session} sessions={sessions} records={personalRecords} useMetric={settings.useMetric} today={today}
-      saved={saved} continuable={resumable(sessions, today, openedAt)?.id === session.id}
-      onDeleted={() => { setGone(true); navigate('/track', { replace: true, viewTransition: true }); }}
+      saved={saved} continuable={resumable(sessions, today, openedAt)?.id === session.id} undoScope={origin.path}
+      failure={failure} setFailure={setFailure}
+      onDeleted={() => { setGone(true); leave(); }}
       onDone={() => navigate('/track', { viewTransition: true })} />
   );
 }
 
-function Record({ session, sessions, records, useMetric, today, saved, continuable, onDeleted, onDone }: {
+function Record({ session, sessions, records, useMetric, today, saved, continuable, undoScope, failure, setFailure, onDeleted, onDone }: {
   session: WorkoutSession;
   sessions: WorkoutSession[];
   records: Parameters<typeof newBests>[2];
@@ -59,13 +67,16 @@ function Record({ session, sessions, records, useMetric, today, saved, continuab
   saved: boolean;
   /** An unfinished workout the Workout Log would pick back up. */
   continuable: boolean;
+  /** Where its Undo is offered: the screen the person goes back to. */
+  undoScope: string;
+  /** What didn't save, said on the screen: the screen's own, so it outlives this view of the workout. */
+  failure: string | null;
+  setFailure: (failure: string | null) => void;
   onDeleted: () => void;
   onDone: () => void;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
   const [timing, setTiming] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
   const t = totals(session);
   const logs = exerciseLogs(session);
   const bests = newBests(session, sessions, records);
@@ -117,7 +128,7 @@ function Record({ session, sessions, records, useMetric, today, saved, continuab
           )}
         </Notice>
       )}
-      {failure && !editing && !deleting && !timing && <Notice tone="stop" role="alert" title="That did not save"><p>{failure}</p></Notice>}
+      {failure && !editing && !timing && <Notice tone="stop" role="alert" title="That did not save"><p>{failure}</p></Notice>}
 
       <Group>
         <Row label="Status" value={unfinished && !continuable ? 'Not finished' : STATUS_LABEL[session.status]} />
@@ -178,8 +189,22 @@ function Record({ session, sessions, records, useMetric, today, saved, continuab
       {saved && !unfinished && <button type="button" className={primary} onClick={onDone}>Done</button>}
 
       <Group>
-        <Row onClick={() => { setFailure(null); setDeleting(true); }}
-          label={<span className="text-stop">Delete workout</span>} />
+        <Row onClick={() => {
+          setFailure(null);
+          void deleteWorkout(session.id).then(result => {
+            if (!result.ok) return setFailure(result.failure.message);
+            const entry = result.value;
+            // The workout and the records its sets set go at once, and wait in Recently deleted (B-04, D111).
+            offerUndo({
+              text: 'Workout deleted', restored: 'Workout restored', scope: undoScope, entry,
+              undo: async () => {
+                const back = await restoreWorkout(entry);
+                return back.ok ? { done: true } : { done: false, problem: back.failure.message };
+              },
+            });
+            onDeleted();
+          });
+        }} label={<span className="text-stop">Delete workout</span>} />
       </Group>
 
       <EditSetSheet open={editingSet !== undefined} onOpenChange={o => { if (!o) setEditing(null); }}
@@ -198,8 +223,6 @@ function Record({ session, sessions, records, useMetric, today, saved, continuab
           minutes={t.activeSeconds !== undefined ? Math.round(t.activeSeconds / 60) : null}
           onSave={async minutes => { if (await run(prev => withActiveMinutes(prev, session.id, minutes))) setTiming(false); }} />
       )}
-      <DeleteSheet open={deleting} onOpenChange={setDeleting} failure={failure}
-        onDelete={async () => { if (await run(prev => withoutWorkout(prev, session.id))) onDeleted(); }} />
     </Screen>
   );
 }

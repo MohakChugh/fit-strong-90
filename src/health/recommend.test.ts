@@ -1158,3 +1158,40 @@ describe('mealOfWalk', () => {
     expect(mealOfWalk(habits, {})).toBeUndefined();
   });
 });
+
+describe('6b. after the twelve weeks (J§17.2 #42, D116)', () => {
+  const july = settings({ startDate: '2026-07-17' });
+
+  it('plans week 12’s session on its last day', () => {
+    expect(recommend(input({ settings: july, permissions: every(allowed), checkIns: [checkIn()] })).kind).toBe('scheduled');
+  });
+
+  it('then plans nothing, says so, and leaves the choice to the person', () => {
+    const day = '2026-10-09';
+    const r = recommend(input({ now: at(day, '09:00'), settings: july, plan: plan({ date: day }), permissions: every(allowed), checkIns: [checkIn({}, day)] }));
+    expect(r).toEqual({
+      kind: 'plan',
+      title: 'The 12 weeks are done',
+      detail: 'Stretch and Walk carry on as before.',
+      reason: 'Your 12-week programme has ended, so no new session is planned.',
+      action: { label: 'Choose what’s next', to: HREF.next },
+    });
+  });
+
+  it('on a rest day too, never “A rest day in your plan”', () => {
+    const day = '2026-10-10';
+    expect(recommend(input({ now: at(day, '09:00'), settings: july, plan: restDay(), permissions: every(allowed) })).title).toBe('The 12 weeks are done');
+  });
+
+  it('is only for someone in the programme: a start date without training days isn’t one', () => {
+    const day = '2026-10-09';
+    const r = recommend(input({ now: at(day, '09:00'), settings: july, profile: owner({}, { trainingDays: [] }), plan: plan({ date: day }), permissions: every(allowed) }));
+    expect(r.title).not.toBe('The 12 weeks are done');
+  });
+
+  it('still gives way to safety', () => {
+    const day = '2026-10-09';
+    const permissions = { ...every(allowed), walk: held('walk', { disposition: 'emergency', reasons: ['You reported chest pain.'], release: undefined }) };
+    expect(recommend(input({ now: at(day, '09:00'), settings: july, permissions })).kind).toBe('emergency');
+  });
+});

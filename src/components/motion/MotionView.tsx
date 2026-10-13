@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { PauseIcon, PlayIcon, XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MODEL_URL } from '@/motion/models';
 
 type Runtime = typeof import('@/motion/runtime');
 type Viewer = InstanceType<Runtime['MotionViewer']>;
@@ -66,7 +67,7 @@ export function MotionView({ exerciseId, name, side = 'left', mistake = null, pl
     let v: Viewer | null = null;
     loadRuntime().then(async mod => {
       if (cancelled || !host.current) return;
-      v = new mod.MotionViewer(host.current, { modelUrl: `${import.meta.env.BASE_URL}models/coach-${figure}.bin` });
+      v = new mod.MotionViewer(host.current, { modelUrl: MODEL_URL[figure] });
       await v.load();
       if (!cancelled) setApi({ mod, v });
     }).catch(() => { if (!cancelled) setFailed(true); });
@@ -114,7 +115,7 @@ export function MotionView({ exerciseId, name, side = 'left', mistake = null, pl
       )}
       {ready && showControls && (
         <button type="button" onClick={() => setPaused(p => !p)} aria-label={paused ? 'Play demonstration' : 'Pause demonstration'}
-          className="absolute bottom-2 right-2 flex size-11 items-center justify-center rounded-full bg-background/80 shadow backdrop-blur">
+          className="absolute bottom-2 right-2 flex size-12 items-center justify-center rounded-full bg-background/90 shadow">
           {paused ? <PlayIcon className="size-5" /> : <PauseIcon className="size-5" />}
         </button>
       )}

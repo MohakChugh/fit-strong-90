@@ -727,6 +727,20 @@ describe('export and import, the only way out and back in (D17)', () => {
     expect(decoded.observations).toHaveLength(1);
   });
 
+  it('a record past a limit a restore applies still exports whole, and says so (D108, P8-17)', async () => {
+    await booted();
+    const lifts = Array.from({ length: 10_001 }, (_, i) => ({ exerciseId: `exercise-${i}`, weight: 20, reps: 5, date: '2026-10-01', volume: 100 }));
+    expect((await store.update(prev => ({ ...prev, personalRecords: lifts }))).ok).toBe(true);
+    const exported = await store.exportRecord();
+    if (!exported.ok) return expect.unreachable('export failed');
+    expect(exported.value.warning).toMatch(/^This backup holds everything, but it holds 10,001 personal records/);
+    expect(((await decode(exported.value.bytes)) as { personalRecords: unknown[] }).personalRecords).toHaveLength(10_001);
+    // Within every limit, nothing is said.
+    expect((await store.update(prev => ({ ...prev, personalRecords: lifts.slice(0, 3) }))).ok).toBe(true);
+    const fine = await store.exportRecord();
+    expect(fine.ok && fine.value.warning).toBeUndefined();
+  });
+
   it('imports a file and publishes what the device then holds', async () => {
     await booted();
     await store.putSession(session);
@@ -1018,7 +1032,7 @@ describe('a phone the previous build left behind, and its other tabs (journey §
     db.close();
   });
 
-  it('lets go at once when another copy upgrades while it is still starting, and asks for a reload (B-21)', async () => {
+  it('lets go at once when another copy upgrades while it is still starting, and says to open FitStrong again (B-21)', async () => {
     const fake = fakeIndexedDB();
     // Part-way through its start: its first write waits to commit.
     fake.control.hold();
@@ -1032,7 +1046,7 @@ describe('a phone the previous build left behind, and its other tabs (journey §
     fake.control.release();
     await starting;
     expect(store.getState()).toMatchObject({ status: 'unavailable', failure: { code: 'stale' } });
-    expect(store.storageNotice()?.detail).toMatch(/reload/i);
+    expect(store.storageNotice()?.detail).toMatch(/Close this window and open FitStrong again/);
     expect(fake.control.openConnections()).toBe(0);
   });
 

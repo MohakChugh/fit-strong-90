@@ -94,7 +94,7 @@ function JoinSteps({ initial, busy, error, onJoin, onCancel }: {
             <div className="flex min-h-[3.25rem] flex-wrap items-center gap-x-3 gap-y-1 px-4 py-1.5">
               <label htmlFor={dateId} className="min-w-0 flex-1 basis-24 text-[length:var(--text-body)]">Start on</label>
               <input id={dateId} type="date" min={today} value={j.startDate} onChange={e => setJ({ ...j, startDate: e.target.value })}
-                className="numeric min-h-11 rounded-lg bg-muted/60 px-3 text-[length:var(--text-body)] text-foreground outline-none focus-visible:ring-3 focus-visible:ring-tint/40" />
+                className="numeric min-h-12 rounded-lg bg-muted/60 px-3 text-[length:var(--text-body)] text-foreground outline-none focus-visible:ring-3 focus-visible:ring-tint/40" />
             </div>
           </Group>
         </>

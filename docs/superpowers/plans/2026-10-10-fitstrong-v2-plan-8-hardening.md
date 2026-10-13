@@ -9172,7 +9172,8 @@ Expected: S02 fails in all four projects. Among its findings, each read from the
   - every `PrimaryButton` but the walk's, 52 or 56 px tall (Me, Move and Track's, and the workout's `primary`), and the check-in's own primary (52 px);
   - every screen's Back, and every sheet's Close (44 px);
   - Plan 8's own: a toast's Undo (`UNDO_STYLE`, 48 px: a main target under 60), and Recently deleted's Restore and Home's "Restart to update" until they are marked and sized; the search field's Clear button, overlapping its field until it is marked as drawn inside it;
-  - Browse's More menu, and every `ActionMenu`: its title is a paragraph, so the open menu has no heading of its own (Plan 6's open item).
+  - Browse's More menu, and every `ActionMenu`: its title is a paragraph, so the open menu has no heading of its own (Plan 6's open item);
+  - two more from Plan 6's report, added by the coordinator on 2026-10-12, which S02 must catch: at 320 px, an empty glucose box cuts its unit off ("mg/" for "mg/dL"), the day's first check-in included; and at 320 px with 200% text, the shared safety surface's headline breaks long words ("emergen-cy"), and inside a sheet it widens the sheet past the screen and cuts its Close off, in every sheet that shows the surface. So S02 also fails on horizontal overflow, the page's or an open sheet's, on any control the screen's edge cuts off (a sheet's Close among them), and on a unit not shown in full; its inventory takes the day's first check-in with its glucose box empty, and a sheet showing the safety surface, at 320 px and 200% text.
 
 - [ ] **Step 6: Make every target the rule's size.** Classes are in rem, so each still grows with the text. Each finding S02 names is one of four kinds, fixed one way:
 

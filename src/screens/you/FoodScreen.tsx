@@ -1,4 +1,5 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { ALLERGENS, allergenName } from '@/food/allergens';
@@ -6,7 +7,7 @@ import { FOOD_COPY, LEVEL_LABEL } from '@/food/copy';
 import { foodLevel, numbersView } from '@/food/level';
 import { promptDefault } from '@/food/prompts';
 import { LevelSheet } from '@/screens/food/LevelSheet';
-import { endFoodUndos, offerFoodUndo, useFoodUndoScope } from '@/screens/food/undo';
+import { offerUndo } from '@/components/hig/undo';
 import { ownAllergyStatus } from '@/screens/guide/format';
 import { NoAllergiesRow } from '@/screens/guide/parts';
 import { formatDayShort } from '@/screens/track/format';
@@ -94,8 +95,8 @@ export function FoodScreen() {
   const [clearing, setClearing] = useState(false);
   const [kcal, setKcal] = useState(String(food?.careTeamTargets?.kcal ?? ''));
   const [carbs, setCarbs] = useState(String(food?.careTeamTargets?.carbsG ?? ''));
-  // An allergy removed here can be put back until the person leaves (K7R-01; §20.4 rule 6).
-  useFoodUndoScope('/me/food');
+  // An allergy removed here can be put back until the person leaves, or makes another edit (K7R-01; §20.4 rule 6;
+  // the one Undo stack, board D113).
 
   /**
    * Each change is worked out from the stored preferences at the moment it is written, and with no record yet,
@@ -118,16 +119,17 @@ export function FoodScreen() {
    * their food choices. It's said to be back only once the stored record holds it, and otherwise says why: the
    * record went with Clear, or there's no room (H7F-01, H7F-04; board D207).
    */
-  const offerBack = (what: string, back: (food: FoodPreferences) => FoodPreferences, holds: (food: FoodPreferences) => boolean) => offerFoodUndo({
+  const offerBack = (what: string, back: (food: FoodPreferences) => FoodPreferences, holds: (food: FoodPreferences) => boolean) => offerUndo({
     text: FOOD_COPY.allergyRemoved(opening(what)),
     restored: FOOD_COPY.allergyBack(opening(what)),
     scope: '/me/food',
     undo: async () => {
-      const saved = await changeProfile(current => (current.food ? { ...current, food: back(current.food) } : current));
-      if (!saved.ok) return saved.failure.message;
+      // Putting it back is no edit of its own: the Undo isn't ended by its own restore (D113).
+      const saved = await changeProfile(current => (current.food ? { ...current, food: back(current.food) } : current), { edit: false });
+      if (!saved.ok) return { done: false, problem: saved.failure.message };
       const now = getState().profile?.food;
-      if (!now) return FOOD_COPY.allergyNoRecord(opening(what));
-      return holds(now) ? undefined : FOOD_COPY.allergyNoRoom(opening(what));
+      if (!now) return { done: false, problem: FOOD_COPY.allergyNoRecord };
+      return holds(now) ? { done: true } : { done: false, problem: FOOD_COPY.allergyNoRoom };
     },
   });
 
@@ -160,6 +162,11 @@ export function FoodScreen() {
           value={food?.pattern}
           onChange={pattern => void edit((current, waiting) => ({ avoid: [], ...(current ?? waiting), pattern }))}
         />
+      </Group>
+
+      {/* Its own group: a row that opens a screen doesn't belong among the choices above (D111, K7-11). */}
+      <Group>
+        <Row as={Link} to="/me/food/own" viewTransition label="Your own foods" detail="Foods you added while logging" chevron />
       </Group>
 
       {food && (
@@ -305,10 +312,10 @@ export function FoodScreen() {
             keeps(food) ? FOOD_COPY.clearKeepsPattern : undefined,
           ].filter(Boolean).join(' ')}
           confirm={FOOD_COPY.clearConfirm}
-          // Clearing is another edit: an allergy Undo standing ends with it, as §20.4 rule 6 has it (H7F-01).
+          // Clearing is another edit: an allergy Undo standing ends with it, as §20.4 rule 6 has it (H7F-01):
+          // the store says so once it is stored (`subscribeEdits`).
           onConfirm={() => void edit(cleared).then(ok => {
             if (!ok) return;
-            endFoodUndos('/me/food');
             setClearing(false);
           })}
           {...(problem ? { error: problem } : {})}

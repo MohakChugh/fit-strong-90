@@ -36,6 +36,12 @@ describe('Your week goes quiet on Home’s own verdict (H3-03, KT-04, journey §
   });
 });
 
+describe('Food’s row when only meals are recorded (D114)', () => {
+  it('says “Nothing recorded yet” only when no row is listed, so meals with estimates list Food’s', () => {
+    expect(read('TrendsScreen.tsx')).toContain('if (ctx.since === undefined && rows.length === 0) {');
+  });
+});
+
 describe('Your week’s line when there is nothing to sum up (H3-21)', () => {
   it('is worked out from the week’s records, never assumed from the sentences', () => {
     expect(read('TrendsScreen.tsx')).toContain('empty={emptyLine(facts)}');
@@ -140,7 +146,8 @@ describe('the shared choice of segments has 48 px targets (H3-19, journey §20.4
 describe('the one action of an empty Trends is a 60 px primary button (KT-06, journey §20.4 rule 1)', () => {
   it('is the shared primary button, 60 px tall, to Today’s log’s Add list', () => {
     const trends = read('TrendsScreen.tsx');
-    const empty = trends.slice(trends.indexOf('if (ctx.since === undefined)'), trends.indexOf('return (\n    <Screen title="Trends">\n      <YourWeekCard'));
+    const empty = trends.slice(trends.indexOf('if (ctx.since === undefined && rows.length === 0)'), trends.indexOf('return (\n    <Screen title="Trends">\n      <YourWeekCard'));
+    expect(empty).not.toBe('');
     expect(empty).toContain('<PrimaryButton className="min-h-[60px]" onClick={() => navigate(\'/day/today?add=\', { state: origin, viewTransition: true })}>');
     expect(empty).not.toContain('min-h-12');
   });

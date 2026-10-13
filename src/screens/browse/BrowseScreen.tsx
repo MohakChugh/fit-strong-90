@@ -4,14 +4,18 @@ import { ActionMenu, type MenuAction, type MenuAnchor } from '@/components/hig/A
 import { gateFor, opensOnHold } from '@/components/checkin/start';
 import { Screen } from '@/components/hig/Screen';
 import { categoryById, type CategoryId } from '@/categories';
+import { FOODS } from '@/food/data';
+import { numbersView } from '@/food/level';
 import { useGuided } from '@/hooks/useGuided';
 import { useGuide } from '@/screens/guide/useGuide';
 import { changeHome, useHomeLayout } from '@/screens/home/homeLayout';
 import { addButton, addTile, groupFull, hideTile, placedMessage } from '@/screens/home/layout';
 import { UrgentContext } from '@/screens/home/urgent';
+import { useStore } from '@/store/useStore';
 import type { HomeLayout } from '@/types';
 import { BrowseRows, SearchField } from './BrowseList';
 import { browse } from './browse';
+import { foodRows, listsFoods, withFoods } from './foods';
 
 interface MoreTarget extends MenuAnchor {
   id: CategoryId;
@@ -38,7 +42,16 @@ export default function BrowseScreen() {
   // Polite, and said again even when the words repeat.
   const [said, setSaid] = useState({ text: '', n: 0 });
   const [problem, setProblem] = useState<string>();
-  const results = useMemo(() => browse(query, ctx), [query, ctx]);
+  const { profile } = useStore();
+  // Foods to log only for someone who logs meals, once their allergies are known as meal ideas wait for; a figure only with estimates (B-11, D115).
+  const lists = listsFoods(profile?.food, ctx.allergies);
+  const numbers = numbersView(profile);
+  const show = numbers.show;
+  const ranges = numbers.show && numbers.ranges;
+  const results = useMemo(() => {
+    const found = browse(query, ctx);
+    return lists ? withFoods(found, foodRows(query, FOODS, show ? { show: true, ranges } : { show: false })) : found;
+  }, [query, ctx, lists, show, ranges]);
 
   if (params.get('pick') === '1') return <Navigate to="/home?edit=add" replace />;
 

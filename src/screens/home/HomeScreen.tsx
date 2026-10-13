@@ -49,7 +49,7 @@ import { trendContext } from '@/screens/trends/model';
 import { WEEK_BRIEF_KEY, briefSeen, weekBriefFor, weekFacts, weekSentences, withSeen } from '@/screens/trends/yourWeek';
 import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
 import { addToDayTotal, getState, isSessionSaved, setContentState, useStore } from '@/store/useStore';
-import { cn } from '@/lib/utils';
+import { cn, programmeDone } from '@/lib/utils';
 import { canLocate, canSenseMotion } from '@/walk/browser';
 import { peekWalk } from '@/walk/persist';
 import { directWalkHref, walkFirst, type WalkFirst } from '@/walk/plan';
@@ -88,6 +88,7 @@ import { NewHomeRow } from './NewHomeRow';
 import { movementLine } from './tileLine';
 import { RIGHT_NOW_ID, SAFETY_KINDS, SLOTS, UrgentContext, recommendSources, useMovementHeld, withEffectiveToday } from './urgent';
 import { WeekCard } from './WeekCard';
+import { UpdateRow } from './UpdateRow';
 import { WalkRecoveryRow } from './WalkRecoveryRow';
 import { movedDays, restDaysOf, stepsLine, stretchDays, weekDots } from './week';
 
@@ -348,8 +349,10 @@ export function HomeScreen() {
   const due = dueItems({ now, ...(profile ? { profile } : {}), observations });
   const recheckAt = guided.checkIn?.readiness.recheckAt;
   // The gate as this render asked it, the same answer the card shows; a tap asks it again.
+  // After the twelve weeks nothing is planned (D116): the Workout tile says so, with nothing to check in for.
+  const done = programmeDone(settings.startDate, today);
   const lineOf = (mode: Mode, permission = permissions[mode]) => movementLine({
-    mode, permission, status, enrolled, normal: normalLine(mode, { recommendation, enrolled, plan: guided.plan }),
+    mode, permission, status, enrolled, normal: normalLine(mode, { recommendation, enrolled, plan: guided.plan, done }), done,
     ...(recheckAt ? { recheckAt } : {}), now, hour12: HOUR12, ...(left ? { gapChapter: left.chapter } : {}),
   });
   // A hold or a stop on the tile's mode: its hub opens on it, so the tap skips the morph (motion rule 2).
@@ -409,6 +412,9 @@ export function HomeScreen() {
       {/* A walk the app lost mid-way, offered to save (journey §9.4): under the
           Right now card, so an urgent surface always ranks above it (A-57). */}
       <WalkRecoveryRow />
+
+      {/* A release waiting, or just installed (D106): under Right now, so an urgent surface always ranks above it. */}
+      <UpdateRow />
 
       {/* Quiet, and only once today is checked in: a new symptom or reading
           can always be added, whatever the suggestion above says (J03 step 4). */}
@@ -555,7 +561,7 @@ export function HomeScreen() {
         <Sheet open={walkAhead.open} onOpenChange={o => { if (!o) setWalkAhead({ ...walkAhead, open: false }); }} title={walkAhead.first.title}>
           <p className="px-1 text-[length:var(--text-body)] leading-snug">{walkAhead.first.detail}</p>
           <button type="button" onClick={() => navigate(walkAhead.first.action.to, { viewTransition: true })}
-            className="press-feedback flex min-h-12 w-full items-center justify-center rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
+            className="press-feedback flex min-h-[3.75rem] w-full items-center justify-center rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
             {walkAhead.first.action.label}
           </button>
         </Sheet>
@@ -582,7 +588,7 @@ function EarlierSession({ saved, onFinish, onSave }: {
   return (
     <Group header="Unfinished" footer={error ?? 'Saving keeps what you did in your history, on the day you did it.'}>
       <Row label={`From ${format(new Date(`${saved.plan.date}T12:00:00`), 'EEEE')}`} detail={`${minutesLeft(saved)} min left · ${saved.plan.label}`} />
-      <div className="flex flex-wrap gap-2 px-4 py-3">
+      <div className="flex flex-wrap gap-3 px-4 py-3">
         {/* Both secondary: the one primary action on Home is the suggestion's. */}
         <button type="button" onClick={onFinish} disabled={busy} className={cn(button, 'bg-tint/10 text-tint')}>Finish it</button>
         <button

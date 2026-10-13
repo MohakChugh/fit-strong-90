@@ -63,11 +63,14 @@ const PLAIN: Record<Exclude<Mode, 'guided'>, string> = { stretch: '10 or 15 min'
  * the tile and the card read alike; otherwise the programme's session, or a
  * plain line for a stretch or a walk.
  */
-export function normalLine(mode: Mode, { recommendation: r, enrolled, plan }: {
+export function normalLine(mode: Mode, { recommendation: r, enrolled, plan, done = false }: {
   recommendation: Recommendation;
   enrolled: boolean;
   plan: Pick<SessionPlan, 'label' | 'totalSeconds'>;
+  /** The twelve weeks are over (D116). */
+  done?: boolean;
 }): string {
+  if (mode === 'guided' && enrolled && done) return 'The 12 weeks are done';
   // The day's session is the plan's own line, with its minutes.
   if (r.action.mode === mode && r.kind !== 'scheduled') return r.title;
   if (mode === 'guided') return workoutNormal({ enrolled, label: plan.label, minutes: Math.round(plan.totalSeconds / 60) });

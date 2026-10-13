@@ -34,7 +34,6 @@ import { privacyLine } from '@/screens/you/summaries';
 import { useStore } from '@/store/useStore';
 import { LevelSheet } from './LevelSheet';
 import { LogMealSheet } from './LogMealSheet';
-import { useFoodUndoScope } from './undo';
 
 /** Where an idea and the sample week go back to. */
 const FROM_HUB = { from: 'hub' };
@@ -61,7 +60,6 @@ export default function FoodHubScreen() {
   // "Log a meal" with logging off asks the level first, and that sheet owns the flow until its choice is
   // stored: the profile shown changes the moment it's chosen, before it's written (H7-18).
   const [askingLevel, setAskingLevel] = useState(false);
-  useFoodUndoScope('/hub/food');
 
   const food = profile?.food;
   const level = foodLevel(food);

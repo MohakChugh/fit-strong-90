@@ -106,7 +106,7 @@ const hhmm = (iso: string | null | undefined) => {
   return Number.isNaN(d.getTime()) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
-const primary = 'press-feedback min-h-[3.25rem] w-full rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint';
+const primary = 'press-feedback min-h-[3.75rem] w-full rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint';
 
 /**
  * The protocol's minute between readings, counted from when the first was
@@ -378,7 +378,7 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
             </button>
           )}
           {result.needsCheckIn && <button type="button" onClick={newReading} className={primary}>Enter a new reading</button>}
-          <button type="button" onClick={() => setView('form')} className="press-feedback min-h-11 rounded-xl px-4 text-[length:var(--text-body)] text-tint">
+          <button type="button" onClick={() => setView('form')} className="press-feedback min-h-12 rounded-xl px-4 text-[length:var(--text-body)] text-tint">
             Change answers
           </button>
         </div>
@@ -426,9 +426,9 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
                 value={
                   <span className="flex items-center gap-1">
                     <NumberBox label="Glucose reading" value={form.glucose} onChange={setGlucose} placeholder="Reading"
-                      className="w-24" invalid={sanity === 'implausible' || sanity === 'suspectUnit'} />
+                      className="w-24 min-w-0" invalid={sanity === 'implausible' || sanity === 'suspectUnit'} />
                     <button type="button" onClick={() => update({ unit: form.unit === 'mg/dL' ? 'mmol/L' : 'mg/dL', unitConfirmed: false })}
-                      aria-label={`Unit: ${form.unit}. Tap to change.`} className="min-h-11 min-w-[4.25rem] rounded-lg px-1 text-[length:var(--text-subhead)] text-tint">
+                      aria-label={`Unit: ${form.unit}. Tap to change.`} className="min-h-12 min-w-[4.25rem] rounded-lg px-1 text-[length:var(--text-subhead)] text-tint">
                       {form.unit}
                     </button>
                   </span>
@@ -438,7 +438,7 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
                 <div role="alert" className="flex flex-col gap-2 px-4 py-3 text-[length:var(--text-subhead)]">
                   <p className="font-semibold text-stop">{TREAT}</p>
                   <CannotSwallow />
-                  <button type="button" onClick={() => update({ unit: 'mmol/L' })} className="min-h-11 self-start rounded-lg bg-muted px-3 text-tint">
+                  <button type="button" onClick={() => update({ unit: 'mmol/L' })} className="min-h-12 self-start rounded-lg bg-muted px-3 text-tint">
                     I meant {form.glucose} mmol/L
                   </button>
                 </div>
@@ -446,12 +446,12 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
               {sanity === 'suspectUnit' && (
                 <div role="alert" className="flex flex-col gap-2 px-4 py-3 text-[length:var(--text-subhead)]">
                   <p>That looks like mg/dL rather than mmol/L. Which does your meter show?</p>
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={() => update({ unit: 'mg/dL', unitConfirmed: false })} className="min-h-11 rounded-lg bg-muted px-3 text-tint">
+                  <div className="flex flex-wrap gap-3">
+                    <button type="button" onClick={() => update({ unit: 'mg/dL', unitConfirmed: false })} className="min-h-12 rounded-lg bg-muted px-3 text-tint">
                       {form.glucose} mg/dL
                     </button>
                     {/* A confirmed high mmol/L reading reaches the same rule as its mg/dL equal. */}
-                    <button type="button" onClick={() => update({ unitConfirmed: true })} className="min-h-11 rounded-lg bg-muted px-3 text-tint">
+                    <button type="button" onClick={() => update({ unitConfirmed: true })} className="min-h-12 rounded-lg bg-muted px-3 text-tint">
                       {form.glucose} mmol/L, really
                     </button>
                   </div>
@@ -463,7 +463,7 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
               <Row
                 label={<Wrap>Time measured</Wrap>}
                 value={<input type="time" aria-label="Time measured" value={hhmm(form.glucoseAt)} onChange={e => setGlucoseTime(e.target.value)}
-                  className="numeric h-11 rounded-lg bg-muted px-2 text-[length:var(--text-body)] outline-none focus-visible:ring-2 focus-visible:ring-tint/60" />}
+                  className="numeric h-12 rounded-lg bg-muted px-2 text-[length:var(--text-body)] outline-none focus-visible:ring-2 focus-visible:ring-tint/60" />}
               />
               {v.glucoseTrend && (
                 <div className="flex flex-col gap-2 px-4 py-3">

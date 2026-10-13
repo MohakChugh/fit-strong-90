@@ -55,7 +55,15 @@ import {
   type ObservationTag,
 } from '@/health/observation';
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
-import { JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult, type TxHandle } from './db';
+import { HoldFailure, JOURNAL_STORE, StoreFailure, openDb, requestPersistence, toFailure, type Db, type Doc, type FailureDetail, type StoreResult, type TxHandle } from './db';
+import { clinicalOf, clockHoldOn, holdLifted, touchesClinical } from './holds';
+import { setStorageReadOnly } from './writable';
+import { exportExcess, exportWarning } from './limits';
+import {
+  NOT_RECENT, expiryPlan, nextExpiry, planDeletion, planRestore, recentKey, recentWithoutRoutes, restorable, withoutRecentCarrier,
+  type DeleteRequest, type Restored,
+} from './recent';
+import { newWalkId } from '@/walk/plan';
 import { parseJournalEntry, withJournalled, type JournalEntry } from '@/walk/journal';
 import { sameClockChange, type ClockSeen } from '@/walk/clock';
 import { clockGeneration, erasedGeneration, routeErased, walkSettings, withClockChange, withErase, withPendingClock, type WalkSettings } from '@/walk/consent';
@@ -117,6 +125,8 @@ export interface StoreState {
    * D188). A reading is stamped by what is stored (`acquisitionStamp`).
    */
   clockHold?: ClockHold;
+  /** Storage was lost while the app ran: every screen stays, nothing more is saved, and nothing new starts (P8S-04). A first open that fails is never this. */
+  readOnly: boolean;
   /**
    * The revision of what is stored, as far as this copy knows. It moves with
    * every commit of anything — a reading, a backdated session, a profile or
@@ -190,6 +200,8 @@ let detachVisibility: (() => void) | undefined;
 let generation = 0;
 /** B-19: the days of each change to the clock seen here and not yet stored, held meanwhile (`markClockChange`, H6F-02). */
 let clockPending: (readonly string[])[] = [];
+/** `StoreState.readOnly`: a working store lost its storage (`leave`), as opposed to a first open that failed (P8S-04). */
+let wentReadOnly = false;
 
 interface Planned<T> {
   /** `null`: nothing to do, and nothing is written. */
@@ -222,6 +234,26 @@ interface Mutation<T> {
    * leave the person somewhere they never asked to go (J18).
    */
   hold?: boolean;
+  /**
+   * The device's own safety record, a change to the phone's clock (B-19): let in while a restart to update
+   * holds new work, as nothing else is, and the restart's reload waits for it (board D106 with Plan 6's
+   * H6F-02): a change seen is held until it is stored, a reload included.
+   */
+  safety?: boolean;
+  /** Not an edit the person made (D113): a delete, a restore, background work. Only edits end an Undo (Task 7). */
+  edit?: false;
+  /**
+   * "Delete all data" (D119): the person's confirmed choice to erase
+   * everything, the one change the engine isn't asked about.
+   */
+  erasesAll?: true;
+  /**
+   * What it may do depends on the time: a restore, which an entry past its 7
+   * days may no longer make, and expiry (P8S-09). Planned again when its turn
+   * comes, inside the transaction that commits it, never from a plan made
+   * earlier against the same snapshot.
+   */
+  timed?: true;
   /** The payload came from `JSON.parse` and is already plain data. */
   plain?: boolean;
 }
@@ -251,6 +283,7 @@ function toState(s: Snapshot): StoreState {
     persisted,
     saving: jobs.some(j => j.kind === 'mutation'),
     installed,
+    readOnly: mode === 'memory' && wentReadOnly,
     clockHold: withPendingClock(settingsOf(s.settings).walk?.clock, clockPending),
     revision: committed.revision,
     epoch: s.generation,
@@ -285,10 +318,19 @@ export function subscribe(listener: Listener): () => void {
  * is what IndexedDB will do with it, so the clone is what is kept.
  */
 function planOn<T>(m: Mutation<T>, base: Snapshot, read?: TxRead): { planned: Planned<T>; prepared: Prepared } {
-  if (!read && m.cached && m.cached.on === base && !m.cached.read) return m.cached;
+  if (!read && !m.timed && m.cached && m.cached.on === base && !m.cached.read) return m.cached;
   const planned = m.plan(base, read);
   const change = planned.change === null ? null : m.plain ? planned.change : structuredClone(planned.change);
   const prepared: Prepared = change === null ? { next: base, writes: [] } : prepare(base, change);
+  if (change !== null && !m.erasesAll && touchesClinical(change, base)) {
+    // Asked of what is really there, before and after, for every change that can take a clinical
+    // measurement away, whichever function or caller asked for it (D119, P8S-03): the stored profile,
+    // and the phone's clock changes from the moment each is seen (Plan 5's D197; Plan 6's H6F-02).
+    const now = new Date();
+    const removedDays = base.checkIns.map(c => c.date).filter(d => !prepared.next.checkIns.some(c => c.date === d));
+    const refused = holdLifted(clinicalOf(base, clockPending), clinicalOf(prepared.next, clockPending), now, { clock: clockHoldOn(base.settings, now, clockPending), removedDays });
+    if (refused) throw new HoldFailure(refused.held, refused.release, refused.said);
+  }
   m.cached = { on: base, planned: { ...planned, change }, prepared, ...(read ? { read: true as const } : {}) };
   m.planFailure = undefined;
   return m.cached;
@@ -321,6 +363,11 @@ function note(failure: StoreFailure): void {
 
 function enqueue<T>(m: Omit<Mutation<T>, 'settle'>): Promise<StoreResult<T>> {
   return new Promise<StoreResult<T>>(resolve => {
+    // A restart to update is under way (D106, P8S-13): nothing new is shown or written.
+    if (!admitting && !m.safety) {
+      resolve({ ok: false, failure: new StoreFailure('unavailable', RESTARTING_REFUSAL) });
+      return;
+    }
     const mutation = { ...m, settle: resolve } as Mutation<T>;
     try {
       // Planned now, against what the user is looking at.
@@ -337,7 +384,8 @@ function enqueue<T>(m: Omit<Mutation<T>, 'settle'>): Promise<StoreResult<T>> {
       }
     } catch (error) {
       const failure = failed(error);
-      note(failure);
+      // A refusal is said where it was asked, never as the storage banner (D119).
+      if (failure.code !== 'held') note(failure);
       resolve({ ok: false, failure });
       return;
     }
@@ -355,6 +403,36 @@ function enqueueTask<T>(run: () => Promise<T>): Promise<T> {
     void pump();
   });
 }
+
+const editListeners = new Set<() => void>();
+
+/**
+ * Told after every change the person made is stored (B-04, D113): what ends
+ * an Undo, wherever it was made, a manual workout's sets included. A delete,
+ * a restore, expiry and reading progress pass `edit: false`, and aren't; nor
+ * is the device's own record of a change to its clock.
+ */
+export function subscribeEdits(listener: () => void): () => void {
+  editListeners.add(listener);
+  return () => void editListeners.delete(listener);
+}
+
+let admitting = true;
+export const RESTARTING_REFUSAL = 'FitStrong is restarting to update, so this wasn’t saved.';
+
+/**
+ * Lets in no new work while FitStrong restarts to update (board D106, Codex
+ * P8S-13): every mutation asked for from now is refused at once, with nothing
+ * shown or written, until the function this gives back is called. Work
+ * already queued carries on (`whenSettled`).
+ */
+export function holdNewWork(): () => void {
+  admitting = false;
+  return () => { admitting = true; };
+}
+
+/** Resolves once every write queued before it has been stored or refused. */
+export const whenSettled = (): Promise<void> => enqueueTask(async () => undefined);
 
 async function pump(): Promise<void> {
   if (pumping) return;
@@ -375,6 +453,8 @@ async function pump(): Promise<void> {
       recompute();
       publish();
       job.m.settle(result);
+      // An edit the person made, stored: what ends an Undo (B-04, D113).
+      if (result.ok && job.m.edit !== false) for (const listener of [...editListeners]) listener();
     }
   } finally {
     if (mine === generation) pumping = false;
@@ -406,7 +486,7 @@ async function commit<T>(m: Mutation<T>): Promise<StoreResult<T>> {
 
   const outcome = await commitChange(handle, committed, (base, refreshed, read) => {
     // A plan that reads the journal is made again here, with what this transaction read.
-    if (!m.journal && !refreshed && m.cached && m.cached.on === base) {
+    if (!m.journal && !m.timed && !refreshed && m.cached && m.cached.on === base) {
       return m.cached.planned.change === null ? null : { change: m.cached.planned.change, prepared: m.cached.prepared };
     }
     const fresh = planOn(m, base, m.journal ? read : undefined);
@@ -419,11 +499,12 @@ async function commit<T>(m: Mutation<T>): Promise<StoreResult<T>> {
     // stored, which a failure did not change.
     if (outcome.refreshed) committed = durable = outcome.refreshed;
     mirror(committed);
-    lastFailure = outcome.failure;
+    if (outcome.failure.code !== 'held') lastFailure = outcome.failure;
     return { ok: false, failure: m.planFailure ?? outcome.failure };
   }
 
   committed = durable = outcome.value.next;
+  armExpiry();
   lastFailure = undefined;
   mirror(committed);
   channel?.postMessage({ revision: committed.revision });
@@ -549,6 +630,15 @@ async function boot(options: StartOptions): Promise<void> {
     persisted = kept;
     publish();
   });
+  // A newer build has been here: this one writes nothing in its shape (D107). Its
+  // migrations know only the shapes before it; FitStrong opened again is the newer build.
+  const marker = await schemaMarker(handle);
+  if (stopped()) { handle.close(); return; }
+  if (typeof marker === 'number' && marker > SCHEMA_VERSION) {
+    handle.close();
+    enterMemory(new StoreFailure('stale', 'FitStrong was updated in another window.'));
+    return;
+  }
   const migrated = await migrateToV5(handle);
   if (stopped()) { handle.close(); return; }
   if (!migrated.ok) {
@@ -590,6 +680,18 @@ async function boot(options: StartOptions): Promise<void> {
   recompute();
   publish();
   convertLegacyErase();
+  // Recently deleted: what has passed its 7 days goes at every start, and the next one is waited for (D109).
+  armExpiry();
+  void expireDeleted();
+}
+
+/** The schema marker as stored, or nothing when there is none or it can't be read (`migrateToV5` then says why). */
+async function schemaMarker(handle: Db): Promise<unknown> {
+  try {
+    return (await handle.get<Doc>('settings', 'schemaVersion'))?.value;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -604,6 +706,7 @@ function convertLegacyErase(): void {
   const legacy = (s: Snapshot) => (s.settings?.walk as { routesErasedAt?: unknown } | undefined)?.routesErasedAt;
   if (typeof legacy(committed) !== 'number') return;
   void enqueue<void>({
+    edit: false,
     plan: base => {
       const at = legacy(base);
       if (typeof at !== 'number') return { change: null, result: () => undefined };
@@ -626,7 +729,9 @@ function leave(): void {
   const handle = db;
   db = undefined;
   handle?.close();
-  // Everything already stored stays on screen; only new changes go unsaved.
+  // Everything already stored stays on screen; only new changes go unsaved, and nothing new starts (P8S-04).
+  wentReadOnly = true;
+  setStorageReadOnly(true);
   enterMemory(new StoreFailure('stale', 'The app was updated in another tab or window.'), 'keep');
 }
 
@@ -647,7 +752,12 @@ function coordinate(options: StartOptions): void {
   }
   if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     // A copy left in the background may have missed the message.
-    const onVisible = () => { if (document.visibilityState === 'visible') void checkOutside(); };
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      void checkOutside();
+      // And on every return (D109, P8-12).
+      void expireDeleted();
+    };
     document.addEventListener('visibilitychange', onVisible);
     detachVisibility = () => document.removeEventListener('visibilitychange', onVisible);
   }
@@ -680,6 +790,7 @@ function adopt(snap: Snapshot): void {
 /** Tests only: drop the connection and the state between cases. */
 export function resetForTests(): void {
   generation += 1;
+  admitting = true;
   db?.close();
   db = undefined;
   channel?.close();
@@ -702,6 +813,11 @@ export function resetForTests(): void {
   listeners.clear();
   clockSeen = [];
   clockPending = [];
+  if (expiryTimer !== undefined) clearTimeout(expiryTimer);
+  expiryTimer = undefined;
+  editListeners.clear();
+  wentReadOnly = false;
+  setStorageReadOnly(false);
   state = toState(view);
 }
 
@@ -1169,6 +1285,8 @@ export function setFocusOverride(day: string, focus: DayFocus | undefined): Prom
 /** Per-key reading state for the Guide (bookmarks, read markers). `undefined` removes the key. */
 export function setContentState(key: string, value: unknown): Promise<StoreResult> {
   return enqueue<void>({
+    // What has been read in Learn is no edit (D113).
+    edit: false,
     plan: () => {
       if (typeof key !== 'string' || key === '') throw new StoreFailure('invalid', 'Content state needs a key.');
       return { change: { content: value === undefined ? { remove: [key] } : { put: { [key]: value } } }, result: () => undefined };
@@ -1377,8 +1495,8 @@ export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
  * watches, the route a walk is recording now. From then on no route of a
  * walk that began before it is kept, by a save, a checkpoint or an import:
  * by that count and the routes' walk ids, never the clock (H6R-08, K6R-12,
- * board D176). The walks stay. Deletion records hold ids only in this build
- * (D-06); Plan 8 clears its payloads here when it adds them (D93).
+ * board D176). The walks stay. Recently deleted's entries lose their routes
+ * in the same transaction, and a `settings.deleted.recent` goes (D93, D109).
  */
 export function eraseRoutes(): Promise<StoreResult> {
   return enqueue<void>({
@@ -1393,11 +1511,16 @@ export function eraseRoutes(): Promise<StoreResult> {
       // Every route by name, saved, deleted before or journalled, and the count of erases moved on (H6R-08).
       const journals = Object.values(read?.journal ?? {}).flatMap(e => (typeof e === 'object' && e !== null && typeof (e as { id?: unknown }).id === 'string' ? [(e as { id: string }).id] : []));
       const walk = withErase(walkSettings(base.settings ?? {}), [...keys, ...journals, ...(base.settings?.deleted?.records?.routes ?? [])]);
+      // Every carrier of a coordinate, in this same transaction (B-05, D109): Recently deleted's
+      // entries, and a `settings.deleted.recent` a file once left here.
+      const recent = recentWithoutRoutes(base.content);
+      const carried = withoutRecentCarrier(base.settings);
       return {
         change: {
           ...(keys.length > 0 ? { records: { routes: { remove: keys } } } : {}),
           ...(stripped.length > 0 ? { journal: { put: stripped } } : {}),
-          settings: { patch: { walk } },
+          ...(recent ? { content: recent } : {}),
+          settings: { patch: { walk, ...(carried !== base.settings ? { deleted: carried?.deleted } : {}) } },
         },
         result: () => undefined,
       };
@@ -1418,6 +1541,9 @@ export function acquisitionStamp(): number {
 let clockSeen: { seen: ClockSeen; marked: Promise<StoreResult> }[] = [];
 /** B-19: how soon a refused clock marker is written again (H6F-02). */
 export const CLOCK_RETRY_MS = 5_000;
+
+/** A change to the phone's clock seen here and not stored yet (`markClockChange`): a restart would lose it, so none happens meanwhile (D106 with H6F-02). */
+export const clockChangeWaiting = (): boolean => clockPending.length > 0;
 
 /**
  * B-19: a walk or the page saw this phone's clock change. The device's clock
@@ -1444,6 +1570,8 @@ export function markClockChange(days: readonly string[], seen?: ClockSeen): Prom
   const write = async (): Promise<StoreResult> => {
     const result = await enqueue<void>({
       hold: true,
+      safety: true,
+      edit: false,
       plan: base => ({ change: { settings: { patch: { walk: withClockChange(walkSettings(base.settings ?? {}), days) } } }, result: () => undefined }),
     });
     if (!result.ok && db) {
@@ -1480,6 +1608,72 @@ export function removeWalk(walkId: string, observationIds: readonly string[]): P
 }
 
 /**
+ * A routine delete (B-04, D109, D111): the record and everything that belongs
+ * to it go in one change, kept for 7 days as one Recently deleted entry.
+ * Resolves with the entry's id, which Undo and Recently deleted restore by.
+ */
+export function deleteRecord(request: DeleteRequest): Promise<StoreResult<string>> {
+  const entry = freshId('deleted-');
+  const at = nowAt();
+  return enqueue<string>({
+    edit: false,
+    plan: base => ({ change: planDeletion(request, base, { entry, at }).change, result: () => entry }),
+  });
+}
+
+/** Undo, or Restore in Recently deleted (B-05, D110): fresh ids, references rewritten, the entry dropped, in one change. */
+export function restoreDeleted(entryId: string): Promise<StoreResult<Restored>> {
+  const fresh = { stem: freshId(), walkId: newWalkId(Date.now()) };
+  return enqueue<Restored>({
+    edit: false,
+    timed: true,
+    plan: base => {
+      const planned = planRestore(entryId, base, fresh, Date.now());
+      return { change: planned.change, result: () => planned.restored };
+    },
+  });
+}
+
+/**
+ * Recently deleted's expiry, and the carrier it never writes (D109, P8-11,
+ * P8-12, K8-01), in one transaction: at every start, on every return to the
+ * app, and at the moment the next entry's 7 days end while the page runs, so
+ * nothing outlives its 7 days whatever else happens or doesn't. Background
+ * work: no Undo ends for it.
+ */
+export function expireDeleted(): Promise<StoreResult> {
+  return enqueue<void>({
+    edit: false,
+    timed: true,
+    plan: base => {
+      const due = expiryPlan(base.content, Date.now());
+      const settings = withoutRecentCarrier(base.settings);
+      const change: Change = {
+        ...(due ? { content: due } : {}),
+        ...(settings !== base.settings ? { settings: { patch: { deleted: settings?.deleted } as Partial<UserSettings> } } : {}),
+      };
+      return { change: Object.keys(change).length > 0 ? change : null, result: () => undefined };
+    },
+  });
+}
+
+let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Waits, while the page runs, for the next entry's 7 days to end, then expires it with nothing else needed (P8R-14). */
+function armExpiry(): void {
+  if (expiryTimer !== undefined) clearTimeout(expiryTimer);
+  expiryTimer = undefined;
+  const due = mode === 'ready' ? nextExpiry(committed.content) : undefined;
+  if (due === undefined) return;
+  // ponytail: a timer waits at most setTimeout's own ceiling, about 24.8 days; one due later (a clock set
+  // back) wakes then, finds nothing due, and waits again.
+  expiryTimer = setTimeout(() => {
+    expiryTimer = undefined;
+    void expireDeleted().then(() => { if (expiryTimer === undefined) armExpiry(); });
+  }, Math.min(2 ** 31 - 1, Math.max(1000, due - Date.now())));
+}
+
+/**
  * Clear all data (spec §10.2, D23).
  *
  * Every store and the schema marker in one transaction, so it either all
@@ -1490,6 +1684,8 @@ export function removeWalk(walkId: string, observationIds: readonly string[]): P
  */
 export function clearAll(): Promise<StoreResult> {
   return enqueue<void>({
+    // The person's confirmed choice to erase everything: the engine isn't asked (D119).
+    erasesAll: true,
     // Nothing is shown as cleared until it is (J18).
     hold: true,
     // With nothing it can store to, it can delete nothing there either: it
@@ -1693,9 +1889,10 @@ export interface UpdateOptions {
   /**
    * Readings to delete in the same write: a check-in's reading taken out of
    * the record and the series together, so neither brings the other back on
-   * the next save (scan C2-01). An id no longer stored is passed over.
+   * the next save (scan C2-01). An id no longer stored is passed over. A list,
+   * or worked out from what is stored when the change is planned.
    */
-  removeObservations?: readonly string[];
+  removeObservations?: readonly string[] | ((base: Snapshot) => readonly string[]);
   /**
    * Readings recorded in the same write: the weight, height and waist an edit
    * of the profile states, each a dated reading (journey §18.1). Their ids and
@@ -1714,6 +1911,28 @@ export interface UpdateOptions {
    * copy, the write is refused, inside its transaction (H5R-09).
    */
   generation?: number;
+  /**
+   * Content-state rows written in the same transaction (Plan 8): a Recently
+   * deleted entry, a lineage row. Asked after the updater, with the snapshot
+   * the change is planned on, so it can hold what the updater found and what
+   * is stored with it.
+   */
+  content?: (base: Snapshot) => { put?: Record<string, unknown>; remove?: readonly string[] } | undefined;
+  /**
+   * The Recently deleted entry this change restores (B-05): still restorable
+   * when the change is stored, or nothing is written (P8R-14); used up in the
+   * same change.
+   */
+  entry?: string;
+  /**
+   * Rows a restore brings back as they are, under their fresh ids (D110).
+   * Asked after the updater; one the updater's own lifting would make under
+   * the same id is this row instead, so nothing is worked out again from an
+   * older field (P8S-06).
+   */
+  restored?: () => readonly Observation[];
+  /** Not an edit the person made: a delete or a restore (D113). */
+  edit?: false;
 }
 
 /** A write planned for a record that has since been replaced (H5R-09). */
@@ -1725,31 +1944,55 @@ export function update(updater: (previous: AppData) => AppData, options: UpdateO
   return enqueue<void>({
     ...(options.hold ? { hold: true } : {}),
     ...(options.needsStorage ? { needsStorage: options.needsStorage } : {}),
+    ...(options.edit === false ? { edit: false as const } : {}),
+    ...(options.entry !== undefined ? { timed: true as const } : {}),
     plan: base => {
+      // A restore, asked of what is stored as it commits (P8R-14, P8S-09).
+      if (options.entry !== undefined && !restorable(base.content, options.entry, Date.now())) throw new StoreFailure('invalid', NOT_RECENT);
       if (options.generation !== undefined && base.generation !== options.generation) throw new StoreFailure('conflict', REPLACED);
       const before = appDataOf(base);
       // A copy: an updater that edits in place — the old `localStorage` habit —
       // cannot reach into live state, and the edit still shows as a difference.
       const after = updater(structuredClone(before));
-      const change = describeUpdate(base, before, after, now, options.readings ?? 'append');
-      const doomed = new Set((options.removeObservations ?? []).filter(id => findObservation(base, id)));
+      const described = describeUpdate(base, before, after, now, options.readings ?? 'append');
+      const removing = typeof options.removeObservations === 'function' ? options.removeObservations(base) : options.removeObservations ?? [];
+      const doomed = new Set(removing.filter(id => findObservation(base, id)));
       // An invalid reading throws here, so the whole write is refused before anything shows.
       // One already stored, from an earlier plan of this same write, isn't added twice.
       const wanted = options.addObservationsWhen?.(before, after) ?? true;
       const added = wanted ? adding.filter(input => !findObservation(base, input.id)).map(input => newObservation(input)) : [];
-      if (doomed.size === 0 && added.length === 0) return { change, result: () => undefined };
-      const observations = change?.observations;
-      return {
-        change: {
-          ...change,
-          observations: {
-            ...observations,
-            put: [...(observations?.put ?? []).filter(o => !doomed.has(o.id)), ...added],
-            remove: [...(observations?.remove ?? []), ...doomed],
-          },
+      const observations = described?.observations;
+      const change: Change | null = doomed.size === 0 && added.length === 0 ? described : {
+        ...described,
+        observations: {
+          ...observations,
+          put: [...(observations?.put ?? []).filter(o => !doomed.has(o.id)), ...added],
+          remove: [...(observations?.remove ?? []), ...doomed],
         },
-        result: () => undefined,
       };
+      // Recently deleted's entry, the lineage, and the rows a restore brings back as they were (D110).
+      const extra = options.content?.(base);
+      const used = options.entry !== undefined ? [recentKey(options.entry)] : [];
+      const rows = options.restored?.() ?? [];
+      const back = new Set(rows.map(o => o.id));
+      const contentChange = extra || used.length > 0 ? {
+        put: { ...(change?.content?.put ?? {}), ...(extra?.put ?? {}) },
+        remove: [...(change?.content?.remove ?? []), ...(extra?.remove ?? []), ...used],
+      } : undefined;
+      const withExtra: Change | null = contentChange || rows.length > 0 ? {
+        ...(change ?? {}),
+        ...(contentChange ? { content: contentChange } : {}),
+        ...(rows.length > 0 ? {
+          observations: {
+            ...change?.observations,
+            put: [...(change?.observations?.put ?? []).filter(o => !back.has(o.id)), ...rows],
+            remove: (change?.observations?.remove ?? []).filter(id => !back.has(id)),
+            // Each keeps the place it was said in, as every restore does (D110).
+            kept: [...back],
+          },
+        } : {}),
+      } : change;
+      return { change: withExtra, result: () => undefined };
     },
   });
 }
@@ -1785,17 +2028,19 @@ export interface StorageNotice {
 export function storageNotice(current: StoreState = state): StorageNotice | undefined {
   if (current.status === 'unavailable') {
     switch (current.failure?.code) {
+      // This copy is the newer one: an older connection hasn't let go (D107).
       case 'blocked':
         return {
           tone: 'warning',
-          title: 'Close the app’s other tabs',
-          detail: 'Another tab or window of this app is open and holding its data, so nothing is being saved here. Close the other tabs of this app, then try again.',
+          title: 'Close FitStrong’s other tabs',
+          detail: 'Another tab or window still has an older version of FitStrong open, so nothing is being saved here yet. Close the other tabs of FitStrong, and this one carries on by itself.',
         };
+      // This copy is the older one (D107).
       case 'stale':
         return {
           tone: 'warning',
-          title: 'This copy of the app is out of date',
-          detail: 'The app was updated in another tab or window. Reload this page to keep saving; anything you do before then is not saved.',
+          title: 'A newer version of FitStrong is open',
+          detail: 'FitStrong is open somewhere else with a newer version. Close this window and open FitStrong again. Nothing is saved here until then; your saved records are safe.',
         };
       case 'readFailed':
         return {
@@ -1846,6 +2091,8 @@ export interface ExportedRecord extends EncodedTransfer {
   exportedAt: string;
   /** The v2 record stores the file holds. */
   stores: RecordStore[];
+  /** The record is past a limit a restore applies: it still holds everything (D108). */
+  warning?: string;
 }
 
 /**
@@ -1867,7 +2114,8 @@ export function exportRecord(options: ExportOptions = {}): Promise<StoreResult<E
       const exportedAt = nowAt();
       const doc = toTransferDoc(snap, exportedAt, options);
       const file = await encode(doc);
-      return { ok: true as const, value: { ...file, revision: snap.revision, exportedAt, stores: doc.stores ?? [] } };
+      const excess = exportExcess(doc, { packed: file.bytes.byteLength, unpacked: file.textBytes });
+      return { ok: true as const, value: { ...file, revision: snap.revision, exportedAt, stores: doc.stores ?? [], ...(excess ? { warning: exportWarning(excess) } : {}) } };
     } catch (error) {
       const failure = toFailure(error, 'readFailed');
       note(failure);

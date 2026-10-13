@@ -115,7 +115,7 @@ function StatusBody({ preset, today, periods, startDate, onDone }: Props & { onD
               value={until}
               aria-describedby={error ? errorId : undefined}
               onChange={e => { setUntil(e.target.value); setError(undefined); }}
-              className="min-h-11 min-w-0 rounded-lg bg-transparent text-right text-[length:var(--text-body)] text-tint outline-none focus-visible:ring-2 focus-visible:ring-tint"
+              className="min-h-12 min-w-0 rounded-lg bg-transparent text-right text-[length:var(--text-body)] text-tint outline-none focus-visible:ring-2 focus-visible:ring-tint"
             />
           </label>
           {until !== '' && <Row label="No end date" className="text-tint" onClick={() => setUntil('')} />}
@@ -124,7 +124,7 @@ function StatusBody({ preset, today, periods, startDate, onDone }: Props & { onD
 
       {error && <p id={errorId} role="alert" className="px-4 text-[length:var(--text-subhead)] text-stop">{error}</p>}
 
-      <button type="button" disabled={busy} onClick={() => void apply()} className={cn(buttonBase, 'bg-tint text-on-tint')}>
+      <button type="button" disabled={busy} onClick={() => void apply()} className={cn(buttonBase, 'min-h-[3.75rem] bg-tint text-on-tint')}>
         {busy ? 'Saving…' : label}
       </button>
     </>
@@ -169,7 +169,7 @@ export function MovePlanBack({ offer, periods, startDate, takeFocus = false, onA
     onAnswered?.();
   };
 
-  const button = 'press-feedback flex min-h-11 w-full items-center justify-center rounded-lg bg-tint/10 px-3 py-2 text-[length:var(--text-body)] font-semibold text-tint disabled:opacity-50';
+  const button = 'press-feedback flex min-h-12 w-full items-center justify-center rounded-lg bg-tint/10 px-3 py-2 text-[length:var(--text-body)] font-semibold text-tint disabled:opacity-50';
   return (
     <Group header="Welcome back" footer="Your history stays as it is. Only the week your plan is in changes.">
       <div className="flex flex-col gap-3 px-4 py-3">

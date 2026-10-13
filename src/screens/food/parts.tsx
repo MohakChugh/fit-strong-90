@@ -244,25 +244,37 @@ function figure(text: string, max: number): number | undefined | null {
 }
 
 /** Your own food (journey §11.3): a name and what one portion is, with kcal and carbs only if known, and only with estimates. */
-export function OwnFoodPage({ name: typed, numbers, allergies, onBack, onAdd, onDirty }: {
+export function OwnFoodPage({ name: typed, numbers, allergies, onBack, onAdd, onDirty, food, action }: {
   name: string;
   numbers: NumbersView;
   /** The person's own, to name each one left unticked. */
   allergies: Allergies;
-  onBack: () => void;
+  /** Back to the meal; absent where the page stands on its own (Me → Food's own foods). */
+  onBack?: () => void;
   onAdd: (food: CustomFood) => void;
   onDirty?: (holds: boolean) => void;
+  /** The food being edited (K7-11): the fields start from it, and what is saved is a new version of it. */
+  food?: CustomFood;
+  /** The button's words: "Add to meal", or "Save changes". */
+  action?: string;
 }) {
   const ids = { name: useId(), qty: useId(), unit: useId() };
-  const [name, setName] = useState(typed);
-  const [qty, setQty] = useState('1');
-  const [unit, setUnit] = useState('plate');
-  const [kcal, setKcal] = useState('');
-  const [carbs, setCarbs] = useState('');
+  const start = {
+    name: food?.name ?? typed, qty: String(food?.per.qty ?? 1), unit: food?.per.unit ?? 'plate',
+    kcal: food?.kcal !== undefined ? String(food.kcal) : '', carbs: food?.carbsG !== undefined ? String(food.carbsG) : '',
+    // As they were answered: an empty list is "None of these", nothing listed is not known (H7-04).
+    allergens: (food?.allergens === undefined ? [] : food.allergens.length > 0 ? [...food.allergens] : ['none']) as (AllergenId | 'none')[],
+  };
+  const [name, setName] = useState(start.name);
+  const [qty, setQty] = useState(start.qty);
+  const [unit, setUnit] = useState(start.unit);
+  const [kcal, setKcal] = useState(start.kcal);
+  const [carbs, setCarbs] = useState(start.carbs);
   // Nothing ticked is unknown; "None of these" is an answer (H7-04).
-  const [allergens, setAllergens] = useState<(AllergenId | 'none')[]>([]);
+  const [allergens, setAllergens] = useState<(AllergenId | 'none')[]>(start.allergens);
   const [problem, setProblem] = useState<string>();
-  useHolds(name !== typed || qty !== '1' || unit !== 'plate' || kcal !== '' || carbs !== '' || allergens.length > 0, onDirty);
+  useHolds(name !== start.name || qty !== start.qty || unit !== start.unit || kcal !== start.kcal || carbs !== start.carbs
+    || allergens.join() !== start.allergens.join(), onDirty);
   const add = () => {
     const q = Number(qty);
     const k = numbers.show ? figure(kcal, 5000) : undefined;
@@ -272,16 +284,18 @@ export function OwnFoodPage({ name: typed, numbers, allergies, onBack, onAdd, on
     else if (k === null || c === null) setProblem(FOOD_COPY.ownBadFigure);
     else {
       const now = nowAt();
+      // An edited food keeps its identity and nothing else of it, so a cleared figure is gone; its new
+      // `updatedAt` is the new version (board D134).
       onAdd({
-        id: newCustomId(), name: name.trim().slice(0, 60), per: { qty: q, unit: unit.trim().slice(0, 20) },
+        id: food?.id ?? newCustomId(), name: name.trim().slice(0, 60), per: { qty: q, unit: unit.trim().slice(0, 20) },
         ...(k !== undefined ? { kcal: k } : {}), ...(c !== undefined ? { carbsG: c } : {}),
-        ...(allergens.length > 0 ? { allergens: allergens.filter((a): a is AllergenId => a !== 'none') } : {}), createdAt: now, updatedAt: now,
+        ...(allergens.length > 0 ? { allergens: allergens.filter((a): a is AllergenId => a !== 'none') } : {}), createdAt: food?.createdAt ?? now, updatedAt: now,
       });
     }
   };
   return (
     <div className="flex flex-col gap-4">
-      <BackToMeal onBack={onBack} />
+      {onBack && <BackToMeal onBack={onBack} />}
       <h3 className="px-1 text-[length:var(--text-body)] font-semibold">{FOOD_COPY.ownTitle}</h3>
       <div className="flex flex-col">
         <label htmlFor={ids.name} className={LABEL}>{FOOD_COPY.ownName}</label>
@@ -318,7 +332,7 @@ export function OwnFoodPage({ name: typed, numbers, allergies, onBack, onAdd, on
       </Group>
       {allergens.length > 0 && allergies.known.filter(a => !allergens.includes(a)).map(a => <Hint key={a}>{FOOD_COPY.ownUnticked(allergenName(a))}</Hint>)}
       {problem && <ErrorText>{problem}</ErrorText>}
-      <PrimaryButton onClick={add}>{FOOD_COPY.addToMeal}</PrimaryButton>
+      <PrimaryButton onClick={add}>{action ?? FOOD_COPY.addToMeal}</PrimaryButton>
     </div>
   );
 }

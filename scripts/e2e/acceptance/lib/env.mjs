@@ -18,8 +18,8 @@ export const NOW = Date.parse(NOW_ISO);
 export const MINUTE = 60_000;
 
 export const PROJECTS = [
-  { id: 'large-light', label: 'Large light', width: 430, height: 932, scheme: 'light' },
-  { id: 'large-dark', label: 'Large dark', width: 430, height: 932, scheme: 'dark' },
+  { id: 'large-light', label: 'Large light', width: 428, height: 926, scheme: 'light' },
+  { id: 'large-dark', label: 'Large dark', width: 428, height: 926, scheme: 'dark' },
   { id: 'small-light', label: 'Small light', width: 320, height: 568, scheme: 'light' },
   { id: 'small-dark', label: 'Small dark', width: 320, height: 568, scheme: 'dark' },
 ];

@@ -235,7 +235,7 @@ export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissibl
                 wraps as far as it needs. When the text is too large for that
                 to leave room, Close takes its own line and the title runs the
                 full width under it, rather than being cut short (scan S-04). */}
-            <div className="flex min-h-11 items-center gap-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] @max-[16rem]:flex-col-reverse @max-[16rem]:items-stretch @max-[16rem]:gap-0 @max-[16rem]:pl-0">
+            <div className="flex min-h-12 items-center gap-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] @max-[16rem]:flex-col-reverse @max-[16rem]:items-stretch @max-[16rem]:gap-0 @max-[16rem]:pl-0">
               <span aria-hidden className="invisible shrink-0 px-2 text-[length:var(--text-body)] @max-[16rem]:hidden">Close</span>
               <SheetTitle className="min-w-0 flex-1 py-2.5 text-center text-[length:var(--text-body)] font-semibold leading-tight [overflow-wrap:break-word] @max-[16rem]:pb-3 @max-[16rem]:pl-[min(1rem,20px)] @max-[16rem]:pr-2 @max-[16rem]:pt-0 @max-[16rem]:text-left">
                 {title}

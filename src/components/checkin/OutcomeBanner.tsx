@@ -70,7 +70,7 @@ export function OutcomeBanner({ permission: p, readiness, now }: { permission: P
       )}
 
       {toProfile && (
-        <a href="#/you/profile" className="press-feedback flex min-h-11 items-center self-start rounded-lg bg-muted px-3 text-[length:var(--text-body)] font-semibold text-tint">
+        <a href="#/you/profile" className="press-feedback flex min-h-12 items-center self-start rounded-lg bg-muted px-3 text-[length:var(--text-body)] font-semibold text-tint">
           Open Profile and health
         </a>
       )}

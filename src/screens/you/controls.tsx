@@ -16,7 +16,7 @@ export function PrimaryButton({ className, ...props }: ButtonHTMLAttributes<HTML
     <button
       type="button"
       className={cn(
-        'press-feedback flex min-h-[3.25rem] w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-center',
+        'press-feedback flex min-h-[3.75rem] w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-center',
         'text-[length:var(--text-body)] font-semibold text-on-tint disabled:opacity-50 disabled:active:scale-100',
         className,
       )}

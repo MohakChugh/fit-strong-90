@@ -69,7 +69,24 @@ const correctOldMeal = {
       await t.check(/Toor dal ×1½/.test(row), `Today’s log’s lunch reads “${row}”`);
       await ui.tab(page, 'Home');
       await t.check(await urgent(page).count() > 0, 'correcting a meal resolved the urgent low');
-      t.pending('Food’s trend is out of Plan 7: /trends/food stays on the Food hub (Plan 3). dailyNutrition() carries the corrected figures for it');
+      // Food's trend (Plan 8, D114): 28 September in September's list, "Estimated", the corrected figure, "in logged foods".
+      // Rounded as the app rounds a day's energy: to the whole kcal (`totalsOf`), then to the nearest 10 (`kcalText`).
+      const kcal = Math.round(lunch.items.reduce((sum, i) => sum + (i.kcal ?? 0), 0));
+      const want = `Estimated ${(Math.round(kcal / 10) * 10).toLocaleString('en-IN')} kcal in logged foods`;
+      await t.goto(`/trends/food?period=month&at=${DAY}`);
+      await ui.heading(page, 'Food');
+      const main = page.getByRole('main');
+      await ui.tap(ui.button(main, 'Show as list'));
+      // A table, or at 320 px a block a day (Plan 3's H3-17): only the one shown is in the accessibility tree, both named so.
+      const list = main.getByRole('table', { name: 'Food, September' }).or(main.getByRole('list', { name: 'Food, September' }));
+      await list.waitFor();
+      const day = list.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'Monday, 28 September' }) })
+        .or(list.getByRole('listitem').filter({ hasText: 'Monday, 28 September' }));
+      const listed = (await day.innerText()).replace(/\s+/g, ' ');
+      await t.check(listed.includes(want), `28 September in Food’s trend reads “${listed}”, not “${want}”`);
+      const text = (await main.innerText()).replace(/\s+/g, ' ');
+      await t.check(/Shown as logged, with no comparison to another period\./.test(text) && !/Highest|Higher than|Lower than/.test(text), `Food’s trend compares or ranks: ${text.slice(0, 300)}`);
+      await t.checkpoint('food-trend-september');
     });
 
     await t.step(4, 'The meal opens again with its earlier version listed', async () => {

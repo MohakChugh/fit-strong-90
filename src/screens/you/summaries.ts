@@ -18,6 +18,8 @@ import { waterBlock } from '@/reminders/water';
 import { movementBlock } from '@/reminders/advice';
 import type { StaleCopy } from '@/reminders/calendarNotice';
 import type { ImportPreview } from '@/store/transfer';
+import { countLabel, type CountLimit } from '@/store/limits';
+import { RECORD_STORES } from '@/store/records';
 import { isEnrolled } from '@/health/recommend';
 import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
 import { FOCUS_CHOICES } from '@/screens/welcome/focus';
@@ -347,8 +349,20 @@ export function previewLines(preview: ImportPreview): PreviewLine[] {
     { label: 'Check-ins', count: preview.checkIns },
     { label: 'Body measurements', count: preview.bodyMetrics },
     { label: 'Personal records', count: preview.personalRecords },
+    { label: 'Workout swaps', count: preview.focusOverrides },
+    { label: countLabel('contentState'), count: preview.contentState ?? 0 },
+    ...RECORD_STORES.map(store => ({ label: countLabel(store), count: preview.records?.[store] ?? 0 })),
   );
   return lines.filter(line => line.count > 0);
+}
+
+const CONFLICT_ORDER: readonly CountLimit[] = ['observations', 'sessions', 'checkIns', 'personalRecords', 'bodyMetrics', 'focusOverrides', 'contentState', ...RECORD_STORES];
+
+/** Each collection with records both here and in the file that differ, by name (B-26): the merge choice covers all of them. */
+export function conflictLines(preview: Pick<ImportPreview, 'conflicts'>): PreviewLine[] {
+  const c = preview.conflicts;
+  if (!c) return [];
+  return CONFLICT_ORDER.filter(name => c[name] > 0).map(name => ({ label: countLabel(name), count: c[name] }));
 }
 
 // ============================================================================

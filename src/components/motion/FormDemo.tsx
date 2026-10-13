@@ -14,12 +14,12 @@ export function FormDemo({ exerciseId, className }: { exerciseId: string; classN
   // Reset to correct form when the exercise changes.
   const clip = shown.id === exerciseId ? shown.clip : null;
   const pick = (c: string | null) => setShown({ id: exerciseId, clip: c });
-  const chip = 'flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium press-feedback';
+  const chip = 'flex min-h-12 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium press-feedback';
   return (
     <div className="flex flex-col gap-2">
       <ExerciseFigure exerciseId={exerciseId} playing mistake={clip} className={className} />
       {mistakes.length > 0 && (
-        <div role="radiogroup" aria-label="Show correct form or a common mistake" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+        <div role="radiogroup" aria-label="Show correct form or a common mistake" className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
           <button type="button" role="radio" aria-checked={clip === null} onClick={() => pick(null)}
             className={cn(chip, clip === null ? 'border-transparent bg-[var(--block-mobility-ink)] text-[var(--on-ink)]' : 'bg-background')}>
             <CheckIcon className="size-4" aria-hidden /> Correct form

@@ -432,7 +432,7 @@ function Checkpoint({ item, onAnswer }: { item: Item; onAnswer: (a: Answer) => v
         </p>
       </div>
       {/* Wraps rather than squeezing the words at large text. */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-3">
         {ANSWERS.map(({ answer, label }) => (
           <button key={answer} type="button" onClick={() => onAnswer(answer)}
             className="press-feedback flex min-h-12 flex-1 items-center justify-center whitespace-nowrap rounded-xl bg-grouped-bg px-3 text-[length:var(--text-body)] font-medium text-tint">

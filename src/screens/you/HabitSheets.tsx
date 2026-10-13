@@ -208,7 +208,7 @@ function WaterBody({ close }: { close: () => void }) {
                 placeholder="None"
                 aria-invalid={!goal.ok}
                 onChange={e => setGoalText(e.target.value)}
-                className="numeric min-h-11 w-28 rounded-lg bg-muted/60 px-3 text-right text-[length:var(--text-body)] outline-none placeholder:text-muted-foreground focus-visible:ring-3 focus-visible:ring-tint/40"
+                className="numeric min-h-12 w-28 rounded-lg bg-muted/60 px-3 text-right text-[length:var(--text-body)] outline-none placeholder:text-muted-foreground focus-visible:ring-3 focus-visible:ring-tint/40"
               />
               <span className="text-[length:var(--text-body)] text-muted-foreground">ml</span>
             </label>

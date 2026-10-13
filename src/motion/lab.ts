@@ -7,6 +7,7 @@
  *   &sex=female  &side=right  &play=1  &work=glutes,quads  &stretch=hamstrings
  * scripts/motion/shot.mjs screenshots it.
  */
+import { MODEL_URL } from './models';
 import { MotionViewer } from './viewer';
 import { repTimeline } from './clip';
 import { getClip } from './clips';
@@ -47,7 +48,7 @@ for (const { clip, mistake } of rows) for (const view of viewsFor(clip)) for (co
   cell.append(label);
   grid.append(cell);
   if (!clip.keys.length) { label.textContent += ' · NO CLIP'; continue; }
-  const v = new MotionViewer(cell, { modelUrl: `${import.meta.env.BASE_URL}models/coach-${sex}.bin`, still, pixelRatio: 1.25 });
+  const v = new MotionViewer(cell, { modelUrl: MODEL_URL[sex], still, pixelRatio: 1.25 });
   ready.push(v.load().then(() => {
     v.setClip({ ...clip, view }, { side, mistake, highlight });
     v.setPlaying(!still);

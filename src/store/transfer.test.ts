@@ -770,7 +770,7 @@ describe('v2 record stores in a backup (Plan 6 Task 1)', () => {
   it('refuses a store this build does not know, and more routes than a lifetime holds, before reading them', () => {
     expect(previewImport(file({ stores: ['routes', 'diaries'] as never }))).toMatchObject({ ok: false, reason: expect.stringMatching(/cannot read/) });
     const huge = withRoutes(...Array.from({ length: 100_001 }, () => ({}) as StoredRecord));
-    expect(previewImport(huge)).toMatchObject({ ok: false, reason: expect.stringMatching(/more routes/) });
+    expect(previewImport(huge)).toMatchObject({ ok: false, reason: expect.stringMatching(/holds 1,00,001 walk routes/) });
   });
 
   it('refuses a file whose records are damaged rather than reading a named store as empty', () => {

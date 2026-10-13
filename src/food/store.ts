@@ -6,8 +6,9 @@
  */
 import { StoreFailure, type StoreResult } from '@/store/db';
 import { sameValue } from '@/store/transfer';
-import { freshId, putRecords, removeRecords, writeRecords } from '@/store/useStore';
-import { corrected, mealsIn, restored, stored } from './records';
+import { nowAt } from '@/health/observation';
+import { deleteRecord, freshId, writeRecords } from '@/store/useStore';
+import { corrected, customFoodsIn, mealsIn, stored } from './records';
 import type { CustomFood, MealRecord, SavedMeal } from './types';
 
 export const newMealId = (): string => freshId('meal-');
@@ -50,20 +51,28 @@ export function saveCorrection(
   });
 }
 
-export const deleteMeal = (id: string): Promise<StoreResult> => removeRecords('meals', [id]);
+/** A meal deleted at once and kept in Recently deleted for 7 days (B-04, B-05, D109). Resolves with the entry's id; `restoreDeleted` brings it back. */
+export const deleteMeal = (id: string): Promise<StoreResult<string>> => deleteRecord({ kind: 'meal', id });
 
-/** Undo a meal's delete (B-05): the meal again, under a fresh id. */
-export async function restoreMeal(meal: MealRecord): Promise<StoreResult<MealRecord>> {
-  const back = restored(meal, newMealId());
-  const result = await putRecords('meals', [stored(back)]);
-  return result.ok ? { ok: true, value: back } : result;
-}
+/** A usual meal, the same way. */
+export const deleteUsual = (id: string): Promise<StoreResult<string>> => deleteRecord({ kind: 'usualMeal', id });
 
-export const deleteUsual = (id: string): Promise<StoreResult> => removeRecords('savedMeals', [id]);
+/** One of the person's own foods, the same way (D111). Each meal keeps its own copy of the food, so none changes. */
+export const deleteOwnFood = (id: string): Promise<StoreResult<string>> => deleteRecord({ kind: 'ownFood', id });
 
-/** Undo a usual meal's delete, under a fresh id. */
-export async function restoreUsual(usual: SavedMeal): Promise<StoreResult<SavedMeal>> {
-  const back = restored(usual, newUsualId());
-  const result = await putRecords('savedMeals', [stored(back)]);
-  return result.ok ? { ok: true, value: back } : result;
+/**
+ * An own food edited (K7-11): a new version of its definition, under the
+ * same id. Its `updatedAt` is the version, so a merge takes the copy changed
+ * last. Each meal item keeps its own snapshot of the food and the version it
+ * was (Plan 7's fix, board D134), so only meals logged from now on take the
+ * change. One deleted since, on another screen or in another tab, is never
+ * brought back by an edit: only its Restore does that.
+ */
+export function editOwnFood(food: CustomFood): Promise<StoreResult> {
+  return writeRecords(records => {
+    if (!customFoodsIn(records).some(f => f.id === food.id)) {
+      throw new StoreFailure('conflict', 'That food was deleted elsewhere, so this wasn’t saved. Nothing was changed.');
+    }
+    return { put: { customFoods: [stored({ ...food, updatedAt: nowAt() })] } };
+  });
 }

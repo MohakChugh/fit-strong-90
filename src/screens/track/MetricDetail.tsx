@@ -164,7 +164,7 @@ function MetricScreen({ metric }: { metric: MetricId }) {
           type="button"
           onClick={() => setLogOpen(true)}
           aria-label={`Add ${spec.title.toLowerCase()}`}
-          className="press-feedback flex size-[44px] items-center justify-center rounded-full text-tint"
+          className="press-feedback flex size-[48px] items-center justify-center rounded-full text-tint"
         >
           <PlusIcon className="size-[28px]" strokeWidth={2} aria-hidden />
         </button>
@@ -196,7 +196,7 @@ function MetricScreen({ metric }: { metric: MetricId }) {
             <button
               type="button"
               onClick={() => set(metric === 'glucose' ? { group: 'all', period: 'year' } : { period: 'year' })}
-              className="press-feedback min-h-11 text-[length:var(--text-body)] font-medium text-tint"
+              className="press-feedback min-h-12 text-[length:var(--text-body)] font-medium text-tint"
             >
               {metric === 'glucose' ? 'Show all readings for the year' : 'Show the last year'}
             </button>

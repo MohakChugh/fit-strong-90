@@ -172,7 +172,7 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
       <button
         type="submit"
         disabled={!pattern || saving}
-        className="press-feedback min-h-[3.125rem] rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint disabled:opacity-50"
+        className="press-feedback min-h-[3.75rem] rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint disabled:opacity-50"
       >
         {saving ? 'Saving…' : 'Show meal ideas'}
       </button>

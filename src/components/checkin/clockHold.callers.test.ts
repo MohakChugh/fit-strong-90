@@ -31,6 +31,7 @@ const { buildCheckIn, formFromRecord } = await import('./form');
 const { evaluateCheckIn } = await import('@/engine/readiness');
 const { permission, PERMISSION_TEXT } = await import('@/engine/permission');
 const { deviceClinical } = await import('@/walk/gate');
+const { CLOCK_REFUSAL } = await import('@/store/db');
 const { CLOCK_RETRY_MS } = store;
 
 const onInsulin = createDefaultProfile({
@@ -132,12 +133,16 @@ describe('a change to the phone’s clock, held by the device until a reading ta
     host.unmount();
   });
 
-  it('Track’s reading from before, corrected to a time after the change, releases nothing; one acquired since, as Quick Log stamps it, does (H6R-03, board D186)', async () => {
+  it('Track’s reading from before, retimed to after the change, is refused and releases nothing; one acquired since, as Quick Log stamps it, does (H6R-03, board D186, D119)', async () => {
     const before = await store.addObservation({ kind: 'glucose', value: 128, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: '2026-10-09T09:05:00+05:30' });
     expect(before.ok && before.value.gen).toBeUndefined();
     await store.markClockChange([DAY]);
+    // While the phone's clock change holds the device, no reading is changed: none's age can be known (D119, P8S-02).
     const moved = await store.editObservation(before.ok ? before.value.id : '', { at: '2026-10-09T09:15:00+05:30' });
-    expect(moved.ok && moved.value.gen).toBeUndefined();
+    expect(!moved.ok && moved.failure.message).toBe(CLOCK_REFUSAL);
+    const kept = store.getState().observations.find(o => before.ok && o.id === before.value.id);
+    expect(kept && Date.parse(kept.at)).toBe(Date.parse('2026-10-09T09:05:00+05:30'));
+    expect(kept?.gen).toBeUndefined();
     expect(held()).toEqual(ALL);
     // Stored with no stamp, the store adds none.
     const unstamped = await store.addObservation({ kind: 'glucose', value: 127, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: '2026-10-09T09:15:30+05:30' });

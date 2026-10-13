@@ -196,7 +196,7 @@ function bucketCell(range: DayRange, figures: readonly DayFigure[], { def, prefs
   return { value: s.perDay, text: `${brief} on average, from ${countText(s.days, def.coverage)}`, brief };
 }
 
-function slotLabel(period: TrendPeriod, b: DayRange): string {
+export function slotLabel(period: TrendPeriod, b: DayRange): string {
   switch (period) {
     case 'week': return format(noon(b.from), 'EEE');
     case 'month': return String(Number(b.from.slice(8, 10)));
@@ -205,7 +205,7 @@ function slotLabel(period: TrendPeriod, b: DayRange): string {
   }
 }
 
-function slotName(period: TrendPeriod, b: DayRange, today: string): string {
+export function slotName(period: TrendPeriod, b: DayRange, today: string): string {
   if (period === 'week' || period === 'month') return formatDayLong(b.from, today);
   return period === 'sixMonths' ? rangeText(b, today) : format(noon(b.from), 'MMMM yyyy');
 }

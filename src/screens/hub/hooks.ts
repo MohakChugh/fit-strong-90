@@ -16,6 +16,7 @@ import { gateOf, isEnrolled, nextBoundary, recommend } from '@/health/recommend'
 import { periodOn, type Status } from '@/health/status';
 import { useGuided } from '@/hooks/useGuided';
 import { prefersHour12 } from '@/lib/time';
+import { programmeDone } from '@/lib/utils';
 import { normalLine } from '@/screens/home/model';
 import { movementLine } from '@/screens/home/tileLine';
 import { recommendSources, withEffectiveToday } from '@/screens/home/urgent';
@@ -45,8 +46,10 @@ export function useHubGate(mode: Mode) {
   const gate = gateOf(permissions[mode], guided.checkIn, profileGap);
   const stretchGate = gateOf(permissions.stretch, guided.checkIn, profileGap);
   const recheckAt = guided.checkIn?.readiness.recheckAt;
+  // After the twelve weeks nothing is planned (D116), as Home's `lineOf` says it.
+  const done = programmeDone(state.settings.startDate, today);
   const line = movementLine({
-    mode, permission: permissions[mode], status, enrolled, normal: normalLine(mode, { recommendation, enrolled, plan: guided.plan }),
+    mode, permission: permissions[mode], status, enrolled, normal: normalLine(mode, { recommendation, enrolled, plan: guided.plan, done }), done,
     ...(recheckAt ? { recheckAt } : {}), now, hour12: HOUR12, ...(left ? { gapChapter: left.chapter } : {}),
   });
   return {

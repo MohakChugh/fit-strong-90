@@ -16,6 +16,7 @@ import {
   addAvoid,
   chapterSections,
   conditionsLine,
+  conflictLines,
   countsSentence,
   everyLabel,
   copyLine,
@@ -440,5 +441,11 @@ describe('routes in a restore (journey §18.3, B-26, Review Focus 4, H6-05)', ()
       'The file’s 3 routes won’t be added, because this phone doesn’t keep routes. To add them, turn on Keep walk routes in Me → Data, then restore the file again.',
       'Replacing removes this phone’s 2 routes too.',
     ]);
+  });
+});
+
+describe('conflicts by collection, in words (B-26)', () => {
+  it('says nothing when nothing differs', () => {
+    expect(conflictLines({})).toEqual([]);
   });
 });

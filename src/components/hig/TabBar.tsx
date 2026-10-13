@@ -105,7 +105,7 @@ export function TabBar() {
                   // Tabs grow with the text size, but no taller than 72px and no label past 18px, so "Browse"
                   // still fits a quarter of a 320px bar with room between: as iOS does, the bar never outgrows the screen.
                   'flex min-h-[min(3.5rem,72px)] w-full min-w-0 flex-col items-center justify-center gap-0.5 rounded-full px-1 text-[min(var(--text-footnote),18px)] font-semibold leading-tight transition-colors',
-                  'lg:min-h-11 lg:flex-row lg:justify-start lg:gap-3 lg:rounded-lg lg:px-3 lg:text-[length:var(--text-body)]',
+                  'lg:min-h-12 lg:flex-row lg:justify-start lg:gap-3 lg:rounded-lg lg:px-3 lg:text-[length:var(--text-body)]',
                   active ? 'text-foreground lg:bg-tint/15' : 'text-foreground/80 lg:hover:bg-muted',
                 )}
               >

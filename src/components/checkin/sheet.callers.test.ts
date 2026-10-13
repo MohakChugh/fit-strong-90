@@ -7,6 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { heldIn } from '@/test/held';
 import { createElement, useEffect } from 'react';
 import type { CheckInRecord, DailyCheckIn, Mode } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
@@ -1462,8 +1463,11 @@ describe('P-01: a record a gate reads, saved as it is, is stored as a check-in a
     const cached = effectiveCheckIns(store.getState().checkIns, p, store.getState().observations).find(c => c.date === DAY)!;
     expect(cached).toHaveProperty('durable');
     expect(cached).toHaveProperty('logged');
-    // The day then goes from the device and nothing waits for it: the cached copy is saved as it is.
-    expect((await store.removeCheckIn(DAY)).ok).toBe(true);
+    // The day then goes from the device and nothing waits for it: the cached copy is saved as it is. Taken
+    // by "Delete all data", the one change the engine isn't asked about: removing the day alone, which holds
+    // movement, is refused (board D119).
+    expect(heldIn(await store.removeCheckIn(DAY))).toBeDefined();
+    expect((await store.clearAll()).ok).toBe(true);
     resetPendingCheckInsForTests();
     const saved = await saveCheckInRecord(cached, { profile: p, update: store.update });
     expect(saved.stored).toBe(true);

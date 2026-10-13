@@ -19,7 +19,6 @@ import { Group, Row } from '@/components/hig/List';
 import { Ring } from '@/components/hig/Ring';
 import { countsFree, numbersView } from '@/food/level';
 import { mealsIn } from '@/food/records';
-import { useFoodUndoScope } from '@/screens/food/undo';
 import { useStore } from '@/store/useStore';
 import { RouteThumb } from '@/screens/walk/RouteThumb';
 import type { RouteRecord } from '@/walk/routeRecord';
@@ -29,6 +28,7 @@ import { GoalSheet } from './GoalSheet';
 import { WHO_WEEKLY_MINUTES, recordedMovement, wholeMinutes } from './movement';
 import { addDays, clampDay, weekOf } from './periods';
 import { QuickLog, type SavedResult } from './QuickLog';
+import { RecentlyDeleted } from './RecentlyDeleted';
 import { displayPrefs, parseAddParam } from './logKinds';
 import { applyChange, mergeChanges, type ParamChange, type View } from './params';
 import { assembleDay, recordPath, type DayView } from './timeline';
@@ -62,8 +62,6 @@ export function MyDay({ day: pathDay }: {
   const state = useStore();
   const current = useToday();
   const location = useLocation();
-  // A meal deleted from here keeps its Undo until the person leaves (B-04).
-  useFoodUndoScope(location.pathname);
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const day = clampDay(pathDay ?? params.get('day'), current);
@@ -158,7 +156,7 @@ export function MyDay({ day: pathDay }: {
           type="button"
           onClick={() => setChooserOpen(true)}
           aria-label="Add a record"
-          className="press-feedback flex size-[44px] items-center justify-center rounded-full text-tint"
+          className="press-feedback flex size-[48px] items-center justify-center rounded-full text-tint"
         >
           <PlusIcon className="size-[28px]" strokeWidth={2} aria-hidden />
         </button>
@@ -260,6 +258,7 @@ function TimelineView({ day, current, fresh, origin, prefs, onAdd, onGoal }: {
             Add a record
           </PrimaryButton>
         </div>
+        {day === current && <RecentlyDeleted prefs={prefs} today={current} />}
       </>
     );
   }
@@ -304,6 +303,7 @@ function TimelineView({ day, current, fresh, origin, prefs, onAdd, onGoal }: {
           ))}
         </Group>
       )}
+      {day === current && <RecentlyDeleted prefs={prefs} today={current} />}
     </>
   );
 }

@@ -1,7 +1,9 @@
 /**
  * Record detail: one reading, blood-pressure reading, walk, session or
  * check-in, with where it came from and, where the store allows it, a way to
- * correct or delete it. Deleting asks once and says what it will change.
+ * correct or delete it. A routine delete happens at once, with Undo, and
+ * waits in Recently deleted; one that would lift a hold is refused in place
+ * (D119); deleting a route is its own confirmed erase.
  */
 
 import { useMemo, useState } from 'react';
@@ -11,7 +13,7 @@ import { Group, Row } from '@/components/hig/List';
 import { Stat } from '@/components/hig/Stat';
 import { countsFree } from '@/food/level';
 import { pairBloodPressure, type BpReading } from '@/health/aggregate';
-import { bpReadingId, checkInDayOf, compareObservations, isBpKind, type Observation } from '@/health/observation';
+import { bpReadingId, checkInDayOf, compareObservations, isBpKind, nowAt, type Observation } from '@/health/observation';
 import { walkRecords } from '@/walk/record';
 import { RouteFrame } from '@/screens/walk/RouteFrame';
 import { walkSettings } from '@/walk/consent';
@@ -20,8 +22,12 @@ import { noRouteLine } from '@/walk/readout';
 import type { RouteRecord } from '@/walk/routeRecord';
 import { getStrength, nameOf } from '@/data/catalog';
 import { sessionSeconds } from '@/session/logging';
-import { removeObservation, removeReading, removeRecords, removeWalk, update, useStore } from '@/store/useStore';
-import { removeCheckInReading, type CheckInReading } from '@/components/checkin/pending';
+import { deleteRecord, freshId, getState, removeRecords, restoreDeleted, update, useStore } from '@/store/useStore';
+import { ALREADY_BACK, NEWER_STAYS, removeCheckInReading, restoreCheckInReading, type CheckInReading } from '@/components/checkin/pending';
+import { HeldProblem } from '@/components/checkin/HeldProblem';
+import { offerUndo, type UndoOutcome } from '@/components/hig/undo';
+import { isHeld, type HoldFailure } from '@/store/db';
+import { NOT_RECENT, asRecent, recentKey } from '@/store/recent';
 import { BACK_LABEL, EMERGENCY_LABEL, NEWS_LABEL, URINE_LABEL } from '@/components/checkin/copy';
 import type { CheckInRecord } from '@/types/checkin';
 import type { WorkoutSession } from '@/types';
@@ -35,7 +41,7 @@ import {
 import { displayPrefs } from './logKinds';
 import type { Origin } from './MyDay';
 import { glucoseFlag, pressureFlag } from './escalation';
-import { CHECK_IN_TIME, countsForDay, deleteConsequence, editBlock, replacedBlock, rewritable } from './records';
+import { CHECK_IN_TIME, countsForDay, editBlock, replacedBlock, rewritable } from './records';
 import {
   BMI_FRAMEWORKS_NOTE, ageForTargets, bmiOf, clinicianOverrides, interpretB12, interpretBmi, interpretGlucose, interpretHba1c, interpretPressure,
   interpretVitaminD, minutesAfterMealStart, pressureReference, type Interpretation as Reading,
@@ -103,6 +109,28 @@ function Actions({ canEdit, editBlocked, onEdit, deleteLabel, onDelete }: {
 // A reading or a day total
 // ============================================================================
 
+/** "Not deleted: …", under the record's actions, for a delete that went at once and failed. */
+function DeleteProblem({ message }: { message?: string }) {
+  return message ? <p role="alert" className="px-4 text-[length:var(--text-subhead)] text-stop">Not deleted: {message}</p> : null;
+}
+
+/** A routine delete's Undo (B-04): offered on the screen the person goes back to. */
+function undoFor(entry: string, said: string, scope: string, undo: () => Promise<UndoOutcome>): void {
+  offerUndo({ text: `${said} deleted`, restored: `${said} restored`, scope, entry, undo });
+}
+const restoring = (entry: string) => async (): Promise<UndoOutcome> => {
+  const back = await restoreDeleted(entry);
+  return back.ok ? { done: true } : { done: false, problem: back.failure.message };
+};
+/** Undo for a check-in's reading: back into its check-in, where it stood, and into the series (D110, K8-06). */
+const checkInRestore = (entry: string, deps: Parameters<typeof restoreCheckInReading>[1]) => async (): Promise<UndoOutcome> => {
+  const row = asRecent(getState().contentState[recentKey(entry)]);
+  if (!row?.kept) return { done: false, problem: NOT_RECENT };
+  const back = await restoreCheckInReading({ id: entry, kept: row.kept, ...(row.observations ? { observations: row.observations } : {}) }, deps);
+  if (back.unchanged) return { done: true, said: back.unchanged === 'already' ? ALREADY_BACK : NEWER_STAYS };
+  return back.stored && back.matched ? { done: true } : { done: false, problem: back.failure ?? 'the device did not keep it.' };
+};
+
 export function ReadingDetail() {
   const { id = '' } = useParams();
   const { observations, profile } = useStore();
@@ -112,14 +140,14 @@ export function ReadingDetail() {
   const { origin, back, leave } = useOrigin();
   const o = observations.find(x => x.id === id);
   const [editing, setEditing] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string>();
+  const [held, setHeld] = useState<HoldFailure>();
 
   if (!o) return <Gone title="Record" back={back} />;
   // A blood-pressure half is shown as the reading it belongs to, and a walk's
   // own measurement as the walk. A pain rating given after a walk is a reading
   // of its own, which says which walk it followed.
-  if (isBpKind(o.kind)) return <PressureView readingId={bpReadingId(o.context) ?? o.id} />;
+  if (isBpKind(o.kind)) return <PressureView readingId={bpReadingId(o.context) ?? o.id} kept={[error, setError]} />;
   const walkId = o.context?.startsWith('walk:') ? o.context.slice('walk:'.length) : undefined;
   if (walkId !== undefined && o.scope !== 'pointInTime') {
     return <Navigate to={recordPath({ type: 'walk', id: walkId })} replace state={origin} />;
@@ -149,15 +177,24 @@ export function ReadingDetail() {
     : o.kind === 'glucose' && o.unit ? { kind: 'glucose', ...(o.timeUnknown ? {} : { at: o.at }), value: o.value, unit: o.unit }
       : o.kind === 'backPain' || o.kind === 'legPain' ? { kind: o.kind, value: o.value }
         : undefined;
+  // Every reading goes at once, with Undo, and waits in Recently deleted (B-04, D111). One
+  // that still holds movement is refused, with v1's way out for one typed wrongly (D119).
   const remove = async () => {
+    setError(undefined);
+    setHeld(undefined);
+    const said = `${kindTitle(o.kind)} ${formatObservation(o, prefs)}`;
     if (inCheckIn && checkInDay && profile) {
-      const result = await removeCheckInReading(inCheckIn, [o.id], { profile, update, date: checkInDay });
-      if (!result.stored) return setError(`Not deleted: ${result.failure ?? 'the device did not keep it.'}`);
+      const entry = freshId('deleted-');
+      const deps = { profile, update, date: checkInDay };
+      const result = await removeCheckInReading(inCheckIn, [o.id], deps, { entry, at: nowAt(), observations: [o] });
+      if (result.held) return setHeld(result.held);
+      if (!result.stored) return setError(result.failure ?? 'the device did not keep it.');
+      undoFor(entry, said, origin.path, checkInRestore(entry, deps));
     } else {
-      const result = await removeObservation(o.id);
-      if (!result.ok) return setError(result.failure.message);
+      const result = await deleteRecord({ kind: 'reading', id: o.id });
+      if (!result.ok) return isHeld(result.failure) ? setHeld(result.failure) : setError(result.failure.message);
+      undoFor(result.value, said, origin.path, restoring(result.value));
     }
-    setConfirming(false);
     leave();
   };
 
@@ -215,19 +252,12 @@ export function ReadingDetail() {
         editBlocked={blocked ?? (checkInDay && !isTotal ? CHECK_IN_TIME : undefined)}
         onEdit={() => setEditing(true)}
         deleteLabel={isTotal ? 'Delete this entry' : 'Delete this reading'}
-        onDelete={() => { setError(undefined); setConfirming(true); }}
+        onDelete={() => void remove()}
       />
+      {held && <HeldProblem failure={held} profile={profile} onAnswered={() => { setHeld(undefined); void remove(); }} />}
+      <DeleteProblem message={error} />
 
       {blocked === undefined && <EditReadingSheet open={editing} onOpenChange={setEditing} observation={o} prefs={prefs} />}
-      <ConfirmSheet
-        open={confirming}
-        onOpenChange={setConfirming}
-        title={isTotal ? 'Delete this entry?' : 'Delete this reading?'}
-        detail={deleteConsequence(o, observations, prefs)}
-        confirm="Delete"
-        onConfirm={() => void remove()}
-        error={error}
-      />
     </Screen>
   );
 }
@@ -264,14 +294,19 @@ export function PressureDetail() {
   return <PressureView readingId={id} />;
 }
 
-function PressureView({ readingId }: { readingId: string }) {
+function PressureView({ readingId, kept }: {
+  readingId: string;
+  /** Why a delete failed, kept by `ReadingDetail` for a half opened as a reading: it stays while the reading is gone for a moment during its own delete. */
+  kept?: [string | undefined, (error: string | undefined) => void];
+}) {
   const { observations, profile, checkIns, sessions } = useStore();
   const prefs = usePrefs();
   const current = useToday();
-  const { back, leave } = useOrigin();
+  const { origin, back, leave } = useOrigin();
   const [editing, setEditing] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [error, setError] = useState<string>();
+  const own = useState<string>();
+  const [error, setError] = kept ?? own;
+  const [held, setHeld] = useState<HoldFailure>();
   const reading: BpReading | undefined = useMemo(
     () => pairBloodPressure(observations.filter(o => isBpKind(o.kind) && (bpReadingId(o.context) ?? o.id) === readingId))[0],
     [observations, readingId],
@@ -293,22 +328,27 @@ function PressureView({ readingId }: { readingId: string }) {
   const whole = rewritable(reading);
 
   const remove = async () => {
-    // A check-in's reading leaves its record too, in the same write (C2-01).
+    setError(undefined);
+    setHeld(undefined);
+    const said = `Blood pressure ${formatPressure(reading)}`;
+    // A check-in's reading leaves its record too, in the same write (C2-01), and waits in Recently deleted.
     if (checkInDay && profile && reading.systolic !== null && reading.diastolic !== null) {
       const timed = !reading.halves.some(h => h.timeUnknown);
+      const entry = freshId('deleted-');
+      const deps = { profile, update, date: checkInDay };
       const result = await removeCheckInReading(
         { kind: 'pressure', ...(timed ? { at: reading.at } : {}), sys: reading.systolic, dia: reading.diastolic },
-        reading.halves.map(h => h.id),
-        { profile, update, date: checkInDay },
+        reading.halves.map(h => h.id), deps, { entry, at: nowAt(), observations: reading.halves },
       );
-      if (!result.stored) return setError(`Not deleted: ${result.failure ?? 'the device did not keep it.'}`);
-      setConfirming(false);
+      if (result.held) return setHeld(result.held);
+      if (!result.stored) return setError(result.failure ?? 'the device did not keep it.');
+      undoFor(entry, said, origin.path, checkInRestore(entry, deps));
       return leave();
     }
     // Both halves go together: one alone would be a reading nobody can read.
-    const result = paired ? await removeReading(readingId) : await removeObservation(first.id);
-    if (!result.ok) return setError(result.failure.message);
-    setConfirming(false);
+    const result = await deleteRecord(paired ? { kind: 'pressure', readingId } : { kind: 'reading', id: first.id });
+    if (!result.ok) return isHeld(result.failure) ? setHeld(result.failure) : setError(result.failure.message);
+    undoFor(result.value, said, origin.path, restoring(result.value));
     leave();
   };
 
@@ -333,18 +373,11 @@ function PressureView({ readingId }: { readingId: string }) {
           : whole ? undefined : checkInDay ? 'Only the numbers can be corrected here: the time is your check-in’s.' : 'Only the numbers of this reading can be corrected.'}
         onEdit={() => setEditing(true)}
         deleteLabel="Delete this reading"
-        onDelete={() => { setError(undefined); setConfirming(true); }}
+        onDelete={() => void remove()}
       />
+      {held && <HeldProblem failure={held} profile={profile} onAnswered={() => { setHeld(undefined); void remove(); }} />}
+      <DeleteProblem message={error} />
       {reading.source === 'manual' && <EditPressureSheet open={editing} onOpenChange={setEditing} reading={reading} />}
-      <ConfirmSheet
-        open={confirming}
-        onOpenChange={setConfirming}
-        title="Delete this reading?"
-        detail="Both numbers are removed from this device. This cannot be undone."
-        confirm="Delete"
-        onConfirm={() => void remove()}
-        error={error}
-      />
     </Screen>
   );
 }
@@ -359,8 +392,7 @@ export function WalkDetail() {
   const prefs = usePrefs();
   const current = useToday();
   const location = useLocation();
-  const { back, leave } = useOrigin();
-  const [confirming, setConfirming] = useState(false);
+  const { origin, back, leave } = useOrigin();
   const [droppingRoute, setDroppingRoute] = useState(false);
   const [error, setError] = useState<string>();
   // The whole walk, every segment and any time added for a gap (walk/record.ts).
@@ -375,17 +407,14 @@ export function WalkDetail() {
   // them could disagree with the one the walk showed (F16).
   // Pain given after the walk is the person's own reading, kept if the walk goes.
   const ratings = walk.observations.filter(o => o.scope === 'pointInTime').sort(compareObservations);
-  // The walk's own measurements; a day total it reported belongs to the day.
-  const doomed = walk.observations.filter(o => o.scope === 'sessionObserved');
   const here: Origin = { path: location.pathname, label: 'Walk' };
 
+  // A walk goes at once, with everything recorded with it, and waits in Recently deleted (B-04, D110, D111).
   const remove = async () => {
-    // Every segment's time, movement, distance and steps in one write, with
-    // its route and any journal: all of them, or none, so a failure leaves the
-    // whole walk and its retry (F10).
-    const result = await removeWalk(walk.id, doomed.map(o => o.id));
+    setError(undefined);
+    const result = await deleteRecord({ kind: 'walk', walkId: walk.id });
     if (!result.ok) return setError(`This walk was not deleted: ${result.failure.message}`);
-    setConfirming(false);
+    undoFor(result.value, 'Walk', origin.path, restoring(result.value));
     leave();
   };
 
@@ -422,17 +451,9 @@ export function WalkDetail() {
       )}
       <Group footer="Walks are recorded by the app as you walk, so they are not corrected by hand.">
         {route && <Row label={<span className="text-stop">Delete this route</span>} detail="The walk’s time and distance stay." onClick={() => { setError(undefined); setDroppingRoute(true); }} />}
-        <Row label={<span className="text-stop">Delete this walk</span>} onClick={() => { setError(undefined); setConfirming(true); }} />
+        <Row label={<span className="text-stop">Delete this walk</span>} onClick={() => void remove()} />
       </Group>
-      <ConfirmSheet
-        open={confirming}
-        onOpenChange={setConfirming}
-        title="Delete this walk?"
-        detail={`Its time, distance and steps are removed from this device. This cannot be undone.${ratings.length > 0 ? ' Your pain ratings from after the walk are kept.' : ''}${route ? ' Its route goes too.' : ''}`}
-        confirm="Delete"
-        onConfirm={() => void remove()}
-        error={error}
-      />
+      {error && !droppingRoute && <p role="alert" className="px-4 text-[length:var(--text-subhead)] text-stop">{error}</p>}
       <ConfirmSheet
         open={droppingRoute}
         onOpenChange={setDroppingRoute}

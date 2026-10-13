@@ -6,7 +6,7 @@ import { StoreFailure, type StoreResult } from '@/store/db';
 import type { DailyCheckIn } from '@/types/checkin';
 import {
   canSwapToday, guidedRow, guidedSummary, JOIN_CLOSED, joinController, joinFlow, joinSeed, mondayOf, planView, overrideFor, programmeWeek, programmeWeekDates, startDateProblem,
-  STATUS_TEXT, swapChoices, swapToday, weekNote, weekView, withLeft, type JoinAction, type JoinFlow, type WeekDay,
+  STATUS_TEXT, swapChoices, swapToday, weekNote, weekView, withLeft, withRestart, type JoinAction, type JoinFlow, type WeekDay,
 } from './plan';
 import { JOIN } from '@/setup/fixtures';
 
@@ -483,3 +483,13 @@ describe('which view Your plan shows while membership is being saved (R02)', () 
   });
 });
 
+
+describe('Start the 12 weeks again (D116)', () => {
+  it('starts week 1 today, and changes nothing recorded', () => {
+    const before = { settings: { startDate: '2026-07-17', focus: 'strength' }, sessions: [{ id: 's1' }] } as unknown as AppData;
+    const after = withRestart('2026-10-09')(before);
+    expect(after.settings.startDate).toBe('2026-10-09');
+    expect(after.settings.focus).toBe('strength');
+    expect(after.sessions).toBe(before.sessions);
+  });
+});

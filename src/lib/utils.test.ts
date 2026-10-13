@@ -6,6 +6,7 @@ import {
   getDayOfWeekFromDate,
   getCurrentDayOfWeek,
   getWeekNumber,
+  programmeDone,
   getPhaseForWeek,
   isToday,
   calculateStreak,
@@ -610,5 +611,17 @@ describe('finishedStatus', () => {
     expect(finishedStatus([set('skipped'), set('pending')])).toBe('skipped');
     expect(finishedStatus([set('completed'), set('skipped'), set('skipped')])).toBe('partial');
     expect(finishedStatus([set('completed'), set('completed'), set('skipped')])).toBe('completed');
+  });
+});
+
+describe('programmeDone (J§17.2 #42, D116)', () => {
+  it('is over once the 84 days have passed, not on week 12’s last day', () => {
+    expect(programmeDone('2026-07-17', '2026-10-08')).toBe(false);
+    expect(programmeDone('2026-07-17', '2026-10-09')).toBe(true);
+  });
+
+  it('is never over without a real start date', () => {
+    expect(programmeDone('', '2027-01-01')).toBe(false);
+    expect(programmeDone('someday', '2027-01-01')).toBe(false);
   });
 });

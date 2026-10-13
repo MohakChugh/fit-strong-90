@@ -18,6 +18,8 @@
  * 7. A habit: the same choice in the same part of the day on 3 of the last
  *    7 days, outside the hours the person usually trains.
  * 8. Today's scheduled programme session, when enrolled and not yet done.
+ *    Once the twelve weeks are over, nothing is planned: the choice of what
+ *    next is the person's.
  * 9. Done, or a rest day: something optional and easy.
  * 10. Too little to go on: the chosen focus, or the choice itself.
  *
@@ -39,6 +41,7 @@ import { minutesLeft, resumeOffer, slotOf, type SavedProgress } from '@/session/
 import { lastStretch, specFromPlanId, stretchHref } from '@/engine/stretch';
 import { format, parseISO } from 'date-fns';
 import { prefersHour12, timeOf } from '@/lib/time';
+import { programmeDone } from '@/lib/utils';
 import { afterMealSuggestion, walkSetupHref } from '@/walk/plan';
 import type { Observation } from './observation';
 import { daysBetween, periodOn, shiftDay, type Status } from './status';
@@ -117,6 +120,8 @@ export const HREF = {
   stretch: '/hub/stretch',
   walk: '/hub/walk',
   plan: '/hub/workout/plan',
+  /** After the twelve weeks: Your plan's two choices (D116). */
+  next: '/hub/workout/plan?next=1',
   /** A walk started at once, from the Right now card (journey §7.4, K-32). */
   liveWalk: '/walk/live',
   profile: '/me/profile',
@@ -456,7 +461,7 @@ export function recommend(input: RecommendInput): Recommendation {
   };
 
   const suggestion = night(ctx) ?? resume(ctx) ?? statusSuggestion(ctx) ?? mealWalk(ctx) ?? preference(ctx) ?? habit(ctx)
-    ?? scheduled(ctx) ?? gentle(ctx) ?? fallback(ctx);
+    ?? finished(ctx) ?? scheduled(ctx) ?? gentle(ctx) ?? fallback(ctx);
   return safety(ctx, suggestion) ?? suggestion;
 }
 
@@ -824,6 +829,22 @@ function blocks(plan: SessionPlan): string {
   const names = (['mobility', 'strength', 'cardio'] as const).filter(b => plan.blockStarts[b] !== undefined);
   if (names.length <= 1) return names[0] ?? 'a guided session';
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * Priority 8, once the twelve weeks are over (J§17.2 #42, board D116): no
+ * session is planned, and nothing is invented after week 12. What comes next
+ * is the person's choice. Stretch and Walk carry on as before.
+ */
+function finished(ctx: Context): Recommendation | undefined {
+  if (!ctx.enrolled || !programmeDone(ctx.input.settings.startDate, ctx.today)) return undefined;
+  return {
+    kind: 'plan',
+    title: 'The 12 weeks are done',
+    detail: 'Stretch and Walk carry on as before.',
+    reason: 'Your 12-week programme has ended, so no new session is planned.',
+    action: { label: 'Choose what’s next', to: HREF.next },
+  };
 }
 
 /**

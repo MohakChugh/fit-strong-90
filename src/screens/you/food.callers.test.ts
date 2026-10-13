@@ -54,6 +54,7 @@ Object.assign(globalThis, {
 });
 
 const store = await import('@/store/useStore');
+const { endUndos, followPlace, resetUndosForTests } = await import('@/components/hig/undo');
 const { FoodScreen } = await import('./FoodScreen');
 const { default: UsualMealsScreen } = await import('@/screens/food/UsualMealsScreen');
 const food = await import('@/food/store');
@@ -66,6 +67,9 @@ beforeEach(async () => {
   toasts.dismissed.length = 0;
   local.clear();
   store.resetForTests();
+  resetUndosForTests();
+  // As main.tsx has it: an edit the store stores ends every Undo (board D113).
+  store.subscribeEdits(endUndos);
   await store.start({ factory: fakeIndexedDB(), broadcast: null });
 });
 afterEach(() => {
@@ -73,6 +77,17 @@ afterEach(() => {
   host = undefined;
   vi.useRealTimers();
 });
+
+/**
+ * A word added in another copy of the app (another tab), as stored there: an edit made here ends every Undo
+ * (board D113), one made in another copy doesn't, so this is how an Undo meets a word added since.
+ */
+async function addedElsewhere(word: string) {
+  expect((await store.update(prev => ({
+    ...prev, profile: { ...prev.profile!, food: { ...prev.profile!.food!, customAllergies: [...(prev.profile!.food!.customAllergies ?? []), word] } },
+  }), { edit: false })).ok).toBe(true);
+  await host!.settle();
+}
 
 async function screen(food: FoodPreferences) {
   await store.update(prev => ({ ...prev, profile: createDefaultProfile({ birthYear: 1970, weightKg: 70, food }) }));
@@ -141,11 +156,7 @@ describe('removing an allergy offers Undo, until you leave Me → Food (K7R-01; 
   it('never twice, when the word was typed in again before Undo', async () => {
     const h = await screen({ pattern: 'vegetarian', avoid: [], customAllergies: ['brinjal', 'chaach'] });
     await h.click(h.button('Remove brinjal'));
-    await h.change(h.field('Something else'), { value: 'brinjal' });
-    // The allergies' own form, the first on the screen: its Add.
-    const form = h.all().find(n => n.type === 'form')!;
-    await (form.props.onSubmit as (e: { preventDefault(): void }) => Promise<void> | void)({ preventDefault() {} });
-    await h.settle();
+    await addedElsewhere('brinjal');
     expect(store.getState().profile?.food?.customAllergies).toEqual(['chaach', 'brinjal']);
     await undo(h, 'Brinjal removed from your allergies');
     expect(store.getState().profile?.food?.customAllergies).toEqual(['chaach', 'brinjal']);
@@ -158,41 +169,35 @@ describe('removing an allergy offers Undo, until you leave Me → Food (K7R-01; 
     await h.click(h.button('Clear food choices', { exact: true }));
     expect(store.getState().profile?.food).toBeUndefined();
     expect(toasts.dismissed).toContain(offered.id);
-    // Tapped all the same (in another copy of the app, say): it says why, and nothing claims it's back.
+    // Tapped all the same, as it went: nothing is put back, and nothing is said on a screen it's no longer
+    // offered on (the one Undo stack, P8S-16).
+    const before = toasts.shown.length;
     await undo(h, 'Peanut removed from your allergies');
-    const said = toasts.shown.map(t => t.text);
-    expect(said).not.toContain('Peanut is back in your allergies');
-    expect(said.some(t => /^That didn’t save\. Peanut wasn’t put back: your food choices were cleared/.test(t))).toBe(true);
+    expect(toasts.shown.slice(before).map(t => t.text)).toEqual([]);
     expect(store.getState().profile?.food).toBeUndefined();
   });
   it('puts your own words back as adding them does: never past 30, never twice in another case (H7F-04)', async () => {
     const thirty = Array.from({ length: 30 }, (_, i) => `word ${i + 1}`);
     const h = await screen({ pattern: 'vegetarian', avoid: [], customAllergies: thirty });
     await h.click(h.button('Remove word 3'));
-    await h.change(h.field('Something else'), { value: 'kumquat' });
-    const form = h.all().find(n => n.type === 'form')!;
-    await (form.props.onSubmit as (e: { preventDefault(): void }) => Promise<void> | void)({ preventDefault() {} });
-    await h.settle();
+    await addedElsewhere('kumquat');
     expect(store.getState().profile?.food?.customAllergies).toHaveLength(30);
     await undo(h, 'Word 3 removed from your allergies');
     expect(store.getState().profile?.food?.customAllergies).toHaveLength(30);
     expect(store.getState().profile?.food?.customAllergies).not.toContain('word 3');
     const said = toasts.shown.map(t => t.text);
     expect(said).not.toContain('Word 3 is back in your allergies');
-    expect(said.some(t => /^That didn’t save\. Word 3 wasn’t put back: your own words already hold 30/.test(t))).toBe(true);
+    expect(said).toContain('Word 3 removed from your allergies. It wasn’t restored. Your own words already hold 30, the most there can be. Remove one, then Undo again.');
   });
   it('says one typed in again in another case is back, without a second', async () => {
     const h = await screen({ pattern: 'vegetarian', avoid: [], customAllergies: ['brinjal', 'chaach'] });
     await h.click(h.button('Remove brinjal'));
-    await h.change(h.field('Something else'), { value: 'Brinjal' });
-    const form = h.all().find(n => n.type === 'form')!;
-    await (form.props.onSubmit as (e: { preventDefault(): void }) => Promise<void> | void)({ preventDefault() {} });
-    await h.settle();
+    await addedElsewhere('Brinjal');
     await undo(h, 'Brinjal removed from your allergies');
     expect(store.getState().profile?.food?.customAllergies).toEqual(['chaach', 'Brinjal']);
     expect(toasts.shown.map(t => t.text)).toContain('Brinjal is back in your allergies');
   });
-  it('never for adding one, and ends once you leave the screen', async () => {
+  it('never for adding one, and ends once you leave the screen (the router tells the stack, as main.tsx has it)', async () => {
     const h = await screen({ pattern: 'vegetarian', avoid: [], allergies: ['peanut'] });
     await h.click(h.all().find(n => n.props.role === 'checkbox' && textOf(n.children) === 'Milk')!);
     expect(toasts.shown).toEqual([]);
@@ -201,7 +206,7 @@ describe('removing an allergy offers Undo, until you leave Me → Food (K7R-01; 
     expect(offered.id).toBeDefined();
     host?.unmount();
     host = undefined;
-    await new Promise(r => setTimeout(r, 0));
+    followPlace({ path: '/me' });
     expect(toasts.dismissed).toContain(offered.id);
   });
 });

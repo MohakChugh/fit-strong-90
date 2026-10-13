@@ -73,7 +73,7 @@ export function ExternalRow({ href, title, lines }: { href: string; title: strin
       rel="noopener noreferrer"
       className="@container press-feedback block transition-colors active:bg-muted/60"
     >
-      <span className="flex min-h-11 items-start gap-3 px-4 py-3 @max-[16rem]:gap-2 @max-[16rem]:px-2">
+      <span className="flex min-h-12 items-start gap-3 px-4 py-3 @max-[16rem]:gap-2 @max-[16rem]:px-2">
         <span className="min-w-0 flex-1">
           <span className="block text-[length:var(--text-body)] leading-snug [overflow-wrap:break-word]">{title}</span>
           {lines.filter(Boolean).map(line => (
@@ -159,7 +159,7 @@ export function ActionLink({ action }: { action: InAppAction }) {
     <Link
       to={action.to}
       viewTransition
-      className="press-feedback flex min-h-[3.125rem] items-center justify-center rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint"
+      className="press-feedback flex min-h-[3.75rem] items-center justify-center rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint"
     >
       {action.label}
     </Link>

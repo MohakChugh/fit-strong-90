@@ -3,8 +3,9 @@
  * pager, the headline and its change, the chart with its list and summary,
  * the spread and the notes, and for movement the records behind it. Week
  * first unless the address says otherwise (B-10). Labs are their results,
- * dated, with no period (A-45). It decides nothing and has no Start
- * (J§4.2): the hub, one tap away, has those.
+ * dated, with no period (A-45). Food is its estimates, only with them on
+ * (D114). It decides nothing and has no Start (J§4.2): the hub, one tap
+ * away, has those.
  */
 import { useMemo } from 'react';
 import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
@@ -12,6 +13,8 @@ import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { StatGrid } from '@/components/hig/StatGrid';
 import { markInPlace, type Origin } from '@/components/hig/navigation';
+import { numbersView } from '@/food/level';
+import { mealsIn } from '@/food/records';
 import { isDay } from '@/health/observation';
 import { labFrom } from '@/screens/hub/reading';
 import { BackLegChart } from '@/screens/track/BackLegChart';
@@ -23,6 +26,7 @@ import { useToday } from '@/screens/track/useToday';
 import { RouteThumb } from '@/screens/walk/RouteThumb';
 import { useStore } from '@/store/useStore';
 import type { RouteRecord } from '@/walk/routeRecord';
+import { FOOD_METRICS, foodView, isFoodMetric, type FoodMetric } from './food';
 import { trendDef, type TrendDef, type TrendId } from './metrics';
 import { dailyView, labsView, latestLab, readingsView, trendContext } from './model';
 import { PeriodControl } from './PeriodControl';
@@ -39,7 +43,8 @@ export default function CategoryTrend() {
   const def = trendDef(id);
   // An id with no trend is an address that has moved (journey §19.3).
   if (!def) return <Navigate to="/home?moved=1" replace />;
-  return def.family === 'labs' ? <LabsTrend def={def} /> : <PeriodTrend key={def.id} def={def} />;
+  if (def.family === 'labs') return <LabsTrend def={def} />;
+  return def.id === 'food' ? <FoodTrend def={def} /> : <PeriodTrend key={def.id} def={def} />;
 }
 
 /** The records, the person's units and the day context, as every trend reads them. */
@@ -140,6 +145,79 @@ function PeriodTrend({ def }: { def: TrendDef }) {
             />
           ))}
         </Group>
+      )}
+      <HubLinks def={def} origin={origin} />
+    </Screen>
+  );
+}
+
+/**
+ * Food's trend (D114), only while estimates are on: without them its address
+ * opens the Food hub with its query and navigation state (D74), and nothing
+ * about meals is worked out.
+ */
+function FoodTrend({ def }: { def: TrendDef }) {
+  const { profile } = useStore();
+  const location = useLocation();
+  const numbers = numbersView(profile);
+  if (!numbers.show) return <Navigate to={{ pathname: '/hub/food', search: location.search }} replace state={location.state} />;
+  return <FoodEstimates def={def} ranges={numbers.ranges} />;
+}
+
+/** Energy or Carbs, with the period and its pager, and no comparison. */
+function FoodEstimates({ def, ranges }: { def: TrendDef; ranges: boolean }) {
+  const { state, today, ctx } = useTrendData();
+  const location = useLocation();
+  const [params, setParams] = useSearchParams();
+  const meals = useMemo(() => mealsIn(state.records), [state.records]);
+  const asked = params.get('period');
+  const period: TrendPeriod = isTrendPeriod(asked) ? asked : 'week';
+  const at = params.get('at');
+  const anchor = at !== null && isDay(at) && at <= today ? at : today;
+  const chosen = params.get('metric');
+  const metric: FoodMetric = isFoodMetric(chosen) ? chosen : 'kcal';
+  const w = useMemo(() => windowOf(period, anchor), [period, anchor]);
+  const view = useMemo(() => foodView({ metric, window: w, meals, ranges, ctx }), [metric, w, meals, ranges, ctx]);
+  // The period, the pager and Energy or Carbs change this screen's address, not the screen, as a trend's own do.
+  const change = (next: { period?: TrendPeriod; at?: string | null; metric?: FoodMetric }) => {
+    markInPlace();
+    setParams(prev => {
+      const p = new URLSearchParams(prev);
+      if (next.period) p.set('period', next.period);
+      // Today's window keeps no anchor, so it stays today's (H3-10).
+      if (next.at === null) p.delete('at');
+      else if (next.at) p.set('at', next.at);
+      if (next.metric) p.set('metric', next.metric);
+      return p;
+    }, { replace: true });
+  };
+  const earlier = previousWindow(w);
+  // Back as far as the first meal or the first record, whichever came first.
+  const since = [ctx.since, ...meals.map(m => m.day)].filter((d): d is string => d !== undefined).sort()[0];
+  const origin: Origin = { path: location.pathname, label: def.title, ...(location.search ? { search: location.search } : {}) };
+
+  return (
+    <Screen title={def.title} back={{ to: '/trends', label: 'Trends' }}>
+      <Segmented label="What to show" options={FOOD_METRICS.map(m => ({ id: m.id, label: m.label }))} value={metric} onChange={m => change({ metric: m })} />
+      <PeriodControl
+        period={period}
+        onPeriod={p => change({ period: p })}
+        title={view.title}
+        labels={pagerLabels(period)}
+        canPrevious={since !== undefined && earlier.to >= since}
+        canNext={!isCurrent(w, today)}
+        onPrevious={() => change({ at: anchorOf(earlier, today) })}
+        onNext={() => change({ at: anchorOf(nextWindow(w), today) })}
+      />
+      <TrendHeadlines headline={view.headline} change={view.change} />
+      <section aria-label={`${def.title} chart`} className="rounded-xl bg-grouped-card p-4">
+        <TrendChart model={view.chart} label={`${def.title}, ${view.title}`} summary={view.summary} table={view.table} view={`${metric}:${period}:${w.from}`} origin={origin} />
+      </section>
+      <StatGrid items={view.stats} />
+      {view.notes.length > 0 && (
+        <div className="flex flex-col gap-1 px-1">
+          {view.notes.map(note => <p key={note} className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{note}</p>)}
+        </div>
       )}
       <HubLinks def={def} origin={origin} />
     </Screen>

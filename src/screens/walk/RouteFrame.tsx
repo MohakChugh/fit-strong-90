@@ -46,8 +46,9 @@ export function RouteFrame({ walkId, lines, bbox, mapOn }: { walkId: string; lin
         </a>
       )}
       {mapOn && !pictures && <p role="status" className="text-[length:var(--text-footnote)] text-muted-foreground">{mapUnavailable(!online)}</p>}
-      {/* Four in a row only where four fit at this text size: larger text keeps two, never squeezed under 48 px. */}
-      <div className={cn('grid grid-cols-2 @min-[23rem]:grid-cols-4', TARGET.gap)}>
+      {/* Four in a row only where four fit at this text size, two where two do, and one under another at the
+          largest sizes on a small phone: never squeezed under 48 px, and every word whole ("Recentre"). */}
+      <div className={cn('grid grid-cols-1 @min-[16rem]:grid-cols-2 @min-[23rem]:grid-cols-4', TARGET.gap)}>
         <button type="button" className={CONTROL} onClick={() => setView(zoomed(view, 1))}>Zoom in</button>
         <button type="button" className={CONTROL} onClick={() => setView(zoomed(view, -1))}>Zoom out</button>
         <button type="button" className={CONTROL} onClick={() => setView(fit)}>Recentre</button>
