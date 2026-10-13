@@ -326,7 +326,8 @@ export function PreviewBody({ preview, saveRoutes, note, place, device, erases, 
           <div className="flex flex-col gap-3">
             <PrimaryButton className={TARGET.primary} onClick={() => onMerge(policy)}>Merge into this {device}</PrimaryButton>
             <p className="px-4 pb-2 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
-              Keeps everything here and adds what is in the file. Where a record has been changed, the newer copy is kept. Your settings and profile here stay as they are.
+              {/* What the merge does (planMerge): a later change is kept, and only where that can't be told does the choice above decide (kiro FK-09). */}
+              {`Keeps everything here and adds what is in the file. Where one copy of a record was changed later, that change is kept.${differ > 0 ? ` Where that can’t be told, this ${device}’s copy is kept unless you choose the file’s.` : ''} Your settings and profile here stay as they are.`}
             </p>
             <button
               type="button"
