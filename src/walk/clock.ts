@@ -148,6 +148,13 @@ export interface Walk {
    * keeps this until the device has stored it (H6F-03, board D189).
    */
   untimedReadings?: string[];
+  /**
+   * F-data-01: the record's generation the walk began in (`StoreState.epoch`).
+   * Once a backup replaces the record or everything is deleted, here or in
+   * another tab, the walk was that record's: it is let go, and nothing of it
+   * is written back.
+   */
+  recordGen?: number;
 }
 
 /** B-19: the walk holds a change to the clock the device has yet to store: its own (`clockUnkept`) or an older version's (`untimedReadings`). */

@@ -29,6 +29,13 @@ export function forgetCachedRoutes(): void {
   }
 }
 
+/** F-data-01: the record these walks were part of is gone, replaced or deleted: this page forgets every checkpoint it held. */
+export function forgetCachedJournals(): void {
+  forgottenAt = ++checkpoints;
+  latest.clear();
+  wholeAt.clear();
+}
+
 export function journalPort(): JournalPort {
   return {
     checkpoint(entry, options) {

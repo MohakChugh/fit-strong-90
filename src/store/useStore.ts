@@ -1409,15 +1409,25 @@ export function putWalkJournal(entry: JournalEntry, options: { keepJournalled?: 
   /** What the transaction stored, which the page's copy takes once it is (H6F-08). */
   let written = entry;
   const put = (tx: TxHandle, e: JournalEntry) => { written = e; tx.put(JOURNAL_STORE, e); };
+  const gen = entry.walk.recordGen;
   return handle.transact(tx => {
-    if (!entry.route) return put(tx, entry);
-    tx.get('settings', 'settings', row => {
-      const walk = ((row as Doc | undefined)?.value as UserSettings | undefined)?.walk;
-      const keeps = walk?.saveRoutes === true && !routeErased(walk, entry.id, entry.walk.plan, entry.walk.startedAt);
-      if (!keeps) return put(tx, (({ route: _gone, ...rest }) => { void _gone; return rest; })(entry));
-      if (!options.keepJournalled) return put(tx, entry);
-      // A page still reading the route back: the lines held stay beside what it walked since (H6R-10).
-      tx.get(JOURNAL_STORE, entry.id, stored => put(tx, { ...entry, route: withJournalled(parseJournalEntry(stored)?.route, entry.route)! }));
+    const write = () => {
+      if (!entry.route) return put(tx, entry);
+      tx.get('settings', 'settings', row => {
+        const walk = ((row as Doc | undefined)?.value as UserSettings | undefined)?.walk;
+        const keeps = walk?.saveRoutes === true && !routeErased(walk, entry.id, entry.walk.plan, entry.walk.startedAt);
+        if (!keeps) return put(tx, (({ route: _gone, ...rest }) => { void _gone; return rest; })(entry));
+        if (!options.keepJournalled) return put(tx, entry);
+        // A page still reading the route back: the lines held stay beside what it walked since (H6R-10).
+        tx.get(JOURNAL_STORE, entry.id, stored => put(tx, { ...entry, route: withJournalled(parseJournalEntry(stored)?.route, entry.route)! }));
+      });
+    };
+    if (gen === undefined) return write();
+    // A walk of a record since replaced, or deleted in this tab or another, writes nothing back (F-data-01):
+    // asked of the record's generation as stored, in this transaction.
+    tx.get('settings', 'generation', row => {
+      if (Number((row as Doc | undefined)?.value ?? 0) !== gen) throw new StoreFailure('conflict', REPLACED);
+      write();
     });
   }).then(result => (result.ok ? { ok: true, value: written } : result));
 }
@@ -1457,6 +1467,8 @@ export interface SaveWalkInput {
   routeStartedAt?: string;
   /** The erase generation the walk began in (`WalkPlan.routeGen`): an "Erase all routes" since, and no route is kept (B-05). */
   routeGen?: number;
+  /** The record's generation the walk began in (`Walk.recordGen`): replaced or deleted since, and nothing is saved (F-data-01). */
+  recordGen?: number;
 }
 
 /** The route a walk's journal entry holds, as the routes store keeps it, or nothing. */
@@ -1476,6 +1488,8 @@ export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
   return enqueue<void>({
     ...(startedAt !== undefined ? { journal: [input.walkId] } : {}),
     plan: (base, read) => {
+      // A walk of a record since replaced, or deleted here or in another tab, saves nothing into the next one (F-data-01).
+      if (input.recordGen !== undefined && base.generation !== input.recordGen) throw new StoreFailure('conflict', REPLACED);
       const wanted = new Set(fixed.map(o => o.id));
       const held = new Set(base.observations.filter(o => wanted.has(o.id)).map(o => o.id));
       const records = fixed.filter(o => !held.has(o.id)).map(o => newObservation(o));
