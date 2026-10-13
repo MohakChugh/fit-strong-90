@@ -8,6 +8,7 @@ import { CHAPTER_IDS } from '@/types/setup';
 import { DataScreen } from './DataScreen';
 import { DisplayScreen } from './DisplayScreen';
 import { FoodScreen } from './FoodScreen';
+import { OwnFoodsScreen } from './OwnFoodsScreen';
 import { GoalsScreen } from './GoalsScreen';
 import { HabitsScreen } from './HabitsScreen';
 import { MeHome } from './MeHome';
@@ -36,6 +37,7 @@ export default function YouRoutes() {
       <Route path="profile" element={<Profile />} />
       <Route path="goals" element={<GoalsScreen />} />
       <Route path="food" element={<FoodScreen />} />
+      <Route path="food/own" element={<OwnFoodsScreen />} />
       <Route path="reminders" element={<HabitsScreen />} />
       <Route path="voice" element={<VoiceScreen />} />
       <Route path="display" element={<DisplayScreen />} />

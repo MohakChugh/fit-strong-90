@@ -954,12 +954,13 @@ describe('a meal deleted and brought back on another device, merged (B-05; board
     expect((await b.store.importRecord(await a.backup(), 'merge')).ok).toBe(true);
     return { a, b };
   }
+  /** Deleted into Recently deleted and restored from there, as Undo does (board D110). */
   const restore = async (p: Awaited<ReturnType<typeof phone>>, id: string) => {
-    const meal = p.meals().find(m => m.id === id)!;
-    expect((await p.food.deleteMeal(id)).ok).toBe(true);
-    const back = await p.food.restoreMeal(meal);
+    const gone = await p.food.deleteMeal(id);
+    if (!gone.ok) throw gone.failure;
+    const back = await p.store.restoreDeleted(gone.value);
     if (!back.ok) throw back.failure;
-    return back.value;
+    return p.meals().find(m => m.id === back.value.id)!;
   };
   const merged = async (into: Awaited<ReturnType<typeof phone>>, file: unknown) => {
     const preview = into.store.previewRecord(file);

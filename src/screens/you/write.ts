@@ -8,7 +8,7 @@
  * hands the edit the latest state at the moment of writing, so both survive.
  */
 
-import { getState, update } from '@/store/useStore';
+import { getState, update, type UpdateOptions } from '@/store/useStore';
 import type { StoreResult } from '@/store/db';
 import type { UserSettings } from '@/types';
 import type { HabitSettings } from '@/types/habits';
@@ -39,11 +39,11 @@ export function changeDisplay(edit: (display: NonNullable<UserSettings['display'
  * voice can never leave health answers that look confirmed but were never
  * given.
  */
-export function changeProfile(edit: (profile: UserProfile, settings: UserSettings) => UserProfile): Promise<StoreResult> {
+export function changeProfile(edit: (profile: UserProfile, settings: UserSettings) => UserProfile, options: UpdateOptions = {}): Promise<StoreResult> {
   return update(previous => ({
     ...previous,
     profile: edit(previous.profile ?? createDefaultProfile({ weightKg: previous.settings.currentWeight || 0, needsHealthReview: true }), previous.settings),
-  }));
+  }), options);
 }
 
 /**

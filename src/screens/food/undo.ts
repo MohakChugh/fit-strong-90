@@ -1,100 +1,35 @@
 /**
- * Undo for a food delete (B-04, B-05): offered at once, on no timer, the two
- * latest standing. Each belongs to the screen the person returns to, and
- * leaving that screen ends it, as an unrelated change ends them all. Kept
- * here rather than in a screen, so a toast raised as the sheet closes
- * outlives the sheet.
+ * Food's deletes, at once with Undo (B-04, B-05; board D111, D113): each
+ * kept 7 days in Recently deleted, its Undo on the one stack every delete
+ * shares (`@/components/hig/undo`), scoped to the screen the delete goes back
+ * to, so it stands while a detail opened from there comes and goes (H7-15).
+ * Resolves with what went wrong, in words, or nothing.
  */
-import { useEffect } from 'react';
-import { toast } from 'sonner';
-import { TOAST_STYLE, UNDO_STYLE } from '@/components/hig/toast';
+import { offerUndo, type UndoOutcome } from '@/components/hig/undo';
 import { FOOD_COPY } from '@/food/copy';
+import { SLOT_LABEL } from '@/food/format';
+import { deleteMeal, deleteOwnFood, deleteUsual } from '@/food/store';
+import type { CustomFood, MealRecord, SavedMeal } from '@/food/types';
+import type { StoreResult } from '@/store/db';
+import { restoreDeleted } from '@/store/useStore';
 
-interface Offer {
-  key: string;
-  /** The path of the screen it belongs to. */
-  scope: string;
-}
-
-let offers: Offer[] = [];
-let seq = 0;
-
-const forget = (key: string) => {
-  offers = offers.filter(o => o.key !== key);
+const restoring = (entry: string) => async (): Promise<UndoOutcome> => {
+  const back = await restoreDeleted(entry);
+  return back.ok ? { done: true } : { done: false, problem: back.failure.message };
 };
 
-/** Offer Undo. `undo` restores the record, and says why if it couldn't. */
-export function offerFoodUndo({ text, restored, scope, undo }: {
-  text: string;
-  restored: string;
-  scope: string;
-  undo: () => Promise<string | undefined>;
-}): void {
-  const key = `food-undo-${++seq}`;
-  offers = [...offers, { key, scope }];
-  // Two at most, the newer stacked above the older; restoring one keeps the other (B-04).
-  while (offers.length > 2) {
-    const [oldest, ...rest] = offers;
-    toast.dismiss(oldest.key);
-    offers = rest;
-  }
-  // One write at a time, and none once it's back: each restore takes a fresh id,
-  // so a second tap while the first saves, or as the toast leaves, would store it twice.
-  let state: 'ready' | 'saving' | 'back' = 'ready';
-  toast(text, {
-    id: key, duration: Infinity, style: TOAST_STYLE, actionButtonStyle: UNDO_STYLE,
-    action: {
-      label: FOOD_COPY.undo,
-      onClick: event => {
-        // The toast stays until the record is stored back (as Edit Home's Undo does).
-        event.preventDefault();
-        if (state !== 'ready') return;
-        state = 'saving';
-        void undo().then(problem => {
-          if (problem) {
-            state = 'ready';
-            toast(`${FOOD_COPY.didNotSave} ${problem}`, { style: TOAST_STYLE });
-            return;
-          }
-          state = 'back';
-          forget(key);
-          toast.dismiss(key);
-          toast(restored, { style: TOAST_STYLE });
-        });
-      },
-    },
-    onDismiss: () => forget(key),
-  });
+async function withUndo(deleting: Promise<StoreResult<string>>, text: string, restored: string, scope: string): Promise<string | undefined> {
+  const result = await deleting;
+  if (!result.ok) return result.failure.message;
+  offerUndo({ text, restored, scope, entry: result.value, undo: restoring(result.value) });
+  return undefined;
 }
 
-/** Ends every Undo standing, or only one screen's: leaving it, or an unrelated change (B-04). */
-export function endFoodUndos(scope?: string): void {
-  for (const o of offers) if (scope === undefined || o.scope === scope) toast.dismiss(o.key);
-  offers = scope === undefined ? [] : offers.filter(o => o.scope !== scope);
-}
+export const deleteMealWithUndo = (meal: MealRecord, scope: string) =>
+  withUndo(deleteMeal(meal.id), FOOD_COPY.deleted(SLOT_LABEL[meal.meal]), FOOD_COPY.restored(SLOT_LABEL[meal.meal]), scope);
 
-/** How many mounted screens hold each scope. */
-const holders = new Map<string, number>();
+export const deleteUsualWithUndo = (usual: SavedMeal, scope: string) =>
+  withUndo(deleteUsual(usual.id), FOOD_COPY.removed(usual.name), FOOD_COPY.restored(usual.name), scope);
 
-/**
- * Holds a screen's scope while it's mounted; the function returned lets go.
- * A screen remounted at once (React StrictMode runs every effect twice in
- * development) hasn't been left, so its Undo is ended only if nothing holds
- * the scope once the current turn is over.
- */
-export function holdFoodUndoScope(path: string): () => void {
-  holders.set(path, (holders.get(path) ?? 0) + 1);
-  return () => {
-    const left = (holders.get(path) ?? 1) - 1;
-    if (left > 0) holders.set(path, left);
-    else holders.delete(path);
-    setTimeout(() => {
-      if (!holders.has(path)) endFoodUndos(path);
-    }, 0);
-  };
-}
-
-/** A screen food Undo toasts can belong to: leaving it ends its own. */
-export function useFoodUndoScope(path: string): void {
-  useEffect(() => holdFoodUndoScope(path), [path]);
-}
+export const deleteOwnFoodWithUndo = (food: CustomFood, scope: string) =>
+  withUndo(deleteOwnFood(food.id), FOOD_COPY.deleted(food.name), FOOD_COPY.restored(food.name), scope);

@@ -15,10 +15,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DailyCheckIn } from '@/types/checkin';
 import { createDefaultProfile } from '@/profile/defaults';
 import { routeRecord } from '@/walk/routeRecord';
-import { DB_NAME, STORE_NAMES } from './db';
+import { DB_NAME, STORE_NAMES, openDb } from './db';
 import { fakeIndexedDB } from './fakeIdb';
 import { RECENT_MS, isRecentKey } from './recent';
 import type { StoredRecord } from './records';
+import { commitChange } from './snapshot';
 
 const local = new Map<string, string>();
 globalThis.localStorage = {
@@ -345,5 +346,49 @@ describe('a session and what was recorded with it, out and back as they were (P8
     // Saved again, the session works out nothing new from an older score.
     expect((await store.putSession({ ...again, notes: 'felt fine' })).ok).toBe(true);
     expect(pain()).toEqual([expect.objectContaining({ value: 4, editedAt: corrected.editedAt })]);
+  });
+});
+
+describe('what an edit is, to Undo (B-04, D113)', () => {
+  it('a stored edit is heard, a manual workout’s set included; a delete, a restore and expiry are not', async () => {
+    let edits = 0;
+    store.subscribeEdits(() => { edits += 1; });
+    expect((await store.addObservation({ kind: 'water', value: 250, scope: 'dayTotal', source: 'manual', at: AT, id: 'w1' })).ok).toBe(true);
+    expect(edits).toBe(1);
+    const gone = await store.deleteRecord({ kind: 'reading', id: 'w1' });
+    if (!gone.ok) throw gone.failure;
+    expect((await store.restoreDeleted(gone.value)).ok).toBe(true);
+    expect((await store.expireDeleted()).ok).toBe(true);
+    expect(edits).toBe(1);
+    const set = { id: 'a', exerciseId: 'goblet-squat', setNumber: 1, plannedReps: 10, actualReps: 10, weight: 20, status: 'completed', rpe: null };
+    expect((await store.putSession({ id: 's1', date: '2026-10-08', dayOfWeek: 'thursday', muscleGroup: 'lower', phase: 'foundation', week: 1, status: 'in_progress', sets: [set], startedAt: AT, completedAt: null, notes: '', totalVolume: 0 } as never)).ok).toBe(true);
+    expect(edits).toBe(2);
+  });
+
+  it('nor is what the device does itself: reading progress, a change to its clock, an entry’s 7 days ending, an old erase converted as it starts; nor a write that was refused', async () => {
+    let edits = 0;
+    expect((await store.addObservation(reading(1))).ok).toBe(true);
+    const gone = await store.deleteRecord({ kind: 'reading', id: 'g1' });
+    if (!gone.ok) throw gone.failure;
+    store.subscribeEdits(() => { edits += 1; });
+    expect((await store.setContentState('guide:read:sleep', true)).ok).toBe(true);
+    expect((await store.markClockChange([DAY])).ok).toBe(true);
+    vi.setSystemTime(NOW.getTime() + RECENT_MS + DAY_MS);
+    expect((await store.expireDeleted()).ok).toBe(true);
+    expect(await recentRows()).toEqual([]);
+    fake.control.setWriteError(() => new DOMException('The device is full.', 'QuotaExceededError'));
+    expect((await store.addObservation(reading(2))).ok).toBe(false);
+    fake.control.setWriteError(undefined);
+    expect(edits).toBe(0);
+    // An erase as the version before board D176 kept it, met as this one starts.
+    const older = await openDb(fake);
+    expect((await commitChange(older, undefined, () => ({ change: { settings: { patch: { walk: { saveRoutes: true, map: 'off', routesErasedAt: Date.now() } as never } } } }))).ok).toBe(true);
+    older.close();
+    store.resetForTests();
+    store.subscribeEdits(() => { edits += 1; });
+    await store.start({ factory: fake, broadcast: null });
+    await vi.waitFor(() => expect(store.getState().settings.walk).not.toHaveProperty('routesErasedAt'));
+    await store.whenSettled();
+    expect(edits).toBe(0);
   });
 });

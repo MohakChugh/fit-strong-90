@@ -14,6 +14,8 @@ import { createDefaultProfile } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, textOf, type Host, type HostNode } from '@/test/host';
 
+// A delete goes at once and offers Undo through the toast manager (B-04, D113): sonner is a stand-in.
+vi.mock('sonner', () => ({ toast: Object.assign(() => undefined, { dismiss: () => undefined }) }));
 const router = vi.hoisted(() => ({ id: '', navigate: vi.fn() }));
 vi.mock('react-router-dom', () => ({
   useParams: () => ({ id: router.id }),
@@ -130,10 +132,10 @@ async function correctTo(id: string, value: string) {
   return h;
 }
 
+/** Track's delete: at once, with Undo, and nothing to confirm (B-04, D111). */
 async function remove(id: string) {
   const h = await open(id);
   await h.click(h.button('Delete this reading'));
-  await h.click(h.button('Delete', { exact: true }));
   await h.settle();
   return h;
 }
@@ -327,14 +329,22 @@ describe('C2-01: a check-in reading deleted in Track leaves the record too, and 
   });
 
   it('keeps a delete the device refused out of nothing: the reading still counts until the delete is stored', async () => {
-    await seed({ ...BASE, glucose: { value: 46, unit: 'mg/dL', measuredAt: iso(8, 50), source: 'meter' } });
-    expect(walk().gate.allowed).toBe(false);
+    await seed({ ...BASE, glucose: { value: 120, unit: 'mg/dL', measuredAt: iso(8, 50), source: 'meter' } });
     refuse = true;
     const h = await remove(ofDay('glucose')[0].id);
     expect(h.text()).toMatch(/not enough space|Not deleted/i);
     // Still in what the gates read — as the latest or an earlier reading — and still in the series.
     const gates = walk().checkIn!;
-    expect([gates.glucose, ...(gates.glucoseEarlier ?? [])].some(g => g && 'value' in g && g.value === 46)).toBe(true);
+    expect([gates.glucose, ...(gates.glucoseEarlier ?? [])].some(g => g && 'value' in g && g.value === 120)).toBe(true);
+    expect(ofDay('glucose')).toHaveLength(1);
+  });
+
+  it('never even asks the device to delete a low that holds movement: refused in place, with its way out (D119)', async () => {
+    await seed({ ...BASE, glucose: { value: 46, unit: 'mg/dL', measuredAt: iso(8, 50), source: 'meter' } });
+    expect(walk().gate.allowed).toBe(false);
+    const h = await remove(ofDay('glucose')[0].id);
+    expect(h.text()).toContain(HOLD_REFUSAL);
+    expect(h.buttons(MISTAKE_LABEL)).toHaveLength(1);
     expect(walk().gate.allowed).toBe(false);
     expect(ofDay('glucose')).toHaveLength(1);
   });

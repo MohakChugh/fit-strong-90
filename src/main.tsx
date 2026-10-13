@@ -5,8 +5,9 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
 import App from './App'
 import { RootError } from '@/components/hig/ErrorBoundary'
-import { backPending, followRouter, setPlaceCheck } from '@/components/hig/navigation'
-import { getState, holdNewWork, whenSettled } from '@/store/useStore'
+import { backPending, cameFrom, followRouter, originOf, setPlaceCheck } from '@/components/hig/navigation'
+import { endUndos, followPlace } from '@/components/hig/undo'
+import { getState, holdNewWork, subscribeEdits, whenSettled } from '@/store/useStore'
 import { startUpdates, type ContainerLike } from '@/app/updates'
 import { underWay } from '@/app/underWay'
 import { shouldAnimate, transitionSkipped } from '@/design/motion'
@@ -73,6 +74,9 @@ const router = createHashRouter([
 // screen only while that record is still stored.
 followRouter(router)
 setPlaceCheck(place => placeExists(place.pathname, getState()))
+// An Undo belongs to its screen and the details opened from it (B-04, D113), and an edit ends it.
+router.subscribe(state => followPlace({ path: state.location.pathname, from: originOf(state.location.state)?.path ?? cameFrom() }))
+subscribeEdits(endUndos)
 
 // Every forward navigation animates, the way a navigation controller pushes.
 // The areas' screens live in their own <Routes>, which are not data routes, and

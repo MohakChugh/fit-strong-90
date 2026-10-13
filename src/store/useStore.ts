@@ -404,6 +404,19 @@ function enqueueTask<T>(run: () => Promise<T>): Promise<T> {
   });
 }
 
+const editListeners = new Set<() => void>();
+
+/**
+ * Told after every change the person made is stored (B-04, D113): what ends
+ * an Undo, wherever it was made, a manual workout's sets included. A delete,
+ * a restore, expiry and reading progress pass `edit: false`, and aren't; nor
+ * is the device's own record of a change to its clock.
+ */
+export function subscribeEdits(listener: () => void): () => void {
+  editListeners.add(listener);
+  return () => void editListeners.delete(listener);
+}
+
 let admitting = true;
 export const RESTARTING_REFUSAL = 'FitStrong is restarting to update, so this wasn’t saved.';
 
@@ -440,6 +453,8 @@ async function pump(): Promise<void> {
       recompute();
       publish();
       job.m.settle(result);
+      // An edit the person made, stored: what ends an Undo (B-04, D113).
+      if (result.ok && job.m.edit !== false) for (const listener of [...editListeners]) listener();
     }
   } finally {
     if (mine === generation) pumping = false;
@@ -691,6 +706,7 @@ function convertLegacyErase(): void {
   const legacy = (s: Snapshot) => (s.settings?.walk as { routesErasedAt?: unknown } | undefined)?.routesErasedAt;
   if (typeof legacy(committed) !== 'number') return;
   void enqueue<void>({
+    edit: false,
     plan: base => {
       const at = legacy(base);
       if (typeof at !== 'number') return { change: null, result: () => undefined };
@@ -799,6 +815,7 @@ export function resetForTests(): void {
   clockPending = [];
   if (expiryTimer !== undefined) clearTimeout(expiryTimer);
   expiryTimer = undefined;
+  editListeners.clear();
   wentReadOnly = false;
   setStorageReadOnly(false);
   state = toState(view);
@@ -1268,6 +1285,8 @@ export function setFocusOverride(day: string, focus: DayFocus | undefined): Prom
 /** Per-key reading state for the Guide (bookmarks, read markers). `undefined` removes the key. */
 export function setContentState(key: string, value: unknown): Promise<StoreResult> {
   return enqueue<void>({
+    // What has been read in Learn is no edit (D113).
+    edit: false,
     plan: () => {
       if (typeof key !== 'string' || key === '') throw new StoreFailure('invalid', 'Content state needs a key.');
       return { change: { content: value === undefined ? { remove: [key] } : { put: { [key]: value } } }, result: () => undefined };
@@ -1552,6 +1571,7 @@ export function markClockChange(days: readonly string[], seen?: ClockSeen): Prom
     const result = await enqueue<void>({
       hold: true,
       safety: true,
+      edit: false,
       plan: base => ({ change: { settings: { patch: { walk: withClockChange(walkSettings(base.settings ?? {}), days) } } }, result: () => undefined }),
     });
     if (!result.ok && db) {

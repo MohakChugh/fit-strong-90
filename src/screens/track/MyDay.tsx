@@ -19,7 +19,6 @@ import { Group, Row } from '@/components/hig/List';
 import { Ring } from '@/components/hig/Ring';
 import { countsFree, numbersView } from '@/food/level';
 import { mealsIn } from '@/food/records';
-import { useFoodUndoScope } from '@/screens/food/undo';
 import { useStore } from '@/store/useStore';
 import { RouteThumb } from '@/screens/walk/RouteThumb';
 import type { RouteRecord } from '@/walk/routeRecord';
@@ -63,7 +62,6 @@ export function MyDay({ day: pathDay }: {
   const current = useToday();
   const location = useLocation();
   // A meal deleted from here keeps its Undo until the person leaves (B-04).
-  useFoodUndoScope(location.pathname);
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const day = clampDay(pathDay ?? params.get('day'), current);
