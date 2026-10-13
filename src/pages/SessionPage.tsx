@@ -12,7 +12,7 @@ import { useGuidedSession } from '@/hooks/useGuidedSession';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { loadProgress, loadExpiredProgress, rehydrate, clearProgress, setAside, slotOf, type ProgressSlot, type SavedProgress } from '@/session/persistence';
 import { redoseState, segmentsWithExtra } from '@/session/runner';
-import { getState, isSessionSaved, useStore } from '@/store/useStore';
+import { acquisitionStamp, getState, isSessionSaved, useStore } from '@/store/useStore';
 import { toWorkoutSession, withGuidedSession, activeSeconds, bankProgress, progressSettled } from '@/session/logging';
 import { getCoaching } from '@/data/coaching';
 import { nameOf } from '@/data/catalog';
@@ -43,6 +43,7 @@ import { measuredStamp } from '@/health/observation';
 import { HREF, nextBoundary } from '@/health/recommend';
 import { AnsweringStop, OwnsUrgent } from '@/screens/home/UrgentBanner';
 import { useClock, useWakeAt } from '@/screens/today/clock';
+import { acquiredIn } from '@/walk/consent';
 import { displayToKg, generateId, kgToDisplay, toDateString } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -484,11 +485,14 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status]);
 
-  /** A report through the shared check-in path, the same as Walk's; the engine decides what may carry on. */
-  const report = async (r: SymptomReport, at?: Date): Promise<CheckInRecord> => {
-    const { record } = await onReport(r, at);
-    inputRef.current = { ...inputRef.current, checkIn: record };
-    return record;
+  /**
+   * A report through the shared check-in path, the same as Walk's; the engine decides what may carry on. Its
+   * whole result: whether the device stored it decides whether anything moves on (F-safety-05, journey §4.5).
+   */
+  const report = async (r: SymptomReport, at?: Date): Promise<{ record: CheckInRecord; stored: boolean }> => {
+    const result = await onReport(r, at);
+    inputRef.current = { ...inputRef.current, checkIn: result.record };
+    return result;
   };
 
   /** "I feel low": a stop from the moment it is said, until a reading taken after it settles it. */
@@ -501,9 +505,13 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     void report({ news: ['lowSymptoms'] }, new Date(since));
   };
 
-  /** A reading saved from the low, checkpoint or restart screen, then what it allows. */
-  const saveReading = async (reading: GlucoseEntry, extra: { neededHelp: boolean; recovered: boolean }) => {
-    const record = await report({
+  /**
+   * A reading saved from the low, checkpoint or restart screen, then what it allows. Its guidance follows the
+   * answer either way; the check is logged and the run moves on only once the device has stored it (F-safety-05).
+   * True once the reading is done with: stored, and nothing further asked of it here.
+   */
+  const saveReading = async (reading: GlucoseEntry, extra: { neededHelp: boolean; recovered: boolean }): Promise<boolean> => {
+    const { record, stored } = await report({
       // A meter's HI or LO is recorded as the check-in records it (`glucoseDisplay`).
       ...('display' in reading ? { glucoseDisplay: reading } : { glucose: reading }),
       ...(extra.neededHelp ? { news: ['lowSevere' as const] } : {}),
@@ -522,8 +530,10 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
       // still low at the re-check, an emergency: the run ends here and goes
       // into History now. The low's guidance stays on screen.
       if (endsToday(live, record.readiness)) { g.stopVoice(); act.finish(); }
-      return;
+      return stored;
     }
+    // Refused: still paused, the screen and its reading kept, with Try again (journey §4.5).
+    if (!stored) return false;
     const checkpoint = flow?.kind === 'checkpoint' ? flow.stepId : null;
     setFlow(null);
     if (checkpoint && !lowInRun()) {
@@ -533,6 +543,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     }
     // After a low in this run, carrying on is the cool-down only (spec §4.6).
     act.resume();
+    return true;
   };
 
   /** Worse back or leg symptoms: that exercise stops now, for the day, before anything is asked (B09). */
@@ -546,7 +557,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
 
   /** The answers after "Worse", the same builder as the stop control's and the walk's. */
   const saveSymptoms = async (a: LegAnswers) => {
-    const record = await report({
+    const { record } = await report({
       ...legReport(a, inputRef.current.checkIn?.back?.reach),
       ...(flow?.kind === 'symptoms' && flow.exerciseId ? { provoked: [flow.exerciseId] } : {}),
     });
@@ -579,7 +590,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
   const stopChoice = async (choice: 'chest' | 'stroke' | 'breathless' | 'dizzy' | 'rest') => {
     const { report: said, next } = stopAnswer(choice, health.hypoRisk);
     setStopping(next === 'dizzy' ? 'dizzy' : null);
-    if (said) endIfEmergency(await report(said));
+    if (said) endIfEmergency((await report(said)).record);
   };
   /** Leg symptoms: reported, and the movement that brought them on is left out for the day. */
   const stopForLeg = async (a: LegAnswers) => {
@@ -589,7 +600,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     // steps down and the Back & leg chart shows it (contract A-BACK, scan J2-02).
     if (provoking) act.log({ stepId: `stop-${provoking}`, kind: 'checkpoint', exerciseId: provoking, completed: true, answer: 'worse' });
     setStopping(null);
-    const record = await report(answering({ ...legReport(a, inputRef.current.checkIn?.back?.reach), ...(provoking ? { provoked: [provoking] } : {}) }));
+    const { record } = await report(answering({ ...legReport(a, inputRef.current.checkIn?.back?.reach), ...(provoking ? { provoked: [provoking] } : {}) }));
     // Leg symptoms that stop this mode stop it for the day: an emergency, new
     // weakness, a stretch that sent them further down. The run ends there, so
     // what was done and the worsening are in History now, not only when the
@@ -1004,7 +1015,8 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
   /** The low left no exercise today and ended the run: what stays is the low's own care. */
   ended?: boolean;
   profile: UserProfile;
-  onSave: (reading: GlucoseEntry, extra: { neededHelp: boolean; recovered: boolean }) => Promise<void>;
+  /** True once the reading is done with; false when the device refused it, so it is kept here to try again. */
+  onSave: (reading: GlucoseEntry, extra: { neededHelp: boolean; recovered: boolean }) => Promise<boolean>;
   onEnd: () => void;
   onLeave: () => void;
 }) {
@@ -1019,6 +1031,12 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
   const [neededHelp, setNeededHelp] = useState(false);
   const [recovered, setRecovered] = useState(false);
   const [busy, setBusy] = useState(false);
+  /**
+   * The reading the device refused, as it was given (F-safety-05): Try again
+   * sends that same measurement, its time and clock generation, while the
+   * answers on screen are the ones it was given with. Changed, it is a new one.
+   */
+  const [refused, setRefused] = useState<{ key: string; reading: GlucoseEntry } | null>(null);
   const heading = useFocusOnMount<HTMLHeadingElement>();
   const typed = value.trim();
   const n = Number(typed);
@@ -1032,22 +1050,28 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
     // or the date has changed.
     ?? (kind === 'low' && due > now.getTime() ? { due, minutes: Math.ceil((due - now.getTime()) / 60_000) } : null);
   const countdown = wait ? `Measure again in ${wait.minutes} minute${wait.minutes === 1 ? '' : 's'}, at ${timeOf(wait.due)}.` : null;
+  const key = JSON.stringify([display, typed, unit, unitConfirmed, neededHelp, recovered]);
   const save = async () => {
     if (!usable || busy) return;
     setBusy(true);
     const source = profile.health.glucoseMonitor === 'cgm' ? 'sensor' as const : 'meter' as const;
     const taken = new Date();
     const measuredAt = taken.toISOString();
+    const reading: GlucoseEntry = refused?.key === key ? refused.reading : acquiredIn(display
+      // A meter's HI or LO is kept only in the check-in, so in this phone's offset, written out (H3-01).
+      ? { display, measuredAt: measuredStamp(taken), source }
+      : { value: n, unit, measuredAt, source, ...(unitConfirmed ? { unitConfirmed: true } : {}) }, acquisitionStamp());
     try {
-      await onSave(display
-        // A meter's HI or LO is kept only in the check-in, so in this phone's offset, written out (H3-01).
-        ? { display, measuredAt: measuredStamp(taken), source }
-        : { value: n, unit, measuredAt, source, ...(unitConfirmed ? { unitConfirmed: true } : {}) }, { neededHelp, recovered });
+      const done = await onSave(reading, { neededHelp, recovered });
+      // Kept, with its time, until the device has stored it (journey §4.5).
+      setRefused(done ? null : { key, reading });
+      if (done) {
+        setValue('');
+        setUnitConfirmed(false);
+        setShows('number');
+      }
     } finally {
       setBusy(false);
-      setValue('');
-      setUnitConfirmed(false);
-      setShows('number');
     }
   };
   const title = kind === 'low' ? 'Treat the low first' : kind === 'checkpoint' ? 'Check your glucose' : 'Check your glucose before you carry on';
@@ -1147,7 +1171,14 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
           </label>
         )}
         <div className="mt-auto flex flex-col gap-3">
-          <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" disabled={!usable || busy} onClick={() => void save()}>Save this reading</Button>
+          {refused?.key === key && (
+            <p role="alert" className="rounded-xl bg-caution/15 px-4 py-3 text-[length:var(--text-subhead)] leading-snug">
+              This reading couldn’t be saved on this device. It still counts for now, and the session stays paused. Free up some space, then try again.
+            </p>
+          )}
+          <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" disabled={!usable || busy} onClick={() => void save()}>
+            {refused?.key === key ? 'Try again' : 'Save this reading'}
+          </Button>
           {ended ? (
             <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onLeave}>Back to Today</Button>
           ) : (

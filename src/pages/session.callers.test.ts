@@ -1891,3 +1891,52 @@ describe('F-safety-02: "Stop: something’s wrong" is saved at the tap, and hold
     expect(status()).toBe('running');
   });
 });
+
+describe('F-safety-05: a reading the device refused at the routine check keeps the player where it was, with Try again (journey §4.5)', () => {
+  it('refused: paused at the check, the number kept, nothing logged; tried again and stored, it carries on, as the reading measured then', async () => {
+    store.resetForTests();
+    const db = fakeIndexedDB();
+    await store.start({ factory: db, broadcast: null });
+    const { check, plan } = await atGlucoseCheck();
+    clock(9, 20);
+    db.control.setWriteError(() => new DOMException('The operation failed.', 'QuotaExceededError'));
+    await h().change(h().field('Glucose now'), { value: '150' });
+    await h().click(h().button('Save this reading'));
+    expect(progress()!.state.index).toBe(check);
+    expect(progress()!.state.status).toBe('paused');
+    expect(progress()!.state.logs.find(l => l.stepId === plan.steps[check].id)?.answer).toBeUndefined();
+    expect(h().field('Glucose now').props.value).toBe('150');
+    expect(h().text()).toMatch(/couldn’t be saved/);
+    db.control.setWriteError(undefined);
+    clock(9, 21);
+    await h().click(h().button('Try again', { exact: true }));
+    expect(progress()!.plan.steps[progress()!.state.index].kind).toBe('cardio');
+    expect(progress()!.state.status).toBe('running');
+    expect(today()?.glucose).toMatchObject({ value: 150, measuredAt: iso(9, 20) });
+  });
+
+  it('after "I feel low", a refused 65 shows the low’s care at once and keeps the reading to try again', async () => {
+    store.resetForTests();
+    const db = fakeIndexedDB();
+    await store.start({ factory: db, broadcast: null });
+    await seed(createDefaultProfile(INSULIN), [ci({ glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } })]);
+    await mount();
+    await h().click(h().button('Start', { exact: true }));
+    await h().click(h().button('I feel low'));
+    await h().settle();
+    clock(9, 10);
+    db.control.setWriteError(() => new DOMException('The operation failed.', 'QuotaExceededError'));
+    await h().change(h().field('Glucose now'), { value: '65' });
+    await h().click(h().button('Save this reading'));
+    expect(h().text()).toMatch(/Treat the low first/);
+    expect(h().field('Glucose now').props.value).toBe('65');
+    expect(h().buttons('Try again', { exact: true })).toHaveLength(1);
+    expect(progress()?.state.status).toBe('paused');
+    db.control.setWriteError(undefined);
+    clock(9, 11);
+    await h().click(h().button('Try again', { exact: true }));
+    expect(today()?.glucose).toMatchObject({ value: 65, measuredAt: iso(9, 10) });
+    expect(h().field('Glucose now').props.value).toBe('');
+    expect(progress()?.state.status).toBe('paused');
+  });
+});
