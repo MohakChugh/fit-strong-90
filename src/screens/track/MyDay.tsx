@@ -28,6 +28,7 @@ import { GoalSheet } from './GoalSheet';
 import { WHO_WEEKLY_MINUTES, recordedMovement, wholeMinutes } from './movement';
 import { addDays, clampDay, weekOf } from './periods';
 import { QuickLog, type SavedResult } from './QuickLog';
+import { RecentlyDeleted } from './RecentlyDeleted';
 import { displayPrefs, parseAddParam } from './logKinds';
 import { applyChange, mergeChanges, type ParamChange, type View } from './params';
 import { assembleDay, recordPath, type DayView } from './timeline';
@@ -61,7 +62,6 @@ export function MyDay({ day: pathDay }: {
   const state = useStore();
   const current = useToday();
   const location = useLocation();
-  // A meal deleted from here keeps its Undo until the person leaves (B-04).
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const day = clampDay(pathDay ?? params.get('day'), current);
@@ -258,6 +258,7 @@ function TimelineView({ day, current, fresh, origin, prefs, onAdd, onGoal }: {
             Add a record
           </PrimaryButton>
         </div>
+        {day === current && <RecentlyDeleted prefs={prefs} today={current} />}
       </>
     );
   }
@@ -302,6 +303,7 @@ function TimelineView({ day, current, fresh, origin, prefs, onAdd, onGoal }: {
           ))}
         </Group>
       )}
+      {day === current && <RecentlyDeleted prefs={prefs} today={current} />}
     </>
   );
 }
