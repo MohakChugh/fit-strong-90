@@ -175,6 +175,20 @@ export async function waitOutcome(t, sheet) {
   await t.page.waitForTimeout(250);
 }
 
+/**
+ * Merge a canonical backup into the open app through Me → Data → Restore →
+ * Merge, as a person would: the defined setup for records no screen of the
+ * journey makes itself. Fails the step if the merge doesn't complete.
+ */
+export async function importFixture(t, name, doc) {
+  const sheet = await chooseRestore(t, writeFixture(t, name, doc));
+  await merge(t, sheet);
+  const outcome = (await sheet.innerText()).replace(/\s+/g, ' ');
+  if (!/Merged\./.test(outcome)) throw new Error(`merging ${name} did not complete: ${outcome.slice(0, 300)}`);
+  await ui.tap(ui.button(sheet, 'Done'));
+  await sheet.waitFor({ state: 'hidden' });
+}
+
 // ---------------------------------------------------------------- My Day
 
 /** Open Quick Log's chooser from My Day's own Add button (the one in the bar); My Day is v2's Today's log. */
