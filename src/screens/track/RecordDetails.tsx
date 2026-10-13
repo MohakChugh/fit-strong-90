@@ -182,7 +182,8 @@ export function ReadingDetail() {
   const remove = async () => {
     setError(undefined);
     setHeld(undefined);
-    const said = `${kindTitle(o.kind)} ${formatObservation(o, prefs)}`;
+    // Its delete and its Undo hide the figure as its screen does (B-11; codex F-ui-08).
+    const said = figureHidden ? `${kindTitle(o.kind)} record` : `${kindTitle(o.kind)} ${formatObservation(o, prefs)}`;
     if (inCheckIn && checkInDay && profile) {
       const entry = freshId('deleted-');
       const deps = { profile, update, date: checkInDay };
