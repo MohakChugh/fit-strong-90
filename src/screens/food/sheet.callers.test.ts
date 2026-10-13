@@ -677,3 +677,37 @@ describe('an open time picker on a past day’s meal (H7R-05, K7-12)', () => {
     expect(mealsIn(store.getState().records).map(m => [m.meal, m.at.slice(0, 16)])).toEqual([['dinner', '2026-10-05T09:15']]);
   });
 });
+
+describe('a press on the results that ends off them (codex F-food-08; M15)', () => {
+  /** The page's own listeners, as a browser's window holds them. */
+  const heard = new Map<string, Set<() => void>>();
+  const saved = { add: globalThis.addEventListener, remove: globalThis.removeEventListener };
+  beforeEach(() => {
+    heard.clear();
+    Object.assign(globalThis, {
+      addEventListener: (type: string, fn: () => void) => void (heard.get(type) ?? heard.set(type, new Set()).get(type)!).add(fn),
+      removeEventListener: (type: string, fn: () => void) => void heard.get(type)?.delete(fn),
+    });
+  });
+  afterEach(() => Object.assign(globalThis, { addEventListener: saved.add, removeEventListener: saved.remove }));
+  const release = (type: 'pointerup' | 'pointercancel') => { for (const fn of [...(heard.get(type) ?? [])]) fn(); };
+  const list = (h: Host) => h.all().find(n => typeof n.props.onPointerDown === 'function')!;
+  const names = (h: Host) => textOf(list(h).children);
+
+  for (const type of ['pointerup', 'pointercancel'] as const) {
+    it(`held while the finger is down, and let go by a ${type} anywhere: the next search shows its own results`, async () => {
+      const h = await open({});
+      await h.change(h.field('Search foods'), { value: 'roti' });
+      expect(names(h)).toMatch(/Roti/);
+      // Pressed on a row, dragged off the list, let go over the search field: the list hears no release of its own.
+      (list(h).props.onPointerDown as () => void)();
+      await h.settle();
+      await h.change(h.field('Search foods'), { value: 'rice' });
+      expect(names(h)).toMatch(/Roti/);
+      release(type);
+      await h.settle();
+      expect(names(h)).not.toMatch(/Roti/);
+      expect(names(h)).toMatch(/[Rr]ice/);
+    });
+  }
+});
