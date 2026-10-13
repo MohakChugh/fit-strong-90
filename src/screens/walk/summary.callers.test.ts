@@ -215,6 +215,34 @@ describe('the summary after “Erase all routes” (B-05)', () => {
   });
 });
 
+describe('F-walk-02: the summary after this walk’s route was deleted in another tab', () => {
+  const LINE = { start: START, end: START + 20_000, coords: [[12.97, 77.59], [12.9705, 77.5902], [12.971, 77.5905]] as [number, number][], ms: [0, 10_000, 20_000] };
+  it('lets go of the route it showed, says so, and saves the walk without it', async () => {
+    const { journalEntry } = await import('@/walk/journal');
+    await store.setProfile(createDefaultProfile({ weightKg: 70, birthYear: 1975, health: { diabetes: 'none', medicinesReviewed: true } }));
+    await store.setSettings({ walk: { saveRoutes: true, map: 'off' } });
+    const walk = finishWalk(accrueOpen(startWalk(ID, { kind: 'walk', gps: true, steps: false, keepRoute: true }, START), 20 * MIN, START + 20 * MIN), START + 20 * MIN, 'finish');
+    await store.putWalkJournal(journalEntry(walk, START + 20 * MIN, [LINE]));
+    storeWalk(sessionWalkStorage(), walk);
+    const h = (host = render(createElement(WalkSummary)));
+    await h.settle();
+    expect(h.all().some(n => n.type === 'svg' && n.props['aria-label'] === 'Your route')).toBe(true);
+    // Deleted from its saved walk's screen, in the other tab that saved it.
+    expect((await store.eraseWalkRoute(ID)).ok).toBe(true);
+    // Its locations go from the walk's journal too, in that same write.
+    const journalled = await store.readWalkJournals();
+    expect(journalled.ok && journalled.value.find(e => e.id === ID)).toBeDefined();
+    expect(journalled.ok && journalled.value.find(e => e.id === ID)?.route).toBeUndefined();
+    await h.settle();
+    expect(h.all().some(n => n.type === 'svg' && n.props['aria-label'] === 'Your route')).toBe(false);
+    expect(h.text()).toContain('No route: this walk’s route was deleted.');
+    await h.click(h.button('Save walk'));
+    await h.settle();
+    expect(h.text()).toContain('Saved on this device');
+    expect(store.getState().records.routes).toEqual([]);
+  });
+});
+
 describe('Done closes back to where the walk came from, through history (M12)', () => {
   const someone = createDefaultProfile({ weightKg: 70, birthYear: 1975, health: { diabetes: 'none', medicinesReviewed: true } });
   /** Home → the Walk hub → the live walk, which Finish replaced with this summary. */

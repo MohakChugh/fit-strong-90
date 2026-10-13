@@ -14,13 +14,14 @@ export type WalkRoute =
   | { state: 'none' }
   | { state: 'loading' }
   | { state: 'failed' }
-  /** "Erase all routes" ran while this screen was open (B-05): what it had read is gone too. */
-  | { state: 'erased' }
+  /** "Erase all routes" ran while this screen was open (B-05), or this walk's route was deleted (`one`, F-walk-02): what it had read is gone too. */
+  | { state: 'erased'; one?: true }
   | { state: 'ready'; lines?: RouteLine[] };
 
 const NONE: WalkRoute = { state: 'none' };
 const LOADING: WalkRoute = { state: 'loading' };
 const ERASED: WalkRoute = { state: 'erased' };
+const DELETED: WalkRoute = { state: 'erased', one: true };
 
 /**
  * A walk's route: the saved one, or, before the walk is saved, the one
@@ -49,5 +50,7 @@ export function useWalkRoute(walkId: string, kept: boolean): WalkRoute {
   if (saved) return { state: 'ready', lines: saved.segments };
   if (!kept) return NONE;
   if (erased !== erasedOpen) return ERASED;
+  // Its route deleted for good, by name, in this tab or another (F-walk-02): what was read goes too.
+  if (settings.walk?.erased?.walks.includes(walkId)) return DELETED;
   return read ?? LOADING;
 }

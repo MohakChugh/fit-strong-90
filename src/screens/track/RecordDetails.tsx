@@ -22,7 +22,7 @@ import { noRouteLine } from '@/walk/readout';
 import type { RouteRecord } from '@/walk/routeRecord';
 import { getStrength, nameOf } from '@/data/catalog';
 import { sessionSeconds } from '@/session/logging';
-import { deleteRecord, freshId, getState, removeRecords, restoreDeleted, update, useStore } from '@/store/useStore';
+import { deleteRecord, eraseWalkRoute, freshId, getState, restoreDeleted, update, useStore } from '@/store/useStore';
 import { ALREADY_BACK, NEWER_STAYS, removeCheckInReading, restoreCheckInReading, type CheckInReading } from '@/components/checkin/pending';
 import { HeldProblem } from '@/components/checkin/HeldProblem';
 import { offerUndo, type UndoOutcome } from '@/components/hig/undo';
@@ -460,7 +460,8 @@ export function WalkDetail() {
         title="Delete this route?"
         detail="Its locations are removed from this device. The walk’s time, distance and steps stay. This cannot be undone."
         confirm="Delete route"
-        onConfirm={() => void removeRecords('routes', [walk.id]).then(r => (r.ok ? setDroppingRoute(false) : setError(`The route was not deleted: ${r.failure.message}`)))}
+        // Erased for good, by name: no summary or checkpoint still holding it brings it back (F-walk-02, B-05).
+        onConfirm={() => void eraseWalkRoute(walk.id).then(r => (r.ok ? setDroppingRoute(false) : setError(`The route was not deleted: ${r.failure.message}`)))}
         error={error}
       />
     </Screen>

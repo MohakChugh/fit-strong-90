@@ -66,7 +66,7 @@ import {
 import { newWalkId } from '@/walk/plan';
 import { parseJournalEntry, withJournalled, type JournalEntry } from '@/walk/journal';
 import { sameClockChange, type ClockSeen } from '@/walk/clock';
-import { clockGeneration, erasedGeneration, routeErased, walkSettings, withClockChange, withErase, withPendingClock, type WalkSettings } from '@/walk/consent';
+import { clockGeneration, erasedGeneration, routeErased, walkSettings, withClockChange, withErase, withPendingClock, withRouteErased, type WalkSettings } from '@/walk/consent';
 import { routeRecord, type RouteRecord } from '@/walk/routeRecord';
 import type { WalkInput } from '@/walk/record';
 import { SCHEMA_VERSION, giveSnapshots, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
@@ -1557,6 +1557,33 @@ export function eraseRoutes(): Promise<StoreResult> {
           ...(stripped.length > 0 ? { journal: { put: stripped } } : {}),
           ...(recent ? { content: recent } : {}),
           settings: { patch: { walk, ...(carried !== base.settings ? { deleted: carried?.deleted } : {}) } },
+        },
+        result: () => undefined,
+      };
+    },
+  });
+}
+
+/**
+ * F-walk-02 (B-05): one walk's route deleted for good, from its walk's screen, in one transaction: the saved
+ * route, the route in the walk's journal, and the walk erased by name (`withRouteErased`), which every save,
+ * checkpoint and import reads in its own transaction and every open view of it watches (`useWalkRoute`). So a
+ * summary still open in another tab, or a checkpoint on its way, never puts the coordinates back. The walk stays.
+ */
+export function eraseWalkRoute(walkId: string): Promise<StoreResult> {
+  return enqueue<void>({
+    journal: [walkId],
+    plan: (base, read) => {
+      const saved = base.records.routes.some(r => recordKey('routes', r) === walkId);
+      const entry = read?.journal[walkId];
+      const journalled = typeof entry === 'object' && entry !== null && 'route' in entry
+        ? [(({ route: _erased, ...rest }) => { void _erased; return { ...rest, id: walkId }; })(entry as { route?: unknown })]
+        : [];
+      return {
+        change: {
+          ...(saved ? { records: { routes: { remove: [walkId] } } } : {}),
+          ...(journalled.length > 0 ? { journal: { put: journalled } } : {}),
+          settings: { patch: { walk: withRouteErased(walkSettings(base.settings ?? {}), walkId) } },
         },
         result: () => undefined,
       };

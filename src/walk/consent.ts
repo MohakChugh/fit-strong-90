@@ -102,6 +102,17 @@ export function routeErased(walk: WalkSettings | undefined, walkId: string, plan
   return (plan.routeGen ?? 0) !== erasedGeneration(walk) || erasedHere(walk, walkId, startedAt);
 }
 
+/**
+ * F-walk-02 (B-05): one walk's route erased for good, by name: every save,
+ * checkpoint and import reads it (`erasedHere`), so no copy of the route a
+ * screen still holds brings it back. The count of erases stays where it is,
+ * so a walk being recorded keeps its own route.
+ */
+export function withRouteErased(walk: WalkSettings, walkId: string): WalkSettings {
+  const walks = [...new Set([...(walk.erased?.walks ?? []), walkId])].sort();
+  return { ...walk, erased: { ...walk.erased, generation: erasedGeneration(walk), walks } };
+}
+
 /** "Erase all routes": the count moves on, and these walks' routes are erased by name, as well as every earlier erase's. */
 export function withErase(walk: WalkSettings, walks: readonly string[]): WalkSettings {
   return { ...walk, erased: { generation: erasedGeneration(walk) + 1, walks: [...new Set([...(walk.erased?.walks ?? []), ...walks])].sort() } };

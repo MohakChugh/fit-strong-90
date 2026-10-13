@@ -17,7 +17,7 @@ import { energyFix, energyText, walkEnergy } from '@/walk/energy';
 import { clock, spokenClock, timeOfDay } from '@/walk/format';
 import { clearWalk, draftStored, loadWalk, sessionWalkStorage, storeWalk } from '@/walk/persist';
 import { hasRecord, saveOutcome, summarise, walkObservationIds, type SaveOutcome } from '@/walk/record';
-import { ROUTE_ERASED, ROUTE_LOADING, ROUTE_UNREADABLE, draftWarning, endingLine, lowAdvice, lowStage, noRouteLine, splitRows, summaryRows, walkSpan, walkTitle } from '@/walk/readout';
+import { ROUTE_DELETED, ROUTE_ERASED, ROUTE_LOADING, ROUTE_UNREADABLE, draftWarning, endingLine, lowAdvice, lowStage, noRouteLine, splitRows, summaryRows, walkSpan, walkTitle } from '@/walk/readout';
 import { splitsOf } from '@/walk/route';
 import { bboxOf } from '@/walk/routeRecord';
 import { walkSave } from '@/walk/save';
@@ -175,7 +175,7 @@ export function WalkSummary() {
         <RouteFrame walkId={walk.id} lines={lines} bbox={box} mapOn={mapOn} />
       ) : (
         <p role={route.state === 'loading' || route.state === 'failed' ? 'status' : undefined} className="px-1 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
-          {route.state === 'loading' ? ROUTE_LOADING : route.state === 'failed' ? ROUTE_UNREADABLE : route.state === 'erased' ? ROUTE_ERASED : noRouteLine({ ...walk.plan, keepRoute: keepsRoute })}
+          {route.state === 'loading' ? ROUTE_LOADING : route.state === 'failed' ? ROUTE_UNREADABLE : route.state === 'erased' ? (route.one ? ROUTE_DELETED : ROUTE_ERASED) : noRouteLine({ ...walk.plan, keepRoute: keepsRoute })}
         </p>
       )}
 

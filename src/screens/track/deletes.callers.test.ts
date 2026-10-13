@@ -324,3 +324,32 @@ describe('a workout deleted from its record (B-04, D111)', () => {
     expect(undoOffers()).toEqual([]);
   });
 });
+
+describe('F-walk-02: a route deleted from its walk’s screen stays deleted (B-05, D111)', () => {
+  const W = 'mgh3k2x1-5c5c5c5c';
+  it('a summary still open in another tab, saving the lines it holds, and a checkpoint carrying them, bring none of it back', async () => {
+    const { finishWalk, startWalk } = await import('@/walk/clock');
+    const { walkSave } = await import('@/walk/save');
+    const { journalEntry } = await import('@/walk/journal');
+    // The route's drawing asks the browser about motion.
+    Object.assign(globalThis, { window: globalThis, matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }) });
+    const t0 = new Date(2026, 9, 8, 8, 0).getTime();
+    const walk = finishWalk(startWalk(W, { kind: 'walk', gps: true, steps: false, keepRoute: true, routeGen: 0 }, t0), t0 + 20 * 60_000, 'finish');
+    const line = { start: t0, end: t0 + 60_000, coords: [[12.97, 77.59], [12.9705, 77.5902]] as [number, number][], ms: [0, 60_000] };
+    expect((await store.setSettings({ walk: { saveRoutes: true, map: 'off' } })).ok).toBe(true);
+    expect((await store.saveWalk(walkSave(walk, { route: [line] }))).ok).toBe(true);
+    expect(store.getState().records.routes).toHaveLength(1);
+    const h = await open(W, WalkDetail);
+    await h.click(h.button('Delete this route'));
+    await h.click(h.button('Delete route', { exact: true }));
+    expect(store.getState().records.routes).toEqual([]);
+    // The other tab's summary, unsaved when the walk was saved here, saves it now with its lines.
+    expect((await store.saveWalk(walkSave(walk, { route: [line] }))).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+    expect(store.getState().settings.deleted?.records?.routes ?? []).toContain(W);
+    // A checkpoint of it, carrying its route, keeps none.
+    expect((await store.putWalkJournal(journalEntry(walk, Date.now(), [line]))).ok).toBe(true);
+    const kept = await store.readWalkJournals();
+    expect(kept.ok && kept.value.find(e => e.id === W)?.route).toBeUndefined();
+  });
+});
