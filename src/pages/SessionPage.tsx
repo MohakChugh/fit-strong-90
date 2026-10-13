@@ -39,6 +39,9 @@ import { cameFrom } from '@/components/hig/navigation';
 import { SessionGate } from '@/components/checkin/SessionGate';
 import { measuredStamp } from '@/health/observation';
 import { HREF, nextBoundary } from '@/health/recommend';
+import { statusOn } from '@/health/status';
+import { carryOnRefusal, resumeAllowed } from '@/screens/hub/movement';
+import { heldBy } from '@/walk/gate';
 import { OwnsUrgent } from '@/screens/home/UrgentBanner';
 import { useClock, useWakeAt } from '@/screens/today/clock';
 import { displayToKg, generateId, kgToDisplay, toDateString } from '@/lib/utils';
@@ -99,12 +102,15 @@ function SessionRun() {
     const saved = loadProgress(Date.now(), slot);
     const id = (p: SessionPlan) => `${p.kind === 'stretch' ? 'stretch' : 'guided'}-${p.date}-${generateId()}`;
     const sameRoutine = (p: SessionPlan) => !spec || sameSpec(specFromPlanId(p.id), spec);
-    if (saved && (params.get('resume') === '1' || (saved.plan.date === fresh.date && sameRoutine(saved.plan)))) {
+    // Carried on only as today's status allows (A-34; codex F-ui-01): while Away or Unwell, or a guided hour in a
+    // flare-up, this is a new run, Start anyway's, and the saved one is banked as below.
+    const carries = resumeAllowed(statusOn(data.settings.statusPeriods, date), mode);
+    if (saved && carries && (params.get('resume') === '1' || (saved.plan.date === fresh.date && sameRoutine(saved.plan)))) {
       return { plan: saved.plan, resumeState: rehydrate(saved.state, saved.clockAt, Date.now(), saved.plan), sessionId: saved.sessionId ?? id(saved.plan) };
     }
-    // Progress from another day or another routine, or too old to resume,
-    // survives here only until the first autosave of this run, so bank its
-    // work before it goes (Review Focus #3).
+    // Progress from another day or another routine, too old to resume, or not
+    // carried on today, survives here only until the first autosave of this
+    // run, so bank its work before it goes (Review Focus #3).
     const old = saved ?? loadExpiredProgress(Date.now(), slot);
     return { plan: fresh, sessionId: id(fresh), ...(old ? { stale: old } : {}) };
   });
@@ -407,7 +413,12 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
    * stopped is not asked again just because its reading has aged.
    */
   const mayResume = () => {
-    const p = startGate({ ...inputRef.current, now: new Date() }, mode);
+    const now = new Date();
+    const clinical = startGate({ ...inputRef.current, now }, mode);
+    // And today's status, as the hubs' Carry on and the walk's Resume ask it (A-34; codex F-ui-01): after a stop,
+    // before any other hold (`heldBy`).
+    const status = carryOnRefusal(statusOn(getState().settings.statusPeriods, toDateString(now)), mode);
+    const p = heldBy(clinical, status) ?? clinical;
     if (p.allowed && !p.needsCheckIn) {
       setRefusal(null);
       return true;

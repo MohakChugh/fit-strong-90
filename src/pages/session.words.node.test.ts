@@ -1,5 +1,6 @@
 /**
- * Kiro's final review of the player and its gate (FK-01 to FK-04), driven
+ * The final reviews of the player and its gate (Kiro's FK-01 to FK-04, and
+ * Codex's F-ui-01), driven
  * through the real callers: `SessionPage`, its `Player` and `SessionGate`,
  * `useGuidedSession` and the real store. Replaced, as in
  * `session.callers.test.ts`, are only what cannot run in node and decides
@@ -9,6 +10,7 @@
  * - FK-02: the gate says Home, not v1's Today, in the mode's own words, with Check in its main way on.
  * - FK-03: the leave dialog and the start screen's note say Home.
  * - FK-04: nothing meaningful under 13 px (§20.4 rule 12).
+ * - F-ui-01: a run saved today is carried on only as today's status allows (§4.8, A-34).
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -263,4 +265,71 @@ describe('kiro FK-04: nothing meaningful on the player is under 13 px (journey �
       expect(lines, file).toEqual([]);
     }
   });
+});
+
+describe('codex F-ui-01: a run saved today is carried on only as today’s status allows (§4.8, A-34)', () => {
+  const status = (kind: 'away' | 'unwell' | 'flare') => store.update(prev => ({ ...prev, settings: { ...prev.settings, statusPeriods: [{ kind, from: DAY }] } }));
+  /** Today's guided session, saved paused after its first three stretches. */
+  function savedToday(p: UserProfile) {
+    const plan = buildSessionPlan({ profile: p, date: DAY, startDate: START, sessions: [], checkIn: ci() });
+    const work = plan.steps.filter(x => x.kind === 'hold' || x.kind === 'drill').slice(0, 3);
+    const state: RunnerState = {
+      planId: plan.id, date: plan.date, status: 'paused', index: plan.steps.indexOf(work[2]) + 1, stepStartedAt: 1_000, pausedAt: 1_000, visit: 1, extraMs: {},
+      logs: work.map(x => ({ stepId: x.id, kind: x.kind, completed: true, at: 1_000 })), startedAt: 0, activeMs: 60_000,
+    };
+    saveProgress(plan, state, 1_000, Date.now(), 'guided-saved');
+    return state;
+  }
+
+  for (const kind of ['away', 'unwell', 'flare'] as const) {
+    it(`${kind}: opened by the hub’s Start anyway, the saved run isn’t carried on; a new one starts, and the earlier one’s work goes into History`, async () => {
+      const p = createDefaultProfile(BACK);
+      await seed(p, [ci()]);
+      const saved = savedToday(p);
+      await status(kind);
+      await mount();
+      expect(h().buttons('Resume', { exact: true })).toHaveLength(0);
+      expect(shown(named('Start'))).toBe('Start');
+      const banked = store.getState().sessions.find(s => s.date === DAY);
+      expect(banked).toBeDefined();
+      expect(store.isSessionSaved(banked!.id)).toBe(true);
+      await h().click(named('Start'));
+      // The run under way is the new one, from its start.
+      expect(progress()?.state.startedAt).not.toBe(saved.startedAt);
+      expect(progress()?.state.logs).toEqual([]);
+    });
+  }
+
+  const RESUMES: [mode: 'guided' | 'stretch', kind: 'away' | 'unwell' | 'flare', said?: string][] = [
+    ['guided', 'away', 'A session isn’t carried on while you’re away.'],
+    ['guided', 'unwell', 'A session isn’t carried on while you’re unwell.'],
+    ['guided', 'flare', 'During a flare-up only a stretch is carried on.'],
+    ['stretch', 'away', 'A stretch isn’t carried on while you’re away.'],
+    // A flare-up carries a stretch on.
+    ['stretch', 'flare'],
+  ];
+  for (const [mode, kind, said] of RESUMES) {
+    it(`${mode}, restored while Normal: its Resume asks the status at the tap, and ${kind} meanwhile ${said ? 'holds it, saying why' : 'carries it on'}`, async () => {
+      const p = createDefaultProfile(BACK);
+      await seed(p, [ci()]);
+      const query = mode === 'stretch' ? 'mode=stretch&focus=backHips&minutes=10' : '';
+      if (mode === 'guided') savedToday(p);
+      else {
+        // A stretch started and paused, as the player saves it.
+        await mount(query);
+        await h().click(named('Start'));
+        await h().click(named('Pause'));
+      }
+      await mount(query);
+      expect(shown(named('Resume'))).toBe('Resume');
+      await status(kind);
+      await h().click(named('Resume'));
+      const run = JSON.parse(local.get(mode === 'stretch' ? 'fit-strong-90-stretch' : KEY) ?? 'null') as { state: RunnerState };
+      if (said) {
+        expect(h().text()).toContain(said);
+        expect(h().text()).toContain('Change your status to carry on.');
+        expect(run.state.status).toBe('paused');
+      } else expect(run.state.status).toBe('running');
+    });
+  }
 });
