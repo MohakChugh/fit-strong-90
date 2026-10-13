@@ -320,11 +320,13 @@ describe('every other part a food record could not hold (mutation-checked)', () 
     expect(newerByUpdate(usual({ updatedAt: '2026-10-09T09:00:00.000+05:30' }), usual())).toBe(-1);
     expect(newerByUpdate(own(), own({ name: 'Bhel' }))).toBe(0);
   });
-  it('keeps at most 50 earlier versions, dropping the oldest', () => {
+  it('a correction drops no earlier version: the 51st is kept with the rest, for its save to refuse whole (§4.6; codex F-food-03)', () => {
     const edits = Array.from({ length: 50 }, (_, i) => ({ ...edit, replacedAt: `2026-10-08T14:${String(i).padStart(2, '0')}:00.000+05:30` }));
     const next = corrected({ ...base, edits, editedAt: edits[49].replacedAt }, { at: AT, meal: 'dinner', items: [roti] }, '2026-10-08T16:00:00.000+05:30');
-    expect(next.edits).toHaveLength(50);
-    expect(next.edits[0].replacedAt).toBe(edits[1].replacedAt);
-    expect(next.edits[49]).toMatchObject({ replacedAt: '2026-10-08T16:00:00.000+05:30', meal: 'lunch' });
+    expect(next.edits).toHaveLength(51);
+    expect(next.edits.slice(0, 50)).toEqual(edits);
+    expect(next.edits[50]).toMatchObject({ replacedAt: '2026-10-08T16:00:00.000+05:30', meal: 'lunch' });
+    // As a record it is past what a meal holds, so it is never stored as one.
+    expect(mealProblem(stored(next))).toBe('a meal keeps at most 50 earlier versions');
   });
 });

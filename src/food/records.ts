@@ -238,15 +238,17 @@ export const customFoodsIn = (records: Pick<Records, 'customFoods'>): readonly C
 
 /**
  * A meal as corrected (A-22): the new time, meal and items, with the version
- * it replaces kept in `edits`. Moved past midnight, it moves to that day
- * (Review Focus 4). Unchanged, it's the same meal.
+ * it replaces kept in `edits`, every one of them: a correction never drops
+ * one (§4.6), so one past `MEAL_LIMITS.edits` is refused where it's saved
+ * (codex F-food-03). Moved past midnight, it moves to that day (Review
+ * Focus 4). Unchanged, it's the same meal.
  */
 export function corrected(meal: MealRecord, next: Pick<MealRecord, 'at' | 'meal' | 'items'>, now: string): MealRecord {
   if (meal.at === next.at && meal.meal === next.meal && JSON.stringify(meal.items) === JSON.stringify(next.items)) return meal;
   const before: MealEdit = { replacedAt: now, at: meal.at, meal: meal.meal, items: meal.items };
   return {
     ...meal, at: next.at, day: next.at.slice(0, 10), meal: next.meal, items: next.items, editedAt: now,
-    edits: [...meal.edits, before].slice(-MEAL_LIMITS.edits),
+    edits: [...meal.edits, before],
   };
 }
 

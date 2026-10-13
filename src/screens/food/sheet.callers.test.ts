@@ -255,6 +255,43 @@ describe('a correction made against a meal that changed underneath it (H7-08; bo
   });
 });
 
+describe('a correction past the earlier versions a meal keeps (codex F-food-03; §4.6)', () => {
+  const AT = '2026-10-08T13:10:00.000+05:30';
+  const roti = { kind: 'food', foodId: 'roti', rev: 1, name: 'Roti (whole-wheat)', unit: 'piece', count: 2, gramsPerPortion: 40, kcal: 204, carbsG: 43.2, carbsLowG: 31.1, carbsHighG: 57 } as const;
+  /** Lunch, corrected 50 times already: the most earlier versions a meal keeps. */
+  const history = Array.from({ length: 50 }, (_, i) => ({ replacedAt: `2026-10-08T13:${String(10 + Math.floor(i / 10)).padStart(2, '0')}:${String(i % 10).padStart(2, '0')}.000+05:30`, at: AT, meal: 'lunch' as const, items: [{ ...roti, count: (i % 3) + 1 }] }));
+  const lunch: MealRecord = { id: 'meal-1', at: AT, day: '2026-10-08', meal: 'lunch', items: [roti], level: 'estimates', loggedAt: AT, edits: history, editedAt: history[49].replacedAt };
+
+  it('is refused, saying why, with every earlier version kept and the draft still there; nothing is dropped', async () => {
+    await store.update(prev => ({ ...prev, profile: person({}) }));
+    expect((await food.saveMeal(lunch)).ok).toBe(true);
+    const h = await open({}, { edit: 'meal-1' });
+    const row = h.all().find(n => n.props['data-item'] === 'Roti (whole-wheat)')!;
+    await h.click(allIn(row).find(n => n.type === 'button' && textOf(n.children).includes('More'))!);
+    await h.click(h.button('Save meal', { exact: true }));
+    const [kept] = mealsIn(store.getState().records);
+    expect(kept.edits).toHaveLength(50);
+    expect(kept.edits[0]).toEqual(history[0]);
+    expect(kept.items).toEqual([roti]);
+    expect(h.all().some(n => n.props.role === 'alert' && textOf(n.children).includes('corrected 50 times'))).toBe(true);
+    expect(item(h, 'Roti (whole-wheat)')).toContain('3 rotis');
+    expect(toasts).toEqual([]);
+  });
+
+  it('the 50th correction is still saved, keeping all 50 earlier versions', async () => {
+    await store.update(prev => ({ ...prev, profile: person({}) }));
+    expect((await food.saveMeal({ ...lunch, edits: history.slice(0, 49), editedAt: history[48].replacedAt })).ok).toBe(true);
+    const h = await open({}, { edit: 'meal-1' });
+    const row = h.all().find(n => n.props['data-item'] === 'Roti (whole-wheat)')!;
+    await h.click(allIn(row).find(n => n.type === 'button' && textOf(n.children).includes('More'))!);
+    await h.click(h.button('Save meal', { exact: true }));
+    const [kept] = mealsIn(store.getState().records);
+    expect(kept.edits).toHaveLength(50);
+    expect(kept.edits.slice(0, 49)).toEqual(history.slice(0, 49));
+    expect(kept.items[0]).toMatchObject({ count: 3 });
+  });
+});
+
 describe('your own food in a logged meal, after it was redefined (H7-09; board D134)', () => {
   it('reads and steps as it was logged: one plate, 300 kcal, and 1½ plates is 450 kcal', async () => {
     const T1 = '2026-10-07T09:00:00.000+05:30';

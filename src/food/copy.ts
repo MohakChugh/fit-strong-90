@@ -109,6 +109,8 @@ export const FOOD_COPY = {
   didNotSave: 'That didn’t save.',
   changedElsewhere: (when: string, now: string) => `That meal was changed elsewhere at ${when}, so this wasn’t saved. It’s now ${now}. Close this and open it again to correct that version.`,
   deletedElsewhere: 'That meal was deleted elsewhere, so this wasn’t saved. Nothing was changed.',
+  // A correction is never made by dropping an earlier version (§4.6; codex F-food-03).
+  correctionsFull: (most: number) => `This meal has been corrected ${most} times, as many as one meal keeps, and every earlier version is kept. To change what it says, log it again as a new meal and delete this one.`,
   // Your own food, and Quick add
   ownTitle: 'Your own food',
   ownName: 'Name',
