@@ -315,3 +315,41 @@ describe('a stop said during movement, in the check-in (journey §4.4, H6-01)', 
     expect(build(said, plain).news).toContain('stopped');
   });
 });
+
+describe('F-safety-04: the same measurement, its context corrected', () => {
+  const cgm = createDefaultProfile({ health: { diabetes: 'type2', insulin: 'injections_or_pump', insulinRegimen: 'basalOnly', medicinesReviewed: true, glucoseMonitor: 'cgm', glucoseUnit: 'mg/dL' } });
+  const saved = (g: Partial<NonNullable<DailyCheckIn['glucose']>>) =>
+    record(cgm, { ...base, glucose: { value: 120, unit: 'mg/dL', measuredAt: at(5), source: 'sensor', ...g } });
+  const again = (prev: CheckInRecord, change: Partial<ReturnType<typeof emptyForm>>) => build({ ...formFromRecord(prev, cgm), ...change }, cgm, prev);
+
+  it('says more: a falling arrow and rapid insulin apply to the reading as it was measured, never a second reading', () => {
+    const prev = saved({ trend: 'flat' });
+    const next = again(prev, { trend: 'fastFall', rapid: true });
+    expect(next.glucose).toEqual({ ...prev.glucose, trend: 'fastFall', rapidInsulinLast2h: true });
+    expect(next.glucoseEarlier).toBeUndefined();
+    expect(evaluateCheckIn(cgm, next).reasons.map(r => r.code)).toContain('falling');
+  });
+
+  it('says less: a falling arrow corrected to steady, or rapid insulin taken back, leaves the saved word standing', () => {
+    const prev = saved({ trend: 'fastFall', rapidInsulinLast2h: true });
+    const next = again(prev, { trend: 'flat', rapid: false });
+    expect(next.glucose).toBe(prev.glucose);
+  });
+
+  it('an arrow the sheet doesn’t ask (a meter reading) is left as it was', () => {
+    const meter = createDefaultProfile({ health: { diabetes: 'type2', insulin: 'injections_or_pump', insulinRegimen: 'basalOnly', medicinesReviewed: true, glucoseMonitor: 'meter', glucoseUnit: 'mg/dL' } });
+    const prev = record(meter, { ...base, glucose: { value: 120, unit: 'mg/dL', measuredAt: at(5), source: 'meter' } });
+    expect(build({ ...formFromRecord(prev, meter), trend: 'fastFall' }, meter, prev).glucose).toBe(prev.glucose);
+  });
+
+  it('its unit confirmed in the same save, the corrected arrow comes with it', () => {
+    const prev = saved({ value: 40, unit: 'mmol/L', trend: 'flat' });
+    const next = again(prev, { unitConfirmed: true, trend: 'fastFall' });
+    expect(next.glucose).toEqual({ ...prev.glucose, unitConfirmed: true, trend: 'fastFall' });
+  });
+
+  it('nothing changed: the same reading, the same object', () => {
+    const prev = saved({ trend: 'slowFall' });
+    expect(again(prev, {}).glucose).toBe(prev.glucose);
+  });
+});

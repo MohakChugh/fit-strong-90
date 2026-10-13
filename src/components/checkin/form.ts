@@ -503,6 +503,26 @@ function appendUnique<T>(list: T[], items: T[], same: (a: T, b: T) => boolean): 
   return out;
 }
 
+/** How far an arrow says the glucose is falling: what the 15-minute wait reads (H-PRE-LOW). */
+const FALL: Record<GlucoseTrend, number> = { rising: 0, flat: 0, slowFall: 1, fastFall: 2 };
+
+/**
+ * A saved reading's own measurement with what the form now says about it
+ * (F-safety-04): the arrow, rapid-acting insulin and source as corrected,
+ * where they say more. One that says less, a falling arrow corrected to
+ * steady or rapid insulin taken back, leaves the saved word standing: only a
+ * new reading answers the wait it set. The number, unit, time and clock
+ * generation stay the measurement's own; the same reading, unchanged, is
+ * the same object.
+ */
+function withContext(prev: GlucoseReading, form: CheckInForm, v: Visible): GlucoseReading {
+  const trend = v.glucoseTrend && form.trend && (!prev.trend || FALL[form.trend] >= FALL[prev.trend]) ? form.trend : prev.trend;
+  const rapid = prev.rapidInsulinLast2h === true || (v.rapidInsulin && form.rapid);
+  const source = form.source ?? prev.source;
+  if (trend === prev.trend && rapid === (prev.rapidInsulinLast2h === true) && source === prev.source) return prev;
+  return { ...prev, ...(trend ? { trend } : {}), ...(source ? { source } : {}), ...(rapid ? { rapidInsulinLast2h: true } : {}) };
+}
+
 function glucoseFromForm(form: CheckInForm, profile: UserProfile, previous: DailyCheckIn | undefined, stamp: string, v: Visible) {
   const prev = previous?.glucose;
   const prevShown = previous?.glucoseDisplay;
@@ -530,11 +550,12 @@ function glucoseFromForm(form: CheckInForm, profile: UserProfile, previous: Dail
   const value = Number(text);
   const sanity = formSanity(form);
   if (!submitsGlucose(sanity)) return {};
-  // The saved reading, resubmitted untouched.
-  if (asAcquired(prev) && sameGlucose(prev, value, form.unit, at, form.unitConfirmed)) return { glucose: prev };
+  // The saved reading, resubmitted with its number, unit and time: the same measurement, with what was said
+  // about it as corrected (F-safety-04).
+  if (prev && asAcquired(prev) && sameGlucose(prev, value, form.unit, at, form.unitConfirmed)) return { glucose: withContext(prev, form, v) };
   // The same reading with its unit confirmed: one measurement, not a new one.
   if (prev && asAcquired(prev) && form.unitConfirmed && sameGlucose(prev, value, form.unit, at)) {
-    return { glucose: { ...prev, unitConfirmed: true }, corrected: prev };
+    return { glucose: { ...withContext(prev, form, v), unitConfirmed: true }, corrected: prev };
   }
   // "I meant mmol/L" on an ambiguous low: the same reading with its unit fixed.
   if (prev && asAcquired(prev) && prev.unit === 'mg/dL' && form.unit === 'mmol/L' && prev.value === value

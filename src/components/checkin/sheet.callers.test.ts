@@ -1641,3 +1641,55 @@ describe('after a change to the phone’s clock, through the sheet (B-19, H6R-02
     expect(startOffered()).toBe(true);
   });
 });
+
+describe('F-safety-04: a reading’s arrow, rapid insulin and source corrected on the same measurement (journey §4.1)', () => {
+  const cgm = () => createDefaultProfile({ health: { ...PROFILES.insulin.health, glucoseMonitor: 'cgm' } });
+  /** 120 mg/dL from the sensor, its arrow as given, saved and allowed to start. */
+  async function steady(p: UserProfile, arrow = 'Steady') {
+    await seed(p);
+    await openSheet();
+    await none();
+    await typeGlucose('120');
+    await h().click(h().button(arrow, { exact: true }));
+    await seePlan();
+    return stored()!.glucose!;
+  }
+
+  it('Steady corrected to Falling fast, number, unit and time unchanged: the 15-minute wait holds, and it is still one measurement', async () => {
+    const p = cgm();
+    const first = await steady(p);
+    expect(first.trend).toBe('flat');
+    expect(startOffered()).toBe(true);
+    await changeAnswers();
+    await h().click(h().button('Falling fast', { exact: true }));
+    await seePlan();
+    expect(stored()!.glucose).toMatchObject({ value: 120, unit: 'mg/dL', measuredAt: first.measuredAt, trend: 'fastFall' });
+    expect(stored()!.glucoseEarlier ?? []).toHaveLength(0);
+    expect(startOffered()).toBe(false);
+    expect(asked(p).allowed && !asked(p).needsCheckIn).toBe(false);
+    expect(h().text()).toMatch(/falling/i);
+  });
+
+  it('Falling fast corrected to Steady releases nothing: the falling arrow stands until a new reading answers it', async () => {
+    const p = cgm();
+    const first = await steady(p, 'Falling fast');
+    expect(startOffered()).toBe(false);
+    await changeAnswers();
+    await h().click(h().button('Steady', { exact: true }));
+    // The same number again isn't the re-check the falling arrow waits for: a new reading is.
+    expect(h().button('See today’s plan').props.disabled).toBe(true);
+    expect(h().text()).toMatch(/Enter your new glucose reading to carry on/);
+    expect(stored()!.glucose).toMatchObject({ measuredAt: first.measuredAt, trend: 'fastFall' });
+    expect(asked(p).allowed && !asked(p).needsCheckIn).toBe(false);
+  });
+
+  it('rapid-acting insulin said afterwards about the same reading counts', async () => {
+    const p = cgm();
+    const first = await steady(p);
+    await changeAnswers();
+    await h().click(h().button('Rapid-acting insulin in the last 2 hours'));
+    await seePlan();
+    expect(stored()!.glucose).toMatchObject({ measuredAt: first.measuredAt, rapidInsulinLast2h: true });
+    expect(asked(p).restrictions.join(' ') + JSON.stringify(stored()!.readiness)).toMatch(/Rapid-acting insulin/);
+  });
+});
