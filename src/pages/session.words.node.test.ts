@@ -15,7 +15,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { readFileSync } from 'node:fs';
 import type { CheckInRecord, DailyCheckIn } from '@/types/checkin';
+import type { SessionPlan } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
+import type { RunnerState } from '@/session/runner';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, textOf, type Host, type HostNode } from '@/test/host';
@@ -72,6 +74,8 @@ const store = await import('@/store/useStore');
 const { default: SessionPage } = await import('./SessionPage');
 const { resetPendingCheckInsForTests } = await import('@/components/checkin/pending');
 const { evaluateCheckIn } = await import('@/engine/readiness');
+const { buildSessionPlan } = await import('@/engine/session');
+const { saveProgress } = await import('@/session/persistence');
 const { HREF } = await import('@/health/recommend');
 
 const known = { medicinesReviewed: true, currentlyActive: true, clearance: 'vigorous' as const, glucoseMonitor: 'meter' as const, glucoseUnit: 'mg/dL' as const };
@@ -80,6 +84,7 @@ const BACK = { pain: { areas: ['lowerBack', 'sciatica'], sciaticaSide: 'left' },
 const START = '2026-09-28';
 const DAY = '2026-10-09';
 const clock = (h: number, m = 0, d = 9) => vi.setSystemTime(new Date(2026, 9, d, h, m, 0));
+const KEY = 'fit-strong-90-guided';
 
 let host: Host | undefined;
 beforeEach(async () => {
@@ -112,6 +117,7 @@ async function mount(query = '') {
   return host;
 }
 const h = () => host!;
+const progress = () => JSON.parse(local.get(KEY) ?? 'null') as { plan: SessionPlan; state: RunnerState } | null;
 /** What a control shows, its accessible name aside: the words a person reads on it. */
 const shown = (n: HostNode) => textOf(n.children);
 /** The button whose accessible name is exactly `name`, as VoiceOver and the acceptance suite find it. */
@@ -189,6 +195,36 @@ describe('kiro FK-02: the session’s gate says Home, in the mode’s own words,
     await mount('mode=stretch&focus=backHips&minutes=10');
     expect(h().buttons('Check in', { exact: true })).toHaveLength(0);
     expect(shown(named('Back to Home'))).toBe('Back to Home');
+  });
+});
+
+describe('kiro FK-03: the player says Home, v2’s name, never v1’s Today', () => {
+  it('the leave dialog says progress can be resumed from Home', async () => {
+    await seed(createDefaultProfile(BACK), [ci()]);
+    await mount();
+    await h().click(named('Start'));
+    await h().click(named('End session'));
+    expect(h().text()).toMatch(/Your progress is saved\. You can resume from Home\./);
+    expect(h().text()).not.toMatch(/from Today/);
+  });
+
+  it('the start screen says Home will add an earlier run the device would not bank', async () => {
+    store.resetForTests();
+    await store.start({ factory: fakeIndexedDB({ failWrite: name => (name === 'sessions' ? new DOMException('Full', 'QuotaExceededError') : undefined) }), broadcast: null });
+    const p = createDefaultProfile(NONE);
+    const yesterday = '2026-10-08';
+    const plan = buildSessionPlan({ profile: p, date: yesterday, startDate: START, sessions: [], checkIn: ci({ date: yesterday }) });
+    const work = plan.steps.filter(x => x.kind === 'hold' || x.kind === 'drill').slice(0, 3);
+    const state: RunnerState = {
+      planId: plan.id, date: plan.date, status: 'paused', index: plan.steps.indexOf(work[2]) + 1, stepStartedAt: 1_000, pausedAt: 1_000, visit: 1, extraMs: {},
+      logs: work.map(x => ({ stepId: x.id, kind: x.kind, completed: true, at: 1_000 })), startedAt: 0, activeMs: 60_000,
+    };
+    saveProgress(plan, state, 1_000, Date.now(), 'guided-test');
+    await seed(p, [ci()]);
+    await mount();
+    expect(h().text()).toMatch(/It is kept here, and Home will add it once saving works again\./);
+    expect(h().text()).not.toMatch(/Today will add/);
+    expect(progress()).not.toBeNull();
   });
 });
 

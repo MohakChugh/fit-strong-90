@@ -1251,7 +1251,7 @@ describe('a low on the reading screen that leaves no exercise today ends the run
     ended();
     guidance();
     expect(h().text()).toMatch(/No exercise today/);
-    expect(h().buttons('Back to Today')).toHaveLength(1);
+    expect(h().buttons('Back to Home', { exact: true })).toHaveLength(1);
     // The re-check, 15 minutes on, is still recorded here, and the guidance stays.
     clock(9, 25);
     await h().change(h().field('Glucose now'), { value: '58' });

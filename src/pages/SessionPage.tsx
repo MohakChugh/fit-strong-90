@@ -274,7 +274,7 @@ const drawnHere = (p: Permission) => ({ allowed: p.allowed, disposition: p.dispo
 function staleNote(stale: SavedProgress, how: 'kept' | 'lost'): string {
   const day = new Date(`${stale.plan.date}T12:00:00`).toLocaleDateString([], { weekday: 'long' });
   return how === 'kept'
-    ? `Your unfinished session from ${day} could not be added to your history: this device is not saving right now. It is kept here, and Today will add it once saving works again.`
+    ? `Your unfinished session from ${day} could not be added to your history: this device is not saving right now. It is kept here, and Home will add it once saving works again.`
     : `Your unfinished session from ${day} could not be saved: this device has no room for it. Starting now replaces it.`;
 }
 
@@ -799,7 +799,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Leave the session?</DialogTitle>
-            <DialogDescription>Your progress is saved. You can resume from Today.</DialogDescription>
+            <DialogDescription>Your progress is saved. You can resume from Home.</DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-col gap-3 sm:flex-row">
             <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" onClick={() => { setExitOpen(false); act.resume(); }}>Keep going</Button>
@@ -1149,7 +1149,7 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
         <div className="mt-auto flex flex-col gap-3">
           <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" disabled={!usable || busy} onClick={() => void save()}>Save this reading</Button>
           {ended ? (
-            <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onLeave}>Back to Today</Button>
+            <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onLeave}>{exitLabel()}</Button>
           ) : (
             <>
               <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onEnd}>End session</Button>
