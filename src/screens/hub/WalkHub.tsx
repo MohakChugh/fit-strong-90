@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -14,7 +14,7 @@ import { useWakeAt } from '@/screens/today/clock';
 import { weekMovement } from '@/screens/today/model';
 import { StatusSheet } from '@/screens/today/StatusSheet';
 import { ChoiceRow, SelectRow, SwitchRow } from '@/screens/walk/parts';
-import { getState, setSettings } from '@/store/useStore';
+import { getState, update } from '@/store/useStore';
 import type { Meal } from '@/types/habits';
 import { leftOpen, STALE_AFTER_MS, type WalkKind } from '@/walk/clock';
 import { canLocate, canSenseMotion, requestLocation, requestMotion } from '@/walk/browser';
@@ -24,7 +24,7 @@ import { peekWalk, sessionWalkStorage } from '@/walk/persist';
 import { endOpenWalk } from '@/walk/recovery';
 import {
   AFTER_MEAL_TARGET, MEAL_LABEL, MEAL_STARTED_AGO, MEALS, TARGETS, afterMealSuggestion, choiceChanged, liveHref, mealFromSearch,
-  mealMinutesAgo, mealStartedLabel, newWalkId, setupPlan,
+  mealMinutesAgo, mealStartedLabel, newWalkId, setupPlan, type MeasureChoice,
 } from '@/walk/plan';
 import { HistoryList } from './HistoryList';
 import { HubFrame, HubSection, SeeTrends } from './HubFrame';
@@ -113,15 +113,25 @@ export default function WalkHub() {
   const [stepsNote, setStepsNote] = useState<string>();
   const [rememberNote, setRememberNote] = useState<string>();
 
-  // Remember the choice for next time whenever it differs from what is
-  // stored. Read from both switches at once, so two quick toggles cannot
-  // overwrite each other with a stale half.
-  useEffect(() => {
-    if (!choiceChanged(remembered, { gps, steps })) return;
-    void setSettings({ walkDefaults: { gps, steps } }).then(saved => {
+  // A switch set here is remembered for next time from the tap alone, onto the
+  // choice as stored, so the other switch stays as another window of
+  // FitStrong left it; while neither is asking, they follow what is stored, and
+  // two windows never write their choice back over each other's (codex F-ui-03).
+  const remember = (patch: Partial<MeasureChoice>) => {
+    void update(prev => {
+      const was = prev.settings.walkDefaults ?? { gps: false, steps: false };
+      const next = { ...was, ...patch };
+      return choiceChanged(was, next) ? { ...prev, settings: { ...prev.settings, walkDefaults: next } } : prev;
+    }).then(saved => {
       setRememberNote(saved.ok ? undefined : `This choice could not be kept for next time. ${saved.failure.message}`);
     });
-  }, [gps, steps, remembered]);
+  };
+  const [followed, setFollowed] = useState(remembered);
+  if (remembered !== followed && !gpsBusy && !stepsBusy) {
+    setFollowed(remembered);
+    setGps((remembered?.gps ?? false) && canLocate());
+    setSteps((remembered?.steps ?? false) && canSenseMotion());
+  }
 
   const chooseKind = (next: WalkKind) => {
     setKind(next);
@@ -132,18 +142,21 @@ export default function WalkHub() {
   const toggleGps = async () => {
     if (gps) {
       setGps(false);
+      remember({ gps: false });
       return;
     }
     setGpsBusy(true);
     const answer = await requestLocation();
     setGpsBusy(false);
     setGps(answer === 'granted');
+    remember({ gps: answer === 'granted' });
     setGpsNote(answer === 'granted' ? undefined : LOCATION_NOTE[answer]);
   };
 
   const toggleSteps = async () => {
     if (steps) {
       setSteps(false);
+      remember({ steps: false });
       return;
     }
     // The step card comes before the system's question (K-29): until it has been
@@ -151,6 +164,7 @@ export default function WalkHub() {
     // come at Start, in that order.
     if (!walkSettings(state.settings).stepCardSeen) {
       setSteps(true);
+      remember({ steps: true });
       setStepsNote(undefined);
       return;
     }
@@ -160,6 +174,7 @@ export default function WalkHub() {
     const answer = await asking;
     setStepsBusy(false);
     setSteps(answer === 'granted');
+    remember({ steps: answer === 'granted' });
     setStepsNote(answer === 'granted' ? undefined : MOTION_NOTE[answer]);
   };
 

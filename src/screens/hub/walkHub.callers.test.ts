@@ -11,7 +11,7 @@ import { createElement as h, type ReactNode } from 'react';
 import type { DailyCheckIn } from '@/types/checkin';
 import { createDefaultProfile } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
-import { render, type Host } from '@/test/host';
+import { render, textOf, type Host } from '@/test/host';
 
 const router = vi.hoisted(() => ({ navigate: vi.fn() }));
 vi.mock('react-router-dom', async () => {
@@ -122,5 +122,40 @@ describe('a walk left open on this device, on both sides of the live screen’s 
     await x().settle();
     expect(x().buttons('Return to walk', { exact: true })).toHaveLength(0);
     expect(x().text()).toContain('A walk was left open');
+  });
+});
+
+describe('the walk’s measure switches with another window of FitStrong open (codex F-ui-03)', () => {
+  const geolocation = { getCurrentPosition: (ok: () => void) => ok(), watchPosition() { return 0; }, clearWatch() {} };
+  beforeEach(async () => {
+    // No walk on this device: the hub's setup, with its switches, is what shows.
+    const { clearWalk } = await import('@/walk/persist');
+    clearWalk(sessionWalkStorage());
+    Object.defineProperty(globalThis.navigator, 'geolocation', { configurable: true, value: geolocation });
+  });
+  afterEach(() => { Reflect.deleteProperty(globalThis.navigator, 'geolocation'); });
+  const defaults = () => store.getState().settings.walkDefaults;
+  const gps = () => x().all().find(n => n.props.role === 'switch' && textOf(n.children).startsWith('Measure distance and pace'))!;
+
+  it('a choice stored by another window is followed here, never written back over', async () => {
+    expect((await store.update(prev => ({ ...prev, settings: { ...prev.settings, walkDefaults: { gps: false, steps: false } } }))).ok).toBe(true);
+    await openHub(LEFT);
+    expect(gps().props['aria-checked']).toBe(false);
+    // Window B turns location on, and this one hears of it.
+    expect((await store.update(prev => ({ ...prev, settings: { ...prev.settings, walkDefaults: { gps: true, steps: false } } }))).ok).toBe(true);
+    await x().settle();
+    await x().settle();
+    expect(defaults()).toEqual({ gps: true, steps: false });
+    expect(gps().props['aria-checked']).toBe(true);
+  });
+
+  it('a switch tapped here is stored, onto what is stored, the other switch as another window left it', async () => {
+    expect((await store.update(prev => ({ ...prev, settings: { ...prev.settings, walkDefaults: { gps: false, steps: false } } }))).ok).toBe(true);
+    await openHub(LEFT);
+    // Another window counts steps meanwhile; this one hasn't drawn it yet when location is tapped on.
+    expect((await store.update(prev => ({ ...prev, settings: { ...prev.settings, walkDefaults: { gps: false, steps: true } } }))).ok).toBe(true);
+    await x().click(gps());
+    await x().settle();
+    expect(defaults()).toEqual({ gps: true, steps: true });
   });
 });
