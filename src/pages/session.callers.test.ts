@@ -1760,3 +1760,63 @@ describe('F-safety-01: the player reads what is stored, never a recovery still o
     expect(h().buttons('Resume', { exact: true })).toHaveLength(1);
   });
 });
+
+describe('F-safety-03: carrying a session on asks the status first, at the arrival and at every Resume (journey §4.8, A-34)', () => {
+  const morning = () => ci({ glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } });
+  const said: Record<'away' | 'unwell' | 'flare', RegExp> = {
+    away: /A session isn’t carried on while you’re away\./, unwell: /A session isn’t carried on while you’re unwell\./, flare: /During a flare-up only a stretch is carried on\./,
+  };
+  for (const kind of ['away', 'unwell', 'flare'] as const) {
+    it(`a saved guided run reopened from a bookmark while ${kind} moves nothing, whatever the check-in allows`, async () => {
+      const p = createDefaultProfile(INSULIN);
+      const plan = buildSessionPlan({ profile: p, date: DAY, startDate: START, sessions: [], checkIn: morning() });
+      saveRun(plan, paused(plan, 3));
+      await seed(p, [morning()]);
+      await store.setSettings({ statusPeriods: [{ kind, from: DAY }] });
+      await mount('resume=1');
+      expect(h().buttons('Resume', { exact: true })).toHaveLength(0);
+      expect(h().text()).toMatch(said[kind]);
+    });
+  }
+
+  for (const how of ['Resume', 'earphone Play', 'Keep going'] as const) {
+    it(`in the open player, ${how} asks the status of the moment`, async () => {
+      const p = createDefaultProfile(INSULIN);
+      await seed(p, [morning()]);
+      await mount();
+      await h().click(h().button('Start', { exact: true }));
+      if (how === 'Keep going') await h().click(h().button('End session'));
+      else await h().click(h().button('Pause', { exact: true }));
+      await store.setSettings({ statusPeriods: [{ kind: 'unwell', from: DAY }] });
+      await h().settle();
+      if (how === 'earphone Play') { media.play?.(); await h().settle(); } else await h().click(h().button(how, { exact: true }));
+      expect(progress()?.state.status).toBe('paused');
+      expect(h().text()).toMatch(said.unwell);
+    });
+  }
+
+  it('an emergency, or a stop not yet answered, still comes before the status', async () => {
+    const p = createDefaultProfile(INSULIN);
+    const plan = buildSessionPlan({ profile: p, date: DAY, startDate: START, sessions: [], checkIn: morning() });
+    for (const day of [ci({ urgentSymptoms: true, emergency: ['chest'] }), ci({ news: ['stopped'], glucose: morning().glucose })]) {
+      saveRun(plan, paused(plan, 3));
+      await seed(p, [day]);
+      await store.setSettings({ statusPeriods: [{ kind: 'away', from: DAY }] });
+      await mount('resume=1');
+      expect(h().text()).not.toMatch(said.away);
+      expect(h().text()).toMatch(day.emergency?.length ? /call/i : /haven’t said what happened/);
+    }
+  });
+
+  it('during a flare a stretch is still carried on, and a new start is not asked', async () => {
+    const p = createDefaultProfile(INSULIN);
+    await seed(p, [morning()]);
+    await store.setSettings({ statusPeriods: [{ kind: 'flare', from: DAY }] });
+    await mount('mode=stretch&focus=backHips&minutes=10');
+    await h().click(h().button('Start', { exact: true }));
+    expect(playing()).toBe(true);
+    await h().click(h().button('Pause', { exact: true }));
+    await h().click(h().button('Resume', { exact: true }));
+    expect(playing()).toBe(true);
+  });
+});

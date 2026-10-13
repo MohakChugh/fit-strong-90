@@ -20,7 +20,8 @@ import { deriveHealth } from '@/engine/health';
 import { CANNOT_SWALLOW, fluidLimit, glucoseReadingId, glucoseSanity, standingAnswer, TREAT, withLogged } from '@/engine/readiness';
 import { HOT_COOL_DOWN } from '@/engine/cardio';
 import { PERMISSION_TEXT, type Mode, type Permission, type PermissionInput } from '@/engine/permission';
-import { arrivalGate, liveGate, reconcilePlan, restartCapture, startGate } from '@/session/gate';
+import { arrivalGate, liveGate, reconcilePlan, restartCapture, startGate, withStatus } from '@/session/gate';
+import { statusOn } from '@/health/status';
 import { todayDose, withBackChecks } from '@/session/carryOn';
 import type { CheckInRecord, DailyCheckIn, EpisodeAnswer, GlucoseEntry, Readiness, SymptomReach } from '@/types/checkin';
 import type { SymptomReport } from '@/hooks/useGuided';
@@ -181,7 +182,8 @@ function SessionRun() {
   // is asked — today's check-in, a recent enough reading (D29(6)), every
   // clinical condition and every profile rule. Saved progress is restored for
   // inspection either way; it is never permission to move (re-audit F02).
-  const [arrival] = useState(() => ({ now: input.now, permission: arrivalGate(input, mode, !!resumeState) }));
+  // Saved progress opened is carried on, so today's status is asked too (F-safety-03, journey §4.8).
+  const [arrival] = useState(() => ({ now: input.now, permission: arrivalGate(input, mode, !!resumeState, statusNow()) }));
   if (!arrival.permission.allowed || arrival.permission.needsCheckIn) {
     return <ArrivalGate arrival={arrival} input={input} mode={mode} resuming={!!resumeState} readiness={checkIn?.readiness} onBack={exit} />;
   }
@@ -247,7 +249,8 @@ function ArrivalGate({ arrival, input, mode, resuming, readiness, onBack }: {
 }) {
   const { now } = useClock();
   useWakeAt(nextBoundary(now, input.checkIn ? { checkIn: input.checkIn } : {}));
-  const current = arrivalGate({ ...input, now }, mode, resuming);
+  const { settings } = useStore();
+  const current = arrivalGate({ ...input, now }, mode, resuming, statusOn(settings.statusPeriods, toDateString(now)));
   const shown = current.allowed && !current.needsCheckIn ? arrival : { now, permission: current };
   return <SessionGate permission={shown.permission} {...(readiness ? { readiness } : {})} now={shown.now} onBack={onBack} />;
 }
@@ -261,6 +264,9 @@ function ArrivalGate({ arrival, input, mode, resuming, readiness, onBack }: {
  * surface says the decision whole above them.
  */
 const drawnHere = (p: Permission) => ({ allowed: p.allowed, disposition: p.disposition, reasons: p.reasons.slice(0, 2) });
+
+/** Today's status as the device holds it at this moment, set from Home: what carrying a run on asks first (journey §4.8). */
+const statusNow = () => statusOn(getState().settings.statusPeriods, toDateString(new Date()));
 
 /** What the start screen says about an earlier run the device would not bank (scan M-08). */
 function staleNote(stale: SavedProgress, how: 'kept' | 'lost'): string {
@@ -399,7 +405,8 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
    * stopped is not asked again just because its reading has aged.
    */
   const mayResume = () => {
-    const p = startGate({ ...inputRef.current, now: new Date() }, mode);
+    // Carrying on asks today's status first, as it stands at the tap (F-safety-03, journey §4.8).
+    const p = withStatus(startGate({ ...inputRef.current, now: new Date() }, mode), statusNow());
     if (p.allowed && !p.needsCheckIn) {
       setRefusal(null);
       return true;
