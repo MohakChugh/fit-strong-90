@@ -29,6 +29,9 @@ export const cases = [{
       const sheet = await checkIn(t, 'stretch');
       await t.check(await sheet.getByText(/Ketones/).count() === 0, 'the check-in asks about ketones before any ketone risk');
       await ui.tap(ui.button(sheet, 'Close'));
+      // "None of these" isn't saved yet, so Close asks "Keep your answers?" first, and Discard drops it (F-safety-07, D236).
+      await ui.tap(ui.button(sheet, 'Discard'));
+      await sheet.waitFor({ state: 'hidden' });
     });
     await t.step(2, 'Edit Your medicines: a “-gliflozin”; Ketones appears; Save', async () => {
       const main = await setup.openChapter(t, 'Your medicines');
