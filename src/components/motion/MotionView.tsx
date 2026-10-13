@@ -115,7 +115,7 @@ export function MotionView({ exerciseId, name, side = 'left', mistake = null, pl
       )}
       {ready && showControls && (
         <button type="button" onClick={() => setPaused(p => !p)} aria-label={paused ? 'Play demonstration' : 'Pause demonstration'}
-          className="absolute bottom-2 right-2 flex size-12 items-center justify-center rounded-full bg-background/80 shadow backdrop-blur">
+          className="absolute bottom-2 right-2 flex size-12 items-center justify-center rounded-full bg-background/90 shadow">
           {paused ? <PlayIcon className="size-5" /> : <PauseIcon className="size-5" />}
         </button>
       )}

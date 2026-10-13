@@ -546,9 +546,15 @@ function PressureForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
     : undefined;
   useKeptDraft(draft);
 
+  const secondField = useRef<HTMLInputElement>(null);
   const addSecond = () => {
-    if (time === undefined) setFirstEntered(nowAt());
-    setSecond(true);
+    // Rendered inside the tap, and its top number focused: the button goes as the fields come, so focus moves on to
+    // what is next instead of falling to the sheet, and iOS opens the number pad at once (V-J40).
+    flushSync(() => {
+      if (time === undefined) setFirstEntered(nowAt());
+      setSecond(true);
+    });
+    secondField.current?.focus();
   };
 
   const save = async () => {
@@ -635,6 +641,7 @@ function PressureForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
           {firstEntered && time === undefined && <RepeatWait since={firstEntered} />}
           <PressureFields
             legend="Second reading"
+            fieldRef={secondField}
             systolic={s2} diastolic={d2}
             onSystolic={v => { setS2(v); setError(undefined); }}
             onDiastolic={v => { setD2(v); setError(undefined); }}
