@@ -2161,3 +2161,151 @@ Gates on the baseline: `tsc -b --force` clean, `eslint .` clean, `vitest run --m
 The toast at 200% text on a 320 × 568 phone (the coordinator's finding): a toast is now a compact bar the screen's width, whose action moves under its words when the two don't fit side by side. Its Undo and Close are 60 px tall in px, not rem, so the button grows with its words but not twice over. On a screen fewer than 24 lines of body text tall, one toast shows at a time and the other waits its turn (`toastsShown`, sonner's `visibleToasts`).
 
 Plan 6's two offenders: the check-in's glucose box gives way to its unit at 320 px, and the safety surface puts its icon above its headline when the card is narrow for its text size, so every word stays whole. Two of the plan's files aren't on this branch: `src/components/profile/ProfileWizard.tsx` and `src/screens/welcome/FocusStep.tsx` (Plan 5's setup replaced them).
+
+### 2026-10-13 — [claude] v2 Plan 8 (Hardening): the budget, and the checks only an iPhone can do
+
+**Measured here** (D117, D121, motion §7), on `feat/v2-p8`:
+
+| Check | How | Result |
+| --- | --- | --- |
+| First screen's JavaScript | `npm run perf:first-screen`: the entry and its preloads, gzipped, within 10% of `scripts/perf/budget.json` | 560.0 KiB gzipped, in 41 files, at `b6ae68e`: within the budget of 600.5 KiB (545.9 KiB on 2026-10-12, plus 10%) |
+| At most two blurred surfaces, each a bar or a sheet's header, none over a fifth of the screen | PERF01 steps 1 and 5: Home and a hub scrolled under their bars, a sheet open, an exercise's page | Pass. Before Task 16's fix, both failed: a sheet's backdrop blurred 100% of the screen, and the 3D demo's Pause button was blurred glass, neither a bar nor a sheet's header |
+| One animated shared element per view transition, beyond the page and the stationary navigation snapshots | PERF01 steps 2 and 4: a tile's morph; Today's log with two route thumbnails | Pass: opening a walk names its own thumbnail only. Before the fix, Today's log named both thumbnails at rest, and the transition took two |
+| The live route redrawn at most once in any second, while five fixes it accepts move it in half a second | PERF01 step 3, after the same check refuses a drawing changed ten times a second, and fails with the route's own throttle taken out (Task 16, Step 5) | Pass: 2 redraws for five fixes, at most 1 in any second, and the check refused the faster drawing. Failing it through the app's own drawing took two throttles out, not one. With `LiveRoute`'s `useEverySecond` gone alone, still at most 1 a second, because the walk publishes its snapshot once a second (D18). With the walk publishing every fix and the throttle kept, 1. With both gone, step 3 failed: "the live route redrew 4 times within one second". None of this was committed |
+| The 3D demo's drawing stops while the app is hidden, and while the demo is off screen | PERF01 step 5: its WebGL draw calls, counted | Pass: 250 draw calls in a second while shown, 0 while hidden, 0 off screen |
+| An update waiting for FitStrong's windows, a restart from Home, a migration at the new release's start, a failed install, a window keeping its own release offline, and a first visit taken over by its release's first worker, between two real releases | V-J38 cases 5 to 9, in Chromium, with the releases' own workers | Pass in all four projects (20 of 20), at `fd7b82e` |
+
+**By eye (Task 16, Step 7), in light and dark.** A route thumbnail grows into its walk's frame as the walk opens (M14), shown with the transition slowed to a tenth. A sheet over Home dims the page behind it without blurring it: `bg-black/10`, no backdrop filter. In light the dim is plain. In dark, a tenth of black over the near-black page barely shows, and the sheet is set apart by its own background and rounded top. Check 1 below asks for the dim on the phone.
+
+**Plan 8's journeys as built (Tasks 14 to 16).** Where a journey asked for something the app's spec doesn't, it was changed, each with its reason in the journey:
+- **V-J21.** The session's own screen has no tab bar: its gate's Back to Today is the way out. A re-check that is due opens the check-in on its form. The release changes today's answers as the hold's release asks, with "Feeling like a low is coming" unticked.
+- **V-J32.** Check-ins are read from the settings store's document. An Undo ended by a tab switch fades out as every toast does, so the check waits up to 2 s for it to go.
+- **V-J38.** Home during the walk, and the profile, are reached within the running app. A reload is what those cases prove never happens, and the driven worker's waiting release lives in the document. Plan 5's chapters replaced the profile's edit cover: a chapter's Edit opens its own page. The newer-copy notice is matched by its title's start, since its details are in the same element for a screen reader. A copy whose database is lost while it runs stays read-only under the notice, and only a first open shows the storage screen's Try again (P8S-04). So case 4 opens FitStrong again, as the notice says. Case 6 compares records from the walk's start. Case 9 holds the first worker back, as a slow line would. Under an open form, case 10 finds the tab bar as drawn, since the sheet hides it from a screen reader.
+- **V-J40, an app fix.** "Add a second reading" took its own button away, so focus fell to the sheet. On the next frame, the sheet's focus manager pulled focus back to the sheet once more: on the suite's stopped clock, out of the field the person had moved to. Now the second reading renders inside the tap and its top number takes focus, which also opens the number pad at once on iOS.
+- **V-J41.** Chromium names Kolkata's zone Asia/Calcutta. A clock change puts the walk under way on hold at once (D174), so there is no Pause or Resume to try. After a zone change, the next segment is the new zone's day (D88, H6-10). A day on, the 52 is found on its own day. While the clock change holds, the refusal is the clock's own words (P8S-02).
+- **V-J42.** Arriving the next day, the saved run's gate asks for today's check-in, as "Check again before you start". "Finish now" with less than half the work done saves the session as skipped or partial (Review Focus #2), so the check is that it was saved as ended. After Save and exit, the test's stopped clock runs a second so the session's screen is gone before the day jumps. Otherwise its autosave would save the run again as the next day's.
+
+**For the owner: V-J32's restored low.** The engine reads the day's latest glucose reading as now, answered or not. "It was a mistake" settles a reading once a later one comes, but never while it is the latest. So a 52 answered as typed wrongly, deleted, then restored from Recently deleted, holds the walk again until a new reading is entered. Once one comes, the answer settles the 52, as it should: an unanswered earlier 53 still holds. The plan's journey expected the restored copy to hold nothing. The stricter reading is kept, and V-J32 now checks it. If an answered latest reading should count for nothing (B01, "never happened"), that is an engine change. It would cover `currentGlucose` in `readiness.ts` and `permission.ts`, with the freshness and clock rules reading the same reading.
+
+**Only an iPhone can show these: the owner's checklist.** The reference phone is an iPhone 13 Pro Max on iOS 27 with Safari 27; repeat on the oldest iPhone that runs iOS 27 where a check says so. The app is the deployed build (https://MohakChugh.github.io/fit-strong-90/), installed from Safari (Share → Add to Home Screen) unless a check says Safari. Use a synthetic record only, never a real person's. Before each check, note the build: Me → About → Version reads "Build <hash>". Each result names the phone, its iOS version, that build, and the date. Where a check says "text at 200%", that is Me → Display → Text size → Largest (200%); "Larger Text" is the phone's own (Settings → Accessibility → Display & Text Size → Larger Text). "Deploy build B" means a new commit on `main` (re-running the same commit makes the same release, D120), then waiting until GitHub → Actions → "Deploy to GitHub Pages" is green.
+
+**1. Glass in transitions (M3, WebKit 302256).** Result: Not run yet.
+1. Installed app, Home. Tap the Workout tile. On its hub, tap Back.
+2. Trends: drag a chart slowly up under the nav bar, then back down.
+3. Home: tap "How are you today?"; look at the page behind the sheet; tap Close.
+4. Settings → Accessibility → Display & Text Size → Reduce Transparency on. Repeat steps 1 to 3.
+5. Increase Contrast on as well. Repeat steps 1 to 3. Turn both off.
+
+Must see: the nav and tab bars drawn solid while a transition runs, with no flash or smear; over a busy page, the tab labels stay readable; with Reduce Transparency, every glass surface is solid; with Increase Contrast, they have a 1 px border; the sheet dims the page behind it, without blurring it.
+
+**2. M3's Back with the tile off screen (Plan 2's deferral).** Result: Not run yet.
+1. Settings → Accessibility → Display & Text Size → Larger Text → Larger Accessibility Sizes on, the slider at its largest.
+2. Installed app, Home: scroll until the Workout tile is the last one visible. Tap it. Tap Back.
+3. Browse → Move → Workout. Tap Back.
+4. Put Larger Text back as it was.
+
+Must see: in step 2, the hub's card shrinks back into the tile; in step 3 (no tile on screen), a plain fade, never a shrink into nothing.
+
+**3. Frames (motion §7).** Result: Not run yet.
+1. iPhone: Settings → Apps → Safari → Advanced → Web Inspector on. Connect the phone to a Mac by cable; on the Mac, Safari → Settings → Advanced → "Show features for web developers" on.
+2. iPhone: Settings → Battery → Low Power Mode on. In the app, text at 200%. Use the app for 10 minutes (tabs, hubs, a reading).
+3. Mac Safari → Develop → the iPhone → the app → Timelines → Rendering Frames → Record. Then, one at a time, stopping the recording after each: M3 (Home → the Workout tile → its hub), M4 and M5 (a tab switch, then a sheet opening), M8 (delete a water entry in Browse → Today's log, and watch its Undo), M10 (Browse → Walk → Start walk, until the live walk shows).
+4. Low Power Mode off, text back to Standard.
+
+Must see: in each recording, fewer than 5% of frames over 16.7 ms. A motion over budget falls back to its Reduce Motion version, as a board decision.
+
+**4. Wake Lock, in Safari and installed (Plan 6 #4).** Result: Not run yet.
+1. Settings → Display & Brightness → Auto-Lock → 30 Seconds.
+2. Installed app: Browse → Walk → Start walk. Leave the phone face up, untouched, for 15 minutes. Then Finish → Finish walk → Discard walk → Discard walk.
+3. Settings → Battery → Low Power Mode on. Start another walk; wait 1 minute; Finish and discard it.
+4. Repeat steps 2 and 3 in Safari (not installed). Put Auto-Lock and Low Power Mode back.
+
+Must see: the screen stays on through each first walk; whenever the lock is refused or released, "Keep this screen on to keep tracking." shows on the walk.
+
+**5. Background GPS and the screen lock (Plan 6 #6).** Result: Not run yet.
+1. Installed app: Me → Data → Keep walk routes on. Browse → Walk → Measure distance and pace on; allow location when asked.
+2. Outdoors: Browse → Walk → Start walk. Walk 5 minutes.
+3. Lock the phone and keep walking for 2 minutes. Unlock; when the walk asks, tap Continue walking.
+4. Walk 3 more minutes. Finish → Finish walk → Save walk.
+
+Must see: on return, "Recording paused while the app was away, for 2 min. Continue walking, or finish?"; the saved route shows two lines with the gap left unjoined; the recorded time leaves the locked minutes out.
+
+**6. Motion steps (Plan 6 #1, #2).** Result: Not run yet.
+1. Swipe the app away in the app switcher (a cold launch). Open it; Browse → Walk → Count steps on → Start walk.
+2. Count 200 steps by hand and compare with the walk's steps: at a slow gait (about 1.5 steps a second); with a walking stick; with the phone in the hand, a trouser pocket, a shirt pocket and on a lanyard; once with a limping gait. One cold launch for each walk.
+3. Once, at the motion prompt, tap Don't Allow.
+
+Must see: the motion permission prompt appears from the tap that starts the walk, not before; Don't Allow gives "Steps not counted"; each count within ±10% of 200, a limp counting both legs.
+
+**7. Audio cues (Plan 6 #3, B-30).** Result: Not run yet.
+1. Installed app, with the voice coach on (the setup's "Voice coach" answer, or the voice switch on a session's start screen), headphones in: Browse → Walk → Start walk.
+2. At 10 minutes, let the cue start, then take a call (or pull the headphones out) while it plays.
+3. Carry on to 20 minutes.
+4. Pull down to reload once mid-walk (or swipe the app away and open it again); tap "Turn the voice on" when it shows.
+
+Must see: the 10-minute cue plays after the start tap; the call stops it, and it never resumes; the 20-minute cue plays; after the reload, "Turn the voice on" brings the voice back.
+
+**8. The clock and the time zone (Plan 6 #7, V-J41).** Result: Not run yet.
+1. At about 4:55 pm, Browse → Walk → Start walk.
+2. Settings → General → Date & Time → Set Automatically off; Time Zone → Auckland. Back to the walk for 2 minutes.
+3. Settings → General → Date & Time: set the time back 20 minutes. Back to the walk; Finish → Finish walk → Save walk.
+4. Swipe the app away in the app switcher and open it; Browse → Walk → Start walk.
+5. Set Automatically back on.
+
+Must see: the walked time stays right through both changes; Browse → Today's log puts the walk on the day it was started; after the time change, the next start asks for a fresh glucose reading.
+
+**9. Map pictures on the deployed site (Plan 6 #5).** Result: Not run yet.
+1. Mac Safari's Web Inspector on the installed app (as in check 3), Network tab open.
+2. Me → Data → Keep walk routes on, and Map pictures under routes on. Browse → Walk → Start walk; walk 2 minutes outdoors; Finish → Finish walk → Save walk.
+3. On its summary, tap "© OpenStreetMap contributors".
+
+Must see: no tile request during the live walk; on the summary, each tile request carries the site's Referer and returns 200; the credit link opens OpenStreetMap's copyright page.
+
+**10. VoiceOver, at 200% text (V-J40).** Result: Not run yet.
+1. Settings → Accessibility → VoiceOver on. In the app, text at 200%.
+2. Browse → Blood pressure → Add reading. Enter a first reading; wait for the guided minute; enter the second; Save.
+3. Browse → Today's log → Records → Blood pressure → "Delete this reading". Then Today's log → Recently deleted; swipe right through its list to each Restore button.
+4. Swipe the rotor to Headings on each tab.
+5. VoiceOver off, text back to Standard.
+
+Must see: "A minute has passed: you can take the second reading now." is spoken without moving the cursor out of the field; after Save, the cursor is on "Add reading"; each Restore button is read as "Restore" and what it restores; the rotor lists each tab's headings.
+
+**11. Safari to installed, with the data (V-J37).** Result: Not run yet.
+1. In Safari (not installed), set up a synthetic record: a glucose reading, a stretch session, a short walk, a meal.
+2. Me → Data → Back up your record; in the share sheet, Save to Files.
+3. Share → Add to Home Screen. Open the installed app; on its first screen, Restore from a backup → that file.
+4. Afterwards, Settings → Apps → Safari → Advanced → Website Data: remove the site's Safari copy.
+
+Must see: the installed app shows every record: the reading, the session, the walk and the meal.
+
+**12. An update during a walk, on the phone (V-J38).** Result: Not run yet.
+1. Installed app on build A (note its Version). Browse → Walk → Start walk.
+2. Deploy build B. Walk 2 more minutes; lock and unlock the phone once.
+3. Finish → Finish walk → Save walk → Done → Home.
+4. Swipe the app away in the app switcher. Open it again. Note its Version.
+
+Must see: no reload during the walk or its summary; Home says "An update is ready. It applies the next time FitStrong opens.", with "Restart to update"; opened again, the Version is build B, with "Updated. FitStrong is on its latest version." on Home until Dismiss; the walk is in Today's log once.
+
+**13. Two windows and an update, in Safari (B-21, V-J38).** Result: Not run yet.
+1. Safari on build A, the app open in two tabs. In the first, Browse → Walk → Start walk.
+2. Deploy build B. Reload the second tab.
+3. Look at both tabs' Home.
+4. In the first tab, Finish → Finish walk → Save walk → Done. Close the second tab. Go to the first tab's Home; tap "Restart to update".
+
+Must see: neither tab reloads by itself; both tabs' Home say "Close FitStrong’s other windows to update now.", with no Restart; once the walk is saved and the second tab closed, the first tab's Home offers "Restart to update"; tapped, "Restarting to update…" covers the app, which takes no tap, and it reloads once onto build B; the walk is in Today's log once.
+
+**14. The Undo bar at the largest text (Plan 8 Task 13, D111 as amended).** Result: Not run yet.
+1. Larger Text at its largest (as in check 2), and in the app, text at 200%; repeat on the oldest iPhone that runs iOS 27.
+2. Browse → Today's log → + → Water → Amount to add 250 → "Add 250 ml"; do it again. Then Day totals → Water → "Delete this entry", twice.
+3. Tap Undo on the bar that stands.
+4. Put both text sizes back.
+
+Must see: each Undo is one bar across the screen, its Undo under its words when the two don't fit side by side, never over most of the screen and never one word to a line; one bar shows at a time, and the other takes its place when it goes; Undo brings the entry back.
+
+**15. Older-adult sessions (A-76, J§21.3).** Result: Not run yet.
+1. Three volunteers aged 60 or over, each on the reference phone, with consent recorded outside the repository.
+2. Each does, unaided: V-J01 (the first morning), V-J05 (a blood pressure check day), V-J32 (delete, then Undo), and finding Recently deleted.
+
+Must see: each task finished without help, or the first point help was needed. Record per participant: "Participant 1–3", task, finished or not, time, and where they hesitated. No names, ages or health details.
+
+v2 isn't released until every check above has a result, and each fault found is fixed or recorded here as a decision.
