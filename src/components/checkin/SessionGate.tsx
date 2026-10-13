@@ -1,13 +1,17 @@
 import type { Permission } from '@/engine/permission';
+import { STOP_UNANSWERED } from '@/engine/readiness';
 import { OwnsUrgent } from '@/screens/home/UrgentBanner';
 import type { Readiness } from '@/types/checkin';
 import { OutcomeBanner } from './OutcomeBanner';
+import { useSayWhatHappened } from './sayWhatHappened';
 
 /**
  * Shown instead of the guided session or a stretch when today's answers do
  * not allow it to start or resume, in that mode's own words. When a
  * check-in would answer it, Check in is the way on: the shared check-in,
- * which asks again (kiro FK-02).
+ * which asks again (kiro FK-02). An unanswered "I need to stop" is answered
+ * by its own questions, the shared ones Home's surface opens, which this
+ * screen draws in its place (K6R-03).
  */
 export function SessionGate({ permission, readiness, now, onBack, backLabel = 'Back to Home', onCheckIn }: {
   permission: Permission;
@@ -21,6 +25,10 @@ export function SessionGate({ permission, readiness, now, onBack, backLabel = 'B
 }) {
   const stretch = permission.mode === 'stretch';
   const checkIn = permission.needsCheckIn ? onCheckIn : undefined;
+  const say = useSayWhatHappened();
+  const stop = permission.reasons.includes(STOP_UNANSWERED.reason) ? say : null;
+  const main = 'press-feedback min-h-[3.75rem] w-full rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint';
+  const other = 'press-feedback min-h-12 w-full rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] font-medium text-tint';
   return (
     <div className="flex min-h-dvh flex-col bg-grouped-bg pt-safe pb-safe">
       {/* The answer drawn here, whole: the task's shared surface steps aside only while it is the decision standing now (codex V1-03, W-01). */}
@@ -31,16 +39,10 @@ export function SessionGate({ permission, readiness, now, onBack, backLabel = 'B
         {permission.needsCheckIn && (
           <p className="px-1 text-[length:var(--text-subhead)] text-muted-foreground">{`Check in first, then start the ${stretch ? 'stretch' : 'session'}.`}</p>
         )}
-        {checkIn && (
-          <button type="button" onClick={checkIn}
-            className="press-feedback min-h-[3.75rem] w-full rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
-            Check in
-          </button>
-        )}
-        <button type="button" onClick={onBack}
-          className={checkIn
-            ? 'press-feedback min-h-12 w-full rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] font-medium text-tint'
-            : 'press-feedback min-h-[3.75rem] w-full rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint'}>
+        {/* One main way on: the stop's questions first, as a stop outranks every hold, then Check in. */}
+        {stop && <button type="button" onClick={stop} className={main}>Say what happened</button>}
+        {checkIn && <button type="button" onClick={checkIn} className={stop ? other : main}>Check in</button>}
+        <button type="button" onClick={onBack} className={stop || checkIn ? other : main}>
           {backLabel}
         </button>
       </div>

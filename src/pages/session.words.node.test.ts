@@ -7,7 +7,8 @@
  * nothing: audio, the 3D figure, the router, and two styled primitives.
  *
  * - FK-01: every control says what it does in a visible word (§20.4 rule 2, B-08).
- * - FK-02: the gate says Home, not v1's Today, in the mode's own words, with Check in its main way on.
+ * - FK-02: the gate says Home, not v1's Today, in the mode's own words, with Check in its main way on,
+ *   and an unanswered stop's own questions, Say what happened, as Home's surface opens them (K6R-03).
  * - FK-03: the leave dialog and the start screen's note say Home.
  * - FK-04: nothing meaningful under 13 px (§20.4 rule 12).
  * - F-ui-01: a run saved today is carried on only as today's status allows (§4.8, A-34).
@@ -36,6 +37,11 @@ vi.mock('react-router-dom', async () => {
 vi.mock('@/components/hig/navigation', async importOriginal => ({ ...await importOriginal<typeof import('@/components/hig/navigation')>(), cameFrom: () => router.below }));
 vi.mock('@/components/session/FigureSlot', () => ({ FigureSlot: () => null }));
 vi.mock('@/components/session/InfoSheet', () => ({ InfoSheet: () => null }));
+// A sheet as its open dialog, named by its title: the stop's shared questions are one.
+vi.mock('@/components/hig/Sheet', async () => {
+  const { createElement: h } = await import('react');
+  return { Sheet: ({ open, title, children }: { open: boolean; title?: string; children?: unknown }) => (open ? h('div', { role: 'dialog', 'aria-label': title }, children as never) : null) };
+});
 vi.mock('@/voice/clips', () => ({ loadManifest: async () => null, primeAudio: async () => true, ClipNarrator: class {} }));
 vi.mock('sonner', () => ({ toast: Object.assign(() => {}, { success() {}, warning() {}, error() {} }) }));
 vi.mock('@/components/ui/button', async () => {
@@ -79,6 +85,8 @@ const { evaluateCheckIn } = await import('@/engine/readiness');
 const { buildSessionPlan } = await import('@/engine/session');
 const { saveProgress } = await import('@/session/persistence');
 const { HREF } = await import('@/health/recommend');
+const { SayWhatHappenedProvider } = await import('@/screens/home/SayWhatHappened');
+const { STOP_UNANSWERED } = await import('@/engine/readiness');
 
 const known = { medicinesReviewed: true, currentlyActive: true, clearance: 'vigorous' as const, glucoseMonitor: 'meter' as const, glucoseUnit: 'mg/dL' as const };
 const NONE = { health: { ...known } } satisfies ProfileInput;
@@ -114,7 +122,8 @@ async function seed(profile: UserProfile, records: DailyCheckIn[]) {
 async function mount(query = '') {
   host?.unmount();
   router.params = new URLSearchParams(query);
-  host = render(createElement(SessionPage));
+  // Inside the shared stop questions' provider, as every route is.
+  host = render(createElement(SayWhatHappenedProvider, null, createElement(SessionPage)));
   await host.settle();
   return host;
 }
@@ -187,15 +196,41 @@ describe('kiro FK-02: the session’s gate says Home, in the mode’s own words,
     expect(router.navigate).toHaveBeenCalledWith(-1);
   });
 
+  it('an unanswered “I need to stop” after a reload: Say what happened, the main way on, opens the shared stop questions, beside Back to Home', async () => {
+    await seed(createDefaultProfile(NONE), [ci({ news: ['stopped'] })]);
+    for (const query of ['mode=stretch&focus=backHips&minutes=10', '']) {
+      await mount(query);
+      expect(h().text(), query).toContain(STOP_UNANSWERED.reason);
+      const main = h().all().filter(n => n.type === 'button' && /\bmin-h-\[3\.75rem\]/.test(String(n.props.className ?? '')));
+      expect(main.map(shown), query).toEqual(['Say what happened']);
+      expect(shown(named('Back to Home')), query).toBe('Back to Home');
+      expect(h().buttons('Check in', { exact: true }), query).toHaveLength(0);
+      await h().click(named('Say what happened'));
+      expect(h().all().some(n => n.props.role === 'dialog' && n.props['aria-label'] === 'What’s happening?'), query).toBe(true);
+    }
+  });
+
+  it('a stop carried from yesterday with no check-in yet: Say what happened first, then Check in, then Back to Home', async () => {
+    await seed(createDefaultProfile(NONE), [ci({ date: '2026-10-08', news: ['stopped'] })]);
+    await mount('mode=stretch&focus=backHips&minutes=10');
+    const ways = h().all().filter(n => n.type === 'button');
+    expect(ways.map(shown)).toEqual(['Say what happened', 'Check in', 'Back to Home']);
+    // One main way on: the stop's questions.
+    expect(ways.filter(n => /\bmin-h-\[3\.75rem\]/.test(String(n.props.className ?? ''))).map(shown)).toEqual(['Say what happened']);
+    await h().click(named('Check in'));
+    expect(router.navigate).toHaveBeenCalledWith(HREF.checkIn('stretch'), { replace: true });
+  });
+
   it('Check in is the gate’s one main action while a check-in is needed, and absent when one would not lift it', async () => {
     await seed(createDefaultProfile(NONE), []);
     await mount('mode=stretch&focus=backHips&minutes=10');
     const main = h().all().filter(n => n.type === 'button' && /\bmin-h-\[3\.75rem\]/.test(String(n.props.className ?? '')));
     expect(main.map(shown)).toEqual(['Check in']);
-    // An emergency answered today: nothing to check in for, and Back is the way out.
+    // An emergency answered today: nothing to check in for, and Back is the way out. No stop to say what happened about.
     await seed(createDefaultProfile(NONE), [ci({ urgentSymptoms: true, emergency: ['chest'] })]);
     await mount('mode=stretch&focus=backHips&minutes=10');
     expect(h().buttons('Check in', { exact: true })).toHaveLength(0);
+    expect(h().buttons('Say what happened', { exact: true })).toHaveLength(0);
     expect(shown(named('Back to Home'))).toBe('Back to Home');
   });
 });
