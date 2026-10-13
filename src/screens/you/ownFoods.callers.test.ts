@@ -19,10 +19,16 @@ vi.mock('sonner', () => ({
     dismiss: (id: string) => void sonner.dismissed.push(id),
   }),
 }));
+/** The router's blocker as the screen asks for it while an edit saves: whether it holds a leave, and what was done with one held. */
+const nav = vi.hoisted(() => ({ holds: false, state: 'unblocked' as 'unblocked' | 'blocked', proceeded: 0, resets: 0 }));
 vi.mock('react-router-dom', () => ({
   Link: () => null,
   useNavigate: () => () => undefined,
   useLocation: () => ({ pathname: '/me/food/own', search: '', state: null }),
+  useBlocker: (holds: boolean) => {
+    nav.holds = holds;
+    return { state: nav.state, proceed: () => { nav.proceeded += 1; }, reset: () => { nav.resets += 1; } };
+  },
 }));
 vi.mock('@/components/hig/Screen', async () => {
   const { createElement: h } = await import('react');
@@ -30,7 +36,11 @@ vi.mock('@/components/hig/Screen', async () => {
 });
 vi.mock('@/components/hig/Sheet', async () => {
   const { createElement: h } = await import('react');
-  return { Sheet: ({ open, children }: { open: boolean; children?: unknown }) => (open ? h('div', { role: 'dialog' }, children as never) : null) };
+  // Its Close goes through the owner's `onOpenChange`, as the real sheet's does; a swipe asks `dismissible` first.
+  return {
+    Sheet: ({ open, onOpenChange, dismissible = true, children }: { open: boolean; onOpenChange: (open: boolean) => void; dismissible?: boolean; children?: unknown }) =>
+      (open ? h('div', { role: 'dialog', 'data-dismissible': dismissible }, h('button', { type: 'button', onClick: () => onOpenChange(false) }, 'Close'), children as never) : null),
+  };
 });
 
 const local = new Map<string, string>();
@@ -54,6 +64,7 @@ const BHEL: CustomFood = { id: 'custom-bhel', name: 'bhel puri', per: { qty: 1, 
 const THEPLA: CustomFood = { id: 'custom-thepla', name: 'methi thepla', per: { qty: 2, unit: 'piece' }, createdAt: T0, updatedAt: T0 };
 const AT = '2026-10-07T08:30:00.000+05:30';
 let host: Host;
+let fake: ReturnType<typeof fakeIndexedDB>;
 
 const latest = (id: string) => [...sonner.shown].reverse().find(s => s.id === id)!;
 const standing = () => [...new Set(sonner.shown.map(s => s.id!))].filter(id => !sonner.dismissed.includes(id) && latest(id).action?.label === 'Undo');
@@ -67,7 +78,8 @@ beforeEach(async () => {
   sonner.dismissed.length = 0;
   resetUndosForTests();
   store.resetForTests();
-  await store.start({ factory: fakeIndexedDB(), broadcast: null });
+  fake = fakeIndexedDB();
+  await store.start({ factory: fake, broadcast: null });
   expect((await store.putRecords('customFoods', [stored(BHEL), stored(THEPLA)])).ok).toBe(true);
   // Yesterday's breakfast, logged with the thepla as it was then.
   expect((await saveMeal({ id: 'meal-1', at: AT, day: '2026-10-07', meal: 'breakfast', items: [customItem(THEPLA, 2)], level: 'meals', loggedAt: AT, edits: [] })).ok).toBe(true);
@@ -157,5 +169,73 @@ describe('an own food edited while numbers are off (codex F-food-01; B-11)', () 
     await host.click(host.button('Save changes'));
     const saved = foods().find(f => f.id === DAL.id)!;
     expect([saved.kcal, 'carbsG' in saved]).toEqual([300, false]);
+  });
+});
+
+describe('Close while an own food’s edit is being saved (codex F-food-04; B-03, §4.5)', () => {
+  const open = () => host.all().some(n => n.props.role === 'dialog');
+  beforeEach(() => {
+    nav.state = 'unblocked';
+    nav.proceeded = 0;
+    nav.resets = 0;
+  });
+  /** Edit a food's name and Save changes, its write waiting behind another one held as it commits. */
+  async function sending(button: string, name: string) {
+    await host.click(host.button(button));
+    await host.change(host.field(FOOD_COPY.ownName), { value: name });
+    fake.control.hold();
+    const ahead = store.update(prev => ({ ...prev, settings: { ...prev.settings, currentWeight: 71 } }));
+    const saving = host.click(host.button('Save changes'));
+    await host.settle();
+    return async (refuse: boolean) => {
+      if (refuse) fake.control.setWriteError(() => new DOMException('Disk is full', 'QuotaExceededError'));
+      fake.control.release();
+      await ahead;
+      await saving;
+      await host.settle();
+      fake.control.setWriteError(undefined);
+    };
+  }
+
+  it('waits for the save: refused, the form stays with the person’s draft and the reason', async () => {
+    const finish = await sending('Edit methi thepla', 'methi thepla, home');
+    // Saving: Close, a swipe and Escape all wait.
+    expect(host.all().find(n => n.props.role === 'dialog')?.props['data-dismissible']).toBe(false);
+    await host.click(host.button('Close', { exact: true }));
+    expect(open()).toBe(true);
+    await finish(true);
+    // Refused: the draft and why, both still there; nothing changed.
+    expect(open()).toBe(true);
+    expect(host.field(FOOD_COPY.ownName).props.value).toBe('methi thepla, home');
+    expect(host.text()).toContain('methi thepla, home was not changed:');
+    expect(foods().find(f => f.id === THEPLA.id)?.name).toBe('methi thepla');
+    // Then Close is the person's own choice, and goes.
+    await host.click(host.button('Close', { exact: true }));
+    expect(open()).toBe(false);
+  });
+
+  it('stored, it closes by itself once the write is done', async () => {
+    const finish = await sending('Edit bhel puri', 'bhel');
+    await host.click(host.button('Close', { exact: true }));
+    expect(open()).toBe(true);
+    await finish(false);
+    expect(open()).toBe(false);
+    expect(foods().find(f => f.id === BHEL.id)?.name).toBe('bhel');
+  });
+
+  it('a Back while it saves waits too: refused, the screen stays; stored, the Back goes on', async () => {
+    for (const refuse of [true, false]) {
+      nav.state = 'unblocked';
+      nav.proceeded = 0;
+      nav.resets = 0;
+      const finish = await sending(refuse ? 'Edit methi thepla' : 'Edit bhel puri', refuse ? 'methi thepla, home' : 'bhel');
+      expect(nav.holds, String(refuse)).toBe(true);
+      nav.state = 'blocked';
+      await host.settle();
+      await finish(refuse);
+      expect([nav.resets, nav.proceeded], String(refuse)).toEqual(refuse ? [1, 0] : [0, 1]);
+      expect(nav.holds).toBe(false);
+      if (refuse) await host.click(host.button('Close', { exact: true }));
+    }
   });
 });

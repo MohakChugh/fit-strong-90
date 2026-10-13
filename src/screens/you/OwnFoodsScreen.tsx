@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
 import { Sheet } from '@/components/hig/Sheet';
+import { useSaveHold } from '@/components/hig/useSaveHold';
 import { allergiesOf, allergyAnswer } from '@/food/allergens';
 import { numbersView } from '@/food/level';
 import { customFoodsIn } from '@/food/records';
@@ -30,6 +31,10 @@ export function OwnFoodsScreen() {
   const allergies = allergiesOf(allergyAnswer(profile?.food, settings.setup, useSetupSession()));
   const [editing, setEditing] = useState<CustomFood>();
   const [problem, setProblem] = useState<string>();
+  // An edit being written: the sheet, and a Back, wait for it, so a refusal finds the draft still there (B-03, §4.5;
+  // codex F-food-04).
+  const [saving, setSaving] = useState(false);
+  const settle = useSaveHold(saving);
 
   const remove = async (f: CustomFood) => {
     setProblem(undefined);
@@ -37,7 +42,11 @@ export function OwnFoodsScreen() {
     if (why) setProblem(`${f.name} was not deleted: ${why}`);
   };
   const save = async (edited: CustomFood) => {
+    if (saving) return;
+    setSaving(true);
     const result = await editOwnFood(edited);
+    setSaving(false);
+    settle(result.ok);
     if (!result.ok) return setProblem(`${edited.name} was not changed: ${result.failure.message}`);
     setEditing(undefined);
   };
@@ -67,7 +76,7 @@ export function OwnFoodsScreen() {
         ))}
       </Group>
       {problem && <p role="alert" className="px-4 text-[length:var(--text-subhead)] text-stop">{problem}</p>}
-      <Sheet open={editing !== undefined} onOpenChange={open => { if (!open) setEditing(undefined); }} title="Edit your food" detent="large">
+      <Sheet open={editing !== undefined} onOpenChange={open => { if (!open && !saving) setEditing(undefined); }} dismissible={!saving} title="Edit your food" detent="large">
         {editing && <OwnFoodPage name={editing.name} food={editing} numbers={numbers} allergies={allergies} action="Save changes" onAdd={edited => void save(edited)} />}
       </Sheet>
     </Screen>

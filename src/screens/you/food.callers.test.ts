@@ -12,6 +12,8 @@ import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, textOf, type Host } from '@/test/host';
 
 const params = vi.hoisted(() => ({ mealId: 'd-khichdi', q: '' }));
+/** The router's blocker as a sheet asks for it while it saves: whether it holds a leave, and what was done with one held. */
+const nav = vi.hoisted(() => ({ holds: false, state: 'unblocked' as 'unblocked' | 'blocked', proceeded: 0, resets: 0 }));
 vi.mock('react-router-dom', async () => {
   const { createElement: h } = await import('react');
   return {
@@ -21,6 +23,10 @@ vi.mock('react-router-dom', async () => {
     useSearchParams: () => [new URLSearchParams(params.q ? { q: params.q } : {}), () => {}],
     Link: ({ children, to }: { children?: unknown; to?: string }) => h('a', { href: to }, children as never),
     Navigate: () => null,
+    useBlocker: (holds: boolean) => {
+      nav.holds = holds;
+      return { state: nav.state, proceed: () => { nav.proceeded += 1; }, reset: () => { nav.resets += 1; } };
+    },
   };
 });
 /** Every toast raised, with its id and action, and every one dismissed. */
@@ -38,7 +44,11 @@ vi.mock('@/screens/hub/HubFrame', async () => {
 });
 vi.mock('@/components/hig/Sheet', async () => {
   const { createElement: h } = await import('react');
-  return { Sheet: ({ open, title, children }: { open: boolean; title?: string; children?: unknown }) => (open ? h('div', { role: 'dialog', 'aria-label': title }, children as never) : null) };
+  // Its Close goes through the owner's `onOpenChange`, as the real sheet's does; a swipe asks `dismissible` first.
+  return {
+    Sheet: ({ open, title, onOpenChange, dismissible = true, children }: { open: boolean; title?: string; onOpenChange?: (open: boolean) => void; dismissible?: boolean; children?: unknown }) =>
+      (open ? h('div', { role: 'dialog', 'aria-label': title, 'data-dismissible': dismissible }, h('button', { type: 'button', onClick: () => onOpenChange?.(false) }, 'Close'), children as never) : null),
+  };
 });
 
 const local = new Map<string, string>();
@@ -443,5 +453,67 @@ describe('a meal idea outside your allergies says why, in caution ink (K7-14)', 
     host = render(createElement((await import('@/screens/guide/MealDetailScreen')).default));
     await host.settle();
     expect(caution(host).filter(t => /listed as an allergy|Check it for/.test(t))).toEqual([]);
+  });
+});
+
+describe('Close or Back while “What do you eat?” is saving (codex F-food-04; B-03, §4.5)', () => {
+  /** The picker open over a person with no food record yet, Vegetarian chosen, and its save sent while another write is held. */
+  async function sending(refuse: boolean) {
+    store.resetForTests();
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake, broadcast: null });
+    await store.update(prev => ({ ...prev, profile: createDefaultProfile({ birthYear: 1970, weightKg: 70 }) }));
+    nav.state = 'unblocked';
+    nav.proceeded = 0;
+    nav.resets = 0;
+    const closed: boolean[] = [];
+    const { FoodPicker } = await import('@/screens/guide/FoodPicker');
+    host = render(createElement(FoodPicker, { open: true, onOpenChange: (o: boolean) => void closed.push(o), canSave: true }));
+    await host.settle();
+    const vegetarian = host.all().find(n => n.type === 'label' && textOf(n.children).startsWith('Vegetarian'))!;
+    await host.click(vegetarian);
+    fake.control.hold();
+    const ahead = store.update(prev => ({ ...prev, settings: { ...prev.settings, currentWeight: 71 } }));
+    const form = host.all().find(n => n.type === 'form')!;
+    const saving = (form.props.onSubmit as (e: unknown) => Promise<void>)({ preventDefault() {} });
+    await host.settle();
+    return {
+      closed,
+      finish: async () => {
+        if (refuse) fake.control.setWriteError(() => new DOMException('Disk is full', 'QuotaExceededError'));
+        fake.control.release();
+        await ahead;
+        await saving;
+        await host!.settle();
+      },
+    };
+  }
+
+  it('Close, a swipe and a Back wait for the save; refused, the answers and the reason stay, and the Back is let go', async () => {
+    const { closed, finish } = await sending(true);
+    expect(host!.all().find(n => n.props.role === 'dialog')?.props['data-dismissible']).toBe(false);
+    await host!.click(host!.button('Close', { exact: true }));
+    expect(closed).toEqual([]);
+    // A Back arrives while it saves: held.
+    expect(nav.holds).toBe(true);
+    nav.state = 'blocked';
+    await host!.settle();
+    await finish();
+    expect(closed).toEqual([]);
+    expect(host!.all().find(n => n.type === 'input' && n.props.type === 'radio' && n.props.checked)).toBeDefined();
+    expect(host!.text()).toMatch(/full|storage|space/i);
+    expect([nav.resets, nav.proceeded]).toEqual([1, 0]);
+    expect(nav.holds).toBe(false);
+    expect(store.getState().profile?.food).toBeUndefined();
+  });
+
+  it('stored, it closes, and a Back held meanwhile goes on', async () => {
+    const { closed, finish } = await sending(false);
+    nav.state = 'blocked';
+    await host!.settle();
+    await finish();
+    expect(closed).toEqual([false]);
+    expect([nav.resets, nav.proceeded]).toEqual([0, 1]);
+    expect(store.getState().profile?.food?.pattern).toBe('vegetarian');
   });
 });
