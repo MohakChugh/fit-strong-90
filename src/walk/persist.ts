@@ -66,6 +66,7 @@ function isSegment(v: unknown): v is Segment {
   if (v.accruedAt !== undefined && !isTime(v.accruedAt)) return false;
   if (v.day !== undefined && !isDay(v.day)) return false;
   if (v.offsetMin !== undefined && !(Number.isInteger(v.offsetMin) && Math.abs(v.offsetMin as number) <= 14 * 60)) return false;
+  if (v.afterClockChange !== undefined && v.afterClockChange !== true) return false;
   return (
     Array.isArray(v.gps) && v.gps.every(isRun) &&
     Number.isInteger(v.steps) && (v.steps as number) >= 0 && typeof v.motion === 'boolean'
@@ -103,10 +104,11 @@ export function parseWalk(raw: unknown): Walk | null {
 
   if (!Array.isArray(raw.segments) || raw.segments.length === 0 || !raw.segments.every(isSegment)) return null;
   const segments = raw.segments as Segment[];
-  // In order, not overlapping, and open only at the end while running.
+  // In order, not overlapping, and open only at the end while running. One that began after the clock was
+  // set back may start earlier by the wall clock than the one before it ended (F-walk-01, B-19).
   for (let i = 1; i < segments.length; i++) {
     const before = segments[i - 1];
-    if (before.end === undefined || segments[i].start < before.end) return null;
+    if (before.end === undefined || (segments[i].start < before.end && segments[i].afterClockChange !== true)) return null;
   }
   const open = segments[segments.length - 1].end === undefined;
   if (open !== (status === 'running')) return null;
