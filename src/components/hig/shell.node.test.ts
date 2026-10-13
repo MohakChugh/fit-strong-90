@@ -794,7 +794,10 @@ describe('the safety surface wherever the person is (codex V1-02, V1-03, journey
     const own = render(h(nav.SheetTopContext, { value: top }, h(Sheet, { open: true, onOpenChange, title: 'Check-in', ownsUrgent: true, children: null })));
     expect(surfaces(own.all())).toBe(0);
     // Only while its body draws the decision: its outcome, or an emergency answered here (F-safety-06).
-    expect(read('src/components/checkin/CheckInSheet.tsx')).toMatch(/<Sheet open=\{props\.open\} onOpenChange=\{props\.onOpenChange\} title="Check-in" detent="large" ownsUrgent=\{draws\}>/);
+    // With answers not saved, a swipe resists and Close asks first (F-safety-07, K-46): the gesture itself is sheetGesture's.
+    expect(read('src/components/checkin/CheckInSheet.tsx')).toMatch(/dismissible=\{!dirty\} holdClose=\{holdClose\}/);
+    // While it asks "Keep your answers?" it draws no decision, so the surface stands then too (F-safety-07).
+    expect(read('src/components/checkin/CheckInSheet.tsx')).toMatch(/<Sheet open=\{props\.open\} onOpenChange=\{props\.onOpenChange\} title="Check-in" detent="large" ownsUrgent=\{draws && !asking\}/);
   });
 
   it('brings a decision arriving, or changing, into view in a sheet scrolled down, heading first, keeping the form under it (codex W-02)', () => {

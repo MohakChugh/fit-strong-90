@@ -593,3 +593,63 @@ describe('F-safety-06: the check-in opened on its questions keeps the shared dec
     expect(kinds()).toEqual([]);
   });
 });
+
+describe('F-safety-07: answers given in the check-in are kept or discarded on Close, never lost by it (journey §10, K-46, B-03)', () => {
+  function CheckIn() {
+    const g = useGuided();
+    const [open, setOpen] = useState(true);
+    return open
+      ? h(CheckInSheet, { open, onOpenChange: setOpen, profile: g.profile, date: g.date, initial: g.checkIn, onSave: g.saveCheckIn, recent: g.checkIns })
+      : h('button', { type: 'button', onClick: () => setOpen(true) }, 'Check in again');
+  }
+  const close = () => x().click(x().button('Close', { exact: true }));
+
+  it('None of these and an energy answer, then Close: asked, Keep keeps them; Close and Discard drops them, and nothing was stored', async () => {
+    await seed([]);
+    host = render(h(UrgentProvider, null, h(CheckIn)));
+    await x().settle();
+    await x().click(x().buttons('None of these', { exact: true })[0]);
+    await x().click(x().button('Good', { exact: true }));
+    await close();
+    expect(dialogs()).toBe(1);
+    expect(x().text()).toContain('Keep your answers?');
+    await x().click(x().button('Keep', { exact: true }));
+    expect(x().text()).not.toContain('Keep your answers?');
+    expect(x().button('Good', { exact: true }).props['aria-checked']).toBe(true);
+    await close();
+    await x().click(x().button('Discard', { exact: true }));
+    expect(dialogs()).toBe(0);
+    expect(store.getState().checkIns).toEqual([]);
+    // Opened again: the answers dropped are gone, back to the first question unanswered.
+    await x().click(x().button('Check in again'));
+    expect(x().text()).toContain('Right now, any of these?');
+    expect(x().buttons('Good', { exact: true })).toHaveLength(0);
+  });
+
+  it('with nothing answered, Close closes at once; and Discard never takes back what was stored', async () => {
+    await seed([]);
+    host = render(h(UrgentProvider, null, h(CheckIn)));
+    await x().settle();
+    await close();
+    expect(dialogs()).toBe(0);
+    await x().click(x().button('Check in again'));
+    // Saved, then changed and not saved again: Discard drops only the change.
+    await x().click(x().buttons('None of these', { exact: true })[0]);
+    await x().click(x().button('Over 7 h', { exact: true }));
+    await x().click(x().button('See today’s plan'));
+    await x().settle();
+    expect(store.getState().checkIns.find(c => c.date === DAY)).toMatchObject({ emergency: [], sleep: 'gt7' });
+    await close();
+    expect(dialogs()).toBe(0);
+    await x().click(x().button('Check in again'));
+    if (x().buttons('Change answers').length) await x().click(x().button('Change answers'));
+    await x().click(x().button('Good', { exact: true }));
+    await close();
+    expect(x().text()).toContain('Keep your answers?');
+    await x().click(x().button('Discard', { exact: true }));
+    expect(dialogs()).toBe(0);
+    const kept = store.getState().checkIns.find(c => c.date === DAY);
+    expect(kept).toMatchObject({ emergency: [], sleep: 'gt7' });
+    expect(kept?.energy).toBeUndefined();
+  });
+});
