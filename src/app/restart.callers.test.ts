@@ -213,6 +213,49 @@ describe('a change to the phone’s clock, seen around a restart, is kept (D106 
   });
 });
 
+describe('F-data-02: a change to the clock refused at first, written again after its wait, holds the restart’s reload until it is stored', () => {
+  it('the takeover arrives while the marker waits to try again: no reload until it is stored, and the hold stands meanwhile', async () => {
+    let failing = false;
+    store.resetForTests();
+    await store.start({ factory: fakeIndexedDB({ failWrite: (s, v) => (failing && s === 'settings' && v.key === 'settings' ? new DOMException('Disk is full', 'QuotaExceededError') : undefined) }), broadcast: null });
+    const pending: (() => void)[] = [];
+    const changes: (() => void)[] = [];
+    const worker = (build: string): WorkerLike => ({
+      postMessage(message, transfer) {
+        const type = (message as { type: string }).type;
+        const answer = () => (transfer[0] as MessagePort).postMessage({ build, windows: 1, restarting: type === 'restart' });
+        if (type === 'restart') pending.push(answer);
+        else answer();
+      },
+    });
+    const registration: RegistrationLike = { waiting: worker('bbb'), installing: null, addEventListener() {} };
+    const container: ContainerLike = { controller: worker('aaa'), register: async () => registration, addEventListener: (_t, fn) => void changes.push(fn) };
+    const reload = vi.fn();
+    // As main.tsx starts it (its wiring is read in shell.node.test.ts).
+    await updates.startUpdates({ container, swUrl: '/sw.js', reload, underWay, hold: store.holdNewWork, settled: store.whenSettled, safetyWaiting: store.clockChangeWaiting });
+    const how = updates.restartToUpdate();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    failing = true;
+    const marked = store.markClockChange([DAY]);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    // Refused once, and waiting to be written again: nothing is queued, and the change is held here only.
+    expect(store.getState().saving).toBe(false);
+    expect(store.clockChangeWaiting()).toBe(true);
+    for (const answer of pending) answer();
+    expect(await how).toBe('restarting');
+    for (const fn of changes) fn();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(reload).not.toHaveBeenCalled();
+    expect(store.getState().clockHold).toBeDefined();
+    expect(updates.updateState().restarting).toBe(true);
+    failing = false;
+    expect((await marked).ok).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 600));
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(store.getState().settings.walk?.clock).toBeDefined();
+  }, 20_000);
+});
+
 describe('answers kept only in this window keep Restart off Home: a reload would lose them (D106 with Plan 5’s D197)', () => {
   it('a clinical save the device refused, until it is stored or discarded; and setup going on without saving', async () => {
     const effective = await import('@/setup/effective');

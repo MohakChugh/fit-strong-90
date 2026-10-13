@@ -73,6 +73,12 @@ export interface UpdateDeps {
   hold?: () => () => void;
   /** Resolves once the work already queued is done (the store's `whenSettled`). */
   settled?: () => Promise<void>;
+  /**
+   * A change to the phone's clock seen here and not stored yet, a refused one
+   * waiting to be written again included (the store's `clockChangeWaiting`):
+   * the restart's reload waits until it is stored (F-data-02).
+   */
+  safetyWaiting?: () => boolean;
 }
 
 export const BUILD_KEY = 'fit-strong-90-build';
@@ -93,14 +99,26 @@ let fallback: ReturnType<typeof setTimeout> | undefined;
 let reloading = false;
 const listeners = new Set<() => void>();
 
+/** How often the restart asks again whether a refused change to the clock has been stored, while it waits between its write's tries. */
+export const SAFETY_POLL_MS = 250;
+
 /**
  * The restart's one reload, once the work let in meanwhile is stored: a change to the phone's clock is, and
- * the page that saw it must not go before it is (D106 with Plan 6's H6F-02).
+ * the page that saw it must not go before it is (D106 with Plan 6's H6F-02). A change refused at first is
+ * waited for through its tries until stored, and asked about once more just before the reload (F-data-02):
+ * meanwhile the cover stays and the hold stands.
  */
 function reloadSettled(): void {
   if (reloading) return;
   reloading = true;
-  void Promise.resolve(deps?.settled?.()).then(() => deps?.reload());
+  void (async () => {
+    for (;;) {
+      await deps?.settled?.();
+      if (!deps?.safetyWaiting?.()) break;
+      await new Promise(resolve => setTimeout(resolve, SAFETY_POLL_MS));
+    }
+    deps?.reload();
+  })();
 }
 
 function set(patch: Partial<UpdateState>): void {

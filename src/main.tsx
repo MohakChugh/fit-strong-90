@@ -7,7 +7,7 @@ import App from './App'
 import { RootError } from '@/components/hig/ErrorBoundary'
 import { backPending, cameFrom, followRouter, originOf, setPlaceCheck } from '@/components/hig/navigation'
 import { endUndos, followPlace } from '@/components/hig/undo'
-import { getState, holdNewWork, subscribeEdits, whenSettled } from '@/store/useStore'
+import { clockChangeWaiting, getState, holdNewWork, subscribeEdits, whenSettled } from '@/store/useStore'
 import { startUpdates, type ContainerLike } from '@/app/updates'
 import { underWay } from '@/app/underWay'
 import { shouldAnimate, transitionSkipped } from '@/design/motion'
@@ -35,6 +35,8 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     underWay,
     hold: holdNewWork,
     settled: whenSettled,
+    // A change to the clock refused at first: the reload waits through its tries until it is stored (F-data-02).
+    safetyWaiting: clockChangeWaiting,
   })
 }
 

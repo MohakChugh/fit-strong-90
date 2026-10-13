@@ -1190,3 +1190,10 @@ describe('Home Screen icons (S-22)', () => {
     ]);
   });
 });
+
+describe('the restart to update waits for the device’s safety record (F-data-02)', () => {
+  it('starts its updates with the clock change still waiting to be stored, through its tries, as what the reload waits for', () => {
+    // main.tsx can't run in node: its wiring is read. The barrier itself runs in restart.callers.test.ts.
+    expect(read('src/main.tsx')).toMatch(/settled: whenSettled,[\s\S]*safetyWaiting: clockChangeWaiting,/);
+  });
+});
