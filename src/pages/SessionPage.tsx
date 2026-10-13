@@ -12,7 +12,7 @@ import { useGuidedSession } from '@/hooks/useGuidedSession';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { loadProgress, loadExpiredProgress, rehydrate, clearProgress, setAside, slotOf, type ProgressSlot, type SavedProgress } from '@/session/persistence';
 import { redoseState, segmentsWithExtra } from '@/session/runner';
-import { getState, isSessionSaved, useStore } from '@/store/useStore';
+import { acquisitionStamp, getState, isSessionSaved, useStore } from '@/store/useStore';
 import { toWorkoutSession, withGuidedSession, activeSeconds, bankProgress, progressSettled } from '@/session/logging';
 import { getCoaching } from '@/data/coaching';
 import { nameOf } from '@/data/catalog';
@@ -20,7 +20,8 @@ import { deriveHealth } from '@/engine/health';
 import { CANNOT_SWALLOW, fluidLimit, glucoseReadingId, glucoseSanity, standingAnswer, TREAT, withLogged } from '@/engine/readiness';
 import { HOT_COOL_DOWN } from '@/engine/cardio';
 import { PERMISSION_TEXT, type Mode, type Permission, type PermissionInput } from '@/engine/permission';
-import { arrivalGate, liveGate, reconcilePlan, restartCapture, startGate } from '@/session/gate';
+import { arrivalGate, liveGate, reconcilePlan, restartCapture, startGate, withStatus } from '@/session/gate';
+import { statusOn } from '@/health/status';
 import { todayDose, withBackChecks } from '@/session/carryOn';
 import type { CheckInRecord, DailyCheckIn, EpisodeAnswer, GlucoseEntry, Readiness, SymptomReach } from '@/types/checkin';
 import type { SymptomReport } from '@/hooks/useGuided';
@@ -29,9 +30,10 @@ import { CheckInBody } from '@/components/checkin/CheckInSheet';
 import type { SaveOutcome } from '@/components/checkin/sheetState';
 import { recordToStore } from '@/components/checkin/pending';
 import {
-  LEG_QUESTIONS, NO_LEG, REACH, REACH_LABEL, SPREAD_QUESTION, STOP_CHOICES, legReport, onChoice, type LegAnswers, type StopChoice,
+  LEG_QUESTIONS, NO_LEG, REACH, REACH_LABEL, SPREAD_QUESTION, STOP_CHOICES, legReport, type LegAnswers, type StopChoice,
 } from '@/components/checkin/stop';
 import { Segmented } from '@/components/checkin/parts';
+import { STOPPED, answering, stopAnswer } from '@/walk/stop';
 import type { UserProfile } from '@/types/profile';
 import { parseStretchSpec, specFromPlanId, stretchPlanFor } from '@/engine/stretch';
 import type { StretchSpec } from '@/types/plan';
@@ -39,8 +41,9 @@ import { cameFrom } from '@/components/hig/navigation';
 import { SessionGate } from '@/components/checkin/SessionGate';
 import { measuredStamp } from '@/health/observation';
 import { HREF, nextBoundary } from '@/health/recommend';
-import { OwnsUrgent } from '@/screens/home/UrgentBanner';
+import { AnsweringStop, OwnsUrgent } from '@/screens/home/UrgentBanner';
 import { useClock, useWakeAt } from '@/screens/today/clock';
+import { acquiredIn } from '@/walk/consent';
 import { displayToKg, generateId, kgToDisplay, toDateString } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -181,7 +184,8 @@ function SessionRun() {
   // is asked — today's check-in, a recent enough reading (D29(6)), every
   // clinical condition and every profile rule. Saved progress is restored for
   // inspection either way; it is never permission to move (re-audit F02).
-  const [arrival] = useState(() => ({ now: input.now, permission: arrivalGate(input, mode, !!resumeState) }));
+  // Saved progress opened is carried on, so today's status is asked too (F-safety-03, journey §4.8).
+  const [arrival] = useState(() => ({ now: input.now, permission: arrivalGate(input, mode, !!resumeState, statusNow()) }));
   if (!arrival.permission.allowed || arrival.permission.needsCheckIn) {
     return <ArrivalGate arrival={arrival} input={input} mode={mode} resuming={!!resumeState} readiness={checkIn?.readiness} onBack={exit} />;
   }
@@ -247,7 +251,8 @@ function ArrivalGate({ arrival, input, mode, resuming, readiness, onBack }: {
 }) {
   const { now } = useClock();
   useWakeAt(nextBoundary(now, input.checkIn ? { checkIn: input.checkIn } : {}));
-  const current = arrivalGate({ ...input, now }, mode, resuming);
+  const { settings } = useStore();
+  const current = arrivalGate({ ...input, now }, mode, resuming, statusOn(settings.statusPeriods, toDateString(now)));
   const shown = current.allowed && !current.needsCheckIn ? arrival : { now, permission: current };
   return <SessionGate permission={shown.permission} {...(readiness ? { readiness } : {})} now={shown.now} onBack={onBack} />;
 }
@@ -261,6 +266,9 @@ function ArrivalGate({ arrival, input, mode, resuming, readiness, onBack }: {
  * surface says the decision whole above them.
  */
 const drawnHere = (p: Permission) => ({ allowed: p.allowed, disposition: p.disposition, reasons: p.reasons.slice(0, 2) });
+
+/** Today's status as the device holds it at this moment, set from Home: what carrying a run on asks first (journey §4.8). */
+const statusNow = () => statusOn(getState().settings.statusPeriods, toDateString(new Date()));
 
 /** What the start screen says about an earlier run the device would not bank (scan M-08). */
 function staleNote(stale: SavedProgress, how: 'kept' | 'lost'): string {
@@ -399,7 +407,8 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
    * stopped is not asked again just because its reading has aged.
    */
   const mayResume = () => {
-    const p = startGate({ ...inputRef.current, now: new Date() }, mode);
+    // Carrying on asks today's status first, as it stands at the tap (F-safety-03, journey §4.8).
+    const p = withStatus(startGate({ ...inputRef.current, now: new Date() }, mode), statusNow());
     if (p.allowed && !p.needsCheckIn) {
       setRefusal(null);
       return true;
@@ -476,11 +485,14 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status]);
 
-  /** A report through the shared check-in path, the same as Walk's; the engine decides what may carry on. */
-  const report = async (r: SymptomReport, at?: Date): Promise<CheckInRecord> => {
-    const { record } = await onReport(r, at);
-    inputRef.current = { ...inputRef.current, checkIn: record };
-    return record;
+  /**
+   * A report through the shared check-in path, the same as Walk's; the engine decides what may carry on. Its
+   * whole result: whether the device stored it decides whether anything moves on (F-safety-05, journey §4.5).
+   */
+  const report = async (r: SymptomReport, at?: Date): Promise<{ record: CheckInRecord; stored: boolean }> => {
+    const result = await onReport(r, at);
+    inputRef.current = { ...inputRef.current, checkIn: result.record };
+    return result;
   };
 
   /** "I feel low": a stop from the moment it is said, until a reading taken after it settles it. */
@@ -493,9 +505,13 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     void report({ news: ['lowSymptoms'] }, new Date(since));
   };
 
-  /** A reading saved from the low, checkpoint or restart screen, then what it allows. */
-  const saveReading = async (reading: GlucoseEntry, extra: { neededHelp: boolean; recovered: boolean }) => {
-    const record = await report({
+  /**
+   * A reading saved from the low, checkpoint or restart screen, then what it allows. Its guidance follows the
+   * answer either way; the check is logged and the run moves on only once the device has stored it (F-safety-05).
+   * True once the reading is done with: stored, and nothing further asked of it here.
+   */
+  const saveReading = async (reading: GlucoseEntry, extra: { neededHelp: boolean; recovered: boolean }): Promise<boolean> => {
+    const { record, stored } = await report({
       // A meter's HI or LO is recorded as the check-in records it (`glucoseDisplay`).
       ...('display' in reading ? { glucoseDisplay: reading } : { glucose: reading }),
       ...(extra.neededHelp ? { news: ['lowSevere' as const] } : {}),
@@ -514,8 +530,10 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
       // still low at the re-check, an emergency: the run ends here and goes
       // into History now. The low's guidance stays on screen.
       if (endsToday(live, record.readiness)) { g.stopVoice(); act.finish(); }
-      return;
+      return stored;
     }
+    // Refused: still paused, the screen and its reading kept, with Try again (journey §4.5).
+    if (!stored) return false;
     const checkpoint = flow?.kind === 'checkpoint' ? flow.stepId : null;
     setFlow(null);
     if (checkpoint && !lowInRun()) {
@@ -525,6 +543,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     }
     // After a low in this run, carrying on is the cool-down only (spec §4.6).
     act.resume();
+    return true;
   };
 
   /** Worse back or leg symptoms: that exercise stops now, for the day, before anything is asked (B09). */
@@ -538,7 +557,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
 
   /** The answers after "Worse", the same builder as the stop control's and the walk's. */
   const saveSymptoms = async (a: LegAnswers) => {
-    const record = await report({
+    const { record } = await report({
       ...legReport(a, inputRef.current.checkIn?.back?.reach),
       ...(flow?.kind === 'symptoms' && flow.exerciseId ? { provoked: [flow.exerciseId] } : {}),
     });
@@ -548,12 +567,18 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     act.resume();
   };
 
-  /** "Stop: something's wrong": still, and quiet, before anything is asked. */
+  /**
+   * "Stop: something's wrong": still, and quiet, before anything is asked,
+   * and the stop saved at the tap through the shared path, as a walk's is
+   * (journey §4.4, D170): left unanswered, through a reload or a refused
+   * write, it holds every start until its own questions answer it.
+   */
   const openStop = () => {
     act.pause();
     g.stopVoice();
     setExitOpen(false);
     setStopping('choose');
+    void report(STOPPED);
   };
   /** An emergency ends the session; the stop screen shows what to do. */
   const endIfEmergency = (record: CheckInRecord) => {
@@ -561,10 +586,11 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     g.stopVoice();
     act.finish();
   };
+  /** Every answer answers the stop said at the tap; "Just need a rest" records only that (§4.4). */
   const stopChoice = async (choice: 'chest' | 'stroke' | 'breathless' | 'dizzy' | 'rest') => {
-    const { report: said, next } = onChoice(choice, health.hypoRisk);
+    const { report: said, next } = stopAnswer(choice, health.hypoRisk);
     setStopping(next === 'dizzy' ? 'dizzy' : null);
-    if (said) endIfEmergency(await report(said));
+    if (said) endIfEmergency((await report(said)).record);
   };
   /** Leg symptoms: reported, and the movement that brought them on is left out for the day. */
   const stopForLeg = async (a: LegAnswers) => {
@@ -574,7 +600,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     // steps down and the Back & leg chart shows it (contract A-BACK, scan J2-02).
     if (provoking) act.log({ stepId: `stop-${provoking}`, kind: 'checkpoint', exerciseId: provoking, completed: true, answer: 'worse' });
     setStopping(null);
-    const record = await report({ ...legReport(a, inputRef.current.checkIn?.back?.reach), ...(provoking ? { provoked: [provoking] } : {}) });
+    const { record } = await report(answering({ ...legReport(a, inputRef.current.checkIn?.back?.reach), ...(provoking ? { provoked: [provoking] } : {}) }));
     // Leg symptoms that stop this mode stop it for the day: an emergency, new
     // weakness, a stretch that sent them further down. The run ends there, so
     // what was done and the worsening are in History now, not only when the
@@ -614,11 +640,12 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
         onSave={saveReading} onEnd={end} onLeave={onExit} />
     );
   }
-  if (stop) return <SessionGate permission={stop} readiness={inputRef.current.checkIn?.readiness} now={new Date()} onBack={onExit} />;
-  if (state.status === 'done') return <Summary plan={plan} state={state} onSave={onSave} onExit={onExit} {...(waiting ? { guidance: waiting } : {})} />;
-  if (stopping === 'choose') {
+  // The stop's own questions stay while that stop, said at the tap, is what holds: they answer it (§4.4).
+  if (stopping === 'choose' && !firm && state.status !== 'done') {
     return <StopScreen reach={inputRef.current.checkIn?.back?.reach} onChoice={c => void stopChoice(c)} onLeg={a => stopForLeg(a)} />;
   }
+  if (stop) return <SessionGate permission={stop} readiness={inputRef.current.checkIn?.readiness} now={new Date()} onBack={onExit} />;
+  if (state.status === 'done') return <Summary plan={plan} state={state} onSave={onSave} onExit={onExit} {...(waiting ? { guidance: waiting } : {})} />;
   if (reading || waiting) {
     const now = new Date();
     if (!reading && waiting && restartCapture({ ...inputRef.current, now }) === 'checkIn') {
@@ -988,7 +1015,8 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
   /** The low left no exercise today and ended the run: what stays is the low's own care. */
   ended?: boolean;
   profile: UserProfile;
-  onSave: (reading: GlucoseEntry, extra: { neededHelp: boolean; recovered: boolean }) => Promise<void>;
+  /** True once the reading is done with; false when the device refused it, so it is kept here to try again. */
+  onSave: (reading: GlucoseEntry, extra: { neededHelp: boolean; recovered: boolean }) => Promise<boolean>;
   onEnd: () => void;
   onLeave: () => void;
 }) {
@@ -1003,6 +1031,12 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
   const [neededHelp, setNeededHelp] = useState(false);
   const [recovered, setRecovered] = useState(false);
   const [busy, setBusy] = useState(false);
+  /**
+   * The reading the device refused, as it was given (F-safety-05): Try again
+   * sends that same measurement, its time and clock generation, while the
+   * answers on screen are the ones it was given with. Changed, it is a new one.
+   */
+  const [refused, setRefused] = useState<{ key: string; reading: GlucoseEntry } | null>(null);
   const heading = useFocusOnMount<HTMLHeadingElement>();
   const typed = value.trim();
   const n = Number(typed);
@@ -1016,22 +1050,28 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
     // or the date has changed.
     ?? (kind === 'low' && due > now.getTime() ? { due, minutes: Math.ceil((due - now.getTime()) / 60_000) } : null);
   const countdown = wait ? `Measure again in ${wait.minutes} minute${wait.minutes === 1 ? '' : 's'}, at ${timeOf(wait.due)}.` : null;
+  const key = JSON.stringify([display, typed, unit, unitConfirmed, neededHelp, recovered]);
   const save = async () => {
     if (!usable || busy) return;
     setBusy(true);
     const source = profile.health.glucoseMonitor === 'cgm' ? 'sensor' as const : 'meter' as const;
     const taken = new Date();
     const measuredAt = taken.toISOString();
+    const reading: GlucoseEntry = refused?.key === key ? refused.reading : acquiredIn(display
+      // A meter's HI or LO is kept only in the check-in, so in this phone's offset, written out (H3-01).
+      ? { display, measuredAt: measuredStamp(taken), source }
+      : { value: n, unit, measuredAt, source, ...(unitConfirmed ? { unitConfirmed: true } : {}) }, acquisitionStamp());
     try {
-      await onSave(display
-        // A meter's HI or LO is kept only in the check-in, so in this phone's offset, written out (H3-01).
-        ? { display, measuredAt: measuredStamp(taken), source }
-        : { value: n, unit, measuredAt, source, ...(unitConfirmed ? { unitConfirmed: true } : {}) }, { neededHelp, recovered });
+      const done = await onSave(reading, { neededHelp, recovered });
+      // Kept, with its time, until the device has stored it (journey §4.5).
+      setRefused(done ? null : { key, reading });
+      if (done) {
+        setValue('');
+        setUnitConfirmed(false);
+        setShows('number');
+      }
     } finally {
       setBusy(false);
-      setValue('');
-      setUnitConfirmed(false);
-      setShows('number');
     }
   };
   const title = kind === 'low' ? 'Treat the low first' : kind === 'checkpoint' ? 'Check your glucose' : 'Check your glucose before you carry on';
@@ -1131,7 +1171,14 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
           </label>
         )}
         <div className="mt-auto flex flex-col gap-3">
-          <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" disabled={!usable || busy} onClick={() => void save()}>Save this reading</Button>
+          {refused?.key === key && (
+            <p role="alert" className="rounded-xl bg-caution/15 px-4 py-3 text-[length:var(--text-subhead)] leading-snug">
+              This reading couldn’t be saved on this device. It still counts for now, and the session stays paused. Free up some space, then try again.
+            </p>
+          )}
+          <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" disabled={!usable || busy} onClick={() => void save()}>
+            {refused?.key === key ? 'Try again' : 'Save this reading'}
+          </Button>
           {ended ? (
             <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onLeave}>Back to Today</Button>
           ) : (
@@ -1282,6 +1329,8 @@ function StopScreen({ reach, onChoice: choose, onLeg }: {
   const label = (c: StopChoice) => STOP_CHOICES.find(x => x.choice === c)!.label;
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="stop-title" className="flex min-h-dvh flex-col bg-grouped-bg pt-safe pb-safe">
+      {/* The task's surface says every decision but the stop these questions answer (H6F-01, board D212). */}
+      <AnsweringStop />
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-4 px-5 py-6">
         <h1 id="stop-title" ref={heading} tabIndex={-1} className="text-[length:var(--text-title-2)] font-bold leading-tight outline-none">Stop: something’s wrong</h1>
         <p className="text-[length:var(--text-body)]">The session is paused. What is happening?</p>

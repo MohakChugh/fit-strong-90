@@ -377,6 +377,15 @@ export interface DailyCheckIn {
    */
   durable?: DailyCheckIn;
   /**
+   * F-safety-01: what was answered for this day before the answers waiting
+   * now, none of it stored yet, oldest first, attached by `effectiveCheckIns`
+   * for the gates only. Each still counts on its own, as the stored record
+   * does (`durable`), so a later answer the device hasn't kept releases
+   * nothing an earlier one holds, even with nothing stored for the day. Never
+   * stored.
+   */
+  unstored?: DailyCheckIn[];
+  /**
    * Red flags and foot problems said earlier today and unticked since
    * (R5-01): a later answer is about now, and releases nothing. Each stays
    * until its own release is given in `resolutions`, as on the days after.

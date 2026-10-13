@@ -793,7 +793,11 @@ describe('the safety surface wherever the person is (codex V1-02, V1-03, journey
     // The check-in sheet shows today's outcome itself.
     const own = render(h(nav.SheetTopContext, { value: top }, h(Sheet, { open: true, onOpenChange, title: 'Check-in', ownsUrgent: true, children: null })));
     expect(surfaces(own.all())).toBe(0);
-    expect(read('src/components/checkin/CheckInSheet.tsx')).toMatch(/<Sheet open=\{props\.open\} onOpenChange=\{props\.onOpenChange\} title="Check-in" detent="large" ownsUrgent>/);
+    // Only while its body draws the decision: its outcome, or an emergency answered here (F-safety-06).
+    // With answers not saved, a swipe resists and Close asks first (F-safety-07, K-46): the gesture itself is sheetGesture's.
+    expect(read('src/components/checkin/CheckInSheet.tsx')).toMatch(/dismissible=\{!dirty\} holdClose=\{holdClose\}/);
+    // While it asks "Keep your answers?" it draws no decision, so the surface stands then too (F-safety-07).
+    expect(read('src/components/checkin/CheckInSheet.tsx')).toMatch(/<Sheet open=\{props\.open\} onOpenChange=\{props\.onOpenChange\} title="Check-in" detent="large" ownsUrgent=\{draws && !asking\}/);
   });
 
   it('brings a decision arriving, or changing, into view in a sheet scrolled down, heading first, keeping the form under it (codex W-02)', () => {
@@ -1187,5 +1191,12 @@ describe('Home Screen icons (S-22)', () => {
     expect(icons.filter(i => i.type === 'image/png').map(i => `${i.src} ${i.purpose}`)).toEqual([
       'pwa-192x192.png any', 'pwa-512x512.png any', 'pwa-maskable-512x512.png maskable',
     ]);
+  });
+});
+
+describe('the restart to update waits for the device’s safety record (F-data-02)', () => {
+  it('starts its updates with the clock change still waiting to be stored, through its tries, as what the reload waits for', () => {
+    // main.tsx can't run in node: its wiring is read. The barrier itself runs in restart.callers.test.ts.
+    expect(read('src/main.tsx')).toMatch(/settled: whenSettled,[\s\S]*safetyWaiting: clockChangeWaiting,/);
   });
 });

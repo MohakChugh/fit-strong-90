@@ -541,3 +541,115 @@ describe('the pause beside every safety decision on the shared surface (boards D
     });
   }
 });
+
+describe('F-safety-06: the check-in opened on its questions keeps the shared decision in view (journey §4.3, §4.7, B-02)', () => {
+  const insulin = createDefaultProfile({ health: {
+    diabetes: 'type2', insulin: 'injections_or_pump', insulinRegimen: 'basalOnly', medicinesReviewed: true, currentlyActive: true, clearance: 'vigorous',
+    glucoseMonitor: 'meter', glucoseUnit: 'mg/dL',
+  } });
+  function CheckIn() {
+    const g = useGuided();
+    const [open, setOpen] = useState(true);
+    return h(CheckInSheet, { open, onOpenChange: setOpen, profile: g.profile, date: g.date, initial: g.checkIn, onSave: g.saveCheckIn, recent: g.checkIns });
+  }
+  const kinds = () => x().all().filter(n => n.props['data-urgent-kind'] !== undefined).map(n => String(n.props['data-urgent-kind']));
+
+  it('a 60 at 13:30, reopened at 13:36 for the re-check: the low, its time and the re-check stand above the questions', async () => {
+    vi.setSystemTime(new Date(2026, 9, 9, 13, 30));
+    const low: DailyCheckIn = { ...day(DAY, []), glucose: { value: 60, unit: 'mg/dL', measuredAt: new Date(2026, 9, 9, 13, 30).toISOString(), source: 'meter' } };
+    await store.update(prev => ({ ...prev, profile: insulin, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [{ ...low, readiness: evaluateCheckIn(insulin, low) }] }));
+    vi.setSystemTime(new Date(2026, 9, 9, 13, 36));
+    host = render(h(UrgentProvider, null, h(CheckIn)));
+    await x().settle();
+    expect(x().text()).toContain('Right now, any of these?');
+    expect(kinds()).toContain('recheck');
+    const strip = x().all().find(n => n.props['data-urgent-kind'] === 'recheck')!;
+    expect(textOf(strip.children)).toMatch(/Low glucose at .*· Re-check at/);
+    // Re-checked at 13:46 and still low: the sheet's own outcome says the decision, and the surface steps aside.
+    vi.setSystemTime(new Date(2026, 9, 9, 13, 46));
+    await x().click(x().buttons('None of these', { exact: true })[0]);
+    await x().change(x().field('Glucose reading'), { value: '62' });
+    await x().click(x().button('See today’s plan'));
+    await x().settle();
+    expect(x().text()).not.toContain('Right now, any of these?');
+    expect(kinds()).toEqual([]);
+  });
+
+  it('an emergency ticked on the questions is said once, by the sheet’s own banner', async () => {
+    await store.update(prev => ({ ...prev, profile: insulin, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [] }));
+    host = render(h(UrgentProvider, null, h(CheckIn)));
+    await x().settle();
+    expect(kinds()).toEqual([]);
+    // While its save is on its way, the emergency's banner stands over the questions.
+    fake.control.hold();
+    await x().click(x().button(EMERGENCY_LABEL.chest));
+    await x().settle();
+    expect(x().text()).toContain('Right now, any of these?');
+    expect(x().text()).toMatch(/Call/);
+    expect(kinds()).toEqual([]);
+    fake.control.release();
+    await x().settle();
+    expect(store.getState().checkIns.find(c => c.date === DAY)?.emergency).toContain('chest');
+    expect(kinds()).toEqual([]);
+  });
+});
+
+describe('F-safety-07: answers given in the check-in are kept or discarded on Close, never lost by it (journey §10, K-46, B-03)', () => {
+  function CheckIn() {
+    const g = useGuided();
+    const [open, setOpen] = useState(true);
+    return open
+      ? h(CheckInSheet, { open, onOpenChange: setOpen, profile: g.profile, date: g.date, initial: g.checkIn, onSave: g.saveCheckIn, recent: g.checkIns })
+      : h('button', { type: 'button', onClick: () => setOpen(true) }, 'Check in again');
+  }
+  const close = () => x().click(x().button('Close', { exact: true }));
+
+  it('None of these and an energy answer, then Close: asked, Keep keeps them; Close and Discard drops them, and nothing was stored', async () => {
+    await seed([]);
+    host = render(h(UrgentProvider, null, h(CheckIn)));
+    await x().settle();
+    await x().click(x().buttons('None of these', { exact: true })[0]);
+    await x().click(x().button('Good', { exact: true }));
+    await close();
+    expect(dialogs()).toBe(1);
+    expect(x().text()).toContain('Keep your answers?');
+    await x().click(x().button('Keep', { exact: true }));
+    expect(x().text()).not.toContain('Keep your answers?');
+    expect(x().button('Good', { exact: true }).props['aria-checked']).toBe(true);
+    await close();
+    await x().click(x().button('Discard', { exact: true }));
+    expect(dialogs()).toBe(0);
+    expect(store.getState().checkIns).toEqual([]);
+    // Opened again: the answers dropped are gone, back to the first question unanswered.
+    await x().click(x().button('Check in again'));
+    expect(x().text()).toContain('Right now, any of these?');
+    expect(x().buttons('Good', { exact: true })).toHaveLength(0);
+  });
+
+  it('with nothing answered, Close closes at once; and Discard never takes back what was stored', async () => {
+    await seed([]);
+    host = render(h(UrgentProvider, null, h(CheckIn)));
+    await x().settle();
+    await close();
+    expect(dialogs()).toBe(0);
+    await x().click(x().button('Check in again'));
+    // Saved, then changed and not saved again: Discard drops only the change.
+    await x().click(x().buttons('None of these', { exact: true })[0]);
+    await x().click(x().button('Over 7 h', { exact: true }));
+    await x().click(x().button('See today’s plan'));
+    await x().settle();
+    expect(store.getState().checkIns.find(c => c.date === DAY)).toMatchObject({ emergency: [], sleep: 'gt7' });
+    await close();
+    expect(dialogs()).toBe(0);
+    await x().click(x().button('Check in again'));
+    if (x().buttons('Change answers').length) await x().click(x().button('Change answers'));
+    await x().click(x().button('Good', { exact: true }));
+    await close();
+    expect(x().text()).toContain('Keep your answers?');
+    await x().click(x().button('Discard', { exact: true }));
+    expect(dialogs()).toBe(0);
+    const kept = store.getState().checkIns.find(c => c.date === DAY);
+    expect(kept).toMatchObject({ emergency: [], sleep: 'gt7' });
+    expect(kept?.energy).toBeUndefined();
+  });
+});

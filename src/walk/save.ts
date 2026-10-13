@@ -22,5 +22,7 @@ export function walkSave(walk: Walk, extra: { route?: readonly RouteLine[]; ener
     ...(walk.plan.keepRoute && !route ? { routeStartedAt: startedAt } : {}),
     // The erase generation it began in: an "Erase all routes" since, and the save keeps no route (B-05).
     ...(walk.plan.keepRoute ? { routeGen: walk.plan.routeGen ?? 0 } : {}),
+    // The record it began in: replaced or deleted since, and nothing of it is saved (F-data-01).
+    ...(walk.recordGen !== undefined ? { recordGen: walk.recordGen } : {}),
   };
 }

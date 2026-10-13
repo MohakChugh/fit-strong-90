@@ -227,6 +227,21 @@ export function UrgentProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** A full-screen task's own stop questions are open (`AnsweringStop`). */
+const AnsweringClaimContext = createContext<(() => () => void) | null>(null);
+
+/**
+ * Rendered while a full-screen task's own stop questions are open (the
+ * player's "Stop: something's wrong", F-safety-02): its surface says every
+ * decision but the stop they answer, as over the shared stop questions
+ * (H6F-01, board D212).
+ */
+export function AnsweringStop() {
+  const claim = useContext(AnsweringClaimContext);
+  useLayoutEffect(() => claim?.(), [claim]);
+  return null;
+}
+
 /** The gate's answer as a full-screen task's own screen draws it: how firmly it refuses, and the reasons it lists. */
 type Drawn = Parameters<typeof says>[0];
 /** A full-screen task's claim that its own screen draws this answer, until it lets go. */
@@ -252,6 +267,29 @@ export function OwnsUrgent({ shows }: { shows: Drawn }) {
 }
 
 /**
+ * What a full-screen task's own screen draws of each shared decision it
+ * claims (`OwnsUrgent`), whole (F-walk-04): the engine's headline, when it
+ * was measured or answered, and what is due next, as the time comes due
+ * ("Re-check now"). A screen that says a decision in its own words draws
+ * this with them, so the surface it steps aside for loses nothing.
+ */
+export function ClaimedDecisions({ shows }: { shows: Drawn }) {
+  const urgents = useContext(UrgentsContext);
+  const claimed = urgents.filter(u => says(shows, u));
+  if (claimed.length === 0) return null;
+  return (
+    <>
+      {claimed.map(u => (
+        <div key={u.kind} data-claimed-kind={u.kind} className="flex flex-col gap-0.5">
+          <p className="font-semibold">{u.headline}</p>
+          <p>{lineOf(u)}</p>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/**
  * The shared surface at the top of a full-screen task (B-02, codex V1-03),
  * all but what the task's own screen already says: each decision it draws
  * (`OwnsUrgent`, `says`), and the way out of the pause (`UnsavedClinical`,
@@ -272,12 +310,18 @@ export function TaskUrgent({ children }: { children: ReactNode }) {
     setWays(n => n + 1);
     return () => setWays(n => n - 1);
   }, []);
-  const left = urgents.filter(u => !claims.some(drawn => says(drawn, u)));
+  const [answering, setAnswering] = useState(0);
+  const claimAnswering = useCallback(() => {
+    setAnswering(n => n + 1);
+    return () => setAnswering(n => n - 1);
+  }, []);
+  const left = urgents.filter(u => !claims.some(drawn => says(drawn, u)) && !(answering > 0 && u.stop));
   const pauseHere = paused && ways > 0;
   const top = left.length === urgents.length && !pauseHere ? banner
     : (left.length > 0 || (paused && !pauseHere)) && <SafetySurface urgents={left} paused={paused && !pauseHere} />;
   return (
     <ClaimContext value={claim}>
+      <AnsweringClaimContext value={claimAnswering}>
       <PauseClaimContext value={claimPause}>
         {top && (
           <div className="pb-1 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))]">
@@ -286,6 +330,7 @@ export function TaskUrgent({ children }: { children: ReactNode }) {
         )}
         <ScreenTopContext value={null}>{children}</ScreenTopContext>
       </PauseClaimContext>
+      </AnsweringClaimContext>
     </ClaimContext>
   );
 }

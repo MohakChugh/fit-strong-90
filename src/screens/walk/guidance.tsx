@@ -6,6 +6,9 @@ import { CANNOT_SWALLOW, glucoseLevel } from '@/engine/readiness';
 import type { GlucoseEntry, GlucoseReading, GlucoseUnit } from '@/types/checkin';
 import { Segmented } from '@/components/checkin/parts';
 import { typedReading } from '@/walk/low';
+import { acquiredIn } from '@/walk/consent';
+import { measuredStamp } from '@/health/observation';
+import { acquisitionStamp } from '@/store/useStore';
 import { PrimaryButton } from './parts';
 
 /** The player's unit buttons. */
@@ -88,7 +91,8 @@ export function LowGuidance({ advice, unit }: { advice?: { title: string; lines:
 export function LowFollowUp({ unit: initialUnit, source, onSave }: {
   unit: GlucoseUnit;
   source: GlucoseReading['source'];
-  onSave: (reading: GlucoseEntry, symptomsGone: boolean, neededHelp: boolean) => Promise<void>;
+  /** Whether the device stored it: refused, the reading and its answers stay, to try again as they were (F-walk-03). */
+  onSave: (reading: GlucoseEntry, symptomsGone: boolean, neededHelp: boolean) => Promise<boolean>;
 }) {
   const [value, setValue] = useState('');
   // A meter showing HI or LO has no number to type: asked as Quick Log and the check-in ask it.
@@ -106,17 +110,32 @@ export function LowFollowUp({ unit: initialUnit, source, onSave }: {
   const typed = value.trim();
   const { sanity, reading: typedNumber } = typedReading(value, unit, unitConfirmed, source);
   const reading: GlucoseEntry | undefined = display ? { display, ...(source ? { source } : {}) } : typedNumber;
+  /**
+   * The reading the device refused, timed and stamped as it was first given
+   * (journey §4.5): Try again sends that same measurement while the answers on
+   * screen are the ones it was given with. Changed, it is a new one.
+   */
+  const [refused, setRefused] = useState<{ key: string; reading: GlucoseEntry } | null>(null);
+  const key = JSON.stringify([reading, gone, neededHelp]);
+  const again = refused?.key === key;
 
   const save = async () => {
     if (!reading || busy) return;
     setBusy(true);
+    const taken = new Date();
+    // A meter's HI or LO is kept only in the check-in, so in this phone's offset, written out (H3-01).
+    const given = again ? refused.reading
+      : acquiredIn({ ...reading, measuredAt: 'display' in reading ? measuredStamp(taken) : taken.toISOString() }, acquisitionStamp());
     try {
-      await onSave(reading, gone, neededHelp);
-      setValue('');
-      setUnitConfirmed(false);
-      setShows('number');
-      setGone(false);
-      setNeededHelp(false);
+      const stored = await onSave(given, gone, neededHelp);
+      setRefused(stored ? null : { key, reading: given });
+      if (stored) {
+        setValue('');
+        setUnitConfirmed(false);
+        setShows('number');
+        setGone(false);
+        setNeededHelp(false);
+      }
     } finally {
       setBusy(false);
     }
@@ -204,8 +223,13 @@ export function LowFollowUp({ unit: initialUnit, source, onSave }: {
           <input type="checkbox" className="mt-0.5 size-5 shrink-0" checked={neededHelp} onChange={e => setNeededHelp(e.target.checked)} />
           <span>Someone else had to help me treat this low.</span>
         </label>
-        <div className="px-4 py-3">
-          <PrimaryButton onClick={() => void save()} disabled={!reading || busy}>{busy ? 'Saving…' : 'Save this reading'}</PrimaryButton>
+        <div className="flex flex-col gap-3 px-4 py-3">
+          {again && (
+            <p role="alert" className="rounded-xl bg-caution/15 px-4 py-3 text-[length:var(--text-subhead)] leading-snug">
+              This reading couldn’t be saved on this device. It still counts for now, and the walk stays on hold. Free up some space, then try again.
+            </p>
+          )}
+          <PrimaryButton onClick={() => void save()} disabled={!reading || busy}>{busy ? 'Saving…' : again ? 'Try again' : 'Save this reading'}</PrimaryButton>
         </div>
       </Group>
     </>

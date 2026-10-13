@@ -50,7 +50,7 @@ import type { LiveSnapshot, LiveWalk } from '@/walk/live';
 import { LowFollowUp } from './guidance';
 import { StopSheet } from './StopSheet';
 import { PrimaryButton, SecondaryButton } from './parts';
-import { OwnsUrgent } from '@/screens/home/UrgentBanner';
+import { ClaimedDecisions, OwnsUrgent } from '@/screens/home/UrgentBanner';
 import { useLiveWalk } from './useLiveWalk';
 import { LiveRoute } from './RouteView';
 import { useWalkCues } from './useWalkCues';
@@ -244,9 +244,11 @@ export default function LiveWalkScreen() {
     setUnsaved(!r.stored);
     return r.stored;
   };
-  const saveLowReading = async (reading: GlucoseEntry, symptomsGone: boolean, neededHelp: boolean) => {
+  /** The reading after "I feel low": whether the device stored it, so a refused one stays to try again (F-walk-03). */
+  const saveLowReading = async (reading: GlucoseEntry, symptomsGone: boolean, neededHelp: boolean): Promise<boolean> => {
     const r = await reportSymptoms(lowReading(reading, symptomsGone, neededHelp), new Date());
     setUnsaved(!r.stored);
+    return r.stored;
   };
 
   /**
@@ -297,6 +299,8 @@ export default function LiveWalkScreen() {
                   <p className={cn('font-semibold', emergency && 'text-stop')}>
                     {emergency ? PERMISSION_TEXT.emergencyTitle : 'This walk is on hold'}
                   </p>
+                  {/* The shared decisions it claims, whole: when measured or answered, and what is due (F-walk-04). */}
+                  <ClaimedDecisions shows={refusal} />
                   {refusal.reasons.map(r => <p key={r}>{r}</p>)}
                   {refusal.release && <p className="text-muted-foreground">{refusal.release}</p>}
                   <p className="text-muted-foreground">Your walk so far is kept. Finish to save it.</p>

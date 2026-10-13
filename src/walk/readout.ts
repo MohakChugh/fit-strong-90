@@ -208,6 +208,8 @@ export const ROUTE_UNREADABLE = 'Your route couldn’t be read just now. It’s 
 
 /** After "Erase all routes" (B-05), on a summary that had a route on screen. */
 export const ROUTE_ERASED = 'No route: every route on this phone was erased.';
+/** This walk's route deleted for good from its own screen, in this tab or another (F-walk-02). */
+export const ROUTE_DELETED = 'No route: this walk’s route was deleted.';
 
 /** In place of a route (journey §9.5, V-J20). Without the walk's plan, as on a saved walk's detail, the plain line. */
 export function noRouteLine(plan?: Pick<WalkPlan, 'gps' | 'keepRoute'>): string {

@@ -73,7 +73,7 @@ const store = await import('@/store/useStore');
 const { default: SessionPage } = await import('./SessionPage');
 const { UrgentProvider } = await import('@/screens/home/UrgentBanner');
 const { TaskFrame } = await import('@/components/hig/StorageBanner');
-const { resetPendingCheckInsForTests } = await import('@/components/checkin/pending');
+const { resetPendingCheckInsForTests, restorePendingCheckInsForTests, saveCheckInRecord } = await import('@/components/checkin/pending');
 const { evaluateCheckIn } = await import('@/engine/readiness');
 const { buildSessionPlan } = await import('@/engine/session');
 const { saveProgress } = await import('@/session/persistence');
@@ -553,7 +553,9 @@ describe('scan M-07: when this device is not saving, the summary never says "Sav
     await store.start({ factory: undefined });
     expect(store.getState().status).toBe('unavailable');
     const p = createDefaultProfile(NONE);
-    await seed(p, [ci()]);
+    await seed(p, []);
+    // Saved as the check-in saves it: with nothing stored, it counts while it waits (F-safety-01).
+    expect((await saveCheckInRecord(ci(), { profile: p, update: store.update })).stored).toBe(false);
     await mount('mode=stretch&focus=backHips&minutes=10');
     await h().click(h().button('Start', { exact: true }));
     clock(9, 30);
@@ -697,12 +699,17 @@ describe('acceptance J02, J08, J16: "Stop: something’s wrong" in the running p
     expect(h().text()).toMatch(/today/i);
   });
 
-  it('a rest records nothing and leaves the session paused', async () => {
+  it('a rest records only that: the stop said at the tap is answered, and the session stays paused (F-safety-02)', async () => {
     await moving(createDefaultProfile(BACK));
-    const before = JSON.stringify(today());
+    const before = today()!;
     await h().click(stopControl());
+    expect(today()?.news).toContain('stopped');
     await h().click(h().button('Just need a rest'));
-    expect(JSON.stringify(today())).toBe(before);
+    await h().settle();
+    const after = today()!;
+    expect(after.news).toEqual(before.news);
+    expect(after.resolutions).toEqual([expect.objectContaining({ kind: 'news', readings: [`news:stopped@${DAY}`], resolution: 'resolved' })]);
+    expect(after.glucose).toEqual(before.glucose);
     expect(status(slot)).toBe('paused');
     expect(h().buttons('Resume', { exact: true })).toHaveLength(1);
   });
@@ -1732,5 +1739,204 @@ describe('codex W-01: a session opened before any check-in, then an emergency an
     await h().settle();
     expect(h().text()).toMatch(/Check again before you start/);
     expect(h().buttons('Start', { exact: true })).toHaveLength(0);
+  });
+});
+
+describe('F-safety-01: the player reads what is stored, never a recovery still on its way', () => {
+  it('a saved run reopened while the recovery from a stored low is still being written stays held, and opens once it is stored', async () => {
+    store.resetForTests();
+    const db = fakeIndexedDB();
+    await store.start({ factory: db, broadcast: null });
+    const p = createDefaultProfile(INSULIN);
+    const morning = { value: 140, unit: 'mg/dL' as const, measuredAt: iso(9), source: 'meter' as const };
+    const plan = buildSessionPlan({ profile: p, date: DAY, startDate: START, sessions: [], checkIn: ci({ glucose: morning }) });
+    saveRun(plan, paused(plan, 3));
+    clock(13, 30);
+    await seed(p, [ci({ glucoseEarlier: [morning], glucose: { value: 60, unit: 'mg/dL', measuredAt: iso(13, 30), source: 'meter' } })]);
+    clock(13, 46);
+    db.control.hold();
+    const saving = saveCheckInRecord(ci({ glucose: { value: 130, unit: 'mg/dL', measuredAt: iso(13, 46), source: 'meter' }, lowRecovered: true }), { profile: p, update: store.update });
+    await mount('resume=1');
+    expect(h().buttons('Resume', { exact: true })).toHaveLength(0);
+    expect(h().buttons('Back to Today', { exact: true })).toHaveLength(1);
+    db.control.release();
+    expect((await saving).stored).toBe(true);
+    await mount('resume=1');
+    expect(h().buttons('Resume', { exact: true })).toHaveLength(1);
+  });
+});
+
+describe('F-safety-03: carrying a session on asks the status first, at the arrival and at every Resume (journey §4.8, A-34)', () => {
+  const morning = () => ci({ glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } });
+  const said: Record<'away' | 'unwell' | 'flare', RegExp> = {
+    away: /A session isn’t carried on while you’re away\./, unwell: /A session isn’t carried on while you’re unwell\./, flare: /During a flare-up only a stretch is carried on\./,
+  };
+  for (const kind of ['away', 'unwell', 'flare'] as const) {
+    it(`a saved guided run reopened from a bookmark while ${kind} moves nothing, whatever the check-in allows`, async () => {
+      const p = createDefaultProfile(INSULIN);
+      const plan = buildSessionPlan({ profile: p, date: DAY, startDate: START, sessions: [], checkIn: morning() });
+      saveRun(plan, paused(plan, 3));
+      await seed(p, [morning()]);
+      await store.setSettings({ statusPeriods: [{ kind, from: DAY }] });
+      await mount('resume=1');
+      expect(h().buttons('Resume', { exact: true })).toHaveLength(0);
+      expect(h().text()).toMatch(said[kind]);
+    });
+  }
+
+  for (const how of ['Resume', 'earphone Play', 'Keep going'] as const) {
+    it(`in the open player, ${how} asks the status of the moment`, async () => {
+      const p = createDefaultProfile(INSULIN);
+      await seed(p, [morning()]);
+      await mount();
+      await h().click(h().button('Start', { exact: true }));
+      if (how === 'Keep going') await h().click(h().button('End session'));
+      else await h().click(h().button('Pause', { exact: true }));
+      await store.setSettings({ statusPeriods: [{ kind: 'unwell', from: DAY }] });
+      await h().settle();
+      if (how === 'earphone Play') { media.play?.(); await h().settle(); } else await h().click(h().button(how, { exact: true }));
+      expect(progress()?.state.status).toBe('paused');
+      expect(h().text()).toMatch(said.unwell);
+    });
+  }
+
+  it('an emergency, or a stop not yet answered, still comes before the status', async () => {
+    const p = createDefaultProfile(INSULIN);
+    const plan = buildSessionPlan({ profile: p, date: DAY, startDate: START, sessions: [], checkIn: morning() });
+    for (const day of [ci({ urgentSymptoms: true, emergency: ['chest'] }), ci({ news: ['stopped'], glucose: morning().glucose })]) {
+      saveRun(plan, paused(plan, 3));
+      await seed(p, [day]);
+      await store.setSettings({ statusPeriods: [{ kind: 'away', from: DAY }] });
+      await mount('resume=1');
+      expect(h().text()).not.toMatch(said.away);
+      expect(h().text()).toMatch(day.emergency?.length ? /call/i : /haven’t said what happened/);
+    }
+  });
+
+  it('during a flare a stretch is still carried on, and a new start is not asked', async () => {
+    const p = createDefaultProfile(INSULIN);
+    await seed(p, [morning()]);
+    await store.setSettings({ statusPeriods: [{ kind: 'flare', from: DAY }] });
+    await mount('mode=stretch&focus=backHips&minutes=10');
+    await h().click(h().button('Start', { exact: true }));
+    expect(playing()).toBe(true);
+    await h().click(h().button('Pause', { exact: true }));
+    await h().click(h().button('Resume', { exact: true }));
+    expect(playing()).toBe(true);
+  });
+});
+
+describe('F-safety-02: "Stop: something’s wrong" is saved at the tap, and holds until its own questions answer it (journey §4.4, D170)', () => {
+  const morning = () => ci({ glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } });
+  const STRETCH = 'mode=stretch&focus=backHips&minutes=10';
+  /** The page and its store, back from the device as a reload brings them. */
+  async function reload(db: ReturnType<typeof fakeIndexedDB>, query: string) {
+    host?.unmount();
+    host = undefined;
+    store.resetForTests();
+    restorePendingCheckInsForTests();
+    await store.start({ factory: db, broadcast: null });
+    await mount(query);
+  }
+  for (const query of ['', STRETCH]) {
+    const slot = query ? 'stretch' as const : 'guided' as const;
+    for (const refused of [false, true]) {
+      it(`left unanswered in ${slot === 'stretch' ? 'a stretch' : 'the guided session'}, a reload resumes nothing${refused ? ', the save refused' : ''}`, async () => {
+        store.resetForTests();
+        const db = fakeIndexedDB();
+        await store.start({ factory: db, broadcast: null });
+        await seed(createDefaultProfile(BACK), [morning()]);
+        await mount(query);
+        await h().click(h().button('Start', { exact: true }));
+        if (refused) db.control.setWriteError(() => new DOMException('The operation failed.', 'QuotaExceededError'));
+        await h().click(stopControl());
+        expect(status(slot)).toBe('paused');
+        // The stop's own questions stay on screen, the stop already said.
+        expect(h().text()).toMatch(/What is happening\?/);
+        await reload(db, query || 'resume=1');
+        expect(h().buttons('Resume', { exact: true })).toHaveLength(0);
+        expect(h().text()).toMatch(/You stopped and haven’t said what happened yet/);
+      });
+    }
+  }
+
+  it('over the player’s own stop questions, the task’s surface says every decision but that stop; opened again, the stop is said once', async () => {
+    await seed(createDefaultProfile(BACK), [morning()]);
+    host?.unmount();
+    host = render(createElement(UrgentProvider, null, createElement(TaskFrame, null, createElement(SessionPage))));
+    await h().settle();
+    await h().click(h().button('Start', { exact: true }));
+    await h().click(stopControl());
+    await h().settle();
+    expect(h().text()).toMatch(/What is happening\?/);
+    expect(h().buttons('Say what happened')).toHaveLength(0);
+    // Opened again, the questions are gone: the stop stands, said once, by the session's own gate.
+    host.unmount();
+    host = render(createElement(UrgentProvider, null, createElement(TaskFrame, null, createElement(SessionPage))));
+    await h().settle();
+    expect(h().text().match(/You stopped and haven’t said what happened yet/g)).toHaveLength(1);
+    expect(h().buttons('Resume', { exact: true })).toHaveLength(0);
+  });
+
+  it('"Just need a rest" answers it, and Resume carries on', async () => {
+    await seed(createDefaultProfile(BACK), [morning()]);
+    await mount();
+    await h().click(h().button('Start', { exact: true }));
+    await h().click(stopControl());
+    expect(today()?.news).toContain('stopped');
+    await h().click(h().button(/Just need a rest/));
+    await h().settle();
+    expect(today()?.news ?? []).not.toContain('stopped');
+    await h().click(h().button('Resume', { exact: true }));
+    expect(status()).toBe('running');
+  });
+});
+
+describe('F-safety-05: a reading the device refused at the routine check keeps the player where it was, with Try again (journey §4.5)', () => {
+  it('refused: paused at the check, the number kept, nothing logged; tried again and stored, it carries on, as the reading measured then', async () => {
+    store.resetForTests();
+    const db = fakeIndexedDB();
+    await store.start({ factory: db, broadcast: null });
+    const { check, plan } = await atGlucoseCheck();
+    clock(9, 20);
+    db.control.setWriteError(() => new DOMException('The operation failed.', 'QuotaExceededError'));
+    await h().change(h().field('Glucose now'), { value: '150' });
+    await h().click(h().button('Save this reading'));
+    expect(progress()!.state.index).toBe(check);
+    expect(progress()!.state.status).toBe('paused');
+    expect(progress()!.state.logs.find(l => l.stepId === plan.steps[check].id)?.answer).toBeUndefined();
+    expect(h().field('Glucose now').props.value).toBe('150');
+    expect(h().text()).toMatch(/couldn’t be saved/);
+    db.control.setWriteError(undefined);
+    clock(9, 21);
+    await h().click(h().button('Try again', { exact: true }));
+    expect(progress()!.plan.steps[progress()!.state.index].kind).toBe('cardio');
+    expect(progress()!.state.status).toBe('running');
+    expect(today()?.glucose).toMatchObject({ value: 150, measuredAt: iso(9, 20) });
+  });
+
+  it('after "I feel low", a refused 65 shows the low’s care at once and keeps the reading to try again', async () => {
+    store.resetForTests();
+    const db = fakeIndexedDB();
+    await store.start({ factory: db, broadcast: null });
+    await seed(createDefaultProfile(INSULIN), [ci({ glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } })]);
+    await mount();
+    await h().click(h().button('Start', { exact: true }));
+    await h().click(h().button('I feel low'));
+    await h().settle();
+    clock(9, 10);
+    db.control.setWriteError(() => new DOMException('The operation failed.', 'QuotaExceededError'));
+    await h().change(h().field('Glucose now'), { value: '65' });
+    await h().click(h().button('Save this reading'));
+    expect(h().text()).toMatch(/Treat the low first/);
+    expect(h().field('Glucose now').props.value).toBe('65');
+    expect(h().buttons('Try again', { exact: true })).toHaveLength(1);
+    expect(progress()?.state.status).toBe('paused');
+    db.control.setWriteError(undefined);
+    clock(9, 11);
+    await h().click(h().button('Try again', { exact: true }));
+    expect(today()?.glucose).toMatchObject({ value: 65, measuredAt: iso(9, 10) });
+    expect(h().field('Glucose now').props.value).toBe('');
+    expect(progress()?.state.status).toBe('paused');
   });
 });

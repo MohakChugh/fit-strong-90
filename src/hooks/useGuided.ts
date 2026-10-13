@@ -80,11 +80,12 @@ export function useGuided(date: string = todayString()) {
   const pending = useSyncExternalStore(subscribePendingCheckIns, pendingCheckInsVersion, pendingCheckInsVersion);
   // Readings logged in Track reach every gate as the check-in's own do (scan X2-01),
   // and so do the changes to this phone's clock, from the moment one is seen (B-19, board D174, D188).
-  const { observations, clockHold: clock } = useStore();
+  // Read on what is stored: a change still on its way can add to it, never release it (F-safety-01).
+  const { observations, clockHold: clock, stored } = useStore();
   const checkIns = useMemo(
-    () => effectiveCheckIns(data.checkIns ?? [], profile, observations, clock),
+    () => effectiveCheckIns(stored.checkIns, profile, observations, clock, stored.observations),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data.checkIns, profile, pending, observations, clock],
+    [stored, profile, pending, observations, clock],
   );
   // Today's, evaluated against the profile as it is now: advice stored with
   // the record can be out of date, such as extra water after a fluid limit

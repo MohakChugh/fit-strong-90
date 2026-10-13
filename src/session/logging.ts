@@ -42,9 +42,10 @@ export function activeSeconds(plan: SessionPlan, state: RunnerState): number | u
  * projection, and the rest goes.
  */
 function keptCheckIn(c: CheckInRecord): CheckInRecord {
-  const { readingsOnly: _onlyReadings, durable: _stored, ...kept } = withLogged(c) as CheckInRecord;
+  const { readingsOnly: _onlyReadings, durable: _stored, unstored: _unstored, ...kept } = withLogged(c) as CheckInRecord;
   void _onlyReadings;
   void _stored;
+  void _unstored;
   return kept;
 }
 

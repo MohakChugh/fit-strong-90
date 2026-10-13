@@ -66,7 +66,7 @@ import {
 import { newWalkId } from '@/walk/plan';
 import { parseJournalEntry, withJournalled, type JournalEntry } from '@/walk/journal';
 import { sameClockChange, type ClockSeen } from '@/walk/clock';
-import { clockGeneration, erasedGeneration, routeErased, walkSettings, withClockChange, withErase, withPendingClock, type WalkSettings } from '@/walk/consent';
+import { clockGeneration, erasedGeneration, routeErased, walkSettings, withClockChange, withErase, withPendingClock, withRouteErased, type WalkSettings } from '@/walk/consent';
 import { routeRecord, type RouteRecord } from '@/walk/routeRecord';
 import type { WalkInput } from '@/walk/record';
 import { SCHEMA_VERSION, giveSnapshots, legacySnapshot, migrateToV5, migrateToV6, readLegacy, type MigrationReport } from './migrate';
@@ -92,6 +92,13 @@ export interface StoreState {
   status: 'loading' | 'ready' | 'unavailable';
   /** Chronological, oldest first. */
   observations: Observation[];
+  /**
+   * The check-ins and observations as stored, as far as this copy knows: on
+   * the device, or with no storage what the app was opened with, never a
+   * change still on its way or one refused (F-safety-01). What every gate
+   * takes as stored; the screens show `checkIns` and `observations`.
+   */
+  stored: { checkIns: CheckInRecord[]; observations: Observation[] };
   /** Newest first, as the old storage layer ordered them. */
   sessions: WorkoutSession[];
   settings: UserSettings;
@@ -189,6 +196,8 @@ let mode: 'loading' | 'ready' | 'memory' = 'loading';
 let memoryReason: StoreFailure | undefined;
 /** Memory mode was seeded with something to show; a failed retry must not replace it. */
 let memorySeeded = false;
+/** What memory mode was opened with, when no database was ever read: stored elsewhere (a v1 copy) or nothing (F-safety-01). */
+let memoryBase: Snapshot | undefined;
 let lastFailure: StoreFailure | undefined;
 let migration: MigrationReport | undefined;
 let persisted = false;
@@ -265,10 +274,20 @@ type Job =
 const jobs: Job[] = [];
 let pumping = false;
 
+let storedSlices: StoreState['stored'] = { checkIns: [], observations: [] };
+/** The last snapshot known stored (`durable`), else what memory mode opened with, else what this copy holds (nothing yet, while loading). */
+function storedOf(): StoreState['stored'] {
+  const s = durable ?? memoryBase ?? committed;
+  // The same object while what is stored is the same, so a screen's memo holds across publishes that store nothing.
+  if (s.checkIns !== storedSlices.checkIns || s.observations !== storedSlices.observations) storedSlices = { checkIns: s.checkIns, observations: s.observations };
+  return storedSlices;
+}
+
 function toState(s: Snapshot): StoreState {
   return {
     status: mode === 'ready' ? 'ready' : mode === 'memory' ? 'unavailable' : 'loading',
     observations: s.observations,
+    stored: storedOf(),
     sessions: s.sessions,
     settings: settingsOf(s.settings),
     profile: s.profile,
@@ -585,6 +604,7 @@ function enterMemory(reason: StoreFailure, base?: Snapshot | 'keep'): void {
     memorySeeded = true;
   } else if (!memorySeeded) {
     committed = seed(base);
+    memoryBase = committed;
     memorySeeded = true;
   }
   recompute();
@@ -806,6 +826,8 @@ export function resetForTests(): void {
   mode = 'loading';
   memoryReason = undefined;
   memorySeeded = false;
+  memoryBase = undefined;
+  storedSlices = { checkIns: [], observations: [] };
   lastFailure = undefined;
   migration = undefined;
   persisted = false;
@@ -1387,15 +1409,25 @@ export function putWalkJournal(entry: JournalEntry, options: { keepJournalled?: 
   /** What the transaction stored, which the page's copy takes once it is (H6F-08). */
   let written = entry;
   const put = (tx: TxHandle, e: JournalEntry) => { written = e; tx.put(JOURNAL_STORE, e); };
+  const gen = entry.walk.recordGen;
   return handle.transact(tx => {
-    if (!entry.route) return put(tx, entry);
-    tx.get('settings', 'settings', row => {
-      const walk = ((row as Doc | undefined)?.value as UserSettings | undefined)?.walk;
-      const keeps = walk?.saveRoutes === true && !routeErased(walk, entry.id, entry.walk.plan, entry.walk.startedAt);
-      if (!keeps) return put(tx, (({ route: _gone, ...rest }) => { void _gone; return rest; })(entry));
-      if (!options.keepJournalled) return put(tx, entry);
-      // A page still reading the route back: the lines held stay beside what it walked since (H6R-10).
-      tx.get(JOURNAL_STORE, entry.id, stored => put(tx, { ...entry, route: withJournalled(parseJournalEntry(stored)?.route, entry.route)! }));
+    const write = () => {
+      if (!entry.route) return put(tx, entry);
+      tx.get('settings', 'settings', row => {
+        const walk = ((row as Doc | undefined)?.value as UserSettings | undefined)?.walk;
+        const keeps = walk?.saveRoutes === true && !routeErased(walk, entry.id, entry.walk.plan, entry.walk.startedAt);
+        if (!keeps) return put(tx, (({ route: _gone, ...rest }) => { void _gone; return rest; })(entry));
+        if (!options.keepJournalled) return put(tx, entry);
+        // A page still reading the route back: the lines held stay beside what it walked since (H6R-10).
+        tx.get(JOURNAL_STORE, entry.id, stored => put(tx, { ...entry, route: withJournalled(parseJournalEntry(stored)?.route, entry.route)! }));
+      });
+    };
+    if (gen === undefined) return write();
+    // A walk of a record since replaced, or deleted in this tab or another, writes nothing back (F-data-01):
+    // asked of the record's generation as stored, in this transaction.
+    tx.get('settings', 'generation', row => {
+      if (Number((row as Doc | undefined)?.value ?? 0) !== gen) throw new StoreFailure('conflict', REPLACED);
+      write();
     });
   }).then(result => (result.ok ? { ok: true, value: written } : result));
 }
@@ -1435,6 +1467,8 @@ export interface SaveWalkInput {
   routeStartedAt?: string;
   /** The erase generation the walk began in (`WalkPlan.routeGen`): an "Erase all routes" since, and no route is kept (B-05). */
   routeGen?: number;
+  /** The record's generation the walk began in (`Walk.recordGen`): replaced or deleted since, and nothing is saved (F-data-01). */
+  recordGen?: number;
 }
 
 /** The route a walk's journal entry holds, as the routes store keeps it, or nothing. */
@@ -1454,6 +1488,8 @@ export function saveWalk(input: SaveWalkInput): Promise<StoreResult> {
   return enqueue<void>({
     ...(startedAt !== undefined ? { journal: [input.walkId] } : {}),
     plan: (base, read) => {
+      // A walk of a record since replaced, or deleted here or in another tab, saves nothing into the next one (F-data-01).
+      if (input.recordGen !== undefined && base.generation !== input.recordGen) throw new StoreFailure('conflict', REPLACED);
       const wanted = new Set(fixed.map(o => o.id));
       const held = new Set(base.observations.filter(o => wanted.has(o.id)).map(o => o.id));
       const records = fixed.filter(o => !held.has(o.id)).map(o => newObservation(o));
@@ -1521,6 +1557,33 @@ export function eraseRoutes(): Promise<StoreResult> {
           ...(stripped.length > 0 ? { journal: { put: stripped } } : {}),
           ...(recent ? { content: recent } : {}),
           settings: { patch: { walk, ...(carried !== base.settings ? { deleted: carried?.deleted } : {}) } },
+        },
+        result: () => undefined,
+      };
+    },
+  });
+}
+
+/**
+ * F-walk-02 (B-05): one walk's route deleted for good, from its walk's screen, in one transaction: the saved
+ * route, the route in the walk's journal, and the walk erased by name (`withRouteErased`), which every save,
+ * checkpoint and import reads in its own transaction and every open view of it watches (`useWalkRoute`). So a
+ * summary still open in another tab, or a checkpoint on its way, never puts the coordinates back. The walk stays.
+ */
+export function eraseWalkRoute(walkId: string): Promise<StoreResult> {
+  return enqueue<void>({
+    journal: [walkId],
+    plan: (base, read) => {
+      const saved = base.records.routes.some(r => recordKey('routes', r) === walkId);
+      const entry = read?.journal[walkId];
+      const journalled = typeof entry === 'object' && entry !== null && 'route' in entry
+        ? [(({ route: _erased, ...rest }) => { void _erased; return { ...rest, id: walkId }; })(entry as { route?: unknown })]
+        : [];
+      return {
+        change: {
+          ...(saved ? { records: { routes: { remove: [walkId] } } } : {}),
+          ...(journalled.length > 0 ? { journal: { put: journalled } } : {}),
+          settings: { patch: { walk: withRouteErased(walkSettings(base.settings ?? {}), walkId) } },
         },
         result: () => undefined,
       };

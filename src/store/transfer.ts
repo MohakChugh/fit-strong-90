@@ -376,7 +376,7 @@ export function isCheckInRecord(x: unknown): x is CheckInRecord {
     && optional(x.lowRecovered, isBool)
     // Never kept: what the gates attach to a day for themselves is let go of on
     // the way in (`keptCheckIn`, `keptSession`). One still holding it could not be read.
-    && x.logged === undefined && x.readingsOnly === undefined && x.durable === undefined && x.clockHold === undefined
+    && x.logged === undefined && x.readingsOnly === undefined && x.durable === undefined && x.unstored === undefined && x.clockHold === undefined
     && optional(x.sleep, isText) && optional(x.energy, isNumber) && optional(x.lowSymptomsAt, isAt)
     // A pain slider left untouched is not an answer, so back answers can come
     // without a score (J03, J16). Any value at all for the newer weakness and

@@ -11,7 +11,7 @@
  * Decisions live in `form.ts` and the engine; this file wires them up.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DailyCheckIn, EmergencyFlag, EpisodeKind, EpisodeResolution, GlucoseTrend, NewsItem, SymptomReach, UrineKetoneCategory } from '@/types/checkin';
 import type { CheckInRecord } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
@@ -61,6 +61,14 @@ interface Props {
    * the stop is still said, with no box to untick.
    */
   onSayWhatHappened?: () => void;
+  /**
+   * Told whether the body draws the day's decision itself, its outcome or an
+   * emergency answered here (F-safety-06): only then may the sheet's shared
+   * surface step aside. While the questions are shown, it says every decision.
+   */
+  onDraws?: (draws: boolean) => void;
+  /** Told whether answers have been given since the last save (F-safety-07): Close then asks, and a swipe resists. */
+  onDirty?: (dirty: boolean) => void;
 }
 
 export function CheckInSheet(props: Props) {
@@ -80,11 +88,53 @@ export function CheckInSheet(props: Props) {
     if (saying) requestAnimationFrame(() => requestAnimationFrame(saying.go));
   }, [saying]);
   const onSayWhatHappened = say ? () => { setSayNext(true); props.onOpenChange(false); } : props.onSayWhatHappened;
+  // The shared surface steps aside only while the body draws the decision itself (F-safety-06, journey §4.7).
+  const [draws, setDraws] = useState(false);
+  // Answers given since the last save (journey §10, K-46, F-safety-07): a swipe resists, and Close asks first.
+  const [dirty, setDirty] = useState(false);
+  const [asking, setAsking] = useState(false);
+  if (asking && !props.open) setAsking(false);
+  /** Close or Escape: with answers not saved, "Keep your answers?" first; asked already, it is Discard. */
+  const holdClose = () => {
+    if (!dirty || asking) return false;
+    setAsking(true);
+    return true;
+  };
+  const discard = () => {
+    setAsking(false);
+    setDirty(false);
+    props.onOpenChange(false);
+  };
   return (
-    <Sheet open={props.open} onOpenChange={props.onOpenChange} title="Check-in" detent="large" ownsUrgent>
-      {/* Mounted per opening, so the form always starts from the latest saved answers. */}
-      {props.open && <CheckInBody {...props} {...(onSayWhatHappened ? { onSayWhatHappened } : {})} />}
+    <Sheet open={props.open} onOpenChange={props.onOpenChange} title="Check-in" detent="large" ownsUrgent={draws && !asking} dismissible={!dirty} holdClose={holdClose}>
+      {asking && <KeepAnswers onKeep={() => setAsking(false)} onDiscard={discard} />}
+      {/* Mounted per opening, so the form always starts from the latest saved answers; kept, hidden, while it asks. */}
+      {props.open && (
+        <div className={asking ? 'hidden' : 'contents'}>
+          <CheckInBody {...props} {...(onSayWhatHappened ? { onSayWhatHappened } : {})} onDraws={setDraws} onDirty={setDirty} />
+        </div>
+      )}
     </Sheet>
+  );
+}
+
+/**
+ * "Keep your answers?" (journey §10, K-46): asked on Close with answers not
+ * saved. Keep goes back to them as they were; Discard drops only those:
+ * whatever was saved, and anything said about safety, stays (B-03).
+ */
+function KeepAnswers({ onKeep, onDiscard }: { onKeep: () => void; onDiscard: () => void }) {
+  const heading = useRef<HTMLParagraphElement>(null);
+  useEffect(() => { heading.current?.focus({ preventScroll: true }); }, []);
+  return (
+    <div className="flex flex-col gap-3">
+      <p ref={heading} tabIndex={-1} className="px-1 text-[length:var(--text-body)] font-semibold outline-none">Keep your answers?</p>
+      <p className="px-1 text-[length:var(--text-subhead)] text-muted-foreground">
+        Discard drops only the answers you haven’t saved. What you saved, and anything you said about your safety, stays.
+      </p>
+      <button type="button" onClick={onKeep} className={primary}>Keep</button>
+      <button type="button" onClick={onDiscard} className="press-feedback min-h-12 rounded-xl px-4 text-[length:var(--text-body)] font-semibold text-stop">Discard</button>
+    </div>
   );
 }
 
@@ -206,7 +256,7 @@ const EPISODE_NOTE: Record<EpisodeKind, string> = {
   news: 'It ends exercise for the rest of today, even once it has passed.',
 };
 
-export function CheckInBody({ profile, date, initial, onSave, onStart, startLabel, mode = 'guided', recent, onSayWhatHappened }: Props) {
+export function CheckInBody({ profile, date, initial, onSave, onStart, startLabel, mode = 'guided', recent, onSayWhatHappened, onDraws, onDirty }: Props) {
   const [now, setNow] = useNow();
   const ctx: SheetContext = useMemo(() => ({ profile, date, mode, now, ...(recent ? { recent } : {}) }), [profile, date, mode, now, recent]);
   // Every transition goes through `sheetState`, which is where the rules about
@@ -250,6 +300,13 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
   useEffect(() => {
     if (emergencyShown) top.current?.scrollIntoView({ block: 'start' });
   }, [emergencyShown, view]);
+  // What this body draws of the day's decision (F-safety-06): the outcome, or an emergency's banner over the questions.
+  const draws = !!result && !!gate && (view === 'outcome' || emergencyBanner);
+  useLayoutEffect(() => onDraws?.(draws), [draws, onDraws]);
+  useLayoutEffect(() => () => onDraws?.(false), [onDraws]);
+  // Answers given since the last save: what Close asks about (F-safety-07).
+  useLayoutEffect(() => onDirty?.(sheet.edited), [sheet.edited, onDirty]);
+  useLayoutEffect(() => () => onDirty?.(false), [onDirty]);
   // Asked of the clock as it is now: a reading timed as it was typed is never "later than now" (X2-15).
   const blocked = submitBlocked(form, { profile, ...(record ? { previous: record } : {}), now: new Date() });
   const sanity = useMemo(

@@ -24,7 +24,9 @@ import type { Mode } from '@/types/checkin';
 import type { SessionPlan, Step } from '@/types/plan';
 import { getMeta } from '@/data/catalog';
 import { activeConditions, evaluateFlags } from '@/engine/safety';
-import { evaluateCheckIn, profileOnlyReadiness } from '@/engine/readiness';
+import { evaluateCheckIn, profileOnlyReadiness, STOP_UNANSWERED } from '@/engine/readiness';
+import type { Status } from '@/health/status';
+import { resumeAllowed } from '@/screens/hub/movement';
 import { deriveHealth } from '@/engine/health';
 import { checkedIn, onScreenPermission, permission, resumePermission, type Permission, type PermissionInput } from '@/engine/permission';
 import { toDateString } from '@/lib/utils';
@@ -42,10 +44,39 @@ const unlessReadOnly = (p: Permission): Permission => (storageReadOnly() && p.di
   ? { mode: p.mode, allowed: false, disposition: 'hold', reasons: [READ_ONLY_REASON], release: READ_ONLY_RELEASE, restrictions: [], needsCheckIn: false }
   : p);
 
-/** Opening the player: a start or a restart, so the full question. Never in a window gone read-only (D107). */
-export function arrivalGate(input: PermissionInput, mode: Mode, resuming: boolean): Permission {
-  void resuming;
-  return unlessReadOnly(permission(input, mode));
+const NOUN: Record<Mode, string> = { guided: 'session', stretch: 'stretch', walk: 'walk' };
+
+/**
+ * Carrying a run on under today's status (journey §4.8, A-34), as the hubs'
+ * Carry on is offered (`resumeAllowed`): never while Away or Unwell, and in a
+ * flare only a stretch. Undefined when the status allows it.
+ */
+export function statusHold(status: Status, mode: Mode): Permission | undefined {
+  if (resumeAllowed(status, mode)) return undefined;
+  const reason = status === 'away' || status === 'unwell' ? `A ${NOUN[mode]} isn’t carried on while you’re ${status}.` : 'During a flare-up only a stretch is carried on.';
+  return { mode, allowed: false, disposition: 'hold', reasons: [reason], release: 'Change your status to carry on.', restrictions: [], needsCheckIn: false };
+}
+
+/**
+ * A restart's answer with the status in its place (F-safety-03): a stop or
+ * worse first, then the status, then every other hold, as the hubs order
+ * them (§4.2). A new start isn't asked: "Start anyway" stays.
+ */
+export function withStatus(p: Permission, status: Status | undefined): Permission {
+  const held = status === undefined ? undefined : statusHold(status, p.mode);
+  if (!held) return p;
+  if (!p.allowed && (p.disposition === 'emergency' || p.disposition === 'today' || p.reasons.includes(STOP_UNANSWERED.reason))) return p;
+  return held;
+}
+
+/**
+ * Opening the player: a start or a restart, so the full question. Never in a
+ * window gone read-only (D107). Opening saved progress is carrying it on, so
+ * today's status is asked as well (F-safety-03).
+ */
+export function arrivalGate(input: PermissionInput, mode: Mode, resuming: boolean, status?: Status): Permission {
+  const p = permission(input, mode);
+  return unlessReadOnly(resuming ? withStatus(p, status) : p);
 }
 
 /** The Start tap in the open player, first or after a pause: everything, except a refusal of new starts only (J2-04). Never in a window gone read-only (D107). */

@@ -67,7 +67,7 @@ const { deleteWorkout } = await import('@/screens/workout/deletion');
 const { saveMeal } = await import('@/food/store');
 const { mealsIn } = await import('@/food/records');
 const { evaluateCheckIn } = await import('@/engine/readiness');
-const { checkInDayOf } = await import('@/health/observation');
+const { checkInDayOf, nowAt } = await import('@/health/observation');
 const { routeRecord } = await import('@/walk/routeRecord');
 
 const DAY = '2026-10-08';
@@ -224,7 +224,8 @@ describe('Recently deleted on today’s log (J§20.4 rule 6, D109)', () => {
     await h.click(h.button('Restore Glucose 118 mg/dL, from your check-in'));
     fake.control.setWriteError(undefined);
     expect(h.text()).toMatch(/Glucose 118 mg\/dL, from your check-in wasn’t restored\. \S/);
-    expect(restores(h)).toEqual(['Restore Glucose 118 mg/dL, from your check-in']);
+    // With when it was measured, as every clinical row says it (F-data-03).
+    expect(restores(h)).toEqual(['Restore Glucose 118 mg/dL, from your check-in, measured today at 8:50 am']);
     expect(store.getState().checkIns[0].glucose).toBeUndefined();
     const [entry] = recentEntries(store.getState().contentState, Date.now());
     expect(await restoreEntry(entry, undefined)).toEqual({ problem: 'It needs your profile to go back into its check-in.' });
@@ -275,5 +276,37 @@ describe('Recently deleted on today’s log (J§20.4 rule 6, D109)', () => {
     // With records on the day too: after them.
     await ok(saveMeal(MEAL));
     expect((await show(() => createElement(MyDay, { day: DAY }))).text()).toMatch(/Breakfast[\s\S]*Recently deleted 1$/);
+  });
+});
+
+describe('F-data-03: a clinical reading in Recently deleted says when it was measured, and in what context (J§4.10)', () => {
+  it('two 112s, fasting at 07:30 and after a meal at 14:00, deleted in the same minute: each row and Restore says which', async () => {
+    at(15);
+    // Kept as Track keeps a reading: the wall clock it was taken in, with its offset.
+    const local = (h: number, m = 0) => nowAt(new Date(2026, 9, 8, h, m, 0));
+    const fasting = await store.addObservation({ kind: 'glucose', value: 112, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: local(7, 30), tag: 'fasting' });
+    const afterMeal = await store.addObservation({ kind: 'glucose', value: 112, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: local(14), tag: 'afterMeal' });
+    if (!fasting.ok || !afterMeal.ok) throw new Error('not stored');
+    at(15, 1);
+    await gone(store.deleteRecord({ kind: 'reading', id: fasting.value.id }));
+    await gone(store.deleteRecord({ kind: 'reading', id: afterMeal.value.id }));
+    const h = await openSheet(await show());
+    expect(restores(h).sort()).toEqual([
+      'Restore Glucose 112 mg/dL, measured today at 2:00 pm, after a meal',
+      'Restore Glucose 112 mg/dL, measured today at 7:30 am, fasting',
+    ]);
+    // The measurement and the deletion each said on their own.
+    expect(h.text()).toContain('Measured today at 7:30 am, fasting');
+    expect(h.text()).toContain('Deleted today at 3:01 pm');
+  });
+
+  it('one kept without a time says so, and a water total keeps its row as it was', async () => {
+    const dated = await store.addObservation({ kind: 'glucose', value: 140, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: nowAt(new Date(2026, 9, 8, 12)), timeUnknown: true });
+    const water = await store.addObservation({ kind: 'water', value: 500, scope: 'dayTotal', source: 'manual', at: iso(8) });
+    if (!dated.ok || !water.ok) throw new Error('not stored');
+    await gone(store.deleteRecord({ kind: 'reading', id: dated.value.id }));
+    await gone(store.deleteRecord({ kind: 'reading', id: water.value.id }));
+    const h = await openSheet(await show());
+    expect(restores(h).sort()).toEqual(['Restore Glucose 140 mg/dL, measured today, time not recorded', 'Restore Water 500 ml']);
   });
 });

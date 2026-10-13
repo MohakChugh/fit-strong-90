@@ -50,7 +50,7 @@ import type { StoreResult } from '@/store/db';
 import { createTrack, type Fix, type GpsRun, type PaceState, type Track } from './gps';
 import { checkpointDue, journalEntry, type JournalEntry } from './journal';
 import { createStepDetector } from './steps';
-import { lastStartedId, loadWalk, markStarted, storeWalk, type WalkStorage } from './persist';
+import { clearWalk, lastStartedId, loadWalk, markStarted, storeWalk, type WalkStorage } from './persist';
 import type { LatLon, RouteLine } from './routeRecord';
 
 export type GeoError = 'denied' | 'unavailable' | 'timeout';
@@ -125,6 +125,12 @@ export interface LivePorts {
   now(): number;
   /** The monotonic clock, ms (B-19). Absent: the device clock, so no change is ever seen. */
   monotonic?(): number;
+  /**
+   * F-data-01: the record's generation now (`StoreState.epoch`). A new walk
+   * is stamped with it; once it moves, the walk was another record's and is
+   * let go, and none of it is written again. Absent: never checked.
+   */
+  recordGeneration?(): number;
   /**
    * B-19: the phone's clock changed, seen around `days` between the two
    * clocks `seen` holds. The device keeps the change (`markClockChange`), so
@@ -225,6 +231,11 @@ export interface LiveWalk {
   attach(request?: { id: string; plan: WalkPlan }): AttachResult;
   /** Close the walk screen. A running walk stops recording until it reopens. */
   detach(): void;
+  /**
+   * F-data-01: the record this walk belonged to was replaced or deleted: let
+   * go of it, here and in this tab's draft, writing nothing of it again.
+   */
+  discard(): void;
   pause(): void;
   /**
    * Carry on: from a pause, or after the app was away. A restart, so it asks
@@ -336,8 +347,11 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
    * the tab's draft every time, the journal at every change and every 15 s
    * (journey §9.4). The journal holds the route only while it is kept.
    */
+  /** The walk belongs to a record since replaced or deleted (F-data-01): nothing of it is written again. */
+  const another = (w: Walk) => w.recordGen !== undefined && ports.recordGeneration !== undefined && ports.recordGeneration() !== w.recordGen;
+
   function persist(checkpoint: 'now' | 'due' = 'now') {
-    if (!walk) return;
+    if (!walk || another(walk)) return;
     draftKept = storeWalk(ports.storage, walk);
     const now = ports.now();
     if (!ports.journal || (checkpoint === 'due' && !checkpointDue(lastCheckpoint, now))) return;
@@ -698,6 +712,33 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     scheduleTick();
   }
 
+  /** Everything the walk holds open, closed: sensors, the tick, the listeners and the screen's lock. */
+  function letGo() {
+    stopSensors();
+    cancelTick?.();
+    cancelTick = undefined;
+    stopVisibility?.();
+    stopVisibility = undefined;
+    stopClinical?.();
+    stopClinical = undefined;
+    releaseWake();
+  }
+
+  /** No walk in this page any more: what it held, forgotten. */
+  function forget() {
+    walk = null;
+    routeBase = [];
+    routeRestore = 'none';
+    lastCheckpoint = undefined;
+    journalFull = false;
+    notice = null;
+    blocked = null;
+    draftKept = true;
+    gpsDenied = false;
+    motionDenied = false;
+    emit();
+  }
+
   return {
     subscribe(listener) {
       listeners.add(listener);
@@ -709,7 +750,12 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
     attach(request) {
       if (walk) return 'resumed';
       const now = ports.now();
-      const stored = loadWalk(ports.storage);
+      let stored = loadWalk(ports.storage);
+      // Another record's walk, kept from before it was replaced or deleted: let go, never restored (F-data-01).
+      if (stored && another(stored)) {
+        clearWalk(ports.storage);
+        stored = null;
+      }
       let created = false;
       if (stored) {
         // Restored to be read and saved. Whether it may move is a separate
@@ -723,7 +769,8 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
         if (walk.plan.keepRoute && (ports.keepsRoutes?.() ?? true)) restoreRoute(walk.id);
       } else if (request && lastStartedId(ports.storage) !== request.id) {
         if (!mayRun('start')) return 'none';
-        walk = startWalk(request.id, request.plan, now);
+        const gen = ports.recordGeneration?.();
+        walk = { ...startWalk(request.id, request.plan, now), ...(gen !== undefined ? { recordGen: gen } : {}) };
         markStarted(ports.storage, request.id);
         created = true;
       } else {
@@ -754,27 +801,17 @@ export function createLiveWalk(ports: LivePorts): LiveWalk {
       if (!walk) return;
       const now = ports.now();
       advance(now);
-      stopSensors();
-      cancelTick?.();
-      cancelTick = undefined;
-      stopVisibility?.();
-      stopVisibility = undefined;
-      stopClinical?.();
-      stopClinical = undefined;
-      releaseWake();
+      letGo();
       walk = walk.status === 'running' ? leaveWalk(walk, now, 'left') : heartbeat(walk, now);
       persist();
-      walk = null;
-      routeBase = [];
-      routeRestore = 'none';
-      lastCheckpoint = undefined;
-      journalFull = false;
-      notice = null;
-      blocked = null;
-      draftKept = true;
-      gpsDenied = false;
-      motionDenied = false;
-      emit();
+      forget();
+    },
+
+    discard() {
+      if (!walk) return;
+      letGo();
+      clearWalk(ports.storage);
+      forget();
     },
 
     pause() {

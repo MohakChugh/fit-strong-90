@@ -168,7 +168,7 @@ function useSurfaceAtTop({ open, dismissible, ownsUrgent, onOpenChange }: {
  * is immediately scrollable from the keyboard — and on close it returns to
  * whatever opened the sheet.
  */
-export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissible = true, ownsUrgent = false, returnFocus, children, className }: {
+export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissible = true, ownsUrgent = false, holdClose, returnFocus, children, className }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Short, sentence case. It is the sheet's accessible name. */
@@ -185,6 +185,12 @@ export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissibl
    * refuses to close at those times.
    */
   dismissible?: boolean;
+  /**
+   * Asked as the person closes the sheet themselves, with Close or Escape:
+   * true keeps it open, its owner asking first (the check-in's "Keep your
+   * answers?", F-safety-07). The safety surface's way on closes it all the same.
+   */
+  holdClose?: () => boolean;
   /** `medium` (about half the screen) unless the content is something to read. */
   detent?: Detent;
   /**
@@ -206,7 +212,7 @@ export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissibl
 
   return (
     <InSheet value>
-      <SheetRoot open={open} onOpenChange={onOpenChange}>
+      <SheetRoot open={open} onOpenChange={next => { if (!next && holdClose?.()) return; onOpenChange(next); }}>
         <SheetContent
           side="bottom"
           showCloseButton={false}

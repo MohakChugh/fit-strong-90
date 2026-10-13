@@ -81,6 +81,13 @@ export interface Segment {
   /** The local day the segment began on and its UTC offset in minutes (B-19, F17): what its records carry, wherever they are saved. */
   day: string;
   offsetMin: number;
+  /**
+   * F-walk-01 (B-19): it began after the phone's clock was set back, while
+   * walking, paused or away, so by the wall clock it can start before the
+   * segment before it ended. The walk's order is its segments' order, never
+   * the clock's; each one's time is its own accrual.
+   */
+  afterClockChange?: true;
 }
 
 /** Why recording stopped without the person pausing it. */
@@ -148,6 +155,13 @@ export interface Walk {
    * keeps this until the device has stored it (H6F-03, board D189).
    */
   untimedReadings?: string[];
+  /**
+   * F-data-01: the record's generation the walk began in (`StoreState.epoch`).
+   * Once a backup replaces the record or everything is deleted, here or in
+   * another tab, the walk was that record's: it is let go, and nothing of it
+   * is written back.
+   */
+  recordGen?: number;
 }
 
 /** B-19: the walk holds a change to the clock the device has yet to store: its own (`clockUnkept`) or an older version's (`untimedReadings`). */
@@ -237,6 +251,12 @@ function emptySegment(start: number): Segment {
   return { start, gps: [], steps: 0, motion: false, accruedMs: 0, accruedAt: start, day: dayAt(start, offsetMin), offsetMin };
 }
 
+/** The next segment, from `start`: marked when the clock was set back since the last one ended (F-walk-01). */
+function nextSegment(walk: Walk, start: number): Segment {
+  const last = walk.segments[walk.segments.length - 1];
+  return last?.end !== undefined && start < last.end ? { ...emptySegment(start), afterClockChange: true } : emptySegment(start);
+}
+
 /** The first local midnight after `t`. `setHours(24)` keeps it right across a clock change. */
 export function nextMidnight(t: number): number {
   const d = new Date(t);
@@ -304,7 +324,7 @@ export function pauseWalk(walk: Walk, now: number): Walk {
 
 export function resumeWalk(walk: Walk, now: number): Walk {
   if (walk.status !== 'paused') return walk;
-  return { ...walk, status: 'running', segments: [...walk.segments, emptySegment(now)], seenAt: now };
+  return { ...walk, status: 'running', segments: [...walk.segments, nextSegment(walk, now)], seenAt: now };
 }
 
 /**
@@ -355,7 +375,7 @@ export function returnToWalk(walk: Walk, now: number): Return {
 
   const gap: Gap = { start: since, end: Math.max(since, now), cause, added: false };
   return {
-    walk: { ...base, status: 'running', segments: [...walk.segments, emptySegment(now)], gaps: [...walk.gaps, gap], seenAt: now },
+    walk: { ...base, status: 'running', segments: [...walk.segments, nextSegment(walk, now)], gaps: [...walk.gaps, gap], seenAt: now },
     gap,
   };
 }
@@ -481,7 +501,8 @@ export function splitAtClockChange(walk: Walk, wall: number, ms: number): Walk {
   if (!open) return walk;
   const end = open.accruedAt + ms;
   const before: Segment = { ...open, end: Math.max(open.start, end), endedBy: 'clockChange', accruedMs: open.accruedMs + ms, accruedAt: end };
-  return { ...walk, clockChangedAt: wall, clockUnkept: true, segments: [...walk.segments.slice(0, -1), before, emptySegment(wall)] };
+  const after: Segment = wall < before.end! ? { ...emptySegment(wall), afterClockChange: true } : emptySegment(wall);
+  return { ...walk, clockChangedAt: wall, clockUnkept: true, segments: [...walk.segments.slice(0, -1), before, after] };
 }
 
 /**
