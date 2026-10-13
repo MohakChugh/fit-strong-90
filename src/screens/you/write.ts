@@ -9,7 +9,8 @@
  */
 
 import { getState, update, type UpdateOptions } from '@/store/useStore';
-import type { StoreResult } from '@/store/db';
+import { StoreFailure, type StoreResult } from '@/store/db';
+import { fluidRestriction } from '@/reminders/water';
 import type { UserSettings } from '@/types';
 import type { HabitSettings } from '@/types/habits';
 import type { MedicineAnswer, UserProfile } from '@/types/profile';
@@ -107,15 +108,24 @@ export function leaveProgramme(): Promise<StoreResult> {
   return update(withLeft);
 }
 
+/** Said when another window changed the fluid-limit answer since this one showed it: neither is written over (board D196). */
+export const FLUID_CHANGED = 'Your fluid-limit answer changed in another window of FitStrong. Check it here, then Save again.';
+
 /**
  * Record the fluid-limit answer on the profile, where it now lives. The old
  * copy in the habits is left as it was, never written: everything here reads
  * the profile's answer first, and a reader not yet moved over still sees the
  * old one. A limit — or not knowing — also turns water reminders off in the
  * same write.
+ *
+ * `shown` is the answer the screen showed when it opened: if another window
+ * has stored a different one since, the write is refused rather than put
+ * over it. A changed answer is clinical (codex F-setup-02): `options` holds
+ * it until stored (`hold`), for the record it was given in (`generation`).
  */
-export function setFluidRestriction(answer: MedicineAnswer, water?: NonNullable<HabitSettings['water']>): Promise<StoreResult> {
+export function setFluidRestriction(answer: MedicineAnswer, water?: NonNullable<HabitSettings['water']>, shown?: { answer: MedicineAnswer | undefined }, options: UpdateOptions = {}): Promise<StoreResult> {
   return update(previous => {
+    if (shown && fluidRestriction(previous.profile, previous.settings.habits) !== shown.answer) throw new StoreFailure('conflict', FLUID_CHANGED);
     const profile = previous.profile ?? createDefaultProfile({ weightKg: previous.settings.currentWeight || 0, needsHealthReview: true });
     const habits = { ...(previous.settings.habits ?? {}) };
     if (answer !== false) {
@@ -128,5 +138,5 @@ export function setFluidRestriction(answer: MedicineAnswer, water?: NonNullable<
       profile: { ...profile, health: { ...profile.health, fluidRestriction: answer } },
       settings: { ...previous.settings, habits },
     };
-  });
+  }, options);
 }

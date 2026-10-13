@@ -83,7 +83,7 @@ const { FOOT_WOUND, MINIMAL, NO_CONDITIONS, withMeds } = await import('@/setup/f
 const { PERMISSION_TEXT, permission, readinessFor } = await import('@/engine/permission');
 const { CLINICAL_UNSAVED, evaluateCheckIn } = await import('@/engine/readiness');
 const { dailyTimes } = await import('@/reminders/schedule');
-const { waterBlock } = await import('@/reminders/water');
+const { fluidRestriction, waterBlock } = await import('@/reminders/water');
 const { scriptFor } = await import('@/session/script');
 const { toDateString } = await import('@/lib/utils');
 const { AUTOSAVE_MS, resetSetupSessionForTests } = await import('@/setup/draft');
@@ -1371,5 +1371,114 @@ describe('an answer changed while Me’s Save is being written (codex F-setup-01
     await host.click(host.button('Save', { exact: true }));
     await host.settle();
     expect(footStatus()).toEqual({ stored: 'current_wound_or_active_charcot', gate: 'current_wound_or_active_charcot' });
+  });
+});
+
+describe('a fluid limit given in Me → Reminders → Water (codex F-setup-02; board D197)', () => {
+  const LIMIT = 'Has your care team told you to limit how much you drink?';
+  const storedLimit = () => fluidRestriction(store.getState().profile, store.getState().settings.habits);
+  /** Water reminders on, and "No fluid limit" stored, with no heart or kidney condition. */
+  const noLimit = (d: AppData): AppData => withWater({ ...d, profile: { ...d.profile!, health: { ...d.profile!.health, fluidRestriction: false } } });
+
+  it('refused, it holds every movement and keeps water reminders off, after the sheet closes too, until it’s stored', async () => {
+    const { WaterSheet } = await import('@/screens/you/HabitSheets');
+    const { retryClinical } = await import('@/setup/effective');
+    expect((await store.update(d => noLimit(completedSetup(d, MINIMAL, NOW, CTX)))).ok).toBe(true);
+    expect(storedLimit()).toBe(false);
+    expect(waterTimes().length).toBeGreaterThan(0);
+    host = render(createElement(WaterSheet, { open: true, onOpenChange() {} }));
+    await host.settle();
+    await host.click(radio(host, LIMIT, 'Yes, I have a fluid limit'));
+    diskFull();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('That did not save.');
+    // Not the record's: nothing stored, and the answer the person gave holds, for this session.
+    expect(storedLimit()).toBe(false);
+    expect(pausedForUnsaved()).toBe(true);
+    expect(waterTimes()).toEqual([]);
+    // Closed, it still holds.
+    host.unmount();
+    host = undefined;
+    expect(pausedForUnsaved()).toBe(true);
+    expect(waterTimes()).toEqual([]);
+    // Another chapter of Me saved meanwhile stores nothing of the fluid limit, so it lifts nothing.
+    fake.control.setWriteError(undefined);
+    host = render(createElement(ChapterEditor, { chapter: 'about' }));
+    await host.settle();
+    await host.change(host.field('Name (optional)'), { value: 'Asha' });
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(store.getState().profile?.name).toBe('Asha');
+    expect(storedLimit()).toBe(false);
+    expect(pausedForUnsaved()).toBe(true);
+    expect(waterTimes()).toEqual([]);
+    // Tried again and stored: the limit is the record's, water reminders stay off, and nothing more is held.
+    expect((await retryClinical())?.ok).toBe(true);
+    expect(storedLimit()).toBe(true);
+    expect(pausedForUnsaved()).toBe(false);
+    expect(waterTimes()).toEqual([]);
+  });
+
+  it('given while another window changed it, it is refused and never written over, and the sheet shows the other answer to choose again', async () => {
+    const { WaterSheet } = await import('@/screens/you/HabitSheets');
+    expect((await store.update(d => noLimit(completedSetup(d, MINIMAL, NOW, CTX)))).ok).toBe(true);
+    host = render(createElement(WaterSheet, { open: true, onOpenChange() {} }));
+    await host.settle();
+    await host.click(radio(host, LIMIT, 'Yes, I have a fluid limit'));
+    // Another window, meanwhile: "Not sure".
+    expect((await store.update(d => ({ ...d, profile: { ...d.profile!, health: { ...d.profile!.health, fluidRestriction: 'unsure' } } }))).ok).toBe(true);
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(host.text()).toContain('Your fluid-limit answer changed in another window of FitStrong. Check it here, then Save again.');
+    expect(storedLimit()).toBe('unsure');
+    expect(radio(host, LIMIT, 'Not sure').props['aria-checked']).toBe(true);
+    // Nothing of this sheet's waits: no pause for it.
+    expect(pausedForUnsaved()).toBe(false);
+    // Chosen again, it saves, and while it is being written nothing any gate reads has changed.
+    await host.click(radio(host, LIMIT, 'Yes, I have a fluid limit'));
+    fake.control.hold();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(storedLimit()).toBe('unsure');
+    fake.control.release();
+    await host.settle();
+    expect(storedLimit()).toBe(true);
+  });
+
+  it('given for a record another copy has since replaced, it stores nothing into the new record and leaves no pause behind', async () => {
+    const { WaterSheet } = await import('@/screens/you/HabitSheets');
+    expect((await store.update(d => noLimit(completedSetup(d, MINIMAL, NOW, CTX)))).ok).toBe(true);
+    host = render(createElement(WaterSheet, { open: true, onOpenChange() {} }));
+    await host.settle();
+    await host.click(radio(host, LIMIT, 'Yes, I have a fluid limit'));
+    const { openDb } = await import('@/store/db');
+    const { commitChange } = await import('@/store/snapshot');
+    // Another copy restores a backup of the same record: the same answers, a new record.
+    const { profile, settings } = store.getState();
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { reset: true, schemaVersion: 6, profile, settings: { replace: settings } } }))).ok).toBe(true);
+    tab.close();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect((await store.reload()).ok).toBe(true);
+    expect(storedLimit()).toBe(false);
+    expect(pausedForUnsaved()).toBe(false);
+  });
+
+  it('a water change alone, with the answer unchanged, never puts the sheet’s old answer over another window’s', async () => {
+    const { WaterSheet } = await import('@/screens/you/HabitSheets');
+    expect((await store.update(d => noLimit(completedSetup(d, MINIMAL, NOW, CTX)))).ok).toBe(true);
+    host = render(createElement(WaterSheet, { open: true, onOpenChange() {} }));
+    await host.settle();
+    await host.click(host.button('3 h', { exact: true }));
+    expect((await store.update(d => ({ ...d, profile: { ...d.profile!, health: { ...d.profile!.health, fluidRestriction: true } } }))).ok).toBe(true);
+    // Its main button now reads as for reminders off: the sheet still shows "No limit", chosen when it opened.
+    await host.click(host.button(/^(Save|Turn on)$/));
+    await host.settle();
+    expect(host.text()).toContain('Your fluid-limit answer changed in another window of FitStrong.');
+    expect(storedLimit()).toBe(true);
+    // Nothing of the sheet's was written: its reminders every 3 hours wait with it.
+    expect(store.getState().settings.habits?.water?.everyMinutes).toBe(WATER.everyMinutes);
   });
 });
