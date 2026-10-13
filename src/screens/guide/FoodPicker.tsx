@@ -3,7 +3,7 @@ import { CheckIcon } from 'lucide-react';
 import { Sheet } from '@/components/hig/Sheet';
 import { useSaveHold } from '@/components/hig/useSaveHold';
 import { PATTERN_DETAIL, PATTERN_LABEL, unmatchedAvoid, withPicked, type Pattern, type Region } from '@/content';
-import { ALLERGENS, setupAllergyAnswer } from '@/food/allergens';
+import { ALLERGENS, allergyAnswer } from '@/food/allergens';
 import { FOOD_COPY } from '@/food/copy';
 import { getSetupSession } from '@/setup/draft';
 import { waitingFood } from '@/setup/state';
@@ -56,12 +56,13 @@ function FoodForm({ food, canSave, saving, setSaving, settle, onDone }: {
     food?.region && food.region !== 'mixed' ? food.region : 'any',
   );
   const [avoid, setAvoid] = useState(food?.avoid.join(', ') ?? '');
-  // With no food record yet, the allergies start from the answer setup is keeping for one (board D205):
-  // this session's while setup goes on without saving (Plan 5's B-07, H5-06).
+  // The allergies start as known: the food record's, or where it never answered them, as one from v1, or there is
+  // none yet, the answer setup keeps (board D205; codex F-food-06), this session's while setup goes on without saving
+  // (Plan 5's B-07, H5-06). Unchanged, they're saved as they were.
   const { settings } = useStore();
-  const [waiting] = useState(() => (food ? undefined : setupAllergyAnswer(settings.setup, getSetupSession())));
-  const [chosen, setChosen] = useState<AllergenId[]>(food?.allergies ?? waiting?.allergies ?? []);
-  const [otherAllergies, setOtherAllergies] = useState((food?.customAllergies ?? waiting?.customAllergies ?? []).join(', '));
+  const [known] = useState(() => allergyAnswer(food, settings.setup, getSetupSession()));
+  const [chosen, setChosen] = useState<AllergenId[]>(known?.allergies ?? []);
+  const [otherAllergies, setOtherAllergies] = useState((known?.customAllergies ?? []).join(', '));
   const [error, setError] = useState<string>();
   // The record this sheet was opened for: once another copy has replaced it, nothing is stored into the new one.
   const [generation] = useState(() => getState().epoch);

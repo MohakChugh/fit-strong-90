@@ -71,6 +71,7 @@ const { endUndos, followPlace, resetUndosForTests } = await import('@/components
 const { FoodScreen } = await import('./FoodScreen');
 const { default: UsualMealsScreen } = await import('@/screens/food/UsualMealsScreen');
 const food = await import('@/food/store');
+const { FOOD_COPY } = await import('@/food/copy');
 
 let host: Host | undefined;
 beforeEach(async () => {
@@ -563,3 +564,78 @@ describe('the Food hub and the sample week, with a food record that never answer
   });
 });
 
+describe('editing food with a record that never answered allergies, and setup’s answer (codex F-food-06; board D205)', () => {
+  const PEANUT = { stage: 'done' as const, answers: { allergies: ['peanut' as const], customAllergies: ['brinjal'] } };
+  const v1 = async () => {
+    await store.update(prev => ({
+      ...prev,
+      profile: createDefaultProfile({ birthYear: 1970, weightKg: 70, food: { pattern: 'vegetarian', avoid: [] } }),
+      settings: { ...prev.settings, setup: PEANUT },
+    }));
+  };
+  const ticked = (h: Host) => h.all().filter(n => n.props.role === 'checkbox' && n.props['aria-checked'] === true).map(n => textOf(n.children));
+
+  it('“What you eat” starts from setup’s answer: a region changed alone keeps the peanut allergy and the own words', async () => {
+    await v1();
+    const { FoodPicker } = await import('@/screens/guide/FoodPicker');
+    host = render(createElement(FoodPicker, { open: true, onOpenChange() {}, food: store.getState().profile!.food, canSave: true }));
+    await host.settle();
+    expect(ticked(host)).toEqual(['Peanuts']);
+    expect(host.field('Something else').props.value).toBe('brinjal');
+    await host.click(host.all().find(n => n.type === 'label' && textOf(n.children).startsWith('South'))!);
+    const form = host.all().find(n => n.type === 'form')!;
+    await (form.props.onSubmit as (e: unknown) => Promise<void>)({ preventDefault() {} });
+    await host.settle();
+    expect(store.getState().profile?.food).toMatchObject({ pattern: 'vegetarian', region: 'south', allergies: ['peanut'], customAllergies: ['brinjal'] });
+  });
+
+  it('Me → Food shows that answer, and a chip ticked adds to it, the own words kept, with no “No food allergies” beside it', async () => {
+    await v1();
+    host = render(createElement(FoodScreen));
+    await host.settle();
+    expect(ticked(host)).toEqual(['Peanuts']);
+    expect(host.text()).toContain('brinjal');
+    expect(host.buttons(/No food allergies/)).toHaveLength(0);
+    await host.click(host.all().find(n => n.props.role === 'checkbox' && textOf(n.children) === 'Milk')!);
+    expect(store.getState().profile?.food).toMatchObject({ allergies: expect.arrayContaining(['peanut', 'milk']), customAllergies: ['brinjal'] });
+  });
+
+  it('a record that answered allergies itself shows its own answer, never setup’s', async () => {
+    await v1();
+    expect((await store.update(prev => ({ ...prev, profile: { ...prev.profile!, food: { pattern: 'vegetarian', avoid: [], allergies: ['milk'] } } }))).ok).toBe(true);
+    host = render(createElement(FoodScreen));
+    await host.settle();
+    expect(ticked(host)).toEqual(['Milk']);
+    expect(host.text()).not.toContain('brinjal');
+  });
+
+  it('a word of setup’s removed there goes, and the chips stay', async () => {
+    await v1();
+    host = render(createElement(FoodScreen));
+    await host.settle();
+    await host.click(host.button('Remove brinjal'));
+    const { allergyAnswer } = await import('@/food/allergens');
+    expect(allergyAnswer(store.getState().profile?.food, store.getState().settings.setup)).toEqual({ allergies: ['peanut'] });
+  });
+
+  it('Clear food preferences keeps what it says it keeps: the pattern, and the allergies as shown', async () => {
+    await v1();
+    host = render(createElement(FoodScreen));
+    await host.settle();
+    await host.click(host.button('Clear food preferences'));
+    await host.click(host.button(FOOD_COPY.clearConfirm));
+    expect(store.getState().profile?.food).toEqual({ pattern: 'vegetarian', avoid: [], allergies: ['peanut'], customAllergies: ['brinjal'] });
+  });
+
+  it('and a word added there joins setup’s, the chips kept', async () => {
+    await v1();
+    host = render(createElement(FoodScreen));
+    await host.settle();
+    await host.change(host.field('Something else'), { value: 'chaach' });
+    const add = host.all().find(n => n.type === 'form' && JSON.stringify(n.children).includes('Something else'));
+    if (add) await (add.props.onSubmit as (e: unknown) => Promise<void>)({ preventDefault() {} });
+    else await host.click(host.button(/^Add/));
+    await host.settle();
+    expect(store.getState().profile?.food).toMatchObject({ allergies: ['peanut'], customAllergies: ['brinjal', 'chaach'] });
+  });
+});
