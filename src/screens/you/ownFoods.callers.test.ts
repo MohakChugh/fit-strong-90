@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import type { CustomFood } from '@/food/types';
 import { fakeIndexedDB } from '@/store/fakeIdb';
-import { render, type Host } from '@/test/host';
+import { render, textOf, type Host } from '@/test/host';
 
 type Shown = { text: string; id?: string; action?: { label: string; onClick: (e: { preventDefault(): void }) => void } };
 const sonner = vi.hoisted(() => ({ shown: [] as Shown[], dismissed: [] as string[] }));
@@ -117,5 +117,45 @@ describe('your own foods, edited and deleted (D111, K7-11)', () => {
     latest(offer).action!.onClick({ preventDefault() {} });
     await host.settle();
     expect(foods()).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'bhel puri', restoredFrom: BHEL.id })]));
+  });
+});
+
+describe('an own food edited while numbers are off (codex F-food-01; B-11)', () => {
+  const DAL: CustomFood = { id: 'custom-dal', name: 'dal', per: { qty: 1, unit: 'bowl' }, kcal: 300, carbsG: 40, createdAt: T0, updatedAt: T0 };
+  /** The input after a label: this host's ids repeat between sibling fields, so a label's `htmlFor` can name the wrong one. */
+  const after = (label: string) => {
+    const nodes = host.all();
+    const at = nodes.findIndex(n => n.type === 'label' && textOf(n.children) === label);
+    const input = nodes.slice(at + 1).find(n => n.type === 'input');
+    if (at < 0 || !input) throw new Error(`no field “${label}”`);
+    return input;
+  };
+  const level = async (to: 'meals' | 'estimates') => {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    expect((await store.update(d => ({ ...d, profile: { ...(d.profile ?? createDefaultProfile({ weightKg: 70 })), food: { pattern: 'vegetarian', avoid: [], allergies: [], level: to } } }))).ok).toBe(true);
+    await host.settle();
+  };
+
+  it('keeps the figures it doesn’t show: a new name changes the name alone, and with estimates back on they are there', async () => {
+    expect((await store.putRecords('customFoods', [stored(DAL)])).ok).toBe(true);
+    await level('meals');
+    await host.click(host.button('Edit dal'));
+    expect(() => after(FOOD_COPY.ownKcal)).toThrow();
+    await host.change(host.field(FOOD_COPY.ownName), { value: 'dal tadka' });
+    await host.click(host.button('Save changes'));
+    expect(foods().find(f => f.id === DAL.id)).toMatchObject({ name: 'dal tadka', kcal: 300, carbsG: 40 });
+    await level('estimates');
+    await host.click(host.button('Edit dal tadka'));
+    expect([after(FOOD_COPY.ownKcal).props.value, after(FOOD_COPY.ownCarbs).props.value]).toEqual(['300', '40']);
+  });
+
+  it('with numbers shown, a figure cleared is gone: clearing is the person’s own change', async () => {
+    expect((await store.putRecords('customFoods', [stored(DAL)])).ok).toBe(true);
+    await level('estimates');
+    await host.click(host.button('Edit dal'));
+    await host.change(after(FOOD_COPY.ownCarbs), { value: '' });
+    await host.click(host.button('Save changes'));
+    const saved = foods().find(f => f.id === DAL.id)!;
+    expect([saved.kcal, 'carbsG' in saved]).toEqual([300, false]);
   });
 });

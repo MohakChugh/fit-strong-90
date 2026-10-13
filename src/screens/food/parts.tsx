@@ -277,14 +277,15 @@ export function OwnFoodPage({ name: typed, numbers, allergies, onBack, onAdd, on
     || allergens.join() !== start.allergens.join(), onDirty);
   const add = () => {
     const q = Number(qty);
-    const k = numbers.show ? figure(kcal, 5000) : undefined;
-    const c = numbers.show ? figure(carbs, 1000) : undefined;
+    // Figures the page doesn't show are the food's own, kept as they are: hidden is not cleared (codex F-food-01, B-11).
+    const k = numbers.show ? figure(kcal, 5000) : food?.kcal;
+    const c = numbers.show ? figure(carbs, 1000) : food?.carbsG;
     if (!name.trim()) setProblem(FOOD_COPY.ownNoName);
     else if (!(q > 0 && q <= 10_000) || !unit.trim()) setProblem(FOOD_COPY.ownNoQty);
     else if (k === null || c === null) setProblem(FOOD_COPY.ownBadFigure);
     else {
       const now = nowAt();
-      // An edited food keeps its identity and nothing else of it, so a cleared figure is gone; its new
+      // An edited food keeps its identity and nothing else of it, so a figure cleared on screen is gone; its new
       // `updatedAt` is the new version (board D134).
       onAdd({
         id: food?.id ?? newCustomId(), name: name.trim().slice(0, 60), per: { qty: q, unit: unit.trim().slice(0, 20) },
