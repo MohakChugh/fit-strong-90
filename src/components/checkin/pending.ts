@@ -46,6 +46,14 @@ export type StoreUpdate = (
 ) => Promise<{ ok: boolean; failure?: { message: string } }>;
 
 const waiting = new Map<string, CheckInRecord>();
+/**
+ * Each date's records written before the one waiting now, oldest first, none
+ * of them stored yet (F-safety-01). Each still counts on its own, so a later
+ * answer the device hasn't kept releases nothing an earlier one holds, even
+ * with nothing stored for the day. They go once a write the device keeps
+ * covers them.
+ */
+const earlier = new Map<string, CheckInRecord[]>();
 /** Dates whose latest write was refused, as opposed to merely still on its way. */
 const refused = new Set<string>();
 /**
@@ -70,7 +78,7 @@ function mirror(): void {
   try {
     if (typeof localStorage === 'undefined') return;
     if (waiting.size === 0) localStorage.removeItem(MIRROR_KEY);
-    else localStorage.setItem(MIRROR_KEY, JSON.stringify({ waiting: [...waiting.values()], refused: [...refused] }));
+    else localStorage.setItem(MIRROR_KEY, JSON.stringify({ waiting: [...waiting.values()], refused: [...refused], earlier: [...earlier.values()].flat() }));
   } catch {
     // Full or unavailable: the answers still count for this visit.
   }
@@ -81,15 +89,18 @@ function restore(): void {
     if (typeof localStorage === 'undefined') return;
     const raw = localStorage.getItem(MIRROR_KEY);
     if (!raw) return;
-    const kept = JSON.parse(raw) as { waiting?: unknown; refused?: unknown };
-    for (const r of Array.isArray(kept.waiting) ? kept.waiting : []) {
+    const kept = JSON.parse(raw) as { waiting?: unknown; refused?: unknown; earlier?: unknown };
+    const readable = (r: unknown): r is CheckInRecord => {
       const c = r as CheckInRecord;
-      if (c && typeof c.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.date) && c.readiness && Array.isArray(c.news)) {
-        waiting.set(c.date, c);
-        restored.add(c.date);
-      }
+      return !!c && typeof c.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.date) && !!c.readiness && Array.isArray(c.news);
+    };
+    for (const c of Array.isArray(kept.waiting) ? kept.waiting : []) {
+      if (!readable(c)) continue;
+      waiting.set(c.date, c);
+      restored.add(c.date);
     }
     for (const d of Array.isArray(kept.refused) ? kept.refused : []) if (typeof d === 'string' && waiting.has(d)) refused.add(d);
+    for (const c of Array.isArray(kept.earlier) ? kept.earlier : []) if (readable(c) && waiting.has(c.date)) earlier.set(c.date, [...(earlier.get(c.date) ?? []), c]);
   } catch {
     // Unreadable: nothing to restore.
   }
@@ -129,6 +140,32 @@ function publish(): void {
   for (const l of [...listeners]) l();
 }
 
+/**
+ * `record` waits for `date` now. The record it replaces, unless it is this
+ * same write's own earlier plan (`own`), was never stored either, so it keeps
+ * counting on its own (`earlier`, F-safety-01).
+ */
+function setWaiting(date: string, record: CheckInRecord, own: CheckInRecord | undefined): void {
+  const before = waiting.get(date);
+  if (before && before !== own) earlier.set(date, [...(earlier.get(date) ?? []), before]);
+  waiting.set(date, record);
+}
+
+/**
+ * The device kept `record`: it holds everything written before it, so those
+ * stop waiting, and so does what waits now if `record` covers it.
+ */
+function keptStored(date: string, record: CheckInRecord): void {
+  refused.delete(date);
+  const list = earlier.get(date) ?? [];
+  const at = list.indexOf(record);
+  const left = at >= 0 ? list.slice(at + 1) : waiting.get(date) === record ? [] : list;
+  const still = waiting.get(date);
+  if (still && covers(record, still)) waiting.delete(date);
+  if (!waiting.has(date) || left.length === 0) earlier.delete(date);
+  else earlier.set(date, left);
+}
+
 /** Called whenever a waiting record appears, changes or is stored. */
 export function subscribePendingCheckIns(listener: () => void): () => void {
   listeners.add(listener);
@@ -153,6 +190,7 @@ export function unstoredCheckIn(date: string): CheckInRecord | null {
 /** Test seam: forget everything waiting. */
 export function resetPendingCheckInsForTests(): void {
   waiting.clear();
+  earlier.clear();
   refused.clear();
   restored.clear();
   publish();
@@ -161,6 +199,7 @@ export function resetPendingCheckInsForTests(): void {
 /** Test seam: read the kept copy again, as a reload would. */
 export function restorePendingCheckInsForTests(): void {
   waiting.clear();
+  earlier.clear();
   refused.clear();
   restored.clear();
   restore();
@@ -404,11 +443,19 @@ export function loggedReadings(observations: readonly Observation[]): Map<string
  * gates (`logged`, X2-01). A day with readings but no record gets one that
  * holds only them: evidence for every rule, never a check-in. Nothing here
  * is stored: a save reads the store's own records.
+ *
+ * `stored` is what the device has stored (`StoreState.stored`), never a
+ * change still on its way or one it refused, so an answer waiting to be
+ * stored can add to a day and never take from it (F-safety-01). Track's
+ * readings are counted as shown (`observations`), so one on its way counts
+ * at once, and a day read beside its stored ones (`storedObservations`, in
+ * `durable`): one still on its way releases nothing either (N-01).
  */
 export function effectiveCheckIns(
   stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[] = [], clock?: ClockHold,
+  storedObservations: readonly Observation[] = observations,
 ): CheckInRecord[] {
-  return withClockHold(effectiveDays(stored, profile, observations), clock);
+  return withClockHold(effectiveDays(stored, profile, observations, true, storedObservations), clock);
 }
 
 /**
@@ -431,23 +478,48 @@ export function withClockHold<T extends DailyCheckIn>(records: T[], clock: Clock
   return clock ? records.map(c => ({ ...c, clockHold: clock })) : records;
 }
 
-function effectiveDays(stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[], waitingToo = true): CheckInRecord[] {
-  const logged = observations.length ? loggedReadings(observations) : new Map<string, NonNullable<DailyCheckIn['logged']>>();
+type Logged = Map<string, NonNullable<DailyCheckIn['logged']>>;
+
+function effectiveDays(
+  stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[], waitingToo = true,
+  storedObservations: readonly Observation[] = observations,
+): CheckInRecord[] {
+  const logged: Logged = observations.length ? loggedReadings(observations) : new Map();
+  // Track's readings as stored: one still on its way releases nothing either (N-01, F-safety-01).
+  const loggedStored: Logged = storedObservations === observations ? logged : storedObservations.length ? loggedReadings(storedObservations) : new Map();
   const pending = waitingToo ? [...waiting.keys()] : [];
-  if (pending.length === 0 && logged.size === 0) return [...stored];
-  const dates = new Set([...stored.map(c => c.date), ...pending, ...logged.keys()]);
+  if (pending.length === 0 && logged.size === 0 && loggedStored.size === 0) return [...stored];
+  const dates = new Set([...stored.map(c => c.date), ...pending, ...logged.keys(), ...loggedStored.keys()]);
   return [...dates].sort().flatMap(date => {
     const recent = stored.filter(c => c.date < date);
     const mine = stored.find(c => c.date === date);
-    const record = effectiveRecord(mine, waitingToo ? waitingFor(date, mine) : undefined, profile, recent);
+    const said = waitingToo ? waitingFor(date, mine) : undefined;
+    const record = effectiveRecord(mine, said, profile, recent);
+    // Every answer written before the one waiting, none of them stored: each still counts on its own (F-safety-01).
+    const unstored = said ? earlier.get(date) ?? [] : [];
     const readings = logged.get(date);
-    if (!readings) return record ? [record] : [];
+    const storedReadings = loggedStored.get(date);
+    if (!readings && !storedReadings && unstored.length === 0) return record ? [record] : [];
     const { readiness: _r, ...plain }: Partial<CheckInRecord> & DailyCheckIn = record ?? { date, urgentSymptoms: false, news: [], readingsOnly: true };
     void _r;
-    const day: DailyCheckIn = { ...plain, logged: readings };
+    // The day as stored, with the Track readings stored for it, whenever either is not what is shown.
+    const differs = readings !== storedReadings && JSON.stringify(readings ?? {}) !== JSON.stringify(storedReadings ?? {});
+    const base: DailyCheckIn | undefined = plain.durable ?? (differs ? (mine ? withoutReadiness(mine) : { date, urgentSymptoms: false, news: [], readingsOnly: true }) : undefined);
+    const day: DailyCheckIn = {
+      ...plain,
+      ...(readings ? { logged: readings } : {}),
+      ...(base ? { durable: { ...base, ...(readings || storedReadings ? { logged: storedReadings ?? {} } : {}) } } : {}),
+      ...(unstored.length ? { unstored: unstored.map(withoutReadiness) } : {}),
+    };
     return [{ ...day, readiness: evaluateCheckIn(profile, day, recent) }];
   });
 }
+
+const withoutReadiness = (c: CheckInRecord): DailyCheckIn => {
+  const { readiness: _r, ...rest } = c;
+  void _r;
+  return rest;
+};
 
 /** Everything in `pending` is already in `stored`. */
 function covers(stored: CheckInRecord, pending: CheckInRecord): boolean {
@@ -571,6 +643,8 @@ async function saveWith(
   const { profile, update } = deps;
   let record: CheckInRecord | undefined;
   let answers: DailyCheckIn | undefined;
+  /** This write's own plan, planned again only by the store: it replaces itself, not an earlier answer. */
+  let own: CheckInRecord | undefined;
   const written = update(prev => {
     const list = prev.checkIns ?? [];
     const recent = list.filter(x => x.date < date);
@@ -580,19 +654,15 @@ async function saveWith(
     record = toStore(profile, carryForward(base, answers), recent);
     // Given on this visit: from here it is answered, not merely kept.
     restored.delete(date);
-    waiting.set(date, record);
+    setWaiting(date, record, own);
+    own = record;
     return { ...prev, checkIns: [...list.filter(x => x.date !== date), record] };
   });
   publish();
   const result = await written;
   const saved = record ?? toStore(profile, answers ?? build(undefined, []), []);
-  if (result.ok) {
-    refused.delete(date);
-    const still = waiting.get(date);
-    if (still && covers(saved, still)) waiting.delete(date);
-  } else {
-    refused.add(date);
-  }
+  if (result.ok) keptStored(date, saved);
+  else refused.add(date);
   publish();
   return { record: saved, stored: result.ok };
 }
@@ -743,7 +813,7 @@ export async function correctCheckInPressure(
   const { profile, update, date } = deps;
   let record: CheckInRecord | undefined;
   // What was waiting before this write, given back if it is refused (D119), and read by a plan made again.
-  const prior = { record: waiting.get(date), restored: restored.has(date) };
+  const prior = { record: waiting.get(date), restored: restored.has(date), earlier: earlier.get(date) ?? [] };
   let own: CheckInRecord | undefined;
   const written = update(prev => {
     if (own !== undefined && waiting.get(date) === own) giveBack(date, own, prior);
@@ -757,7 +827,7 @@ export async function correctCheckInPressure(
     record = fixed ? toStore(profile, fixed, recent) : undefined;
     if (!record) return prev;
     restored.delete(date);
-    waiting.set(date, record);
+    setWaiting(date, record, own);
     own = record;
     return { ...prev, checkIns: [...list.filter(x => x.date !== date), record] };
   }, { readings: 'correct' });
@@ -769,13 +839,8 @@ export async function correctCheckInPressure(
     return { matched: record !== undefined, stored: false, failure: result.failure.message, held: result.failure };
   }
   if (!record) return { matched: false, stored: result.ok };
-  if (result.ok) {
-    refused.delete(date);
-    const still = waiting.get(date);
-    if (still && covers(record, still)) waiting.delete(date);
-  } else {
-    refused.add(date);
-  }
+  if (result.ok) keptStored(date, record);
+  else refused.add(date);
   publish();
   return { matched: true, stored: result.ok, ...(result.ok ? {} : { failure: result.failure?.message ?? 'The device did not keep it.' }) };
 }
@@ -983,10 +1048,12 @@ export const ALREADY_BACK = 'Already back in your check-in.';
 export const NEWER_STAYS = 'Your newer answer stays.';
 
 /** What waited for `date` before a write, back in place of the record that write set, when it is still that record's. */
-function giveBack(date: string, mine: CheckInRecord | undefined, prior: { record: CheckInRecord | undefined; restored: boolean }): void {
+function giveBack(date: string, mine: CheckInRecord | undefined, prior: { record: CheckInRecord | undefined; restored: boolean; earlier: CheckInRecord[] }): void {
   if (mine === undefined || waiting.get(date) !== mine) return;
   if (prior.record) waiting.set(date, prior.record);
   else waiting.delete(date);
+  if (prior.earlier.length) earlier.set(date, prior.earlier);
+  else earlier.delete(date);
   if (prior.restored) restored.add(date);
 }
 
@@ -1007,7 +1074,7 @@ async function reviseCheckIn(
   let record: CheckInRecord | undefined;
   // What was waiting before this write. A plan made again (a restore's, at its commit: P8S-09) reads that,
   // never its own earlier plan's record, which would look like the change made already.
-  const prior = { record: waiting.get(date), restored: restored.has(date) };
+  const prior = { record: waiting.get(date), restored: restored.has(date), earlier: earlier.get(date) ?? [] };
   let own: CheckInRecord | undefined;
   const written = update(prev => {
     if (own !== undefined && waiting.get(date) === own) giveBack(date, own, prior);
@@ -1019,7 +1086,7 @@ async function reviseCheckIn(
     record = fixed ? toStore(profile, fixed, recent) : undefined;
     if (!record) return prev;
     restored.delete(date);
-    waiting.set(date, record);
+    setWaiting(date, record, own);
     own = record;
     return { ...prev, checkIns: [...list.filter(x => x.date !== date), record] };
   }, options);
@@ -1033,13 +1100,8 @@ async function reviseCheckIn(
   }
   const failure = result.ok ? {} : { failure: result.failure?.message ?? 'The device did not keep it.' };
   if (!record) return { matched: false, stored: result.ok, ...failure };
-  if (result.ok) {
-    refused.delete(date);
-    const still = waiting.get(date);
-    if (still && covers(record, still)) waiting.delete(date);
-  } else {
-    refused.add(date);
-  }
+  if (result.ok) keptStored(date, record);
+  else refused.add(date);
   publish();
   return { matched: true, stored: result.ok, ...failure };
 }

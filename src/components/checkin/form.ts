@@ -786,8 +786,9 @@ export function carryForward(saved: DailyCheckIn | undefined, next: DailyCheckIn
  * of the day nothing else checks, and an import refuses them.
  */
 export function withoutGateFields<T extends DailyCheckIn>(c: T): T {
-  const { durable: _durable, logged: _logged, readingsOnly: _onlyReadings, clockHold: _clock, ...own } = c;
+  const { durable: _durable, unstored: _unstored, logged: _logged, readingsOnly: _onlyReadings, clockHold: _clock, ...own } = c;
   void _durable;
+  void _unstored;
   void _logged;
   void _onlyReadings;
   void _clock;

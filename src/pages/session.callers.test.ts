@@ -73,7 +73,7 @@ const store = await import('@/store/useStore');
 const { default: SessionPage } = await import('./SessionPage');
 const { UrgentProvider } = await import('@/screens/home/UrgentBanner');
 const { TaskFrame } = await import('@/components/hig/StorageBanner');
-const { resetPendingCheckInsForTests } = await import('@/components/checkin/pending');
+const { resetPendingCheckInsForTests, saveCheckInRecord } = await import('@/components/checkin/pending');
 const { evaluateCheckIn } = await import('@/engine/readiness');
 const { buildSessionPlan } = await import('@/engine/session');
 const { saveProgress } = await import('@/session/persistence');
@@ -553,7 +553,9 @@ describe('scan M-07: when this device is not saving, the summary never says "Sav
     await store.start({ factory: undefined });
     expect(store.getState().status).toBe('unavailable');
     const p = createDefaultProfile(NONE);
-    await seed(p, [ci()]);
+    await seed(p, []);
+    // Saved as the check-in saves it: with nothing stored, it counts while it waits (F-safety-01).
+    expect((await saveCheckInRecord(ci(), { profile: p, update: store.update })).stored).toBe(false);
     await mount('mode=stretch&focus=backHips&minutes=10');
     await h().click(h().button('Start', { exact: true }));
     clock(9, 30);
@@ -1732,5 +1734,29 @@ describe('codex W-01: a session opened before any check-in, then an emergency an
     await h().settle();
     expect(h().text()).toMatch(/Check again before you start/);
     expect(h().buttons('Start', { exact: true })).toHaveLength(0);
+  });
+});
+
+describe('F-safety-01: the player reads what is stored, never a recovery still on its way', () => {
+  it('a saved run reopened while the recovery from a stored low is still being written stays held, and opens once it is stored', async () => {
+    store.resetForTests();
+    const db = fakeIndexedDB();
+    await store.start({ factory: db, broadcast: null });
+    const p = createDefaultProfile(INSULIN);
+    const morning = { value: 140, unit: 'mg/dL' as const, measuredAt: iso(9), source: 'meter' as const };
+    const plan = buildSessionPlan({ profile: p, date: DAY, startDate: START, sessions: [], checkIn: ci({ glucose: morning }) });
+    saveRun(plan, paused(plan, 3));
+    clock(13, 30);
+    await seed(p, [ci({ glucoseEarlier: [morning], glucose: { value: 60, unit: 'mg/dL', measuredAt: iso(13, 30), source: 'meter' } })]);
+    clock(13, 46);
+    db.control.hold();
+    const saving = saveCheckInRecord(ci({ glucose: { value: 130, unit: 'mg/dL', measuredAt: iso(13, 46), source: 'meter' }, lowRecovered: true }), { profile: p, update: store.update });
+    await mount('resume=1');
+    expect(h().buttons('Resume', { exact: true })).toHaveLength(0);
+    expect(h().buttons('Back to Today', { exact: true })).toHaveLength(1);
+    db.control.release();
+    expect((await saving).stored).toBe(true);
+    await mount('resume=1');
+    expect(h().buttons('Resume', { exact: true })).toHaveLength(1);
   });
 });

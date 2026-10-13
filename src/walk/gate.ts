@@ -71,12 +71,17 @@ export function walkInput(clinical: Clinical, now: Date): PermissionInput {
  * `useGuided`: a device part-way through onboarding is asked about, and held
  * for its health questions, never assumed fine.
  */
-export function deviceClinical(state: Pick<StoreState, 'profile' | 'checkIns' | 'settings'> & Partial<Pick<StoreState, 'observations' | 'clockHold'>>): Clinical {
+export function deviceClinical(state: Pick<StoreState, 'profile' | 'checkIns' | 'settings'> & Partial<Pick<StoreState, 'observations' | 'clockHold' | 'stored'>>): Clinical {
   // The stored profile: with its gap while setup is unfinished (H5-05), held while a clinical answer isn't stored (D197).
   const profile = gateProfile(state);
   // Track's glucose and blood pressure readings count as the check-in's do (scan X2-01), and the
   // changes to this phone's clock hold every gate, from the moment one is seen (B-19, board D174, D188).
-  return { profile, checkIns: effectiveCheckIns(state.checkIns, profile, state.observations ?? [], state.clockHold ?? state.settings.walk?.clock) };
+  // Read on what is stored: a change still on its way can add to it, never release it (F-safety-01).
+  const observations = state.observations ?? [];
+  return {
+    profile,
+    checkIns: effectiveCheckIns(state.stored?.checkIns ?? state.checkIns, profile, observations, state.clockHold ?? state.settings.walk?.clock, state.stored?.observations ?? observations),
+  };
 }
 
 export { STATUS_HOLD } from './readout';

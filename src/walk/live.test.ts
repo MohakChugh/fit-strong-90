@@ -1284,8 +1284,16 @@ describe('round 3: what the walk acts on is every day’s effective record', () 
         expect(live.getSnapshot()!.walk.status).toBe('paused');
         expect(live.getSnapshot()!.blocked).toBe('restart');
         expect(next(d)?.reasons).toContain(STOP_UNANSWERED.reason);
-        // "Just need a rest" is an answer: the stop is released, and Resume carries on.
-        await report(stopAnswer('rest', false).report!, new Date(d.w.now));
+        // "Just need a rest" is an answer. Refused, it releases nothing, even with nothing stored
+        // for the day: a release counts once the device keeps it (F-safety-01).
+        if (!ok) {
+          await report(stopAnswer('rest', false).report!, new Date(d.w.now));
+          expect(next(d)?.reasons).toContain(STOP_UNANSWERED.reason);
+          live.resume();
+          expect(live.getSnapshot()!.walk.status).toBe('paused');
+        }
+        // Stored, the stop is released, and Resume carries on.
+        await d.report(stopAnswer('rest', false).report!, new Date(d.w.now), true);
         expect(next(d)).toBeUndefined();
         live.resume();
         expect(live.getSnapshot()!.walk.status).toBe('running');

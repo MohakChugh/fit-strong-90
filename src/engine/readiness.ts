@@ -2128,19 +2128,39 @@ function evaluateWith(profile: UserProfile, checkIn: DailyCheckIn, before: Befor
     ...base.contributions,
     ...dayRules(checkIn),
     ...(stored ? dayRules(stored) : []),
+    // So are the answers given before those, none stored yet: each on its own (F-safety-01).
+    ...unstoredViews(checkIn).flatMap(dayRules),
     ...carried.contributions,
   ], base.vigorousLocked, base.rpeOnly);
   const episodes = episodeSummaries(c, c.date, carried.readings, newsSaidEarlier(c, d));
   return episodes.length ? { ...r, episodes } : r;
 }
 
-/** The day as the device has stored it, with the same Track readings, when answers it has not stored are merged into `c` (N-01). */
+/**
+ * F-safety-01: what was answered for the day before the answers waiting now,
+ * none stored yet (`unstored`), each as its own day, with the Track readings
+ * the stored day reads.
+ */
+export function unstoredViews(c: DailyCheckIn): DailyCheckIn[] {
+  const logged = c.durable?.date === c.date ? c.durable.logged ?? c.logged : c.logged;
+  return (c.unstored ?? []).filter(v => v.date === c.date).map(v => {
+    const { unstored: _u, durable: _d, logged: _l, ...own } = v;
+    void _u; void _d; void _l;
+    return logged ? { ...own, logged } : own;
+  });
+}
+
+/**
+ * The day as the device has stored it, when answers or readings it has not
+ * stored are merged into `c` (N-01): with its own Track readings when it was
+ * given them, the stored ones (F-safety-01), and otherwise the day's.
+ */
 export function durableView(c: DailyCheckIn): DailyCheckIn | undefined {
   const d = c.durable;
   if (!d || d.date !== c.date) return undefined;
   const { durable: _nested, ...stored } = d;
   void _nested;
-  return c.logged ? { ...stored, logged: c.logged } : stored;
+  return stored.logged || !c.logged ? stored : { ...stored, logged: c.logged };
 }
 
 function defaultDisposition(c: Contribution): Disposition {

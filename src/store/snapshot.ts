@@ -416,7 +416,7 @@ function stored(profile: UserProfile): UserProfile {
 }
 
 /** Something only the screens' copy of a day carries (`logged`, `readingsOnly`, `durable`, `clockHold`), never kept. */
-const screensOnly = (c: DailyCheckIn) => c.logged !== undefined || c.readingsOnly !== undefined || c.durable !== undefined || c.clockHold !== undefined;
+const screensOnly = (c: DailyCheckIn) => c.logged !== undefined || c.readingsOnly !== undefined || c.durable !== undefined || c.unstored !== undefined || c.clockHold !== undefined;
 
 /**
  * A stored check-in as it is kept (P-01): the day's own record, without what
@@ -434,10 +434,11 @@ const screensOnly = (c: DailyCheckIn) => c.logged !== undefined || c.readingsOnl
  */
 export function keptCheckIn<T extends DailyCheckIn>(c: T): T {
   if (!screensOnly(c)) return c;
-  const { logged: _logged, readingsOnly: _onlyReadings, durable: _stored, clockHold: _clock, ...kept } = c;
+  const { logged: _logged, readingsOnly: _onlyReadings, durable: _stored, unstored: _unstored, clockHold: _clock, ...kept } = c;
   void _logged;
   void _onlyReadings;
   void _stored;
+  void _unstored;
   void _clock;
   return kept as T;
 }
@@ -453,9 +454,10 @@ export function keptSession<T extends { checkIn?: unknown }>(s: T): T {
   if (!isRecord(s.checkIn)) return s;
   const c = s.checkIn as unknown as DailyCheckIn;
   if (!screensOnly(c) || damagedReading(s.checkIn) !== undefined) return s;
-  const { readingsOnly: _onlyReadings, durable: _stored, clockHold: _clock, ...kept } = withLogged(c);
+  const { readingsOnly: _onlyReadings, durable: _stored, unstored: _unstored, clockHold: _clock, ...kept } = withLogged(c);
   void _onlyReadings;
   void _stored;
+  void _unstored;
   void _clock;
   return { ...s, checkIn: kept };
 }

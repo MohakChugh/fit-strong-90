@@ -61,6 +61,7 @@ Object.assign(globalThis, {
 const store = await import('@/store/useStore');
 const { evaluateCheckIn } = await import('@/engine/readiness');
 const { UrgentProvider } = await import('@/screens/home/UrgentBanner');
+const { resetPendingCheckInsForTests, saveCheckInRecord } = await import('@/components/checkin/pending');
 const { default: TodayWorkoutScreen } = await import('./TodayWorkoutScreen');
 
 const DAY = '2026-10-08';
@@ -82,6 +83,7 @@ beforeEach(async () => {
   refuse = false;
   router.navigate = vi.fn();
   store.resetForTests();
+  resetPendingCheckInsForTests();
   fake = fakeIndexedDB({ failWrite: (name, row) => (refuse && name === 'sessions' && row.status !== 'in_progress' ? new DOMException('Full', 'QuotaExceededError') : undefined) });
   await store.start({ factory: fake, broadcast: null });
   await store.update(prev => ({ ...prev, profile, settings: { ...prev.settings, startDate: '2026-09-24', onboardingComplete: true }, checkIns: [record(profile, answered())] }));
@@ -162,8 +164,8 @@ describe('finishing a workout with an emergency standing: the logging view and i
     await h0().click(h0().button('Save workout', { exact: true }));
     await settle();
     // The day's plan loses its lifting now: the workout being saved keeps its own. (Queued behind the
-    // held write in this one store, the answer is on screen at once, as every change is.)
-    const emergency = store.update(prev => ({ ...prev, checkIns: [record(profile, answered({ urgentSymptoms: true, emergency: ['chest'] }))] }));
+    // held write in this one store, the answer counts at once, waiting to be stored, as every check-in's does.)
+    const emergency = saveCheckInRecord(answered({ urgentSymptoms: true, emergency: ['chest'] }), { profile, update: store.update });
     await settle();
     expect(h0().text()).toContain('Get help now');
     expect(dialog()).toBeDefined();
@@ -171,7 +173,7 @@ describe('finishing a workout with an emergency standing: the logging view and i
     expect(surfaces()).toBeGreaterThanOrEqual(1);
     fake.control.release();
     await settle();
-    expect((await emergency).ok).toBe(true);
+    expect((await emergency).stored).toBe(true);
     expect(router.navigate).toHaveBeenCalledWith(expect.stringMatching(/^\/track\/workout\/.+/), expect.objectContaining({ replace: true }));
   });
 

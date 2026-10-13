@@ -92,6 +92,13 @@ export interface StoreState {
   status: 'loading' | 'ready' | 'unavailable';
   /** Chronological, oldest first. */
   observations: Observation[];
+  /**
+   * The check-ins and observations as stored, as far as this copy knows: on
+   * the device, or with no storage what the app was opened with, never a
+   * change still on its way or one refused (F-safety-01). What every gate
+   * takes as stored; the screens show `checkIns` and `observations`.
+   */
+  stored: { checkIns: CheckInRecord[]; observations: Observation[] };
   /** Newest first, as the old storage layer ordered them. */
   sessions: WorkoutSession[];
   settings: UserSettings;
@@ -189,6 +196,8 @@ let mode: 'loading' | 'ready' | 'memory' = 'loading';
 let memoryReason: StoreFailure | undefined;
 /** Memory mode was seeded with something to show; a failed retry must not replace it. */
 let memorySeeded = false;
+/** What memory mode was opened with, when no database was ever read: stored elsewhere (a v1 copy) or nothing (F-safety-01). */
+let memoryBase: Snapshot | undefined;
 let lastFailure: StoreFailure | undefined;
 let migration: MigrationReport | undefined;
 let persisted = false;
@@ -265,10 +274,20 @@ type Job =
 const jobs: Job[] = [];
 let pumping = false;
 
+let storedSlices: StoreState['stored'] = { checkIns: [], observations: [] };
+/** The last snapshot known stored (`durable`), else what memory mode opened with, else what this copy holds (nothing yet, while loading). */
+function storedOf(): StoreState['stored'] {
+  const s = durable ?? memoryBase ?? committed;
+  // The same object while what is stored is the same, so a screen's memo holds across publishes that store nothing.
+  if (s.checkIns !== storedSlices.checkIns || s.observations !== storedSlices.observations) storedSlices = { checkIns: s.checkIns, observations: s.observations };
+  return storedSlices;
+}
+
 function toState(s: Snapshot): StoreState {
   return {
     status: mode === 'ready' ? 'ready' : mode === 'memory' ? 'unavailable' : 'loading',
     observations: s.observations,
+    stored: storedOf(),
     sessions: s.sessions,
     settings: settingsOf(s.settings),
     profile: s.profile,
@@ -585,6 +604,7 @@ function enterMemory(reason: StoreFailure, base?: Snapshot | 'keep'): void {
     memorySeeded = true;
   } else if (!memorySeeded) {
     committed = seed(base);
+    memoryBase = committed;
     memorySeeded = true;
   }
   recompute();
@@ -806,6 +826,8 @@ export function resetForTests(): void {
   mode = 'loading';
   memoryReason = undefined;
   memorySeeded = false;
+  memoryBase = undefined;
+  storedSlices = { checkIns: [], observations: [] };
   lastFailure = undefined;
   migration = undefined;
   persisted = false;
