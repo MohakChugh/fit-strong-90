@@ -218,17 +218,18 @@ function EraseRoutesBody({ device, busy, setBusy, close, onErased }: {
 }
 
 export function DeleteSheet({ open, onOpenChange, device }: SheetProps) {
+  // While it erases nothing closes it, as Erase all routes: a refusal is said here (kiro FK-10).
+  const [busy, setBusy] = useState(false);
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title="Delete everything" detent="large">
-      {open && <DeleteBody device={device} close={() => onOpenChange(false)} />}
+    <Sheet open={open} onOpenChange={next => { if (!busy) onOpenChange(next); }} dismissible={!busy} title="Delete everything" detent="large">
+      {open && <DeleteBody device={device} busy={busy} setBusy={setBusy} close={() => onOpenChange(false)} />}
     </Sheet>
   );
 }
 
-function DeleteBody({ device, close }: { device: string; close: () => void }) {
+function DeleteBody({ device, busy, setBusy, close }: { device: string; busy: boolean; setBusy: (busy: boolean) => void; close: () => void }) {
   const state = useStore();
   const [step, setStep] = useState<'ask' | 'confirm'>('ask');
-  const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
   const heading = useRef<HTMLParagraphElement>(null);
   const counts = recordCounts(state);
