@@ -1309,7 +1309,7 @@ Left for later:
 
 ### 2026-10-12 — [claude] v2 Plan 5 review fixes (Codex H5, Kiro K5)
 
-Worktree `/Users/chumohak/Projects/fit-strong-90-v2-p5`, branch `feat/v2-p5`, from `214ef04`.
+Worktree `../fit-strong-90-v2-p5`, branch `feat/v2-p5`, from `214ef04`.
 Baseline at 214ef04: `tsc -b --force` 0, `npm run lint` 0, `vitest run --maxWorkers=3` 210 files and 5,865 tests passing.
 
 Principle for every fix: an answer path never gives the engine weaker inputs than the person supplied, and "Not sure" or unanswered never becomes "No" (§6.1, §4).
@@ -1601,7 +1601,7 @@ Principle for every fix: an answer path never gives the engine weaker inputs tha
 
 ### 2026-10-12 — [claude] v2 Plan 7 review fixes (Codex H7/H7R/H7F, Kiro K7/K7R)
 
-Worktree `/Users/chumohak/Projects/fit-strong-90-v2-p7`, branch `feat/v2-p7`, from `610d832` (Plan 7's first merge into feat/v2-journey, `94c6ce9`), in three rounds to `8f4ed60`: 63 commits. Its decisions are D132–D149 and D200–D208. Round 2's D180–D186 were renumbered D200–D206 (`5ebc371`), since D180–D189 are Plan 6's.
+Worktree `../fit-strong-90-v2-p7`, branch `feat/v2-p7`, from `610d832` (Plan 7's first merge into feat/v2-journey, `94c6ce9`), in three rounds to `8f4ed60`: 63 commits. Its decisions are D132–D149 and D200–D208. Round 2's D180–D186 were renumbered D200–D206 (`5ebc371`), since D180–D189 are Plan 6's.
 
 #### Round 1 (2026-10-11): the Codex (H7) and Kiro (K7) findings fixed
 
@@ -1780,7 +1780,7 @@ Branch `feat/v2-p7`, from `0f9fcc4`. Round 2's decisions D180 to D186 are renumb
 
 ### 2026-10-12 — [claude] v2 Plan 5 review fixes, round 2 (Codex H5R, Kiro K5R)
 
-Codex's re-check (H5R-01 to H5R-18) and Kiro's (K5R-01 to K5R-10). Worktree `/Users/chumohak/Projects/fit-strong-90-v2-p5`, branch `feat/v2-p5`, from `5513c62` to `4e3a10b`: 15 commits and a merge of feat/v2-journey (`18869f8`). Its decisions are D168, D169 and D190 to D195.
+Codex's re-check (H5R-01 to H5R-18) and Kiro's (K5R-01 to K5R-10). Worktree `../fit-strong-90-v2-p5`, branch `feat/v2-p5`, from `5513c62` to `4e3a10b`: 15 commits and a merge of feat/v2-journey (`18869f8`). Its decisions are D168, D169 and D190 to D195.
 
 #### Decisions
 | D | Finding | Decision |
@@ -1996,7 +1996,7 @@ Gates: `tsc -b --force` and lint clean, Vitest 268 files and 6,974 tests.
 
 ### 2026-10-12 — [claude] v2 Plan 5 review fixes, round 3 (Codex H5F, and the PARTIALs H5R-03, H5R-04, H5R-10, H5R-16)
 
-Codex's final verification (H5F-01 to H5F-12) and round 2's PARTIALs (H5R-03, H5R-04, H5R-10, H5R-16). Worktree `/Users/chumohak/Projects/fit-strong-90-v2-p5`, branch `feat/v2-p5`, from `4e3a10b` to `2f23b58`: 9 commits. Its decisions are D196 to D199 and D220 to D223.
+Codex's final verification (H5F-01 to H5F-12) and round 2's PARTIALs (H5R-03, H5R-04, H5R-10, H5R-16). Worktree `../fit-strong-90-v2-p5`, branch `feat/v2-p5`, from `4e3a10b` to `2f23b58`: 9 commits. Its decisions are D196 to D199 and D220 to D223.
 
 #### Decisions
 | D | Finding | Decision |
@@ -2384,7 +2384,7 @@ Seen, not changed: after a reload, the session's own gate claims an unanswered s
 
 ### 2026-10-13 — [claude] Final review fixes B (Kiro FK, Codex F-setup, F-food, F-ui)
 
-Kiro's final review (FK-01 to FK-11) and Codex's final reviews of setup, food and the UI (F-setup-01 to 05, F-food-01 to 08, F-ui-01 to 08), with round A's addition to FK-02. Worktree `/Users/chumohak/Projects/fit-strong-90-v2-p5`, branch `feat/v2-final-b`, from `a70284a` to `c0da3d9`: 33 commits, then this entry. Its decisions are D250 to D270. Every finding was reproduced by a test through its real callers before it was fixed; none was skipped.
+Kiro's final review (FK-01 to FK-11) and Codex's final reviews of setup, food and the UI (F-setup-01 to 05, F-food-01 to 08, F-ui-01 to 08), with round A's addition to FK-02. Worktree `../fit-strong-90-v2-p5`, branch `feat/v2-final-b`, from `a70284a` to `c0da3d9`: 33 commits, then this entry. Its decisions are D250 to D270. Every finding was reproduced by a test through its real callers before it was fixed; none was skipped.
 
 #### Decisions
 | D | Finding | Decision |
@@ -2436,7 +2436,7 @@ Kiro's final review (FK-01 to FK-11) and Codex's final reviews of setup, food an
 
 ### 2026-10-14 — [claude] Release candidate
 
-`feat/v2-journey` in `/Users/chumohak/Projects/fit-strong-90-v2`: Plans 1–8 and both final review rounds, A (D230–D241) and B (D250–D270), merged at `81dcd5a`, with V-J18 brought up to D236 at `0c00176`. Every check below ran on `0c00176`; only this entry comes after it.
+`feat/v2-journey` in `../fit-strong-90-v2`: Plans 1–8 and both final review rounds, A (D230–D241) and B (D250–D270), merged at `81dcd5a`, with V-J18 brought up to D236 at `0c00176`. Every check below ran on `0c00176`; only this entry comes after it.
 
 | D | Finding | Decision |
 |---|---|---|
