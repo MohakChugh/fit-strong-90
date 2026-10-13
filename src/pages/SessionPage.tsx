@@ -664,9 +664,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     <div className="fixed inset-0 flex flex-col overflow-y-auto bg-background pt-safe pb-safe">
       {/* Top bar */}
       <div className="flex items-center gap-3 px-3 pt-2">
-        <button type="button" aria-label="End session" onClick={() => { act.pause(); setExitOpen(true); }} className="flex size-12 items-center justify-center rounded-full hover:bg-muted">
-          <XIcon className="size-5" />
-        </button>
+        <IconButton word="End" label="End session" onClick={() => { act.pause(); setExitOpen(true); }}><XIcon aria-hidden /></IconButton>
         <div className="flex-1"><SessionProgress plan={plan} elapsedMs={pos.sessionElapsedMs} /></div>
         <span className="w-14 text-right text-sm font-medium tabular-nums" aria-label="Time left">{fmt(pos.sessionTotalMs - pos.sessionElapsedMs)}</span>
       </div>
@@ -772,15 +770,19 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
       {/* Controls */}
       {/* At 320 px, or a large text size, the row wraps rather than squeezing a control under 48 px. */}
       <div className="flex flex-wrap items-center justify-around gap-1 border-t px-2 py-2">
-        <IconButton label="Previous" onClick={act.previous}><SkipBackIcon /></IconButton>
-        <IconButton label="Add 15 seconds" onClick={() => act.addTime(15)}><PlusIcon /><span className="text-xs">15</span></IconButton>
-        <button type="button" aria-label={paused ? 'Resume' : 'Pause'} onClick={paused ? act.resume : act.pause}
-          className="flex size-16 items-center justify-center rounded-full text-[var(--on-ink)] shadow-lg press-feedback" style={{ background: color }}>
-          {paused ? <PlayIcon className="size-7" /> : <PauseIcon className="size-7" />}
+        <IconButton word="Previous" onClick={act.previous}><SkipBackIcon aria-hidden /></IconButton>
+        <IconButton word="Add 15 s" label="Add 15 seconds" onClick={() => act.addTime(15)}><PlusIcon aria-hidden /></IconButton>
+        <button type="button" onClick={paused ? act.resume : act.pause} className="flex shrink-0 flex-col items-center gap-0.5 rounded-xl px-1 press-feedback">
+          <span aria-hidden className="flex size-16 items-center justify-center rounded-full text-[var(--on-ink)] shadow-lg" style={{ background: color }}>
+            {paused ? <PlayIcon className="size-7" /> : <PauseIcon className="size-7" />}
+          </span>
+          <span className="text-[length:var(--text-footnote)] font-semibold leading-tight">{paused ? 'Resume' : 'Pause'}</span>
         </button>
-        <IconButton label="Next" onClick={() => act.next('skip')}><SkipForwardIcon /></IconButton>
-        <IconButton label={g.muted ? 'Unmute voice' : 'Mute voice'} onClick={() => act.setMuted(!g.muted)}>{g.muted ? <VolumeXIcon /> : <Volume2Icon />}</IconButton>
-        <IconButton label="How to do it" onClick={() => setInfoOpen(true)} disabled={!coaching}><InfoIcon /></IconButton>
+        <IconButton word="Next" onClick={() => act.next('skip')}><SkipForwardIcon aria-hidden /></IconButton>
+        <IconButton word={g.muted ? 'Unmute' : 'Mute'} label={g.muted ? 'Unmute voice' : 'Mute voice'} onClick={() => act.setMuted(!g.muted)}>
+          {g.muted ? <VolumeXIcon aria-hidden /> : <Volume2Icon aria-hidden />}
+        </IconButton>
+        <IconButton word="How to do it" onClick={() => setInfoOpen(true)} disabled={!coaching}><InfoIcon aria-hidden /></IconButton>
       </div>
 
       <InfoSheet open={infoOpen} onOpenChange={setInfoOpen} coaching={coaching} title={step.title} />
@@ -869,11 +871,17 @@ function subtitleFor(step: Step, segLabel: string, fluids: ReturnType<typeof flu
   }
 }
 
-function IconButton({ label, onClick, children, disabled }: { label: string; onClick: () => void; children: React.ReactNode; disabled?: boolean }) {
+/**
+ * A player control: its icon over its word, as the tab bar draws one (§20.4
+ * rule 2, B-08; kiro FK-01). `label` names it for VoiceOver where the word
+ * is short for it, and starts with the word, so a spoken "Mute" finds it.
+ */
+function IconButton({ word, label, onClick, children, disabled }: { word: string; label?: string; onClick: () => void; children: React.ReactNode; disabled?: boolean }) {
   return (
     <button type="button" aria-label={label} onClick={onClick} disabled={disabled}
-      className="flex size-12 shrink-0 items-center justify-center gap-0.5 rounded-full hover:bg-muted disabled:opacity-40 press-feedback [&_svg]:size-5">
+      className="flex min-h-12 min-w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl px-1.5 py-1 hover:bg-muted disabled:opacity-40 press-feedback [&_svg]:size-5">
       {children}
+      <span className="text-[length:var(--text-footnote)] font-medium leading-tight">{word}</span>
     </button>
   );
 }
@@ -888,9 +896,9 @@ function Stepper({ label, value, onChange, step, suffix }: { label: string; valu
     <div className="flex items-center justify-between gap-2 rounded-xl border px-2 py-1">
       <span className="text-sm text-muted-foreground pl-1">{label}</span>
       <div className="flex items-center gap-1">
-        <button type="button" aria-label={`Less ${label}`} className="flex size-12 items-center justify-center rounded-full hover:bg-muted" onClick={() => onChange(Math.max(0, +(value - step).toFixed(2)))}><MinusIcon className="size-4" /></button>
+        <IconButton word="Less" label={`Less ${label}`} onClick={() => onChange(Math.max(0, +(value - step).toFixed(2)))}><MinusIcon aria-hidden /></IconButton>
         <span className="min-w-14 text-center text-lg font-bold tabular-nums">{value}{suffix}</span>
-        <button type="button" aria-label={`More ${label}`} className="flex size-12 items-center justify-center rounded-full hover:bg-muted" onClick={() => onChange(+(value + step).toFixed(2))}><PlusIcon className="size-4" /></button>
+        <IconButton word="More" label={`More ${label}`} onClick={() => onChange(+(value + step).toFixed(2))}><PlusIcon aria-hidden /></IconButton>
       </div>
     </div>
   );
@@ -1328,7 +1336,7 @@ function StartScreen({ plan, voiceName, muted, setMuted, mix, note, onStart, onE
   return (
     <div className="min-h-dvh flex flex-col bg-background pt-safe pb-safe">
       <div className="flex items-center justify-between px-3 pt-2">
-        <button type="button" aria-label="Back" onClick={onExit} className="flex size-12 items-center justify-center rounded-full hover:bg-muted"><XIcon className="size-5" /></button>
+        <IconButton word="Back" onClick={onExit}><XIcon aria-hidden /></IconButton>
         <span className="text-sm text-muted-foreground">{Math.round(plan.totalSeconds / 60)} minutes</span>
         <span className="size-12" />
       </div>
