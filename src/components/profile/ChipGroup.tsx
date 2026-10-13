@@ -31,7 +31,7 @@ export function ChipGroup<T extends string>({ label, options, value, onChange, m
   return (
     <fieldset className={cn('flex flex-col gap-3', className)}>
       <legend className="text-sm font-medium mb-2">{label}</legend>
-      {hint && <p className="text-xs text-muted-foreground -mt-1 mb-1">{hint}</p>}
+      {hint && <p className="text-[length:var(--text-footnote)] text-muted-foreground -mt-1 mb-1">{hint}</p>}
       <div className="flex flex-wrap gap-3" role={multiple ? 'group' : 'radiogroup'} aria-label={label}>
         {options.map((o, i) => {
           const on = value.includes(o.value);

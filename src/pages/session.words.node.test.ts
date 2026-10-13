@@ -295,7 +295,11 @@ describe('kiro FK-04: nothing meaningful on the player is under 13 px (journey �
   });
 
   it('no size under 13 px is left in the player’s files, for the states a test can’t reach: the voice notices, the side chip', () => {
-    for (const file of ['src/pages/SessionPage.tsx', 'src/components/session/parts.tsx']) {
+    // With the figure's "what not to do" chip and How to do it's Sources, and the voice and day choices setup and Me show.
+    for (const file of [
+      'src/pages/SessionPage.tsx', 'src/components/session/parts.tsx', 'src/components/motion/MotionView.tsx', 'src/components/session/InfoSheet.tsx',
+      'src/components/profile/ChipGroup.tsx', 'src/components/profile/VoiceSettingsCard.tsx',
+    ]) {
       const lines = readFileSync(file, 'utf8').split('\n').filter(l => SMALL.test(l.replace(/className=|["'`{}]/g, ' ')));
       expect(lines, file).toEqual([]);
     }

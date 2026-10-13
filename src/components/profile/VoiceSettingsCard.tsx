@@ -77,7 +77,7 @@ export function VoiceSettingsCard({ voice, onChange }: { voice: VoiceSettings; o
                     </span>
                     <span className="min-w-0">
                       <span className="block text-sm font-medium">{p.name}</span>
-                      <span className="block text-xs text-muted-foreground">
+                      <span className="block text-[length:var(--text-footnote)] text-muted-foreground">
                         {status === undefined ? 'Checking…' : status ? 'Recorded, natural voice' : 'Device voice fallback (not recorded yet)'}
                       </span>
                     </span>
