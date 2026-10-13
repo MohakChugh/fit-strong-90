@@ -23,6 +23,8 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => router.navigate,
   Link: () => null,
   Navigate: () => null,
+  // A correction sheet holds a Back while it saves (codex F-ui-02); nothing here leaves mid-save.
+  useBlocker: () => ({ state: 'unblocked', proceed() {}, reset() {} }),
 }));
 vi.mock('@/components/hig/Screen', async () => {
   const { createElement: h } = await import('react');

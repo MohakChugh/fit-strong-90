@@ -14,10 +14,23 @@ import { createDefaultProfile } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, type Host, type HostNode } from '@/test/host';
 
-vi.mock('react-router-dom', () => ({ useNavigate: () => () => {}, Link: () => null }));
+/** The router's blocker as a sheet asks for it while it saves: whether it holds a leave, and what was done with one held. */
+const nav = vi.hoisted(() => ({ holds: false, state: 'unblocked' as 'unblocked' | 'blocked', proceeded: 0, resets: 0 }));
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => () => {},
+  Link: () => null,
+  useBlocker: (holds: boolean) => {
+    nav.holds = holds;
+    return { state: nav.state, proceed: () => { nav.proceeded += 1; }, reset: () => { nav.resets += 1; } };
+  },
+}));
 vi.mock('@/components/hig/Sheet', async () => {
   const { createElement: h } = await import('react');
-  return { Sheet: ({ open, children }: { open: boolean; children?: unknown }) => (open ? h('div', { role: 'dialog' }, children as never) : null) };
+  // Its Close goes through the owner's `onOpenChange`, as the real sheet's does; a swipe asks `dismissible` first.
+  return {
+    Sheet: ({ open, onOpenChange, dismissible = true, children }: { open: boolean; onOpenChange?: (open: boolean) => void; dismissible?: boolean; children?: unknown }) =>
+      (open ? h('div', { role: 'dialog', 'data-dismissible': dismissible }, h('button', { type: 'button', onClick: () => onOpenChange?.(false) }, 'Close'), children as never) : null),
+  };
 });
 
 const local = new Map<string, string>();
@@ -29,7 +42,7 @@ globalThis.localStorage = {
 Object.assign(globalThis, { document: { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} } });
 
 const store = await import('@/store/useStore');
-const { EditPressureSheet } = await import('./EditSheets');
+const { EditPressureSheet, EditReadingSheet } = await import('./EditSheets');
 const { QuickLog } = await import('./QuickLog');
 const { Guidance } = await import('./Guidance');
 const { glucoseEscalation } = await import('./escalation');
@@ -282,4 +295,119 @@ describe('T3-05: a second tap on retry cannot close the help', () => {
     expect(onDone).not.toHaveBeenCalled();
     expect(host.text()).toContain('Get emergency medical help now.');
   });
+});
+
+describe('Close, a swipe or a Back while a correction is being saved (codex F-ui-02; B-03, §4.5)', () => {
+  /** A weight of 70 kg, corrected to 71 kg, its write waiting behind another one held as it commits. */
+  async function correcting(kind: 'weight' | 'pressure') {
+    nav.state = 'unblocked';
+    nav.proceeded = 0;
+    nav.resets = 0;
+    await store.update(prev => ({ ...prev, profile: PROFILE }));
+    const closed: boolean[] = [];
+    if (kind === 'weight') {
+      const added = await store.addObservation({ kind: 'weight', value: 70, unit: 'kg', scope: 'pointInTime', source: 'manual', at: iso(8) });
+      if (!added.ok) throw added.failure;
+      host = render(createElement(EditReadingSheet, { open: true, onOpenChange: (o: boolean) => void closed.push(o), observation: added.value, prefs: DEFAULT_PREFS }));
+      await host.settle();
+      await host.change(host.field('Value'), { value: '71' });
+    } else {
+      await seed([{ ...BASE, bp: { sys: 128, dia: 82 }, bpReadings: [{ sys: 128, dia: 82, at: iso(8, 50) }] }]);
+      host = render(createElement(EditPressureSheet, { open: true, onOpenChange: (o: boolean) => void closed.push(o), reading: checkInReading() }));
+      await host.settle();
+      await host.change(host.field('Top (systolic)'), { value: '126' });
+    }
+    fake.control.hold();
+    const ahead = store.update(prev => ({ ...prev, settings: { ...prev.settings, currentWeight: 72 } }));
+    const saving = host.click(host.button('Save correction'));
+    await host.settle();
+    return {
+      closed,
+      finish: async (refused: boolean) => {
+        refuse = refused;
+        fake.control.release();
+        await ahead;
+        await saving;
+        await host!.settle();
+        refuse = false;
+      },
+    };
+  }
+  const dialog = () => host!.all().find(n => n.props.role === 'dialog');
+
+  it('the guidance’s Try saving again is waited for too: a serious correction refused, retried while another write is held', async () => {
+    await seed([{ ...BASE, bp: { sys: 130, dia: 80 }, bpReadings: [{ sys: 130, dia: 80, at: iso(8, 56) }] }]);
+    refuse = true;
+    await correct({ sys: '190' });
+    expect(host!.text()).toMatch(/Not corrected: /);
+    refuse = false;
+    expect(dialog()?.props['data-dismissible']).toBe(true);
+    fake.control.hold();
+    const ahead = store.update(prev => ({ ...prev, settings: { ...prev.settings, currentWeight: 72 } }));
+    await host!.click(host!.button('Try saving again'));
+    await host!.settle();
+    expect(dialog()?.props['data-dismissible']).toBe(false);
+    fake.control.release();
+    await ahead;
+    await host!.settle();
+    expect(host!.text()).toContain('Corrected on this device');
+    expect(dialog()?.props['data-dismissible']).toBe(true);
+  });
+
+  it('and a reading’s: a glucose corrected to 600 mg/dL, refused, retried while another write is held', async () => {
+    await store.update(prev => ({ ...prev, profile: PROFILE }));
+    const added = await store.addObservation({ kind: 'glucose', value: 140, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: iso(8) });
+    if (!added.ok) throw added.failure;
+    host = render(createElement(EditReadingSheet, { open: true, onOpenChange: () => {}, observation: added.value, prefs: DEFAULT_PREFS }));
+    await host.settle();
+    await host.change(host.field('Value'), { value: '600' });
+    refuse = true;
+    await host.click(host.button('Save correction'));
+    await host.settle();
+    expect(host.text()).toMatch(/Not corrected: /);
+    refuse = false;
+    fake.control.hold();
+    const ahead = store.update(prev => ({ ...prev, settings: { ...prev.settings, currentWeight: 72 } }));
+    await host.click(host.button('Try saving again'));
+    await host.settle();
+    expect(dialog()?.props['data-dismissible']).toBe(false);
+    fake.control.release();
+    await ahead;
+    await host.settle();
+    expect(host.text()).toContain('Corrected on this device');
+    expect(dialog()?.props['data-dismissible']).toBe(true);
+  });
+
+  for (const kind of ['weight', 'pressure'] as const) {
+    it(`${kind}: Close and a swipe wait; refused, the draft and the reason stay; then Close is the person’s own`, async () => {
+      const { closed, finish } = await correcting(kind);
+      expect(dialog()?.props['data-dismissible']).toBe(false);
+      await host!.click(host!.button('Close', { exact: true }));
+      expect(closed).toEqual([]);
+      await finish(true);
+      expect(closed).toEqual([]);
+      expect(host!.field(kind === 'weight' ? 'Value' : 'Top (systolic)').props.value).toBe(kind === 'weight' ? '71' : '126');
+      expect(host!.all().some(n => n.props.role === 'alert')).toBe(true);
+      expect(dialog()?.props['data-dismissible']).toBe(true);
+      await host!.click(host!.button('Close', { exact: true }));
+      expect(closed).toEqual([false]);
+    });
+
+    it(`${kind}: a Back while it saves waits; stored, it closes and the Back goes on; refused, the Back is let go`, async () => {
+      for (const refused of [false, true]) {
+        host?.unmount();
+        store.resetForTests();
+        resetPendingCheckInsForTests();
+        fake = fakeIndexedDB({ failWrite: (_name, row) => (refuse && (row.key === 'checkIns' || 'kind' in row) ? new DOMException('Full', 'QuotaExceededError') : undefined) });
+        await store.start({ factory: fake, broadcast: null });
+        const { closed, finish } = await correcting(kind);
+        expect(nav.holds).toBe(true);
+        nav.state = 'blocked';
+        await host!.settle();
+        await finish(refused);
+        expect([nav.resets, nav.proceeded], String(refused)).toEqual(refused ? [1, 0] : [0, 1]);
+        expect(closed, String(refused)).toEqual(refused ? [] : [false]);
+      }
+    });
+  }
 });

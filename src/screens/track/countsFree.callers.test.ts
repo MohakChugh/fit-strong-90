@@ -25,6 +25,8 @@ vi.mock('react-router-dom', async () => {
     // A plain anchor with its text: My Day's rows are links.
     Link: ({ children }: { children?: unknown }) => h('a', null, children as never),
     Navigate: () => null,
+    // A correction sheet holds a Back while it saves (codex F-ui-02); nothing here leaves mid-save.
+    useBlocker: () => ({ state: 'unblocked', proceed() {}, reset() {} }),
   };
 });
 // sonner styles the page as it loads, and no toast is shown here.
