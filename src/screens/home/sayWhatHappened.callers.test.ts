@@ -541,3 +541,55 @@ describe('the pause beside every safety decision on the shared surface (boards D
     });
   }
 });
+
+describe('F-safety-06: the check-in opened on its questions keeps the shared decision in view (journey §4.3, §4.7, B-02)', () => {
+  const insulin = createDefaultProfile({ health: {
+    diabetes: 'type2', insulin: 'injections_or_pump', insulinRegimen: 'basalOnly', medicinesReviewed: true, currentlyActive: true, clearance: 'vigorous',
+    glucoseMonitor: 'meter', glucoseUnit: 'mg/dL',
+  } });
+  function CheckIn() {
+    const g = useGuided();
+    const [open, setOpen] = useState(true);
+    return h(CheckInSheet, { open, onOpenChange: setOpen, profile: g.profile, date: g.date, initial: g.checkIn, onSave: g.saveCheckIn, recent: g.checkIns });
+  }
+  const kinds = () => x().all().filter(n => n.props['data-urgent-kind'] !== undefined).map(n => String(n.props['data-urgent-kind']));
+
+  it('a 60 at 13:30, reopened at 13:36 for the re-check: the low, its time and the re-check stand above the questions', async () => {
+    vi.setSystemTime(new Date(2026, 9, 9, 13, 30));
+    const low: DailyCheckIn = { ...day(DAY, []), glucose: { value: 60, unit: 'mg/dL', measuredAt: new Date(2026, 9, 9, 13, 30).toISOString(), source: 'meter' } };
+    await store.update(prev => ({ ...prev, profile: insulin, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [{ ...low, readiness: evaluateCheckIn(insulin, low) }] }));
+    vi.setSystemTime(new Date(2026, 9, 9, 13, 36));
+    host = render(h(UrgentProvider, null, h(CheckIn)));
+    await x().settle();
+    expect(x().text()).toContain('Right now, any of these?');
+    expect(kinds()).toContain('recheck');
+    const strip = x().all().find(n => n.props['data-urgent-kind'] === 'recheck')!;
+    expect(textOf(strip.children)).toMatch(/Low glucose at .*· Re-check at/);
+    // Re-checked at 13:46 and still low: the sheet's own outcome says the decision, and the surface steps aside.
+    vi.setSystemTime(new Date(2026, 9, 9, 13, 46));
+    await x().click(x().buttons('None of these', { exact: true })[0]);
+    await x().change(x().field('Glucose reading'), { value: '62' });
+    await x().click(x().button('See today’s plan'));
+    await x().settle();
+    expect(x().text()).not.toContain('Right now, any of these?');
+    expect(kinds()).toEqual([]);
+  });
+
+  it('an emergency ticked on the questions is said once, by the sheet’s own banner', async () => {
+    await store.update(prev => ({ ...prev, profile: insulin, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [] }));
+    host = render(h(UrgentProvider, null, h(CheckIn)));
+    await x().settle();
+    expect(kinds()).toEqual([]);
+    // While its save is on its way, the emergency's banner stands over the questions.
+    fake.control.hold();
+    await x().click(x().button(EMERGENCY_LABEL.chest));
+    await x().settle();
+    expect(x().text()).toContain('Right now, any of these?');
+    expect(x().text()).toMatch(/Call/);
+    expect(kinds()).toEqual([]);
+    fake.control.release();
+    await x().settle();
+    expect(store.getState().checkIns.find(c => c.date === DAY)?.emergency).toContain('chest');
+    expect(kinds()).toEqual([]);
+  });
+});

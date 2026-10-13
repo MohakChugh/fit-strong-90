@@ -11,7 +11,7 @@
  * Decisions live in `form.ts` and the engine; this file wires them up.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DailyCheckIn, EmergencyFlag, EpisodeKind, EpisodeResolution, GlucoseTrend, NewsItem, SymptomReach, UrineKetoneCategory } from '@/types/checkin';
 import type { CheckInRecord } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
@@ -61,6 +61,12 @@ interface Props {
    * the stop is still said, with no box to untick.
    */
   onSayWhatHappened?: () => void;
+  /**
+   * Told whether the body draws the day's decision itself, its outcome or an
+   * emergency answered here (F-safety-06): only then may the sheet's shared
+   * surface step aside. While the questions are shown, it says every decision.
+   */
+  onDraws?: (draws: boolean) => void;
 }
 
 export function CheckInSheet(props: Props) {
@@ -80,10 +86,12 @@ export function CheckInSheet(props: Props) {
     if (saying) requestAnimationFrame(() => requestAnimationFrame(saying.go));
   }, [saying]);
   const onSayWhatHappened = say ? () => { setSayNext(true); props.onOpenChange(false); } : props.onSayWhatHappened;
+  // The shared surface steps aside only while the body draws the decision itself (F-safety-06, journey §4.7).
+  const [draws, setDraws] = useState(false);
   return (
-    <Sheet open={props.open} onOpenChange={props.onOpenChange} title="Check-in" detent="large" ownsUrgent>
+    <Sheet open={props.open} onOpenChange={props.onOpenChange} title="Check-in" detent="large" ownsUrgent={draws}>
       {/* Mounted per opening, so the form always starts from the latest saved answers. */}
-      {props.open && <CheckInBody {...props} {...(onSayWhatHappened ? { onSayWhatHappened } : {})} />}
+      {props.open && <CheckInBody {...props} {...(onSayWhatHappened ? { onSayWhatHappened } : {})} onDraws={setDraws} />}
     </Sheet>
   );
 }
@@ -206,7 +214,7 @@ const EPISODE_NOTE: Record<EpisodeKind, string> = {
   news: 'It ends exercise for the rest of today, even once it has passed.',
 };
 
-export function CheckInBody({ profile, date, initial, onSave, onStart, startLabel, mode = 'guided', recent, onSayWhatHappened }: Props) {
+export function CheckInBody({ profile, date, initial, onSave, onStart, startLabel, mode = 'guided', recent, onSayWhatHappened, onDraws }: Props) {
   const [now, setNow] = useNow();
   const ctx: SheetContext = useMemo(() => ({ profile, date, mode, now, ...(recent ? { recent } : {}) }), [profile, date, mode, now, recent]);
   // Every transition goes through `sheetState`, which is where the rules about
@@ -250,6 +258,10 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
   useEffect(() => {
     if (emergencyShown) top.current?.scrollIntoView({ block: 'start' });
   }, [emergencyShown, view]);
+  // What this body draws of the day's decision (F-safety-06): the outcome, or an emergency's banner over the questions.
+  const draws = !!result && !!gate && (view === 'outcome' || emergencyBanner);
+  useLayoutEffect(() => onDraws?.(draws), [draws, onDraws]);
+  useLayoutEffect(() => () => onDraws?.(false), [onDraws]);
   // Asked of the clock as it is now: a reading timed as it was typed is never "later than now" (X2-15).
   const blocked = submitBlocked(form, { profile, ...(record ? { previous: record } : {}), now: new Date() });
   const sanity = useMemo(

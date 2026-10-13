@@ -793,7 +793,8 @@ describe('the safety surface wherever the person is (codex V1-02, V1-03, journey
     // The check-in sheet shows today's outcome itself.
     const own = render(h(nav.SheetTopContext, { value: top }, h(Sheet, { open: true, onOpenChange, title: 'Check-in', ownsUrgent: true, children: null })));
     expect(surfaces(own.all())).toBe(0);
-    expect(read('src/components/checkin/CheckInSheet.tsx')).toMatch(/<Sheet open=\{props\.open\} onOpenChange=\{props\.onOpenChange\} title="Check-in" detent="large" ownsUrgent>/);
+    // Only while its body draws the decision: its outcome, or an emergency answered here (F-safety-06).
+    expect(read('src/components/checkin/CheckInSheet.tsx')).toMatch(/<Sheet open=\{props\.open\} onOpenChange=\{props\.onOpenChange\} title="Check-in" detent="large" ownsUrgent=\{draws\}>/);
   });
 
   it('brings a decision arriving, or changing, into view in a sheet scrolled down, heading first, keeping the form under it (codex W-02)', () => {
