@@ -13,7 +13,7 @@ import { useClock } from '@/screens/today/clock';
 import { recentEntries } from '@/store/recent';
 import { useStore } from '@/store/useStore';
 import type { DisplayPrefs } from './format';
-import { recentRow } from './recentRows';
+import { recentRow, restoreName } from './recentRows';
 import { restoreEntry } from './restoreEntry';
 
 export function RecentlyDeleted({ prefs, today }: { prefs: DisplayPrefs; today: string }) {
@@ -59,12 +59,13 @@ export function RecentlyDeleted({ prefs, today }: { prefs: DisplayPrefs; today: 
               <Row
                 key={e.id}
                 label={row.title}
-                detail={row.detail}
+                // The measurement and the deletion, each said on its own (F-data-03).
+                detail={row.measured ? <><span className="block">{row.measured}</span><span className="block">{row.detail}</span></> : row.detail}
                 accessory={(
                   <button
                     type="button"
                     data-main=""
-                    aria-label={`Restore ${row.title}`}
+                    aria-label={restoreName(row)}
                     onClick={() => void restore(e.id, row.title)}
                     className="press-feedback min-h-[3.75rem] shrink-0 rounded-full px-4 text-[length:var(--text-body)] font-semibold text-tint"
                   >

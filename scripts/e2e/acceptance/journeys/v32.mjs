@@ -180,7 +180,8 @@ export const cases = [
       await t.step(5, 'Its Undo ended with the screen; Recently deleted brings the 52 back under a fresh id, still answered: held again while it is the latest reading, and settled by its answer once a later one comes', async () => {
         await ui.legacyTab(page, 'Track');
         const sheet = await rec.openRecentlyDeleted(t);
-        await ui.tap(sheet.getByRole('button', { name: `Restore ${SAID}`, exact: true }));
+        // A clinical row's Restore names when the reading was measured too (F-data-03, J§4.10).
+        await ui.tap(sheet.getByRole('button', { name: new RegExp(`^Restore ${SAID}, measured today at `) }));
         await sheet.getByText(`${SAID} restored.`, { exact: true }).waitFor({ timeout: 10000 });
         await ui.tap(ui.button(sheet, 'Close'));
         const snap = await t.checkpoint('restored-answered');
