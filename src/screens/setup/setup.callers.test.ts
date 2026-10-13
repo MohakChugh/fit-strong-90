@@ -848,6 +848,24 @@ describe('a setup page, its answers kept as they’re given (§6.1; H5-16, K5-17
     expect(draft()?.answers?.metric).toBe(false);
   });
 
+  it('a weight typed with a decimal comma is the same weight in the other units, and stays it typed again (codex F-setup-04)', async () => {
+    host = await page('about.body');
+    const field = (hint: string) => host!.all().find(n => n.type === 'input' && n.props.placeholder === hint)!;
+    await host.change(field('65'), { value: '70,5' });
+    await host.click(radio(host, 'Units', 'ft, in and lb'));
+    await new Promise(r => setTimeout(r, AUTOSAVE_MS + 50));
+    await host.settle();
+    // 70.5 kg is 155.4 lb, shown as such, and still 70.5 kg as answered.
+    expect(field('143').props.value).toBe('155.4');
+    expect(draft()?.answers).toMatchObject({ metric: false, weightKg: 70.5 });
+    // Back in kg: 70.5 again, not 70,5 read as pounds.
+    await host.click(radio(host, 'Units', 'cm and kg'));
+    await new Promise(r => setTimeout(r, AUTOSAVE_MS + 50));
+    await host.settle();
+    expect(field('65').props.value).toBe('70.5');
+    expect(draft()?.answers?.weightKg).toBe(70.5);
+  });
+
   it('a number its unit makes invalid isn’t an answer either: a start figure in mmol/L, then mg/dL (H5R-15)', async () => {
     const { MedicinesLows } = await import('./pages/medicines');
     const { PageFrame } = await import('./PageFrame');

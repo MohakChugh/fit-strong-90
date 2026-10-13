@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Group } from '@/components/hig/List';
 import { Segmented } from '@/screens/you/controls';
-import { convertWeightText, weightFieldText } from '@/components/profile/wizardSteps';
+import { weightFieldText } from '@/components/profile/wizardSteps';
 import { asksAdult, birthYearProblem } from '@/setup/age';
 import { NAME_MAX, nameProblem } from '@/setup/limits';
 import { heightFrom, heightProblem, heightText, numberFrom, textOf, waistFrom, waistProblem, waistText, weightFrom, weightProblem, type HeightText } from '@/setup/units';
@@ -74,7 +74,8 @@ export function AboutBody({ a, raw, set, tried }: PageProps) {
     setUnitsHeld(problem !== null || waistIssue !== null);
     if (problem !== null || waistIssue !== null) return;
     const h = heightText(cm, to);
-    set({ metric: to }, { heightCm: h.cm, 'heightCm.ft': h.ft, 'heightCm.inch': h.inch, weightKg: convertWeightText(weight, to), waistCm: waistText(wc, to) });
+    // Each from its answer, so a weight typed "70,5" is 155.4 lb, as height and waist are (codex F-setup-04).
+    set({ metric: to }, { heightCm: h.cm, 'heightCm.ft': h.ft, 'heightCm.inch': h.inch, weightKg: weightFieldText(kg, to), waistCm: waistText(wc, to) });
   };
   const changeHeight = (next: HeightText) => {
     const value = heightFrom(next, metric, stored.height);
