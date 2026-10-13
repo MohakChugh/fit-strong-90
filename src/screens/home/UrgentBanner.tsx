@@ -267,6 +267,29 @@ export function OwnsUrgent({ shows }: { shows: Drawn }) {
 }
 
 /**
+ * What a full-screen task's own screen draws of each shared decision it
+ * claims (`OwnsUrgent`), whole (F-walk-04): the engine's headline, when it
+ * was measured or answered, and what is due next, as the time comes due
+ * ("Re-check now"). A screen that says a decision in its own words draws
+ * this with them, so the surface it steps aside for loses nothing.
+ */
+export function ClaimedDecisions({ shows }: { shows: Drawn }) {
+  const urgents = useContext(UrgentsContext);
+  const claimed = urgents.filter(u => says(shows, u));
+  if (claimed.length === 0) return null;
+  return (
+    <>
+      {claimed.map(u => (
+        <div key={u.kind} data-claimed-kind={u.kind} className="flex flex-col gap-0.5">
+          <p className="font-semibold">{u.headline}</p>
+          <p>{lineOf(u)}</p>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/**
  * The shared surface at the top of a full-screen task (B-02, codex V1-03),
  * all but what the task's own screen already says: each decision it draws
  * (`OwnsUrgent`, `says`), and the way out of the pause (`UnsavedClinical`,

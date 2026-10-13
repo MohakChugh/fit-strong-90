@@ -520,3 +520,41 @@ describe('F-walk-03: a low reading the device refused stays on the walk, to try 
     expect(h().buttons('Try again', { exact: true })).toHaveLength(0);
   });
 });
+
+const { UrgentProvider } = await import('@/screens/home/UrgentBanner');
+const { TaskFrame } = await import('@/components/hig/StorageBanner');
+
+describe('F-walk-04: a held walk says a timed decision whole, its time and what is due (journey §4.7, B-02, D224)', () => {
+  /** What is on screen to see: the shell's spoken announcement, outside the page, is not. */
+  const seen = () => {
+    const walkTree = (list: (HostNode | string)[]): string => list.map(c => (typeof c === 'string' ? c
+      : String(c.props.className ?? '').includes('sr-only') ? '' : walkTree(c.children))).join(' ');
+    return walkTree(h().tree).replace(/\s+/g, ' ');
+  };
+  const framed = () => {
+    // The shell's surface marks the root and speaks from outside #app, as the app's document has them.
+    Object.assign(document, { body: { nodeType: 1 }, documentElement: { dataset: {} }, querySelector: () => null, activeElement: null });
+    return render(createElement(UrgentProvider, null, createElement(TaskFrame, null, createElement(LiveWalkScreen))));
+  };
+  it('a 65 logged elsewhere at 13:30: the walk holds, and says when it was measured and when to re-check, then Re-check now', async () => {
+    const p = createDefaultProfile(INSULIN);
+    clock(13, 0);
+    const morning: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(13), source: 'meter' } };
+    await store.update(prev => ({ ...prev, profile: p, settings: { ...prev.settings, onboardingComplete: true }, checkIns: [{ ...morning, readiness: evaluateCheckIn(p, morning) }] }));
+    router.params = startedParams();
+    host = framed();
+    await host.settle();
+    expect(status()).toBe('running');
+    clock(13, 31);
+    expect((await store.addObservation({ kind: 'glucose', value: 65, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: iso(13, 30) })).ok).toBe(true);
+    await h().settle();
+    expect(status()).not.toBe('running');
+    expect(seen()).toMatch(/Re-check your glucose/);
+    expect(seen()).toMatch(/Low glucose at .*· Re-check at/);
+    clock(13, 46);
+    host.unmount();
+    host = framed();
+    await host.settle();
+    expect(seen()).toMatch(/Re-check now/);
+  });
+});
