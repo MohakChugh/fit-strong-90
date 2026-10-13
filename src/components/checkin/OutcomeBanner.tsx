@@ -56,7 +56,7 @@ export function OutcomeBanner({ permission: p, readiness, now }: { permission: P
 
       {first && <p className="text-[length:var(--text-body)] leading-snug">{first}</p>}
       {/* A clinical save the device refused: the way out of the pause, here as wherever it's said, kept as the hold lifts (board D197). */}
-      {p.disposition !== 'emergency' && <UnsavedClinical stated />}
+      {p.disposition !== 'emergency' && <UnsavedClinical />}
       {rest.length > 0 && (
         <ul className="flex list-disc flex-col gap-1.5 pl-5 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
           {rest.map(r => <li key={r}>{r}</li>)}

@@ -76,6 +76,9 @@ const { EMERGENCY_LABEL } = await import('@/components/checkin/copy');
 const { default: WalkHub } = await import('@/screens/hub/WalkHub');
 const { default: StretchHub } = await import('@/screens/hub/StretchHub');
 const { default: WorkoutHub } = await import('@/screens/hub/WorkoutHub');
+const { clinicalUnsaved, gateProfile, resetClinicalUnsavedForTests, saveClinical } = await import('@/setup/effective');
+const { CLINICAL_UNSAVED } = await import('@/engine/readiness');
+const { textOf } = await import('@/test/host');
 
 const plain = createDefaultProfile({ health: { diabetes: 'none', medicinesReviewed: true, currentlyActive: true, clearance: 'vigorous' } });
 const DAY = '2026-10-09';
@@ -99,6 +102,7 @@ afterEach(() => {
   host?.unmount();
   host = undefined;
   vi.useRealTimers();
+  resetClinicalUnsavedForTests();
 });
 
 async function seed(records: DailyCheckIn[]) {
@@ -286,6 +290,254 @@ describe('"Say what happened" on every movement hub (journey §4.4, K6R-03)', ()
       await x().click(x().button('Just need a rest', { exact: true }));
       await x().settle();
       expect(held()).toEqual([false, false, false]);
+    });
+  }
+});
+
+describe('the pause beside every safety decision on the shared surface (boards D197, D224)', () => {
+  /** A finished record, with today's answers. */
+  async function finished(news: DailyCheckIn['news'], over: Partial<DailyCheckIn> = {}) {
+    const today = { ...day(DAY, news), ...over };
+    expect((await store.update(prev => ({
+      ...prev, profile: plain, settings: { ...prev.settings, onboardingComplete: true },
+      checkIns: [{ ...today, readiness: evaluateCheckIn(plain, today) }],
+    }))).ok).toBe(true);
+  }
+  /** A heart condition disclosed that the device refuses to store, saved as Me's editor saves a clinical answer. */
+  async function refusedSave() {
+    fake.control.setWriteError(() => new DOMException('Disk is full', 'QuotaExceededError'));
+    const saved = await saveClinical(() => store.update(d => ({ ...d, profile: { ...d.profile!, health: { ...d.profile!.health, heartOrVascularDisease: true } } })));
+    fake.control.setWriteError(undefined);
+    expect([saved.ok, clinicalUnsaved()]).toEqual([false, true]);
+  }
+  /** Every movement, asked of what the device holds now, as every gate asks it. */
+  const answers = () => {
+    const state = store.getState();
+    const profile = gateProfile(state);
+    const all = effectiveCheckIns(state.checkIns, profile);
+    return (['guided', 'stretch', 'walk'] as const).map(mode => permission({ profile, checkIn: all.find(c => c.date === DAY), recent: all, now: new Date() }, mode));
+  };
+  /** What a screen shows first, the shell's surface, top to bottom. */
+  const surface = () => textOf(x().all().find(n => n.type === 'main')!.children);
+  /** What the stop's own questions show. */
+  const asked = () => textOf(x().all().find(n => n.props.role === 'dialog')?.children ?? []);
+
+  it('a refused save and an unanswered stop: the surface says both, the stop first, and its “Say what happened” opens the stop’s questions', async () => {
+    await finished(['stopped']);
+    await refusedSave();
+    host = render(h(UrgentProvider, null, h(Screen)));
+    await x().settle();
+    // The stop with its ask, then the pause with its own way out, never instead of the stop.
+    const said = surface();
+    expect(said).toContain('No exercise for now');
+    expect(said.indexOf('Say what happened')).toBeGreaterThan(-1);
+    expect(said.indexOf(CLINICAL_UNSAVED)).toBeGreaterThan(said.indexOf('Say what happened'));
+    expect([x().buttons('Try again', { exact: true }).length, x().buttons('Discard changes', { exact: true }).length]).toEqual([1, 1]);
+    // Every movement holds, saying the stop and then the pause, with what releases the stop, as without the pause.
+    expect(answers().every(p => !p.allowed && p.reasons.includes(STOP_UNANSWERED.reason) && p.reasons.at(-1) === CLINICAL_UNSAVED)).toBe(true);
+    expect(answers().map(p => [p.release, p.needsCheckIn])).toEqual(Array(3).fill([STOP_UNANSWERED.release, false]));
+    await x().click(x().button('Say what happened', { exact: true }));
+    expect(asked()).toContain('What’s happening?');
+    // Over the stop's own questions, every other decision stands at their top: the pause (board D212).
+    expect(asked()).toContain(CLINICAL_UNSAVED);
+    await x().click(x().button('Just need a rest', { exact: true }));
+    await x().settle();
+    // The stop answered, its ask goes; the pause stays, and still holds every movement, saying that alone.
+    expect(dialogs()).toBe(0);
+    expect(x().buttons('Say what happened', { exact: true })).toHaveLength(0);
+    expect(surface()).toContain(CLINICAL_UNSAVED);
+    expect(answers().every(p => !p.allowed && p.reasons.join() === CLINICAL_UNSAVED)).toBe(true);
+    // Its own way out: Discard changes, and the stored answers stand.
+    await x().click(x().button('Discard changes', { exact: true }));
+    await x().settle();
+    expect(clinicalUnsaved()).toBe(false);
+    expect(surface()).not.toContain(CLINICAL_UNSAVED);
+    expect(answers().every(p => !p.reasons.includes(CLINICAL_UNSAVED))).toBe(true);
+  });
+
+  it('a refused save and advice today: the surface says both, the advice first; Try again refused says so, stored lets the pause go and the advice stay', async () => {
+    await finished(['fainted']);
+    await refusedSave();
+    host = render(h(UrgentProvider, null, h(Screen)));
+    await x().settle();
+    const said = surface();
+    expect(said).toContain('Get medical advice today');
+    expect(said.indexOf(CLINICAL_UNSAVED)).toBeGreaterThan(said.indexOf('What to do'));
+    expect(answers().every(p => p.disposition === 'today' && p.reasons.at(-1) === CLINICAL_UNSAVED)).toBe(true);
+    fake.control.setWriteError(() => new DOMException('Disk is full', 'QuotaExceededError'));
+    await x().click(x().button('Try again', { exact: true }));
+    await x().settle();
+    expect(surface()).toContain('That did not save.');
+    expect(clinicalUnsaved()).toBe(true);
+    fake.control.setWriteError(undefined);
+    await x().click(x().button('Try again', { exact: true }));
+    await x().settle();
+    expect(clinicalUnsaved()).toBe(false);
+    expect(store.getState().profile?.health.heartOrVascularDisease).toBe(true);
+    expect(surface()).not.toContain(CLINICAL_UNSAVED);
+    expect(surface()).toContain('Get medical advice today');
+  });
+
+  /** The surface's decisions, in the order it stacks them: each one's kind, and the pause as `unsaved`. */
+  const stacked = () => x().all().find(n => n.type === 'main')!.children
+    .flatMap(function sections(c): string[] {
+      if (typeof c === 'string') return [];
+      if (c.props['data-urgent-kind'] !== undefined) return [String(c.props['data-urgent-kind'])];
+      if (c.props['data-urgent-pause'] !== undefined) return ['unsaved'];
+      return c.children.flatMap(sections);
+    });
+
+  it('a stop and advice today: the surface lists both at once, the stop’s ask first, each with its own headline, time and safe action (board D224)', async () => {
+    await finished(['stopped', 'fainted']);
+    host = render(h(UrgentProvider, null, h(Screen)));
+    await x().settle();
+    expect(stacked()).toEqual(['hold', 'seekHelp']);
+    // A screen reader hears both, once.
+    const heard = textOf(x().all().find(n => n.props['aria-live'] === 'assertive')!.children);
+    expect([heard.includes('No exercise for now'), heard.includes('Get medical advice today')]).toEqual([true, true]);
+    const said = surface();
+    expect(said.indexOf('No exercise for now')).toBeLessThan(said.indexOf('Say what happened'));
+    expect(said.indexOf('Say what happened')).toBeLessThan(said.indexOf('No exercise today. Get medical advice today.'));
+    expect(said.indexOf('No exercise today. Get medical advice today.')).toBeLessThan(said.indexOf('What to do'));
+    expect(said.split('From today’s check-in')).toHaveLength(3);
+    // The stop's own way on: its questions.
+    await x().click(x().button('Say what happened', { exact: true }));
+    expect(asked()).toContain('What’s happening?');
+    // Over them, every other decision stands: the advice.
+    expect(asked()).toContain('Get medical advice today');
+    await x().click(x().button('Just need a rest', { exact: true }));
+    await x().settle();
+    expect(stacked()).toEqual(['seekHelp']);
+  });
+
+  it('a low and the pause: both stay, the low’s treatment first (board D224)', async () => {
+    await finished(['lowSymptoms']);
+    await refusedSave();
+    host = render(h(UrgentProvider, null, h(Screen)));
+    await x().settle();
+    expect(stacked()).toEqual(['low', 'unsaved']);
+    const said = surface();
+    expect(said).toContain('Check your glucose now');
+    expect(said).toContain('Feeling low today');
+    // Each with its own way on: the low's to Home's Right now, the pause's Try again and Discard changes.
+    expect(said.indexOf('What to do')).toBeGreaterThan(said.indexOf('Feeling low today'));
+    expect(said.indexOf(CLINICAL_UNSAVED)).toBeGreaterThan(said.indexOf('What to do'));
+    expect([x().buttons('Try again', { exact: true }).length, x().buttons('Discard changes', { exact: true }).length]).toEqual([1, 1]);
+  });
+
+  it('an emergency stands alone: call now, with nothing else, not a stop, advice today or the pause (board D224)', async () => {
+    await finished(['stopped', 'fainted'], { urgentSymptoms: true, emergency: ['chest'] });
+    await refusedSave();
+    host = render(h(UrgentProvider, null, h(Screen)));
+    await x().settle();
+    expect(stacked()).toEqual(['emergency']);
+    expect(surface()).toContain(PERMISSION_TEXT.emergencyTitle);
+    for (const said of ['Say what happened', 'Get medical advice today', CLINICAL_UNSAVED]) expect(surface()).not.toContain(said);
+  });
+
+  it('in a full-screen task, each said once: what the task’s own screen draws steps aside, and the rest of the surface stays', async () => {
+    const { OwnsUrgent, TaskUrgent } = await import('./UrgentBanner');
+    const { SessionGate } = await import('@/components/checkin/SessionGate');
+    await finished(['stopped']);
+    await refusedSave();
+    const [guided, , walk] = answers();
+    /** The task's surface: its decision's section and its pause's, and every Try again on screen. */
+    const drawn = async (screen: ReturnType<typeof h>) => {
+      host?.unmount();
+      host = render(h(UrgentProvider, null, h(TaskUrgent, null, screen)));
+      await x().settle();
+      const count = (attr: string) => x().all().filter(n => n.props[attr] !== undefined).length;
+      return [count('data-urgent-kind'), count('data-urgent-pause'), x().buttons('Try again', { exact: true }).length];
+    };
+    // The session's gate draws the stop and the pause, with its own way out: nothing of the surface repeats them.
+    expect(await drawn(h(SessionGate, { permission: guided, now: new Date(), onBack() {} }))).toEqual([0, 0, 1]);
+    // A held walk draws the stop and says the pause, with no way out of it: the surface's pause stays.
+    expect(await drawn(h('div', null, h(OwnsUrgent, { shows: walk }), h('p', null, 'This walk is on hold')))).toEqual([0, 1, 1]);
+    // A gate still drawing an answer from before the stop, with the way out: the surface's stop stays.
+    expect(await drawn(h(SessionGate, { permission: { ...guided, reasons: [CLINICAL_UNSAVED] }, now: new Date(), onBack() {} }))).toEqual([1, 0, 1]);
+    // A screen that draws neither: the whole surface.
+    expect(await drawn(h('p', null, 'Your walk'))).toEqual([1, 1, 1]);
+  });
+
+  it('in an open sheet, its way out keeps focus in the sheet as the pause goes (B-03)', async () => {
+    await finished([]);
+    await refusedSave();
+    function Open() {
+      return h(Sheet, { open: true, onOpenChange() {}, title: 'Add to Home', children: h('p', null, 'Choose a tile') });
+    }
+    host = render(h(UrgentProvider, null, h(Open)));
+    await x().settle();
+    const dialog = x().all().find(n => n.props.role === 'dialog')!;
+    const body = inside(dialog).find(n => n.props.tabIndex === -1)!.element!;
+    const pause = inside(dialog).find(n => n.props['data-urgent-pause'] !== undefined)!;
+    // Where the strip sits: in the sheet's scrolling body, which a browser finds from it.
+    Object.assign(pause.element!, { closest: (selector: string) => (selector === '[role="dialog"] [tabindex="-1"]' ? body : null) });
+    let focused = 0;
+    body.focus = () => void (focused += 1);
+    await x().click(inside(dialog).find(n => n.type === 'button' && textOf(n.children) === 'Discard changes')!);
+    await x().settle();
+    expect([clinicalUnsaved(), asked().includes(CLINICAL_UNSAVED), focused]).toEqual([false, false, 1]);
+  });
+
+  it('in a full-screen task, a gate drawn with advice today and a stop says both; one drawn before the advice says only the stop', async () => {
+    const { OwnsUrgent, TaskUrgent } = await import('./UrgentBanner');
+    await finished(['stopped', 'fainted']);
+    const [guided] = answers();
+    expect(guided.disposition).toBe('today');
+    const kinds = async (screen: ReturnType<typeof h>) => {
+      host?.unmount();
+      host = render(h(UrgentProvider, null, h(TaskUrgent, null, screen)));
+      await x().settle();
+      return x().all().filter(n => n.props['data-urgent-kind'] !== undefined).map(n => n.props['data-urgent-kind']);
+    };
+    expect(await kinds(h(OwnsUrgent, { shows: guided }))).toEqual([]);
+    expect(await kinds(h(OwnsUrgent, { shows: { allowed: false, disposition: 'hold', reasons: [STOP_UNANSWERED.reason] } }))).toEqual(['seekHelp']);
+    expect(await kinds(h('p', null, 'Your walk'))).toEqual(['hold', 'seekHelp']);
+  });
+
+  it('in an open sheet, a decision arriving beside the one standing there is brought into view', async () => {
+    await finished(['stopped']);
+    function Open() {
+      return h(Sheet, { open: true, onOpenChange() {}, title: 'Add to Home', children: h('p', null, 'Choose a tile') });
+    }
+    host = render(h(UrgentProvider, null, h(Open)));
+    await x().settle();
+    const body = x().all().find(n => n.props.tabIndex === -1 && n.element)!.element!;
+    body.scrollTop = 200;
+    await finished(['stopped', 'fainted']);
+    await x().settle();
+    expect(asked()).toContain('Get medical advice today');
+    expect(body.scrollTop).toBe(0);
+  });
+
+  it('in an open sheet, the pause arriving beside the decision standing there is brought into view', async () => {
+    await finished(['stopped']);
+    function Open() {
+      return h(Sheet, { open: true, onOpenChange() {}, title: 'Add to Home', children: h('p', null, 'Choose a tile') });
+    }
+    host = render(h(UrgentProvider, null, h(Open)));
+    await x().settle();
+    // The sheet's scrolling body, scrolled down to its content.
+    const body = x().all().find(n => n.props.tabIndex === -1 && n.element)!.element!;
+    body.scrollTop = 200;
+    await refusedSave();
+    await x().settle();
+    expect(asked()).toContain(CLINICAL_UNSAVED);
+    expect(body.scrollTop).toBe(0);
+  });
+
+  for (const [name, Hub] of [['Walk', WalkHub], ['Stretch', StretchHub], ['Workout', WorkoutHub]] as const) {
+    it(`a refused save and an unanswered stop: the ${name} hub’s card asks what happened, as it would without the pause`, async () => {
+      await finished(['stopped']);
+      await refusedSave();
+      host = render(h(UrgentProvider, null, h(Hub)));
+      await x().settle();
+      // The card's own, not the shared surface's at the top.
+      const shared = new Set(x().all().filter(n => n.props['data-urgent-kind'] !== undefined).flatMap(inside));
+      const card = x().buttons('Say what happened', { exact: true }).filter(b => !shared.has(b));
+      expect(card).toHaveLength(1);
+      await x().click(card[0]);
+      expect(asked()).toContain('What’s happening?');
     });
   }
 });

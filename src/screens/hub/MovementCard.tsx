@@ -38,7 +38,7 @@ export function MovementCard({ card, onAction }: { card: HubCard; onAction: (kin
           </div>
         )}
         {/* A clinical save the device refused: the way out of the pause, kept as the hold lifts (board D197). */}
-        {card.tone !== 'stop' && <UnsavedClinical stated />}
+        {card.tone !== 'stop' && <UnsavedClinical />}
         {card.restrictions.length > 0 && (
           <ul aria-label="Changes for today" className="flex list-disc flex-col gap-1.5 pl-5 text-[length:var(--text-body)] leading-snug">
             {card.restrictions.map(r => <li key={r}>{r}</li>)}

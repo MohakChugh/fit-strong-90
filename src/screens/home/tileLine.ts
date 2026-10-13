@@ -22,15 +22,19 @@ export interface TileLine {
  * the reasons come in. Anything new falls back to a pointer to the hub.
  */
 const HOLD_HEADLINE: [reason: string, headline: string][] = [
-  [PERMISSION_TEXT.unsaved, 'Paused: health answers not saved'],
   [PERMISSION_TEXT.footWalk, 'No walking for now'],
   [PERMISSION_TEXT.future, 'Check the reading’s time'],
   [PERMISSION_TEXT.stale, 'Check glucose first'],
   [PERMISSION_TEXT.staleNoTime, 'Check glucose first'],
 ];
-/** The gate's short headline for a refusal it knows (journey §7.5), as tiles say it: the walk's preflight uses it when the final gate refuses (Plan 6). */
+/**
+ * The gate's short headline for a refusal it knows (journey §7.5), as tiles say it: the walk's preflight uses it when
+ * the final gate refuses (Plan 6). The pause's own only while nothing else stands: a decision beside it, a re-check's
+ * wait or a stop, is said first (board D224).
+ */
 export function holdHeadline(p: Permission): string | undefined {
-  return HOLD_HEADLINE.find(([reason]) => p.reasons.some(r => r.startsWith(reason)))?.[1];
+  return HOLD_HEADLINE.find(([reason]) => p.reasons.some(r => r.startsWith(reason)))?.[1]
+    ?? (p.reasons.join() === PERMISSION_TEXT.unsaved ? 'Paused: health answers not saved' : undefined);
 }
 
 /** The setup chapter each profile gap needs (L-03). */

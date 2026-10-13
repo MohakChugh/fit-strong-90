@@ -86,8 +86,7 @@ import { TileGrid, type TileState } from './TileGrid';
 import { TileMenu } from './TileMenu';
 import { NewHomeRow } from './NewHomeRow';
 import { movementLine } from './tileLine';
-import { RIGHT_NOW_ID, SAFETY_KINDS, SLOTS, UrgentContext, recommendSources, withEffectiveToday } from './urgent';
-import { UnsavedClinical } from '@/components/profile/UnsavedClinical';
+import { RIGHT_NOW_ID, SAFETY_KINDS, SLOTS, UrgentContext, recommendSources, useMovementHeld, withEffectiveToday } from './urgent';
 import { WeekCard } from './WeekCard';
 import { WalkRecoveryRow } from './WalkRecoveryRow';
 import { movedDays, restDaysOf, stepsLine, stretchDays, weekDots } from './week';
@@ -130,8 +129,9 @@ export function HomeScreen() {
   const clock = useClock();
   // The shell's urgent decision: while one stands nothing here moves or is named for a transition (motion rule 2).
   const urgent = useContext(UrgentContext);
-  // A walk or a stand-up is not offered beside a safety decision; it waits (kiro KV-09).
-  const waiting = offeredNow(usePending(), urgent !== undefined);
+  // A walk or a stand-up is not offered beside a safety decision, nor while any hold on movement stands; it waits
+  // (kiro KV-09, the shared held verdict, board D224).
+  const waiting = offeredNow(usePending(), { urgent: urgent !== undefined, held: useMovementHeld() });
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const { settings, profile, observations, sessions } = state;
@@ -385,8 +385,6 @@ export function HomeScreen() {
           <Row role="status" icon={<InfoIcon />} label="That page has moved" />
         </Group>
       )}
-      {/* A clinical save the device refused: every movement waits until it's tried again or discarded (board D197). */}
-      <UnsavedClinical />
       {/* "What to do" on the urgent surface brings this into view, focus with it. */}
       <div id={RIGHT_NOW_ID} tabIndex={-1} className="flex scroll-mt-16 flex-col gap-3 outline-none">
         <RecommendationCard

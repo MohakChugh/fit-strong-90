@@ -2071,17 +2071,31 @@ export const CLINICAL_UNSAVED = 'Your health answers aren’t saved, so movement
 export const CLINICAL_UNSAVED_RELEASE = 'Try again to save them, or discard the changes.';
 
 /**
- * The day's answer while a clinical answer couldn't be stored (board D197):
- * every movement holds, and that alone is said, since advice worked out from
- * answers that aren't the person's could be wrong for them (H5F-02). An
- * emergency stays as it is, and a low is still treated.
+ * Holds that only ask for a reading to be given or typed again: the check-in
+ * says so, and the tiles say "check in first". Not a safety state of the
+ * person (journey §4.7: ordinary holds keep their own words), so neither the
+ * shared surface nor the pause beside it says them (board D224).
+ */
+export const ASKS_FOR_A_READING: ReadonlySet<string> = new Set(['noReading', 'readingInvalid', 'bpInvalid', 'ketonesInvalid']);
+
+/**
+ * The day's answer while a clinical answer couldn't be stored (boards D197,
+ * D224): every movement holds. What the day decides stands as it is, and the
+ * pause is said after it, never instead of it: a stop still asks what
+ * happened, a low is still treated and re-checked, advice today is still
+ * given. Nothing else is advised, since advice worked out from answers that
+ * aren't the person's could be wrong for them (H5F-02), and nothing asks for
+ * a reading to start with. An emergency stays as it is.
  */
 function unsavedReadiness(r: Readiness): Readiness {
   if (r.disposition === 'emergency') return r;
   const outcome = OUTCOME_ORDER.indexOf(r.outcome) >= OUTCOME_ORDER.indexOf('amber') ? r.outcome : 'amber';
+  const decided = r.reasons.filter(x => rank(x.disposition ?? 'adjust') >= rank('hold') && !ASKS_FOR_A_READING.has(x.code));
   return {
-    ...r, outcome, disposition: 'hold', release: CLINICAL_UNSAVED_RELEASE, awaitingReading: false, notices: [],
-    reasons: [{ code: 'clinicalUnsaved', message: CLINICAL_UNSAVED, outcome: 'amber', disposition: 'hold' }],
+    ...r, outcome, disposition: r.disposition === 'today' ? 'today' : 'hold', notices: [],
+    release: decided.length > 0 && r.release ? r.release : CLINICAL_UNSAVED_RELEASE,
+    awaitingReading: decided.length > 0 && r.awaitingReading === true,
+    reasons: [...decided, { code: 'clinicalUnsaved', message: CLINICAL_UNSAVED, outcome: 'amber', disposition: 'hold' }],
     actions: r.actions.filter(action => action === TREAT),
   };
 }

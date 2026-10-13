@@ -1,21 +1,21 @@
-import { useRef, useState } from 'react';
-import { TriangleAlertIcon } from 'lucide-react';
+import { useContext, useLayoutEffect, useRef, useState } from 'react';
 import { Group, Row } from '@/components/hig/List';
-import { CLINICAL_UNSAVED } from '@/engine/readiness';
 import { discardClinical, retryClinical, useClinicalUnsaved } from '@/setup/effective';
+import { PauseClaimContext } from './pauseClaim';
 
 /**
- * While a clinical answer couldn't be stored (board D197): that said, with
- * Try again and Discard changes, wherever the day's answer is read. Once
- * they're gone, the region stays, saying what happened, with focus on it, so
- * neither the place nor the news is lost (H5F-12). A card that says the pause
- * draws it whatever its answer, so it stays as the hold lifts.
+ * While a clinical answer couldn't be stored (board D197): the way out, Try
+ * again and Discard changes, in a card that lists the pause among its reasons
+ * (Readiness, a hub's Right now). The shared surface says the pause itself, on
+ * every screen (board D224). Once they're gone, the region stays, saying what
+ * happened, with focus on it, so neither the place nor the news is lost
+ * (H5F-12). A card draws it whatever its answer, so it stays as the hold lifts.
  */
-export function UnsavedClinical({ stated = false }: {
-  /** The card around it already says the pause (Readiness, a hub's Right now): only the way out, then. */
-  stated?: boolean;
-}) {
+export function UnsavedClinical() {
   const unsaved = useClinicalUnsaved();
+  // In a full-screen task, the way out drawn here is the task's: its surface doesn't repeat it (board D224).
+  const claim = useContext(PauseClaimContext);
+  useLayoutEffect(() => claim?.(), [claim]);
   const [said, setSaid] = useState<string>();
   const [busy, setBusy] = useState(false);
   const region = useRef<HTMLDivElement>(null);
@@ -36,14 +36,13 @@ export function UnsavedClinical({ stated = false }: {
     discardClinical();
     done('Not kept. The health answers stored before stand.');
   };
-  // Nothing waiting and nothing said: no place taken in the screen's layout.
+  // Nothing waiting and nothing said: no place taken in the card's layout.
   if (!unsaved && said === undefined) return null;
   return (
     <div ref={region} tabIndex={-1} className="outline-none">
       <p role="status" className="px-4 pb-2 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{said}</p>
       {unsaved && (
-        <Group footer={stated ? undefined : 'Until they’re saved, or the changes discarded, no session starts and water reminders pause.'}>
-          {!stated && <Row icon={<TriangleAlertIcon className="text-caution" />} label={CLINICAL_UNSAVED} />}
+        <Group>
           <Row onClick={() => void retry()} label={<span className="text-tint">{busy ? 'Saving…' : 'Try again'}</span>} />
           <Row onClick={discard} label={<span className="text-tint">Discard changes</span>} />
         </Group>

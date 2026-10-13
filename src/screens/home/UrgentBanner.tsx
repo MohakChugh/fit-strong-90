@@ -1,11 +1,14 @@
-import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { SirenIcon, TriangleAlertIcon } from 'lucide-react';
 import { AnsweringStopContext, useSayWhatHappened } from '@/components/checkin/sayWhatHappened';
 import { markTab, ScreenTopContext, SheetTopContext, type SheetExit } from '@/components/hig/navigation';
+import { PauseClaimContext } from '@/components/profile/pauseClaim';
+import { CLINICAL_UNSAVED } from '@/engine/readiness';
 import { cn } from '@/lib/utils';
-import { RIGHT_NOW_ID, UrgentContext, says, useUrgent, type Urgent } from './urgent';
+import { discardClinical, retryClinical, useClinicalUnsaved } from '@/setup/effective';
+import { RIGHT_NOW_ID, UrgentContext, UrgentsContext, says, useUrgents, type Urgent } from './urgent';
 import { SayWhatHappenedProvider } from './SayWhatHappened';
 
 /** Said in a sheet while its way on waits for it to finish saving (codex W-05). */
@@ -13,6 +16,12 @@ const WAITING = 'Waiting for this to finish saving.';
 
 /** "Low glucose at 1:30 pm · Re-check at 1:45 pm". */
 const lineOf = (u: Urgent) => [u.when, u.next].filter(Boolean).join(' · ');
+
+/** The surface's buttons, in its stop or caution ink. */
+const buttonIn = (stop: boolean) => cn(
+  'press-feedback flex min-h-12 w-full items-center justify-center rounded-xl border-2 px-4 text-[length:var(--text-body)] font-semibold',
+  stop ? 'border-white/90 text-white' : 'border-black/80 text-black',
+);
 
 /** Home's Right now card, where the action is: in view, with the focus. */
 function showRightNow(): void {
@@ -45,10 +54,7 @@ export function UrgentBanner({ urgent, exit }: { urgent: Urgent; exit?: SheetExi
   const navigate = useNavigate();
   const stop = urgent.tone === 'stop';
   const Icon = urgent.kind === 'emergency' ? SirenIcon : TriangleAlertIcon;
-  const button = cn(
-    'press-feedback flex min-h-12 w-full items-center justify-center rounded-xl border-2 px-4 text-[length:var(--text-body)] font-semibold',
-    stop ? 'border-white/90 text-white' : 'border-black/80 text-black',
-  );
+  const button = buttonIn(stop);
   const home = pathname === '/home';
   const say = useSayWhatHappened();
   const stopFirst = urgent.stop && say;
@@ -91,41 +97,130 @@ export function UrgentBanner({ urgent, exit }: { urgent: Urgent; exit?: SheetExi
   );
 }
 
+/** Says what became of the pause once the surface's way out of it was taken, from outside `#app` (`UrgentProvider`). */
+const PauseNewsContext = createContext<(text: string) => void>(() => {});
+/** Whether the pause stands, as the shell worked it out, for a full-screen task's surface (`TaskUrgent`). */
+const PausedContext = createContext(false);
+
+/** Where focus goes once the way out has gone with the pause (B-03): the sheet it was in, or the screen's title. */
+const landingFor = (from: HTMLElement | null): HTMLElement | null =>
+  from?.closest?.<HTMLElement>('[role="dialog"] [tabindex="-1"]') ?? document.querySelector<HTMLElement>('main h1');
+
+/**
+ * The pause on the shared surface (boards D197, D224): while a clinical answer
+ * couldn't be stored, "Your health answers aren't saved, so movement is
+ * paused.", with Try again and Discard changes. Last, after whatever other
+ * decision stands: beside every one, never instead of one. Tried again and
+ * refused, it says so and stays. Stored or not kept, it goes with the pause:
+ * what happened is said, and focus goes where `landingFor` says.
+ */
+function PauseBanner() {
+  const titleId = useId();
+  const tell = useContext(PauseNewsContext);
+  const section = useRef<HTMLElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string>();
+  const button = buttonIn(false);
+  const gone = (text: string, landing: HTMLElement | null) => {
+    tell(text);
+    requestAnimationFrame(() => landing?.focus({ preventScroll: true }));
+  };
+  const retry = async () => {
+    if (busy) return;
+    const landing = landingFor(section.current);
+    setBusy(true);
+    const saved = await retryClinical();
+    setBusy(false);
+    if (!saved) return;
+    if (saved.ok) gone('Saved. Movement follows your health answers again.', landing);
+    else setProblem(`That did not save. ${saved.failure.message}`);
+  };
+  const discard = () => {
+    const landing = landingFor(section.current);
+    discardClinical();
+    gone('Not kept. The health answers stored before stand.', landing);
+  };
+  return (
+    <section ref={section} aria-labelledby={titleId} data-urgent-pause="" className="flex flex-col gap-3 rounded-2xl bg-caution-fill p-4 text-black">
+      <h2 id={titleId} className="flex items-start gap-2 text-[length:var(--text-title-2)] font-bold leading-tight [overflow-wrap:break-word]">
+        <TriangleAlertIcon className="mt-0.5 size-6 shrink-0" aria-hidden />
+        <span className="min-w-0">{CLINICAL_UNSAVED}</span>
+      </h2>
+      {problem && <p role="alert" className="text-[length:var(--text-body)] font-medium leading-snug [overflow-wrap:break-word]">{problem}</p>}
+      <button type="button" onClick={() => void retry()} className={button}>{busy ? 'Saving…' : 'Try again'}</button>
+      <button type="button" onClick={discard} className={button}>Discard changes</button>
+    </section>
+  );
+}
+
+/**
+ * Everything the shared surface says, at once and in order (journey §4.7,
+ * board D224): each decision that stands (`urgentsOf`), then the pause while
+ * health answers aren't saved, beside them and never instead of one. Beside an
+ * emergency, which stands alone, nothing: its caller leaves the pause out.
+ */
+function SafetySurface({ urgents, paused, exit }: { urgents: readonly Urgent[]; paused: boolean; exit?: SheetExit }) {
+  return (
+    <div className="flex flex-col gap-3">
+      {urgents.map(u => <UrgentBanner key={u.kind} urgent={u} {...(exit ? { exit } : {})} />)}
+      {paused && <PauseBanner />}
+    </div>
+  );
+}
+
 /**
  * The app's side of the surface, above the routes (codex V1-03): works out
- * the urgent decision once (`useUrgent`) and hands it to every screen, which
- * shows it first, to a screen still loading or one that failed, to
- * full-screen tasks (`TaskUrgent`) and to every sheet (codex V1-02). While it
- * stands no view transition runs, and one already running is skipped (motion
- * rule 2, read by `main.tsx` from `data-urgent`). A screen reader hears it
- * once when it arrives or changes, not on every screen, from outside `#app`,
- * which an open sheet makes inert.
+ * the urgent decisions once (`useUrgents`) and hands them to every screen,
+ * which shows them first, to a screen still loading or one that failed, to
+ * full-screen tasks (`TaskUrgent`) and to every sheet (codex V1-02), with the
+ * pause after them while health answers aren't saved, but never beside an
+ * emergency (board D224). While a decision stands no view transition runs,
+ * and one already running is skipped (motion rule 2, read by `main.tsx` from
+ * `data-urgent`). A screen reader hears them once when they arrive or change,
+ * not on every screen, from outside `#app`, which an open sheet makes inert;
+ * and hears there what became of the pause once its way out was taken.
  */
 export function UrgentProvider({ children }: { children: ReactNode }) {
-  const urgent = useUrgent();
+  const urgents = useUrgents();
+  const urgent = urgents[0];
+  // An emergency stands alone: "call now", with nothing beside it.
+  const paused = useClinicalUnsaved() && urgent?.kind !== 'emergency';
+  const [news, setNews] = useState({ text: '', n: 0 });
+  const tell = useCallback((text: string) => setNews(was => ({ text, n: was.n + 1 })), []);
   useLayoutEffect(() => {
     const root = document.documentElement;
     if (urgent) root.dataset.urgent = urgent.kind;
     else delete root.dataset.urgent;
   }, [urgent]);
   useEffect(() => () => { delete document.documentElement.dataset.urgent; }, []);
-  const banner = useMemo(() => (urgent ? <UrgentBanner urgent={urgent} /> : null), [urgent]);
-  const inSheet = useMemo(() => (urgent
-    ? { key: [urgent.kind, urgent.headline, urgent.when].join('|'), draw: (exit: SheetExit) => <UrgentBanner urgent={urgent} exit={exit} /> }
-    : null), [urgent]);
+  const banner = useMemo(() => (urgents.length > 0 || paused ? <SafetySurface urgents={urgents} paused={paused} /> : null), [urgents, paused]);
+  const inSheet = useMemo(() => (urgents.length > 0 || paused
+    ? {
+      key: [...urgents.flatMap(u => [u.kind, u.headline, u.when]), ...(paused ? ['unsaved'] : [])].join('|'),
+      draw: (exit: SheetExit) => <SafetySurface urgents={urgents} paused={paused} exit={exit} />,
+    }
+    : null), [urgents, paused]);
   // The stop's shared questions sit under the sheets' surface too, so a report there that is an
   // emergency says so in them at once, before and whatever its save (H6F-01, board D212).
   return (
     <UrgentContext value={urgent}>
-      <ScreenTopContext value={banner}>
-        <SheetTopContext value={inSheet}>
-          <SayWhatHappenedProvider>{children}</SayWhatHappenedProvider>
-        </SheetTopContext>
-      </ScreenTopContext>
+      <UrgentsContext value={urgents}>
+        <PauseNewsContext value={tell}>
+          <PausedContext value={paused}>
+            <ScreenTopContext value={banner}>
+              <SheetTopContext value={inSheet}>
+                <SayWhatHappenedProvider>{children}</SayWhatHappenedProvider>
+              </SheetTopContext>
+            </ScreenTopContext>
+          </PausedContext>
+        </PauseNewsContext>
+      </UrgentsContext>
       {createPortal(
-        <div aria-live="assertive" aria-atomic="true" className="sr-only">{urgent ? `${urgent.headline}. ${lineOf(urgent)}.` : ''}</div>,
+        <div aria-live="assertive" aria-atomic="true" className="sr-only">{urgents.map(u => `${u.headline}. ${lineOf(u)}.`).join(' ')}</div>,
         document.body,
       )}
+      {/* Said again when the words repeat: each is its own line. */}
+      {createPortal(<div aria-live="polite" className="sr-only"><p key={news.n}>{news.text}</p></div>, document.body)}
     </UrgentContext>
   );
 }
@@ -156,26 +251,39 @@ export function OwnsUrgent({ shows }: { shows: Drawn }) {
 
 /**
  * The shared surface at the top of a full-screen task (B-02, codex V1-03),
- * unless the task's own screen already says that very decision
- * (`OwnsUrgent`, `says`). A screen inside the task does not repeat it.
+ * all but what the task's own screen already says: each decision it draws
+ * (`OwnsUrgent`, `says`), and the way out of the pause (`UnsavedClinical`,
+ * board D224), so each is said once. A screen inside the task does not
+ * repeat it.
  */
 export function TaskUrgent({ children }: { children: ReactNode }) {
-  const urgent = useContext(UrgentContext);
+  const urgents = useContext(UrgentsContext);
+  const paused = useContext(PausedContext);
   const banner = useContext(ScreenTopContext);
   const [claims, setClaims] = useState<readonly Drawn[]>([]);
   const claim = useCallback((drawn: Drawn) => {
     setClaims(c => [...c, drawn]);
     return () => setClaims(c => c.filter(k => k !== drawn));
   }, []);
-  const shownHere = urgent !== undefined && claims.some(drawn => says(drawn, urgent));
+  const [ways, setWays] = useState(0);
+  const claimPause = useCallback(() => {
+    setWays(n => n + 1);
+    return () => setWays(n => n - 1);
+  }, []);
+  const left = urgents.filter(u => !claims.some(drawn => says(drawn, u)));
+  const pauseHere = paused && ways > 0;
+  const top = left.length === urgents.length && !pauseHere ? banner
+    : (left.length > 0 || (paused && !pauseHere)) && <SafetySurface urgents={left} paused={paused && !pauseHere} />;
   return (
     <ClaimContext value={claim}>
-      {banner && !shownHere && (
-        <div className="pb-1 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))]">
-          {banner}
-        </div>
-      )}
-      <ScreenTopContext value={null}>{children}</ScreenTopContext>
+      <PauseClaimContext value={claimPause}>
+        {top && (
+          <div className="pb-1 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))]">
+            {top}
+          </div>
+        )}
+        <ScreenTopContext value={null}>{children}</ScreenTopContext>
+      </PauseClaimContext>
     </ClaimContext>
   );
 }

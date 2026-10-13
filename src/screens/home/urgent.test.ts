@@ -7,7 +7,7 @@ import type { CheckInRecord, DailyCheckIn, Readiness } from '@/types/checkin';
 import type { SessionPlan } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
 import type { ChapterId, UserSettings } from '@/types';
-import { recommendSources, says, urgentOf, withEffectiveToday } from './urgent';
+import { recommendSources, says, urgentOf, urgentsOf, withEffectiveToday } from './urgent';
 
 const TODAY = '2026-10-08';
 const at = (time: string, day = TODAY) => new Date(`${day}T${time}:00`);
@@ -105,6 +105,48 @@ describe('which decisions are urgent (journey §4.7, B-02)', () => {
     expect(surface(onInsulin, noReading, at('09:00')).urgent).toBeUndefined();
     const eyes = createDefaultProfile({ health: { ...known, retinopathy: 'recent_eye_treatment' } });
     expect(surface(eyes, record(eyes, answered()), at('09:00')).urgent).toBeUndefined();
+  });
+});
+
+describe('every decision at once, in order (board D224)', () => {
+  /** The surface's decisions, from the real gate, as the shell works them out. */
+  const stacked = (c: CheckInRecord, now: Date) => {
+    const gate = (m: Mode) => permission({ profile: diabetic, checkIn: c, now, recent: [c] }, m);
+    return urgentsOf({ profile: diabetic, checkIn: c, checkIns: [c], permissions: { guided: gate('guided'), stretch: gate('stretch'), walk: gate('walk') } }, now, true);
+  };
+  const all = { news: ['lowSymptoms', 'stopped', 'fainted'] as DailyCheckIn['news'], glucose: { value: 62, unit: 'mg/dL' as const, measuredAt: iso('13:30') } };
+
+  it('a low’s treatment, the stop’s ask, advice today, then the re-check, each in its own words, time and way on', () => {
+    expect(stacked(record(diabetic, answered(all)), at('13:32'))).toEqual([
+      { kind: 'low', tone: 'caution', headline: 'Check your glucose now', when: 'Feeling low today', reasons: SENTENCES },
+      { kind: 'hold', tone: 'caution', stop: true, headline: 'No exercise for now', when: 'From today’s check-in', reasons: SENTENCES },
+      { kind: 'seekHelp', tone: 'stop', headline: 'No exercise today. Get medical advice today.', when: 'From today’s check-in', reasons: SENTENCES },
+      { kind: 'recheck', tone: 'caution', headline: 'Re-check your glucose', when: 'Low glucose at 1:30 pm', next: 'Re-check at 1:45 pm', reasons: SENTENCES },
+    ]);
+  });
+
+  it('each stands on its own sentences, never another’s', () => {
+    const [low, hold, advice, recheck] = stacked(record(diabetic, answered(all)), at('13:32'));
+    const sentences = [low, hold, advice, recheck].map(u => u.reasons);
+    expect(new Set(sentences.flat()).size).toBe(sentences.flat().length);
+    expect(hold.reasons).toContain('You stopped and haven’t said what happened yet. Say what happened before you move again.');
+  });
+
+  it('a low that came back, since recovered, still ends the day: the day’s hold, with no re-check due to say it', () => {
+    const c = record(diabetic, answered({
+      glucoseEarlier: [{ value: 62, unit: 'mg/dL', measuredAt: iso('13:00') }, { value: 66, unit: 'mg/dL', measuredAt: iso('13:16') }],
+      glucose: { value: 120, unit: 'mg/dL', measuredAt: iso('13:40') },
+    }));
+    expect(c.readiness.recheckAt).toBeUndefined();
+    expect(stacked(c, at('13:42'))).toEqual([{
+      kind: 'hold', tone: 'caution', headline: 'No exercise for now', when: 'From today’s check-in',
+      reasons: [expect.stringContaining('Your glucose was still under 70 mg/dL when you re-checked, or went low again after recovering.')],
+    }]);
+  });
+
+  it('an emergency stands alone, whatever else stands', () => {
+    const c = record(diabetic, answered({ ...all, urgentSymptoms: true, emergency: ['chest'] }));
+    expect(stacked(c, at('13:32')).map(u => u.kind)).toEqual(['emergency']);
   });
 });
 
