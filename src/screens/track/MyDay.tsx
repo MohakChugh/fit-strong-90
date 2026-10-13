@@ -152,13 +152,15 @@ export function MyDay({ day: pathDay }: {
       // Today's log is opened from Home (journey §13); Trends is a tab's root.
       {...(pathDay !== undefined ? { back: { to: '/home', label: 'Home' } } : {})}
       trailing={(
+        // "+ Add" in words (§20.4 rule 2; kiro FK-06), named "Add a record", which starts with it.
         <button
           type="button"
           onClick={add}
           aria-label="Add a record"
-          className="press-feedback flex size-[48px] items-center justify-center rounded-full text-tint"
+          className="press-feedback flex min-h-12 min-w-12 items-center justify-center gap-0.5 rounded-full px-2 text-[length:var(--text-body)] font-semibold text-tint"
         >
-          <PlusIcon className="size-[28px]" strokeWidth={2} aria-hidden />
+          <PlusIcon className="size-[22px] shrink-0" strokeWidth={2.2} aria-hidden />
+          Add
         </button>
       )}
     >

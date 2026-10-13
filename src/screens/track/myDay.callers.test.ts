@@ -96,6 +96,12 @@ function inBar(name: string): HostNode {
   return found[0];
 }
 const allIn = (n: HostNode): HostNode[] => n.children.flatMap(c => (typeof c === 'string' ? [] : [c, ...allIn(c)]));
+/** The control named `name`, exactly, as VoiceOver and the acceptance suite find it. */
+function named(name: string | RegExp): HostNode {
+  const found = host!.all().filter(n => n.type === 'button' && (typeof name === 'string' ? String(n.props['aria-label'] ?? textOf(n.children)) === name : name.test(String(n.props['aria-label'] ?? textOf(n.children)))));
+  expect(found, String(name)).toHaveLength(1);
+  return found[0];
+}
 
 describe('kiro FK-05: “Saved on this device” stays until the next Add, never on a timer (journey §20.4 rule 8)', () => {
   it('on Today’s log: saved through Quick Log, still said long after, and gone at the next Add', async () => {
@@ -121,5 +127,20 @@ describe('kiro FK-05: “Saved on this device” stays until the next Add, never
     expect(notice()).toBe('Saved on this device: Water 250 ml today.');
     await host.click(inBar('Add water'));
     expect(notice()).toBeUndefined();
+  });
+});
+
+describe('kiro FK-06: Today’s log says Previous day, Next day and Add in words (journey §20.4 rule 2, §13, B-08)', () => {
+  it('each shows its word, and keeps its name, which starts with it', async () => {
+    host = render(createElement(MyDay, { day: 'today' }));
+    await host.settle();
+    const previous = named(/^Previous day, /);
+    const next = named('Next day');
+    const add = inBar('Add a record');
+    expect([textOf(previous.children), textOf(next.children), textOf(add.children)]).toEqual(['Previous day', 'Next day', 'Add']);
+    // The day's heading stays the one just after Previous day, as the acceptance suite and VoiceOver read it.
+    const row = host.all().find(n => n.children.includes(previous))!;
+    const after = row.children.slice(row.children.indexOf(previous) + 1).find(c => typeof c !== 'string');
+    expect(typeof after !== 'string' && after?.type).toBe('h2');
   });
 });
