@@ -17,7 +17,7 @@ export const needs = ['preview'];
 /** v2's four tabs and each root's title (journey §5): Home's is its greeting. */
 const TABS = [['Home', ui.HOME_TITLE], ['Trends', 'Trends'], ['Browse', 'Browse'], ['Me', 'Me']];
 /** v1's other tabs, at their v2 places (`ui.legacyTab`): Move is the Workout hub, Track is Today's log, Guide the Learn hub. */
-const PLACES = [['Move', 'Workout'], ['Track', 'My Day'], ['Guide', 'Learn']];
+const PLACES = [['Move', 'Workout'], ['Track', 'Today’s log'], ['Guide', 'Learn']];
 /** A shown title against a string (exact) or a pattern. */
 const titled = (shown, want) => (want instanceof RegExp ? want.test(shown) : shown === want);
 /** Me's sections (journey §16), each opened from Me and Back to it. The focus is Profile & health's Your movement now (Plan 5). */
@@ -159,7 +159,7 @@ const navigation = {
       // Me is a tab (journey §5, D63): Home's tab goes back to the place it was left, My Day on 25 September.
       await ui.tap(ui.link(page.getByRole('navigation', { name: 'Main' }), 'Home'));
       await waitRoute(page, trackRoute);
-      await ui.heading(page, 'My Day');
+      await ui.heading(page, 'Today’s log');
       await t.check(await t.route() === trackRoute, `Home’s tab from Me returned to ${await t.route()}, not ${trackRoute}`);
 
       // A record detail from My Day keeps the day on return.
@@ -170,14 +170,14 @@ const navigation = {
       await ui.heading(page, /./);
       const detailRoute = await t.route();
       await t.checkpoint('track-session-detail');
-      await ui.tap(ui.back(page, 'My Day'));
+      await ui.tap(ui.back(page, 'Today’s log'));
       await waitRoute(page, trackRoute);
-      await ui.heading(page, 'My Day');
+      await ui.heading(page, 'Today’s log');
       await t.check(await t.route() === trackRoute, `Back from ${detailRoute} returned to ${await t.route()}, not ${trackRoute}`);
 
       // Trends → a metric → Back keeps the view.
       await ui.trackDay(page, '2026-10-08');
-      await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Trends'));
+      await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Measures'));
       await page.waitForTimeout(400);
       const trendsRoute = await t.route();
       // My Day's measure rows still link to v1's /track/metric/…, which goes on to the hub (journey §19.3).
@@ -186,7 +186,7 @@ const navigation = {
         await ui.tap(metric);
         await page.waitForFunction(() => location.hash.startsWith('#/hub/weight'), null, { timeout: 10000 }).catch(() => {});
         await t.checkpoint('metric-detail');
-        await ui.tap(ui.back(page, 'My Day'));
+        await ui.tap(ui.back(page, 'Today’s log'));
         await waitRoute(page, trendsRoute);
         await t.check(await t.route() === trendsRoute, `Back from the weight detail returned to ${await t.route()}, not ${trendsRoute}`);
       } else {
@@ -215,8 +215,8 @@ const navigation = {
       // Direct entry to a detail has a parent to go back to.
       await t.goto('/track/session/legacy-strength');
       await t.checkpoint('direct-session-detail');
-      const back = ui.back(page, 'My Day');
-      await t.check(await back.count() === 1, 'a cold-loaded session detail has no Back to My Day');
+      const back = ui.back(page, 'Today’s log');
+      await t.check(await back.count() === 1, 'a cold-loaded session detail has no Back to Today’s log');
       if (await back.count() === 1) {
         await ui.tap(back);
         await page.waitForTimeout(500);

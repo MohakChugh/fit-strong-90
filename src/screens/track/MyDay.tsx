@@ -1,5 +1,5 @@
 /**
- * My Day: "What did I do or record?"
+ * Today's log (v1's My Day): "What did I do or record?"
  *
  * One day at a time, every record in the order it happened with where it
  * came from; or, on the other segment, the measures this person keeps. The
@@ -37,9 +37,10 @@ import { DateStepper, PrimaryButton, Segmented } from './ui';
 import { useToday } from './useToday';
 import { weeklyGoalOn } from './weeklyGoal';
 
+// The second view is the measures this person keeps, by name: "Trends" is the tab's (kiro FK-07). Its address stays `?view=trends`.
 const VIEWS = [
   { id: 'timeline', label: 'Timeline' },
-  { id: 'trends', label: 'Trends' },
+  { id: 'trends', label: 'Measures' },
 ] as const;
 
 /**
@@ -66,7 +67,8 @@ export function MyDay({ day: pathDay }: {
   const [params, setParams] = useSearchParams();
   const day = clampDay(pathDay ?? params.get('day'), current);
   const view: View = params.get('view') === 'trends' ? 'trends' : 'timeline';
-  const title = 'My Day';
+  // As Home's row and the journey call it (§13; kiro FK-07).
+  const title = 'Today’s log';
   // `?add=` with no kind opens the list; with a kind, that kind's form.
   const asking = params.has('add');
   const request = parseAddParam(params.get('add'));
@@ -140,7 +142,7 @@ export function MyDay({ day: pathDay }: {
   };
 
   // Links out carry where they came from, so a detail screen's Back says
-  // "My Day" and returns here — to this day and view, never to an open sheet.
+  // "Today’s log" and returns here — to this day and view, never to an open sheet.
   const kept = new URLSearchParams(location.search);
   kept.delete('add');
   const search = kept.toString();

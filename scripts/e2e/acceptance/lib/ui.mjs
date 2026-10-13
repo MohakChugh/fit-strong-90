@@ -351,7 +351,7 @@ async function tabSettled(page, name, ms = 15000) {
  */
 export const LEGACY = {
   Move: { from: 'Home', path: '/hub/workout', title: 'Workout', link: main => main.getByRole('region', { name: 'What would you like to do?', exact: true }).getByRole('link', { name: /^Workout\b/ }) },
-  Track: { from: 'Home', path: '/day/today', title: 'My Day', link: main => row(main, 'See today’s log', 'link') },
+  Track: { from: 'Home', path: '/day/today', title: 'Today’s log', link: main => row(main, 'See today’s log', 'link') },
   Guide: { from: 'Browse', path: '/hub/learn', title: 'Learn', link: main => row(main, 'Learn', 'link') },
 };
 
@@ -411,7 +411,7 @@ export async function trackDay(page, ymd) {
   // surface is the first h2 on every screen (journey §4.7).
   const read = async () => (await dayHeading(main).innerText()).replace(/\s+/g, ' ');
   // A view transition can leave the old screen up after the address has changed.
-  await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor({ timeout: 15000 });
+  await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor({ timeout: 15000 });
   for (let i = 0; i < 60; i++) {
     const heading = await read();
     if (new RegExp(`\\b${want}\\b`).test(heading)) return heading;

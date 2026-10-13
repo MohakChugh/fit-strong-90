@@ -58,7 +58,7 @@ async function stepsGoalControl(t) {
   const page = t.page;
   const main = page.getByRole('main');
   await g.tabTo(t, 'Track');
-  await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Trends'));
+  await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Measures'));
   await page.waitForTimeout(300);
   // My Day's Steps row still links to v1's /track/metric/steps, which goes on to the Steps hub (journey §19.3).
   const card = main.locator('a[href^="#/track/metric/steps"]');

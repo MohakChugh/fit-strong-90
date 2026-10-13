@@ -454,7 +454,7 @@ export async function trackDay(page, ymd) {
   // The day's own heading: while an urgent decision stands, the shell's surface is the first h2 (journey §4.7).
   const read = async () => (await ui.dayHeading(main).innerText()).replace(/\s+/g, ' ');
   // A view transition can leave the old screen up after the address has changed.
-  await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor({ timeout: 15000 });
+  await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor({ timeout: 15000 });
   for (let i = 0; i < 60; i++) {
     const heading = await read();
     if (new RegExp(`\\b${want}\\b`).test(heading)) return heading;

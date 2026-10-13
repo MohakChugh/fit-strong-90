@@ -7,31 +7,36 @@
  * - FK-05: "Saved on this device" stays until the next Add, or until the
  *   screen is left, never on a timer (§20.4 rule 8), as the hubs' does (KH-16).
  * - FK-06: Previous day, Next day and Add say so in words (§20.4 rule 2, B-08).
+ * - FK-07: it is called Today's log, as Home's row and the journey call it
+ *   (§13), and its second view is Measures, never a second "Trends".
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, textOf, type Host, type HostNode } from '@/test/host';
 
-const router = vi.hoisted(() => ({ search: new URLSearchParams(), kind: 'water' }));
+const router = vi.hoisted(() => ({ search: new URLSearchParams(), kind: 'water', id: '' }));
 vi.mock('react-router-dom', async () => {
   const { createElement: h } = await import('react');
   return {
-    useParams: () => ({ kind: router.kind }),
+    useParams: () => ({ kind: router.kind, id: router.id }),
     useLocation: () => ({ pathname: '/day/today', search: '', state: null, key: 'k0' }),
     useNavigate: () => () => undefined,
     useSearchParams: () => [router.search, (next: URLSearchParams | ((p: URLSearchParams) => URLSearchParams)) => {
       router.search = typeof next === 'function' ? next(router.search) : next;
     }],
-    Link: ({ children }: { children?: unknown }) => h('a', null, children as never),
+    // A link keeps the name of where it came from, which its screen's Back says.
+    Link: ({ state, children }: { state?: { label?: string }; children?: unknown }) => h('a', { 'data-from': state?.label }, children as never),
     Navigate: () => null,
+    // A correction sheet holds a Back while it saves (codex F-ui-02); nothing here leaves mid-save.
+    useBlocker: () => ({ state: 'unblocked', proceed() {}, reset() {} }),
   };
 });
 vi.mock('@/components/hig/Screen', async () => {
   const { createElement: h } = await import('react');
   return {
-    Screen: ({ title, trailing, children }: { title: string; trailing?: unknown; children?: unknown }) =>
-      h('main', null, h('header', null, h('h1', null, title), trailing as never), children as never),
+    Screen: ({ title, back, trailing, children }: { title: string; back?: { label: string }; trailing?: unknown; children?: unknown }) =>
+      h('main', null, h('header', null, back ? h('a', { 'data-back': back.label }, back.label) : null, h('h1', null, title), trailing as never), children as never),
   };
 });
 vi.mock('@/components/hig/Sheet', async () => {
@@ -57,6 +62,8 @@ Object.assign(globalThis, {
 const store = await import('@/store/useStore');
 const { MyDay } = await import('./MyDay');
 const { MetricDetail } = await import('./MetricDetail');
+const { ReadingDetail } = await import('./RecordDetails');
+const { nowAt } = await import('@/health/observation');
 
 let host: Host | undefined;
 /** Every timer of a second or more a screen sets: run by `later()`, as the minutes pass. */
@@ -142,5 +149,30 @@ describe('kiro FK-06: Today’s log says Previous day, Next day and Add in words
     const row = host.all().find(n => n.children.includes(previous))!;
     const after = row.children.slice(row.children.indexOf(previous) + 1).find(c => typeof c !== 'string');
     expect(typeof after !== 'string' && after?.type).toBe('h2');
+  });
+});
+
+describe('kiro FK-07: Today’s log is called so, and its second view is Measures (journey §13)', () => {
+  it('its title, its views, and the name its records’ screens go back to', async () => {
+    const saved = await store.addObservation({ kind: 'weight', value: 71.5, unit: 'kg', scope: 'pointInTime', source: 'manual', at: nowAt() });
+    expect(saved.ok ? 'saved' : saved.failure.message).toBe('saved');
+    host = render(createElement(MyDay, { day: 'today' }));
+    await host.settle();
+    expect(textOf(host.all().find(n => n.type === 'h1')!.children)).toBe('Today’s log');
+    const show = host.all().find(n => n.props.role === 'radiogroup' && n.props['aria-label'] === 'Show')!;
+    expect(host.all().filter(n => n.props.role === 'radio' && show.children.includes(n)).map(n => textOf(n.children))).toEqual(['Timeline', 'Measures']);
+    // A record's link says where it came from, and its screen's Back says so.
+    const from = host.all().filter(n => n.type === 'a' && n.props['data-from'] !== undefined).map(n => n.props['data-from']);
+    expect(from.length).toBeGreaterThan(0);
+    expect(new Set(from)).toEqual(new Set(['Today’s log']));
+  });
+
+  it('a record’s screen opened with no way back named, a bookmark say, goes back to Today’s log by that name', async () => {
+    const added = await store.addObservation({ kind: 'weight', value: 71.5, unit: 'kg', scope: 'pointInTime', source: 'manual', at: nowAt() });
+    expect(added.ok).toBe(true);
+    router.id = added.ok ? added.value.id : '';
+    host = render(createElement(ReadingDetail));
+    await host.settle();
+    expect(host.all().find(n => n.props['data-back'] !== undefined)?.props['data-back']).toBe('Today’s log');
   });
 });

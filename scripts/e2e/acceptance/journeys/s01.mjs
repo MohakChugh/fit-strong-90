@@ -94,7 +94,7 @@ export async function inventory(t, { textScale } = {}) {
   await t.step(4, 'My Day (v1’s Track): the day, Trends, every Add form, details, Back & leg, Workout Log', async () => {
     await visit(t, '/day/today', 'track-today');
     await visit(t, '/day/2026-09-25', 'track-populated-day');
-    await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Trends'));
+    await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Measures'));
     await page.waitForTimeout(400);
     await t.checkpoint('track-trends');
     // The Trends tab's root (journey §12.1), and two category trends with P01's September records (§12.2).
@@ -282,8 +282,8 @@ const keyboard = {
       await page.keyboard.press('ArrowRight');
       await page.waitForTimeout(300);
       const a = await active();
-      const trends = await ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Trends').getAttribute('aria-checked');
-      if (a.text !== 'Trends' && trends !== 'true') await finding(t, 'keyboard', `ArrowRight in the “Show” radio group left focus on “${a.text}” and did not select Trends`);
+      const trends = await ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Measures').getAttribute('aria-checked');
+      if (a.text !== 'Measures' && trends !== 'true') await finding(t, 'keyboard', `ArrowRight in the “Show” radio group left focus on “${a.text}” and did not select Measures`);
     });
 
     await t.step(4, 'Keyboard reaches every control on Home, each with a visible focus', async () => {

@@ -25,7 +25,7 @@ vi.mock('sonner', () => ({
 const router = vi.hoisted(() => ({ id: '', navigate: vi.fn() }));
 vi.mock('react-router-dom', () => ({
   useParams: () => ({ id: router.id }),
-  useLocation: () => ({ pathname: `/track/reading/${router.id}`, search: '', state: { path: '/day/today', label: 'My Day' } }),
+  useLocation: () => ({ pathname: `/track/reading/${router.id}`, search: '', state: { path: '/day/today', label: 'Today’s log' } }),
   useNavigate: () => router.navigate,
   Link: () => null,
   Navigate: () => null,

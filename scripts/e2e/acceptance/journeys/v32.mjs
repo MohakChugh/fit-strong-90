@@ -39,7 +39,7 @@ export const cases = [
         await ui.tap(waterRow());
         await ui.heading(page, 'Water');
         await ui.tap(ui.row(main, 'Delete this entry'));
-        await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor({ timeout: 15000 });
+        await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor({ timeout: 15000 });
         await rec.toast(page, said).waitFor({ timeout: 10000 });
       };
 
@@ -161,7 +161,7 @@ export const cases = [
         await openLow();
         await ui.tap(ui.row(main, 'Delete this reading'));
         await ui.tap(main.getByRole('button', { name: MISTAKE, exact: true }));
-        await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor({ timeout: 15000 });
+        await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor({ timeout: 15000 });
         await rec.toast(page, `${SAID} deleted`).waitFor({ timeout: 10000 });
         const snap = await t.checkpoint('answered-and-deleted');
         await t.check(lowsOf(snap).length === 0, 'the 52 is still stored after its answer and delete');
