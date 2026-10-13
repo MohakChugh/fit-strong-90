@@ -9,7 +9,7 @@
  * It is v2's Today's log (`/day/:date`, the day in the path).
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { CheckCircle2Icon, PlusIcon } from 'lucide-react';
 import { format } from 'date-fns';
@@ -87,12 +87,12 @@ export function MyDay({ day: pathDay }: {
     [state.settings, state.profile, state.observations],
   );
 
-  // A brief confirmation, then gone. The record itself stays in the list.
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(undefined), 4000);
-    return () => clearTimeout(timer);
-  }, [notice]);
+  // "Saved on this device", until the next Add or until the screen is left: never on a timer (§20.4 rule 8;
+  // kiro FK-05, as the hubs' KH-16).
+  const add = () => {
+    setNotice(undefined);
+    setChooserOpen(true);
+  };
 
   // React Router builds each search-param update from the address of the
   // last render, so two updates in one tick — a save moving to its day, then
@@ -154,7 +154,7 @@ export function MyDay({ day: pathDay }: {
       trailing={(
         <button
           type="button"
-          onClick={() => setChooserOpen(true)}
+          onClick={add}
           aria-label="Add a record"
           className="press-feedback flex size-[48px] items-center justify-center rounded-full text-tint"
         >
@@ -185,8 +185,8 @@ export function MyDay({ day: pathDay }: {
       </div>
 
       {view === 'timeline'
-        ? <TimelineView day={day} current={current} fresh={fresh} origin={origin} prefs={prefs} onAdd={() => setChooserOpen(true)} onGoal={() => setGoalOpen(true)} />
-        : <TrendsView day={day} current={current} origin={origin} prefs={prefs} onAdd={() => setChooserOpen(true)} onGoal={() => setGoalOpen(true)} />}
+        ? <TimelineView day={day} current={current} fresh={fresh} origin={origin} prefs={prefs} onAdd={add} onGoal={() => setGoalOpen(true)} />
+        : <TrendsView day={day} current={current} origin={origin} prefs={prefs} onAdd={add} onGoal={() => setGoalOpen(true)} />}
 
       <QuickLog
         open={chooserOpen || asking || unsaved !== undefined}

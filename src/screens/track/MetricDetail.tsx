@@ -6,7 +6,7 @@
  * not-advice line.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle2Icon, PlusIcon } from 'lucide-react';
@@ -110,12 +110,12 @@ function MetricScreen({ metric }: { metric: MetricId }) {
   const [notice, setNotice] = useState<string>();
   const list = useRef<HTMLDivElement>(null);
 
-  // A brief confirmation, as on My Day. The reading itself stays in the list.
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(undefined), 4000);
-    return () => clearTimeout(timer);
-  }, [notice]);
+  // "Saved on this device", until the next Add or until the screen is left: never on a timer (§20.4 rule 8;
+  // kiro FK-05, as the hubs' KH-16).
+  const add = () => {
+    setNotice(undefined);
+    setLogOpen(true);
+  };
 
   const own = useMemo(() => state.observations.filter(o => spec.kinds.includes(o.kind)), [state.observations, spec.kinds]);
   const glucoseView: GlucoseView = metric === 'glucose'
@@ -162,7 +162,7 @@ function MetricScreen({ metric }: { metric: MetricId }) {
       trailing={request && (
         <button
           type="button"
-          onClick={() => setLogOpen(true)}
+          onClick={add}
           aria-label={`Add ${spec.title.toLowerCase()}`}
           className="press-feedback flex size-[48px] items-center justify-center rounded-full text-tint"
         >
@@ -208,7 +208,7 @@ function MetricScreen({ metric }: { metric: MetricId }) {
         <div className="flex flex-col items-center gap-5 px-2 pt-4 text-center">
           <p className="text-[length:var(--text-body)] text-muted-foreground">Not entered in the {PERIOD_NAMES[period]}.</p>
           {request && (
-            <PrimaryButton onClick={() => setLogOpen(true)} className="max-w-xs">
+            <PrimaryButton onClick={add} className="max-w-xs">
               <PlusIcon className="size-5" aria-hidden />
               {ADD_LABEL[metric] ?? 'Add a reading'}
             </PrimaryButton>
