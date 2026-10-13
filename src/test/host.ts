@@ -338,9 +338,18 @@ export class Host {
     throw new Error(`host: no field "${String(label)}"`);
   }
 
+  /**
+   * Whether a disabled `<fieldset>` holds `node`: the browser disables every
+   * form control inside one, so a press there does nothing. (Its first
+   * legend's controls stay usable in a browser; none here has any.)
+   */
+  private fenced(node: HostNode): boolean {
+    return this.all().some(n => n.type === 'fieldset' && !!n.props.disabled && allIn(n.children).includes(node));
+  }
+
   /** A press, then everything it set off. */
   async click(node: HostNode): Promise<void> {
-    if (node.props.disabled) throw new Error(`host: "${labelOf(node)}" is disabled`);
+    if (node.props.disabled || this.fenced(node)) throw new Error(`host: "${labelOf(node)}" is disabled`);
     // A checkbox or radio changes on a click.
     if (node.type === 'input' && (node.props.type === 'checkbox' || node.props.type === 'radio') && !node.props.onClick) {
       return this.change(node, { checked: node.props.type === 'radio' ? true : !node.props.checked });

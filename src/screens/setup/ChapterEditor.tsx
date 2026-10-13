@@ -128,20 +128,24 @@ export function ChapterEditor({ chapter }: { chapter: ChapterId }) {
   return (
     <Screen title={CHAPTER_TITLE[chapter]} back={{ to: '/me/profile', label: 'Profile & health' }}>
       {reviewing && <Notice>Your health answers need a review. Check each answer, then Save.</Notice>}
-      {pages.map((id, i) => {
-        const View = PAGE_VIEWS[id as keyof typeof PAGE_VIEWS];
-        const own = chapterOf(id);
-        const first = i === 0 || chapterOf(pages[i - 1]) !== own;
-        return (
-          <section key={id} aria-labelledby={`edit-${id}`} className="flex flex-col gap-3">
-            {first && own !== chapter && own !== 'review' && (
-              <p className="px-1 text-[length:var(--text-footnote)] font-semibold uppercase tracking-wide text-muted-foreground">{CHAPTER_TITLE[own]}</p>
-            )}
-            <h2 id={`edit-${id}`} className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug">{PAGE_TITLE[id]}</h2>
-            <View a={a} raw={typed} set={set} tried={tried} ctx={ctx} mode="edit" />
-          </section>
-        );
-      })}
+      {/* While Save is being written its answers can't change: one given meanwhile would be cleared with the edits the
+          write took, unsaved, under "Saved" (codex F-setup-01). The browser disables every control inside. */}
+      <fieldset disabled={busy} className="flex min-w-0 flex-col gap-6">
+        {pages.map((id, i) => {
+          const View = PAGE_VIEWS[id as keyof typeof PAGE_VIEWS];
+          const own = chapterOf(id);
+          const first = i === 0 || chapterOf(pages[i - 1]) !== own;
+          return (
+            <section key={id} aria-labelledby={`edit-${id}`} className="flex flex-col gap-3">
+              {first && own !== chapter && own !== 'review' && (
+                <p className="px-1 text-[length:var(--text-footnote)] font-semibold uppercase tracking-wide text-muted-foreground">{CHAPTER_TITLE[own]}</p>
+              )}
+              <h2 id={`edit-${id}`} className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug">{PAGE_TITLE[id]}</h2>
+              <View a={a} raw={typed} set={set} tried={tried} ctx={ctx} mode="edit" />
+            </section>
+          );
+        })}
+      </fieldset>
       <div className="flex flex-col gap-2">
         <Missing show={tried && blocking.length > 0}>Answer the questions marked above, then Save.</Missing>
         {outcome?.lines.map(line => <Notice key={line} tone={outcome.tone}>{line}</Notice>)}

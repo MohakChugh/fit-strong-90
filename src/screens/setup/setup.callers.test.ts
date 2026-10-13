@@ -1343,3 +1343,33 @@ describe('a screen opened for a record another copy has since replaced (H5R-09, 
     expect(store.getState().profile).toBeUndefined();
   });
 });
+
+describe('an answer changed while Me’s Save is being written (codex F-setup-01)', () => {
+  it('the questions can’t be changed until the write is done, so the screen, the record and every gate agree on the answer saved', async () => {
+    expect((await store.update(d => completedSetup(d, FOOT_WOUND, NOW, CTX))).ok).toBe(true);
+    host = render(createElement(ChapterEditor, { chapter: 'health' }));
+    await host.settle();
+    const WOUND = 'A wound, an ulcer, or a hot, swollen foot (Charcot foot)?';
+    await host.click(radio(host, WOUND, 'No'));
+    fake.control.hold();
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    // Being written: "Yes, now" again is refused at the tap, as every other question on the screen is.
+    await expect(host.click(radio(host, WOUND, 'Yes, now'))).rejects.toThrow(/is disabled/);
+    const questions = host.all().filter(n => n.props.role === 'radio');
+    const fenced = host.all().filter(n => n.type === 'fieldset' && n.props.disabled).flatMap(n => all(n.children));
+    expect(questions.length).toBeGreaterThan(0);
+    expect(questions.every(q => fenced.includes(q))).toBe(true);
+    fake.control.release();
+    await host.settle();
+    // Stored as it was shown when Save was pressed, and shown as stored: nothing given since is lost.
+    expect(footStatus()).toEqual({ stored: 'healthy', gate: 'healthy' });
+    expect(radio(host, WOUND, 'No').props['aria-checked']).toBe(true);
+    expect(host.text()).toContain('Saved.');
+    // Done: the questions are open again, and the wound can be said again, and saved.
+    await host.click(radio(host, WOUND, 'Yes, now'));
+    await host.click(host.button('Save', { exact: true }));
+    await host.settle();
+    expect(footStatus()).toEqual({ stored: 'current_wound_or_active_charcot', gate: 'current_wound_or_active_charcot' });
+  });
+});
