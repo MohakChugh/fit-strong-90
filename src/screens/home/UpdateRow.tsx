@@ -32,7 +32,7 @@ export function UpdateRow() {
     <Group>
       <Row role="status" icon={<RefreshCwIcon />} label={line.text} {...(line.detail ? { detail: line.detail } : {})} />
       {line.action === 'restart' && (
-        <Row onClick={() => void restartToUpdate()} label={<span className="font-semibold text-tint">{RESTART}</span>} />
+        <Row data-main="" className="min-h-[3.75rem]" onClick={() => void restartToUpdate()} label={<span className="font-semibold text-tint">{RESTART}</span>} />
       )}
       {line.action === 'dismiss' && <Row onClick={dismissUpdated} label={<span className="text-tint">{DISMISS}</span>} />}
     </Group>

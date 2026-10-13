@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 /**
  * The few controls Move needs beyond `hig`: one full-width primary action, a
  * list of choices with a checkmark, and a two- or three-way segmented choice.
- * Every target is at least 44 px and every choice is announced as a radio.
+ * Every target is at least 48 px and every choice is announced as a radio.
  */
 
 /**
@@ -21,7 +21,7 @@ export function PrimaryButton({ className, ...props }: ButtonHTMLAttributes<HTML
     <button
       type="button"
       className={cn(
-        'press-feedback flex min-h-[3.5rem] w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-center',
+        'press-feedback flex min-h-[3.75rem] w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-center',
         'text-[length:var(--text-body)] font-semibold text-on-tint disabled:opacity-50 disabled:active:scale-100',
         className,
       )}
@@ -98,7 +98,7 @@ export function Segmented<T extends string | number>({ label, options, value, on
             aria-disabled={option.disabled || undefined}
             onClick={() => { if (!option.disabled) onChange(option.value); }}
             className={cn(
-              'min-h-11 min-w-0 flex-1 rounded-lg px-3 text-[length:var(--text-subhead)] text-foreground transition-[background-color,box-shadow]',
+              'min-h-12 min-w-0 flex-1 rounded-lg px-3 text-[length:var(--text-subhead)] text-foreground transition-[background-color,box-shadow]',
               on ? 'bg-segment-thumb font-semibold shadow-[0_3px_8px_rgb(0_0_0/0.12),0_3px_1px_rgb(0_0_0/0.04)]' : 'font-medium',
               option.disabled && 'opacity-40',
             )}

@@ -8,7 +8,7 @@ const CAUTION = new Set<Recommendation['kind']>(['seekHelp', 'recheck', 'hold'])
 /** Health guidance carries its boundary next to it, not only in settings. */
 const ADVICE = new Set<Recommendation['kind']>(['emergency', 'seekHelp', 'recheck', 'hold', 'mealWalk']);
 
-const primaryButton = 'press-feedback flex min-h-14 w-full items-center justify-center gap-2 rounded-xl px-4 text-center text-[length:var(--text-body)] font-semibold';
+const primaryButton = 'press-feedback flex min-h-[3.75rem] w-full items-center justify-center gap-2 rounded-xl px-4 text-center text-[length:var(--text-body)] font-semibold';
 
 /**
  * The one suggestion: a large title, what it is, why it was chosen — always

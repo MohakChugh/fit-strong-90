@@ -156,8 +156,8 @@ describe('sheets (S-04, S-19)', () => {
     const title = classOf(m, /<h2 class="([^"]*)"/);
     expect(title).not.toMatch(/line-clamp|truncate/);
     expect(title).toContain('[overflow-wrap:break-word]');
-    expect(m).toMatch(/class="flex min-h-11 items-center/);
-    expect(m).not.toMatch(/class="relative flex h-11/);
+    expect(m).toMatch(/class="flex min-h-12 items-center/);
+    expect(m).not.toMatch(/class="relative flex h-12/);
   });
 
   it('keep Close in the flow, and stack it above a full-width title when the text is large', () => {

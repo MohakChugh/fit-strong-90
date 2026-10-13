@@ -52,7 +52,7 @@ export function OwnFoodsScreen() {
             label={f.name}
             detail={`One portion: ${f.per.qty.toLocaleString('en-IN')} ${f.per.unit}`}
             accessory={(
-              <div className="flex shrink-0 gap-3">
+              <div className="flex min-w-0 flex-wrap justify-end gap-3">
                 <button type="button" aria-label={`Edit ${f.name}`} onClick={() => { setProblem(undefined); setEditing(f); }}
                   className="press-feedback min-h-12 rounded-full px-4 text-[length:var(--text-body)] font-semibold text-tint">
                   Edit

@@ -68,8 +68,8 @@ export function Screen({ title, navTitle = title, subtitle, below, back, trailin
   // small title fades in as soon as the large one has gone.
   const [underBar, setUnderBar] = useState(false);
   // The bar's real height: the top safe area (notch), the storage notice when
-  // one shows, then the 44px bar. The title counts as gone once it is under it.
-  const [headerHeight, setHeaderHeight] = useState(44);
+  // one shows, then the 48 px bar. The title counts as gone once it is under it.
+  const [headerHeight, setHeaderHeight] = useState(48);
   const collapsed = inline || scrolled;
   const target = back ? backTarget(stack, back, location.state) : undefined;
 
@@ -137,7 +137,7 @@ export function Screen({ title, navTitle = title, subtitle, below, back, trailin
       <div ref={header} className="sticky top-0 z-30 pt-safe">
         {!framed && <StorageBanner inHeader />}
         <div data-bar className={cn(
-          'grid h-11 items-center gap-2 px-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] transition-colors duration-200',
+          'grid h-12 items-center gap-2 px-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] transition-colors duration-200',
           // Equal sides centre the compact title; until it shows, Back may use
           // whatever the trailing items leave, so a parent's name fits more often.
           collapsed ? 'grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)_auto_auto]',
@@ -168,8 +168,10 @@ export function Screen({ title, navTitle = title, subtitle, below, back, trailin
       ) : (
         <>
           <div ref={topSentinel} aria-hidden className="h-px" />
-          <div className="mx-auto w-full max-w-2xl pb-4 pl-[max(min(1rem,20px),env(safe-area-inset-left))] pr-[max(min(1rem,20px),env(safe-area-inset-right))]">
-            <h1 ref={heading} tabIndex={-1} className="text-[length:var(--text-large-title)] font-bold leading-tight tracking-tight outline-none [overflow-wrap:break-word] hyphens-auto">
+          <div className="@container mx-auto w-full max-w-2xl pb-4 pl-[max(min(1rem,20px),env(safe-area-inset-left))] pr-[max(min(1rem,20px),env(safe-area-inset-right))]">
+            {/* Never wider than its words can stay whole: on a 320 px phone at 200% text the large title stops
+                growing at 13% of its width, so "Reminders" keeps one line rather than breaking mid-word. */}
+            <h1 ref={heading} tabIndex={-1} className="text-[length:min(var(--text-large-title),13cqi)] font-bold leading-tight tracking-tight outline-none [overflow-wrap:break-word] hyphens-auto">
               {title}
             </h1>
             {/* Straight under the title, not under the subtitle and padding:
@@ -235,7 +237,7 @@ function BackButton({ label, onClick }: { label: string; onClick: () => void }) 
       type="button"
       onClick={onClick}
       aria-label={label === 'Back' ? 'Back' : `Back to ${label}`}
-      className="press-feedback relative -ml-1 flex min-h-11 min-w-11 max-w-full items-center gap-0.5 pr-2 text-[length:var(--text-body)] text-tint"
+      className="press-feedback relative -ml-1 flex min-h-12 min-w-12 max-w-full items-center gap-0.5 pr-2 text-[length:var(--text-body)] text-tint"
     >
       <ChevronLeftIcon ref={chevron} className="size-6 shrink-0" strokeWidth={2.2} aria-hidden />
       {fit !== 'none' && <span className="min-w-0 truncate">{fit === 'full' ? label : 'Back'}</span>}

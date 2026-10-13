@@ -52,8 +52,9 @@ const router = createHashRouter([
           <App />
         </div>
         {/* Above the tab bar on a phone and a tablet, not over it (see --toast-offset-bottom).
-            Expanded: a newer toast stacks above an older one, both in full, so an
-            older Undo stays in reach rather than tucked behind (M19, B-04). */}
+            Expanded: both in full, the newer nearest the tab bar and the older above it
+            (board D111 as amended), so an older Undo stays in reach rather than tucked
+            behind (M19, B-04); one at a time where two would cover most of the screen. */}
         {/* Held, hidden and inert, while a sheet or a menu owns the page (`claimModal`, B-03). */}
         <div id="toasts">
           <Toaster

@@ -45,8 +45,8 @@ describe('a finished walk’s route controls (H6-11, KH-10)', () => {
     for (const name of names) expectTarget(host.button(name, { exact: true }), name);
     const row = parentOf(host, host.button('Zoom in', { exact: true }));
     expect(classes(row)).toContain('gap-3');
-    // Four in a row only where four fit at the text size, measured in rem: larger text keeps two.
-    expect(classes(row)).toEqual(expect.arrayContaining(['grid-cols-2', '@min-[23rem]:grid-cols-4']));
+    // Four in a row only where four fit at the text size, measured in rem; two where two do; one under another at the largest sizes.
+    expect(classes(row)).toEqual(expect.arrayContaining(['grid-cols-1', '@min-[16rem]:grid-cols-2', '@min-[23rem]:grid-cols-4']));
     expect(classes(parentOf(host, row))).toContain('@container');
     const credit = host.all().find(n => n.type === 'a')!;
     expect(credit.props.href).toBe('https://www.openstreetmap.org/copyright');

@@ -76,9 +76,11 @@ export function UrgentBanner({ urgent, exit }: { urgent: Urgent; exit?: SheetExi
     <section
       aria-labelledby={titleId}
       data-urgent-kind={urgent.kind}
-      className={cn('flex flex-col gap-3 rounded-2xl p-4', stop ? 'bg-stop-fill text-white' : 'bg-caution-fill text-black')}
+      className={cn('@container flex flex-col gap-3 rounded-2xl p-4', stop ? 'bg-stop-fill text-white' : 'bg-caution-fill text-black')}
     >
-      <h2 id={titleId} className="flex items-start gap-2 text-[length:var(--text-title-2)] font-bold leading-tight [overflow-wrap:break-word]">
+      {/* Narrow for its text size (200% on a 320 px phone), the icon goes above the headline, so every word
+          keeps the card's width whole rather than breaking mid-word (Plan 6's report). */}
+      <h2 id={titleId} className="flex items-start gap-2 text-[length:var(--text-title-2)] font-bold leading-tight [overflow-wrap:break-word] @max-[12rem]:flex-col">
         <Icon className="mt-0.5 size-6 shrink-0" aria-hidden />
         <span className="min-w-0">{urgent.headline}</span>
       </h2>

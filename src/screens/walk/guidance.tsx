@@ -9,7 +9,7 @@ import { typedReading } from '@/walk/low';
 import { PrimaryButton } from './parts';
 
 /** The player's unit buttons. */
-const UNIT_CHOICE = 'min-h-11 rounded-lg bg-muted px-3 text-tint';
+const UNIT_CHOICE = 'min-h-12 rounded-lg bg-muted px-3 text-tint';
 
 /**
  * The emergency instruction in the words every other screen uses. No number:
@@ -133,8 +133,10 @@ export function LowFollowUp({ unit: initialUnit, source, onSave }: {
       <Group header="Your reading now">
         {!display && (
           <>
-          <div className="flex items-center gap-2 px-4 py-2">
+          {/* The reading and its unit stay together, under the words when the two don't fit beside them (200% text). */}
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2">
             <label htmlFor="walk-glucose" className="flex-1 text-[length:var(--text-body)]">Glucose now</label>
+            <span className="ml-auto flex min-w-0 max-w-full items-center gap-2">
             <input
               id="walk-glucose"
               type="text"
@@ -143,22 +145,23 @@ export function LowFollowUp({ unit: initialUnit, source, onSave }: {
               value={value}
               placeholder="Reading"
               onChange={e => { setValue(e.target.value.replace(',', '.')); setUnitConfirmed(false); }}
-              className="h-11 w-24 rounded-lg bg-muted px-3 text-right text-base tabular-nums outline-none"
+              className="h-12 w-24 min-w-0 shrink rounded-lg bg-muted px-3 text-right text-base tabular-nums outline-none"
             />
             <button
               type="button"
               onClick={() => { setUnit(u => (u === 'mg/dL' ? 'mmol/L' : 'mg/dL')); setUnitConfirmed(false); }}
               aria-label={`Unit: ${unit}. Tap to change.`}
-              className="min-h-11 min-w-[4.25rem] rounded-lg px-1 text-[length:var(--text-subhead)] text-tint"
+              className="min-h-12 min-w-12 shrink-0 rounded-lg px-1 text-[length:var(--text-subhead)] text-tint"
             >
               {unit}
             </button>
+            </span>
           </div>
           {/* The player's and the check-in's unit questions, in their words. Over 34 mmol/L is past what a meter reads. */}
           {sanity === 'suspectUnit' && (
             <div role="alert" className="flex flex-col gap-2 px-4 py-3 text-[length:var(--text-subhead)] leading-snug">
               <p>That looks like mg/dL rather than mmol/L. Which does your meter show?</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-3">
                 <button type="button" onClick={() => setUnit('mg/dL')} className={UNIT_CHOICE}>{typed} mg/dL</button>
                 <button type="button" onClick={() => setUnitConfirmed(true)} className={UNIT_CHOICE}>{typed} mmol/L, really</button>
               </div>
@@ -168,7 +171,7 @@ export function LowFollowUp({ unit: initialUnit, source, onSave }: {
           {sanity === 'ambiguousLow' && (
             <div role="alert" className="flex flex-col gap-2 px-4 py-3 text-[length:var(--text-subhead)] leading-snug">
               <p>Check the unit. Which does your meter show?</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-3">
                 <button type="button" onClick={() => setUnitConfirmed(true)} className={UNIT_CHOICE}>{typed} mg/dL</button>
                 <button type="button" onClick={() => setUnit('mmol/L')} className={UNIT_CHOICE}>{typed} mmol/L</button>
               </div>
@@ -188,16 +191,16 @@ export function LowFollowUp({ unit: initialUnit, source, onSave }: {
             {display && <p className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{`A meter shows ${display} when the glucose is past what it can measure.`}</p>}
           </div>
         ) : (
-          <button type="button" onClick={() => setAskDisplay(true)} className="min-h-11 self-start px-4 text-[length:var(--text-body)] font-medium text-tint">
+          <button type="button" onClick={() => setAskDisplay(true)} className="min-h-12 self-start px-4 text-[length:var(--text-body)] font-medium text-tint">
             Meter shows HI or LO?
           </button>
         )}
-        <label className="flex min-h-11 items-start gap-3 px-4 py-3 text-[length:var(--text-subhead)] leading-snug">
+        <label className="flex min-h-12 items-start gap-3 px-4 py-3 text-[length:var(--text-subhead)] leading-snug">
           <input type="checkbox" className="mt-0.5 size-5 shrink-0" checked={gone} onChange={e => setGone(e.target.checked)} />
           <span>My symptoms have gone, and my care plan lets me exercise after a treated low.</span>
         </label>
         {/* The player's question, in its words: a low someone else had to treat is a severe one (M-05). */}
-        <label className="flex min-h-11 items-start gap-3 px-4 py-3 text-[length:var(--text-subhead)] leading-snug">
+        <label className="flex min-h-12 items-start gap-3 px-4 py-3 text-[length:var(--text-subhead)] leading-snug">
           <input type="checkbox" className="mt-0.5 size-5 shrink-0" checked={neededHelp} onChange={e => setNeededHelp(e.target.checked)} />
           <span>Someone else had to help me treat this low.</span>
         </label>

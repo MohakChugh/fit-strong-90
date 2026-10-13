@@ -219,6 +219,12 @@ button, [role="button"], a {
 }
 /* While a sheet or a menu owns the page, toasts wait, hidden, and come back as they were (B-03). */
 #toasts[data-held] { visibility: hidden; }
+/* A toast is a compact bar the screen's width: its words take the row, and its action moves under them
+   when the two don't fit side by side, as at 200% text on a 320 px phone, rather than leaving the words
+   one to a line beside it (M19). */
+#toasts [data-sonner-toast] { flex-wrap: wrap; row-gap: 0.5rem; }
+#toasts [data-sonner-toast] [data-content] { flex: 1 1 8rem; min-width: 0; }
+#toasts [data-sonner-toast] [data-button] { margin-inline-start: auto; }
 
 /* ==========================================================================
    Motion system

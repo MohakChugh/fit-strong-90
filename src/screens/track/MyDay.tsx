@@ -156,7 +156,7 @@ export function MyDay({ day: pathDay }: {
           type="button"
           onClick={() => setChooserOpen(true)}
           aria-label="Add a record"
-          className="press-feedback flex size-[44px] items-center justify-center rounded-full text-tint"
+          className="press-feedback flex size-[48px] items-center justify-center rounded-full text-tint"
         >
           <PlusIcon className="size-[28px]" strokeWidth={2} aria-hidden />
         </button>

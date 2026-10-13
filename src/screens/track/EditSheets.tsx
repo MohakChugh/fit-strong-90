@@ -212,7 +212,7 @@ function EditReadingForm({ observation: o, prefs, onDone, onGuidance }: { observ
           maxLength={500}
           rows={2}
           onChange={e => setNote(e.target.value)}
-          className="min-h-11 rounded-xl bg-grouped-card px-4 py-3 text-[length:var(--text-body)] outline-none ring-1 ring-transparent focus:ring-tint"
+          className="min-h-12 rounded-xl bg-grouped-card px-4 py-3 text-[length:var(--text-body)] outline-none ring-1 ring-transparent focus:ring-tint"
         />
       </div>
       {held

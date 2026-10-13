@@ -100,7 +100,7 @@ export function SelectRow<T extends string | number>({ id, label, detail, value,
             const picked = options.find(o => String(o.value) === e.target.value);
             if (picked) onChange(picked.value);
           }}
-          className="min-h-11 w-full cursor-pointer appearance-none truncate rounded-lg bg-transparent py-2 pl-2 pr-6 text-right text-[length:var(--text-body)] text-tint outline-none focus-visible:ring-2 focus-visible:ring-tint dark:[color-scheme:dark]"
+          className="min-h-12 w-full cursor-pointer appearance-none truncate rounded-lg bg-transparent py-2 pl-2 pr-6 text-right text-[length:var(--text-body)] text-tint outline-none focus-visible:ring-2 focus-visible:ring-tint dark:[color-scheme:dark]"
         >
           {value === undefined && <option value="" disabled>{placeholder ?? 'Choose'}</option>}
           {options.map(o => <option key={String(o.value)} value={String(o.value)}>{o.label}</option>)}
@@ -134,7 +134,7 @@ export function PainPicker({ id, label, value, disabled, onChange }: {
           {value === undefined ? 'Not entered' : `${value} of 10`}
         </span>
       </div>
-      <div role="radiogroup" aria-labelledby={id} className="grid grid-cols-4 gap-1.5 min-[400px]:grid-cols-6">
+      <div role="radiogroup" aria-labelledby={id} className="grid grid-cols-4 gap-3 min-[400px]:grid-cols-6">
         {PAIN_VALUES.map(n => (
           <button
             key={n}
@@ -145,7 +145,7 @@ export function PainPicker({ id, label, value, disabled, onChange }: {
             disabled={disabled}
             onClick={() => onChange(n)}
             className={cn(
-              'numeric min-h-11 rounded-lg text-[length:var(--text-body)] transition-colors disabled:opacity-60',
+              'numeric min-h-12 rounded-lg text-[length:var(--text-body)] transition-colors disabled:opacity-60',
               value === n ? 'bg-tint font-semibold text-on-tint' : 'bg-grouped-bg text-foreground active:bg-muted',
             )}
           >
@@ -156,7 +156,7 @@ export function PainPicker({ id, label, value, disabled, onChange }: {
           type="button"
           disabled={disabled || value === undefined}
           onClick={() => onChange(undefined)}
-          className="min-h-11 rounded-lg text-[length:var(--text-subhead)] text-tint transition-opacity disabled:opacity-40"
+          className="min-h-12 rounded-lg text-[length:var(--text-subhead)] text-tint transition-opacity disabled:opacity-40"
         >
           Clear
         </button>

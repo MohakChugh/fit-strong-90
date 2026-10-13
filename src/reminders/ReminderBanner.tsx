@@ -42,7 +42,7 @@ export function ReminderBanner({ item, glassMl, waterLine, precautions = [], onH
   variant?: 'floating' | 'inline';
 }) {
   const inline = variant === 'inline';
-  const primary = cn(ACTION, inline ? 'flex-1 text-tint' : 'flex-1 bg-tint text-on-tint');
+  const primary = cn(ACTION, inline ? 'flex-1 text-tint' : 'flex-1 min-h-[3.75rem] bg-tint text-on-tint');
   const { occurrence } = item;
   const text = reminderText(occurrence, glassMl);
   const Icon = ICON[occurrence.habit];

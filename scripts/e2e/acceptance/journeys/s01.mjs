@@ -55,7 +55,7 @@ async function firstHref(page, prefix) {
  * Browse and Me. Links are still followed as the UI gives them, so a v1 href
  * a v1 screen still carries goes on through its redirect (§19.3).
  */
-async function inventory(t, { textScale } = {}) {
+export async function inventory(t, { textScale } = {}) {
   const page = await t.open({ seed: persona('P01'), route: '/home', ...(textScale ? { textScale } : {}) });
   const main = page.getByRole('main');
 

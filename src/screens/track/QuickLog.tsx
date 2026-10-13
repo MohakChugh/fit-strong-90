@@ -167,7 +167,7 @@ export function QuickLog({ open, onOpenChange, initial, onSaved, prefs, day }: {
                 if (keeps) clearQuickLogDraft(draftStorage());
                 setStep({ view: 'choose' });
               }}
-              className="press-feedback -my-2 -ml-1 flex min-h-11 items-center gap-0.5 self-start pr-2 text-[length:var(--text-body)] text-tint"
+              className="press-feedback -ml-1 flex min-h-12 items-center gap-0.5 self-start pr-2 text-[length:var(--text-body)] text-tint"
             >
               <ChevronLeftIcon className="size-5" strokeWidth={2.2} aria-hidden />
               All types
@@ -344,7 +344,7 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
                 <button
                   type="button"
                   onClick={() => { setUnit(question.to); setError(undefined); }}
-                  className="press-feedback min-h-11 rounded-lg bg-grouped-card px-3 text-[length:var(--text-subhead)] font-medium text-tint"
+                  className="press-feedback min-h-12 rounded-lg bg-grouped-card px-3 text-[length:var(--text-subhead)] font-medium text-tint"
                 >
                   {question.to === 'mmol/L' ? `I meant ${raw.trim()} mmol/L` : `Use mg/dL`}
                 </button>
@@ -368,7 +368,7 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
         <button
           type="button"
           onClick={() => setAskDisplay(true)}
-          className="press-feedback -my-1 min-h-11 self-start px-1 text-[length:var(--text-body)] font-medium text-tint"
+          className="press-feedback -my-1 min-h-12 self-start px-1 text-[length:var(--text-body)] font-medium text-tint"
         >
           Meter shows HI or LO?
         </button>
@@ -399,7 +399,7 @@ function MealStartField({ value, onChange }: { value: string; onChange: (value: 
           type="time"
           value={value}
           onChange={e => onChange(e.target.value)}
-          className="numeric min-h-11 rounded-lg bg-grouped-bg px-2 text-right text-[length:var(--text-body)] text-foreground"
+          className="numeric min-h-12 rounded-lg bg-grouped-bg px-2 text-right text-[length:var(--text-body)] text-foreground"
         />
       </div>
     </Group>

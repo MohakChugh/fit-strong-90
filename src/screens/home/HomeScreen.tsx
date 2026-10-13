@@ -561,7 +561,7 @@ export function HomeScreen() {
         <Sheet open={walkAhead.open} onOpenChange={o => { if (!o) setWalkAhead({ ...walkAhead, open: false }); }} title={walkAhead.first.title}>
           <p className="px-1 text-[length:var(--text-body)] leading-snug">{walkAhead.first.detail}</p>
           <button type="button" onClick={() => navigate(walkAhead.first.action.to, { viewTransition: true })}
-            className="press-feedback flex min-h-12 w-full items-center justify-center rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
+            className="press-feedback flex min-h-[3.75rem] w-full items-center justify-center rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint">
             {walkAhead.first.action.label}
           </button>
         </Sheet>
@@ -588,7 +588,7 @@ function EarlierSession({ saved, onFinish, onSave }: {
   return (
     <Group header="Unfinished" footer={error ?? 'Saving keeps what you did in your history, on the day you did it.'}>
       <Row label={`From ${format(new Date(`${saved.plan.date}T12:00:00`), 'EEEE')}`} detail={`${minutesLeft(saved)} min left · ${saved.plan.label}`} />
-      <div className="flex flex-wrap gap-2 px-4 py-3">
+      <div className="flex flex-wrap gap-3 px-4 py-3">
         {/* Both secondary: the one primary action on Home is the suggestion's. */}
         <button type="button" onClick={onFinish} disabled={busy} className={cn(button, 'bg-tint/10 text-tint')}>Finish it</button>
         <button

@@ -86,16 +86,18 @@ export function DateStepper({ label, sublabel, previousLabel, nextLabel, onPrevi
   nextDisabled: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-1">
+    // At a large text size on a small phone the day takes a line of its own, the arrows under it, so a long
+    // month keeps its letters together rather than breaking mid-word.
+    <div className="@container"><div className="flex items-center justify-between gap-1 @max-[16rem]:flex-wrap">
       <button
         type="button"
         onClick={onPrevious}
         aria-label={previousLabel}
-        className="press-feedback flex size-[44px] shrink-0 items-center justify-center rounded-full text-tint"
+        className="press-feedback flex size-[48px] shrink-0 items-center justify-center rounded-full text-tint"
       >
         <ChevronLeftIcon className="size-[24px]" strokeWidth={2.2} aria-hidden />
       </button>
-      <h2 aria-live="polite" className="min-w-0 flex-1 break-words text-center leading-tight">
+      <h2 aria-live="polite" className="min-w-0 flex-1 break-words text-center leading-tight @max-[16rem]:order-first @max-[16rem]:basis-full">
         <span className="block text-[length:var(--text-body)] font-semibold">{label}</span>
         {sublabel && <span className="block text-[length:var(--text-footnote)] text-muted-foreground">{sublabel}</span>}
       </h2>
@@ -104,11 +106,11 @@ export function DateStepper({ label, sublabel, previousLabel, nextLabel, onPrevi
         onClick={onNext}
         disabled={nextDisabled}
         aria-label={nextLabel}
-        className="press-feedback flex size-[44px] shrink-0 items-center justify-center rounded-full text-tint disabled:text-muted-foreground/35"
+        className="press-feedback flex size-[48px] shrink-0 items-center justify-center rounded-full text-tint disabled:text-muted-foreground/35"
       >
         <ChevronRightIcon className="size-[24px]" strokeWidth={2.2} aria-hidden />
       </button>
-    </div>
+    </div></div>
   );
 }
 
@@ -172,7 +174,7 @@ export function NumberField({ ref, label, value, onChange, mode = 'decimal', uni
   );
 }
 
-/** A two-way unit switch for a NumberField's label row. Targets stay 44 px at any text size. */
+/** A two-way unit switch for a NumberField's label row. Targets stay 48 px at any text size. */
 export function UnitSwitch<U extends string>({ units, value, onChange, label }: {
   units: readonly U[];
   value: U;
@@ -193,7 +195,7 @@ export function UnitSwitch<U extends string>({ units, value, onChange, label }: 
           className={cn(
             // Drawn as the segmented control is: body-colour labels on the
             // measured segment tokens (muted text on this track was 4.4:1 in dark).
-            'min-h-[44px] min-w-[44px] rounded-md px-2 text-[length:var(--text-subhead)] text-foreground transition-[background-color,box-shadow]',
+            'min-h-[48px] min-w-[48px] rounded-md px-2 text-[length:var(--text-subhead)] text-foreground transition-[background-color,box-shadow]',
             u === value ? 'bg-segment-thumb font-semibold shadow-[0_3px_8px_rgb(0_0_0/0.12),0_3px_1px_rgb(0_0_0/0.04)]' : 'font-medium',
           )}
         >
@@ -214,7 +216,7 @@ export function ChoiceChips<T extends string>({ legend, options, value, onChange
   return (
     <fieldset className="flex min-w-0 flex-col gap-2">
       <legend className="mb-2 px-1 text-[length:var(--text-subhead)] text-muted-foreground">{legend}</legend>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-3">
         {options.map(option => {
           const selected = option.id === value;
           return (
@@ -252,7 +254,7 @@ export function PrimaryButton({ children, onClick, disabled, type = 'button', cl
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'press-feedback flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint disabled:opacity-50',
+        'press-feedback flex min-h-[3.75rem] w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint disabled:opacity-50',
         className,
       )}
     >
@@ -276,7 +278,7 @@ export function SecondaryButton({ children, onClick, tone = 'default', disabled,
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'press-feedback flex min-h-11 w-full items-center justify-center rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] font-medium disabled:text-muted-foreground',
+        'press-feedback flex min-h-12 w-full items-center justify-center rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] font-medium disabled:text-muted-foreground',
         tone === 'stop' ? 'text-stop' : 'text-tint',
         className,
       )}

@@ -1,7 +1,7 @@
 /**
  * Undo, for every routine delete (B-04, M19; board D113): at most two
- * standing, the newer stacked above the older, and restoring one keeps the
- * other. Never on a timer. Leaving the screen it was offered on and the
+ * standing, the newer nearest the tab bar and the older above it (board D111
+ * as amended), and restoring one keeps the other. Never on a timer. Leaving the screen it was offered on and the
  * details opened from it, or any edit the store stores, ends it; Recently
  * deleted remains. What happens after a tap is said in the same toast, in
  * place, until it is closed or its screen is left (K8-03): a restore, a
@@ -57,7 +57,7 @@ export function offerUndo({ text, restored, scope, entry, undo }: {
   /** This offer still stands: the same one, on a screen it belongs to. */
   const standing = () => born === generation && offers.some(o => o.key === key);
   offers = [...offers, { key, scope: scopeOf(scope), undo: true, ...(entry ? { entry } : {}) }];
-  // Two at most, the newer stacked above the older; restoring one keeps the other (B-04).
+  // Two at most, the newer nearest the tab bar; restoring one keeps the other (B-04, D111 as amended).
   for (const old of offers.filter(o => o.undo).slice(0, -2)) drop(old.key);
   // One restore at a time: a second tap while the first saves would ask for the entry twice.
   let saving = false;
