@@ -12,7 +12,7 @@ import { DEFAULT_FINISH, mealProblem, windowProblem } from '@/screens/you/habitO
 import type { Meal } from '@/types/habits';
 import { asksAdult, birthYearProblem } from './age';
 import { nameProblem, ownAllergiesProblem, ownTextProblem, type RawKey } from './limits';
-import { factsOf, has, type Facts } from './facts';
+import { classesOf, factsOf, has, type Facts } from './facts';
 import { heightProblem, numberFrom, waistProblem, weightProblem } from './units';
 
 export interface Ctx {
@@ -101,10 +101,10 @@ export const PAGES: readonly PageDef[] = [
   { id: 'medicines.which', when: (_a, f) => f.medicines, sets: ['classes', 'metforminSince'], skippable: false,
     // The year only while its question shows, metformin ticked: a hidden one never holds Next (H5-27).
     done: (a, _f, ctx) => checklistDone(a.classes, MEDICINE_CLASSES) && (a.classes?.metformin !== 'yes' || metforminYearProblem(a.metforminSince ?? '', ctx.thisYear) === null) },
-  { id: 'medicines.lows', when: (a, f) => f.diabetic && (f.insulin || has(a.classes?.lowsTablet)),
+  { id: 'medicines.lows', when: (a, f) => f.diabetic && (f.insulin || has(classesOf(a).lowsTablet)),
     sets: ['insulinHow', 'lowsRisk', 'glucoseStartMin', 'glucoseStartUnit'], skippable: false,
     done: (a, f) => (!f.insulin || a.insulinHow !== undefined) && a.lowsRisk !== undefined && glucoseOk(a) },
-  { id: 'medicines.ketones', when: (a, f) => f.diabetic || has(a.classes?.gliflozin), sets: ['priorDka', 'ketoneTest'], skippable: false,
+  { id: 'medicines.ketones', when: (a, f) => f.diabetic || has(classesOf(a).gliflozin), sets: ['priorDka', 'ketoneTest'], skippable: false,
     done: (a, f) => (!f.diabetic || a.priorDka !== undefined) && (!f.ketoneRisk || a.ketoneTest !== undefined) },
   { id: 'medicines.standing', when: (_a, f) => f.bpMeds || f.heart || f.diabetic || f.other, sets: ['dizzy'], skippable: false,
     done: a => a.dizzy !== undefined },
@@ -243,7 +243,7 @@ export const RAW_FIELDS: Readonly<Record<RawKey, (a: SetupAnswers) => boolean>> 
   'bpPermission.dia': a => a.targets === 'yes' && factsOf(a).bp,
   hba1cPercent: a => a.targets === 'yes' && factsOf(a).diabetic,
   glucoseStartMin: always,
-  metforminSince: a => a.classes?.metformin === 'yes',
+  metforminSince: a => classesOf(a).metformin === 'yes',
   customAllergies: always,
 };
 

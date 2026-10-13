@@ -1482,3 +1482,50 @@ describe('a fluid limit given in Me → Reminders → Water (codex F-setup-02; b
     expect(store.getState().settings.habits?.water?.everyMinutes).toBe(WATER.everyMinutes);
   });
 });
+
+describe('“No regular medicines” after a medicine was ticked (codex F-setup-03)', () => {
+  it('answers every class No: Review says no diabetes, asks no insulin questions, and finishing stores none of it', async () => {
+    const { ReviewPage } = await import('./ReviewPage');
+    const { withDraft } = await import('@/setup/draft');
+    const { INSULIN_NO_DIABETES } = await import('@/setup/fixtures');
+    const { pathFor } = await import('@/setup/graph');
+    // Insulin ticked and its questions answered, then, from Review, "Do you take regular medicines?" changed to No.
+    const changed = { ...INSULIN_NO_DIABETES, regular: 'no' as const };
+    expect(changed.classes?.insulin).toBe('yes');
+    expect(pathFor(changed)).not.toContain('medicines.lows');
+    expect((await store.update(d => withDraft(d, 'review', changed))).ok).toBe(true);
+    host = render(createElement(ReviewPage));
+    await host.settle();
+    expect(host.text()).not.toContain('Diabetes shows as “Other”');
+    await host.click(host.all().find(n => n.props.role === 'checkbox')!);
+    await host.click(host.button('Start using FitStrong', { exact: true }));
+    await host.settle();
+    const health = store.getState().profile?.health;
+    expect([health?.diabetes, health?.insulin, health?.sulfonylureaOrMeglitinide]).toEqual(['none', 'none', false]);
+    // The answers ticked before are kept for Back, as setup keeps them; they decide nothing now.
+    expect(store.getState().settings.setup?.answers?.classes?.insulin).toBe('yes');
+  });
+});
+
+describe('“No regular medicines” after a tablet that can cause lows, or a “-gliflozin”, was ticked (codex F-setup-03)', () => {
+  it('asks none of their questions, and the metformin year typed before holds nothing', async () => {
+    const { pathFor, rawInvalid } = await import('@/setup/graph');
+    const diabetes = { ...NO_CONDITIONS, diabetes: 'yes' as const };
+    // With diabetes and a lows tablet, then "No regular medicines": the lows questions go.
+    const lows = withMeds({ lowsTablet: 'yes' }, { conditions: diabetes, diabetesType: 'type2', lowsRisk: 'no' });
+    expect(pathFor(lows)).toContain('medicines.lows');
+    expect(pathFor({ ...lows, regular: 'no' })).not.toContain('medicines.lows');
+    // With diabetes and insulin, the same: neither its lows nor its insulin questions are asked.
+    const insulin = withMeds({ insulin: 'yes' }, { conditions: diabetes, diabetesType: 'type2', insulinHow: 'basalOnly', lowsRisk: 'no' });
+    expect(pathFor(insulin)).toContain('medicines.lows');
+    expect(pathFor({ ...insulin, regular: 'no' })).not.toContain('medicines.lows');
+    // A "-gliflozin" with no diabetes, then "No regular medicines": its ketone questions go.
+    const gliflozin = withMeds({ gliflozin: 'yes' }, { ketoneTest: 'none' });
+    expect(pathFor(gliflozin)).toContain('medicines.ketones');
+    expect(pathFor({ ...gliflozin, regular: 'no' })).not.toContain('medicines.ketones');
+    // Metformin's year, half typed, then "No regular medicines": nothing waits on it.
+    const metformin = withMeds({ metformin: 'yes' });
+    expect(rawInvalid('medicines.which', metformin, { metforminSince: '19' })).toBe(true);
+    expect(rawInvalid('medicines.which', { ...metformin, regular: 'no' }, { metforminSince: '19' })).toBe(false);
+  });
+});
