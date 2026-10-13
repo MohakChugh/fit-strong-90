@@ -34,7 +34,8 @@ export default function ReadingHub() {
   const [params] = useSearchParams();
   const spec = readingSpec(id, params.get('metric'));
   if (!spec) return <Navigate to="/home?moved=1" replace />;
-  return <ReadingScreen key={`${spec.id}:${spec.metric}`} spec={spec} />;
+  // Keyed by the hub alone: Labs' "Which result" stays in place as it moves, focus included (codex F-ui-04).
+  return <ReadingScreen key={spec.id} spec={spec} />;
 }
 
 function ReadingScreen({ spec }: { spec: ReadingSpec }) {
@@ -51,6 +52,13 @@ function ReadingScreen({ spec }: { spec: ReadingSpec }) {
   // "Saved on this device", until the next Add or until the screen is left: never on a timer (§20.4 rule 8; kiro KH-16).
   const [notice, setNotice] = useState<string>();
   const [fresh, setFresh] = useState<readonly string[]>([]);
+  // Another result is another result's screen: its notice and its arrivals go, as they did when it was drawn again.
+  const [shown, setShown] = useState(spec.metric);
+  if (shown !== spec.metric) {
+    setShown(spec.metric);
+    setNotice(undefined);
+    setFresh([]);
+  }
   const add = () => {
     setNotice(undefined);
     setLogOpen(true);
