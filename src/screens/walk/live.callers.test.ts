@@ -498,3 +498,25 @@ describe('a walk’s address is a choice, never authorisation (H6-04, KH-12)', (
     expect(walk.live!.getSnapshot()!.walk.plan.keepRoute).toBe(true);
   });
 });
+
+describe('F-walk-03: a low reading the device refused stays on the walk, to try again as it was given (journey §4.5)', () => {
+  it('refused: the number, its answers and its time kept with Try again; tried again and stored, the same reading, then the box clears', async () => {
+    const p = createDefaultProfile(INSULIN);
+    await feelingLow(p);
+    db.control.setWriteError(() => new DOMException('The operation failed.', 'QuotaExceededError'));
+    await h().change(h().field('Glucose now'), { value: '65' });
+    await h().click(h().field(/Someone else had to help me treat this low/));
+    await h().click(h().button('Save this reading'));
+    expect(h().field('Glucose now').props.value).toBe('65');
+    expect(h().field(/Someone else had to help me treat this low/).props.checked).toBe(true);
+    expect(h().buttons('Try again', { exact: true })).toHaveLength(1);
+    expect(h().text()).toMatch(/couldn’t be saved/);
+    db.control.setWriteError(undefined);
+    clock(9, 12);
+    await h().click(h().button('Try again', { exact: true }));
+    expect(today()?.glucose).toMatchObject({ value: 65, measuredAt: iso(9, 10) });
+    expect(today()?.news).toContain('lowSevere');
+    expect(h().field('Glucose now').props.value).toBe('');
+    expect(h().buttons('Try again', { exact: true })).toHaveLength(0);
+  });
+});

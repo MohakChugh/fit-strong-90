@@ -244,9 +244,11 @@ export default function LiveWalkScreen() {
     setUnsaved(!r.stored);
     return r.stored;
   };
-  const saveLowReading = async (reading: GlucoseEntry, symptomsGone: boolean, neededHelp: boolean) => {
+  /** The reading after "I feel low": whether the device stored it, so a refused one stays to try again (F-walk-03). */
+  const saveLowReading = async (reading: GlucoseEntry, symptomsGone: boolean, neededHelp: boolean): Promise<boolean> => {
     const r = await reportSymptoms(lowReading(reading, symptomsGone, neededHelp), new Date());
     setUnsaved(!r.stored);
+    return r.stored;
   };
 
   /**
