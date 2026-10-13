@@ -69,7 +69,8 @@ export default function FoodHubScreen() {
   const slot = slotAt(minute);
   const todays = mealsOn(meals, today);
   const usual = level === 'ideas' ? [] : usualFor(usualSlot(slot, minute, todays), today, meals, savedMealsIn(records)).slice(0, RIGHT_NOW_USUAL);
-  const ideas = mealsFor(food, slot).slice(0, Math.min(RIGHT_NOW_IDEAS, RIGHT_NOW_MAX - 1 - usual.length));
+  // From the allergies as known, setup's where the food record has none, as Meal ideas reads them (codex F-food-05).
+  const ideas = mealsFor(filter, slot).slice(0, Math.min(RIGHT_NOW_IDEAS, RIGHT_NOW_MAX - 1 - usual.length));
   const todayLines = totalsLines(totalsOf(todays.flatMap(m => m.items)), numbers);
   const target = careTeamLine(food?.careTeamTargets, numbers);
   const [notes] = resolveGroups([FOOD_DATA_NOTES], ctx);

@@ -11,14 +11,14 @@ import { createDefaultProfile } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { render, textOf, type Host } from '@/test/host';
 
-const params = vi.hoisted(() => ({ mealId: 'd-khichdi', q: '' }));
+const params = vi.hoisted(() => ({ mealId: 'd-khichdi', q: '', path: '/me/food' }));
 /** The router's blocker as a sheet asks for it while it saves: whether it holds a leave, and what was done with one held. */
 const nav = vi.hoisted(() => ({ holds: false, state: 'unblocked' as 'unblocked' | 'blocked', proceeded: 0, resets: 0 }));
 vi.mock('react-router-dom', async () => {
   const { createElement: h } = await import('react');
   return {
     useNavigate: () => () => {},
-    useLocation: () => ({ pathname: '/me/food', search: '', state: null, key: 'k0' }),
+    useLocation: () => ({ pathname: params.path, search: '', state: null, key: 'k0' }),
     useParams: () => ({ mealId: params.mealId }),
     useSearchParams: () => [new URLSearchParams(params.q ? { q: params.q } : {}), () => {}],
     Link: ({ children, to }: { children?: unknown; to?: string }) => h('a', { href: to }, children as never),
@@ -40,7 +40,10 @@ vi.mock('@/components/hig/Screen', async () => {
 });
 vi.mock('@/screens/hub/HubFrame', async () => {
   const { createElement: h } = await import('react');
-  return { HubFrame: ({ children }: { children?: unknown }) => h('main', null, children as never) };
+  return {
+    HubFrame: ({ children }: { children?: unknown }) => h('main', null, children as never),
+    HubSection: ({ title, children }: { title: string; children?: unknown }) => h('section', null, h('h2', null, title), children as never),
+  };
 });
 vi.mock('@/components/hig/Sheet', async () => {
   const { createElement: h } = await import('react');
@@ -517,3 +520,46 @@ describe('Close or Back while “What do you eat?” is saving (codex F-food-04;
     expect(store.getState().profile?.food?.pattern).toBe('vegetarian');
   });
 });
+
+describe('the Food hub and the sample week, with a food record that never answered allergies (codex F-food-05; board D205)', () => {
+  const ASK = 'Tell us about food allergies first';
+  const ideas = (h: Host) => h.all().map(n => n.props.href).filter((to): to is string => typeof to === 'string' && to.startsWith('/hub/food/ideas/'));
+  /** A v1 food record, vegetarian with nothing to avoid and no allergy answer, and setup's answer: a peanut allergy. */
+  const person = async (setupAllergies?: readonly ['peanut']) => {
+    vi.setSystemTime(new Date(2026, 9, 8, 8, 0, 0));
+    await store.update(prev => ({
+      ...prev,
+      profile: createDefaultProfile({ birthYear: 1970, weightKg: 70, food: { pattern: 'vegetarian', avoid: [] } }),
+      settings: { ...prev.settings, ...(setupAllergies ? { setup: { stage: 'done' as const, answers: { allergies: [...setupAllergies] } } } : {}) },
+    }));
+  };
+  const shown = async (load: () => Promise<{ default: () => unknown }>, path: string) => {
+    params.path = path;
+    host = render(createElement((await load()).default as never));
+    await host.settle();
+    return host;
+  };
+  afterEach(() => { params.path = '/me/food'; });
+
+  it('the Food hub’s breakfast ideas leave the peanut poha out', async () => {
+    await person(['peanut']);
+    const h = await shown(() => import('@/screens/food/FoodHubScreen'), '/hub/food');
+    expect(ideas(h).length).toBeGreaterThan(0);
+    expect(ideas(h)).not.toContain('/hub/food/ideas/b-poha');
+  });
+
+  it('so does the sample week', async () => {
+    await person(['peanut']);
+    const h = await shown(() => import('@/screens/guide/SampleWeekScreen'), '/hub/food/week');
+    expect(ideas(h).length).toBeGreaterThan(0);
+    expect(ideas(h)).not.toContain('/hub/food/ideas/b-poha');
+  });
+
+  it('with no allergy answer anywhere, the sample week asks first, as Meal ideas does, and shows no week', async () => {
+    await person();
+    const h = await shown(() => import('@/screens/guide/SampleWeekScreen'), '/hub/food/week');
+    expect(h.text()).toContain(ASK);
+    expect(ideas(h)).toEqual([]);
+  });
+});
+
