@@ -49,14 +49,16 @@ export function todayDose(plan: SessionPlan, c: DoseContext): SessionPlan {
     // routine itself is the live gate's.
     return built.kind === 'none' ? plan : built;
   }
-  if (plan.date === c.date && plan.focus === c.todayPlan.focus) return c.todayPlan;
-  return buildSessionPlan({
+  const built = plan.date === c.date && plan.focus === c.todayPlan.focus ? c.todayPlan : buildSessionPlan({
     profile: c.profile, date: plan.date, startDate: c.data.settings.startDate,
     sessions: c.data.sessions.filter(x => x.date < plan.date),
     recentCheckIns: c.checkIns.filter(x => x.date < c.date),
     ...(c.checkIn ? { checkIn: c.checkIn } : {}),
     focusOverride: plan.focus,
   });
+  // Under a hold the builder offers no session (a stop said at the tap, F-safety-02): the run is held by the
+  // live gate, kept to its own steps less whatever today leaves out, as a stretch is, and never passed over.
+  return built.kind === 'none' ? plan : built;
 }
 
 /** The refused steps, with the back check of every exercise that is left out altogether (scan J2-02). */

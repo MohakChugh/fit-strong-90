@@ -73,7 +73,7 @@ const store = await import('@/store/useStore');
 const { default: SessionPage } = await import('./SessionPage');
 const { UrgentProvider } = await import('@/screens/home/UrgentBanner');
 const { TaskFrame } = await import('@/components/hig/StorageBanner');
-const { resetPendingCheckInsForTests, saveCheckInRecord } = await import('@/components/checkin/pending');
+const { resetPendingCheckInsForTests, restorePendingCheckInsForTests, saveCheckInRecord } = await import('@/components/checkin/pending');
 const { evaluateCheckIn } = await import('@/engine/readiness');
 const { buildSessionPlan } = await import('@/engine/session');
 const { saveProgress } = await import('@/session/persistence');
@@ -699,12 +699,17 @@ describe('acceptance J02, J08, J16: "Stop: something’s wrong" in the running p
     expect(h().text()).toMatch(/today/i);
   });
 
-  it('a rest records nothing and leaves the session paused', async () => {
+  it('a rest records only that: the stop said at the tap is answered, and the session stays paused (F-safety-02)', async () => {
     await moving(createDefaultProfile(BACK));
-    const before = JSON.stringify(today());
+    const before = today()!;
     await h().click(stopControl());
+    expect(today()?.news).toContain('stopped');
     await h().click(h().button('Just need a rest'));
-    expect(JSON.stringify(today())).toBe(before);
+    await h().settle();
+    const after = today()!;
+    expect(after.news).toEqual(before.news);
+    expect(after.resolutions).toEqual([expect.objectContaining({ kind: 'news', readings: [`news:stopped@${DAY}`], resolution: 'resolved' })]);
+    expect(after.glucose).toEqual(before.glucose);
     expect(status(slot)).toBe('paused');
     expect(h().buttons('Resume', { exact: true })).toHaveLength(1);
   });
@@ -1818,5 +1823,71 @@ describe('F-safety-03: carrying a session on asks the status first, at the arriv
     await h().click(h().button('Pause', { exact: true }));
     await h().click(h().button('Resume', { exact: true }));
     expect(playing()).toBe(true);
+  });
+});
+
+describe('F-safety-02: "Stop: something’s wrong" is saved at the tap, and holds until its own questions answer it (journey §4.4, D170)', () => {
+  const morning = () => ci({ glucose: { value: 140, unit: 'mg/dL', measuredAt: iso(9), source: 'meter' } });
+  const STRETCH = 'mode=stretch&focus=backHips&minutes=10';
+  /** The page and its store, back from the device as a reload brings them. */
+  async function reload(db: ReturnType<typeof fakeIndexedDB>, query: string) {
+    host?.unmount();
+    host = undefined;
+    store.resetForTests();
+    restorePendingCheckInsForTests();
+    await store.start({ factory: db, broadcast: null });
+    await mount(query);
+  }
+  for (const query of ['', STRETCH]) {
+    const slot = query ? 'stretch' as const : 'guided' as const;
+    for (const refused of [false, true]) {
+      it(`left unanswered in ${slot === 'stretch' ? 'a stretch' : 'the guided session'}, a reload resumes nothing${refused ? ', the save refused' : ''}`, async () => {
+        store.resetForTests();
+        const db = fakeIndexedDB();
+        await store.start({ factory: db, broadcast: null });
+        await seed(createDefaultProfile(BACK), [morning()]);
+        await mount(query);
+        await h().click(h().button('Start', { exact: true }));
+        if (refused) db.control.setWriteError(() => new DOMException('The operation failed.', 'QuotaExceededError'));
+        await h().click(stopControl());
+        expect(status(slot)).toBe('paused');
+        // The stop's own questions stay on screen, the stop already said.
+        expect(h().text()).toMatch(/What is happening\?/);
+        await reload(db, query || 'resume=1');
+        expect(h().buttons('Resume', { exact: true })).toHaveLength(0);
+        expect(h().text()).toMatch(/You stopped and haven’t said what happened yet/);
+      });
+    }
+  }
+
+  it('over the player’s own stop questions, the task’s surface says every decision but that stop; opened again, the stop is said once', async () => {
+    await seed(createDefaultProfile(BACK), [morning()]);
+    host?.unmount();
+    host = render(createElement(UrgentProvider, null, createElement(TaskFrame, null, createElement(SessionPage))));
+    await h().settle();
+    await h().click(h().button('Start', { exact: true }));
+    await h().click(stopControl());
+    await h().settle();
+    expect(h().text()).toMatch(/What is happening\?/);
+    expect(h().buttons('Say what happened')).toHaveLength(0);
+    // Opened again, the questions are gone: the stop stands, said once, by the session's own gate.
+    host.unmount();
+    host = render(createElement(UrgentProvider, null, createElement(TaskFrame, null, createElement(SessionPage))));
+    await h().settle();
+    expect(h().text().match(/You stopped and haven’t said what happened yet/g)).toHaveLength(1);
+    expect(h().buttons('Resume', { exact: true })).toHaveLength(0);
+  });
+
+  it('"Just need a rest" answers it, and Resume carries on', async () => {
+    await seed(createDefaultProfile(BACK), [morning()]);
+    await mount();
+    await h().click(h().button('Start', { exact: true }));
+    await h().click(stopControl());
+    expect(today()?.news).toContain('stopped');
+    await h().click(h().button(/Just need a rest/));
+    await h().settle();
+    expect(today()?.news ?? []).not.toContain('stopped');
+    await h().click(h().button('Resume', { exact: true }));
+    expect(status()).toBe('running');
   });
 });
