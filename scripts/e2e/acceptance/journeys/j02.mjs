@@ -201,7 +201,7 @@ export const cases = [
         // outlast the navigation by seconds. Only a check-in still open over the player is a second one.
         await move.checkInSheet(page).waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
         await t.check(await move.checkInSheet(page).count() === 0, 'a second check-in opened for the same session');
-        await t.check(!/Check again before you start|No session for now|Back to Today/.test(await main.innerText()), 'the player shows a second approval or a gate');
+        await t.check(!/Check again before you start|No session for now|Back to Home/.test(await main.innerText()), 'the player shows a second approval or a gate');
         await t.checkpoint('player-ready');
         const ready = player.control(page, 'Start');
         if (await ready.count()) t.note('the player opens on its own ready screen; its Start begins the run (not a second safety approval)');
@@ -378,7 +378,7 @@ export const cases = [
         } else {
           await t.checkpoint('guided-after-review');
           const text = await main.innerText();
-          await t.check((await t.route()).startsWith('/session') && await player.control(page, 'Start').count() === 1 && !/Back to Today/.test(text),
+          await t.check((await t.route()).startsWith('/session') && await player.control(page, 'Start').count() === 1 && !/Check again before you start|No session for now|Back to Home/.test(text),
             `after the review the guided session does not open its player: ${await t.route()} ${text.replace(/\s+/g, ' ').slice(0, 200)}`);
           t.note('after the review, the morning’s check-in (no glucose reading) let the session open directly');
         }

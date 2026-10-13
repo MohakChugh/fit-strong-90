@@ -72,8 +72,10 @@ const store = await import('@/store/useStore');
 const { default: SessionPage } = await import('./SessionPage');
 const { resetPendingCheckInsForTests } = await import('@/components/checkin/pending');
 const { evaluateCheckIn } = await import('@/engine/readiness');
+const { HREF } = await import('@/health/recommend');
 
 const known = { medicinesReviewed: true, currentlyActive: true, clearance: 'vigorous' as const, glucoseMonitor: 'meter' as const, glucoseUnit: 'mg/dL' as const };
+const NONE = { health: { ...known } } satisfies ProfileInput;
 const BACK = { pain: { areas: ['lowerBack', 'sciatica'], sciaticaSide: 'left' }, ladder: { hinge: 2, squat: 2, neuralGate: true }, health: { ...known, diabetes: 'type2', metformin: true } } satisfies ProfileInput;
 const START = '2026-09-28';
 const DAY = '2026-10-09';
@@ -145,6 +147,48 @@ describe('kiro FK-01: every control on the player shows a word for what it does 
     for (let i = 0; i < 80 && steppers().length === 0; i++) await h().click(named('Next'));
     expect(steppers().length).toBeGreaterThan(0);
     for (const b of steppers()) expect(shown(b), String(b.props['aria-label'])).toBe(String(b.props['aria-label']).split(' ')[0]);
+  });
+});
+
+describe('kiro FK-02: the session’s gate says Home, in the mode’s own words, with Check in its main way on', () => {
+  it('a stretch opened by its link with no check-in yet: “Stretch”, Check in to the shared check-in, and Back to Home after a fresh launch', async () => {
+    await seed(createDefaultProfile(NONE), []);
+    await mount('mode=stretch&focus=backHips&minutes=10');
+    const heading = h().all().find(n => n.type === 'h1');
+    expect(heading && textOf(heading.children)).toBe('Stretch');
+    expect(h().text()).not.toMatch(/Today\b|Guided session/);
+    expect(h().text()).toMatch(/Check in first, then start the stretch\./);
+    await h().click(named('Check in'));
+    expect(router.navigate).toHaveBeenCalledWith(HREF.checkIn('stretch'), { replace: true });
+    router.navigate.mockClear();
+    await h().click(named('Back to Home'));
+    expect(router.navigate).toHaveBeenCalledWith('/home', { replace: true });
+  });
+
+  it('the guided session, opened from a screen the app saw: “Guided session”, and Back returns there', async () => {
+    router.below = '/hub/workout';
+    await seed(createDefaultProfile(NONE), []);
+    await mount();
+    const heading = h().all().find(n => n.type === 'h1');
+    expect(heading && textOf(heading.children)).toBe('Guided session');
+    expect(h().text()).toMatch(/Check in first, then start the session\./);
+    await h().click(named('Check in'));
+    expect(router.navigate).toHaveBeenCalledWith(HREF.checkIn('guided'), { replace: true });
+    router.navigate.mockClear();
+    await h().click(named('Back'));
+    expect(router.navigate).toHaveBeenCalledWith(-1);
+  });
+
+  it('Check in is the gate’s one main action while a check-in is needed, and absent when one would not lift it', async () => {
+    await seed(createDefaultProfile(NONE), []);
+    await mount('mode=stretch&focus=backHips&minutes=10');
+    const main = h().all().filter(n => n.type === 'button' && /\bmin-h-\[3\.75rem\]/.test(String(n.props.className ?? '')));
+    expect(main.map(shown)).toEqual(['Check in']);
+    // An emergency answered today: nothing to check in for, and Back is the way out.
+    await seed(createDefaultProfile(NONE), [ci({ urgentSymptoms: true, emergency: ['chest'] })]);
+    await mount('mode=stretch&focus=backHips&minutes=10');
+    expect(h().buttons('Check in', { exact: true })).toHaveLength(0);
+    expect(shown(named('Back to Home'))).toBe('Back to Home');
   });
 });
 

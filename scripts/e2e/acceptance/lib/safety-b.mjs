@@ -182,7 +182,7 @@ export async function modeAnswer(t, mode, via = 'move', { resubmit = true } = {}
       const m = document.querySelector('main');
       if (!m) return false;
       if (m.querySelector('section[role="alert"] h2, section[role="status"] h2')) return true;
-      return [...m.querySelectorAll('button')].some(b => /^(Start|Resume|Back to Today)$/.test(b.textContent.trim()));
+      return [...m.querySelectorAll('button')].some(b => /^(Start|Resume|Back|Back to Home)$/.test(b.textContent.trim()));
     }, null, { timeout: 20000 }).catch(() => {});
   }
   const banner = main.locator('section[role="alert"], section[role="status"]').filter({ has: page.locator('h2') });

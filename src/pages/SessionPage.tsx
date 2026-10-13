@@ -146,8 +146,8 @@ function SessionRun() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stale]);
 
-  // Back where the person started (Move, Today), or Today after a fresh launch.
-  const exit = () => (cameFrom() ? navigate(-1) : navigate('/today', { replace: true }));
+  // Back where the person started (a hub, Home), or Home after a fresh launch.
+  const exit = () => (cameFrom() ? navigate(-1) : navigate('/home', { replace: true }));
 
   const input = useMemo(
     () => ({ profile, ...(checkIn ? { checkIn } : {}), now: new Date(), recent: checkIns }),
@@ -183,7 +183,10 @@ function SessionRun() {
   // inspection either way; it is never permission to move (re-audit F02).
   const [arrival] = useState(() => ({ now: input.now, permission: arrivalGate(input, mode, !!resumeState) }));
   if (!arrival.permission.allowed || arrival.permission.needsCheckIn) {
-    return <ArrivalGate arrival={arrival} input={input} mode={mode} resuming={!!resumeState} readiness={checkIn?.readiness} onBack={exit} />;
+    return (
+      <ArrivalGate arrival={arrival} input={input} mode={mode} resuming={!!resumeState} readiness={checkIn?.readiness} onBack={exit}
+        onCheckIn={() => navigate(HREF.checkIn(mode), { replace: true })} />
+    );
   }
   // Afterwards the question is only whether exercise may carry on: a newly
   // reported emergency, stop or low halts it at once; an ageing reading does
@@ -237,20 +240,25 @@ function SessionRun() {
  * refusal has lifted, the arrival's own stays: only a new arrival opens the
  * player, never a change on another screen (re-audit F02).
  */
-function ArrivalGate({ arrival, input, mode, resuming, readiness, onBack }: {
+function ArrivalGate({ arrival, input, mode, resuming, readiness, onBack, onCheckIn }: {
   arrival: { now: Date; permission: Permission };
   input: PermissionInput;
   mode: Mode;
   resuming: boolean;
   readiness?: Readiness;
   onBack: () => void;
+  /** The shared check-in, for a refusal a check-in answers (kiro FK-02). */
+  onCheckIn: () => void;
 }) {
   const { now } = useClock();
   useWakeAt(nextBoundary(now, input.checkIn ? { checkIn: input.checkIn } : {}));
   const current = arrivalGate({ ...input, now }, mode, resuming);
   const shown = current.allowed && !current.needsCheckIn ? arrival : { now, permission: current };
-  return <SessionGate permission={shown.permission} {...(readiness ? { readiness } : {})} now={shown.now} onBack={onBack} />;
+  return <SessionGate permission={shown.permission} {...(readiness ? { readiness } : {})} now={shown.now} onBack={onBack} backLabel={exitLabel()} onCheckIn={onCheckIn} />;
 }
+
+/** What the session's way out says, as `exit` goes: back to the screen it came from, or Home after a fresh launch (kiro FK-02). */
+const exitLabel = () => (cameFrom() ? 'Back' : 'Back to Home');
 
 /**
  * What the player's reading screen draws of the gate's answer, with its own
@@ -614,7 +622,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
         onSave={saveReading} onEnd={end} onLeave={onExit} />
     );
   }
-  if (stop) return <SessionGate permission={stop} readiness={inputRef.current.checkIn?.readiness} now={new Date()} onBack={onExit} />;
+  if (stop) return <SessionGate permission={stop} readiness={inputRef.current.checkIn?.readiness} now={new Date()} onBack={onExit} backLabel={exitLabel()} />;
   if (state.status === 'done') return <Summary plan={plan} state={state} onSave={onSave} onExit={onExit} {...(waiting ? { guidance: waiting } : {})} />;
   if (stopping === 'choose') {
     return <StopScreen reach={inputRef.current.checkIn?.back?.reach} onChoice={c => void stopChoice(c)} onLeg={a => stopForLeg(a)} />;

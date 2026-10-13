@@ -238,7 +238,7 @@ const navigation = {
       await t.goto('/session');
       await t.check(await page.getByRole('navigation', { name: 'Main' }).count() === 0, 'the session screen shows the tab bar');
       await t.checkpoint('session-full-screen');
-      const exit = main.getByRole('button', { name: /^(Back|Back to Today)$/ });
+      const exit = main.getByRole('button', { name: /^(Back|Back to Home)$/ });
       if (await exit.count()) {
         await ui.tap(exit);
         await page.waitForTimeout(500);
