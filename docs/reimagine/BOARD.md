@@ -2100,3 +2100,30 @@ Gates: `tsc -b --force` and lint clean, Vitest 268 files and 6,999 tests.
 - The rerun, on this entry's final tree (`/tmp/fit-checks/accept-v2-d224-rerun.log`): **244 cases, 244 passed, none failed, in 23.1 min.** The sweep found only what earlier runs found: the 20 × 20 px stop checkboxes in `/session` and `/walk/live` (J13, J16).
 
 Seen, not changed: while advice today stands, a hub's card says "No exercise today. Get medical advice today." with no Say what happened of its own, as without the pause; the stop's ask is on the surface above it and in the check-in.
+
+### 2026-10-11 — [claude] v2 Plan 3 (Trends): built and reviewed
+
+- **Built:** the Trends tab, with Your week, the last 8 weeks as rings, every category with data and the recent workouts, stretches and walks. Each category's trend is at `/trends/:id` and draws one shared chart. Labs are dated results, and Home offers "Your week in brief". D68–D74 are built as recorded. Commits `895238a` to `85855e1` on `feat/v2-p3`, then Task 15's journeys.
+- **Tests:** `npx vitest run --maxWorkers=3` printed 201 files and 5812 tests passed. `npx tsc -b --force` and `npm run lint` passed.
+- **Acceptance:** through the shared lock on port 49991, 132 cases ran and 127 passed in 12.4 min.
+  - VJ07 (both cases), VJ24, VJ26 and VJ27 passed in large-light, large-dark, small-light and small-dark: 20 of 20.
+  - S01 5/5, J05 10/10 and J20 4/4 passed in each project.
+  - J01 passed in three projects. In small-dark it read the address 600 ms after "Log something", while it was still `/track?add=` before its redirect to Today's log, under load.
+  - J07's "goals and rest" failed in all four projects, at step 2 only: "the walk stored activeEnergy:11.7,movementMinutes:5,walkDuration:5". J07's check predates Plan 6's walk energy record (B-18), and `feat/v2-journey` fixed it after this branch was made (`179239d`). This branch doesn't touch J07.
+  - The full suite didn't run: the session's permission check refused it, and J01's rerun with it.
+- **Review:** the external reviews are pending. The coordinator runs Codex and Kiro. (Since done: see "v2 Plan 3 review fixes (Codex H3, Kiro KT)", D123–D131. These journeys were committed by the owner's instruction on 2026-10-13, with V-J24 step 3 reading D126's wording.)
+
+Where the build differs from the plan's text, and why:
+- **Steps by day (Task 4).** `stepsDays` reads each day with its own steps and walks and the day either side. The plan's version read the whole range at once: 2.4 s for two years of records, against 44 ms. It also cut walks at the range's end, so a walk past midnight on the last day read "+ 900" where Home read "+ 2,300". Every day with steps or a walk goes to `stepsDayFigure`, which decides, so H2-03's midnight rule reaches Trends unchanged.
+- **More cases than the plan gives** (Tasks 2–8 and 12), each for a mutant its cases let through. The commits list them. Four survivors are equivalent, and each commit says why.
+- **The zone is pinned through `globalThis.process.env`** in the tests of Tasks 4, 5, 7 and 12, because the app's tsconfig has no node types.
+- **D71's source test** pins the chosen slot's own rectangle (Task 10). The plan's check found body ink anywhere, and the average line draws in it too.
+- **The period control under 16 rem** (Task 11): two rows of two, and the pager's buttons take a line each. At 200% text on a 320 px phone the words broke inside themselves ("We-ek") and the pager ran off the screen.
+- **"See the day" sits below the plot** (Task 11). At 200% text a tap on a bar grew the words above the plot, pushed the link under the finger, and the tap's click opened Today's log. A source test holds it.
+- **Walk rows draw Plan 6's `RouteThumb`** in the trends' lists and the recent list (Tasks 11 and 13). No new map code.
+- **The rings sit two to a row under 11.5 rem** (Task 13), so a date never breaks inside a word.
+- **J06's HbA1c cadence step** reaches the result through the Labs hub (Task 11), because v1's chart is gone. Its checks are unchanged.
+- **Wiring checks** hold Home's side of KV-25 (Task 12) and of the brief (Task 14).
+- **VJ07's brief case** waits for the "seen" write (Task 15), because opening the brief writes it as the tap navigates.
+
+KV-25 is built. A case chooses 200 today through `withWeeklyGoal`: this week's ring stays 150 and next week's is 200, and Home's ring for today is the same week and goal.
