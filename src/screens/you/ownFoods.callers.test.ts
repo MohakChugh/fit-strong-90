@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import type { CustomFood } from '@/food/types';
 import { fakeIndexedDB } from '@/store/fakeIdb';
-import { render, textOf, type Host } from '@/test/host';
+import { render, textOf, type Host, type HostNode } from '@/test/host';
 
 type Shown = { text: string; id?: string; action?: { label: string; onClick: (e: { preventDefault(): void }) => void } };
 const sonner = vi.hoisted(() => ({ shown: [] as Shown[], dismissed: [] as string[] }));
@@ -237,5 +237,27 @@ describe('Close while an own food’s edit is being saved (codex F-food-04; B-03
       expect(nav.holds).toBe(false);
       if (refuse) await host.click(host.button('Close', { exact: true }));
     }
+  });
+});
+
+describe('an own food’s refused edit says why inside its sheet (codex F-food-07; B-03)', () => {
+  const inDialog = (): HostNode[] => {
+    const dialog = host.all().find(n => n.props.role === 'dialog');
+    const all = (n: HostNode): HostNode[] => n.children.flatMap(c => (typeof c === 'string' ? [] : [c, ...all(c)]));
+    return dialog ? all(dialog) : [];
+  };
+
+  it('the reason is in the open sheet, announced, beside its Save; the list’s own problems stay on the list', async () => {
+    await host.click(host.button('Edit methi thepla'));
+    expect((await store.deleteRecord({ kind: 'ownFood', id: THEPLA.id })).ok).toBe(true);
+    await host.settle();
+    await host.change(host.field(FOOD_COPY.ownName), { value: 'methi thepla, home' });
+    await host.click(host.button('Save changes'));
+    const alert = inDialog().find(n => n.props.role === 'alert');
+    expect(alert && textOf(alert.children)).toContain('methi thepla, home was not changed: That food was deleted elsewhere');
+    expect(inDialog().some(n => n.type === 'button' && textOf(n.children) === 'Save changes')).toBe(true);
+    // Nothing of it is left behind on the list once the sheet is closed.
+    await host.click(host.button('Close', { exact: true }));
+    expect(host.all().some(n => n.props.role === 'alert')).toBe(false);
   });
 });

@@ -31,6 +31,8 @@ export function OwnFoodsScreen() {
   const allergies = allergiesOf(allergyAnswer(profile?.food, settings.setup, useSetupSession()));
   const [editing, setEditing] = useState<CustomFood>();
   const [problem, setProblem] = useState<string>();
+  // Why an edit wasn't saved, said in its sheet, where the person is: the page behind it is inert (B-03; codex F-food-07).
+  const [editProblem, setEditProblem] = useState<string>();
   // An edit being written: the sheet, and a Back, wait for it, so a refusal finds the draft still there (B-03, §4.5;
   // codex F-food-04).
   const [saving, setSaving] = useState(false);
@@ -44,10 +46,11 @@ export function OwnFoodsScreen() {
   const save = async (edited: CustomFood) => {
     if (saving) return;
     setSaving(true);
+    setEditProblem(undefined);
     const result = await editOwnFood(edited);
     setSaving(false);
     settle(result.ok);
-    if (!result.ok) return setProblem(`${edited.name} was not changed: ${result.failure.message}`);
+    if (!result.ok) return setEditProblem(`${edited.name} was not changed: ${result.failure.message}`);
     setEditing(undefined);
   };
 
@@ -62,7 +65,7 @@ export function OwnFoodsScreen() {
             detail={`One portion: ${f.per.qty.toLocaleString('en-IN')} ${f.per.unit}`}
             accessory={(
               <div className="flex min-w-0 flex-wrap justify-end gap-3">
-                <button type="button" aria-label={`Edit ${f.name}`} onClick={() => { setProblem(undefined); setEditing(f); }}
+                <button type="button" aria-label={`Edit ${f.name}`} onClick={() => { setProblem(undefined); setEditProblem(undefined); setEditing(f); }}
                   className="press-feedback min-h-12 rounded-full px-4 text-[length:var(--text-body)] font-semibold text-tint">
                   Edit
                 </button>
@@ -77,6 +80,7 @@ export function OwnFoodsScreen() {
       </Group>
       {problem && <p role="alert" className="px-4 text-[length:var(--text-subhead)] text-stop">{problem}</p>}
       <Sheet open={editing !== undefined} onOpenChange={open => { if (!open && !saving) setEditing(undefined); }} dismissible={!saving} title="Edit your food" detent="large">
+        {editProblem && <p role="alert" className="px-1 text-[length:var(--text-subhead)] font-medium text-stop">{editProblem}</p>}
         {editing && <OwnFoodPage name={editing.name} food={editing} numbers={numbers} allergies={allergies} action="Save changes" onAdd={edited => void save(edited)} />}
       </Sheet>
     </Screen>
