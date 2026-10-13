@@ -668,7 +668,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
         <div className="flex-1"><SessionProgress plan={plan} elapsedMs={pos.sessionElapsedMs} /></div>
         <span className="w-14 text-right text-sm font-medium tabular-nums" aria-label="Time left">{fmt(pos.sessionTotalMs - pos.sessionElapsedMs)}</span>
       </div>
-      <div className="flex items-center justify-between px-4 pt-1 text-xs font-semibold uppercase tracking-wider" style={{ color }}>
+      <div className="flex items-center justify-between px-4 pt-1 text-[length:var(--text-footnote)] font-semibold uppercase tracking-wider" style={{ color }}>
         <span>{BLOCK_LABEL[step.block]}{stepNo > 0 && step.kind !== 'talk' ? ` · ${stepNo} of ${blockSteps.length}` : ''}</span>
         {health.hypoRisk && (
           <button type="button" data-main="" onClick={reportLow} className="flex min-h-[3.75rem] items-center gap-1 rounded-full px-3 normal-case tracking-normal text-[var(--safety)] font-semibold">
@@ -685,17 +685,17 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
         </button>
       )}
       {g.voiceTrouble === 'failed' && !g.muted && (
-        <p role="status" className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-xs text-muted-foreground">
+        <p role="status" className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
           The recorded voice couldn’t play, so your phone’s own voice is reading the steps.
         </p>
       )}
       {g.voiceTrouble === 'silent' && !g.muted && (
-        <p role="status" className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-xs text-muted-foreground">
+        <p role="status" className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
           The coach’s voice isn’t playing on this phone right now. Follow the captions below.
         </p>
       )}
       {paused && mixesWithMusic(profile) && (
-        <p className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-xs text-muted-foreground">{SILENT_SWITCH_NOTE}</p>
+        <p className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{SILENT_SWITCH_NOTE}</p>
       )}
 
       {/* Main */}
@@ -713,7 +713,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
               <p className="text-sm text-muted-foreground">{subtitleFor(step, segLabel, fluids)}</p>
             </div>
             {seg.side && (
-              <span className="shrink-0 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide text-[var(--on-ink)]" style={{ background: color }}>
+              <span className="shrink-0 rounded-full px-3 py-1 text-[length:var(--text-footnote)] font-bold uppercase tracking-wide text-[var(--on-ink)]" style={{ background: color }}>
                 {seg.side}
               </span>
             )}
@@ -930,7 +930,7 @@ function RestPanel({ plan, index, state, useMetric, onLog }: { plan: SessionPlan
   const base = { stepId: prev.id, kind: 'set' as const, completed: log?.completed ?? true, exerciseId: prev.exerciseId };
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Log the set you just did</p>
+      <p className="text-[length:var(--text-footnote)] font-semibold uppercase tracking-wider text-muted-foreground">Log the set you just did</p>
       {!prev.holdSeconds && !prev.carrySeconds && <Stepper label="Reps" value={reps} step={1} onChange={v => onLog({ ...base, reps: v, weightKg: kg })} />}
       {prev.load.note !== 'bodyweight' && (
         <Stepper label="Weight" value={kg === null ? 0 : kgToDisplay(kg, useMetric)} step={useMetric ? 2.5 : 5} suffix={useMetric ? ' kg' : ' lb'}
@@ -1342,7 +1342,7 @@ function StartScreen({ plan, voiceName, muted, setMuted, mix, note, onStart, onE
       </div>
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-5 px-5 py-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{plan.kind === 'recovery' ? 'Recovery session' : plan.kind === 'stretch' ? 'Stretch' : 'Today'}</p>
+          <p className="text-[length:var(--text-footnote)] font-semibold uppercase tracking-wider text-muted-foreground">{plan.kind === 'recovery' ? 'Recovery session' : plan.kind === 'stretch' ? 'Stretch' : 'Today'}</p>
           <h1 className="text-3xl font-bold tracking-tight">{plan.label}</h1>
         </div>
         {note && <p role="status" className="rounded-xl bg-caution/15 px-4 py-3 text-[length:var(--text-subhead)] leading-snug">{note}</p>}
@@ -1371,7 +1371,7 @@ function StartScreen({ plan, voiceName, muted, setMuted, mix, note, onStart, onE
           </div>
           <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={() => setMuted(!muted)}>{muted ? 'Unmute' : 'Mute'}</Button>
         </div>
-        <p className="text-xs text-muted-foreground">Stop and get help for chest pain, faintness or severe breathlessness. Stop any exercise that sends pain or tingling down your leg.</p>
+        <p className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">Stop and get help for chest pain, faintness or severe breathlessness. Stop any exercise that sends pain or tingling down your leg.</p>
         <div className="mt-auto">
           <Button className="h-16 w-full text-lg" onClick={onStart}><PlayIcon className="size-6" /> Start</Button>
         </div>

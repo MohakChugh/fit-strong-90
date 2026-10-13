@@ -13,6 +13,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
+import { readFileSync } from 'node:fs';
 import type { CheckInRecord, DailyCheckIn } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
@@ -144,5 +145,42 @@ describe('kiro FK-01: every control on the player shows a word for what it does 
     for (let i = 0; i < 80 && steppers().length === 0; i++) await h().click(named('Next'));
     expect(steppers().length).toBeGreaterThan(0);
     for (const b of steppers()) expect(shown(b), String(b.props['aria-label'])).toBe(String(b.props['aria-label']).split(' ')[0]);
+  });
+});
+
+/** Tailwind's sizes under 13 px: 12 px and below. */
+const SMALL = /(^|\s)text-(xs|2xs|\[(?:[0-9]|1[0-2])px\]|\[0?\.[0-7]\d*rem\])(\s|$)/;
+/** Every node carrying words whose own class, or an ancestor's, sets a size under 13 px. */
+function smallText(list: Host['tree'], inherited = false): string[] {
+  return list.flatMap(c => {
+    if (typeof c === 'string') return inherited && c.trim() ? [c.trim()] : [];
+    const small = SMALL.test(String(c.props.className ?? '')) || (inherited && !/(^|\s)text-(\[length:|sm|base|lg|xl|\dxl)/.test(String(c.props.className ?? '')));
+    return smallText(c.children, small);
+  });
+}
+
+describe('kiro FK-04: nothing meaningful on the player is under 13 px (journey §20.4 rule 12)', () => {
+  it('the start screen’s kind and safety line, the block and step count, the timer ring’s label and the controls’ words', async () => {
+    await seed(createDefaultProfile(BACK), [ci()]);
+    await mount();
+    expect(h().text()).toMatch(/Stop and get help for chest pain/);
+    expect(smallText(h().tree)).toEqual([]);
+    await h().click(named('Start'));
+    expect(smallText(h().tree)).toEqual([]);
+    // A step counted within its block: "Mobility · 2 of 6".
+    for (let i = 0; i < 20 && !/ · \d+ of \d+/.test(h().text()); i++) await h().click(named('Next'));
+    expect(h().text()).toMatch(/ · \d+ of \d+/);
+    expect(smallText(h().tree)).toEqual([]);
+    // A rest after a set: "Log the set you just did".
+    for (let i = 0; i < 80 && !/Log the set you just did/.test(h().text()); i++) await h().click(named('Next'));
+    expect(h().text()).toMatch(/Log the set you just did/);
+    expect(smallText(h().tree)).toEqual([]);
+  });
+
+  it('no size under 13 px is left in the player’s files, for the states a test can’t reach: the voice notices, the side chip', () => {
+    for (const file of ['src/pages/SessionPage.tsx', 'src/components/session/parts.tsx']) {
+      const lines = readFileSync(file, 'utf8').split('\n').filter(l => SMALL.test(l.replace(/className=|["'`{}]/g, ' ')));
+      expect(lines, file).toEqual([]);
+    }
   });
 });

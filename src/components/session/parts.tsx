@@ -50,7 +50,7 @@ export function TimerRing({ remainingMs, totalMs, color, size = 112, label }: { 
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-3xl font-bold tabular-nums leading-none" aria-live="off">{fmt(remainingMs)}</span>
-        {label && <span className="mt-1 max-w-[80%] truncate text-[11px] text-muted-foreground">{label}</span>}
+        {label && <span className="mt-1 max-w-[80%] truncate text-[length:var(--text-footnote)] text-muted-foreground">{label}</span>}
       </div>
     </div>
   );
