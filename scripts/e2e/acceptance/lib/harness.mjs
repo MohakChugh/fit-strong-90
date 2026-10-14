@@ -11,15 +11,33 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { BASE_PATH, MINUTE, NOW } from './env.mjs';
-import { capabilityInit, drawInit, faultInit, mediaInit, readDatabase, readWebStorage, seedInit, sensorInit, updateInit, visibilityInit } from './inpage.mjs';
+import { capabilityInit, clipInit, drawInit, faultInit, mediaInit, readDatabase, readWebStorage, seedInit, sensorInit, updateInit, visibilityInit } from './inpage.mjs';
 import { sweepInPage, unnamedControls } from './sweep.mjs';
 
 export const SEED_GUARD = '__acceptance:seeded';
 export const FAULT_KEY = '__acceptance:fault';
 
+/**
+ * Opt-in recording (docs/demo), off unless set. FIT_VIDEO_DIR: every page
+ * records a video, saved there under its journey, project and case, with a
+ * log of the voice clips it played and when each step began. FIT_VOICE=on:
+ * the persona's voice coach is on, as a person using the app has it (the
+ * personas keep it muted).
+ */
+const VIDEO_DIR = process.env.FIT_VIDEO_DIR ? path.resolve(process.env.FIT_VIDEO_DIR) : undefined;
+const VOICE_ON = process.env.FIT_VOICE === 'on';
+
 class StepFailed extends Error {}
 
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+
+/** The file under public/ a clip's address names: `/fit-strong-90/voice/af_heart/<key>.m4a` is public/voice/af_heart/<key>.m4a. */
+function publicFile(src) {
+  try {
+    const { pathname } = new URL(src);
+    return pathname.startsWith(BASE_PATH) ? path.posix.join('public', decodeURIComponent(pathname.slice(BASE_PATH.length))) : undefined;
+  } catch { return undefined; }
+}
 
 export class Case {
   constructor({ journey, name, project, browser, origin, root, log }) {
@@ -45,6 +63,8 @@ export class Case {
     this.aborted = undefined;
     this.currentStep = undefined;
     this.started = Date.now();
+    this.recorded = [];
+    this.stepStarts = [];
   }
 
   get base() { return `${this.origin}${BASE_PATH}`; }
@@ -73,8 +93,10 @@ export class Case {
       reducedMotion,
       acceptDownloads: true,
       serviceWorkers: contextOptions.serviceWorkers ?? 'block',
+      ...(VIDEO_DIR ? { recordVideo: { dir: path.join(VIDEO_DIR, '.recording'), size: { width: p.width, height: p.height } } } : {}),
       ...contextOptions,
     });
+    if (VIDEO_DIR) await this.recordClips();
     // Long enough for a software-rendered 3D demo on a loaded machine; a missing control still fails.
     this.context.setDefaultTimeout(timeout);
     this.context.setDefaultNavigationTimeout(30000);
@@ -82,6 +104,7 @@ export class Case {
     // timers keep running so the interface works (spec "Execution").
     await this.context.clock.install({ time });
     await this.context.clock.setFixedTime(time);
+    if (VOICE_ON && seed?.profile?.voice) seed = { ...seed, profile: { ...seed.profile, voice: { ...seed.profile.voice, muted: false } } };
     const blob = seed === null ? null : JSON.stringify(seed);
     await this.context.addInitScript(seedInit, { blob, extra: extraStorage ?? {}, guard: SEED_GUARD });
     if (faults) await this.context.addInitScript(faultInit);
@@ -104,6 +127,59 @@ export class Case {
     await this.page.goto(`${this.base}${route ? `#${route}` : ''}`, { waitUntil: 'domcontentloaded' });
     await this.ready();
     return this.page;
+  }
+
+  /**
+   * A recorded run: each page's video, and each voice clip the page plays or
+   * stops, timed from the video's first frame (its time zero, which comes a
+   * few hundred ms after the page opens: the screencast's first frame says when).
+   * The steps' starts are timed the same way, so a film can be cut at a step.
+   */
+  async recordClips() {
+    this.context.on('page', page => {
+      const r = { page, openedAt: Date.now(), closedAt: undefined, firstFrameAt: undefined, clips: [] };
+      this.recorded.push(r);
+      page.on('close', () => { r.closedAt = Date.now(); });
+      void page.screencast?.start({
+        onFrame: ({ timestamp }) => {
+          if (r.firstFrameAt !== undefined) return;
+          r.firstFrameAt = timestamp;
+          void page.screencast.stop().catch(() => {});
+        },
+      }).catch(() => {});
+    });
+    await this.context.exposeBinding('__accClip', ({ page }, e) => {
+      const r = this.recorded.find(x => x.page === page);
+      if (r) r.clips.push({ wall: Date.now(), kind: e.kind, src: e.src, file: publicFile(e.src), element: e.element });
+    });
+    await this.context.addInitScript(clipInit);
+  }
+
+  /** After the last context closes: each page's video, named by journey, project and case, beside one log of its steps and clips. */
+  async saveVideos(status) {
+    const base = `${String(this.journey).replace(/[^A-Za-z0-9-]+/g, '-')}__${this.project.id}__${slug(this.name) || 'main'}`;
+    const videos = [];
+    for (const [i, r] of this.recorded.entries()) {
+      const video = r.page.video();
+      if (!video) continue;
+      const file = `${base}${i ? `__${i + 1}` : ''}.webm`;
+      try {
+        await video.saveAs(path.join(VIDEO_DIR, file));
+        await video.delete();
+      } catch (e) { this.note(`video ${file} was not saved: ${String(e).slice(0, 160)}`); continue; }
+      const zero = r.firstFrameAt ?? r.openedAt;
+      const open = ({ wall }) => wall >= r.openedAt && wall <= (r.closedAt ?? Infinity);
+      videos.push({
+        file, openedAt: new Date(r.openedAt).toISOString(), timedFrom: r.firstFrameAt === undefined ? 'page opened' : 'first frame',
+        steps: this.stepStarts.filter(open).map(({ wall, ...s }) => ({ at: Math.round(wall - zero), ...s })),
+        clips: r.clips.map(({ wall, ...c }) => ({ at: Math.round(wall - zero), ...c })),
+      });
+    }
+    fs.writeFileSync(path.join(VIDEO_DIR, `${base}.clips.json`), JSON.stringify({
+      journey: this.journey, case: this.name, project: this.project.id, status,
+      at: 'ms since the video started',
+      videos,
+    }, null, 1));
   }
 
   /** A page in this context with console, error and request capture. */
@@ -294,6 +370,7 @@ export class Case {
     this.currentStep = n;
     this.stepInput = input;
     this.stepTitle = title;
+    if (VIDEO_DIR) this.stepStarts.push({ wall: Date.now(), step: n, title });
     this.stepDb = await this.db().catch(() => undefined);
     this.log(`  ${this.journey} ${this.project.id} ${this.name} · step ${n}: ${title}`);
     try {
@@ -347,6 +424,8 @@ export class Case {
   // ---------------------------------------------------------------- end
 
   async close() {
+    // A recording ends a second later, so it ends on a screen at rest, not on a frame mid-animation.
+    if (VIDEO_DIR) await this.page?.waitForTimeout(1000).catch(() => {});
     // Console errors and off-origin requests are failures of their own.
     const allowed = text => this.allowed.some(p => (p instanceof RegExp ? p.test(text) : text.includes(p)));
     const stray = this.console.filter(c => !allowed(c.text));
@@ -355,11 +434,14 @@ export class Case {
     const offOrigin = this.requests.filter(r => !r.url.startsWith(this.origin) && !/^(data|blob|about|chrome-extension):/.test(r.url) && !consented(r.url));
     for (const r of offOrigin) this.failures.push({ journey: this.journey, case: this.name, project: this.project.id, step: r.at, message: `request left the device: ${r.method} ${r.url}`, input: '', visible: '', dbDiff: '' });
     await this.context?.close().catch(() => {});
+    const status = this.failures.length ? 'fail' : this.pendingItems.length ? 'pending' : 'pass';
+    const durationMs = Date.now() - this.started;
+    if (VIDEO_DIR) await this.saveVideos(status);
     return {
       journey: this.journey, case: this.name, project: this.project.id,
-      status: this.failures.length ? 'fail' : this.pendingItems.length ? 'pending' : 'pass',
+      status,
       failures: this.failures, pending: this.pendingItems, sweep: this.sweep, checkpoints: this.checkpoints, notes: this.notes,
-      abortedAt: this.aborted, durationMs: Date.now() - this.started, dir: this.dir,
+      abortedAt: this.aborted, durationMs, dir: this.dir,
     };
   }
 }

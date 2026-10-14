@@ -355,6 +355,49 @@ export async function readDatabase() {
   });
 }
 
+/**
+ * For a recorded run only (FIT_VIDEO_DIR, lib/harness.mjs): every voice clip a
+ * page plays or stops, told to the harness's `__accClip` as it happens, so the
+ * film can carry the sound. A clip fetched ahead plays from a blob: address,
+ * so each blob is traced back to the file it was fetched from. The silent
+ * unlock (a data: address) is left out.
+ */
+export function clipInit() {
+  if (window.__accClipsInstalled) return;
+  window.__accClipsInstalled = true;
+  const fetchedFrom = new WeakMap();
+  const sourceOf = new Map();
+  const blob = Response.prototype.blob;
+  Response.prototype.blob = async function () {
+    const b = await blob.call(this);
+    fetchedFrom.set(b, this.url);
+    return b;
+  };
+  const create = URL.createObjectURL;
+  URL.createObjectURL = obj => {
+    const url = create.call(URL, obj);
+    if (fetchedFrom.has(obj)) sourceOf.set(url, fetchedFrom.get(obj));
+    return url;
+  };
+  let elements = 0;
+  const tell = (kind, el) => {
+    const src = String(el.src ?? '');
+    if (!src || src.startsWith('data:')) return;
+    el.__accClip ??= ++elements;
+    window.__accClip?.({ kind, src: sourceOf.get(src) ?? src, element: el.__accClip })?.catch?.(() => {});
+  };
+  const play = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function (...args) {
+    tell('play', this);
+    return play.apply(this, args);
+  };
+  const pause = HTMLMediaElement.prototype.pause;
+  HTMLMediaElement.prototype.pause = function (...args) {
+    if (!this.paused) tell('pause', this);
+    return pause.apply(this, args);
+  };
+}
+
 /** Earphone and lock-screen buttons (V-J21): every media session handler the app sets, for the test to press. */
 export function mediaInit() {
   const acc = (window.__acc = window.__acc || {});

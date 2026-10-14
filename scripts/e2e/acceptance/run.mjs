@@ -6,6 +6,7 @@
  *   npm run e2e:acceptance -- --only=J03,J04     # some journeys
  *   npm run e2e:acceptance -- --projects=small-dark --concurrency=2
  *   npm run e2e:acceptance -- --url=http://127.0.0.1:49731/fit-strong-90/   # an already-running server
+ *   FIT_VIDEO_DIR=/tmp/v FIT_SLOWMO=250 npm run e2e:acceptance -- --only=VJ06   # a video of each case (docs/demo)
  *
  * Without --url it starts its own watch-free dev server (so edits elsewhere
  * cannot reload a page mid-journey) and, for the journeys that need a service

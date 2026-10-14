@@ -39,8 +39,13 @@ export function findChromium() {
 
 export const CHROMIUM_ARGS = ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
 
+/**
+ * FIT_SLOWMO=<ms> slows every tap, keypress and navigation by that much, so a
+ * recorded run (FIT_VIDEO_DIR, lib/harness.mjs) plays at a pace a person can follow.
+ */
 export function launch() {
-  return chromium.launch({ headless: true, executablePath: findChromium(), chromiumSandbox: false, args: CHROMIUM_ARGS });
+  const slowMo = Number(process.env.FIT_SLOWMO) || 0;
+  return chromium.launch({ headless: true, executablePath: findChromium(), chromiumSandbox: false, args: CHROMIUM_ARGS, ...(slowMo > 0 ? { slowMo } : {}) });
 }
 
 /** Artifacts live outside the repository (spec rule 5). */
