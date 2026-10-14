@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import { SirenIcon, TriangleAlertIcon } from 'lucide-react';
-import type { Recommendation, RecommendationAction } from '@/health/recommend';
+import { HREF, type Recommendation, type RecommendationAction } from '@/health/recommend';
 import { cn } from '@/lib/utils';
 
 const CAUTION = new Set<Recommendation['kind']>(['seekHelp', 'recheck', 'hold']);
@@ -8,7 +8,7 @@ const CAUTION = new Set<Recommendation['kind']>(['seekHelp', 'recheck', 'hold'])
 /** Health guidance carries its boundary next to it, not only in settings. */
 const ADVICE = new Set<Recommendation['kind']>(['emergency', 'seekHelp', 'recheck', 'hold', 'mealWalk']);
 
-const primaryButton = 'press-feedback flex min-h-14 w-full items-center justify-center gap-2 rounded-xl px-4 text-center text-[length:var(--text-body)] font-semibold';
+const primaryButton = 'press-feedback flex min-h-[3.75rem] w-full items-center justify-center gap-2 rounded-xl px-4 text-center text-[length:var(--text-body)] font-semibold';
 
 /**
  * The one suggestion: a large title, what it is, why it was chosen — always
@@ -29,7 +29,7 @@ export function RecommendationCard({ recommendation: r, eyebrow, revision, chang
 }) {
   const titleId = useId();
   const emergency = r.kind === 'emergency';
-  const caution = CAUTION.has(r.kind) && r.action.to !== '/you/profile';
+  const caution = CAUTION.has(r.kind) && r.action.to !== HREF.profile;
   const Icon = emergency ? SirenIcon : caution ? TriangleAlertIcon : undefined;
 
   return (
@@ -57,7 +57,14 @@ export function RecommendationCard({ recommendation: r, eyebrow, revision, chang
           </div>
         </div>
         <Action action={r.action} emergency={emergency} onAct={onAct} />
-        {ADVICE.has(r.kind) && r.action.to !== '/you/profile' && (
+        {/* Other ways on, quieter than the one primary action (journey §20.4 rule 4): the after-meal card's (B-09). */}
+        {r.more?.map(a => (
+          <button key={a.label} type="button" onClick={() => onAct(a)}
+            className="press-feedback -mt-2 flex min-h-12 w-full items-center justify-center rounded-xl bg-tint/10 px-4 text-center text-[length:var(--text-body)] font-semibold text-tint">
+            {a.label}
+          </button>
+        ))}
+        {ADVICE.has(r.kind) && r.action.to !== HREF.profile && (
           <p className="-mt-1 text-[length:var(--text-footnote)] text-muted-foreground">General information, not medical advice.</p>
         )}
       </div>

@@ -3,21 +3,31 @@
  * Pure, so every sentence the screens show can be tested without a screen.
  */
 
-import type { DayOfWeek } from '@/types';
+import type { ChapterId, UserSettings } from '@/types';
 import type { HabitSettings, Meal } from '@/types/habits';
 import type { FoodPreferences, MedicineAnswer, UserProfile } from '@/types/profile';
 import { KINDS, OBSERVATION_KINDS, isBpKind, isDay, type Observation, type ObservationKind } from '@/health/observation';
 import { pairBloodPressure } from '@/health/aggregate';
 import { kgToDisplay } from '@/lib/utils';
 import { timeOf } from '@/lib/time';
-import { answeredOnOpen, type WizardStep } from '@/components/profile/wizardSteps';
+import { answeredOnOpen } from '@/components/profile/wizardSteps';
 import { bpMedicinesAsked, bpMedicinesUnknown, deriveHealth, profileGaps } from '@/engine/health';
 import { MEAL_LABEL } from '@/reminders/copy';
 import { dailyTimes, inWindowOrder, type HabitId } from '@/reminders/schedule';
 import { waterBlock } from '@/reminders/water';
 import { movementBlock } from '@/reminders/advice';
+import type { StaleCopy } from '@/reminders/calendarNotice';
 import type { ImportPreview } from '@/store/transfer';
-import { shortDay } from './dates';
+import { countLabel, type CountLimit } from '@/store/limits';
+import { RECORD_STORES } from '@/store/records';
+import { isEnrolled } from '@/health/recommend';
+import { weeklyGoalOn } from '@/screens/track/weeklyGoal';
+import { FOCUS_CHOICES } from '@/screens/welcome/focus';
+import { allergyName } from '@/setup/allergies';
+import { allergenName } from '@/food/allergens';
+import { LEVEL_LABEL } from '@/food/copy';
+import { answersOf, setupStateOf } from '@/setup/state';
+import { shortDate, shortDay } from './dates';
 
 /** Formats minutes after midnight for display, in the phone's own style. */
 export type ClockFormat = (minute: number) => string;
@@ -38,20 +48,9 @@ export function plural(n: number, one: string, many = `${one}s`): string {
 // Profile and health
 // ============================================================================
 
-const DAY_SHORT: Record<DayOfWeek, string> = {
-  monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed', thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun',
-};
-const WEEK: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-
 const PAIN: Record<UserProfile['pain']['areas'][number], string> = {
   lowerBack: 'Lower back', sciatica: 'Sciatica', neck: 'Neck', shoulder: 'Shoulder',
   hip: 'Hip', knee: 'Knee', hamstring: 'Hamstring', calf: 'Calf',
-};
-const EQUIPMENT: Record<UserProfile['equipment'], string> = {
-  fullGym: 'Full gym', homeDumbbells: 'Home, dumbbells', homeNone: 'Home, no equipment',
-};
-const EXPERIENCE: Record<UserProfile['experience'], string> = {
-  beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced',
 };
 const DIABETES: Record<UserProfile['health']['diabetes'], string> = {
   none: 'None', prediabetes: 'Prediabetes', type1: 'Type 1', type2: 'Type 2', other: 'Other',
@@ -74,6 +73,13 @@ const CLEARANCE: Record<UserProfile['health']['clearance'], string> = {
 };
 const KIDNEY: Record<UserProfile['health']['kidneyDisease'], string> = {
   none: '', ckd: 'Kidney disease', dialysis_or_transplant: 'Dialysis or transplant', unsure: 'Kidney disease, not sure',
+};
+
+const FEET: Record<UserProfile['health']['footStatus'], string> = {
+  healthy: 'Healthy', past_ulcer_or_charcot: 'Past ulcer or Charcot', current_wound_or_active_charcot: 'Current wound',
+};
+const RETINA: Record<UserProfile['health']['retinopathy'], string> = {
+  none_or_mild: 'None or mild', moderate: 'Moderate', severe_or_proliferative: 'Severe', recent_eye_treatment: 'Recent eye treatment', unknown: 'Don’t know',
 };
 
 const yes = (on: boolean) => (on ? 'Yes' : 'No');
@@ -102,6 +108,53 @@ export function reviewNeeded(profile: UserProfile | undefined): 'health' | 'medi
   // default No is not an answer (B08).
   if (!diabetic(profile) && !answeredOnOpen(profile.health).has('sglt2i')) return 'sglt2';
   return undefined;
+}
+
+/**
+ * What a restore does with routes, said before anything changes (journey
+ * §18.3, B-26, Review Focus 4, H6-05): how many of the file's routes are left
+ * out and why, and on a phone not asked yet, how it takes them.
+ */
+export function routeNotes(preview: Pick<ImportPreview, 'records' | 'refusedStores' | 'replaceRemoves'> & Pick<ImportPreview, 'refusedRecords'>, saveRoutes: boolean | 'unasked' = false): string[] {
+  const inFile = preview.records?.routes ?? 0;
+  const here = preview.replaceRemoves?.routes ?? 0;
+  const refused = inFile > 0 && preview.refusedStores?.includes('routes') === true;
+  const erased = refused ? 0 : preview.refusedRecords?.routes ?? 0;
+  const notes: string[] = [];
+  // B-05: erased for good, whatever a backup made before holds.
+  if (erased > 0) notes.push(`${erased === inFile ? `The file’s ${plural(erased, 'route')}` : `${plural(erased, 'route')} in the file`} ${erased === 1 ? 'is' : 'are'} from before you erased routes on this phone, so ${erased === 1 ? 'it stays' : 'they stay'} erased.`);
+  if (refused) {
+    // Either way, how to take them: the same switch, then the same file again (K6R-10).
+    const why = saveRoutes === 'unasked' ? 'this phone hasn’t been asked yet whether to keep routes' : 'this phone doesn’t keep routes';
+    notes.push(`The file’s ${plural(inFile, 'route')} won’t be added, because ${why}. To add ${inFile === 1 ? 'it' : 'them'}, turn on Keep walk routes in Me → Data, then restore the file again.`);
+  }
+  if (here > 0 && inFile === 0) notes.push(`Replacing removes this phone’s ${plural(here, 'route')}, which the file doesn’t hold.`);
+  else if (here > 0 && refused) notes.push(`Replacing removes this phone’s ${plural(here, 'route')} too.`);
+  return notes;
+}
+
+/** What Replace keeps of this device, said before anything changes (journey §4.6, H6-03). */
+export function keepsOpenLine(device: string): string {
+  return `Today’s safety answers on this ${device} stay, with the readings they depend on: a backup never clears them.`;
+}
+
+/** B-24's privacy sentence for this device, with map pictures since Plan 6. */
+export function privacyLine(device: string): string {
+  return `Your records are stored on this ${device}. Optional map pictures share the area shown and your internet address with OpenStreetMap. Backups and calendar files leave only when you share them.`;
+}
+
+const perDay = (n: number) => (n === 1 ? 'Once a day' : `${n} a day`);
+const perDayInline = (n: number) => (n === 1 ? 'once a day' : `${n} a day`);
+
+/** A calendar copy as Reminders lists it (A-78): its events' names, how many a day, when the file was added, and until when. */
+export function copyLine(copy: { names: readonly string[]; events: number; at: string; until: string }): { title: string; detail: string } {
+  return { title: copy.names.join(' and '), detail: `${perDay(copy.events)} · added ${shortDate(copy.at)} · until ${shortDay(copy.until)}` };
+}
+
+/** What changed, for each copy that may be out of date, in one paragraph. */
+export function staleLine(stale: readonly StaleCopy[]): string {
+  return stale.map(s => `${s.names.join(' and ')}: ${perDayInline(s.inCalendar)} in Calendar, ${
+    s.wording ? 'still worded as before your change' : s.now === 0 ? 'none now' : `${perDayInline(s.now)} now`}.`).join(' ');
 }
 
 /** What the review prompt says, by what needs reviewing. */
@@ -137,105 +190,6 @@ export interface SummaryRow {
   value: string;
 }
 
-export interface SummarySection {
-  title: string;
-  rows: SummaryRow[];
-  /** The wizard step that edits this section. */
-  step: WizardStep;
-}
-
-/**
- * The wizard's answers, grouped as the wizard asks them, for reading back.
- * Training answers belong to the 12-week programme: for someone not in it
- * they are defaults nobody chose, so they are not shown as if they were said.
- */
-export function profileSections(
-  profile: UserProfile,
-  useMetric: boolean,
-  { programme = true, startDate }: { programme?: boolean; startDate?: string } = {},
-): SummarySection[] {
-  const h = profile.health;
-  const about: SummaryRow[] = [
-    { label: 'Weight', value: profile.weightKg > 0 ? `${kgToDisplay(profile.weightKg, useMetric)} ${useMetric ? 'kg' : 'lb'}` : 'Not entered' },
-    ...(profile.heightCm ? [{ label: 'Height', value: useMetric ? `${Math.round(profile.heightCm)} cm` : `${Math.round(profile.heightCm / 2.54)} in` }] : []),
-    ...(profile.birthYear ? [{ label: 'Born', value: String(profile.birthYear) }] : []),
-    ...(programme ? [{ label: 'Experience', value: EXPERIENCE[profile.experience] }] : []),
-  ];
-
-  const days = WEEK.filter(d => profile.trainingDays.includes(d)).map(d => DAY_SHORT[d]);
-  const training: SummaryRow[] = [
-    ...(startDate && isDay(startDate) ? [{ label: 'Started', value: shortDay(startDate) }] : []),
-    { label: 'Training days', value: days.length > 0 ? days.join(', ') : 'None' },
-    { label: 'Session length', value: `${profile.sessionMinutes} min` },
-    { label: 'Where you train', value: EQUIPMENT[profile.equipment] },
-  ];
-
-  const areas = profile.pain.areas;
-  const back = areas.includes('lowerBack') || areas.includes('sciatica');
-  const body: SummaryRow[] = [
-    { label: 'Pain or past injury', value: areas.length > 0 ? areas.map(a => PAIN[a]).join(', ') : 'None' },
-    ...(areas.includes('sciatica') ? [{ label: 'Which leg', value: { left: 'Left', right: 'Right', both: 'Both' }[profile.pain.sciaticaSide ?? 'left'] }] : []),
-    ...(back ? [{ label: 'Worse with', value: WORSE[profile.pain.worseWith] }] : []),
-  ];
-
-  const other = [
-    h.heartOrVascularDisease && 'Heart or circulation',
-    h.kidneyDisease !== 'none' && KIDNEY[h.kidneyDisease],
-    h.dizzyOnStandingOrAutonomicNeuropathy && 'Dizzy when standing',
-  ].filter((x): x is string => Boolean(x));
-
-  // Until the medicines are reviewed, what is stored may be a default nobody
-  // chose, so it is shown as unconfirmed rather than as a plain "no".
-  const unconfirmed = profileGaps(profile).medicinesUnknown;
-  const medicine = (value: string) => (unconfirmed && value !== 'Not answered yet' ? `${value}, not yet confirmed` : value);
-  // Answers saved before these questions were required are defaults, not
-  // answers — with high blood pressure, and with heart or kidney disease (B08).
-  const bpUnconfirmed = bpMedicinesUnknown(h);
-  const bpMedicine = (value: string) => (bpUnconfirmed && value !== 'Not answered yet' ? `${value}, not yet confirmed` : value);
-
-  const FEET = { healthy: 'Healthy', past_ulcer_or_charcot: 'Past ulcer or Charcot', current_wound_or_active_charcot: 'Current wound' } as const;
-  const RETINA = {
-    none_or_mild: 'None or mild', moderate: 'Moderate', severe_or_proliferative: 'Severe', recent_eye_treatment: 'Recent eye treatment', unknown: 'Don’t know',
-  } as const;
-  const health: SummaryRow[] = [
-    { label: 'Diabetes', value: DIABETES[h.diabetes] },
-    ...(diabetic(profile)
-      ? [
-        { label: 'Insulin', value: medicine(h.insulinRegimen && h.insulin !== 'none' ? `${INSULIN[h.insulin]}, ${REGIMEN[h.insulinRegimen]}` : INSULIN[h.insulin]) },
-        { label: 'Sulfonylurea or meglitinide', value: medicine(answer(h.sulfonylureaOrMeglitinide)) },
-        { label: 'SGLT2 inhibitor', value: medicine(answer(h.sglt2i)) },
-        { label: 'Metformin', value: medicine(h.metformin === true && h.metforminSince ? `Yes, since ${h.metforminSince}` : answer(h.metformin)) },
-        ...(h.priorDkaOrInsulinDeficiency !== undefined ? [{ label: 'Ketoacidosis, or low insulin', value: medicine(answer(h.priorDkaOrInsulinDeficiency)) }] : []),
-        { label: 'Glucose monitoring', value: MONITOR[h.glucoseMonitor] },
-        { label: 'Nerve damage in your feet', value: { no: 'No', yes: 'Yes', unsure: 'Not sure' }[h.peripheralNeuropathy] },
-        // These two stop vigorous effort, and standing and walking prompts, so they are read back too.
-        { label: 'Your feet today', value: FEET[h.footStatus] },
-        { label: 'Diabetic eye disease (retinopathy)', value: RETINA[h.retinopathy] },
-      ]
-      : []),
-    { label: 'High blood pressure', value: BP[h.hypertension] },
-    ...(bpMedicinesAsked(h)
-      ? [
-        { label: 'Beta-blocker', value: bpMedicine(answer(h.betaBlocker)) },
-        { label: 'Diuretic or water pill', value: bpMedicine(answer(h.diuretic)) },
-      ]
-      : []),
-    { label: 'Anything else', value: other.length > 0 ? other.join(', ') : 'None' },
-    // Asked of everyone now: also prescribed for heart and kidney conditions.
-    // An untouched default No reads as not answered (B08).
-    ...(!diabetic(profile) ? [{ label: 'SGLT2 inhibitor', value: answeredOnOpen(h).has('sglt2i') ? answer(h.sglt2i) : 'Not answered yet' }] : []),
-    { label: 'Fluid limit from your care team', value: answer(h.fluidRestriction) },
-    { label: 'Cleared for exercise', value: CLEARANCE[h.clearance] },
-  ];
-
-  return [
-    { title: 'About you', rows: about, step: 'about' as const },
-    ...(programme ? [{ title: 'Training', rows: training, step: 'about' as const }] : []),
-    { title: 'Back and legs', rows: body, step: 'body' as const },
-    { title: 'Health', rows: health, step: 'health' as const },
-  ];
-}
-
 // ============================================================================
 // Food
 // ============================================================================
@@ -245,6 +199,7 @@ export const FOOD_PATTERN: Record<FoodPreferences['pattern'], string> = {
   eggetarian: 'Vegetarian, with eggs',
   nonVegetarian: 'Non-vegetarian',
   vegan: 'Vegan',
+  jain: 'Jain',
 };
 
 export const FOOD_REGION: Record<NonNullable<FoodPreferences['region']>, string> = {
@@ -257,8 +212,13 @@ export const FOOD_REGION: Record<NonNullable<FoodPreferences['region']>, string>
 
 export function foodLine(food: FoodPreferences | undefined): string {
   if (!food) return 'Not set';
-  const avoid = food.avoid.length > 0 ? `leaves out ${listOf(food.avoid)}` : undefined;
-  return [FOOD_PATTERN[food.pattern], avoid].filter(Boolean).join(' · ');
+  const allergies = [...(food.allergies ?? []).map(allergenName), ...(food.customAllergies ?? [])];
+  return [
+    FOOD_PATTERN[food.pattern],
+    allergies.length > 0 ? `allergic to ${listOf(allergies)}` : undefined,
+    food.avoid.length > 0 ? `leaves out ${listOf(food.avoid)}` : undefined,
+    food.level && food.level !== 'ideas' ? LEVEL_LABEL[food.level].toLowerCase() : undefined,
+  ].filter(Boolean).join(' · ');
 }
 
 /** The longest a "leave out" entry may be, and how many there may be. */
@@ -329,6 +289,8 @@ export interface RecordCounts {
   checkIns: number;
   bodyMetrics: number;
   personalRecords: number;
+  /** Kept walk routes (Plan 6). */
+  routes?: number;
 }
 
 export function recordCounts(state: {
@@ -337,6 +299,7 @@ export function recordCounts(state: {
   checkIns: readonly unknown[];
   bodyMetrics: readonly unknown[];
   personalRecords: readonly unknown[];
+  records?: { routes: readonly unknown[] };
 }): RecordCounts {
   return {
     readings: state.observations.filter(o => !isBpKind(o.kind)).length + pairBloodPressure(state.observations).length,
@@ -344,6 +307,7 @@ export function recordCounts(state: {
     checkIns: state.checkIns.length,
     bodyMetrics: state.bodyMetrics.length,
     personalRecords: state.personalRecords.length,
+    routes: state.records?.routes.length ?? 0,
   };
 }
 
@@ -355,6 +319,7 @@ export function countsSentence(counts: RecordCounts): string {
     counts.checkIns > 0 && plural(counts.checkIns, 'check-in'),
     counts.bodyMetrics > 0 && plural(counts.bodyMetrics, 'body measurement'),
     counts.personalRecords > 0 && plural(counts.personalRecords, 'personal record'),
+    (counts.routes ?? 0) > 0 && plural(counts.routes ?? 0, 'route'),
   ].filter((x): x is string => Boolean(x));
   return parts.length > 0 ? listOf(parts) : 'nothing yet';
 }
@@ -384,6 +349,196 @@ export function previewLines(preview: ImportPreview): PreviewLine[] {
     { label: 'Check-ins', count: preview.checkIns },
     { label: 'Body measurements', count: preview.bodyMetrics },
     { label: 'Personal records', count: preview.personalRecords },
+    { label: 'Workout swaps', count: preview.focusOverrides },
+    { label: countLabel('contentState'), count: preview.contentState ?? 0 },
+    ...RECORD_STORES.map(store => ({ label: countLabel(store), count: preview.records?.[store] ?? 0 })),
   );
   return lines.filter(line => line.count > 0);
+}
+
+const CONFLICT_ORDER: readonly CountLimit[] = ['observations', 'sessions', 'checkIns', 'personalRecords', 'bodyMetrics', 'focusOverrides', 'contentState', ...RECORD_STORES];
+
+/** Each collection with records both here and in the file that differ, by name (B-26): the merge choice covers all of them. */
+export function conflictLines(preview: Pick<ImportPreview, 'conflicts'>): PreviewLine[] {
+  const c = preview.conflicts;
+  if (!c) return [];
+  return CONFLICT_ORDER.filter(name => c[name] > 0).map(name => ({ label: countLabel(name), count: c[name] }));
+}
+
+// ============================================================================
+// Profile & health, by setup chapter (journey §16; Plan 5)
+// ============================================================================
+
+const FIGURE = { male: 'Male figure', female: 'Female figure' } as const;
+const KIDNEY_ANSWER: Record<UserProfile['health']['kidneyDisease'], string> = {
+  none: 'No', ckd: 'Yes', dialysis_or_transplant: 'Dialysis or transplant', unsure: 'Not sure',
+};
+/**
+ * The logging level, in Plan 7's own words (`LEVEL_LABEL`, src/food/copy.ts),
+ * so Profile & health, Review and Me → Food say it alike (integrator I-01).
+ */
+const LEVEL: Record<NonNullable<FoodPreferences['level']>, string> = LEVEL_LABEL;
+const minutesOf = (hhmm: string) => {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+};
+
+export interface ChapterSection {
+  chapter: ChapterId;
+  rows: SummaryRow[];
+}
+
+/** The allergies as the person gave them: the chips' names, then their own words (board D82). */
+function allergiesLine(food: Pick<FoodPreferences, 'allergies' | 'customAllergies'> | undefined): string {
+  const given = [...(food?.allergies ?? []).map(allergyName), ...(food?.customAllergies ?? [])];
+  if (given.length > 0) return given.join(', ');
+  // An empty list is the answer "No food allergies"; no list was never asked.
+  return food?.allergies ? 'None' : 'None given';
+}
+
+/** A body measure, as a reading of it says (or would say, once stored). */
+export interface BodyReading {
+  kind: ObservationKind;
+  value: number;
+  at: string;
+  source: Observation['source'];
+  context?: string;
+  timeUnknown?: boolean;
+  seq?: number;
+}
+
+const HOW: Record<Observation['source'], string> = { manual: 'logged', measured: 'measured', imported: 'imported' };
+
+/**
+ * When a body measure was taken, from the reading it came from (§4.10, B-24;
+ * H5-24): the latest reading of that kind holding the value, its date, its
+ * time unless only the day was kept, and how it was given. A value no
+ * reading holds, as v1 kept it, has no date to show, and none is made up.
+ */
+function measured(kind: 'weight' | 'height' | 'waist', value: number, readings: readonly BodyReading[]): string {
+  const latest = readings
+    .filter(o => o.kind === kind && Math.abs(o.value - value) < 1e-6)
+    .reduce<BodyReading | undefined>((best, o) => (!best || Date.parse(o.at) > Date.parse(best.at) || (o.at === best.at && (o.seq ?? 0) > (best.seq ?? 0)) ? o : best), undefined);
+  if (!latest) return 'date not recorded';
+  // Where it came from, where that's more than how it was given: setup or Profile & health, or v1's body log.
+  const how = latest.context === 'profile' ? 'entered'
+    : latest.context?.startsWith('bodyMetric:') ? 'logged in the previous version' : HOW[latest.source];
+  return `${how} ${shortDate(latest.at)}${latest.timeUnknown ? '' : ` at ${timeOf(latest.at)}`}`;
+}
+
+/** As stored: 160.55 stays 160.55, 158 stays 158 (H5-24). */
+const asStored = (n: number) => String(Math.round(n * 1000) / 1000);
+/** To a tenth, for a value converted to inches: 63.2 in. */
+const tenths = (n: number) => String(Math.round(n * 10) / 10);
+
+/**
+ * Each setup chapter's answers, read back from the record the engine reads
+ * (journey §16): Profile & health's groups and Review's cards. In v1's words
+ * where v1 named them, so a row reads as it always has.
+ */
+export function chapterSections(
+  profile: UserProfile, settings: UserSettings, today: string,
+  /** The body readings, for when each measure was taken (H5-24); without them, the values alone. */
+  readings?: readonly BodyReading[],
+  format: ClockFormat = clockFormat,
+): ChapterSection[] {
+  const h = profile.health;
+  const metric = settings.useMetric;
+  // Until the medicines are reviewed, what is stored may be a default nobody chose (B08).
+  const unconfirmed = profileGaps(profile).medicinesUnknown;
+  const medicine = (value: string) => (unconfirmed && value !== 'Not answered yet' ? `${value}, not yet confirmed` : value);
+  const bpUnconfirmed = bpMedicinesUnknown(h);
+  const bpMedicine = (value: string) => (bpUnconfirmed && value !== 'Not answered yet' ? `${value}, not yet confirmed` : value);
+  const inches = (cm: number) => Math.round((cm / 2.54) * 10) / 10;
+  const feet = (cm: number) => `${Math.floor(inches(cm) / 12)} ft ${tenths(inches(cm) - Math.floor(inches(cm) / 12) * 12)} in`;
+  const when = (kind: 'weight' | 'height' | 'waist', value: number, shown: string) => (readings ? `${shown}, ${measured(kind, value, readings)}` : shown);
+
+  const about: SummaryRow[] = [
+    { label: 'Name', value: profile.name ?? 'Not given' },
+    ...(profile.birthYear ? [{ label: 'Born', value: String(profile.birthYear) }] : []),
+    { label: 'Body for the exercise demos', value: profile.figure ? FIGURE[profile.figure] : 'Either' },
+    { label: 'Height', value: !profile.heightCm ? 'Not entered' : when('height', profile.heightCm, metric ? `${asStored(profile.heightCm)} cm` : feet(profile.heightCm)) },
+    { label: 'Weight', value: profile.weightKg > 0 ? when('weight', profile.weightKg, `${kgToDisplay(profile.weightKg, metric)} ${metric ? 'kg' : 'lb'}`) : 'Not entered' },
+    ...(profile.waistCm ? [{ label: 'Waist', value: when('waist', profile.waistCm, metric ? `${asStored(profile.waistCm)} cm` : `${tenths(inches(profile.waistCm))} in`) }] : []),
+  ];
+
+  const eyesOrFeet = diabetic(profile) || h.retinopathy !== 'none_or_mild' || h.footStatus !== 'healthy' || h.peripheralNeuropathy !== 'no';
+  const health: SummaryRow[] = [
+    { label: 'Diabetes', value: DIABETES[h.diabetes] },
+    { label: 'High blood pressure', value: BP[h.hypertension] },
+    { label: 'Heart or circulation', value: yes(h.heartOrVascularDisease) },
+    { label: 'Kidney disease', value: KIDNEY_ANSWER[h.kidneyDisease] },
+    { label: 'Fluid limit from your care team', value: answer(h.fluidRestriction) },
+    ...(eyesOrFeet ? [
+      { label: 'Diabetic eye disease (retinopathy)', value: RETINA[h.retinopathy] },
+      { label: 'Nerve damage in your feet', value: { no: 'No', yes: 'Yes', unsure: 'Not sure' }[h.peripheralNeuropathy] },
+      { label: 'Your feet today', value: FEET[h.footStatus] },
+    ] : []),
+    { label: 'Cleared for exercise', value: CLEARANCE[h.clearance] },
+  ];
+
+  const medicines: SummaryRow[] = [
+    ...(diabetic(profile) ? [
+      { label: 'Insulin', value: medicine(h.insulinRegimen && h.insulin !== 'none' ? `${INSULIN[h.insulin]}, ${REGIMEN[h.insulinRegimen]}` : INSULIN[h.insulin]) },
+      { label: 'A tablet that can cause lows', value: medicine(answer(h.sulfonylureaOrMeglitinide)) },
+    ] : []),
+    // Asked of everyone: also prescribed for the heart and kidneys. An untouched default No reads as not answered (B08).
+    { label: 'A “-gliflozin” medicine', value: diabetic(profile) ? medicine(answer(h.sglt2i)) : answeredOnOpen(h).has('sglt2i') ? answer(h.sglt2i) : 'Not answered yet' },
+    ...(diabetic(profile) ? [
+      { label: 'Metformin', value: medicine(h.metformin === true && h.metforminSince ? `Yes, since ${h.metforminSince}` : answer(h.metformin)) },
+      ...(h.priorDkaOrInsulinDeficiency !== undefined ? [{ label: 'Ketoacidosis, or low insulin', value: medicine(answer(h.priorDkaOrInsulinDeficiency)) }] : []),
+    ] : []),
+    ...(bpMedicinesAsked(h) ? [
+      { label: 'Beta-blocker', value: bpMedicine(answer(h.betaBlocker)) },
+      { label: 'Water tablet (diuretic)', value: bpMedicine(answer(h.diuretic)) },
+    ] : []),
+    { label: 'Dizzy when you stand up', value: yes(h.dizzyOnStandingOrAutonomicNeuropathy) },
+    { label: 'Glucose meter or sensor', value: MONITOR[h.glucoseMonitor] },
+    { label: 'Home blood-pressure cuff', value: yes(h.bpMonitor) },
+  ];
+
+  const areas = profile.pain.areas;
+  const back = areas.includes('lowerBack') || areas.includes('sciatica');
+  const backFeet: SummaryRow[] = [
+    { label: 'Pain or past injury', value: areas.length > 0 ? areas.map(a => PAIN[a]).join(', ') : 'None' },
+    ...(areas.includes('sciatica') ? [{ label: 'Which leg', value: { left: 'Left', right: 'Right', both: 'Both' }[profile.pain.sciaticaSide ?? 'left'] }] : []),
+    ...(back ? [{ label: 'Worse with', value: WORSE[profile.pain.worseWith] }] : []),
+    ...(profile.pain.neuroHistory !== undefined ? [{ label: 'A nerve damaged in the past', value: answer(profile.pain.neuroHistory) }] : []),
+  ];
+
+  const goal = weeklyGoalOn(settings, today);
+  const movement: SummaryRow[] = [
+    { label: 'What you’d most like to do', value: FOCUS_CHOICES.find(f => f.value === settings.focus)?.label ?? 'Not chosen' },
+    { label: 'Exercise now', value: yes(h.currentlyActive) },
+    { label: 'Weekly goal', value: goal === undefined ? 'No goal' : `${goal} minutes a week` },
+    { label: 'The 12-week programme', value: isEnrolled(settings, profile) && isDay(settings.startDate) ? `Joined, from ${shortDay(settings.startDate)}` : 'Not joined' },
+  ];
+
+  const food = profile.food;
+  const foodRows: SummaryRow[] = [
+    { label: 'What you eat', value: food ? FOOD_PATTERN[food.pattern] : 'Not chosen' },
+    // Allergies, asked whatever the pattern, wait in setup's own answers with it (K5-08, D167).
+    { label: 'Allergies', value: allergiesLine(food ?? answersOf(setupStateOf(settings, profile))) },
+    // A level chosen after the pattern was skipped waits in setup's own answers, until the pattern is answered (H5-20, D164).
+    { label: 'Logging what you eat', value: LEVEL[food?.level ?? answersOf(setupStateOf(settings, profile)).foodLevel ?? 'ideas'] },
+  ];
+
+  const hb = settings.habits;
+  const quiet = hb?.quietHours;
+  const day: SummaryRow[] = [
+    { label: 'Reminders', value: habitsLine(hb, profile) },
+    { label: 'Quiet hours', value: quiet ? `${format(minutesOf(quiet.from))} to ${format(minutesOf(quiet.to))}` : 'None' },
+    { label: 'Reminders come', value: hb?.inApp === false ? 'As a calendar file' : 'In the app' },
+    { label: 'Voice coach', value: profile.voice.muted ? 'Off' : 'On' },
+  ];
+
+  return [
+    { chapter: 'about', rows: about },
+    { chapter: 'health', rows: health },
+    { chapter: 'medicines', rows: medicines },
+    { chapter: 'backFeet', rows: backFeet },
+    { chapter: 'movement', rows: movement },
+    { chapter: 'food', rows: foodRows },
+    { chapter: 'day', rows: day },
+  ];
 }

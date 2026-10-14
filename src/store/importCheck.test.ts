@@ -56,6 +56,66 @@ describe('settings in an import file are read field by field (D-08)', () => {
     expect(preview(file({ settings: { ...settings, deleted } })).unreadableFields).toEqual([]);
   });
 
+  it('leaves out walk choices or deleted record keys that cannot be read, keeping the rest of what was deleted (Plan 6 Task 1)', () => {
+    for (const walk of [{ saveRoutes: 'yes', map: 'on' }, { saveRoutes: true }, { saveRoutes: false, map: 'off', stepCardSeen: 'once' }]) {
+      expect(preview(file({ settings: { ...settings, walk } })).unreadableFields).toEqual(['settings.walk']);
+    }
+    expect(preview(file({ settings: { ...settings, walk: { saveRoutes: 'unasked', map: 'unasked', stepCardSeen: true } } })).unreadableFields).toEqual([]);
+    for (const records of [{ routes: 'walk-aaaa' }, { diaries: ['d1'] }, { routes: [7] }]) {
+      const raw = file({ settings: { ...settings, deleted: { observations: ['x'], records } } });
+      expect(preview(raw).unreadableFields).toEqual(['settings.deleted.records']);
+      expect(planImport(raw, 'replace', emptySnapshot(), { allowRejected: true }).change.settings?.replace?.deleted).toEqual({ observations: ['x'] });
+    }
+    expect(preview(file({ settings: { ...settings, deleted: { records: { routes: ['walk-aaaa'], meals: [] } } } })).unreadableFields).toEqual([]);
+  });
+
+  it('leaves out a Home layout this build cannot draw, so Home falls back to its defaults (journey §7.6)', () => {
+    const home = { order: { move: ['workout', 'walk'], eat: ['food'], check: ['glucose'], learn: [] }, hidden: ['sleep'] };
+    expect(preview(file({ settings: { ...settings, home } })).unreadableFields).toEqual([]);
+    for (const bad of [{ ...home, hidden: ['mood'] }, { ...home, order: { ...home.order, eat: ['walk'] } }, 'grid']) {
+      const raw = file({ settings: { ...settings, home: bad } });
+      expect(preview(raw).unreadableFields).toEqual(['settings.home']);
+      expect(planImport(raw, 'replace', emptySnapshot(), { allowRejected: true }).change.settings?.replace).toEqual(settings);
+    }
+  });
+
+  it('reads the categories Me has offered for Home, and leaves out a list it cannot read (journey §5.1)', () => {
+    expect(preview(file({ settings: { ...settings, homeOffered: ['glucose', 'water'] } })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings: { ...settings, homeOffered: ['mood'] } })).unreadableFields).toEqual(['settings.homeOffered']);
+  });
+
+  it('reads what Finish setting up was told, chapter by chapter', () => {
+    expect(preview(file({ settings: { ...settings, setup: { declined: ['health', 'food'] } } })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings: { ...settings, setup: { declined: ['everything'] } } })).unreadableFields).toEqual(['settings.setup.declined']);
+  });
+
+  it('reads the display settings, and leaves out a text size this build does not offer', () => {
+    expect(preview(file({ settings: { ...settings, display: { reduceMotion: true, reduceTransparency: false, textScale: 1.3 } } })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings: { ...settings, display: { textScale: 7 } } })).unreadableFields).toEqual(['settings.display']);
+  });
+
+  it('reads a calendar file’s event times, and leaves out the file’s record when they cannot be read', () => {
+    const entry = { at: '2026-10-07T19:00:00.000+05:30', until: '2027-01-05', events: 1, titles: ['Glass of water'] };
+    expect(preview(file({ settings: { ...settings, habits: { calendarExport: { water: { ...entry, minutes: [600] } } } } })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings: { ...settings, habits: { calendarExport: { water: { ...entry, minutes: ['9am'] } } } } })).unreadableFields).toEqual(['settings.habits.calendarExport']);
+    // What each event said, as the app fingerprints it (codex H4-05).
+    expect(preview(file({ settings: { ...settings, habits: { calendarExport: { water: { ...entry, contents: ['1x2y3z'] } } } } })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings: { ...settings, habits: { calendarExport: { water: { ...entry, contents: [42] } } } } })).unreadableFields).toEqual(['settings.habits.calendarExport']);
+  });
+
+  it('reads how the last backup left and whether it was checked', () => {
+    expect(preview(file({ settings: { ...settings, habits: { lastExportAt: 'x', lastExportVia: 'share', lastCheckedExportAt: 'x' } } })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings: { ...settings, habits: { lastExportVia: 'email' } } })).unreadableFields).toEqual(['settings.habits.lastExportVia']);
+  });
+
+  it('reads the weekly goal’s history, v1’s undated goal included, and leaves out one that cannot be read (B-16)', () => {
+    const history = [{ from: '', goal: 120 }, { from: '2026-10-12', goal: 150 }, { from: '2026-10-19' }];
+    expect(preview(file({ settings: { ...settings, weeklyMovementGoalHistory: history } })).unreadableFields).toEqual([]);
+    for (const bad of [[{ from: 'soon', goal: 90 }], [{ goal: 90 }], [{ from: '2026-10-12', goal: 0 }], 'weekly']) {
+      expect(preview(file({ settings: { ...settings, weeklyMovementGoalHistory: bad } })).unreadableFields).toEqual(['settings.weeklyMovementGoalHistory']);
+    }
+  });
+
   it('needs the same explicit choice as unreadable records before anything is written', () => {
     expect(() => planImport(file({ settings: { ...settings, statusPeriods: 'flare' } }), 'replace', emptySnapshot())).toThrow(/could not be read/);
   });
@@ -88,5 +148,118 @@ describe('the profile in an import file (D-08)', () => {
     expect(change.profile?.weightKg).toBe(70);
     expect(change.profile?.voice.rate).toBe(createDefaultProfile().voice.rate);
     expect(change.profile?.trainingDays).toEqual(createDefaultProfile().trainingDays);
+  });
+});
+
+describe('setup in a backup file, read field by field (journey §18.1; D-08; Review Focus 5)', () => {
+  const setup = {
+    stage: 'open', skipped: [], declined: ['food'],
+    draft: { at: 'health.conditions', answers: { figure: 'female', conditions: { diabetes: 'unsure', bp: 'no' }, weightKg: 72 } },
+  };
+
+  it('keeps a setup this build can read, Plan 4’s Not now included', () => {
+    expect(preview(file({ settings: { ...settings, setup } })).unreadableFields).toEqual([]);
+    expect(planImport(file({ settings: { ...settings, setup } }), 'replace', emptySnapshot()).change.settings?.replace?.setup).toEqual(setup);
+  });
+
+  it('keeps every "Not sure" setup offers, the four new ones included (K5-09), and a metformin year emptied (H5-21)', () => {
+    const unsure = { ...setup, draft: { at: 'backFeet.history', answers: { kidneyTreatment: 'unsure', eyeTreatment: 'unsure', footWound: 'unsure', footRestriction: 'unsure', metforminSince: '' } } };
+    expect(preview(file({ settings: { ...settings, setup: unsure } })).unreadableFields).toEqual([]);
+  });
+
+  it('leaves out, by name, a page this build lacks or an answer of the wrong kind, and keeps the rest', () => {
+    const odd = { ...setup, draft: { at: 'health.somewhere', answers: { ...setup.draft.answers, conditions: { diabetes: 'maybe' } } } };
+    expect(preview(file({ settings: { ...settings, setup: odd } })).unreadableFields)
+      .toEqual(['settings.setup.draft.at', 'settings.setup.draft.answers.conditions']);
+    const { change } = planImport(file({ settings: { ...settings, setup: odd } }), 'replace', emptySnapshot(), { allowRejected: true });
+    expect(change.settings?.replace?.setup).toEqual({ ...setup, draft: { answers: { figure: 'female', weightKg: 72 } } });
+    expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: ['nowhere'] } } })).unreadableFields).toEqual(['settings.setup.skipped']);
+  });
+
+  it('keeps the skipped pages of a backup from before Your day was split into a page each (K5-12)', () => {
+    const answers = { skippedPages: ['day.reminders', 'movement.goal'] };
+    expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: ['day', 'movement'], answers } } })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: [], answers: { skippedPages: ['day.somewhere'] } } } })).unreadableFields)
+      .toEqual(['settings.setup.answers.skippedPages']);
+  });
+
+  it('keeps answers a newer build added, as it keeps unknown fields', () => {
+    expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: [], answers: { someNewQuestion: 'x' } } } })).unreadableFields).toEqual([]);
+  });
+
+  it('reads chapter 7’s answers: canonical allergens, the person’s own words and the screening answer (board D82)', () => {
+    const answers = { pattern: 'jain', allergies: ['peanut', 'shellfish'], customAllergies: ['brinjal'], foodLevel: 'estimates', hardBefore: 'preferNot' };
+    expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: [], answers } } })).unreadableFields).toEqual([]);
+    for (const [field, bad] of [['allergies', ['brinjal']], ['customAllergies', ['']], ['hardBefore', 'maybe'], ['pattern', 'paleo']] as const) {
+      expect(preview(file({ settings: { ...settings, setup: { stage: 'done', skipped: [], answers: { ...answers, [field]: bad } } } })).unreadableFields, field)
+        .toEqual([`settings.setup.answers.${field}`]);
+    }
+  });
+});
+
+describe('the profile’s v2 fields (journey §18.1)', () => {
+  const profile = {
+    ...createDefaultProfile({ weightKg: 70 }), name: 'Asha', waistCm: 92,
+    pain: { areas: ['lowerBack'], worseWith: 'flexion', preference: 'untested', neuroHistory: 'unsure' },
+  };
+  it('reads the name, the waist and the nerve history', () => {
+    expect(preview(file({ settings, profile })).unreadableFields).toEqual([]);
+    expect(preview(file({ settings, profile: { ...profile, name: 42 } })).unreadableFields).toEqual(['profile.name']);
+    expect(preview(file({ settings, profile: { ...profile, name: 'x'.repeat(61) } })).unreadableFields).toEqual(['profile.name']);
+    expect(preview(file({ settings, profile: { ...profile, waistCm: 'wide' } })).unreadableFields).toEqual(['profile.waistCm']);
+    // A pain answer that can't be read leaves the pain answers out whole, as any other would.
+    expect(preview(file({ settings, profile: { ...profile, pain: { ...profile.pain, neuroHistory: 'maybe' } } })).unreadableFields).toEqual(['profile.pain']);
+  });
+});
+
+describe('food preferences in an import file (journey §18.1, B-13)', () => {
+  const profile = (food: unknown) => ({ ...createDefaultProfile({ weightKg: 70 }), food });
+  const food = { pattern: 'jain', avoid: ['mushrooms'], region: 'west', level: 'estimates', hardBefore: 'preferNot', allergies: ['peanut', 'treeNut'] };
+  it('reads setup’s food answers whole', () => {
+    expect(preview(file({ settings, profile: profile(food) })).unreadableFields).toEqual([]);
+    expect(planImport(file({ settings, profile: profile(food) }), 'replace', emptySnapshot()).change.profile?.food).toEqual(food);
+    // An empty list is the answer "No food allergies".
+    expect(preview(file({ settings, profile: profile({ ...food, allergies: [] }) })).unreadableFields).toEqual([]);
+  });
+  it('leaves the food preferences out whole when any of them can’t be read, so meal ideas ask again rather than drop an allergy', () => {
+    const bad = [
+      { level: 'lots' }, { allergies: 'peanut' }, { allergies: ['brinjal'] }, { allergies: [7] }, { hardBefore: 'sometimes' }, { pattern: 'paleo' },
+      { region: 'everywhere' }, { avoid: 'mushrooms' },
+    ];
+    for (const over of bad) {
+      expect(preview(file({ settings, profile: profile({ ...food, ...over }) })).unreadableFields, JSON.stringify(over)).toEqual(['profile.food']);
+    }
+  });
+});
+
+describe('the food fields Plan 7 adds (journey §18.1, B-13)', () => {
+  const profile = (food: unknown) => ({ ...createDefaultProfile({ weightKg: 70 }), food });
+  const food = {
+    pattern: 'jain', avoid: ['mushrooms'], level: 'estimates', hardBefore: 'no', allergies: ['peanut'], customAllergies: ['brinjal'],
+    careTeamTargets: { kcal: 1600, setOn: '2026-10-01' }, logReminder: { meal: 'lunch', at: '14:30' },
+  };
+  it('reads them with the rest of the food preferences', () => {
+    expect(preview(file({ settings, profile: profile(food) })).unreadableFields).toEqual([]);
+    expect(planImport(file({ settings, profile: profile(food) }), 'replace', emptySnapshot()).change.profile?.food).toEqual(food);
+  });
+  it('leaves the food preferences out whole when any of them can’t be read, so meal ideas ask again rather than drop an allergy', () => {
+    const bad = [
+      { customAllergies: 'brinjal' }, { customAllergies: [''] }, { customAllergies: ['x'.repeat(61)] },
+      { careTeamTargets: { kcal: -5, setOn: '2026-10-01' } }, { careTeamTargets: { kcal: 1600 } },
+      { logReminder: { meal: 'brunch', at: '11:00' } }, { logReminder: { meal: 'lunch', at: '2pm' } },
+    ];
+    for (const over of bad) {
+      expect(preview(file({ settings, profile: profile({ ...food, ...over }) })).unreadableFields, JSON.stringify(over)).toEqual(['profile.food']);
+    }
+  });
+});
+
+describe('the limits setup and a backup share (H5-18)', () => {
+  it('a backup holds every answer setup takes, and nothing setup refuses', async () => {
+    const { NAME_MAX, OWN_ALLERGIES_MAX, OWN_ALLERGY_LENGTH_MAX } = await import('@/setup/limits');
+    const answers = (a: Record<string, unknown>) => preview(file({ settings: { ...settings, setup: { stage: 'open', draft: { answers: a } } } })).unreadableFields;
+    expect(answers({ name: 'x'.repeat(NAME_MAX), customAllergies: Array.from({ length: OWN_ALLERGIES_MAX }, () => 'y'.repeat(OWN_ALLERGY_LENGTH_MAX)) })).toEqual([]);
+    expect(answers({ name: 'x'.repeat(NAME_MAX + 1) })).toEqual(['settings.setup.draft.answers.name']);
+    expect(answers({ customAllergies: ['y'.repeat(OWN_ALLERGY_LENGTH_MAX + 1)] })).toEqual(['settings.setup.draft.answers.customAllergies']);
   });
 });

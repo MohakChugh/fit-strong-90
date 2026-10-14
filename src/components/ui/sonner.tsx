@@ -1,14 +1,18 @@
 import { useTheme } from "@/hooks/useTheme"
+import { useToastRoom } from "@/components/hig/toastSpace"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
 const Toaster = ({ ...props }: ToasterProps) => {
   // The app's own setting, so a toast matches a theme chosen in You.
   const { theme } = useTheme()
+  // One at a time on a screen too short for two at this text size (M19): they never cover most of it.
+  const shown = useToastRoom()
 
   return (
     <Sonner
       theme={theme as ToasterProps["theme"]}
+      visibleToasts={shown}
       className="toaster group"
       icons={{
         success: (

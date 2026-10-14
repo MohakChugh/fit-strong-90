@@ -3,10 +3,18 @@ import { ScrollRestoration } from 'react-router-dom';
 import { DatabaseZapIcon } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
 import { start, useStore, useStorageNotice } from '@/store/useStore';
+import { startClockWatch } from '@/walk/clockWatch';
 import { forgetPlaces, scrollKeyOf } from '@/components/hig/navigation';
+import { applyTextScale } from '@/lib/textSize';
 import { applyThemeColor } from '@/lib/themeColor';
 import { AppRoutes } from '@/routes';
+import { useSetupSession } from '@/setup/draft';
+import { setupStateOf } from '@/setup/state';
 import { ReminderHost } from '@/reminders/ReminderHost';
+import { ScreenLoading } from '@/components/hig/AppShell';
+import { UrgentProvider } from '@/screens/home/UrgentBanner';
+import { RestartCover } from '@/app/RestartCover';
+import { restartToUpdate, useUpdates } from '@/app/updates';
 
 /**
  * Set once a saved person has been read, so that if the database later cannot
@@ -41,13 +49,15 @@ function StorageUnavailable({ onContinue }: { onContinue: () => void }) {
         </p>
       </div>
       <div className="flex w-full max-w-xs flex-col gap-2">
-        <button type="button" onClick={() => window.location.reload()}
-          className="press-feedback min-h-12 rounded-xl bg-tint text-[length:var(--text-body)] font-semibold text-on-tint">
+        {/* With a newer release waiting and this FitStrong's only window, Try again restarts onto it (D107);
+            otherwise it reloads, as it always has. */}
+        <button type="button" onClick={() => { void restartToUpdate().then(how => { if (how !== 'restarting') window.location.reload(); }); }}
+          className="press-feedback min-h-[3.75rem] rounded-xl bg-tint text-[length:var(--text-body)] font-semibold text-on-tint">
           Try again
         </button>
         {!existing && (
           <button type="button" onClick={onContinue}
-            className="press-feedback min-h-11 rounded-xl text-[length:var(--text-body)] text-tint">
+            className="press-feedback min-h-12 rounded-xl text-[length:var(--text-body)] text-tint">
             Continue without saving
           </button>
         )}
@@ -63,12 +73,17 @@ function StorageUnavailable({ onContinue }: { onContinue: () => void }) {
 
 function App() {
   const { theme } = useTheme();
-  const { status, settings } = useStore();
+  const { status, settings, profile, readOnly } = useStore();
+  const session = useSetupSession();
   const [continueUnsaved, setContinueUnsaved] = useState(false);
+  // Restarting to update (D106, P8S-13): the cover is up, and nothing under it can be tapped, typed or reached.
+  const { restarting } = useUpdates();
 
-  // Open the database, migrate v4 data across and publish it (D13).
+  // Open the database, migrate v4 data across and publish it (D13), and from then
+  // watch the phone's clock, walking or not (B-19, P8S-02, board D185).
   useEffect(() => {
     void start();
+    return startClockWatch();
   }, []);
 
   useEffect(() => {
@@ -93,23 +108,56 @@ function App() {
     applyThemeColor(theme);
   }, [theme]);
 
+  // The in-app display settings, for CSS and for the router (motion rule 4; journey §20.1).
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (settings.display?.reduceMotion) root.dataset.reduceMotion = ''; else delete root.dataset.reduceMotion;
+    if (settings.display?.reduceTransparency) root.dataset.glass = 'solid'; else delete root.dataset.glass;
+  }, [settings.display?.reduceMotion, settings.display?.reduceTransparency]);
+
+  // The app's own text size, over the device's (journey §16, D60): instant, as M23 asks.
+  useEffect(() => {
+    applyTextScale(settings.display?.textScale);
+  }, [settings.display?.textScale]);
+
   // Nothing routes until the device has been read. The onboarding gate works
   // off `onboardingComplete`, which is false until then, so routing early
   // would bounce an existing user through onboarding for a frame. A bare
   // background rather than a spinner: this is usually over in well under the
   // time a spinner would take to stop looking like a glitch.
   if (status === 'loading') return <div className="min-h-dvh bg-grouped-bg" aria-busy="true" />;
-  if (status === 'unavailable' && !continueUnsaved) return <StorageUnavailable onContinue={() => setContinueUnsaved(true)} />;
+  // Only a first open that can't reach the records shows the storage screen. Storage lost while the app
+  // runs keeps every screen, its answers and its guidance, read-only (D107, P8S-04).
+  if (status === 'unavailable' && !readOnly && !continueUnsaved) {
+    return (
+      <>
+        <div inert={restarting} className="contents"><StorageUnavailable onContinue={() => setContinueUnsaved(true)} /></div>
+        <RestartCover />
+      </>
+    );
+  }
 
+  // The safety decision is owned above the routes, so a screen still loading
+  // or one that failed shows it too, as do full-screen tasks and sheets
+  // (journey §4.7, codex V1-02, V1-03).
   return (
     <>
-      {/* Keyed by place, so a tab returns to where it was scrolled. */}
-      <ScrollRestoration getKey={scrollKeyOf} />
-      {/* Opted-in reminders while the app is open (board D15). */}
-      {settings.onboardingComplete && <ReminderHost />}
-      <Suspense fallback={<div className="min-h-dvh bg-grouped-bg" aria-busy="true" />}>
-        <AppRoutes onboarded={settings.onboardingComplete} />
-      </Suspense>
+      <div inert={restarting} className="contents">
+        <UrgentProvider>
+          {/* Keyed by place, so a tab returns to where it was scrolled. */}
+          <ScrollRestoration getKey={scrollKeyOf} />
+          {/* Opted-in reminders while the app is open (board D15). */}
+          {settings.onboardingComplete && <ReminderHost />}
+          {/* Unsaved setup that was finished opens the app for this session only (B-07). */}
+          <Suspense fallback={<ScreenLoading full />}>
+            <AppRoutes
+              onboarded={settings.onboardingComplete || session.entered}
+              setupOpen={setupStateOf(settings, profile).stage !== 'done' || session.entered}
+            />
+          </Suspense>
+        </UrgentProvider>
+      </div>
+      <RestartCover />
     </>
   );
 }

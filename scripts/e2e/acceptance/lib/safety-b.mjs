@@ -5,8 +5,9 @@
  * Owned by these three journeys; the shared libraries stay untouched.
  */
 import { docs } from './harness.mjs';
+import * as hub from './hub.mjs';
 import * as ui from './ui.mjs';
-import { checkInSheet, enter } from './move.mjs';
+import { checkInSheet, enter, reviewFromSetup } from './move.mjs';
 
 /**
  * A permission-approved start in the check-in sheet. Today's sheet says
@@ -44,9 +45,8 @@ export const LINK = { guided: '/session', stretch: '/session?mode=stretch&focus=
 export async function openSheet(t, mode, via = 'move') {
   let r = via === 'move' ? await enterFromMove(t, mode) : await enter(t, mode, via);
   if (r.refusedOnSetup && r.review) {
-    // A setup refusing before any tap (S-15) offers today's check-in in place of Start.
-    await ui.tap(ui.button(t.page.getByRole('main'), 'Review today’s check-in'));
-    r = { sheet: checkInSheet(t.page), route: await t.route() };
+    // A hub refusing before any tap (S-15) offers today's check-in in place of a start.
+    r = { sheet: await reviewFromSetup(t.page), route: await t.route() };
   }
   if (r.direct) {
     // D35: outside the programme, Guided is only a way to join it, and Today's
@@ -85,11 +85,15 @@ export async function readSheet(sheet) {
 
 /**
  * A tab's root screen (through `ui.tab`, which taps again when the tab
- * returns to where it was left), then that screen's own heading.
+ * returns to where it was left), then that screen's own heading. v1's Move,
+ * Track and Guide are their v2 places (`ui.legacyTab`), under those places'
+ * own titles (Workout, My Day, Learn); Home's heading is its greeting.
  */
-export async function tabTo(page, name, heading = name) {
-  await ui.tab(page, name);
-  await page.getByRole('heading', { level: 1, name: heading, exact: true }).waitFor({ timeout: 20000 });
+export async function tabTo(page, name, heading = Object.hasOwn(ui.LEGACY, name) ? ui.LEGACY[name].title : name) {
+  if (Object.hasOwn(ui.LEGACY, name)) await ui.legacyTab(page, name);
+  else await ui.tab(page, name);
+  const title = name === 'Home' ? ui.HOME_TITLE : heading;
+  await page.getByRole('heading', { level: 1, name: title, ...(typeof title === 'string' ? { exact: true } : {}) }).waitFor({ timeout: 20000 });
   await page.waitForTimeout(200);
 }
 
@@ -103,52 +107,35 @@ export async function closeSheet(t) {
 }
 
 /**
- * Open a mode from Move the way a person does. Unlike `move.enter`, a setup
- * screen that refuses on its own (Walk shows "No walk today" with no Start
- * walk button) is an answer, not a missing control.
+ * Open a mode's hub the way a person does. A hub that refuses on its own (no
+ * start, the gate's words) is an answer, not a missing control.
  */
 export async function enterFromMove(t, mode) {
   const page = t.page;
-  const main = page.getByRole('main');
-  await ui.tab(page, 'Move');
-  await page.getByRole('heading', { level: 1, name: 'Move', exact: true }).waitFor();
-  if (mode === 'guided') {
-    const start = ui.row(main, 'Guided session');
-    const join = ui.row(main, 'Guided session', 'link');
-    await start.or(join).waitFor();
-    if (await start.count()) {
-      await ui.tap(start);
-    } else {
-      // Not in the programme: Move offers to join it rather than a session, so
+  await hub.open(t, mode);
+  const c = hub.card(page);
+  // A walk left in progress is offered back first; going back to it is a resume, which asks the gate at the tap (codex H2-01).
+  const pending = c.getByRole('button', { name: /^(Return to walk|Review and save)$/ });
+  if (mode === 'walk' && await pending.count()) {
+    await ui.tap(pending);
+    await page.waitForTimeout(600);
+    const sheet = checkInSheet(page);
+    if (await sheet.count()) return { sheet, route: await t.route(), pending: true };
+    return { route: await t.route(), pending: true };
+  }
+  const start = hub.start(page);
+  if (!(await start.count()) || await start.isDisabled()) {
+    const r = await hub.refusal(page);
+    if (mode === 'guided' && r?.join) {
+      // Not in the programme: the hub offers to join it rather than a session, so
       // the session is attempted through its own address (a direct player route).
       await t.goto('/session');
       return { route: await t.route(), direct: true };
     }
-  } else {
-    const name = mode === 'stretch' ? 'Stretch' : 'Walk';
-    await ui.tap(ui.row(main, name, 'link'));
-    await page.getByRole('heading', { level: 1, name, exact: true }).waitFor();
-    await page.waitForTimeout(250);
-    // A walk left in progress is offered back first; going back to it is a resume.
-    const pending = main.getByRole('button', { name: /^(Return to walk|Review and save)$/ });
-    if (mode === 'walk' && await pending.count()) {
-      await ui.tap(pending);
-      await page.waitForTimeout(600);
-      return { route: await t.route(), pending: true };
-    }
-    const start = ui.button(main, mode === 'stretch' ? 'Start stretch' : 'Start walk');
-    const review = ui.button(main, 'Review today’s check-in');
-    // S-15: while the engine refuses, the setup shows the reason and offers the check-in instead of Start.
-    await start.or(review).or(ui.button(main, 'Open your health profile')).first().waitFor({ timeout: 10000 }).catch(() => {});
-    if (!(await start.count()) || await start.isDisabled()) {
-      const status = main.locator('[role="status"]');
-      const text = (await status.count()) ? flat(await status.first().innerText()) : flat(await main.innerText());
-      const first = status.first().locator('p').first();
-      const title = (await status.count()) && (await first.count()) ? flat(await first.innerText()) : undefined;
-      return { refusedOnSetup: true, route: await t.route(), title, text, review: (await review.count()) > 0 };
-    }
-    await ui.tap(start);
+    // S-15: while the engine refuses, the hub shows the reason and offers the check-in instead of a start.
+    return { refusedOnSetup: true, route: await t.route(), title: r?.title, text: r?.text ?? flat(await c.innerText()), review: !!r?.review };
   }
+  await ui.tap(start);
   await page.waitForTimeout(500);
   const sheet = checkInSheet(page);
   if (await sheet.count()) return { sheet, route: await t.route() };
@@ -172,10 +159,8 @@ export async function modeAnswer(t, mode, via = 'move', { resubmit = true } = {}
   if (r.refusedOnSetup) {
     const setup = { title: r.title, text: r.text };
     if (r.review) {
-      // The setup refused before any tap (S-15); its "Review today’s check-in" gives the check-in's own answer.
-      await ui.tap(ui.button(page.getByRole('main'), 'Review today’s check-in'));
-      const sheet = checkInSheet(page);
-      await sheet.waitFor({ timeout: 15000 });
+      // The hub refused before any tap (S-15); its way to today's check-in gives the check-in's own answer.
+      const sheet = await reviewFromSetup(page);
       const s = await readSheet(sheet);
       return { mode, via, where: 'sheet', route: r.route, ...s, allowed: s.start, setup };
     }
@@ -197,7 +182,7 @@ export async function modeAnswer(t, mode, via = 'move', { resubmit = true } = {}
       const m = document.querySelector('main');
       if (!m) return false;
       if (m.querySelector('section[role="alert"] h2, section[role="status"] h2')) return true;
-      return [...m.querySelectorAll('button')].some(b => /^(Start|Resume|Back to Today)$/.test(b.textContent.trim()));
+      return [...m.querySelectorAll('button')].some(b => /^(Start|Resume|Back|Back to Home)$/.test(b.textContent.trim()));
     }, null, { timeout: 20000 }).catch(() => {});
   }
   const banner = main.locator('section[role="alert"], section[role="status"]').filter({ has: page.locator('h2') });
@@ -213,8 +198,8 @@ export async function modeAnswer(t, mode, via = 'move', { resubmit = true } = {}
     await leaveWalk(t);
     return answer;
   }
-  if (r.route === '/walk') {
-    // A walk address the controller would not start sends the person back to Walk.
+  if (r.route === '/hub/walk') {
+    // A walk address the controller would not start sends the person back to Walk (v1's /walk, now its hub).
     return { mode, via, where: 'route', route: r.route, title, bannerText: '', text, start: false, allowed: false, bounced: true };
   }
   return { mode, via, where: 'route', route: r.route, title, bannerText: title ? flat(await banner.last().innerText()) : '', text, start: !title && playerStart > 0, allowed: !title && playerStart > 0 };
@@ -236,6 +221,8 @@ export async function leaveWalk(t) {
   const main = page.getByRole('main');
   const done = ui.button(main, 'Done');
   const discard = ui.button(main, 'Discard walk');
+  // The summary is a screen of its own in v2, loaded the first time it opens: wait for its buttons.
+  await done.or(discard).first().waitFor({ timeout: 10000 }).catch(() => {});
   if (await discard.count()) {
     await ui.tap(discard);
     await ui.tap(ui.button(page.getByRole('dialog', { name: 'Discard walk' }), 'Discard walk'));
@@ -245,10 +232,13 @@ export async function leaveWalk(t) {
   await page.waitForTimeout(400);
 }
 
-/** Leave whatever full-screen task an entry opened, back to a tab. */
+/**
+ * Leave whatever full-screen task an entry opened, back to a tab. A walk's
+ * summary is one of them in v2 (journey §19.2: outside the shell, no tab bar).
+ */
 export async function backToTabs(t) {
   await closeSheet(t);
-  if (/^\/(session|walk\/live)/.test(await t.route())) await t.goto('/today');
+  if (/^\/(session|walk\/live|walk\/summary)/.test(await t.route())) await t.goto('/home');
 }
 
 /** Every glucose observation, oldest first. */

@@ -7,19 +7,23 @@ import {
   DISCLAIMER, idsShown, MEAL_INTRO, mealsFor, resolveGroups, SLOT_NOTES, SLOTS, unmatchedAvoid,
   type GuideContext, type ShownClaim,
 } from '@/content';
+import { FOOD_COPY } from '@/food/copy';
 import type { FoodPreferences } from '@/types/profile';
 import { FoodPicker } from './FoodPicker';
 import { foodSummary, unmatchedNote } from './format';
 import { mealDetail } from './mealText';
-import { ClaimGroup, Lead, Reviewed, SourcesGroup } from './parts';
+import { ClaimGroup, Lead, NoAllergiesRow, Reviewed, SourcesGroup } from './parts';
+import { RoughCarbs } from '@/screens/food/RoughCarbs';
 import { useGuide } from './useGuide';
 
 /**
  * Meal ideas by meal slot, for what the person eats. The first visit asks
- * what that is; until they answer, every meal shows.
+ * what that is. Until they answer, every pattern's meals show, without the
+ * allergies setup is keeping; with no allergy answer at all, it asks about
+ * allergies before showing any, since not known is never none (board D205).
  */
 export default function MealIdeasScreen() {
-  const { ctx, food, canSaveFood } = useGuide();
+  const { ctx, food, filter, canSaveFood } = useGuide();
   // Asked the first time Meal ideas opens, not before (codex-vision §2).
   const [picking, setPicking] = useState(() => food === undefined);
   // One pass over the screen, so a caution shown under the intro is not repeated under Snacks.
@@ -27,19 +31,21 @@ export default function MealIdeasScreen() {
   const shown = idsShown([intro, ...slotNotes]);
 
   return (
-    <Screen title="Meal ideas" back={{ to: '/guide', label: 'Guide' }}>
+    <Screen title="Meal ideas" back={{ to: '/hub/food', label: 'Food' }}>
       <Lead>Familiar Indian meals to adapt, laid out with the plate method. Examples, not a diet to follow.</Lead>
+      <RoughCarbs />
 
       <Group footer={unmatchedNote(unmatchedAvoid(food?.avoid, food?.pattern))}>
         <Row
           onClick={() => setPicking(true)}
           label="What you eat"
-          detail={food ? foodSummary(food) : 'Not chosen yet — every meal is shown'}
+          detail={food ? foodSummary(food) : filter ? FOOD_COPY.notChosenAllergies : FOOD_COPY.notChosenYet}
           accessory={<span className="shrink-0 text-[length:var(--text-body)] text-tint">{food ? 'Change' : 'Choose'}</span>}
         />
         <Row
           as={Link}
-          to="/guide/meals/week"
+          to="/hub/food/week"
+          state={{ from: 'ideas' }}
           viewTransition
           icon={<CalendarDaysIcon aria-hidden />}
           label="Sample week"
@@ -50,9 +56,14 @@ export default function MealIdeasScreen() {
 
       <ClaimGroup header="How these meals are built" claims={intro} ctx={ctx} footer={DISCLAIMER} />
 
-      {SLOTS.map((slot, i) => (
-        <SlotGroup key={slot.id} slot={slot} food={food} notes={slotNotes[i]} ctx={ctx} />
-      ))}
+      {filter ? SLOTS.map((slot, i) => (
+        <SlotGroup key={slot.id} slot={slot} food={filter} notes={slotNotes[i]} ctx={ctx} />
+      )) : (
+        <Group>
+          <Row onClick={() => setPicking(true)} label={FOOD_COPY.allergiesFirst} detail={FOOD_COPY.allergiesFirstDetail} chevron />
+          <NoAllergiesRow />
+        </Group>
+      )}
 
       <SourcesGroup claimIds={shown} />
       <Reviewed claimIds={shown} />
@@ -64,7 +75,7 @@ export default function MealIdeasScreen() {
 
 function SlotGroup({ slot, food, notes, ctx }: {
   slot: (typeof SLOTS)[number];
-  food?: FoodPreferences;
+  food: Partial<FoodPreferences>;
   notes: ShownClaim[];
   ctx: GuideContext;
 }) {
@@ -73,13 +84,13 @@ function SlotGroup({ slot, food, notes, ctx }: {
     <>
       <Group header={slot.title}>
         {meals.length === 0 ? (
-          <Row label="Nothing left" detail="Every idea here has a food you chose to leave out." />
+          <Row label={FOOD_COPY.noIdeas} detail={FOOD_COPY.noIdeasDetail} />
         ) : (
           meals.map(m => (
             <Row
               key={m.id}
               as={Link}
-              to={`/guide/meals/${m.id}`}
+              to={`/hub/food/ideas/${m.id}`}
               viewTransition
               label={m.name}
               detail={mealDetail(m, food?.pattern)}

@@ -109,6 +109,12 @@ export interface PainProfile {
   worseWith: 'flexion' | 'extension' | 'unknown';
   /** Confirmed directional preference: which direction eases symptoms. */
   preference: 'extension' | 'flexion' | 'none' | 'untested';
+  /**
+   * v2: a doctor once said a nerve in the back or leg was damaged (foot drop,
+   * say). Read by Home's default tiles and the summary only: the engine reads
+   * today's symptoms instead (D29(2), board D77). `'unsure'` is kept as it was said.
+   */
+  neuroHistory?: MedicineAnswer;
 }
 
 export interface LadderState {
@@ -160,13 +166,62 @@ export interface UserProfile {
   needsHealthReview?: boolean;
   /** Asked the first time meal ideas are opened, not during exercise setup. */
   food?: FoodPreferences;
+  /** v2: what to call the person, on screen only. The voice coach never says it (journey §6.2). */
+  name?: string;
+  /** v2: the latest waist in cm. Each change is also a dated `waist` reading (journey §18.1). */
+  waistCm?: number;
+  /**
+   * Only on the profile a gate reads, for this session: a clinical answer the
+   * person gave couldn't be stored (`setup/effective.ts`; board D197). Every
+   * movement holds and water reminders pause until it's stored or
+   * discarded. Never stored.
+   */
+  clinicalUnsaved?: true;
 }
 
-/** What meal ideas may include. Never inferred; only what the user said. */
+/**
+ * The canonical allergens (journey §11.5, B-13; board D82): a chip stores one
+ * of these ids, and anything else is the person's own words. Plan 7 gives
+ * each its aliases (`src/food/allergens.ts`).
+ */
+export const ALLERGEN_IDS = ['peanut', 'treeNut', 'milk', 'egg', 'wheat', 'soy', 'sesame', 'fish', 'shellfish', 'mustard'] as const;
+export type AllergenId = (typeof ALLERGEN_IDS)[number];
+
+/** How a person eats (journey §6.2 chapter 7). Jain is vegetarian, with no honey and no root vegetables or bulbs. */
+export type FoodPattern = 'vegetarian' | 'eggetarian' | 'nonVegetarian' | 'vegan' | 'jain';
+
+/** What meal ideas may include, and how much the person logs. Never inferred: only what the person said. */
 export interface FoodPreferences {
-  pattern: 'vegetarian' | 'eggetarian' | 'nonVegetarian' | 'vegan';
-  /** Free-text allergies or foods to leave out, as the user typed them. */
+  /** `jain` (journey §6.2 chapter 7): vegetarian, with no honey and no root vegetables or bulbs (board D82). */
+  pattern: FoodPattern;
+  /** Foods to leave out of meal ideas, in the person's own words (v1's "Leave out"). */
   avoid: string[];
   /** Optional regional leaning for meal examples. */
   region?: 'north' | 'south' | 'east' | 'west' | 'mixed';
+  /**
+   * v2 (B-13): the allergies a chip names, as canonical ids. An empty list is
+   * the answer "No food allergies". The person's own words are `customAllergies`.
+   */
+  allergies?: AllergenId[];
+  /**
+   * v2 (journey §11.1): meal ideas only, meals with no numbers (counts-free,
+   * B-11), or meals with calorie and carb estimates. Absent reads as `ideas`.
+   */
+  level?: 'ideas' | 'meals' | 'estimates';
+  /**
+   * v2 (K-22): the answer to "Has food or weight ever been hard for you?",
+   * asked before estimates are chosen and kept on this device (board D82,
+   * Plan 7's D102). "Yes" or "Prefer not to say" recommends meals only.
+   */
+  hardBefore?: 'yes' | 'no' | 'preferNot';
+  /**
+   * v2 (B-13): allergies the chips don't name, in the person's own words
+   * ("brinjal"). Read through the aliases, so "groundnuts" still counts as
+   * peanut; anything else is matched by word against every ingredient.
+   */
+  customAllergies?: string[];
+  /** A daily target the person's care team gave them (journey §11.5). The app never suggests one. */
+  careTeamTargets?: { kcal?: number; carbsG?: number; setOn: string };
+  /** One daily reminder to log a meal, with estimates only (journey §7.4, A-73; board D103). Absent: off. */
+  logReminder?: { meal: 'breakfast' | 'lunch' | 'dinner'; at: string };
 }

@@ -3,7 +3,7 @@ import { createDefaultProfile, type ProfileInput } from '@/profile/defaults';
 import type { DailyCheckIn, Mode } from '@/types/checkin';
 
 import { permission, resumePermission, PERMISSION_TEXT, FRESH_MINUTES } from './permission';
-import { evaluateCheckIn, profileOnlyReadiness } from './readiness';
+import { evaluateCheckIn, profileOnlyReadiness, STOP_UNANSWERED } from './readiness';
 import { bpMedicinesUnknown, deriveHealth, glucoseStartMin, profileGaps } from './health';
 
 const DATE = '2026-10-09';
@@ -291,3 +291,90 @@ describe('a mode the profile alone rules out does not wait on a check-in', () =>
     }
   });
 });
+
+describe('"I need to stop" with nothing said since (journey §4.4, H6-01)', () => {
+  it('holds every movement, start and carrying on alike, until it is answered', () => {
+    for (const mode of ['guided', 'stretch', 'walk'] as const) {
+      const held = ask(none, ci({ news: ['stopped'] }), mode);
+      expect(held).toMatchObject({ allowed: false, disposition: 'hold', needsCheckIn: false });
+      expect(held.reasons).toContain(STOP_UNANSWERED.reason);
+      expect(held.release).toBe(STOP_UNANSWERED.release);
+      const profile = createDefaultProfile(none);
+      const c = ci({ news: ['stopped'] });
+      // Movement under way stops for it too: a stop is not paperwork.
+      expect(resumePermission({ profile, checkIn: { ...c, readiness: evaluateCheckIn(profile, c) }, now: NOW }, mode).allowed).toBe(false);
+    }
+  });
+
+  it('is answered by what is said next, and then only what that says decides', () => {
+    expect(ask(none, ci()).allowed).toBe(true);
+    const dizzy = ask(none, ci({ news: ['dizzy'] }), 'walk');
+    expect(dizzy.allowed).toBe(false);
+    expect(dizzy.reasons).not.toContain(STOP_UNANSWERED.reason);
+  });
+});
+
+describe('B-19: a change to the phone’s clock, held by the device and its clock generations (H6-02, H6R-02, H6R-03, board D174)', () => {
+  const g = (minutes: number, value = 140, gen?: number) => ({ value, unit: 'mg/dL' as const, measuredAt: at(minutes), ...(gen !== undefined ? { gen } : {}) });
+  /** One change seen, around today: the device's, on every day the gates read. */
+  const changed = { generation: 1, days: [DATE] };
+  const askAfter = (c: DailyCheckIn | undefined, live = false, recent: DailyCheckIn[] = [], hold: typeof changed | null = changed) => {
+    const profile = createDefaultProfile(insulin);
+    const day = c ? { ...c, ...(hold ? { clockHold: hold } : {}) } : undefined;
+    const input = { profile, ...(day ? { checkIn: { ...day, readiness: evaluateCheckIn(profile, day) } } : {}), now: NOW, recent };
+    return live ? resumePermission(input, 'walk') : permission(input, 'walk');
+  };
+
+  it('holds a reading from before the change, start and carrying on, and lets one taken since go', () => {
+    for (const live of [false, true]) {
+      expect(askAfter(ci({ glucose: g(10) }), live).reasons).toContain(PERMISSION_TEXT.clockChanged);
+      expect(askAfter(ci({ glucose: g(2, 130, 1), glucoseEarlier: [g(10)] }), live).allowed).toBe(true);
+    }
+  });
+
+  it('releases nothing on a reading the device has not stored yet (N-01)', () => {
+    const stored = ci({ glucose: g(10) });
+    const effective = { ...ci({ glucose: g(2, 130, 1), glucoseEarlier: [g(10)] }), durable: stored };
+    expect(askAfter(effective).reasons).toContain(PERMISSION_TEXT.clockChanged);
+  });
+
+  it('never releases on a reading retimed to after the change, or one brought in by an import: neither has the new generation', () => {
+    // The 10-minute-old reading moved to a minute ago keeps its generation, 0.
+    expect(askAfter(ci({ glucose: g(1, 140, 0) })).reasons).toContain(PERMISSION_TEXT.clockChanged);
+    // An import drops the file's generations: a new-looking reading of no generation here.
+    expect(askAfter(ci({ glucose: g(1, 120) })).reasons).toContain(PERMISSION_TEXT.clockChanged);
+  });
+
+  it('reads the reading taken last by its time as the current one, so one from before that the clock set back left reading later still holds (H6F-05, board D186)', () => {
+    // The clock was set back an hour: the reading from before reads 50 minutes ahead, the one taken since 2 minutes ago.
+    const c = ci({ glucose: g(-50), glucoseEarlier: [g(2, 125, 1)] });
+    expect(askAfter(c).allowed).toBe(false);
+    expect(askAfter(c).reasons).toContain(PERMISSION_TEXT.clockChanged);
+    expect(askAfter({ ...c, glucoseEarlier: [g(2, 125)] }).allowed).toBe(false);
+    // Once the one taken since is the latest by its time, it releases.
+    expect(askAfter(ci({ glucose: g(2, 125, 1), glucoseEarlier: [g(10)] })).allowed).toBe(true);
+  });
+
+  it('never makes a Track reading taken since, or a number, current over one from before that reads later (H6F-05, board D186)', () => {
+    // Track's reading taken since, two minutes ago; the check-in's from before the change reads 50 minutes ahead.
+    const logged = ci({ glucose: g(-50), logged: { glucose: [{ ...g(2, 125, 1), unitConfirmed: true }] } });
+    expect(askAfter(logged).allowed).toBe(false);
+    expect(askAfter(logged).reasons).toContain(PERMISSION_TEXT.clockChanged);
+    // A number taken since, beside a meter's LO from before the change that reads later: the LO is current.
+    const shown = ci({ glucose: g(2, 125, 1), glucoseDisplay: { display: 'LO', measuredAt: at(-50) } });
+    expect(askAfter(shown).reasons).toContain(PERMISSION_TEXT.clockChanged);
+    // Taken since and later by its time too, Track's reading releases.
+    expect(askAfter(ci({ glucose: g(10), logged: { glucose: [{ ...g(2, 125, 1), unitConfirmed: true }] } })).allowed).toBe(true);
+  });
+
+  it('is the device’s: a day outside the change, or a phone that never saw one, is not held for it', () => {
+    expect(askAfter(ci({ glucose: g(10) }), false, [], { generation: 1, days: ['2026-10-01'] }).allowed).toBe(true);
+    expect(askAfter(ci({ glucose: g(10) }), false, [], null).allowed).toBe(true);
+  });
+
+  it('reaches a record that came back from a save without it, through the other days the gates read', () => {
+    const earlier = { ...ci({ date: '2026-10-08' }), clockHold: changed };
+    expect(askAfter(ci({ glucose: g(10) }), false, [earlier], null).reasons).toContain(PERMISSION_TEXT.clockChanged);
+  });
+});
+

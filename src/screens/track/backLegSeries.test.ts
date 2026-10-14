@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
 import {
-  LOADING_GAP_DAYS, PAIN_DAYS_NEEDED, assembleBackLeg, backLegTable, dayOffset, loadingOf, loadingRuns, painRuns, type LoadPoint,
+  LOADING_GAP_DAYS, PAIN_DAYS_NEEDED, assembleBackLeg, backLegDayText, backLegTable, dayOffset, loadingOf, loadingRuns, painRuns, type LoadPoint,
 } from './backLegSeries';
 import { checkIn, obs, session, set } from './fixtures';
 
@@ -120,5 +120,15 @@ describe('backLegTable wording', () => {
   it('capitalises whichever track comes first', () => {
     const data = assembleBackLeg(range, [], [session({ id: 's', date: '2026-10-04', sets: [set('goblet-squat')] })], []);
     expect(backLegTable(data)[0].sessions).toEqual(['Squat 2']);
+  });
+});
+
+describe('a day of the chart in words, for its slider and callout (H3-16)', () => {
+  it('says every lane’s facts for the day, or that nothing was recorded', () => {
+    expect(backLegDayText({ day: '2026-10-04', back: [4, 3], leg: [2], reach: 'thigh', sessions: ['Hinge 2, squat 2'], worse: true }))
+      .toBe('Back pain 4, 3 · Leg pain 2 · Reached: Thigh · Session: Hinge 2, squat 2 · Worse during a session');
+    expect(backLegDayText({ day: '2026-10-06', back: [], leg: [], sessions: ['No spinal loading'], worse: false }))
+      .toBe('Back pain not entered · Leg pain not entered · Session: No spinal loading');
+    expect(backLegDayText(undefined)).toBe('Nothing recorded');
   });
 });

@@ -1,22 +1,25 @@
 import { useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { LibraryIcon, SearchIcon, UtensilsIcon, XIcon } from 'lucide-react';
+import { categoryById } from '@/categories';
 import { Group, Row } from '@/components/hig/List';
-import { Screen } from '@/components/hig/Screen';
-import { YouButton } from '@/components/hig/AppShell';
 import { DISCLAIMER, search, topicsFor, type ResultKind, type SearchResult } from '@/content';
+import { FOOD_COPY } from '@/food/copy';
+import { HubFrame } from '@/screens/hub/HubFrame';
 import { onlyPartial, partialDetail } from './format';
+import { NoAllergiesRow } from './parts';
 import { TOPIC_ICON } from './icons';
 import { useGuide } from './useGuide';
 
 const KIND_HEADER: Record<ResultKind, string> = { topic: 'Topics', card: 'Answers', meal: 'Meal ideas' };
 
 /**
- * Guide: a search field and the topics, nothing else. Topics that matter to
- * this person lead under "For you", each with the answer that put it there.
+ * The Learn hub (journey §8.2): a search field and the topics, nothing else.
+ * Topics that matter to this person lead under "For you", each with the
+ * answer that put it there.
  */
 export default function GuideScreen() {
-  const { ctx } = useGuide();
+  const { ctx, filter } = useGuide();
   const [params, setParams] = useSearchParams();
   // The field owns what is typed; the address keeps it, so Back from a result
   // and a reload both return to the same search.
@@ -32,7 +35,7 @@ export default function GuideScreen() {
   };
 
   return (
-    <Screen title="Guide" trailing={<YouButton />}>
+    <HubFrame category={categoryById('learn')}>
       <form
         role="search"
         onSubmit={e => {
@@ -50,21 +53,22 @@ export default function GuideScreen() {
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
-          aria-label="Search Guide"
+          aria-label="Search Learn"
           placeholder="Search foods and topics"
           value={query}
           onChange={e => change(e.target.value)}
-          className="h-11 w-full rounded-xl bg-grouped-card pl-10 pr-11 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50 [&::-webkit-search-cancel-button]:appearance-none"
+          className="h-12 w-full rounded-xl bg-grouped-card pl-10 pr-12 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50 [&::-webkit-search-cancel-button]:appearance-none"
         />
         {query && (
           <button
             type="button"
             aria-label="Clear search"
+            data-embedded=""
             onClick={() => {
               change('');
               input.current?.focus();
             }}
-            className="absolute right-0 top-0 flex size-11 items-center justify-center text-muted-foreground"
+            className="absolute right-0 top-0 flex size-12 items-center justify-center text-muted-foreground"
           >
             <XIcon className="size-5" aria-hidden />
           </button>
@@ -72,7 +76,7 @@ export default function GuideScreen() {
       </form>
 
       {results ? (
-        <Results query={query} results={results} />
+        <Results query={query} results={results} allergiesKnown={filter !== undefined} />
       ) : (
         <>
           {forYou.length > 0 && (
@@ -88,7 +92,7 @@ export default function GuideScreen() {
           <Group footer={DISCLAIMER}>
             <Row
               as={Link}
-              to="/guide/meals"
+              to="/hub/food/ideas"
               viewTransition
               icon={<UtensilsIcon aria-hidden />}
               label="Meal ideas"
@@ -97,7 +101,7 @@ export default function GuideScreen() {
             />
             <Row
               as={Link}
-              to="/guide/sources"
+              to="/hub/learn/sources"
               viewTransition
               icon={<LibraryIcon aria-hidden />}
               label="Sources"
@@ -107,7 +111,7 @@ export default function GuideScreen() {
           </Group>
         </>
       )}
-    </Screen>
+    </HubFrame>
   );
 }
 
@@ -116,7 +120,7 @@ function TopicRow({ id, title, detail }: { id: keyof typeof TOPIC_ICON; title: s
   return (
     <Row
       as={Link}
-      to={`/guide/topic/${id}`}
+      to={`/hub/learn/topic/${id}`}
       viewTransition
       icon={<Icon aria-hidden />}
       label={title}
@@ -126,24 +130,27 @@ function TopicRow({ id, title, detail }: { id: keyof typeof TOPIC_ICON; title: s
   );
 }
 
-function Results({ query, results }: { query: string; results: SearchResult[] }) {
+function Results({ query, results, allergiesKnown }: { query: string; results: SearchResult[]; allergiesKnown: boolean }) {
   const groups = (['topic', 'card', 'meal'] as const)
     .map(kind => ({ kind, items: results.filter(r => r.kind === kind) }))
     .filter(g => g.items.length > 0);
   // Nothing matches every word: say so, and say what each result does match,
   // rather than passing a partial match off as the answer (Codex content audit F22).
   const partial = onlyPartial(results);
+  // What's shown is what's said: meal ideas held back until allergies are known aren't counted, and are named (H7F-06).
+  const withheld = !allergiesKnown && results.some(r => r.kind === 'meal');
+  const shown = withheld ? results.filter(r => r.kind !== 'meal').length : results.length;
 
   return (
     <>
       <p aria-live="polite" className="sr-only">
-        {results.length === 0 ? 'No results' : `${results.length} ${results.length === 1 ? 'result' : 'results'}`}
+        {`${shown === 0 ? 'No results' : `${shown} ${shown === 1 ? 'result' : 'results'}`}${withheld ? `. ${FOOD_COPY.mealsWithheld}` : ''}`}
       </p>
       {results.length === 0 ? (
         <div className="px-4 py-6 text-center">
           <p className="text-[length:var(--text-body)] font-semibold">No results for “{query.trim()}”</p>
           <p className="mt-1 text-[length:var(--text-subhead)] text-muted-foreground">
-            Try a food such as dal or roti, or a topic such as sleep. Guide reads English letters and Hindi in Devanagari.
+            Try a food such as dal or roti, or a topic such as sleep. Learn reads English letters and Hindi in Devanagari.
           </p>
         </div>
       ) : (
@@ -155,7 +162,13 @@ function Results({ query, results }: { query: string; results: SearchResult[] })
           )}
           {groups.map(({ kind, items }) => (
             <Group key={kind} header={KIND_HEADER[kind]}>
-              {items.map(r => (
+              {/* Not known is never none: meal ideas ask about allergies before showing any (board D205). */}
+              {kind === 'meal' && !allergiesKnown ? (
+                <>
+                  <Row as={Link} to="/hub/food/ideas" viewTransition label={FOOD_COPY.allergiesFirst} detail={FOOD_COPY.allergiesFirstDetail} chevron />
+                  <NoAllergiesRow />
+                </>
+              ) : items.map(r => (
                 <Row
                   key={`${r.kind}-${r.id}`}
                   as={Link}

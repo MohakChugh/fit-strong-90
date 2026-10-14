@@ -41,3 +41,11 @@ describe('movement reminders follow the Guide', () => {
     expect(habitPrecautions('mealWalk', wound)).toEqual([]);
   });
 });
+
+describe('the food prompt’s precautions (Plan 7)', () => {
+  it('carries no movement precaution, whatever the person takes', () => {
+    const insulin = createDefaultProfile({ health: { diabetes: 'type2', insulin: 'injections_or_pump', medicinesReviewed: true } });
+    expect(habitPrecautions('foodLog', insulin)).toEqual([]);
+    expect(habitPrecautions('mealWalk', insulin).length).toBeGreaterThan(0);
+  });
+});

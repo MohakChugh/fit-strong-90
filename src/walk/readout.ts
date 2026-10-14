@@ -9,13 +9,16 @@
 import { format } from 'date-fns';
 import { PERMISSION_TEXT, type Permission } from '@/engine/permission';
 import type { CheckInRecord } from '@/types/checkin';
-import { RECHECK_MINUTES, toMgdl, TREAT } from '@/engine/readiness';
+import { RECHECK_MINUTES, STOP_UNANSWERED, toMgdl, TREAT } from '@/engine/readiness';
 import { toDateString } from '@/lib/utils';
-import type { GapCause, Walk } from './clock';
+import type { GapCause, Walk, WalkPlan } from './clock';
 import { clock, count, km, pace, span, timeOfDay, wholeMinutes } from './format';
 import { ADDABLE_GAP_MS, type GpsState, type LiveSnapshot, type Notice, type StepsState } from './live';
 import { afterMealTitle } from './plan';
 import type { WalkSummary } from './record';
+import type { VoiceTrouble } from '@/voice/clips';
+import type { VoiceStatus } from './voice';
+import type { Split } from './route';
 
 export interface Figure {
   /** The figure, or a short word in its place. */
@@ -59,8 +62,32 @@ export function draftWarning(kept: boolean, where: 'live' | 'summary'): string |
 /** Shown only while recording, when the screen may go dark and stop it. */
 export function wakeHint(snapshot: Pick<LiveSnapshot, 'wake' | 'walk' | 'blocked'>): string | undefined {
   return snapshot.wake === 'unavailable' && snapshot.walk.status === 'running' && !snapshot.blocked
-    ? 'Keep the screen on to keep recording.'
+    ? 'Keep this screen on to keep tracking.'
     : undefined;
+}
+
+/** Steps, when motion access was turned down at the start (journey §9.1). */
+export const STEPS_DENIED: Figure = { value: 'Steps not counted', note: 'Motion access was turned down when this walk started.' };
+
+/** When the phone refused the walk's last checkpoint for want of space (journey §9.4). */
+export function journalLine(s: Pick<LiveSnapshot, 'journalFull'>): string | undefined {
+  return s.journalFull ? 'This phone is out of space. Your walk is kept on this screen; free some space and tap Save.' : undefined;
+}
+
+/**
+ * The voice's line on the live walk (journey §9.2, V-J16). A screen opened
+ * without the tap that starts a walk (a reload, a link) has a locked audio
+ * element, and only a tap unlocks it.
+ */
+export function cueLine(voice: { status: VoiceStatus; trouble: VoiceTrouble | null }, online: boolean): { text: string; unlock: boolean } | undefined {
+  if (voice.trouble === 'blocked' || voice.status === 'idle') return { text: 'Voice cues are off until you turn them on.', unlock: true };
+  if (voice.status === 'unavailable') return { text: online ? 'Voice cues aren’t available right now.' : 'Voice cues need a connection.', unlock: false };
+  return undefined;
+}
+
+/** Where the route will be, before there is one to draw. */
+export function routePlaceholder(gps: LiveSnapshot['gps']): string {
+  return gps.state === 'denied' || gps.state === 'unsupported' ? 'Location is off, so no route is drawn.' : 'Finding your location…';
 }
 
 export function targetLine(observedMs: number, targetMinutes: number | undefined): string | undefined {
@@ -162,11 +189,45 @@ export interface SummaryRow {
  * The summary's rows, in order. Only what was observed or entered is listed,
  * each with how it was observed; anything off for this walk is not a row.
  */
-export function summaryRows(walk: Walk, summary: WalkSummary, options: { locale?: string; time?: (t: number) => string } = {}): SummaryRow[] {
+/** "1 min 30 s" or "18 min": to the second under 10 minutes, where rounding to a minute would hide a dropout. */
+function coverSpan(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s >= 600 || s % 60 === 0) return span(ms);
+  return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
+}
+
+/** One row for each complete kilometre (journey §9.5). A kilometre still under way isn't a split. */
+export function splitRows(splits: readonly Split[]): SummaryRow[] {
+  return splits.map(s => ({ label: `Kilometre ${s.km}`, value: `${pace(s.ms / 1000)} min` }));
+}
+
+/** The summary's route while it is read back after a reload (H6-06). */
+export const ROUTE_LOADING = 'Finding your route…';
+/** When it can't be read just now: it is still in the journal, and the save takes it from there (H6-06). */
+export const ROUTE_UNREADABLE = 'Your route couldn’t be read just now. It’s still kept, and it’s saved with the walk.';
+
+/** After "Erase all routes" (B-05), on a summary that had a route on screen. */
+export const ROUTE_ERASED = 'No route: every route on this phone was erased.';
+/** This walk's route deleted for good from its own screen, in this tab or another (F-walk-02). */
+export const ROUTE_DELETED = 'No route: this walk’s route was deleted.';
+
+/** In place of a route (journey §9.5, V-J20). Without the walk's plan, as on a saved walk's detail, the plain line. */
+export function noRouteLine(plan?: Pick<WalkPlan, 'gps' | 'keepRoute'>): string {
+  if (!plan) return 'No route kept for this walk.';
+  if (!plan.gps) return 'No route: location was off for this walk.';
+  if (!plan.keepRoute) return 'No route: routes aren’t kept on this phone.';
+  return 'No route: no location was found during this walk.';
+}
+
+export function summaryRows(walk: Walk, summary: WalkSummary, options: { locale?: string; time?: (t: number) => string; energy?: { value: string; detail: string } } = {}): SummaryRow[] {
   const time = options.time ?? (t => timeOfDay(t, options.locale));
   const rows: SummaryRow[] = [];
   const meal = walk.plan.kind === 'afterMeal' ? walk.plan.meal : undefined;
-  if (meal) rows.push({ label: afterMealTitle(meal.which), value: `Started ${time(meal.startedAt)}`, detail: 'When the meal started' });
+  if (meal) {
+    rows.push(meal.basis === 'had'
+      ? { label: afterMealTitle(meal.which), value: `Had at ${time(meal.startedAt)}`, detail: 'When you had the meal' }
+      : { label: afterMealTitle(meal.which), value: `Started ${time(meal.startedAt)}`, detail: 'When the meal started' });
+  }
 
   if (walk.plan.gps) {
     if (summary.distanceM !== undefined) {
@@ -174,7 +235,7 @@ export function summaryRows(walk: Walk, summary: WalkSummary, options: { locale?
       rows.push({
         label: 'Distance',
         value: `${km(summary.distanceM)} km`,
-        detail: short ? 'Measured by GPS. The signal dropped out for part of the walk, so this may be short.' : 'Measured by GPS',
+        detail: `Measured by GPS for ${coverSpan(summary.coveredMs ?? 0)} of ${coverSpan(summary.observedMs)}${short ? '. The signal dropped out for part of the walk, so this may be short.' : ''}`,
       });
     } else {
       rows.push({ label: 'Distance', value: 'Not measured', detail: 'GPS did not measure this walk' });
@@ -184,11 +245,14 @@ export function summaryRows(walk: Walk, summary: WalkSummary, options: { locale?
     }
   }
 
-  if (walk.plan.steps) {
+  if (walk.plan.stepsDenied) {
+    rows.push({ label: 'Steps', value: 'Not counted', detail: STEPS_DENIED.note });
+  } else if (walk.plan.steps) {
     rows.push(summary.steps !== undefined
-      ? { label: 'Steps', value: count(summary.steps, options.locale), detail: 'Counted while the app was open' }
+      ? { label: 'Steps', value: count(summary.steps, options.locale), detail: `Counted while the screen was on: ${wholeMinutes(summary.stepsCoveredMs ?? 0)} of ${wholeMinutes(summary.observedMs)} min` }
       : { label: 'Steps', value: 'Not counted', detail: 'No motion data arrived' });
   }
+  if (options.energy) rows.push({ label: 'Energy (estimate)', ...options.energy });
 
   if (summary.addedMs >= 1000) {
     rows.push({ label: 'Time you added', value: `${wholeMinutes(summary.addedMs)} min`, detail: 'Entered by you for time the app was away' });
@@ -218,23 +282,39 @@ export function endingLine(walk: Walk, time: (t: number) => string = t => timeOf
   if (walk.endedBy === 'stale') {
     return `This walk was left open, so it was finished at ${time(walk.finishedAt ?? walk.seenAt)}, when the app last saw it. Here is what was recorded.`;
   }
+  if (walk.endedBy === 'interrupted') {
+    return `The app closed during this walk, so it ends at ${time(walk.finishedAt ?? walk.seenAt)}, when it was last kept. Here is what was recorded.`;
+  }
   if (walk.endedBy === 'emergency') return 'This walk ended because of symptoms that need emergency help.';
   return undefined;
 }
 
+/** The hubs' words for a walk the status won't let carry on (H2-01, journey §4.8, A-34). */
+export const STATUS_HOLD = {
+  away: 'A walk isn’t carried on while you’re away.',
+  unwell: 'A walk isn’t carried on while you’re unwell.',
+  flare: 'During a flare-up only a stretch is carried on.',
+  release: 'Change your status to carry on.',
+} as const;
+
 /**
  * What a held walk offers besides its reasons (re-audit N01, N06). Help comes
  * first in an emergency, and never a form in its place. After "I feel low",
- * the reading that can answer it. Held for the health questions, the profile
- * where they are answered. Any other hold — no check-in today, a reading too
- * old to restart on, dizziness until today's answers change — the shared
- * check-in, where today's answers are given and changed.
+ * the reading that can answer it. After "I need to stop" with nothing said
+ * since, the stop's own question, which answers it (journey §4.4). Held by
+ * the status, the status sheet, as the hubs offer it (H2-01). Held for the
+ * health questions, the profile where they are answered. Any other hold — no
+ * check-in today, a reading too old to restart on, dizziness until today's
+ * answers change — the shared check-in, where today's answers are given and
+ * changed.
  */
-export type HeldAction = 'emergency' | 'lowReading' | 'profile' | 'checkIn';
+export type HeldAction = 'emergency' | 'lowReading' | 'stop' | 'status' | 'profile' | 'checkIn';
 
 export function heldAction(refusal: Permission, low: boolean): HeldAction {
   if (refusal.disposition === 'emergency') return 'emergency';
   if (low) return 'lowReading';
+  if (refusal.reasons.includes(STOP_UNANSWERED.reason)) return 'stop';
+  if (refusal.reasons.some(r => r === STATUS_HOLD.away || r === STATUS_HOLD.unwell || r === STATUS_HOLD.flare)) return 'status';
   const profile = refusal.reasons.some(r => r === PERMISSION_TEXT.healthUnreviewed || r === PERMISSION_TEXT.medicinesUnknown);
   return profile ? 'profile' : 'checkIn';
 }

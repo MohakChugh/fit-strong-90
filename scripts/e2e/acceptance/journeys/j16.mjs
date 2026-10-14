@@ -10,6 +10,7 @@
  */
 import { MINUTE } from '../lib/env.mjs';
 import { docs } from '../lib/harness.mjs';
+import * as hub from '../lib/hub.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as mv from '../lib/move.mjs';
 import { ENROLLED, persona } from '../fixtures/personas.mjs';
@@ -37,7 +38,6 @@ const answers = ({ pain = 1, leg = 1, reach = 'Foot', flags = [], news = [], eme
  */
 async function enterMode(t, mode) {
   const page = t.page;
-  const main = page.getByRole('main');
   if (mode === 'guided') {
     // Only an enrolled persona has a guided session to start (D35).
     const g = await openGuided(t);
@@ -45,11 +45,10 @@ async function enterMode(t, mode) {
     return g;
   }
   if (mode !== 'walk') return mv.enter(t, mode, 'move');
-  await ui.tab(page, 'Move');
-  await ui.tap(ui.row(main, 'Walk', 'link'));
-  await page.getByRole('heading', { level: 1, name: 'Walk', exact: true }).waitFor();
+  // v1's Move → Walk is now Home's Walk tile → the Walk hub (Plan 2).
+  await hub.open(t, 'walk');
   await page.waitForTimeout(300);
-  const start = ui.button(main, 'Start walk');
+  const start = hub.start(page);
   if (!(await start.count())) return { route: await t.route(), setupRefusal: true };
   await ui.tap(start);
   await page.waitForTimeout(500);
@@ -57,11 +56,11 @@ async function enterMode(t, mode) {
   return (await sheet.count()) ? { sheet, route: await t.route() } : { route: await t.route() };
 }
 
-/** Open the check-in for a mode from Move (or Today when Walk setup refuses) and answer it. */
+/** Open the check-in for a mode from Move (or Home when Walk setup refuses) and answer it. */
 async function checkInVia(t, mode, a, tag) {
   let r = await enterMode(t, mode);
   if (r.setupRefusal) {
-    await t.hash(`/today?checkin=${mode}`);
+    await t.hash(`/home?checkin=${mode}`);
     r = { sheet: mv.checkInSheet(t.page), route: await t.route() };
     await r.sheet.waitFor({ timeout: 30000 });
   }
@@ -84,7 +83,7 @@ async function allModesRefused(t, headline, tag) {
   const page = t.page;
   const direction = headline === EMERGENCY ? 'emergency' : 'today';
   for (const mode of MODES) {
-    await t.goto('/today');
+    await t.goto('/home');
     const r = await enterMode(t, mode);
     if (r.sheet) {
       // The setup offered its Start, and only the check-in behind it refused.
@@ -144,11 +143,11 @@ async function toQuestions(sheet) {
 
 /** Report through the check-in, from wherever the person is, then come back. */
 async function reportByCheckIn(t, mode, a) {
-  // `?checkin=` opens the sheet when Today mounts, so come to Today from elsewhere.
-  if (/^\/today/.test(await t.route())) await t.hash('/move');
-  await t.hash(`/today?checkin=${mode}`);
+  // `?checkin=` opens the sheet when Home (v1's Today) mounts, so come to Home from elsewhere (the Workout hub, v1's Move).
+  if (/^\/home/.test(await t.route())) await t.hash('/hub/workout');
+  await t.hash(`/home?checkin=${mode}`);
   const sheet = mv.checkInSheet(t.page);
-  // Leaving a full-screen player for Today can take seconds here: the view
+  // Leaving a full-screen player for Home can take seconds here: the view
   // transition snapshots a software-rendered 3D canvas.
   await sheet.waitFor({ timeout: 30000 });
   await toQuestions(sheet);
@@ -159,10 +158,10 @@ async function reportByCheckIn(t, mode, a) {
   return result;
 }
 
-/** Back & leg in Track: pain, reach and flags survive; no diagnosis or promised recovery date. */
+/** Back & leg (v1 Track's, now its hub): pain, reach and flags survive; no diagnosis or promised recovery date. */
 async function backLegSurvives(t, { pain, leg, flagWords }) {
   const page = t.page;
-  await t.goto('/track/back');
+  await t.goto('/hub/back');
   const text = (await page.getByRole('main').innerText()).replace(/\s+/g, ' ');
   await t.checkpoint('back-and-leg');
   await t.check(new RegExp(`Back pain ${pain} of 10`).test(text), `Back & leg does not show today’s back pain ${pain}: ${text.slice(0, 300)}`);
@@ -186,7 +185,7 @@ function redFlagCase(name, step, a, headline, extra) {
   return {
     name,
     async run(t) {
-      await openApp(t, { seed: persona('P06'), route: '/today' });
+      await openApp(t, { seed: persona('P06'), route: '/home' });
       await t.step(step, name, async () => {
         const r = await checkInVia(t, 'stretch', a, 'red-flag');
         await t.check(r.title === headline, `outcome is “${r.title}”, not “${headline}”: ${r.text.slice(0, 260)}`);
@@ -216,15 +215,16 @@ export const cases = [
   {
     name: 'flare then adjust',
     async run(t) {
-      const page = await openApp(t, { seed: persona('P06'), route: '/today' });
-      await t.step(1, 'Today with the active Flare-up status', async () => {
+      const page = await openApp(t, { seed: persona('P06'), route: '/home' });
+      await t.step(1, 'Home (v1’s Today) with the active Flare-up status', async () => {
         const main = page.getByRole('main');
         const text = (await main.innerText()).replace(/\s+/g, ' ');
         await t.checkpoint('today-flare');
-        await t.check(/gentle|rest/i.test(text) && /flare/i.test(text), `Today does not offer gentle or no movement for the flare, with its reason: ${text.slice(0, 300)}`);
-        await t.check(/Why this\?/.test(text), 'no visible reason on Today');
-        await t.check(!/Week \d+ of 12|programme|don.t break|make up/i.test(text), `Today shows programme pressure during a flare: ${/[^.]*(Week \d+ of 12|programme|make up)[^.]*/i.exec(text)?.[0]}`);
-        await t.check(!INVENTED.test(text), `Today claims a pain score proves safety: ${INVENTED.exec(text)?.[0]}`);
+        await t.check(/gentle|rest/i.test(text) && /flare/i.test(text), `Home does not offer gentle or no movement for the flare, with its reason: ${text.slice(0, 300)}`);
+        await t.check(/Why this\?/.test(text), 'no visible reason on Home');
+        // All of Home, its tiles included: outside the programme, the Workout tile suggests a stretch during a flare (journey §7.5, D35).
+        await t.check(!/Week \d+ of 12|programme|don.t break|make up/i.test(text), `Home shows programme pressure during a flare: ${/[^.]*(Week \d+ of 12|programme|make up)[^.]*/i.exec(text)?.[0]}`);
+        await t.check(!INVENTED.test(text), `Home claims a pain score proves safety: ${INVENTED.exec(text)?.[0]}`);
         const prompts = await main.getByRole('button', { name: /^Add \d+ ml$/ }).count();
         await t.check(prompts === 0, 'a habit prompt shows during the flare');
       });
@@ -245,10 +245,10 @@ export const cases = [
           `the check-in does not keep reach and function separately: ${JSON.stringify(today?.back)}`);
         await ui.tap(ui.button(r.sheet, 'Close'));
       }, { input: 'back 1, leg 1, reach Foot, “Walking or sitting is harder than after your last session”' });
-      await t.step(8, 'Reload Track → Back & leg, then attempt another mode', async () => {
+      await t.step(8, 'Reload Back & leg (v1’s Track → Back & leg), then attempt another mode', async () => {
         await t.reload();
         await backLegSurvives(t, { pain: 1, leg: 1, flagWords: ['worseFunction'] });
-        await t.goto('/today');
+        await t.goto('/home');
         // Walk, the other mode P06 can start (D35).
         const r = await enterMode(t, 'walk');
         if (r.sheet) {
@@ -262,7 +262,7 @@ export const cases = [
   {
     name: 'foot drop',
     async run(t) {
-      await openApp(t, { seed: persona('P06'), route: '/today' });
+      await openApp(t, { seed: persona('P06'), route: '/home' });
       await t.step(3, 'Same low pain, new foot drop or a leg getting weaker', async () => {
         const r = await checkInVia(t, 'stretch', answers({ flags: [footDrop] }), 'foot-drop');
         await t.check(r.title === TODAY, `outcome is “${r.title}”, not “${TODAY}”: ${r.text.slice(0, 260)}`);
@@ -271,7 +271,7 @@ export const cases = [
         await ui.tap(ui.button(r.sheet, 'Close'));
         await allModesRefused(t, TODAY, 'foot drop');
       }, { input: 'back 1, leg 1, reach Foot, “New foot drop or foot dragging, or a leg getting weaker”' });
-      await t.step(8, 'Reload Track → Back & leg, then attempt another mode', async () => {
+      await t.step(8, 'Reload Back & leg (v1’s Track → Back & leg), then attempt another mode', async () => {
         await t.reload();
         await backLegSurvives(t, { pain: 1, leg: 1, flagWords: ['newWeakness'] });
         await allModesRefused(t, TODAY, 'foot drop after reload');
@@ -281,7 +281,7 @@ export const cases = [
   {
     name: 'foot drop with pain 0',
     async run(t) {
-      await openApp(t, { seed: persona('P06'), route: '/today' });
+      await openApp(t, { seed: persona('P06'), route: '/home' });
       await t.step(3, 'Pain 0 cannot clear a reported foot drop', async () => {
         const r = await checkInVia(t, 'stretch', answers({ pain: 0, leg: 0, reach: 'Back', flags: [footDrop] }), 'foot-drop-0');
         await t.check(r.title === TODAY, `with pain 0 the foot drop reads “${r.title}”, not “${TODAY}”`);
@@ -298,7 +298,7 @@ export const cases = [
   ].map(row => ({
     name: row.name,
     async run(t) {
-      const page = await openApp(t, { seed: persona('P06'), route: '/today' });
+      const page = await openApp(t, { seed: persona('P06'), route: '/home' });
       await t.step(4, `Foot drop, then add: ${row.name}`, async () => {
         const first = await checkInVia(t, 'stretch', answers({ flags: [footDrop] }), 'escalate-base');
         await t.check(first.title === TODAY, `the foot drop alone reads “${first.title}”`);
@@ -331,7 +331,7 @@ export const cases = [
       // Defined setup for the Guided row: P06 seeded in the programme (ENROLLED), since only an enrolled person has a guided session (D35).
       const seed = mode === 'guided' ? persona('P06', { patch: ENROLLED }) : persona('P06');
       if (mode === 'guided') t.note('defined setup: P06 seeded in the programme (settings.startDate 2026-09-24, training Mon/Thu/Sat), so Thursday has a guided session');
-      const page = await openApp(t, { seed, route: '/today', sensors: { geo: 'deny' } });
+      const page = await openApp(t, { seed, route: '/home', sensors: { geo: 'deny' } });
       const main = page.getByRole('main');
       await t.step(6, `Start a permitted gentle ${mode}, then stop it for new distal spread, then new foot drop`, async () => {
         const r = await checkInVia(t, mode, answers({ reach: 'Thigh' }), `${mode}-permitted`);
@@ -339,7 +339,8 @@ export const cases = [
         await ui.tap(mv.sheetStart(r.sheet));
         await page.waitForTimeout(800);
         if (mode === 'walk') {
-          if (/^\/walk$/.test(await t.route())) await ui.tap(ui.button(main, 'Start walk'));
+          // The Walk setup is the Walk hub, v1's /walk (journey §19.2).
+          if (/^\/hub\/walk$/.test(await t.route())) await ui.tap(hub.start(page));
           await page.waitForTimeout(800);
           await t.must(/^\/walk\/live/.test(await t.route()), `Start walk opened ${await t.route()}`);
         } else {
@@ -410,7 +411,7 @@ export const cases = [
   {
     name: 'dizzy with normal BP',
     async run(t) {
-      await openApp(t, { seed: persona('P06', { patch: { profile: { health: { bpMonitor: true } } } }), route: '/today' });
+      await openApp(t, { seed: persona('P06', { patch: { profile: { health: { bpMonitor: true } } } }), route: '/home' });
       await t.step(7, 'Dizzy or faint on standing or when active, BP 110/70', async () => {
         const r = await checkInVia(t, 'stretch', { ...answers({ reach: 'Thigh' }), bp: [[110, 70]], news: [ui.NEWS.dizzy] }, 'dizzy');
         await t.check(r.title !== 'Good to go' && r.title !== 'Go ahead, with changes', `dizziness with a normal-looking BP still allows movement: “${r.title}”`);
@@ -422,7 +423,7 @@ export const cases = [
   {
     name: 'dizzy with a fluid limit',
     async run(t) {
-      await openApp(t, { seed: persona('P06', { patch: { profile: { health: { bpMonitor: true, fluidRestriction: true } } } }), route: '/today' });
+      await openApp(t, { seed: persona('P06', { patch: { profile: { health: { bpMonitor: true, fluidRestriction: true } } } }), route: '/home' });
       await t.step(7, 'Dizzy with BP 110/70 and a prescribed fluid limit', async () => {
         const r = await checkInVia(t, 'stretch', { ...answers({ reach: 'Thigh' }), bp: [[110, 70]], news: [ui.NEWS.dizzy] }, 'dizzy-fluid');
         await t.check(!(await mv.sheetStart(r.sheet).count()), 'a start is still offered while dizzy');
@@ -435,7 +436,7 @@ export const cases = [
   {
     name: 'historical bilateral sciatica control',
     async run(t) {
-      const page = await openApp(t, { seed: persona('P06', { patch: { profile: { pain: { sciaticaSide: 'both' } } } }), route: '/today' });
+      const page = await openApp(t, { seed: persona('P06', { patch: { profile: { pain: { sciaticaSide: 'both' } } } }), route: '/home' });
       await t.step(4, 'Historical bilateral sciatica, no new bilateral loss: not an emergency; unanswered leg pain makes no zero', async () => {
         const r = await enterMode(t, 'stretch');
         await t.must(!!r.sheet, 'no check-in opened');
@@ -451,7 +452,8 @@ export const cases = [
         await ui.tap(ui.button(r.sheet, 'Close'));
       }, { input: 'sciaticaSide both; back 1, leg untouched, reach Thigh, no flags' });
       await t.step(8, 'Sciatica education: weeks to months, recurrence possible, no cure promised', async () => {
-        await t.goto('/guide/topic/back');
+        // v1's Guide topic is the Learn hub's (journey §19.3).
+        await t.goto('/hub/learn/topic/back');
         const main = page.getByRole('main');
         const cards = await main.getByRole('link').filter({ hasNotText: /^Guide$/ }).all();
         let text = '';

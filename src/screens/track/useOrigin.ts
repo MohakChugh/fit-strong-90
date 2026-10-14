@@ -2,7 +2,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { cameFrom } from '@/components/hig/navigation';
 import type { Origin } from './MyDay';
 
-const MY_DAY: Origin = { path: '/track', label: 'My Day' };
+/** A detail screen opened with no way back named, from a bookmark say, goes back to Today's log (kiro FK-07). */
+const TODAYS_LOG: Origin = { path: '/day/today', label: 'Today’s log' };
 
 /**
  * Where this detail screen came from, a Back for the bar, and a way back that
@@ -11,7 +12,7 @@ const MY_DAY: Origin = { path: '/track', label: 'My Day' };
  * at the address it had (`?day=`, `?view=`), not a bare path. `leave` is used
  * after deleting a record, when the screen has nothing left to show.
  */
-export function useOrigin(fallback: Origin = MY_DAY): { origin: Origin; back: { to: string; label: string }; leave: () => void } {
+export function useOrigin(fallback: Origin = TODAYS_LOG): { origin: Origin; back: { to: string; label: string }; leave: () => void } {
   const location = useLocation();
   const navigate = useNavigate();
   const state = location.state as Partial<Origin> | null;

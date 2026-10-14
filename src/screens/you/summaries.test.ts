@@ -1,25 +1,37 @@
 import { describe, expect, it } from 'vitest';
-import { shortDay } from './dates';
+import { profileFrom } from '@/setup/assemble';
+import { COMPLEX, MINIMAL, UNSURE } from '@/setup/fixtures';
+import { reviewRecord } from '@/setup/review';
+import { CURRENT_VERSION, migrateData } from '@/services/storage';
+import type { AppData } from '@/types';
+import { shortDate, shortDay } from './dates';
 import type { HabitSettings } from '@/types/habits';
 import { createDefaultProfile } from '@/profile/defaults';
 import { newObservation } from '@/health/observation';
+import { timeOf } from '@/lib/time';
 import { formatClock } from '@/reminders/time';
 import type { ImportPreview } from '@/store/transfer';
 import {
   AVOID_MAX_ITEMS,
   addAvoid,
+  chapterSections,
   conditionsLine,
+  conflictLines,
   countsSentence,
   everyLabel,
+  copyLine,
   foodLine,
+  privacyLine,
+  staleLine,
   habitLine,
   habitsLine,
   listOf,
   plural,
   previewLines,
-  profileSections,
   recordCounts,
   reviewNeeded,
+  keepsOpenLine,
+  routeNotes,
 } from './summaries';
 
 const owner = createDefaultProfile({
@@ -60,84 +72,62 @@ describe('the profile, read back', () => {
       .toBe('Heart or circulation · Kidney disease');
   });
 
+  // v1's read-back rules, kept by Profile & health's chapters (ported from v1's Profile & health tests; B08, H-DATA).
+  const S1 = { ...migrateData({ version: CURRENT_VERSION } as AppData).settings, useMetric: true };
+  const chapters = (p: ReturnType<typeof createDefaultProfile>, s = S1) =>
+    Object.fromEntries(chapterSections(p, s, '2026-10-10').map(c => [c.chapter, Object.fromEntries(c.rows.map(r => [r.label, r.value]))]));
+
   it('shows each answer as it was given, in the units the user chose', () => {
-    const [about, training, body, health] = profileSections(owner, true);
-    expect(about.rows).toContainEqual({ label: 'Weight', value: '82.4 kg' });
-    expect(profileSections(owner, false)[0].rows).toContainEqual({ label: 'Weight', value: '181.7 lb' });
-    expect(training.rows).toContainEqual({ label: 'Training days', value: 'Mon, Thu, Sat' });
-    expect(body.rows).toEqual([
-      { label: 'Pain or past injury', value: 'Lower back, Sciatica' },
-      { label: 'Which leg', value: 'Left' },
-      { label: 'Worse with', value: 'Sitting or bending forward' },
-    ]);
-    expect(health.rows).toContainEqual({ label: 'SGLT2 inhibitor', value: 'Not sure' });
-    expect(health.rows).toContainEqual({ label: 'Metformin', value: 'Yes, since 2019' });
+    const rows = chapters(owner);
+    expect(rows.about.Weight).toBe('82.4 kg');
+    expect(chapters(owner, { ...S1, useMetric: false }).about).toMatchObject({ Weight: '181.7 lb', Height: '5 ft 10.1 in' });
+    expect(rows.backFeet).toEqual({ 'Pain or past injury': 'Lower back, Sciatica', 'Which leg': 'Left', 'Worse with': 'Sitting or bending forward' });
+    expect(rows.medicines).toMatchObject({ 'A “-gliflozin” medicine': 'Not sure', Metformin: 'Yes, since 2019' });
+    expect(chapterSections(owner, S1, '2026-10-10').map(c => c.chapter)).toEqual(['about', 'health', 'medicines', 'backFeet', 'movement', 'food', 'day']);
   });
 
   it('reads back the eye and foot answers that stop vigorous effort and walking', () => {
-    const healthOf = (profile: ReturnType<typeof createDefaultProfile>) => profileSections(profile, true).find(s => s.title === 'Health')!.rows;
-    const health = (h: object) => healthOf(createDefaultProfile({ health: { diabetes: 'type2', medicinesReviewed: true, ...h } }));
-    expect(health({ footStatus: 'current_wound_or_active_charcot', retinopathy: 'severe_or_proliferative' })).toEqual(expect.arrayContaining([
-      { label: 'Your feet today', value: 'Current wound' },
-      { label: 'Diabetic eye disease (retinopathy)', value: 'Severe' },
-    ]));
-    // Asked with diabetes only, so only read back with it.
-    expect(healthOf(createDefaultProfile()).map(r => r.label)).not.toContain('Your feet today');
+    const health = chapters(createDefaultProfile({ health: { diabetes: 'type2', medicinesReviewed: true, footStatus: 'current_wound_or_active_charcot', retinopathy: 'severe_or_proliferative' } })).health;
+    expect(health).toMatchObject({ 'Your feet today': 'Current wound', 'Diabetic eye disease (retinopathy)': 'Severe' });
+    // Asked with diabetes, or once answered, so only read back then.
+    expect(Object.keys(chapters(createDefaultProfile()).health)).not.toContain('Your feet today');
   });
 
-  it('ties each section to the wizard step that edits it', () => {
-    expect(profileSections(owner, true).map(section => [section.title, section.step])).toEqual([
-      ['About you', 'about'], ['Training', 'about'], ['Back and legs', 'body'], ['Health', 'health'],
-    ]);
+  it('shows the programme only for someone in it, with the day it started, and never its defaults', () => {
+    expect(chapters(owner, { ...S1, startDate: '2026-09-28' }).movement['The 12-week programme']).toBe(`Joined, from ${shortDay('2026-09-28')}`);
+    expect(chapters(owner).movement['The 12-week programme']).toBe('Not joined');
+    const labels = Object.values(chapters(owner)).flatMap(rows => Object.keys(rows));
+    for (const v1Only of ['Experience', 'Training days', 'Session length', 'Where you train']) expect(labels).not.toContain(v1Only);
   });
 
-  it('shows when the programme started, which editing Training can change', () => {
-    const training = profileSections(owner, true, { programme: true, startDate: '2026-09-28' })[1];
-    expect(training.rows[0]).toEqual({ label: 'Started', value: shortDay('2026-09-28') });
-    expect(profileSections(owner, true, { programme: true })[1].rows.map(r => r.label)).not.toContain('Started');
-  });
-
-  it('does not show training defaults to someone outside the programme', () => {
-    const sections = profileSections(owner, true, { programme: false });
-    expect(sections.map(section => section.title)).toEqual(['About you', 'Back and legs', 'Health']);
-    expect(sections[0].rows.map(row => row.label)).not.toContain('Experience');
-  });
-
-  it('reads back the fluid-limit answer, and an SGLT2 inhibitor taken without diabetes', () => {
-    const health = (over: Parameters<typeof createDefaultProfile>[0]) => profileSections(createDefaultProfile(over), true)[3].rows;
-    expect(health({})).toContainEqual({ label: 'Fluid limit from your care team', value: 'Not answered yet' });
-    expect(health({ health: { fluidRestriction: 'unsure' } })).toContainEqual({ label: 'Fluid limit from your care team', value: 'Not sure' });
-    expect(health({ health: { sglt2i: true } })).toContainEqual({ label: 'SGLT2 inhibitor', value: 'Yes' });
+  it('reads back the fluid-limit answer, and a “-gliflozin” taken without diabetes', () => {
+    expect(chapters(createDefaultProfile()).health['Fluid limit from your care team']).toBe('Not answered yet');
+    expect(chapters(createDefaultProfile({ health: { fluidRestriction: 'unsure' } })).health['Fluid limit from your care team']).toBe('Not sure');
+    expect(chapters(createDefaultProfile({ health: { sglt2i: true } })).medicines['A “-gliflozin” medicine']).toBe('Yes');
     // Asked of everyone, and an untouched No is not an answer (B08).
-    expect(health({})).toContainEqual({ label: 'SGLT2 inhibitor', value: 'Not answered yet' });
-    expect(health({ health: { medicinesReviewed: true } })).toContainEqual({ label: 'SGLT2 inhibitor', value: 'No' });
+    expect(chapters(createDefaultProfile()).medicines['A “-gliflozin” medicine']).toBe('Not answered yet');
+    expect(chapters(createDefaultProfile({ health: { medicinesReviewed: true } })).medicines['A “-gliflozin” medicine']).toBe('No');
   });
 
   it('reads back the blood-pressure medicines for heart or kidney disease too, unconfirmed until answered', () => {
-    const rows = (over: Parameters<typeof createDefaultProfile>[0]) => profileSections(createDefaultProfile(over), true)[3].rows;
-    expect(rows({ health: { heartOrVascularDisease: true } })).toContainEqual({ label: 'Beta-blocker', value: 'No, not yet confirmed' });
-    expect(rows({ health: { kidneyDisease: 'ckd', bpMedicinesReviewed: true } })).toContainEqual({ label: 'Diuretic or water pill', value: 'No' });
-    expect(rows({}).map(r => r.label)).not.toContain('Beta-blocker');
+    expect(chapters(createDefaultProfile({ health: { heartOrVascularDisease: true } })).medicines['Beta-blocker']).toBe('No, not yet confirmed');
+    expect(chapters(createDefaultProfile({ health: { kidneyDisease: 'ckd', bpMedicinesReviewed: true } })).medicines['Water tablet (diuretic)']).toBe('No');
+    expect(Object.keys(chapters(createDefaultProfile()).medicines)).not.toContain('Beta-blocker');
   });
 
   it('says a weight was never entered rather than showing zero', () => {
-    expect(profileSections(createDefaultProfile(), true)[0].rows[0]).toEqual({ label: 'Weight', value: 'Not entered' });
+    expect(chapters(createDefaultProfile()).about.Weight).toBe('Not entered');
   });
 
   it('asks diabetes questions only of someone with diabetes, and never reads an unanswered one as no', () => {
-    const none = profileSections(createDefaultProfile(), true)[3].rows.map(r => r.label);
-    expect(none).not.toContain('Insulin');
-    const unanswered = profileSections(createDefaultProfile({ health: { diabetes: 'type2' } }), true)[3].rows;
-    expect(unanswered).toContainEqual({ label: 'Metformin', value: 'Not answered yet' });
+    expect(Object.keys(chapters(createDefaultProfile()).medicines)).not.toContain('Insulin');
+    expect(chapters(createDefaultProfile({ health: { diabetes: 'type2' } })).medicines.Metformin).toBe('Not answered yet');
   });
 
   it('marks unreviewed medicine answers as unconfirmed, so a default never reads as a plain no', () => {
-    const unreviewed = createDefaultProfile({ health: { diabetes: 'type2', insulin: 'none', sulfonylureaOrMeglitinide: false } });
-    const rows = profileSections(unreviewed, true)[3].rows;
-    expect(rows).toContainEqual({ label: 'Insulin', value: 'None, not yet confirmed' });
-    expect(rows).toContainEqual({ label: 'Sulfonylurea or meglitinide', value: 'No, not yet confirmed' });
-    expect(rows).toContainEqual({ label: 'Metformin', value: 'Not answered yet' });
-    expect(profileSections(owner, true)[3].rows).toContainEqual({ label: 'Insulin', value: 'None' });
+    const rows = chapters(createDefaultProfile({ health: { diabetes: 'type2', insulin: 'none', sulfonylureaOrMeglitinide: false } })).medicines;
+    expect(rows).toMatchObject({ Insulin: 'None, not yet confirmed', 'A tablet that can cause lows': 'No, not yet confirmed', Metformin: 'Not answered yet' });
+    expect(chapters(owner).medicines.Insulin).toBe('None');
   });
 
   it('flags answers that need a second look', () => {
@@ -216,7 +206,7 @@ describe('the record', () => {
       newObservation({ kind: 'glucose', value: 110, scope: 'pointInTime', source: 'manual', at }),
     ];
     const counts = recordCounts({ observations, sessions: [{}, {}], checkIns: [{}], bodyMetrics: [], personalRecords: [] });
-    expect(counts).toEqual({ readings: 2, sessions: 2, checkIns: 1, bodyMetrics: 0, personalRecords: 0 });
+    expect(counts).toEqual({ readings: 2, sessions: 2, checkIns: 1, bodyMetrics: 0, personalRecords: 0, routes: 0 });
     expect(countsSentence(counts)).toBe('2 readings, 2 sessions and 1 check-in');
     expect(countsSentence({ readings: 0, sessions: 0, checkIns: 0, bodyMetrics: 0, personalRecords: 0 })).toBe('nothing yet');
   });
@@ -246,5 +236,216 @@ describe('habit lines, with an open foot wound (content re-check R03)', () => {
     expect(habitLine('sittingBreak', habits, wound)).toMatch(/foot wound/);
     expect(habitLine('mealWalk', habits, wound)).toMatch(/foot wound/);
     expect(habitsLine(habits, wound)).toBe('All off');
+  });
+});
+
+describe('privacyLine (B-24)', () => {
+  it('says the standard privacy copy in full: where the records are, what map pictures share, and when anything leaves', () => {
+    expect(privacyLine('iPhone')).toBe('Your records are stored on this iPhone. Optional map pictures share the area shown and your internet address with OpenStreetMap. Backups and calendar files leave only when you share them.');
+  });
+});
+
+describe('routes in the record’s counts (Plan 6 Task 14)', () => {
+  it('counts routes with the record', () => {
+    expect(countsSentence({ readings: 2, sessions: 0, checkIns: 0, bodyMetrics: 0, personalRecords: 0, routes: 1 })).toBe('2 readings and 1 route');
+    expect(recordCounts({ observations: [], sessions: [], checkIns: [], bodyMetrics: [], personalRecords: [], records: { routes: [{}, {}] } }).routes).toBe(2);
+    expect(recordCounts({ observations: [], sessions: [], checkIns: [], bodyMetrics: [], personalRecords: [] }).routes).toBe(0);
+  });
+});
+
+describe('calendar copies, as Reminders lists them (A-78)', () => {
+  const AT = '2026-10-08T10:00:00.000+05:30';
+  it('names the events, how many a day, when the file was added and until when', () => {
+    expect(copyLine({ names: ['Glass of water'], events: 6, at: AT, until: '2027-01-06' }))
+      .toEqual({ title: 'Glass of water', detail: `6 a day · added ${shortDate(AT)} · until ${shortDay('2027-01-06')}` });
+    expect(copyLine({ names: ['Walk after lunch', 'Walk after dinner'], events: 2, at: AT, until: '2027-01-06' }).title).toBe('Walk after lunch and Walk after dinner');
+    expect(copyLine({ names: ['Walk after dinner'], events: 1, at: AT, until: '2027-01-06' }).detail).toMatch(/^Once a day · added /);
+  });
+  it('says what changed for each copy that may be out of date', () => {
+    expect(staleLine([
+      { habit: 'water', names: ['Glass of water'], inCalendar: 6, now: 0 },
+      { habit: 'sittingBreak', names: ['Stand up and move'], inCalendar: 2, now: 1 },
+    ])).toBe('Glass of water: 6 a day in Calendar, none now. Stand up and move: 2 a day in Calendar, once a day now.');
+    // Only the words changed: a glass size, a precaution (codex H4-05).
+    expect(staleLine([{ habit: 'water', names: ['Glass of water'], inCalendar: 6, now: 6, wording: true }])).toBe('Glass of water: 6 a day in Calendar, still worded as before your change.');
+  });
+});
+
+describe('chapterSections: Profile & health by chapter (journey §16; Plan 5)', () => {
+  const S = { ...migrateData({ version: CURRENT_VERSION } as AppData).settings, useMetric: true };
+  const read = (p: Parameters<typeof chapterSections>[0]) =>
+    Object.fromEntries(chapterSections(p, S, '2026-10-10').map(c => [c.chapter, Object.fromEntries(c.rows.map(r => [r.label, r.value]))]));
+
+  it('reads each chapter back from the record, in v1’s words where v1 named them', () => {
+    const rows = read(profileFrom(COMPLEX, undefined, '2026-10-10', { thisYear: 2026 }));
+    expect(rows.about).toMatchObject({ Name: 'Asha', Born: '1958', Height: '158 cm', Weight: '68 kg' });
+    expect(rows.health).toMatchObject({ Diabetes: 'Type 2', 'High blood pressure': 'Treated', 'Fluid limit from your care team': 'No' });
+    expect(rows.medicines).toMatchObject({ Insulin: 'Injections or pump, several times a day', Metformin: 'Yes, since 2015' });
+    expect(rows.backFeet).toMatchObject({ 'Pain or past injury': 'Lower back, Sciatica', 'Which leg': 'Left' });
+    expect(rows.food).toMatchObject({ 'What you eat': 'Vegetarian', Allergies: 'Peanuts' });
+  });
+
+  it('a body measure says when it was measured, from the reading it came from, and as stored (§4.10, B-24; H5-24)', () => {
+    const at = '2026-10-08T09:30:00+05:30';
+    const when = `${shortDate(at)} at ${timeOf(at)}`;
+    const p = createDefaultProfile({ weightKg: 72.5, heightCm: 160.5, waistCm: 81.3 });
+    const reading = (kind: 'weight' | 'height' | 'waist', value: number, extra = {}) =>
+      newObservation({ kind, value, unit: kind === 'weight' ? 'kg' : 'cm', scope: 'pointInTime', source: 'manual', at, context: 'profile', ...extra });
+    const about = (observations: Parameters<typeof chapterSections>[3], settings = S) =>
+      Object.fromEntries(chapterSections(p, settings, '2026-10-10', observations).find(c => c.chapter === 'about')!.rows.map(r => [r.label, r.value]));
+    // Entered in setup or Profile & health; logged elsewhere, with only the day known; and a value no reading holds, as v1 kept it.
+    expect(about([reading('weight', 72.5), reading('height', 160.5, { source: 'manual', context: undefined, timeUnknown: true }), reading('waist', 80)])).toMatchObject({
+      Weight: `72.5 kg, entered ${when}`, Height: `160.5 cm, logged ${shortDate(at)}`, Waist: '81.3 cm, date not recorded',
+    });
+    // The latest reading of that value dates it; a later one of another value doesn't.
+    const later = '2026-10-09T08:00:00+05:30';
+    expect(about([reading('weight', 72.5), reading('weight', 72.5, { at: later }), reading('weight', 74, { at: '2026-10-10T08:00:00+05:30' })]).Weight)
+      .toBe(`72.5 kg, entered ${shortDate(later)} at ${timeOf(later)}`);
+    // In inches, to a tenth: what was typed is never rounded away.
+    expect(about([], { ...S, useMetric: false })).toMatchObject({ Height: '5 ft 3.2 in, date not recorded', Waist: '32 in, date not recorded' });
+    // Without the readings, the values alone.
+    expect(about(undefined).Weight).toBe('72.5 kg');
+  });
+
+  it('a measure keeps the precision it was stored with, and says where a reading came from beyond how it was given (H5-24)', () => {
+    const at = '2026-10-08T12:00:00.000+05:30';
+    const p = createDefaultProfile({ weightKg: 72.55, heightCm: 160.55, waistCm: 81.25 });
+    const rows = (observations: Parameters<typeof chapterSections>[3]) =>
+      Object.fromEntries(chapterSections(p, S, '2026-10-10', observations).find(c => c.chapter === 'about')!.rows.map(r => [r.label, r.value]));
+    // A measure from the previous version's body log, which kept only the day.
+    const v1 = (kind: 'weight' | 'height' | 'waist', value: number) =>
+      newObservation({ kind, value, unit: kind === 'weight' ? 'kg' : 'cm', scope: 'pointInTime', source: 'manual', at, timeUnknown: true, context: 'bodyMetric:2026-10-08' });
+    expect(rows([v1('height', 160.55), v1('waist', 81.25), v1('weight', 72.55)])).toMatchObject({
+      Height: `160.55 cm, logged in the previous version ${shortDate(at)}`,
+      Waist: `81.25 cm, logged in the previous version ${shortDate(at)}`,
+      Weight: `72.55 kg, logged in the previous version ${shortDate(at)}`,
+    });
+  });
+
+  it('says Not sure where it was said (V-J17)', () => {
+    expect(read(profileFrom(UNSURE, undefined, '2026-10-10', { thisYear: 2026 })).medicines.Insulin).toBe('Not sure');
+  });
+
+  it('names the person’s own allergy words beside the chips (board D82)', () => {
+    const p = profileFrom({ ...COMPLEX, customAllergies: ['brinjal'] }, undefined, '2026-10-10', { thisYear: 2026 });
+    expect(read(p).food.Allergies).toBe('Peanuts, brinjal');
+    expect(read({ ...p, food: { pattern: 'vegan', avoid: [], allergies: [] } }).food.Allergies).toBe('None');
+    expect(read({ ...p, food: { pattern: 'vegan', avoid: [] } }).food.Allergies).toBe('None given');
+  });
+
+  // Every row of a whole run, read back from what finishing stores: a row shown where it shouldn't be, or missing, fails.
+  const whole = (a: typeof MINIMAL, metric = true) => {
+    const { profile, settings } = reviewRecord(a, { settings: { ...S, useMetric: metric } }, '2026-10-10', { thisYear: 2026 });
+    return Object.fromEntries(chapterSections(profile, settings, '2026-10-10').map(c => [c.chapter, Object.fromEntries(c.rows.map(r => [r.label, r.value]))]));
+  };
+
+  it('the minimal run: nothing asked is read back as an answer it wasn’t (journey §1.2)', () => {
+    expect(whole(MINIMAL)).toEqual({
+      about: { Name: 'Not given', 'Body for the exercise demos': 'Either', Height: 'Not entered', Weight: 'Not entered' },
+      health: {
+        Diabetes: 'None', 'High blood pressure': 'None', 'Heart or circulation': 'No', 'Kidney disease': 'No',
+        'Fluid limit from your care team': 'Not answered yet', 'Cleared for exercise': 'Not yet',
+      },
+      medicines: { 'A “-gliflozin” medicine': 'No', 'Dizzy when you stand up': 'No', 'Glucose meter or sensor': 'None', 'Home blood-pressure cuff': 'No' },
+      backFeet: { 'Pain or past injury': 'None' },
+      movement: { 'What you’d most like to do': 'Not sure yet', 'Exercise now': 'Yes', 'Weekly goal': 'No goal', 'The 12-week programme': 'Not joined' },
+      food: { 'What you eat': 'Vegetarian', Allergies: 'None', 'Logging what you eat': 'Meal ideas only' },
+      day: { Reminders: 'All off', 'Quiet hours': 'None', 'Reminders come': 'In the app', 'Voice coach': 'On' },
+    });
+  });
+
+  it('the complex run: the eyes, feet, medicines, leg and reminders it answered', () => {
+    const rows = whole(COMPLEX);
+    expect(rows.health).toEqual({
+      Diabetes: 'Type 2', 'High blood pressure': 'Treated', 'Heart or circulation': 'No', 'Kidney disease': 'No', 'Fluid limit from your care team': 'No',
+      'Diabetic eye disease (retinopathy)': 'None or mild', 'Nerve damage in your feet': 'No', 'Your feet today': 'Healthy', 'Cleared for exercise': 'For moderate exercise',
+    });
+    expect(rows.medicines).toEqual({
+      Insulin: 'Injections or pump, several times a day', 'A tablet that can cause lows': 'No', 'A “-gliflozin” medicine': 'No', Metformin: 'Yes, since 2015',
+      'Ketoacidosis, or low insulin': 'No', 'Beta-blocker': 'No', 'Water tablet (diuretic)': 'No', 'Dizzy when you stand up': 'No',
+      'Glucose meter or sensor': 'Meter', 'Home blood-pressure cuff': 'Yes',
+    });
+    expect(rows.backFeet).toEqual({ 'Pain or past injury': 'Lower back, Sciatica', 'Which leg': 'Left', 'Worse with': 'Sitting or bending forward', 'A nerve damaged in the past': 'No' });
+    expect(rows.movement).toEqual({ 'What you’d most like to do': 'Stretch more', 'Exercise now': 'No', 'Weekly goal': '90 minutes a week', 'The 12-week programme': 'Not joined' });
+    expect(rows.food['Logging what you eat']).toBe('Meals with estimates');
+    expect(rows.day).toEqual({ Reminders: 'Water and walks after meals', 'Quiet hours': '10:00 pm to 7:00 am', 'Reminders come': 'In the app', 'Voice coach': 'On' });
+  });
+
+  it('reads the logging level in Plan 7’s own words, so Profile & health, Review and Me → Food agree (integrator I-01)', () => {
+    // LEVEL_LABEL in Plan 7's src/food/copy.ts, word for word.
+    const PLAN7 = { ideas: 'Meal ideas only', meals: 'Meals only, no numbers', estimates: 'Meals with estimates' } as const;
+    for (const level of ['ideas', 'meals', 'estimates'] as const) {
+      expect(read(createDefaultProfile({ food: { pattern: 'vegetarian', avoid: [], level } })).food['Logging what you eat'], level).toBe(PLAN7[level]);
+    }
+  });
+
+  it('in feet, inches and pounds when those are the units chosen', () => {
+    expect(whole({ ...COMPLEX, metric: false, waistCm: 80 }, false).about).toEqual({
+      Name: 'Asha', Born: '1958', 'Body for the exercise demos': 'Female figure', Height: '5 ft 2.2 in', Weight: '149.9 lb', Waist: '31.5 in',
+    });
+    expect(whole({ ...COMPLEX, waistCm: 80 }).about.Waist).toBe('80 cm');
+  });
+
+  it('as a calendar file, with the voice coach off, when those were chosen', () => {
+    expect(whole({ ...MINIMAL, delivery: 'calendar', voice: { muted: true } }).day).toMatchObject({ 'Reminders come': 'As a calendar file', 'Voice coach': 'Off' });
+  });
+});
+
+describe('the Food row on Me (Plan 7)', () => {
+  it('names allergies and the logging level, after what the person eats', () => {
+    expect(foodLine({ pattern: 'jain', avoid: [], allergies: ['peanut'], customAllergies: ['brinjal'], level: 'meals' })).toBe('Jain · allergic to peanut and brinjal · meals only, no numbers');
+    expect(foodLine({ pattern: 'vegetarian', avoid: ['mushrooms'], level: 'estimates' })).toBe('Vegetarian · leaves out mushrooms · meals with estimates');
+    expect(foodLine({ pattern: 'vegan', avoid: [], level: 'ideas' })).toBe('Vegan');
+    expect(foodLine({ pattern: 'vegetarian', avoid: ['mushrooms'], allergies: ['milk'] })).toBe('Vegetarian · allergic to milk · leaves out mushrooms');
+  });
+});
+
+describe('what Replace keeps (journey §4.6, H6-03)', () => {
+  it('says today’s safety answers stay, before anything changes', () => {
+    expect(keepsOpenLine('iPhone')).toBe('Today’s safety answers on this iPhone stay, with the readings they depend on: a backup never clears them.');
+  });
+});
+
+describe('routes in a restore (journey §18.3, B-26, Review Focus 4, H6-05)', () => {
+  it('says before anything happens that a phone that keeps no routes won’t take the file’s', () => {
+    const no = 'The file’s 3 routes won’t be added, because this phone doesn’t keep routes. To add them, turn on Keep walk routes in Me → Data, then restore the file again.';
+    expect(routeNotes({ records: { routes: 3 }, refusedStores: ['routes'], replaceRemoves: {} })).toEqual([no]);
+    expect(routeNotes({ records: { routes: 3 }, refusedStores: ['routes'], replaceRemoves: {} }, false)).toEqual([no]);
+  });
+
+  it('says how a phone not asked yet takes them: it asks, and the file can be restored again', () => {
+    expect(routeNotes({ records: { routes: 1 }, refusedStores: ['routes'], replaceRemoves: {} }, 'unasked')).toEqual([
+      'The file’s 1 route won’t be added, because this phone hasn’t been asked yet whether to keep routes. To add it, turn on Keep walk routes in Me → Data, then restore the file again.',
+    ]);
+  });
+
+  it('says that replacing from a file without routes removes this phone’s', () => {
+    expect(routeNotes({ records: {}, refusedStores: [], replaceRemoves: { routes: 2 } })).toEqual(['Replacing removes this phone’s 2 routes, which the file doesn’t hold.']);
+  });
+
+  it('says nothing when the file’s routes are simply added', () => {
+    expect(routeNotes({ records: { routes: 1 }, refusedStores: [], replaceRemoves: {} }, true)).toEqual([]);
+  });
+
+  it('says the file’s routes from before an erase stay erased (B-05)', () => {
+    expect(routeNotes({ records: { routes: 2 }, refusedStores: [], refusedRecords: { routes: 2 }, replaceRemoves: {} }, true)).toEqual([
+      'The file’s 2 routes are from before you erased routes on this phone, so they stay erased.',
+    ]);
+    expect(routeNotes({ records: { routes: 3 }, refusedStores: [], refusedRecords: { routes: 1 }, replaceRemoves: {} }, true)).toEqual([
+      '1 route in the file is from before you erased routes on this phone, so it stays erased.',
+    ]);
+  });
+
+  it('says this phone’s routes go too when the file’s are refused', () => {
+    expect(routeNotes({ records: { routes: 3 }, refusedStores: ['routes'], replaceRemoves: { routes: 2 } })).toEqual([
+      'The file’s 3 routes won’t be added, because this phone doesn’t keep routes. To add them, turn on Keep walk routes in Me → Data, then restore the file again.',
+      'Replacing removes this phone’s 2 routes too.',
+    ]);
+  });
+});
+
+describe('conflicts by collection, in words (B-26)', () => {
+  it('says nothing when nothing differs', () => {
+    expect(conflictLines({})).toEqual([]);
   });
 });

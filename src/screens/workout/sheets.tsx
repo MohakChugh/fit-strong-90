@@ -162,7 +162,7 @@ export function FinishSheet({ open, onOpenChange, done, total, status, startedAt
       <Failed message={failure} />
       <div className="flex flex-col gap-2">
         <button type="button" className={primary} disabled={saving} onClick={save}>
-          {saving ? 'Saving…' : 'Save workout'}
+          {saving ? 'Saving…' : failure ? 'Try again' : 'Save workout'}
         </button>
         <button type="button" className={`${secondary} disabled:opacity-50`} disabled={saving} onClick={() => onOpenChange(false)}>Keep going</button>
       </div>
@@ -249,26 +249,3 @@ export function HowToSheet({ open, onOpenChange, exerciseId }: {
   );
 }
 
-/** Deleting asks once, and says what goes with it. */
-export function DeleteSheet({ open, onOpenChange, onDelete, failure }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onDelete: () => void;
-  failure: string | null;
-}) {
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange} title="Delete workout">
-      <p className="px-1 text-[length:var(--text-body)]">
-        This removes the workout and its sets from this device, along with any personal record they set. It cannot be undone.
-      </p>
-      <Failed message={failure} />
-      <div className="flex flex-col gap-2">
-        <button type="button" onClick={onDelete}
-          className="press-feedback flex min-h-14 w-full items-center justify-center rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] font-semibold text-stop">
-          Delete workout
-        </button>
-        <button type="button" className={secondary} onClick={() => onOpenChange(false)}>Keep it</button>
-      </div>
-    </Sheet>
-  );
-}

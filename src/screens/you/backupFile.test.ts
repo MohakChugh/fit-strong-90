@@ -10,6 +10,11 @@ describe('settingsKey', () => {
     expect(settingsKey(stamped)).toBe(settingsKey(settings));
   });
 
+  it('ignores how the backup left and whether it was checked, too', () => {
+    const stamped = { ...settings, habits: { ...settings.habits, lastExportAt: 'x', lastExportSeq: 9, lastExportVia: 'share', lastCheckedExportAt: 'x' } } as unknown as UserSettings;
+    expect(settingsKey(stamped)).toBe(settingsKey(settings));
+  });
+
   it('notices any other change', () => {
     expect(settingsKey({ ...settings, focus: 'move' })).not.toBe(settingsKey(settings));
     expect(settingsKey({ ...settings, habits: { inApp: true } })).not.toBe(settingsKey(settings));

@@ -5,7 +5,7 @@ import { isCardVisible, topicsFor, type GuideContext } from './personalise';
 import type { Pattern } from './schema';
 import { normalise, tokens, words } from './text';
 import { TOPICS } from './topics';
-import { componentsFor, isAvoided, suits } from './week';
+import { componentsFor, mealAllowed, suits } from './week';
 
 export type ResultKind = 'topic' | 'card' | 'meal';
 
@@ -43,12 +43,12 @@ const doc = (r: Found, title: string[], strong: string[], body: string[]): Doc =
 });
 
 const TOPIC_DOCS: Doc[] = TOPICS.map(t => doc(
-  { kind: 'topic', id: t.id, title: t.title, detail: t.summary, to: `/guide/topic/${t.id}` },
+  { kind: 'topic', id: t.id, title: t.title, detail: t.summary, to: `/hub/learn/topic/${t.id}` },
   [t.title], [...t.aliases, t.summary], [],
 ));
 
 const CARD_DOCS: Doc[] = CARDS.map(c => doc(
-  { kind: 'card', id: c.id, title: c.title, detail: c.question, to: `/guide/card/${c.id}` },
+  { kind: 'card', id: c.id, title: c.title, detail: c.question, to: `/hub/learn/card/${c.id}` },
   [c.title], [...c.aliases, c.question],
   claims([...c.answer, ...(c.emergencies ?? []), ...c.notes, ...c.actions, ...c.cautions]).map(x => x.statement),
 ));
@@ -64,7 +64,7 @@ function mealDocsFor(pattern?: Pattern): Doc[] {
     docs = MEALS.filter(m => suits(m, pattern)).map(m => {
       const parts = componentsFor(m, pattern);
       return doc(
-        { kind: 'meal', id: m.id, title: m.name, detail: SLOT_TITLE.get(m.slot) ?? '', to: `/guide/meals/${m.id}` },
+        { kind: 'meal', id: m.id, title: m.name, detail: SLOT_TITLE.get(m.slot) ?? '', to: `/hub/food/ideas/${m.id}` },
         [m.name], [...m.aliases, ...parts.flatMap(c => c.aliases ?? [])], parts.map(c => c.name),
       );
     });
@@ -103,8 +103,11 @@ export function search(query: string, ctx: GuideContext): SearchResult[] {
   }
 
   const visibleCardIds = new Set(CARDS.filter(c => isCardVisible(c, ctx)).map(c => c.id));
+  // What meal ideas leave out, search leaves out too: the foods typed, allergies by recipe and the Jain pattern (B-13),
+  // with the allergies as known, setup's where the food record has none (board D205; H5R-10). Not known at all, the
+  // screen asks first.
   const meals = mealDocsFor(ctx.food?.pattern)
-    .filter(d => !isAvoided(MEALS.find(m => m.id === d.id)!, ctx.food?.avoid, ctx.food?.pattern));
+    .filter(d => mealAllowed(MEALS.find(m => m.id === d.id)!, { ...ctx.food, ...ctx.allergies }));
   const pool = [...TOPIC_DOCS, ...CARD_DOCS.filter(d => visibleCardIds.has(d.id)), ...meals];
   const phrase = normalise(query);
 

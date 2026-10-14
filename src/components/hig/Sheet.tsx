@@ -1,4 +1,4 @@
-import { createContext, useContext, useLayoutEffect, useRef, type PointerEvent, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import {
   Sheet as SheetRoot,
   SheetClose,
@@ -6,6 +6,8 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { claimModal } from './modal';
+import { SheetTopContext } from './navigation';
 import { createSwipe } from './sheetGesture';
 
 /** How much of the screen the sheet takes. iOS calls these detents. */
@@ -34,29 +36,29 @@ const HEIGHT: Record<Detent, string> = {
 const InSheet = createContext(false);
 
 /**
- * While any sheet is open, the screen behind it is inert: out of the tab
- * order, the accessibility tree and the pointer's reach, as behind an iOS
- * sheet. The sheet itself is portalled to <body>, outside #app, so it stays
- * live, and so do toasts. Counted, so a sheet closing while another opens
- * never wakes the page.
+ * While any sheet is open, the screen behind it is inert, and its toasts wait
+ * (`claimModal`, B-03). The sheet itself is portalled to <body>, outside
+ * #app, so it stays live.
  */
-let openSheets = 0;
 function useInertBackground(open: boolean) {
+  // What had focus as the sheet opened, for the hand-back.
+  const opened = useRef<HTMLElement | null>(null);
   // A layout effect, so the page wakes in the same commit that closes the
   // sheet, before the dialog hands focus back to whatever opened it.
   useLayoutEffect(() => {
-    const root = document.getElementById('app');
-    if (!open || !root) return;
+    if (!open || !document.getElementById('app')) return;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (openSheets++ === 0) root.inert = true;
+    opened.current = opener;
+    const release = claimModal();
     return () => {
-      if (--openSheets === 0) root.inert = false;
+      release();
       // If the hand-back raced the wake-up and focus fell to the page, finish it.
       requestAnimationFrame(() => {
         if (document.activeElement === document.body && opener?.isConnected) opener.focus({ preventScroll: true });
       });
     };
   }, [open]);
+  return opened;
 }
 
 /**
@@ -102,6 +104,63 @@ function useSwipeToDismiss({ open, dismissible, onOpenChange }: { open: boolean;
 }
 
 /**
+ * The shared safety surface at the top of an open sheet (codex V1-02), and
+ * what its way on does here.
+ *
+ * - A decision arriving, or escalating, while the sheet is open is brought
+ *   into view at the top of its body, heading first, however far down the
+ *   person had scrolled: inserted above content they were reading, it would
+ *   otherwise stay out of sight (codex W-02). Nothing else moves: the form
+ *   under it and anything being saved stay as they are, and the decision's
+ *   time coming due ("Re-check now") pulls nobody away from what they type.
+ * - "What to do" closes the sheet through its own close, and goes on only
+ *   once the sheet has closed (codex W-05). A sheet that refuses to close,
+ *   one saving, keeps the person and its save; the way on waits, and says
+ *   so. Should the sheet become closable and stay open, its save having
+ *   failed, the person is left with what it says and taps again.
+ */
+function useSurfaceAtTop({ open, dismissible, ownsUrgent, onOpenChange }: {
+  open: boolean;
+  dismissible: boolean;
+  ownsUrgent: boolean;
+  onOpenChange: (open: boolean) => void;
+}): { surface: ReactNode; body: RefObject<HTMLDivElement | null> } {
+  /** The sheet's scrolling body. */
+  const body = useRef<HTMLDivElement>(null);
+  const top = useContext(SheetTopContext);
+  const shown = ownsUrgent ? null : top;
+  // The decision drawn while open, by which decision it is: not by its words, which change as its time comes due.
+  const arrived = open && shown ? shown.key : null;
+  useLayoutEffect(() => {
+    if (arrived !== null && body.current) body.current.scrollTop = 0;
+  }, [arrived]);
+
+  // A way on asked for, and one to take now; each a new object, so each is taken once.
+  const [leaving, setLeaving] = useState<{ go: () => void } | null>(null);
+  const [going, setGoing] = useState<{ go: () => void } | null>(null);
+  if (leaving && !open) {
+    // Closed: go, once this has committed and the page behind it is live again.
+    setLeaving(null);
+    setGoing(leaving);
+  } else if (leaving && dismissible) {
+    // It could have closed and didn't: nothing waits to go later, out of the blue.
+    setLeaving(null);
+  }
+  useEffect(() => {
+    going?.go();
+  }, [going]);
+
+  const surface = shown?.draw({
+    leave: go => {
+      setLeaving({ go });
+      onOpenChange(false);
+    },
+    waiting: leaving !== null,
+  });
+  return { surface, body };
+}
+
+/**
  * A bottom sheet with a labelled close, a title, and a body that scrolls.
  *
  * Focus handling is the base-ui dialog's: on open it moves into the sheet —
@@ -109,25 +168,43 @@ function useSwipeToDismiss({ open, dismissible, onOpenChange }: { open: boolean;
  * is immediately scrollable from the keyboard — and on close it returns to
  * whatever opened the sheet.
  */
-export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissible = true, children, className }: {
+export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissible = true, ownsUrgent = false, holdClose, returnFocus, children, className }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Short, sentence case. It is the sheet's accessible name. */
   title: string;
+  /**
+   * The sheet says today's safety decision itself, as the check-in does with
+   * its outcome. Every other sheet shows the shared surface at its top while
+   * one stands, since the page behind it is out of reach (codex V1-02).
+   */
+  ownsUrgent?: boolean;
   /**
    * False while the sheet must stay, such as while it saves: a swipe then
    * gives a little and settles back. Pass it alongside an `onOpenChange` that
    * refuses to close at those times.
    */
   dismissible?: boolean;
+  /**
+   * Asked as the person closes the sheet themselves, with Close or Escape:
+   * true keeps it open, its owner asking first (the check-in's "Keep your
+   * answers?", F-safety-07). The safety surface's way on closes it all the same.
+   */
+  holdClose?: () => boolean;
   /** `medium` (about half the screen) unless the content is something to read. */
   detent?: Detent;
+  /**
+   * Where focus goes on closing when nothing opened the sheet, as when its
+   * address opened it: focus would otherwise fall to the page (B-03).
+   */
+  returnFocus?: () => HTMLElement | null;
   children: ReactNode;
   className?: string;
 }) {
-  const body = useRef<HTMLDivElement>(null);
   const swipe = useSwipeToDismiss({ open, dismissible, onOpenChange });
-  useInertBackground(open);
+  // What had focus as it opened, for `returnFocus` (B-03).
+  const opened = useInertBackground(open);
+  const { surface, body } = useSurfaceAtTop({ open, dismissible, ownsUrgent, onOpenChange });
 
   if (useContext(InSheet)) {
     throw new Error('hig/Sheet: sheets must not nest. Push a detail screen from the sheet instead.');
@@ -135,11 +212,13 @@ export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissibl
 
   return (
     <InSheet value>
-      <SheetRoot open={open} onOpenChange={onOpenChange}>
+      <SheetRoot open={open} onOpenChange={next => { if (!next && holdClose?.()) return; onOpenChange(next); }}>
         <SheetContent
           side="bottom"
           showCloseButton={false}
           initialFocus={body}
+          // The opener when there was one; otherwise `returnFocus`'s element (B-03).
+          {...(returnFocus ? { finalFocus: () => (opened.current && opened.current !== document.body && opened.current.isConnected ? true : returnFocus() ?? true) } : {})}
           className={cn(
             'gap-0 rounded-t-2xl bg-grouped-bg text-[length:var(--text-body)] text-foreground',
             // Never taller than the screen, whatever the detent asks for.
@@ -162,14 +241,14 @@ export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissibl
                 wraps as far as it needs. When the text is too large for that
                 to leave room, Close takes its own line and the title runs the
                 full width under it, rather than being cut short (scan S-04). */}
-            <div className="flex min-h-11 items-center gap-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] @max-[16rem]:flex-col-reverse @max-[16rem]:items-stretch @max-[16rem]:gap-0 @max-[16rem]:pl-0">
+            <div className="flex min-h-12 items-center gap-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] @max-[16rem]:flex-col-reverse @max-[16rem]:items-stretch @max-[16rem]:gap-0 @max-[16rem]:pl-0">
               <span aria-hidden className="invisible shrink-0 px-2 text-[length:var(--text-body)] @max-[16rem]:hidden">Close</span>
               <SheetTitle className="min-w-0 flex-1 py-2.5 text-center text-[length:var(--text-body)] font-semibold leading-tight [overflow-wrap:break-word] @max-[16rem]:pb-3 @max-[16rem]:pl-[min(1rem,20px)] @max-[16rem]:pr-2 @max-[16rem]:pt-0 @max-[16rem]:text-left">
                 {title}
               </SheetTitle>
               {/* A word, not a glyph: it reads at any text size, and its hit
                   area is the full height of the bar. */}
-              <SheetClose className="flex min-h-11 shrink-0 items-center rounded-lg px-2 text-[length:var(--text-body)] text-tint transition-opacity active:opacity-60 @max-[16rem]:self-end">
+              <SheetClose className="flex min-h-12 min-w-12 shrink-0 items-center justify-center rounded-lg px-2 text-[length:var(--text-body)] text-tint transition-opacity active:opacity-60 @max-[16rem]:self-end">
                 Close
               </SheetClose>
             </div>
@@ -184,7 +263,10 @@ export function Sheet({ open, onOpenChange, title, detent = 'medium', dismissibl
             tabIndex={-1}
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain pl-safe pr-safe outline-none"
           >
-            <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-[min(1rem,20px)] pt-4">{children}</div>
+            <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-[min(1rem,20px)] pt-4">
+              {surface}
+              {children}
+            </div>
             {/* Bottom room, and clears the home indicator, so the last row is
                 never half under it. */}
             <div aria-hidden className="h-8 pb-safe" />

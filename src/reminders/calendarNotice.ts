@@ -12,7 +12,7 @@
 import type { CalendarFileEntry, HabitSettings } from '@/types/habits';
 import type { UserProfile } from '@/types/profile';
 import { habitOffered } from './advice';
-import type { CalendarEvent } from './ics';
+import { calendarEvents, type CalendarEvent } from './ics';
 import type { HabitId } from './schedule';
 import { addDays } from './time';
 
@@ -26,13 +26,27 @@ const HABITS = ['water', 'sittingBreak', 'mealWalk'] as const;
 /** The last day the events of a file starting on `firstDay` repeat. */
 export const calendarUntil = (firstDay: string) => addDays(firstDay, CALENDAR_DAYS);
 
+/**
+ * What an event says, as a short fingerprint: its note, its alert and how
+ * long it lasts. A changed glass size or a new precaution in a note is
+ * noticed (A-78; codex H4-05) without keeping the words a second time.
+ * ponytail: a 32-bit FNV-1a; a collision would only miss one change. Upgrade: SHA-256 if it ever matters.
+ */
+export function eventContent(e: Pick<CalendarEvent, 'note' | 'alert' | 'durationMinutes'>): string {
+  let h = 0x811c9dc5;
+  for (const ch of `${e.durationMinutes}\u0000${e.alert}\u0000${e.note}`) h = Math.imul(h ^ ch.codePointAt(0)!, 0x01000193) >>> 0;
+  return h.toString(36);
+}
+
 /** What to remember about a calendar file made now, for each habit in it. */
 export function calendarExportOf(events: readonly CalendarEvent[], at: string, firstDay: string): CalendarExport {
   const until = calendarUntil(firstDay);
   const out: CalendarExport = {};
   for (const e of events) {
-    const entry: CalendarFileEntry = out[e.habit] ??= { at, until, events: 0, titles: [] };
+    const entry: CalendarFileEntry = out[e.habit] ??= { at, until, events: 0, titles: [], minutes: [], contents: [] };
     entry.events += 1;
+    entry.minutes?.push(e.minute);
+    entry.contents?.push(eventContent(e));
     if (!entry.titles.includes(e.title)) entry.titles.push(e.title);
   }
   return out;
@@ -94,4 +108,48 @@ export function calendarNotice(still: readonly StillReminding[]): string | undef
   const from = days.length === 1 ? `the file you added on ${days[0]}` : `the files you added on ${days.slice(0, -1).join(', ')} and ${days[days.length - 1]}`;
   // "May": the app cannot know whether they are still there.
   return `Calendar may still show ${what} from ${from}. This app cannot remove them. In Calendar, delete the calendar you added them to, or delete each of those events.`;
+}
+
+/** The calendar copies whose events still repeat (A-78): what each file holds for a habit, when it was made, and until when. */
+export function calendarCopies(habits: HabitSettings | undefined, today: string): (StillReminding & { until: string })[] {
+  return HABITS.flatMap(habit => {
+    const still = exportedStill(habits, habit, today);
+    return still ? [{ ...still, until: habits!.calendarExport![habit]!.until }] : [];
+  });
+}
+
+export interface StaleCopy {
+  habit: HabitId;
+  /** What its events are called in Calendar. */
+  names: string[];
+  /** How many daily events the file holds. */
+  inCalendar: number;
+  /** How many a new file would hold now. */
+  now: number;
+  /** Only what the events say has changed, their times and names are as they were (codex H4-05). */
+  wording?: true;
+}
+
+const same = <T,>(a: readonly T[], b: readonly T[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * The calendar copies a new file would no longer match (A-78). Their events
+ * still repeat, but the schedule here has changed since: quiet hours, a
+ * window or a time, a fluid limit, or a habit turned off; or what the events
+ * say has, their notes, alert text or length (a glass size, a precaution;
+ * codex H4-05). A file made before the times were kept is judged by its
+ * count and names alone, and one made before the words were kept, without
+ * them.
+ */
+export function staleCalendarCopies(habits: HabitSettings | undefined, profile: UserProfile | undefined, today: string): StaleCopy[] {
+  const current = calendarEvents(habits, profile);
+  return calendarCopies(habits, today).flatMap(copy => {
+    const entry = habits!.calendarExport![copy.habit]!;
+    const mine = current.filter(e => e.habit === copy.habit);
+    const names = [...new Set(mine.map(e => e.title))];
+    const schedule = (entry.minutes ? same(entry.minutes, mine.map(e => e.minute)) : entry.events === mine.length) && same(entry.titles, names);
+    const words = !entry.contents || same(entry.contents, mine.map(eventContent));
+    if (schedule && words) return [];
+    return [{ habit: copy.habit, names: entry.titles, inCalendar: entry.events, now: mine.length, ...(schedule ? { wording: true as const } : {}) }];
+  });
 }

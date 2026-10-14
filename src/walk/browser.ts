@@ -8,8 +8,11 @@
 import type { Fix } from './gps';
 import { createLiveWalk, type GeoError, type GeoPort, type LivePorts, type LiveWalk, type MotionPort, type VisibilityPort, type WakeLockPort } from './live';
 import { storeGate, watchClinical } from './gate';
+import { getState, markClockChange, subscribe } from '@/store/useStore';
 import { createWakeLockPort } from './wakeLock';
 import { sessionWalkStorage } from './persist';
+import { forgetCachedJournals, forgetCachedRoutes, journalPort } from './journalPort';
+import { erasedGeneration, walkSettings } from './consent';
 
 type MotionPermission = 'granted' | 'denied';
 
@@ -148,9 +151,15 @@ function visibilityPort(): VisibilityPort {
 
 export function browserPorts(): LivePorts {
   return {
-    mayRun: storeGate,
+    mayRun: intent => storeGate(intent),
     watchClinical,
+    // Settles once the device has stored the change; never while it can't, so the walk keeps its own record of it (H6F-03).
+    clockChanged: (days, seen) => markClockChange(days, seen).then(r => (r.ok ? undefined : new Promise<never>(() => {}))),
+    keepsRoutes: () => walkSettings(getState().settings).saveRoutes === true,
+    // F-data-01: the record a walk belongs to, so one replaced or deleted, in any tab, lets its walk go.
+    recordGeneration: () => getState().epoch,
     now: () => Date.now(),
+    monotonic: () => performance.now(),
     later(fn, ms) {
       const id = window.setTimeout(fn, ms);
       return () => window.clearTimeout(id);
@@ -160,13 +169,51 @@ export function browserPorts(): LivePorts {
     geolocation: geolocationPort(),
     motion: motionPort(),
     wakeLock: wakeLockPort(),
+    journal: journalPort(),
   };
 }
 
 let shared: LiveWalk | undefined;
 
-/** The one live walk for this tab, created on first use. */
+/**
+ * The one live walk for this tab, created on first use. B-05: "Erase all
+ * routes", in this tab or another, erases the route of the walk being
+ * recorded here too, and this page's journal copies forget theirs. Only an
+ * erase made after the store was read counts: the one already on record is
+ * no news to a walk begun since.
+ */
 export function liveWalk(): LiveWalk {
-  shared ??= createLiveWalk(browserPorts());
-  return shared;
+  if (shared) return shared;
+  const live = createLiveWalk(browserPorts());
+  shared = live;
+  /** The count of erases this tab knows of; `null` until the store has been read. */
+  let erased: number | null = null;
+  /** This phone's answer to keeping routes, as last heard. */
+  let keeps: boolean | null = null;
+  /** The record's generation as last heard (F-data-01). */
+  let epoch: number | null = null;
+  const heard = () => {
+    const state = getState();
+    if (state.status === 'loading') return;
+    // The record replaced or everything deleted, here or in another tab: the walk on this page was that
+    // record's, so it goes, with its draft and this page's copies of its checkpoints, writing nothing back.
+    if (epoch !== null && state.epoch !== epoch) {
+      forgetCachedJournals();
+      live.discard();
+    }
+    epoch = state.epoch;
+    // Keep walk routes turned off, here or in another tab: the journal lets go of the route at once (K6R-14).
+    const keepsNow = walkSettings(state.settings).saveRoutes === true;
+    if (keeps !== null && keepsNow !== keeps) live.routeConsentChanged();
+    keeps = keepsNow;
+    const count = erasedGeneration(state.settings.walk);
+    if (erased === null) { erased = count; return; }
+    if (count === erased) return;
+    erased = count;
+    forgetCachedRoutes();
+    live.forgetRoute();
+  };
+  heard();
+  subscribe(heard);
+  return live;
 }

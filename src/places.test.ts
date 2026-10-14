@@ -36,9 +36,16 @@ describe('placeExists', () => {
     expect(placeExists('/track/reading/%E0%A4%A', record)).toBe(false);
   });
 
+  it('checks a past workout at its v2 address in Trends as well as at /track (codex V1-06)', () => {
+    expect(placeExists('/trends/workout/s1', record)).toBe(true);
+    const empty = { observations: [], sessions: [], checkIns: [] };
+    expect(placeExists('/trends/workout/s1', empty)).toBe(false);
+    expect(placeExists('/trends/workout/1791430200000-w9yuanf', record)).toBe(false);
+  });
+
   it('lets every address that shows no single record through', () => {
     const empty = { observations: [], sessions: [], checkIns: [] };
-    for (const path of ['/track', '/track/workout', '/track/metric/glucose', '/track/back', '/today', '/move/exercises/cat-cow', '/guide/card/card-dal']) {
+    for (const path of ['/track', '/track/workout', '/trends/workout', '/trends', '/trends/glucose', '/track/metric/glucose', '/track/back', '/today', '/move/exercises/cat-cow', '/guide/card/card-dal']) {
       expect(placeExists(path, empty), path).toBe(true);
     }
   });

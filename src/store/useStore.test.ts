@@ -1,10 +1,16 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { CheckInRecord, Readiness } from '@/types/checkin';
 import type { WorkoutSession } from '@/types';
-import { dayOf, nowAt } from '@/health/observation';
+import { dayOf, newObservation, nowAt } from '@/health/observation';
 import { entryFor, isOrphanedReading, pairBloodPressure, summariseDay } from '@/health/aggregate';
+import { DB_NAME, DB_VERSION, openDb, readDoc } from './db';
 import { fakeIndexedDB } from './fakeIdb';
+import { commitChange } from './snapshot';
 import { decode } from './transfer';
+import { finishWalk, startWalk } from '@/walk/clock';
+import { journalEntry, type JournalEntry } from '@/walk/journal';
+import { walkObservations } from '@/walk/record';
+import { isoAt } from '@/walk/time';
 
 const local = new Map<string, string>();
 globalThis.localStorage = {
@@ -17,6 +23,7 @@ globalThis.localStorage = {
 } as Storage;
 
 const store = await import('./useStore');
+type BroadcastLike = import('./useStore').BroadcastLike;
 
 const readiness: Readiness = {
   outcome: 'green', modifiers: [], back: 'green', nerveFlag: false, reasons: [], actions: [],
@@ -720,6 +727,20 @@ describe('export and import, the only way out and back in (D17)', () => {
     expect(decoded.observations).toHaveLength(1);
   });
 
+  it('a record past a limit a restore applies still exports whole, and says so (D108, P8-17)', async () => {
+    await booted();
+    const lifts = Array.from({ length: 10_001 }, (_, i) => ({ exerciseId: `exercise-${i}`, weight: 20, reps: 5, date: '2026-10-01', volume: 100 }));
+    expect((await store.update(prev => ({ ...prev, personalRecords: lifts }))).ok).toBe(true);
+    const exported = await store.exportRecord();
+    if (!exported.ok) return expect.unreachable('export failed');
+    expect(exported.value.warning).toMatch(/^This backup holds everything, but it holds 10,001 personal records/);
+    expect(((await decode(exported.value.bytes)) as { personalRecords: unknown[] }).personalRecords).toHaveLength(10_001);
+    // Within every limit, nothing is said.
+    expect((await store.update(prev => ({ ...prev, personalRecords: lifts.slice(0, 3) }))).ok).toBe(true);
+    const fine = await store.exportRecord();
+    expect(fine.ok && fine.value.warning).toBeUndefined();
+  });
+
   it('imports a file and publishes what the device then holds', async () => {
     await booted();
     await store.putSession(session);
@@ -815,5 +836,708 @@ describe('export and import, the only way out and back in (D17)', () => {
     });
     expect(result.ok).toBe(false);
     expect(calls).toEqual([]);
+  });
+});
+
+describe('the v2 record stores (Plan 6 Task 1)', () => {
+  const LINE = { start: 1_760_000_000_000, end: 1_760_000_020_000, coords: [[12.97, 77.59], [12.9705, 77.5902], [12.971, 77.5905]] as [number, number][], ms: [0, 10_000, 20_000] };
+  const route = (walkId: string) => ({ walkId, version: 1, startedAt: '2026-10-08T09:00:00.000+05:30', segments: [LINE], bbox: [12.97, 77.59, 12.971, 77.5905] });
+
+  it('stamps schema 6 when it starts', async () => {
+    const fake = await booted();
+    const db = await openDb(fake);
+    expect(await readDoc(db, 'schemaVersion')).toBe(6);
+    db.close();
+  });
+
+  it('puts, keeps across a restart and removes routes, remembering the removal', async () => {
+    const fake = await booted();
+    expect((await store.putRecords('routes', [route('walk-aaaa')])).ok).toBe(true);
+    expect(store.getState().records.routes.map(r => r.walkId)).toEqual(['walk-aaaa']);
+    store.resetForTests();
+    await store.start({ factory: fake, broadcast: null });
+    expect(store.getState().records.routes).toHaveLength(1);
+    expect((await store.removeRecords('routes', ['walk-aaaa'])).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+    expect(store.getState().settings.deleted?.records?.routes).toEqual(['walk-aaaa']);
+  });
+
+  it('passes over a key that is not stored, writing nothing and remembering nothing', async () => {
+    const fake = await booted();
+    await store.putRecords('routes', [route('walk-aaaa')]);
+    const revision = store.getState().revision;
+    expect((await store.removeRecords('routes', ['walk-zzzz'])).ok).toBe(true);
+    expect(store.getState().revision).toBe(revision);
+    expect(store.getState().settings.deleted).toBeUndefined();
+    const db = await openDb(fake);
+    expect(await readDoc(db, 'revision')).toBe(revision);
+    db.close();
+  });
+
+  it('keeps another tab’s records when it writes after them (F04)', async () => {
+    const fake = await booted();
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { records: { routes: { put: [route('walk-aaaa')] } } } }))).ok).toBe(true);
+    tab.close();
+    // This copy hasn't heard: its write is planned again against what is stored.
+    expect((await store.putRecords('routes', [route('walk-bbbb')])).ok).toBe(true);
+    expect(store.getState().records.routes.map(r => r.walkId)).toEqual(['walk-aaaa', 'walk-bbbb']);
+  });
+
+  it('refuses a record its store cannot read, writing nothing', async () => {
+    await booted();
+    const result = await store.putRecords('routes', [{ walkId: 'walk-aaaa', version: 9 }]);
+    expect(!result.ok && result.failure.code).toBe('invalid');
+    expect(store.getState().records.routes).toEqual([]);
+  });
+
+  it('refuses a whole batch for one thing that is not a record, saying which, as a refusal and not a storage fault', async () => {
+    await booted();
+    const result = await store.putRecords('routes', [route('walk-aaaa'), null as never]);
+    expect(!result.ok && result.failure.code).toBe('invalid');
+    expect(!result.ok && result.failure.message).toMatch(/walk route 2: A record must be an object/);
+    expect(!result.ok && result.failure.details).toEqual([{ index: 1, reason: 'A record must be an object.' }]);
+    expect(store.getState().records.routes).toEqual([]);
+  });
+
+  it('backs up routes only when asked, and says which stores the file holds', async () => {
+    await booted();
+    await store.putRecords('routes', [route('walk-aaaa')]);
+    const plain = await store.exportRecord();
+    const withRoutes = await store.exportRecord({ include: ['routes'] });
+    expect(plain.ok && plain.value.stores).not.toContain('routes');
+    // The stores every backup holds stay in it when routes are included.
+    expect(withRoutes.ok && withRoutes.value.stores).toEqual(['routes', 'meals', 'savedMeals', 'customFoods']);
+    if (!withRoutes.ok) return;
+    const doc = (await decode(withRoutes.value.bytes)) as { records: { routes: unknown[] } };
+    expect(doc.records.routes).toHaveLength(1);
+  });
+
+  it('brings routes back from a backup that includes them onto a new phone once it says Yes, and asks first (H6-05, B-26)', async () => {
+    await booted();
+    await store.putRecords('routes', [route('walk-aaaa'), route('walk-bbbb')]);
+    const exported = await store.exportRecord({ include: ['routes'] });
+    if (!exported.ok) return expect.unreachable('export failed');
+    const file = await decode(exported.value.bytes);
+    store.resetForTests();
+    const phone = await booted();
+    // A new phone hasn't been asked: the file's routes are left out, and the preview says so.
+    expect(store.previewRecord(file)).toMatchObject({ ok: true, records: { routes: 2 }, refusedStores: ['routes'] });
+    const restored = await store.importRecord(file, 'replace');
+    expect(restored.ok && restored.value.records).toEqual({ meals: 0, savedMeals: 0, customFoods: 0 });
+    expect(store.getState().records.routes).toEqual([]);
+    expect(store.getState().settings.walk?.saveRoutes ?? 'unasked').toBe('unasked');
+    // Once this phone says Yes, the same file brings them back.
+    await store.setSettings({ walk: { saveRoutes: true, map: 'off' } });
+    expect((await store.importRecord(file, 'merge')).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([route('walk-aaaa'), route('walk-bbbb')]);
+    // Stored, not only shown.
+    store.resetForTests();
+    await store.start({ factory: phone, broadcast: null });
+    expect(store.getState().records.routes).toEqual([route('walk-aaaa'), route('walk-bbbb')]);
+  });
+
+  it('clears every v2 store and the walk journal with the rest of the record', async () => {
+    const fake = await booted();
+    await store.putRecords('routes', [route('walk-aaaa')]);
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { journal: { put: [{ id: 'walk-bbbb' }] } } }))).ok).toBe(true);
+    expect(await tab.getAll('walkJournal')).toHaveLength(1);
+    expect((await store.clearAll()).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+    expect(await tab.getAll('routes')).toEqual([]);
+    expect(await tab.getAll('walkJournal')).toEqual([]);
+    tab.close();
+  });
+});
+
+describe('a phone the previous build left behind, and its other tabs (journey §18.3, B-21)', () => {
+  const reading = newObservation({ id: 'g1', kind: 'glucose', value: 112, scope: 'pointInTime', source: 'manual', at: '2026-10-08T07:30:00+05:30' });
+  const settings = { theme: 'dark', defaultRestSeconds: 75, onboardingComplete: true };
+  const route = { walkId: 'walk-aaaa', version: 1, startedAt: '2026-10-08T09:00:00.000+05:30', segments: [{ start: 0, end: 10_000, coords: [[12.97, 77.59], [12.971, 77.59]], ms: [0, 10_000] }], bbox: [12.97, 77.59, 12.971, 77.59] };
+  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  /** IndexedDB 1 at schema 5, as v1 leaves it: its four stores, a reading, a session and its settings. */
+  async function v1Phone(factory: IDBFactory): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const req = factory.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        const o = db.createObjectStore('observations', { keyPath: 'id' });
+        o.createIndex('kind', 'kind');
+        o.createIndex('day', 'day');
+        db.createObjectStore('sessions', { keyPath: 'id' });
+        db.createObjectStore('settings', { keyPath: 'key' });
+        db.createObjectStore('content-state', { keyPath: 'key' });
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['observations', 'sessions', 'settings'], 'readwrite');
+        tx.objectStore('observations').put(reading);
+        tx.objectStore('sessions').put(session);
+        for (const row of [{ key: 'schemaVersion', value: 5 }, { key: 'settings', value: settings }, { key: 'revision', value: 7 }]) tx.objectStore('settings').put(row);
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onabort = () => reject(tx.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /** Another tab still running v1: a connection at version 1. */
+  const v1Tab = (factory: IDBFactory) => new Promise<IDBDatabase>(resolve => {
+    const req = factory.open(DB_NAME, 1);
+    req.onsuccess = () => resolve(req.result);
+  });
+
+  it('opens it with every record as it was, stamps 6, and never moves the old v4 copy again (Review Focus 1)', async () => {
+    const fake = fakeIndexedDB();
+    await v1Phone(fake);
+    // Every v1 phone still holds its v4 blob, with older settings than the record's.
+    local.set('fit-strong-90-data', JSON.stringify({ version: 4, settings: { theme: 'light', defaultRestSeconds: 120 }, sessions: [], bodyMetrics: [], personalRecords: [] }));
+    await store.start({ factory: fake, broadcast: null });
+    const state = store.getState();
+    expect(state.status).toBe('ready');
+    expect(state.settings).toMatchObject(settings);
+    expect(state.observations.map(o => o.id)).toEqual(['g1']);
+    expect(state.sessions).toEqual([session]);
+    expect(state.records).toEqual({ routes: [], meals: [], savedMeals: [], customFoods: [] });
+    const db = await openDb(fake);
+    expect(await readDoc(db, 'schemaVersion')).toBe(6);
+    expect(await readDoc(db, 'settings')).toEqual(settings);
+    // The stored rows themselves are untouched: the stamp writes only its marker.
+    expect(await db.get('observations', 'g1')).toEqual(reading);
+    expect(await db.get('sessions', 'session-1')).toEqual(session);
+    db.close();
+  });
+
+  it('waits for a v1 tab still holding the database, then upgrades it and saves again (B-21)', async () => {
+    const fake = fakeIndexedDB();
+    await v1Phone(fake);
+    const old = await v1Tab(fake);
+    // A v1 tab part-way through its own start, which lets go only later.
+    old.onversionchange = () => undefined;
+    const starting = store.start({ factory: fake, broadcast: null });
+    await delay(5);
+    expect(store.getState()).toMatchObject({ status: 'unavailable', failure: { code: 'blocked' } });
+    expect(store.storageNotice()?.title).toMatch(/other tabs/);
+    old.close();
+    await starting;
+    expect(store.getState().status).toBe('ready');
+    expect(store.getState().failure).toBeUndefined();
+    expect(store.getState().sessions).toEqual([session]);
+    expect((await store.putRecords('routes', [route])).ok).toBe(true);
+    const db = await openDb(fake);
+    expect(await readDoc(db, 'schemaVersion')).toBe(6);
+    expect(await db.getAll('routes')).toHaveLength(1);
+    db.close();
+  });
+
+  it('lets go at once when another copy upgrades while it is still starting, and says to open FitStrong again (B-21)', async () => {
+    const fake = fakeIndexedDB();
+    // Part-way through its start: its first write waits to commit.
+    fake.control.hold();
+    const starting = store.start({ factory: fake, broadcast: null });
+    await delay(5);
+    const upgraded = new Promise<string>(resolve => {
+      const req = fake.open(DB_NAME, DB_VERSION + 1);
+      req.onsuccess = () => { (req.result as IDBDatabase).close(); resolve('opened'); };
+    });
+    expect(await Promise.race([upgraded, delay(50).then(() => 'still blocked')])).toBe('opened');
+    fake.control.release();
+    await starting;
+    expect(store.getState()).toMatchObject({ status: 'unavailable', failure: { code: 'stale' } });
+    expect(store.storageNotice()?.detail).toMatch(/Close this window and open FitStrong again/);
+    expect(fake.control.openConnections()).toBe(0);
+  });
+
+  it('keeps working at 5 when the stamp cannot be written, and stamps 6 on the next start', async () => {
+    let refuse = false;
+    const fake = fakeIndexedDB({ failWrite: (s, v) => (refuse && s === 'settings' && v.key === 'schemaVersion' ? new DOMException('The operation failed.', 'QuotaExceededError') : undefined) });
+    await v1Phone(fake);
+    refuse = true;
+    await store.start({ factory: fake, broadcast: null });
+    expect(store.getState().status).toBe('ready');
+    expect(store.getState().sessions).toEqual([session]);
+    let db = await openDb(fake);
+    expect(await readDoc(db, 'schemaVersion')).toBe(5);
+    db.close();
+    expect((await store.putRecords('routes', [route])).ok).toBe(true);
+    refuse = false;
+    store.resetForTests();
+    await store.start({ factory: fake, broadcast: null });
+    db = await openDb(fake);
+    expect(await readDoc(db, 'schemaVersion')).toBe(6);
+    expect(store.getState().records.routes).toHaveLength(1);
+    expect(store.getState().sessions).toEqual([session]);
+    db.close();
+  });
+});
+
+describe('saving a walk with its route and its journal (journey §18.3, A-55)', () => {
+  const WALK = 'mgh3k2x1-1a2b3c4d';
+  const T = Date.UTC(2026, 9, 8, 3, 30, 0);
+  const LINE = { start: T, end: T + 20_000, coords: [[12.97, 77.59], [12.9705, 77.5902], [12.971, 77.5905]] as [number, number][], ms: [0, 10_000, 20_000] };
+  const ROUTE = { walkId: WALK, version: 1 as const, startedAt: '2026-10-08T09:00:00.000+05:30', segments: [LINE], bbox: [12.97, 77.59, 12.971, 77.5905] as [number, number, number, number] };
+  const walked = () => finishWalk(startWalk(WALK, { kind: 'walk', gps: true, steps: false, keepRoute: true }, T), T + 600_000, 'finish');
+  const ofWalk = () => store.getState().observations.filter(o => o.context === `walk:${WALK}`);
+  /** This phone said yes to keeping routes: the only way one is kept (H6-04). */
+  const keepsRoutes = () => store.setSettings({ walk: { saveRoutes: true, map: 'off' } });
+
+  it('writes the records and the route, and retires the journal, together and once', async () => {
+    await booted();
+    await keepsRoutes();
+    expect((await store.putWalkJournal(journalEntry(walked(), T + 600_000))).ok).toBe(true);
+    const input = { walkId: WALK, observations: walkObservations(walked()), route: ROUTE };
+    expect((await store.saveWalk(input)).ok).toBe(true);
+    const first = ofWalk();
+    expect((await store.saveWalk(input)).ok).toBe(true);
+    // A second tap writes nothing it already wrote: the stored records are untouched.
+    expect(ofWalk()).toEqual(first);
+    expect(ofWalk()).toHaveLength(walkObservations(walked()).length);
+    expect(store.getState().records.routes.map(r => r.walkId)).toEqual([WALK]);
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value).toEqual([]);
+  });
+
+  it('leaves everything as it was when the save fails: no records, no route, the journal kept (V-J34)', async () => {
+    await booted({ quotaAfter: 0, quotaStore: 'routes' });
+    await keepsRoutes();
+    await store.putWalkJournal(journalEntry(walked(), T));
+    const result = await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    expect(!result.ok && result.failure.code).toBe('quotaExceeded');
+    expect(ofWalk()).toEqual([]);
+    expect(store.getState().records.routes).toEqual([]);
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value.map(e => e.id)).toEqual([WALK]);
+  });
+
+  for (const consent of [undefined, 'unasked', false] as const) {
+    it(`keeps no route on a phone whose consent is ${String(consent ?? 'missing')}, whatever the walk was given (H6-04)`, async () => {
+      await booted();
+      if (consent !== undefined) await store.setSettings({ walk: { saveRoutes: consent, map: 'off' } });
+      await store.putWalkJournal(journalEntry(walked(), T + 600_000, [LINE]));
+      expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE })).ok).toBe(true);
+      expect(ofWalk().length).toBeGreaterThan(0);
+      expect(store.getState().records.routes).toEqual([]);
+      const left = await store.readWalkJournals();
+      expect(left.ok && left.value).toEqual([]);
+    });
+  }
+
+  it('takes the route from the walk’s journal inside the save, when the screen has none yet, and only then retires it (H6-06)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.putWalkJournal(journalEntry(walked(), T + 600_000, [LINE]));
+    const saved = await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), routeStartedAt: ROUTE.startedAt });
+    expect(saved.ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([ROUTE]);
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value).toEqual([]);
+  });
+
+  it('keeps a route given by the screen over the journal’s, and saves a walk whose journal holds none (H6-06)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.putWalkJournal(journalEntry(walked(), T + 600_000));
+    expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), routeStartedAt: ROUTE.startedAt })).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+    expect(ofWalk().length).toBeGreaterThan(0);
+  });
+
+  const another = () => startWalk('mgh3k2x2-2b3c4d5e', { kind: 'walk', gps: true, steps: false, keepRoute: true }, T + 3_600_000);
+
+  it('erases every route for good, keeps the walks, and leaves no coordinate anywhere (B-05)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    await store.putWalkJournal(journalEntry(another(), T + 3_660_000, [LINE]));
+    expect((await store.eraseRoutes()).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+    expect(store.getState().settings.deleted?.records?.routes).toEqual([WALK]);
+    expect(ofWalk().length).toBeGreaterThan(0);
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value.map(e => [e.id, e.route])).toEqual([['mgh3k2x2-2b3c4d5e', undefined]]);
+    expect(store.getState().settings.walk?.erased).toEqual({ generation: 1, walks: [WALK, 'mgh3k2x2-2b3c4d5e'].sort() });
+    expect(JSON.stringify({ state: store.getState(), journals: left.ok ? left.value : [] })).not.toMatch(/12\.97|77\.59/);
+  });
+
+  it('never keeps a route of a walk that started before the erase, whichever screen saves it, whatever the clock says (B-05, K6R-12)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.eraseRoutes();
+    // Begun before the erase, in the generation before it; its route timed later than any clock could say.
+    const route = { ...ROUTE, startedAt: isoAt(Date.now() + 86_400_000, 330) };
+    expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route, routeGen: 0 })).ok).toBe(true);
+    expect(ofWalk().length).toBeGreaterThan(0);
+    expect(store.getState().records.routes).toEqual([]);
+    // Nor from the journal, read in the save: a checkpoint written after the erase holds no route either (H6R-06).
+    await store.putWalkJournal(journalEntry(another(), T + 3_660_000, [LINE]));
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value.map(e => e.route)).toEqual([undefined]);
+    expect((await store.saveWalk({ walkId: 'mgh3k2x2-2b3c4d5e', observations: walkObservations(finishWalk(another(), T + 3_700_000, 'finish')), routeStartedAt: ROUTE.startedAt, routeGen: 0 })).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+  });
+
+  it('keeps the route of a walk begun since the erase, though the clock was ahead when it erased (K6R-12)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.eraseRoutes();
+    // The walk began after the erase, in its generation; its clock reads a day earlier than the erase's.
+    const since = { ...ROUTE, startedAt: isoAt(Date.now() - 86_400_000, 330) };
+    expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: since, routeGen: 1 })).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([since]);
+  });
+
+  it('keeps erased routes erased through a backup made before, merged or replaced (B-05, H6-07)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    const exported = await store.exportRecord({ include: ['routes'] });
+    if (!exported.ok) return expect.unreachable('export failed');
+    const file = await decode(exported.value.bytes);
+    await store.eraseRoutes();
+    for (const mode of ['merge', 'replace'] as const) {
+      expect((await store.importRecord(file, mode)).ok).toBe(true);
+      expect(store.getState().records.routes).toEqual([]);
+    }
+    expect(store.getState().settings.walk?.erased).toEqual({ generation: 1, walks: [WALK] });
+  });
+
+  it('keeps a route deleted before the erase erased too, so a Replace from a backup holding it brings nothing back (H6R-08)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    const exported = await store.exportRecord({ include: ['routes'] });
+    if (!exported.ok) return expect.unreachable('export failed');
+    const file = await decode(exported.value.bytes);
+    // The walk's route deleted on its own, then every route erased: the backup's settings know neither.
+    await store.removeRecords('routes', [WALK]);
+    await store.eraseRoutes();
+    expect(store.getState().settings.walk?.erased?.walks).toEqual([WALK]);
+    expect((await store.importRecord(file, 'replace')).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+    expect(store.getState().settings.walk?.erased).toEqual({ generation: 1, walks: [WALK] });
+  });
+
+  it('turns an erase made before board D176 into this phone’s erase record as it starts: no route of a walk begun by then comes back, by Merge or Replace (H6F-07, board D210)', async () => {
+    const fake = await booted();
+    await keepsRoutes();
+    await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    // One its clock, ahead then, says began after the erase.
+    const ahead = { ...ROUTE, walkId: 'mgh3k2x8-8a8a8a8a', startedAt: '2026-10-08T12:00:00.000+05:30' };
+    await store.saveWalk({ walkId: ahead.walkId, observations: [], route: ahead });
+    const exported = await store.exportRecord({ include: ['routes'] });
+    if (!exported.ok) return expect.unreachable('export failed');
+    const file = await decode(exported.value.bytes);
+    // As the version before board D176 erased: the routes removed, so remembered as deleted, and the moment it erased.
+    const erasedAt = T + 3_600_000;
+    const older = await openDb(fake);
+    expect((await commitChange(older, undefined, () => ({ change: { records: { routes: { remove: [WALK, ahead.walkId] } }, settings: { patch: { walk: { saveRoutes: true, map: 'off', routesErasedAt: erasedAt } as never } } } }))).ok).toBe(true);
+    older.close();
+    // This version starts on it.
+    store.resetForTests();
+    await store.start({ factory: fake, broadcast: null });
+    await vi.waitFor(() => expect(store.getState().settings.walk?.erased).toEqual({ generation: 0, walks: [ahead.walkId, WALK].sort(), before: erasedAt }));
+    expect(store.getState().settings.walk).not.toHaveProperty('routesErasedAt');
+    // The backup's route, another phone's walk begun before the erase, and one begun after it.
+    const other = { ...ROUTE, walkId: 'mgh3k2x9-9z9z9z9z', startedAt: '2026-10-08T09:10:00.000+05:30' };
+    const later = { ...ROUTE, walkId: 'mgh3k2y0-0a0a0a0a', startedAt: '2026-10-08T11:00:00.000+05:30' };
+    const doc = file as { records?: { routes?: unknown[] } };
+    const withOthers = { ...doc, records: { ...doc.records, routes: [...(doc.records?.routes ?? []), other, later] } };
+    for (const mode of ['merge', 'replace'] as const) {
+      expect((await store.importRecord(withOthers, mode)).ok).toBe(true);
+      expect(store.getState().records.routes.map(r => r.walkId), mode).toEqual([later.walkId]);
+    }
+    // A walk recorded since keeps its route; one its clock says began by then doesn't, conservatively.
+    expect((await store.saveWalk({ walkId: 'mgh3k2y1-1b1b1b1b', observations: [], route: { ...ROUTE, walkId: 'mgh3k2y1-1b1b1b1b', startedAt: '2026-10-08T10:30:00.000+05:30' }, routeGen: 0 })).ok).toBe(true);
+    expect((await store.saveWalk({ walkId: 'mgh3k2y2-2c2c2c2c', observations: [], route: { ...ROUTE, walkId: 'mgh3k2y2-2c2c2c2c', startedAt: '2026-10-08T10:00:00.000+05:30' }, routeGen: 0 })).ok).toBe(true);
+    expect(store.getState().records.routes.map(r => r.walkId).sort()).toEqual([later.walkId, 'mgh3k2y1-1b1b1b1b'].sort());
+    // A walk's checkpoint, the same: kept for one begun since, not for one its clock says began by then.
+    const since = startWalk('mgh3k2y3-3d3d3d3d', { kind: 'walk', gps: true, steps: false, keepRoute: true, routeGen: 0 }, erasedAt + 1000);
+    const by = startWalk('mgh3k2y4-4e4e4e4e', { kind: 'walk', gps: true, steps: false, keepRoute: true, routeGen: 0 }, erasedAt);
+    await store.putWalkJournal(journalEntry(since, erasedAt + 2000, [LINE]));
+    await store.putWalkJournal(journalEntry(by, erasedAt + 2000, [LINE]));
+    const journals = await store.readWalkJournals();
+    expect(journals.ok && Object.fromEntries(journals.value.map(e => [e.id, e.route !== undefined]))).toMatchObject({ [since.id]: true, [by.id]: false });
+  });
+
+  it('never dates an erase made before board D176 later than the moment it is turned into a record: a clock ahead then drops no walk since (H6F-07, board D210)', async () => {
+    const fake = await booted();
+    const older = await openDb(fake);
+    expect((await commitChange(older, undefined, () => ({ change: { settings: { patch: { walk: { saveRoutes: true, map: 'off', routesErasedAt: Date.now() + 86_400_000 } as never } } } }))).ok).toBe(true);
+    older.close();
+    store.resetForTests();
+    const started = Date.now();
+    await store.start({ factory: fake, broadcast: null });
+    await vi.waitFor(() => expect(store.getState().settings.walk?.erased).toBeDefined());
+    expect(store.getState().settings.walk?.erased?.before).toBeGreaterThanOrEqual(started);
+    expect(store.getState().settings.walk?.erased?.before).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('keeps a route deleted on this phone deleted through a Replace from a backup made before (H6F-07, board D210)', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    const exported = await store.exportRecord({ include: ['routes'] });
+    if (!exported.ok) return expect.unreachable('export failed');
+    const file = await decode(exported.value.bytes);
+    // Deleted on its own, with no erase: the backup's settings know nothing of it.
+    await store.removeRecords('routes', [WALK]);
+    expect((await store.importRecord(file, 'replace')).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+    expect(store.getState().settings.deleted?.records?.routes).toContain(WALK);
+    // So a Merge of the same backup later brings nothing back either.
+    expect((await store.importRecord(file, 'merge')).ok).toBe(true);
+    expect(store.getState().records.routes).toEqual([]);
+  });
+
+  it('shows an erase only once it is stored: one that fails was never published, so nothing listening forgot a route (H6R-09)', async () => {
+    let refuse = false;
+    await booted({ failWrite: (s, v) => (refuse && s === 'settings' && v.key === 'settings' ? new DOMException('Disk is full', 'QuotaExceededError') : undefined) });
+    await keepsRoutes();
+    await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    const seen: unknown[] = [];
+    const stop = store.subscribe(() => seen.push(store.getState().settings.walk?.erased));
+    refuse = true;
+    const erasing = store.eraseRoutes();
+    // Not on screen while it is being written.
+    expect(store.getState().settings.walk?.erased).toBeUndefined();
+    const done = await erasing;
+    stop();
+    expect(done.ok).toBe(false);
+    expect(seen.every(e => e === undefined)).toBe(true);
+    expect(store.getState().records.routes).toEqual([ROUTE]);
+    // Stored, it shows.
+    refuse = false;
+    expect((await store.eraseRoutes()).ok).toBe(true);
+    expect(store.getState().settings.walk?.erased?.generation).toBe(1);
+  });
+
+  it('writes no coordinates back from a checkpoint made before another tab erased routes or said No, its own transaction says (H6R-06)', async () => {
+    const fake = await booted();
+    await keepsRoutes();
+    // Another tab erases every route; this one hasn't heard.
+    const tab = await openDb(fake);
+    const theirs = { saveRoutes: true as const, map: 'off' as const, erased: { generation: 1, walks: [WALK] } };
+    expect((await commitChange(tab, undefined, () => ({ change: { settings: { patch: { walk: theirs } } } }))).ok).toBe(true);
+    expect(store.getState().settings.walk?.erased).toBeUndefined();
+    await store.putWalkJournal(journalEntry(another(), T + 3_660_000, [LINE]));
+    let left = await store.readWalkJournals();
+    expect(left.ok && left.value.map(e => [e.id, e.route])).toEqual([['mgh3k2x2-2b3c4d5e', undefined]]);
+    // Or says No to keeping routes, a walk begun since its erase included.
+    const since = startWalk('mgh3k2x3-3c4d5e6f', { kind: 'walk', gps: true, steps: false, keepRoute: true, routeGen: 1 }, T + 7_200_000);
+    await store.putWalkJournal(journalEntry(since, T + 7_260_000, [LINE]));
+    left = await store.readWalkJournals();
+    expect(left.ok && left.value.find(e => e.id === since.id)?.route).toEqual([LINE]);
+    expect((await commitChange(tab, undefined, () => ({ change: { settings: { patch: { walk: { ...theirs, saveRoutes: false } } } } }))).ok).toBe(true);
+    tab.close();
+    await store.putWalkJournal(journalEntry(since, T + 7_320_000, [LINE]));
+    left = await store.readWalkJournals();
+    expect(left.ok && left.value.find(e => e.id === since.id)?.route).toBeUndefined();
+  });
+
+  it('changes one walk answer at a time, against what is stored: another tab’s erase and answers stay (H6R-07)', async () => {
+    const fake = await booted();
+    await store.setSettings({ walk: { saveRoutes: true, map: 'unasked' } });
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { settings: { patch: { walk: { saveRoutes: false, map: 'unasked', erased: { generation: 1, walks: [WALK] } } } } } }))).ok).toBe(true);
+    tab.close();
+    // This tab still shows Yes and no erase, and answers the map question.
+    expect(store.getState().settings.walk).toEqual({ saveRoutes: true, map: 'unasked' });
+    expect((await store.setWalkSettings({ map: 'on' })).ok).toBe(true);
+    expect(store.getState().settings.walk).toEqual({ saveRoutes: false, map: 'on', erased: { generation: 1, walks: [WALK] } });
+  });
+
+  it('keeps what a journal holds beside the section a page walked while still reading it back, and saves both (H6R-10)', async () => {
+    await booted();
+    await keepsRoutes();
+    const later = { start: T + 700_000, end: T + 710_000, coords: [[12.972, 77.591], [12.9725, 77.5912]] as [number, number][], ms: [0, 10_000] };
+    await store.putWalkJournal(journalEntry(walked(), T + 600_000, [LINE]));
+    // After a reload, before the route has been read back: only the section walked since.
+    const merged = await store.putWalkJournal(journalEntry(walked(), T + 720_000, [later]), { keepJournalled: true });
+    let left = await store.readWalkJournals();
+    expect(left.ok && left.value[0].route).toEqual([LINE, later]);
+    // It answers with what it stored, both sections, for the page to hold in their place (H6F-08).
+    expect(merged.ok && merged.value.route).toEqual([LINE, later]);
+    // And with a route it left out, without it.
+    await store.setWalkSettings({ saveRoutes: false });
+    const left_out = await store.putWalkJournal(journalEntry(walked(), T + 725_000, [later]));
+    expect(left_out.ok && left_out.value.route).toBeUndefined();
+    await keepsRoutes();
+    // A page that holds every line writes them as they are.
+    await store.putWalkJournal(journalEntry(walked(), T + 730_000, [later]));
+    left = await store.readWalkJournals();
+    expect(left.ok && left.value[0].route).toEqual([later]);
+    // The summary of a walk whose screen never read the first section back saves both.
+    await store.putWalkJournal(journalEntry(walked(), T + 740_000, [LINE]));
+    const partial = { ...ROUTE, segments: [later], bbox: [12.972, 77.591, 12.9725, 77.5912] as [number, number, number, number] };
+    expect((await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: partial })).ok).toBe(true);
+    expect(store.getState().records.routes[0]?.segments).toEqual([LINE, later]);
+  });
+
+  it('reads back only the checkpoints it can trust', async () => {
+    await booted();
+    await store.putWalkJournal(journalEntry(walked(), T));
+    await store.putWalkJournal({ ...journalEntry(walked(), T), id: 'walk-zzzz', version: 9 } as unknown as JournalEntry);
+    const read = await store.readWalkJournals();
+    expect(read.ok && read.value.map(e => e.id)).toEqual([WALK]);
+  });
+
+  it('removes a walk, its route and its journal together', async () => {
+    await booted();
+    await keepsRoutes();
+    await store.saveWalk({ walkId: WALK, observations: walkObservations(walked()), route: ROUTE });
+    expect(store.getState().records.routes.map(r => r.walkId)).toEqual([WALK]);
+    await store.putWalkJournal(journalEntry(walked(), T));
+    expect((await store.removeWalk(WALK, ofWalk().map(o => o.id))).ok).toBe(true);
+    expect(ofWalk()).toEqual([]);
+    expect(store.getState().records.routes).toEqual([]);
+    const left = await store.readWalkJournals();
+    expect(left.ok && left.value).toEqual([]);
+  });
+});
+
+describe('update with readings (journey §18.1: weight and height are dated readings)', () => {
+  it('stores the change and the readings in one write', async () => {
+    await booted();
+    const result = await store.update(previous => ({ ...previous, settings: { ...previous.settings, currentWeight: 80 } }), {
+      addObservations: [{ kind: 'weight', value: 80, unit: 'kg', scope: 'pointInTime', source: 'manual', context: 'profile' }],
+    });
+    expect(result.ok).toBe(true);
+    const state = store.getState();
+    expect(state.settings.currentWeight).toBe(80);
+    expect(state.observations.filter(o => o.kind === 'weight').map(o => [o.value, o.context])).toEqual([[80, 'profile']]);
+  });
+
+  it('stores neither when the reading is refused', async () => {
+    await booted({ failWrite: storeName => (storeName === 'observations' ? new DOMException('Disk is full', 'QuotaExceededError') : undefined) });
+    const result = await store.update(previous => ({ ...previous, settings: { ...previous.settings, currentWeight: 81 } }), {
+      addObservations: [{ kind: 'height', value: 170, unit: 'cm', scope: 'pointInTime', source: 'manual', context: 'profile' }],
+    });
+    expect(result.ok).toBe(false);
+    expect(store.getState().settings.currentWeight).not.toBe(81);
+    expect(store.getState().observations).toEqual([]);
+  });
+
+  it('gives each reading one identity however often the change is planned', async () => {
+    let refuse = true;
+    await booted({ failWrite: (s, v) => (refuse && s === 'settings' && v.key === 'settings' ? new DOMException('Disk is full', 'QuotaExceededError') : undefined) });
+    const waists = () => store.getState().observations.filter(o => o.kind === 'waist');
+    // Queued behind a write that is then refused: planned once on what is shown, and again on what was stored.
+    const first = store.update(previous => ({ ...previous, settings: { ...previous.settings, theme: 'dark' } }));
+    const second = store.update(previous => previous, { addObservations: [{ kind: 'waist', value: 90, unit: 'cm', scope: 'pointInTime', source: 'manual' }] });
+    const shown = waists().map(o => [o.id, o.at]);
+    expect((await first).ok).toBe(false);
+    refuse = false;
+    expect((await second).ok).toBe(true);
+    expect(shown).toHaveLength(1);
+    expect(waists().map(o => [o.id, o.at])).toEqual(shown);
+    // A reading already stored under its id is never written over by the same write planned again.
+    const [id] = shown[0];
+    await store.update(previous => previous, { addObservations: [{ id, kind: 'waist', value: 95, unit: 'cm', scope: 'pointInTime', source: 'manual' }] });
+    expect(waists().map(o => o.value)).toEqual([90]);
+  });
+});
+
+describe('a gate’s profile is never stored as one (board D197)', () => {
+  it('a profile marked for this session’s unsaved answers is kept without the mark', async () => {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const fake = await booted();
+    const profile = createDefaultProfile({ weightKg: 70 });
+    expect((await store.update(d => ({ ...d, profile: { ...profile, clinicalUnsaved: true } }))).ok).toBe(true);
+    expect(store.getState().profile?.clinicalUnsaved).toBeUndefined();
+    const db = await openDb(fake);
+    expect((await readDoc(db, 'profile') as { clinicalUnsaved?: unknown }).clinicalUnsaved).toBeUndefined();
+    db.close();
+  });
+});
+
+describe('the record’s generation, the same in every copy (H5R-09, K5R-03)', () => {
+  const settle = async (until: () => boolean) => {
+    for (let i = 0; i < 50 && !until(); i++) await new Promise(r => setTimeout(r, 5));
+  };
+
+  it('Replace and Delete everything move it on, in the same transaction, and it is kept', async () => {
+    const fake = await booted();
+    const first = store.getState().epoch;
+    expect((await store.clearAll()).ok).toBe(true);
+    expect(store.getState().epoch).toBe(first + 1);
+    const db = await openDb(fake);
+    expect(await readDoc(db, 'generation')).toBe(first + 1);
+    db.close();
+    store.resetForTests();
+    await store.start({ factory: fake, broadcast: null });
+    expect(store.getState().epoch).toBe(first + 1);
+  });
+
+  it('another copy’s Replace: a write planned for the record before is refused inside its transaction, and this copy moves on', async () => {
+    let channel: BroadcastLike | undefined;
+    const fake = fakeIndexedDB();
+    await store.start({ factory: fake, broadcast: () => (channel = { onmessage: null, postMessage() {}, close() {} }) });
+    const before = store.getState().epoch;
+    const tab = await openDb(fake);
+    expect((await commitChange(tab, undefined, () => ({ change: { reset: true, schemaVersion: 6 } }))).ok).toBe(true);
+    tab.close();
+    const late = await store.update(d => ({ ...d, settings: { ...d.settings, useMetric: false } }), { generation: before });
+    expect(late.ok ? undefined : late.failure.message).toBe(store.REPLACED);
+    // Told of the other copy's write, this one takes the new record, and its generation.
+    channel?.onmessage?.({ data: { revision: Number.MAX_SAFE_INTEGER } });
+    await settle(() => store.getState().epoch !== before);
+    expect(store.getState().epoch).toBe(before + 1);
+  });
+});
+
+describe('Replace from a backup keeps this device’s open incidents (journey §4.6, H6-03)', () => {
+  it('leaves a low recorded after the backup holding the walk, through the store and the device’s own gate', async () => {
+    const { createDefaultProfile } = await import('@/profile/defaults');
+    const { evaluateCheckIn } = await import('@/engine/readiness');
+    const { storeStartPermission } = await import('@/walk/gate');
+    const { toTransferDoc } = await import('./transfer');
+    const { emptySnapshot } = await import('./snapshot');
+    await booted();
+    const profile = createDefaultProfile({
+      weightKg: 72,
+      health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
+    });
+    const now = new Date();
+    const date = dayOf(nowAt());
+    const minutesAgo = (m: number) => new Date(now.getTime() - m * 60_000).toISOString();
+    const day = (glucose: { value: number; measuredAt: string }[]) => {
+      const c = {
+        date, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7' as const, energy: 4 as const,
+        glucose: { ...glucose.at(-1)!, unit: 'mg/dL' as const, source: 'meter' as const },
+        ...(glucose.length > 1 ? { glucoseEarlier: glucose.slice(0, -1).map(g => ({ ...g, unit: 'mg/dL' as const, source: 'meter' as const })) } : {}),
+      };
+      return { ...c, readiness: evaluateCheckIn(profile, c) };
+    };
+    // The backup: a normal reading 12 minutes ago. Then, on this phone, a low 5 minutes ago.
+    const backup = toTransferDoc({ ...emptySnapshot(), profile, checkIns: [day([{ value: 110, measuredAt: minutesAgo(12) }])] });
+    await store.update(prev => ({ ...prev, profile, checkIns: [day([{ value: 110, measuredAt: minutesAgo(12) }, { value: 60, measuredAt: minutesAgo(5) }])] }));
+    expect(storeStartPermission(now).allowed).toBe(false);
+    expect(store.previewRecord(backup)).toMatchObject({ ok: true, keepsOpen: true });
+
+    expect((await store.importRecord(backup, 'replace')).ok).toBe(true);
+    const held = storeStartPermission(new Date());
+    expect(held.allowed).toBe(false);
+    expect(store.getState().checkIns.find(c => c.date === date)?.glucose?.value).toBe(60);
+  });
+});
+
+describe('checking a backup reads it back whole (B-25, H4-02)', () => {
+  it('finds the app’s own export whole, and the same file missing its sessions not whole, though it keeps the latest date', async () => {
+    const { checkOutcome } = await import('@/screens/you/dataStatus');
+    await booted();
+    await store.putSession(session);
+    await store.addObservation({ kind: 'glucose', value: 110, scope: 'pointInTime', source: 'manual' });
+    const exported = await store.exportRecord();
+    if (!exported.ok) return expect.unreachable('export failed');
+    const raw = await decode(exported.value.bytes) as Record<string, unknown>;
+    const preview = store.previewRecord(raw);
+    if (!preview.ok) return expect.unreachable(preview.reason);
+    expect(checkOutcome(preview, exported.value.exportedAt)).toBe('latest');
+    const cut = store.previewRecord({ ...raw, sessions: [] });
+    if (!cut.ok) return expect.unreachable(cut.reason);
+    expect(cut.exportedAt).toBe(exported.value.exportedAt);
+    expect(checkOutcome(cut, exported.value.exportedAt)).toBe('incomplete');
   });
 });

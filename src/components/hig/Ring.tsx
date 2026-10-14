@@ -1,6 +1,15 @@
+import { MOTION, springLinear } from '@/design/motion';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { cn } from '@/lib/utils';
 import { RING_DEFAULT, clamp, ringGeometry } from './scale';
+
+/**
+ * How the arc moves to a new value: the `spring` token (motion spec §3.1),
+ * with no bounce, so it never shows more than its value even for a frame.
+ * The arc's visibility steps with it, so an arc shrinking to nothing is seen
+ * to shrink, and only then disappears.
+ */
+const SWEEP = `stroke-dashoffset ${MOTION.spring.cssMs}ms ${springLinear(0)}, visibility ${MOTION.spring.cssMs}ms`;
 
 /**
  * One ring, for one goal the user chose themselves.
@@ -12,7 +21,7 @@ import { RING_DEFAULT, clamp, ringGeometry } from './scale';
  * inside a stroke has nowhere to grow — at 200% text it either overflows the
  * ring or gets clipped. Beside it, it simply wraps.
  */
-export function Ring({ value, goal, label, unit, size = RING_DEFAULT, className }: {
+export function Ring({ value, goal, label, unit, size = RING_DEFAULT, className, arcClassName = 'text-tint', animate = true }: {
   value: number;
   /** The user's own goal. Zero or missing draws an empty ring, never a divide. */
   goal: number;
@@ -23,30 +32,33 @@ export function Ring({ value, goal, label, unit, size = RING_DEFAULT, className 
   /** Outer diameter in pixels, 32 to 512. Anything else is brought into that range. */
   size?: number;
   className?: string;
+  /** The arc's colour: the action tint, or a category's (`text-cat-move`). */
+  arcClassName?: string;
+  /**
+   * Whether a change of `value` sweeps the arc. False draws it already set:
+   * a new week or goal, a decrease, or anything beside an urgent card (B-32, M1).
+   */
+  animate?: boolean;
 }) {
   const reduced = useReducedMotion();
   const g = ringGeometry(size);
 
   const fraction = goal > 0 && Number.isFinite(value) ? value / goal : 0;
+  // Never past 100%, and no lap (journey §7.3, D31, K-06): a week past its
+  // goal is a full ring and the words say by how much.
   const filled = clamp(fraction, 0, 1);
-  // Past the goal is shown, not clipped at 100%: a second arc laps the first.
-  const lapped = clamp(fraction - 1, 0, 1);
 
   /**
-   * Every arc sweeps from its old length to its new one on its own: the dash
-   * offset is derived straight from `value`, so changing `value` is the
-   * animation. Only the offset and visibility change, so nothing is laid out
-   * again per frame.
+   * The arc sweeps from its old length to its new one: the dash offset is
+   * derived straight from `value`, so changing `value` is the animation. Only
+   * the offset and visibility change, so nothing is laid out again per frame.
    *
-   * An arc with nothing to show is hidden rather than unmounted. A lap that
-   * mounted the moment the goal was passed would have no old offset to move
-   * from and would snap into place; kept mounted at zero, it sweeps in like the
-   * rest. Hidden, too, because a zero-length dash with round caps can still
-   * paint a dot. `visibility` transitions as a step that stays visible for the
-   * whole sweep, so an arc shrinking to nothing is seen to shrink, and only
-   * then disappears. Under reduce-motion there is no transition at all.
+   * An empty arc is hidden rather than unmounted: a zero-length dash with
+   * round caps can still paint a dot, and kept mounted it sweeps in from
+   * nothing like any other change. Under reduce-motion, or when told not to,
+   * there is no transition at all.
    */
-  const move = reduced ? undefined : 'stroke-dashoffset 700ms var(--ease-out-quart), visibility 700ms';
+  const move = reduced || !animate ? undefined : SWEEP;
 
   const arc = (portion: number, width: number, colour: string) => (
     <circle
@@ -80,13 +92,7 @@ export function Ring({ value, goal, label, unit, size = RING_DEFAULT, className 
         {/* Twelve o'clock is the start, as every ring a person has seen does. */}
         <g transform={`rotate(-90 ${g.centre} ${g.centre})`}>
           <circle cx={g.centre} cy={g.centre} r={g.radius} fill="none" stroke="currentColor" strokeWidth={g.track} className="text-separator" />
-          {arc(filled, g.track, 'text-tint')}
-          {/* A wider band of the track colour under the lapping arc, so the
-              second turn reads as a second turn without a second accent colour
-              (board D12). The track rather than the surface, so it works on a
-              card and on the page alike. */}
-          {arc(lapped, g.outline, 'text-separator')}
-          {arc(lapped, g.lap, 'text-tint')}
+          {arc(filled, g.track, arcClassName)}
         </g>
       </svg>
 

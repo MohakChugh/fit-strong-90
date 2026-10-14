@@ -1,13 +1,16 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
 import { ArrowUpRightIcon } from 'lucide-react';
-import { Group } from '@/components/hig/List';
+import { Group, Row } from '@/components/hig/List';
 import {
   DISCLAIMER, getReading, isForYou, reviewedOn, sourcesFor,
   type CitedSource, type GuideContext, type InAppAction, type ShownClaim,
 } from '@/content';
 import { cn } from '@/lib/utils';
+import { FOOD_COPY } from '@/food/copy';
 import { longDate, SOURCE_LINK_NOTE } from './format';
+import { saveNoAllergies } from './useGuide';
 
 /**
  * Marks a claim that is about this person. Words, not colour alone, and in
@@ -62,7 +65,7 @@ export function ClaimGroup({ header, claims, ctx, footer }: { header?: string; c
  * `Row`, it lays itself out by its own width: long names ("Exercise/Physical
  * Activity") wrap clear of the arrow, and a narrow row halves its padding.
  */
-function ExternalRow({ href, title, lines }: { href: string; title: string; lines: string[] }) {
+export function ExternalRow({ href, title, lines }: { href: string; title: string; lines: string[] }) {
   return (
     <a
       href={href}
@@ -70,7 +73,7 @@ function ExternalRow({ href, title, lines }: { href: string; title: string; line
       rel="noopener noreferrer"
       className="@container press-feedback block transition-colors active:bg-muted/60"
     >
-      <span className="flex min-h-11 items-start gap-3 px-4 py-3 @max-[16rem]:gap-2 @max-[16rem]:px-2">
+      <span className="flex min-h-12 items-start gap-3 px-4 py-3 @max-[16rem]:gap-2 @max-[16rem]:px-2">
         <span className="min-w-0 flex-1">
           <span className="block text-[length:var(--text-body)] leading-snug [overflow-wrap:break-word]">{title}</span>
           {lines.filter(Boolean).map(line => (
@@ -156,7 +159,7 @@ export function ActionLink({ action }: { action: InAppAction }) {
     <Link
       to={action.to}
       viewTransition
-      className="press-feedback flex min-h-[3.125rem] items-center justify-center rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint"
+      className="press-feedback flex min-h-[3.75rem] items-center justify-center rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint"
     >
       {action.label}
     </Link>
@@ -166,4 +169,26 @@ export function ActionLink({ action }: { action: InAppAction }) {
 /** A short paragraph under the title, in the subdued supporting style. */
 export function Lead({ children }: { children: ReactNode }) {
   return <p className="-mt-2 px-1 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{children}</p>;
+}
+
+/**
+ * "No food allergies", one tap where meal ideas ask first (owner decision;
+ * Plan 5's board D194), for the answer on screen at the tap (board D221),
+ * saying so if it isn't stored. Stored, the row goes: focus goes to the
+ * screen's title, and that it's saved is said (H5F-12).
+ */
+export function NoAllergiesRow() {
+  const [problem, setProblem] = useState<string>();
+  const tap = () => void saveNoAllergies().then(failed => {
+    setProblem(failed);
+    if (failed !== undefined) return;
+    toast(FOOD_COPY.noAllergiesSaved);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('main h1')?.focus({ preventScroll: true }));
+  });
+  return (
+    <>
+      <Row onClick={tap} label={FOOD_COPY.noAllergies} />
+      {problem && <p role="alert" className="px-4 py-3 text-[length:var(--text-subhead)] leading-snug text-stop">That did not save. {problem}</p>}
+    </>
+  );
 }

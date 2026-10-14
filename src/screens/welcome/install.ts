@@ -52,3 +52,16 @@ export function readInstallEnv(win: Window = window): InstallEnv {
     || (win.navigator as Navigator & { standalone?: boolean }).standalone === true;
   return { standalone, userAgent: win.navigator.userAgent, maxTouchPoints: win.navigator.maxTouchPoints ?? 0 };
 }
+
+/** Page 1's line on keeping data here (journey §6.5; D16, B-24), or nothing once installed. */
+export function installLine(context: InstallContext, device: string): { text: string; howTo: boolean } | undefined {
+  if (context === 'installed') return undefined;
+  if (context === 'iosBrowser') return { text: `Installing helps ${device} keep your data, but it isn’t a backup.`, howTo: true };
+  return { text: 'Clearing this browser’s data would delete it. Back up now and then.', howTo: false };
+}
+
+/** The end of setup in Safari (A-27, board D84): the Home Screen app starts empty, so it moves with a backup. */
+export const HANDOFF = {
+  title: 'Moving to the Home Screen app?',
+  text: 'Make a backup first, then restore it there. Safari may remove data from websites you haven’t opened for a while.',
+} as const;

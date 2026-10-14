@@ -2,17 +2,18 @@
  * The ways into a movement mode (Guided, Stretch, Walk) and what stands at
  * the door: the shared check-in sheet, a gate screen, or the mode itself.
  *
- * Entry points, as a person reaches them:
- *   move     — Move tab → the mode's row → its Start button
- *   chooser  — Today → Choose something else → the mode's row
- *   today    — Today's primary action (whatever the recommendation offers)
- *   direct   — a deep link loaded cold: /session, /move/stretch, /walk/live
+ * Entry points, as a person reaches them (v1's names, at their v2 places):
+ *   move     — the mode's hub from Home (`hub.open`) → its start
+ *   chooser  — Home → Something else → the mode's row
+ *   today    — Home's Right now card, v1 Today's primary action (whatever the recommendation offers)
+ *   direct   — a deep link loaded cold: /session, /hub/stretch, /walk/live
  */
+import * as hub from './hub.mjs';
 import * as ui from './ui.mjs';
 
 export const MODES = ['guided', 'stretch', 'walk'];
 const CHOOSER_ROW = { guided: 'Guided session', stretch: 'Stretch', walk: 'Walk' };
-const DIRECT = { guided: '/session', stretch: '/move/stretch', walk: '/walk/live' };
+const DIRECT = { guided: '/session', stretch: '/hub/stretch', walk: '/walk/live' };
 
 /** The check-in sheet, if it is open. */
 export const checkInSheet = page => page.getByRole('dialog', { name: ui.CHECKIN });
@@ -26,32 +27,20 @@ export async function enter(t, mode, via = 'move') {
   const page = t.page;
   const main = page.getByRole('main');
   if (via === 'move') {
-    await ui.tab(page, 'Move');
-    if (mode === 'guided') {
-      // A button that starts the session, or — for someone not in the programme — a link to join it.
-      const asButton = ui.row(main, 'Guided session');
-      await ui.tap((await asButton.count()) ? asButton : ui.row(main, 'Guided session', 'link'));
-    } else {
-      await ui.tap(ui.row(main, mode === 'stretch' ? 'Stretch' : 'Walk', 'link'));
-      await page.getByRole('heading', { level: 1, name: mode === 'stretch' ? 'Stretch' : 'Walk', exact: true }).waitFor();
-      // The setup screen may itself refuse (no Start), or offer to return to a walk under way;
-      // either way the caller asserts what it shows.
-      const start = ui.button(main, mode === 'stretch' ? 'Start stretch' : 'Start walk');
-      await page.waitForTimeout(300);
-      if (await start.count()) await ui.tap(start);
-    }
+    // v1's Move → mode → Start is now Home's tile for the mode → its hub's start (Plan 2).
+    await hub.open(t, mode);
+    // A card that refuses offers no start: the caller reads what it says (`setupRefusal`).
+    if (await hub.start(page).count()) await ui.tap(hub.start(page));
   } else if (via === 'chooser') {
-    await ui.tab(page, 'Today');
-    await ui.tap(ui.button(main, 'Choose something else'));
+    await ui.tab(page, 'Home');
+    await ui.tap(ui.button(main, 'Something else'));
     await ui.tap(ui.row(page.getByRole('dialog'), CHOOSER_ROW[mode]));
   } else if (via === 'today') {
-    await ui.tab(page, 'Today');
-    const card = main.getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) });
-    await ui.tap(card.getByRole('button'));
+    await ui.tab(page, 'Home');
+    await ui.tap(ui.rightNow(page).getByRole('button'));
   } else if (via === 'direct') {
     await t.goto(DIRECT[mode]);
-    const start = ui.button(main, 'Start stretch');
-    if (mode === 'stretch' && await start.count()) await ui.tap(start);
+    if (mode === 'stretch' && await hub.start(page).count()) await ui.tap(hub.start(page));
   } else {
     throw new Error(`unknown entry ${via}`);
   }
@@ -62,38 +51,23 @@ export async function enter(t, mode, via = 'move') {
 }
 
 /**
- * What a Stretch or Walk setup shows while the engine refuses movement (scan
- * S-15): no Start, the reason on screen before any tap (Walk under its own
- * heading), and "Review today’s check-in" to open the check-in with the same
- * answer, or "Open your health profile" when health answers are missing.
- * Undefined when the setup offers its Start instead.
+ * What a movement hub's card shows while the engine refuses (journey §8.4):
+ * no start, the gate's headline and sentences on screen before any tap, and
+ * the safe actions on offer (`hub.refusal`). Undefined when the card offers
+ * its start instead.
  */
 export async function setupRefusal(page, mode) {
-  const main = page.getByRole('main');
-  const start = ui.button(main, mode === 'stretch' ? 'Start stretch' : 'Start walk');
-  const review = ui.button(main, 'Review today’s check-in');
-  const profile = ui.button(main, 'Open your health profile');
-  await start.or(review).or(profile).first().waitFor({ timeout: 15000 }).catch(() => {});
-  if (await start.count()) return undefined;
-  const status = main.getByRole('status').first();
-  const lines = (await status.count())
-    ? (await status.locator('p').allInnerTexts()).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean)
-    : [];
-  const text = (await status.count()) ? (await status.innerText()).replace(/\s+/g, ' ').trim() : '';
-  // Walk heads its refusal ("Call emergency services now", "No walk today"); Stretch's line is the reason itself.
-  const title = mode === 'walk' ? lines[0] : undefined;
-  const reasons = mode === 'walk' ? lines.slice(1) : [text].filter(Boolean);
-  return {
-    text, title, reasons,
-    review: (await review.count()) > 0,
-    profile: (await profile.count()) > 0,
-    stretchInstead: (await ui.button(main, 'Stretch instead').count()) > 0,
-  };
+  return hub.refusal(page);
 }
 
-/** A refusing setup's "Review today’s check-in": the check-in sheet it opens. */
+/**
+ * A refusing card's way to today's check-in: "Review today’s check-in", or
+ * "Enter a new reading" while a re-check waits. Returns the sheet it opens.
+ */
 export async function reviewFromSetup(page) {
-  await ui.tap(ui.button(page.getByRole('main'), 'Review today’s check-in'));
+  const c = hub.card(page);
+  const review = ui.button(c, 'Review today’s check-in');
+  await ui.tap((await review.count()) ? review : ui.button(c, 'Enter a new reading'));
   const sheet = checkInSheet(page);
   await sheet.waitFor({ timeout: 15000 });
   await page.waitForTimeout(400);

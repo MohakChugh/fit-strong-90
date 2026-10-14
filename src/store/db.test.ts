@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { newObservation } from '@/health/observation';
-import { STORE_NAMES, StoreFailure, openDb, requestPersistence, type Db } from './db';
+import { DB_VERSION, JOURNAL_STORE, STORE_NAMES, StoreFailure, openDb, requestPersistence, type Db } from './db';
 import { fakeIndexedDB } from './fakeIdb';
+import { RECORD_STORES } from './records';
 
 async function open(options: Parameters<typeof fakeIndexedDB>[0] = {}): Promise<Db> {
   return openDb(fakeIndexedDB(options));
@@ -182,5 +183,83 @@ describe('requestPersistence', () => {
   it('reports false rather than throwing when the browser refuses to answer', async () => {
     const nav = { storage: { persisted: async () => { throw new Error('denied'); } } } as unknown as Navigator;
     expect(await requestPersistence(nav)).toBe(false);
+  });
+});
+
+/** A v1 build's database: its four stores and one reading, as a phone holds it today. */
+async function v1Database(factory: IDBFactory): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const req = factory.open('fit-strong', 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      const o = db.createObjectStore('observations', { keyPath: 'id' });
+      o.createIndex('kind', 'kind');
+      o.createIndex('day', 'day');
+      db.createObjectStore('sessions', { keyPath: 'id' });
+      db.createObjectStore('settings', { keyPath: 'key' });
+      db.createObjectStore('content-state', { keyPath: 'key' });
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction(['observations'], 'readwrite');
+      tx.objectStore('observations').put(glucose('a', '2026-10-08', 112));
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onabort = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Another tab still on v1: a plain connection at version 1. */
+function v1Tab(factory: IDBFactory): Promise<IDBDatabase> {
+  return new Promise<IDBDatabase>(resolve => {
+    const req = factory.open('fit-strong', 1);
+    req.onsuccess = () => resolve(req.result);
+  });
+}
+
+describe('IndexedDB version 2 (journey §18.3)', () => {
+  it('upgrades a version 1 database in place: every row kept, every v2 store added, empty', async () => {
+    const factory = fakeIndexedDB();
+    await v1Database(factory);
+    const db = await openDb(factory);
+    expect(DB_VERSION).toBe(2);
+    expect(await db.getAll('observations')).toHaveLength(1);
+    for (const store of [...RECORD_STORES, JOURNAL_STORE] as const) expect(await db.getAll(store)).toEqual([]);
+    const rows = await db.readAll();
+    expect(Object.keys(rows.records).sort()).toEqual([...RECORD_STORES].sort());
+    expect(JOURNAL_STORE in rows).toBe(false);
+    db.close();
+  });
+
+  it('asks an open v1 copy to close, then opens: the bump never deadlocks with an old tab', async () => {
+    const factory = fakeIndexedDB();
+    await v1Database(factory);
+    const old = await v1Tab(factory);
+    // What v1's own handler does with a versionchange: close (src/store/db.ts, openDb).
+    old.onversionchange = () => old.close();
+    const db = await openDb(factory);
+    expect(await db.getAll('routes')).toEqual([]);
+    db.close();
+  });
+
+  it('waits for a v1 copy that cannot let go at once, then upgrades with every row kept (B-21)', async () => {
+    const factory = fakeIndexedDB();
+    await v1Database(factory);
+    const old = await v1Tab(factory);
+    // A v1 tab part-way through its own start, which lets go only later.
+    old.onversionchange = () => undefined;
+    let blocked = 0;
+    let opened: Db | undefined;
+    const opening = openDb(factory, { onBlocked: () => { blocked += 1; } }).then(db => { opened = db; return db; });
+    await new Promise(resolve => setTimeout(resolve, 5));
+    expect(blocked).toBe(1);
+    expect(opened).toBeUndefined();
+    old.close();
+    const db = await opening;
+    expect(await db.getAll('observations')).toHaveLength(1);
+    expect(await db.getAll('routes')).toEqual([]);
+    expect(factory.control.openConnections()).toBe(1);
+    db.close();
   });
 });

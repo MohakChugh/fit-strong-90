@@ -15,6 +15,7 @@ import { persona } from '../fixtures/personas.mjs';
 import { docs } from '../lib/harness.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as sb from '../lib/safety-b.mjs';
+import * as setup from '../lib/setup.mjs';
 
 export const id = 'J12';
 export const title = 'Missing/stale glucose, medicine certainty and regimen';
@@ -23,11 +24,6 @@ export const safety = true;
 /** The modes P04 can start (D35). */
 const MODES = ['stretch', 'walk'];
 const STALE = /check your glucose within 30 minutes of starting/i;
-
-const SU = 'Sulfonylurea or meglitinide? (e.g. gliclazide, glimepiride)';
-const SGLT2 = 'An SGLT2 inhibitor, for diabetes, heart or kidney? (e.g. empagliflozin, dapagliflozin)';
-const METFORMIN = 'Metformin?';
-const DKA = 'Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?';
 
 /** P04 with today's check-in already holding a reading taken at `measuredAt` (retained fixture). */
 function withReading(measuredAt) {
@@ -67,34 +63,32 @@ async function refusedEverywhere(t, why, modes = MODES, { resubmit = true, title
   return answers;
 }
 
-/** You → Profile & health, as a person gets there. */
+/** Me → Profile & health, as a person gets there (v1's You button is v2's Me tab). */
 async function openProfile(t) {
   const page = t.page;
-  await ui.tab(page, 'Today');
-  await ui.tap(page.getByRole('link', { name: /^You:/ }));
-  await page.getByRole('heading', { level: 1, name: 'You', exact: true }).waitFor();
+  await ui.tab(page, 'Me');
+  await page.getByRole('heading', { level: 1, name: 'Me', exact: true }).waitFor();
   await ui.tap(ui.row(page.getByRole('main'), 'Profile & health', 'link'));
   await page.getByRole('heading', { level: 1, name: 'Profile & health', exact: true }).waitFor();
 }
 
-/** Edit the health answers (through the review row when the app asks for one) and save. */
-async function editHealth(t, answers) {
+/**
+ * Me → Profile & health → the review when asked for one, else Your medicines; answer; Save.
+ * v1 asked about a home blood-pressure cuff only with high blood pressure, so P04 is asked it here, once (board D79).
+ */
+async function editMedicines(t, answer) {
   const page = t.page;
   await openProfile(t);
   const main = page.getByRole('main');
-  const review = main.getByRole('button', { name: /^(Your health answers need a review|Medicines: not yet reviewed)/ });
-  await ui.tap((await review.count()) ? review : ui.button(main, 'Edit health'));
-  const dialog = page.getByRole('dialog', { name: 'Edit your answers' });
-  await dialog.waitFor();
-  for (const [group, choice] of answers) {
-    await ui.tap(ui.radio(dialog.getByRole('radiogroup', { name: group, exact: true }), choice));
-  }
-  await t.checkpoint(`health-edit-${answers.map(a => a[1]).join('-').replace(/\W+/g, '-').slice(0, 40)}`);
-  const save = ui.button(dialog, 'Save');
-  await t.must(!(await save.isDisabled()), `Save stays disabled after answering ${answers.map(a => a.join(': ')).join('; ')}: ${(await dialog.innerText()).match(/Answer each[^\n]*/)?.[0] ?? ''}`);
-  await ui.tap(save);
-  await dialog.waitFor({ state: 'hidden' });
-  await main.getByText(/^Saved\. Today uses your new answers\.$/).waitFor();
+  const review = main.getByRole('link', { name: /^(Your health answers need a review|Medicines: not yet reviewed)/ });
+  await ui.tap((await review.count()) ? review : ui.link(main, 'Edit Your medicines'));
+  // The editor's own title first: Profile & health's group headers are headings too, one of them "Your medicines".
+  await page.getByRole('heading', { level: 1, name: /^Your (health|medicines)$/ }).waitFor();
+  // Its first page, in the review (three chapters) and in Your medicines alike.
+  await main.getByRole('heading', { level: 2, name: 'Your medicines', exact: true }).waitFor();
+  await answer(main);
+  await t.checkpoint(`medicines-edit-${Date.now() % 1000}`);
+  await setup.save(t);
 }
 
 async function profileText(t) {
@@ -122,7 +116,7 @@ async function guideDiabetes(t) {
   await page.waitForTimeout(300);
   const topic = (await main.innerText()).replace(/\s+/g, ' ');
   await home();
-  await page.getByRole('searchbox', { name: 'Search Guide' }).fill('insulin');
+  await page.getByRole('searchbox', { name: 'Search Learn' }).fill('insulin');
   await main.getByText(/^\d+ results?$/).waitFor();
   const results = (await main.innerText()).replace(/\s+/g, ' ');
   await ui.tap(main.getByRole('button', { name: 'Clear search', exact: true }));
@@ -133,7 +127,7 @@ export const cases = [
   {
     name: 'steps 1, 2 and 4: no reading, a reading from 08:29, then one from now',
     async run(t) {
-      await t.open({ seed: persona('P04'), route: '/today' });
+      await t.open({ seed: persona('P04'), route: '/home' });
       const page = t.page;
 
       await t.step(1, 'Each movement mode with known basal insulin and no glucose', async () => {
@@ -204,10 +198,10 @@ export const cases = [
   {
     name: 'step 3: exactly thirty minutes (retained reading 08:30:00.000)',
     async run(t) {
-      await t.open({ seed: withReading('2026-10-08T08:30:00.000+05:30'), route: '/today' });
+      await t.open({ seed: withReading('2026-10-08T08:30:00.000+05:30'), route: '/home' });
       await t.step(3, 'A reading exactly 30 minutes old satisfies freshness; other restrictions still apply', async () => {
         t.note('retained reading fixture: today’s check-in seeded with glucose 110 mg/dL measuredAt 08:30:00.000 (the time picker has minutes only); clock frozen at 09:00:00.000');
-        await t.goto('/today?checkin=walk');
+        await t.goto('/home?checkin=walk');
         const sheet = t.page.getByRole('dialog', { name: ui.CHECKIN });
         await sheet.waitFor();
         const s = await sb.readSheet(sheet);
@@ -228,7 +222,7 @@ export const cases = [
   {
     name: 'step 3: thirty minutes and 1 ms (retained reading 08:29:59.999)',
     async run(t) {
-      await t.open({ seed: withReading('2026-10-08T08:29:59.999+05:30'), route: '/today' });
+      await t.open({ seed: withReading('2026-10-08T08:29:59.999+05:30'), route: '/home' });
       await t.step(3, '30 minutes plus 1 ms does not satisfy freshness', async () => {
         t.note('retained reading fixture: glucose 110 mg/dL measuredAt 08:29:59.999; clock frozen at 09:00:00.000');
         await t.goto(sb.LINK.stretch);
@@ -240,7 +234,7 @@ export const cases = [
         await t.check(title === sb.TITLE.recheck, `the stretch player link opens on a reading 30 min 1 ms old: “${title ?? '(no gate)'}”`);
         await t.check(STALE.test(text), `no “check your glucose within 30 minutes of starting” on the gate: ${text.slice(0, 300)}`);
         await t.check(await main.getByRole('button', { name: /^(Start|Resume)$/ }).count() === 0, 'the player offers Start on a stale reading');
-        await t.goto('/today');
+        await t.goto('/home');
         await refusedEverywhere(t, '30 min 1 ms', MODES, { resubmit: false });
       }, { input: 'retained check-in: 110 mg/dL measured 08:29:59.999; NOW 09:00:00.000' });
     },
@@ -249,7 +243,7 @@ export const cases = [
   {
     name: 'steps 5-8: unreviewed medicines, Not sure, metformin-only, then the insulin regimen',
     async run(t) {
-      await t.open({ seed: unreviewed(), route: '/today' });
+      await t.open({ seed: unreviewed(), route: '/home' });
       const page = t.page;
 
       await t.step(5, 'Unreviewed profile: data hold in every mode even with glucose 110', async () => {
@@ -264,7 +258,7 @@ export const cases = [
         await sb.tabTo(page, 'Guide');
         await page.getByRole('main').getByRole('link', { name: /^Food & diabetes/ }).waitFor();
         await t.check((await page.getByRole('main').innerText()).length > 200, 'Guide is not readable during the data hold');
-        await ui.tab(page, 'Track');
+        await ui.legacyTab(page, 'Track');
         await ui.tap(ui.header(page).getByRole('button', { name: 'Add a record', exact: true }));
         const add = page.getByRole('dialog', { name: 'Add' });
         await ui.tap(ui.row(add, 'Weight'));
@@ -280,7 +274,24 @@ export const cases = [
       }, { input: 'needsHealthReview, medicinesReviewed absent; glucose 110 mg/dL now; weight 78 kg for 7 October 20:00' });
 
       await t.step(6, 'Review medicines: Not sure for insulin; save and reload', async () => {
-        await editHealth(t, [['Insulin', 'Not sure'], [SU, 'No'], [SGLT2, 'No'], [METFORMIN, 'No'], [DKA, 'No']]);
+        // A pending review asks every safety question again, with nothing the record holds shown as an answer (H5-10): P04's own answers.
+        await editMedicines(t, async m => {
+          await setup.tick(m, 'Diabetes');
+          await setup.choose(m, 'Which type of diabetes?', 'Type 2');
+          await setup.choose(m, 'Has a doctor or nurse (clinician) cleared you to exercise?', 'Yes, for vigorous exercise');
+          await setup.choose(m, 'Has a doctor or nurse (clinician) given you any limits or targets?', 'No');
+          await setup.choose(m, 'Do you take any regular medicines?', 'Yes');
+          await setup.tick(m, 'Not sure: Insulin');
+          await setup.choose(m, 'How do you take insulin?', 'Not sure');
+          await setup.choose(m, 'A severe low in the last 6 months, or do you often not feel lows coming?', 'No');
+          await setup.choose(m, 'Ever been very ill from high ketones (diabetic ketoacidosis, or DKA), or been told your body makes too little insulin?', 'No');
+          await setup.choose(m, 'Do you get dizzy when you stand up?', 'No');
+          await setup.choose(m, 'Glucose meter or sensor', 'A glucose meter (finger-prick)');
+          await setup.choose(m, 'Glucose unit', 'mg/dL');
+          await setup.choose(m, 'Home blood-pressure cuff', 'No');
+          // And whether they exercise now (H5-11).
+          await setup.choose(m, 'Do you exercise now?', 'Yes');
+        });
         await t.reload();
         await openProfile(t);
         const text = await profileText(t);
@@ -299,8 +310,8 @@ export const cases = [
       }, { input: 'Insulin: Not sure; SU No; SGLT2 No; metformin No; DKA No; then 31 minutes later' });
 
       await t.step(7, 'Confirm metformin only and leave glucose absent', async () => {
-        await editHealth(t, [['Insulin', 'No insulin'], [SU, 'No'], [SGLT2, 'No'], [METFORMIN, 'Yes'], [DKA, 'No']]);
-        await t.goto('/today?checkin=walk');
+        await editMedicines(t, async m => { await setup.tick(m, 'Not sure: Insulin', false); await setup.tick(m, 'Metformin'); });
+        await t.goto('/home?checkin=walk');
         const sheet = page.getByRole('dialog', { name: ui.CHECKIN });
         await sheet.waitFor();
         let s = await sb.readSheet(sheet);
@@ -319,20 +330,20 @@ export const cases = [
         const c = sb.checkInOn(snap);
         await t.check(!c?.glucose, `the check-in still carries a current glucose: ${JSON.stringify(c?.glucose)}`);
         await sb.closeSheet(t);
-        await ui.tab(page, 'Today');
+        await ui.tab(page, 'Home');
         const today = (await page.getByRole('main').innerText()).replace(/\s+/g, ' ');
-        await t.check(!/check (your )?glucose (every day|daily|each morning)|daily glucose|fasting check every/i.test(today), `Today sets a daily glucose task for metformin-only: ${today.slice(0, 300)}`);
+        await t.check(!/check (your )?glucose (every day|daily|each morning)|daily glucose|fasting check every/i.test(today), `Home sets a daily glucose task for metformin-only: ${today.slice(0, 300)}`);
         await t.checkpoint('today-metformin-only');
       }, { input: 'Insulin No; SU No; SGLT2 No; metformin Yes; DKA No; glucose cleared' });
 
       await t.step(8, 'Return to basal, then several injections a day; reload Profile & health and Guide', async () => {
-        await editHealth(t, [['Insulin', 'Long-acting only']]);
+        await editMedicines(t, async m => { await setup.tick(m, 'Insulin'); await setup.choose(m, 'How do you take insulin?', 'Long-acting only'); });
         let snap = await t.db();
         await t.check(docs(snap).profile?.health?.insulinRegimen === 'basalOnly' && docs(snap).profile.health.insulin === 'injections_or_pump',
           `regimen after choosing long-acting only: ${JSON.stringify({ insulin: docs(snap).profile?.health?.insulin, regimen: docs(snap).profile?.health?.insulinRegimen })}`);
         const basalGuide = await guideDiabetes(t);
         await t.checkpoint('guide-basal');
-        await editHealth(t, [['Insulin', 'Several injections a day']]);
+        await editMedicines(t, m => setup.choose(m, 'How do you take insulin?', 'Several injections a day'));
         await t.reload();
         await openProfile(t);
         const text = await profileText(t);
@@ -357,7 +368,7 @@ export const cases = [
   {
     name: 'H-DATA: the meter shows HI',
     async run(t) {
-      await t.open({ seed: persona('P04'), route: '/today' });
+      await t.open({ seed: persona('P04'), route: '/home' });
       await t.step(1, 'HI is kept as a display result with no invented number', async () => {
         const sheet = await sb.openSheet(t, 'stretch');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P04', { glucose: { display: 'HI' } }));
@@ -376,7 +387,7 @@ export const cases = [
   {
     name: 'H-DATA: the meter shows LO',
     async run(t) {
-      await t.open({ seed: persona('P04'), route: '/today' });
+      await t.open({ seed: persona('P04'), route: '/home' });
       await t.step(1, 'LO is kept as a display result with no invented number', async () => {
         const sheet = await sb.openSheet(t, 'walk');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P04', { glucose: { display: 'LO' } }));
@@ -395,7 +406,7 @@ export const cases = [
   {
     name: 'H-DATA: a reading in the wrong or an unusable unit must be corrected',
     async run(t) {
-      await t.open({ seed: persona('P04'), route: '/today' });
+      await t.open({ seed: persona('P04'), route: '/home' });
       await t.step(1, 'A wrong unit or an unusable number cannot be submitted until corrected', async () => {
         const sheet = await sb.openSheet(t, 'stretch');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P04', { glucose: { value: '110', unit: 'mmol/L' }, submit: false }));
@@ -422,7 +433,7 @@ export const cases = [
   {
     name: 'H-DATA: a normal sensor reading with shaky or sweaty symptoms',
     async run(t) {
-      await t.open({ seed: persona('P04', { patch: { profile: { health: { glucoseMonitor: 'cgm' } } } }), route: '/today' });
+      await t.open({ seed: persona('P04', { patch: { profile: { health: { glucoseMonitor: 'cgm' } } } }), route: '/home' });
       await t.step(1, 'Sensor 110 plus low symptoms needs meter confirmation', async () => {
         const sheet = await sb.openSheet(t, 'walk');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P04', { news: [ui.NEWS.lowSymptoms] }));
@@ -439,7 +450,7 @@ export const cases = [
   {
     name: 'H-DATA: a reading timed an hour ahead',
     async run(t) {
-      await t.open({ seed: persona('P04'), route: '/today' });
+      await t.open({ seed: persona('P04'), route: '/home' });
       await t.step(1, 'A future timestamp is not a valid fresh check', async () => {
         const sheet = await sb.openSheet(t, 'stretch');
         await ui.answerCheckIn(t, sheet, ui.normalAnswers('P04', { glucose: { value: '110', unit: 'mg/dL', time: '10:00' }, submit: false }));

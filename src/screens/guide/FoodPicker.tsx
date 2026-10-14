@@ -1,20 +1,24 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { CheckIcon } from 'lucide-react';
 import { Sheet } from '@/components/hig/Sheet';
-import { PATTERN_LABEL, unmatchedAvoid, type Pattern, type Region } from '@/content';
-import type { FoodPreferences } from '@/types/profile';
+import { useSaveHold } from '@/components/hig/useSaveHold';
+import { PATTERN_DETAIL, PATTERN_LABEL, unmatchedAvoid, withPicked, type Pattern, type Region } from '@/content';
+import { ALLERGENS, allergyAnswer } from '@/food/allergens';
+import { FOOD_COPY } from '@/food/copy';
+import { getSetupSession } from '@/setup/draft';
+import { waitingFood } from '@/setup/state';
+import { CheckRows } from '@/screens/you/controls';
+import type { AllergenId, FoodPreferences } from '@/types/profile';
 import { cn } from '@/lib/utils';
-import { AVOID_HELP, parseAvoid, REGION_LABEL, unmatchedNote } from './format';
+import { getState, useStore } from '@/store/useStore';
+import { AVOID_HELP, ownAllergyNote, parseAllergies, parseAvoid, REGION_LABEL, unmatchedNote } from './format';
 import { saveFood } from './useGuide';
 
-const PATTERNS: { id: Pattern; detail: string }[] = [
-  { id: 'vegetarian', detail: 'Dairy, but no eggs, fish or meat' },
-  { id: 'eggetarian', detail: 'Dairy and eggs, but no fish or meat' },
-  { id: 'nonVegetarian', detail: 'Eggs, fish, chicken or meat' },
-  { id: 'vegan', detail: 'No dairy, eggs, fish or meat' },
-];
+const PATTERNS: Pattern[] = ['vegetarian', 'eggetarian', 'nonVegetarian', 'vegan', 'jain'];
 
 const REGIONS: (Exclude<Region, 'mixed'> | 'any')[] = ['any', 'north', 'south', 'east', 'west'];
+
+const ALLERGY_OPTIONS = ALLERGENS.map(a => ({ value: a.id, label: a.label }));
 
 /**
  * "What do you eat?" — asked the first time Meal ideas opens, not during
@@ -28,35 +32,63 @@ export function FoodPicker({ open, onOpenChange, food, canSave }: {
   /** False before a profile exists: the choice lasts for this visit. */
   canSave: boolean;
 }) {
+  // A save being written: Close, a swipe, Escape and a Back wait for it, so a refusal finds the answers still there
+  // (B-03, §4.5; codex F-food-04).
+  const [saving, setSaving] = useState(false);
+  const settle = useSaveHold(saving);
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title="Your food" detent="large">
-      <FoodForm food={food} canSave={canSave} onDone={() => onOpenChange(false)} />
+    <Sheet open={open} onOpenChange={next => { if (!saving) onOpenChange(next); }} dismissible={!saving} title="Your food" detent="large">
+      <FoodForm food={food} canSave={canSave} saving={saving} setSaving={setSaving} settle={settle} onDone={() => onOpenChange(false)} />
     </Sheet>
   );
 }
 
-function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: boolean; onDone: () => void }) {
+function FoodForm({ food, canSave, saving, setSaving, settle, onDone }: {
+  food?: FoodPreferences;
+  canSave: boolean;
+  saving: boolean;
+  setSaving: (saving: boolean) => void;
+  settle: (stored: boolean) => void;
+  onDone: () => void;
+}) {
   const [pattern, setPattern] = useState<Pattern | undefined>(food?.pattern);
   const [region, setRegion] = useState<(typeof REGIONS)[number]>(
     food?.region && food.region !== 'mixed' ? food.region : 'any',
   );
   const [avoid, setAvoid] = useState(food?.avoid.join(', ') ?? '');
-  const [saving, setSaving] = useState(false);
+  // The allergies start as known: the food record's, or where it never answered them, as one from v1, or there is
+  // none yet, the answer setup keeps (board D205; codex F-food-06), this session's while setup goes on without saving
+  // (Plan 5's B-07, H5-06). Unchanged, they're saved as they were.
+  const { settings } = useStore();
+  const [known] = useState(() => allergyAnswer(food, settings.setup, getSetupSession()));
+  const [chosen, setChosen] = useState<AllergenId[]>(known?.allergies ?? []);
+  const [otherAllergies, setOtherAllergies] = useState((known?.customAllergies ?? []).join(', '));
   const [error, setError] = useState<string>();
+  // The record this sheet was opened for: once another copy has replaced it, nothing is stored into the new one.
+  const [generation] = useState(() => getState().epoch);
   const avoidId = useId();
   const avoidHelp = useId();
   const avoidNote = useId();
+  const allergyId = useId();
+  const allergyHelp = useId();
+  const allergyNote = useId();
   // Said while typing, so an entry that hides nothing is never taken as done.
   const unmatched = unmatchedNote(unmatchedAvoid(parseAvoid(avoid), pattern));
+  // And how each allergy in the person's own words is read, so one that keeps nothing out is never taken as done (K7R-02).
+  const read = ownAllergyNote(parseAllergies(otherAllergies));
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!pattern || saving) return;
     setSaving(true);
     setError(undefined);
-    const next: FoodPreferences = { pattern, avoid: parseAvoid(avoid), ...(region === 'any' ? {} : { region }) };
-    const failure = await saveFood(next);
+    // Only what this sheet asks, allergies included (B-13): the logging level, the screening answer and a target stay
+    // as stored when the write is made (codex F-food-02), and with no record yet, come from what setup keeps for one
+    // (board D192).
+    const picked = { pattern, avoid: parseAvoid(avoid), region, allergies: chosen, customAllergies: parseAllergies(otherAllergies) };
+    const failure = await saveFood(stored => withPicked(stored ?? waitingFood(settings.setup, getSetupSession()), picked), generation);
     setSaving(false);
+    settle(!failure);
     if (failure) setError(failure);
     else onDone();
   };
@@ -66,15 +98,43 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
       <Choices legend="What do you eat?">
         {PATTERNS.map(p => (
           <Choice
-            key={p.id}
+            key={p}
             name="pattern"
-            label={PATTERN_LABEL[p.id]}
-            detail={p.detail}
-            checked={pattern === p.id}
-            onChange={() => setPattern(p.id)}
+            label={PATTERN_LABEL[p]}
+            detail={PATTERN_DETAIL[p]}
+            checked={pattern === p}
+            onChange={() => setPattern(p)}
           />
         ))}
       </Choices>
+
+      <Choices legend="Allergies (optional)">
+        <CheckRows label="Allergies (optional)" options={ALLERGY_OPTIONS} value={chosen} onChange={setChosen} />
+      </Choices>
+
+      <div className="flex flex-col">
+        <label htmlFor={allergyId} className="px-4 pb-2 text-[length:var(--text-footnote)] font-medium uppercase tracking-wide text-muted-foreground">
+          {FOOD_COPY.somethingElse}
+        </label>
+        <input
+          id={allergyId}
+          type="text"
+          value={otherAllergies}
+          onChange={e => setOtherAllergies(e.target.value)}
+          placeholder={FOOD_COPY.somethingElsePlaceholder}
+          autoComplete="off"
+          aria-describedby={read ? `${allergyHelp} ${allergyNote}` : allergyHelp}
+          className="h-12 rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50"
+        />
+        <p id={allergyHelp} className="px-4 pt-2 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
+          {FOOD_COPY.allergiesFooter}
+        </p>
+        {read && (
+          <p id={allergyNote} role="status" className={cn('px-4 pt-2 text-[length:var(--text-footnote)] leading-snug', read.unknown ? 'text-caution' : 'text-muted-foreground')}>
+            {read.text}
+          </p>
+        )}
+      </div>
 
       <Choices legend="Dishes from (optional)">
         {REGIONS.map(r => (
@@ -100,7 +160,7 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
           placeholder="For example: peanuts, mushrooms"
           autoComplete="off"
           aria-describedby={unmatched ? `${avoidHelp} ${avoidNote}` : avoidHelp}
-          className="h-11 rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50"
+          className="h-12 rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-tint/50"
         />
         <p id={avoidHelp} className="px-4 pt-2 text-[length:var(--text-footnote)] leading-snug text-muted-foreground">
           {AVOID_HELP}
@@ -127,7 +187,7 @@ function FoodForm({ food, canSave, onDone }: { food?: FoodPreferences; canSave: 
       <button
         type="submit"
         disabled={!pattern || saving}
-        className="press-feedback min-h-[3.125rem] rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint disabled:opacity-50"
+        className="press-feedback min-h-[3.75rem] rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint disabled:opacity-50"
       >
         {saving ? 'Saving…' : 'Show meal ideas'}
       </button>

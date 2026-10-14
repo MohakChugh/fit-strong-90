@@ -1,7 +1,7 @@
 /**
  * Data journeys' helpers (J05, J18, J19): canonical backup files built from
  * the app's own format (src/store/transfer.ts), the Backup and Restore UI in
- * You → Data & offline, Quick Log in Track, and logical comparison of
+ * Me → Data & offline, Quick Log in My Day, and logical comparison of
  * database snapshots.
  *
  * Fixture files are written under the case's artifact directory, which is
@@ -69,16 +69,15 @@ export function decodeBackup(bytes) {
 
 // ---------------------------------------------------------------- navigation
 
-/** You → Data & offline, the way a person gets there. */
+/** Me → Data, the way a person gets there. */
 export async function openData(t) {
   const page = t.page;
-  if (!/^\/you\/data/.test(await t.route())) {
-    await ui.tab(page, 'Today');
-    await ui.tap(page.getByRole('link', { name: /^You:/ }));
-    await page.getByRole('heading', { level: 1, name: 'You', exact: true }).waitFor();
-    await ui.tap(ui.row(page.getByRole('main'), 'Data & offline', 'link'));
+  if (!/^\/me\/data/.test(await t.route())) {
+    await ui.tab(page, 'Me');
+    await page.getByRole('heading', { level: 1, name: 'Me', exact: true }).waitFor();
+    await ui.tap(ui.row(page.getByRole('main'), 'Data', 'link'));
   }
-  await page.getByRole('heading', { level: 1, name: 'Data & offline', exact: true }).waitFor();
+  await page.getByRole('heading', { level: 1, name: 'Data', exact: true }).waitFor();
   return page.getByRole('main');
 }
 
@@ -143,6 +142,18 @@ export async function chooseRestore(t, file, { from = 'you' } = {}) {
   return sheet;
 }
 
+/** Me → Data → Check a backup with `file`; returns its sheet (B-25). */
+export async function chooseCheck(t, file) {
+  const page = t.page;
+  const main = await openData(t);
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 10000 }), ui.tap(ui.row(main, 'Check a backup'))]);
+  await chooser.setFiles(file);
+  const sheet = page.getByRole('dialog', { name: 'Check a backup' });
+  await sheet.waitFor({ timeout: 15000 });
+  await page.waitForTimeout(300);
+  return sheet;
+}
+
 /** Choose another file inside an open restore sheet that is showing a problem. */
 export async function chooseAnother(t, sheet, file) {
   const [chooser] = await Promise.all([t.page.waitForEvent('filechooser', { timeout: 10000 }), ui.tap(ui.button(sheet, 'Choose another file'))]);
@@ -164,12 +175,26 @@ export async function waitOutcome(t, sheet) {
   await t.page.waitForTimeout(250);
 }
 
-// ---------------------------------------------------------------- Track
+/**
+ * Merge a canonical backup into the open app through Me → Data → Restore →
+ * Merge, as a person would: the defined setup for records no screen of the
+ * journey makes itself. Fails the step if the merge doesn't complete.
+ */
+export async function importFixture(t, name, doc) {
+  const sheet = await chooseRestore(t, writeFixture(t, name, doc));
+  await merge(t, sheet);
+  const outcome = (await sheet.innerText()).replace(/\s+/g, ' ');
+  if (!/Merged\./.test(outcome)) throw new Error(`merging ${name} did not complete: ${outcome.slice(0, 300)}`);
+  await ui.tap(ui.button(sheet, 'Done'));
+  await sheet.waitFor({ state: 'hidden' });
+}
 
-/** Open Quick Log's chooser from Track's own Add button (the one in the bar). */
+// ---------------------------------------------------------------- My Day
+
+/** Open Quick Log's chooser from My Day's own Add button (the one in the bar); My Day is v2's Today's log. */
 export async function openAdd(t) {
   const page = t.page;
-  if (!/^\/track(\?|$)/.test(await t.route())) await ui.tab(page, 'Track');
+  if (!/^\/day\//.test(await t.route())) await ui.legacyTab(page, 'Track');
   await ui.tap(ui.header(page).getByRole('button', { name: 'Add a record', exact: true }));
   const add = page.getByRole('dialog', { name: 'Add' });
   await add.waitFor();
@@ -278,6 +303,8 @@ export function logical(snap, { ignoreExportDate = false } = {}) {
     // backup comparison leaves out (src/screens/you/backupFile.ts settingsKey).
     delete settings.habits.lastExportAt;
     delete settings.habits.lastExportSeq;
+    delete settings.habits.lastExportVia;
+    delete settings.habits.lastCheckedExportAt;
     if (Object.keys(settings.habits).length === 0) delete settings.habits;
   }
   const content = {};
@@ -304,6 +331,8 @@ export function logicalFromDoc(doc, { ignoreExportDate = false } = {}) {
     // backup comparison leaves out (src/screens/you/backupFile.ts settingsKey).
     delete settings.habits.lastExportAt;
     delete settings.habits.lastExportSeq;
+    delete settings.habits.lastExportVia;
+    delete settings.habits.lastCheckedExportAt;
     if (Object.keys(settings.habits).length === 0) delete settings.habits;
   }
   return {
@@ -384,12 +413,12 @@ export async function waitDb(t, pred, message, timeout = 10000) {
 
 /**
  * After Restore on Welcome: the record lands, onboarding is complete, and
- * the app moves on to Today — possibly before the confirmation can be read,
+ * the app moves on to Home — possibly before the confirmation can be read,
  * which is noted rather than failed. Returns what was seen.
  */
 export async function restoredFromWelcome(t, sheet) {
   const page = t.page;
-  const today = page.getByRole('heading', { level: 1, name: 'Today', exact: true });
+  const today = page.getByRole('heading', { level: 1, name: ui.HOME_TITLE });
   const done = sheet.getByRole('button', { name: 'Done', exact: true });
   const problem = sheet.getByText(/Nothing was changed/);
   const seen = await Promise.race([
@@ -404,7 +433,7 @@ export async function restoredFromWelcome(t, sheet) {
     confirmed = /Restored\./.test(await sheet.innerText());
     await ui.tap(done);
   } else {
-    t.note('Restore on Welcome moved straight to Today: the “Restored” confirmation was not left on screen');
+    t.note('Restore on Welcome moved straight to Home: the “Restored” confirmation was not left on screen');
   }
   await today.waitFor({ timeout: 15000 });
   await t.ready();
@@ -422,9 +451,10 @@ export async function trackDay(page, ymd) {
   const main = page.getByRole('main');
   const [, wm, wd] = ymd.split('-').map(Number);
   const want = `${wd} ${MONTHS[wm - 1]}`;
-  const read = async () => (await main.getByRole('heading', { level: 2 }).first().innerText()).replace(/\s+/g, ' ');
+  // The day's own heading: while an urgent decision stands, the shell's surface is the first h2 (journey §4.7).
+  const read = async () => (await ui.dayHeading(main).innerText()).replace(/\s+/g, ' ');
   // A view transition can leave the old screen up after the address has changed.
-  await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor({ timeout: 15000 });
+  await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor({ timeout: 15000 });
   for (let i = 0; i < 60; i++) {
     const heading = await read();
     if (new RegExp(`\\b${want}\\b`).test(heading)) return heading;

@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { REPO } from './env.mjs';
+import * as hub from './hub.mjs';
 import * as ui from './ui.mjs';
 
 /**
@@ -86,7 +87,8 @@ export async function stepThrough(t, max = 120) {
       const main = document.querySelector('main');
       if ([...document.querySelectorAll('button')].some(b => /Save and finish/.test(b.textContent ?? ''))) return { done: true };
       const title = main?.querySelector('h1')?.textContent?.trim() ?? '';
-      const next = main?.querySelector('button[aria-label="Next"]');
+      // Named by its own word (kiro FK-01), or by a label where the word is short for it.
+      const next = [...(main?.querySelectorAll('button') ?? [])].find(b => (b.getAttribute('aria-label') ?? b.textContent ?? '').trim() === 'Next');
       if (!next || next.disabled) return { title, stuck: true };
       next.click();
       return { title };
@@ -109,7 +111,7 @@ export async function buttonLabels(scope) {
 }
 
 /** Labels that would start or resume movement. */
-export const STARTERS = /^(Start|Start walk|Start stretch|Start session|Start recovery session|Resume|Continue|Continue walking|Continue session|Continue stretch|Check in & (start|stretch|walk)|I am fine: carry on walking|Keep going|Keep walking)$/;
+export const STARTERS = /^(Start|Start walk|Start stretch|Start session|Start recovery session|Start rest-day mobility|Start anyway|Resume|Continue|Continue walking|Continue session|Continue stretch|Check in & (start|continue|stretch|walk)|Just a walk|I had \S+ at .+: walk now|I am fine: carry on walking|Keep going|Keep walking)$/;
 
 /**
  * The outcome headline and text on screen: the check-in sheet when it is
@@ -142,29 +144,25 @@ export async function openApp(t, opts) {
 }
 
 /**
- * Into the guided session from Move. Enrolled, the row starts it (through the
- * check-in). Not enrolled, the row is the 12-week programme's page instead,
- * and since D35 nothing outside the programme starts the session, so this
- * returns `viaProgramme` with that page's text and no sheet. A case about
- * the session itself enrols its persona first.
+ * Into the guided session from the Workout hub (v1's Move). Enrolled, its
+ * card starts it (through the check-in). Not enrolled, the card offers "Join
+ * the 12-week programme" instead, and since D35 nothing outside the programme
+ * starts the session, so this returns `viaProgramme` with the card's text and
+ * no sheet. A case about the session itself enrols its persona first.
  */
 export async function openGuided(t) {
   const page = t.page;
-  const main = page.getByRole('main');
-  await ui.tab(page, 'Move');
-  const start = ui.row(main, 'Guided session');
-  const programme = ui.row(main, 'Guided session', 'link');
-  const sheet = page.getByRole('dialog', { name: ui.CHECKIN });
-  // Either the start row or the programme link, once the lazily loaded screen is in.
-  await start.or(programme).waitFor({ timeout: 30000 });
+  await hub.open(t, 'guided');
+  const start = hub.start(page);
   if (await start.count()) {
     await ui.tap(start);
     await page.waitForTimeout(500);
+    const sheet = page.getByRole('dialog', { name: ui.CHECKIN });
     if (await sheet.count()) return { sheet, route: await t.route(), viaProgramme: false };
     return { route: await t.route(), viaProgramme: false };
   }
-  await ui.tap(programme);
-  await page.getByRole('heading', { level: 1, name: 'Your plan', exact: true }).waitFor();
-  const programmeText = (await main.innerText()).replace(/\s+/g, ' ');
-  return { route: await t.route(), viaProgramme: true, programmeText };
+  const r = await hub.refusal(page);
+  if (r?.join) return { route: await t.route(), viaProgramme: true, programmeText: r.text };
+  // The hub refuses on its own (a hold or a stop): what it says is the answer.
+  return { route: await t.route(), viaProgramme: false, setupRefusal: true };
 }

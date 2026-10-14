@@ -121,12 +121,23 @@ export function faultInit() {
  * Permission and sensor requests, counted (J01 step 1, J10 step 2), with a
  * geolocation that the test drives: `grant` | `deny` | `prompt-deny`.
  * Positions are stamped with the page's (frozen, test-driven) clock.
+ *
+ * `monotonic: 'wall'` runs `performance.now` with the wall clock, as a phone's
+ * two clocks run together: the harness freezes `Date` and moves it with
+ * `t.advance`, while the page's own monotonic clock keeps real time. A walk
+ * counts its time on the monotonic clock (B-19, H6-09), so a walk journey
+ * asks for this, and its walk then lasts exactly the time it advanced. The
+ * default keeps real time, which the 3D demos animate on.
  */
-export function sensorInit({ geo = 'deny' } = {}) {
+export function sensorInit({ geo = 'deny', motion = 'absent', monotonic = 'real' } = {}) {
   if (window.__acc?.sensorsInstalled) return;
   const acc = (window.__acc = window.__acc || {});
   acc.sensorsInstalled = true;
-  const calls = (acc.calls = { geolocation: 0, permissionsQuery: [], notification: 0, motion: 0, wakeLock: 0 });
+  if (monotonic === 'wall') {
+    const base = performance.now() - Date.now();
+    performance.now = () => Date.now() + base;
+  }
+  const calls = (acc.calls = { geolocation: 0, permissionsQuery: [], notification: 0, motion: 0, wakeLock: 0, motionRequests: [], play: [] });
   const g = (acc.geo = { mode: geo, watchers: new Map(), nextId: 1, last: undefined });
   const denied = () => ({ code: 1, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3, message: 'User denied Geolocation' });
   const position = p => ({
@@ -186,6 +197,41 @@ export function sensorInit({ geo = 'deny' } = {}) {
   EventTarget.prototype.addEventListener = function (type, ...rest) {
     if (this === window && (type === 'devicemotion' || type === 'deviceorientation')) calls.motion += 1;
     return add.call(this, type, ...rest);
+  };
+  // Motion as iOS has it (journey §9.1, B-01): a permission asked for from a tap, and samples the test sends.
+  const m = (acc.motion = { mode: motion, clock: undefined });
+  if (motion !== 'absent' && typeof DeviceMotionEvent !== 'undefined') {
+    DeviceMotionEvent.requestPermission = () => {
+      calls.motionRequests.push(window.event?.type ?? null);
+      return Promise.resolve(m.mode === 'grant' ? 'granted' : 'denied');
+    };
+  }
+  /**
+   * `seconds` of walking at `stepHz` steps a second, as the phone's sensor
+   * reports it (src/walk/steps.test.ts's gait), sent at once. Each sample
+   * carries its own time on a clock that only this moves, because the step
+   * detector reads `timeStamp`, not the moment it's sent.
+   */
+  acc.emitGait = ({ seconds = 10, stepHz = 2, amplitude = 2.5, hz = 50 } = {}) => {
+    m.clock ??= performance.now();
+    let sent = 0;
+    for (let i = 0; i < seconds * hz; i++) {
+      const s = i / hz;
+      const z = 9.80665 + amplitude * Math.sin(2 * Math.PI * stepHz * s) + 0.4 * amplitude * Math.sin(2 * Math.PI * 2 * stepHz * s + 0.7);
+      const e = new DeviceMotionEvent('devicemotion', { accelerationIncludingGravity: { x: 0, y: 0, z }, interval: 1000 / hz });
+      Object.defineProperty(e, 'timeStamp', { value: m.clock + s * 1000 });
+      window.dispatchEvent(e);
+      sent++;
+    }
+    m.clock += seconds * 1000;
+    return sent;
+  };
+  // Every play() of an <audio>, with the event it ran inside: a tap's own handler shows as "click" (B-01, A-53).
+  const play = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function (...args) {
+    calls.play.push({ src: String(this.src).slice(0, 160), during: window.event?.type ?? null });
+    acc.lastAudio = this;
+    return play.apply(this, args);
   };
 }
 
@@ -255,6 +301,23 @@ export function capabilityInit(opts) {
       window.__acc.shares.push({ files });
     };
   }
+  if (opts.standalone === true) {
+    // The installed Home Screen app (V-J37): display-mode standalone, and Safari's own flag.
+    const real = window.matchMedia.bind(window);
+    window.matchMedia = query => (/display-mode:\s*(standalone|fullscreen|minimal-ui)/.test(query)
+      ? { matches: true, media: query, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false }
+      : real(query));
+    try { Object.defineProperty(Navigator.prototype, 'standalone', { configurable: true, get: () => true }); } catch { /* ignore */ }
+  }
+  if (opts.persist === 'refuse' && navigator.storage) {
+    // Temporary storage (B-30): the browser keeps the right to clear it. Asking is still counted, as `sensorInit` counts it.
+    const calls = window.__acc?.calls;
+    navigator.storage.persist = () => {
+      if (typeof calls?.persist === 'number') calls.persist += 1;
+      return Promise.resolve(false);
+    };
+    navigator.storage.persisted = () => Promise.resolve(false);
+  }
 }
 
 /**
@@ -290,6 +353,158 @@ export async function readDatabase() {
       tx.onabort = () => { db.close(); resolve({ ...out, error: String(tx.error) }); };
     };
   });
+}
+
+/**
+ * For a recorded run only (FIT_VIDEO_DIR, lib/harness.mjs): every voice clip a
+ * page plays or stops, told to the harness's `__accClip` as it happens, so the
+ * film can carry the sound. A clip fetched ahead plays from a blob: address,
+ * so each blob is traced back to the file it was fetched from. The silent
+ * unlock (a data: address) is left out.
+ */
+export function clipInit() {
+  if (window.__accClipsInstalled) return;
+  window.__accClipsInstalled = true;
+  const fetchedFrom = new WeakMap();
+  const sourceOf = new Map();
+  const blob = Response.prototype.blob;
+  Response.prototype.blob = async function () {
+    const b = await blob.call(this);
+    fetchedFrom.set(b, this.url);
+    return b;
+  };
+  const create = URL.createObjectURL;
+  URL.createObjectURL = obj => {
+    const url = create.call(URL, obj);
+    if (fetchedFrom.has(obj)) sourceOf.set(url, fetchedFrom.get(obj));
+    return url;
+  };
+  let elements = 0;
+  const tell = (kind, el) => {
+    const src = String(el.src ?? '');
+    if (!src || src.startsWith('data:')) return;
+    el.__accClip ??= ++elements;
+    window.__accClip?.({ kind, src: sourceOf.get(src) ?? src, element: el.__accClip })?.catch?.(() => {});
+  };
+  const play = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function (...args) {
+    tell('play', this);
+    return play.apply(this, args);
+  };
+  const pause = HTMLMediaElement.prototype.pause;
+  HTMLMediaElement.prototype.pause = function (...args) {
+    if (!this.paused) tell('pause', this);
+    return pause.apply(this, args);
+  };
+}
+
+/** Earphone and lock-screen buttons (V-J21): every media session handler the app sets, for the test to press. */
+export function mediaInit() {
+  const acc = (window.__acc = window.__acc || {});
+  if (acc.mediaInstalled || !navigator.mediaSession) return;
+  acc.mediaInstalled = true;
+  acc.media = {};
+  const set = navigator.mediaSession.setActionHandler.bind(navigator.mediaSession);
+  navigator.mediaSession.setActionHandler = (action, handler) => {
+    if (handler) acc.media[action] = handler;
+    else delete acc.media[action];
+    return set(action, handler);
+  };
+}
+
+/**
+ * A service worker the test drives (V-J38's quick cases), speaking Task 2's
+ * two questions on the port each is sent with: `windows` (this release, and
+ * how many windows of FitStrong are open: `__acc.sw.windows`, 1 unless a case
+ * sets it) and `restart` (take over, only while that count is 1, counted as it
+ * answers, after `__acc.sw.restartDelayMs` when a case slows it). `offerUpdate()`
+ * installs a new release, which waits; a restart makes it take over and fires
+ * `controllerchange`, as a real one does, and the release it brings is kept
+ * for the reload that follows. Each load is counted under the test's own
+ * key. Two real releases are `lib/releases.mjs`'s.
+ */
+export function updateInit() {
+  if (!location.pathname.startsWith('/fit-strong-90')) return;
+  const acc = (window.__acc = window.__acc || {});
+  const KEY = '__acceptance:sw';
+  let saved = { loads: 0, build: 'release-a' };
+  try { saved = JSON.parse(sessionStorage.getItem(KEY) ?? 'null') ?? saved; } catch { /* the first load */ }
+  saved.loads += 1;
+  const keep = () => { try { sessionStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* no storage: this load only */ } };
+  keep();
+  const messages = [];
+  const container = new EventTarget();
+  const registration = new EventTarget();
+  let waiting = null;
+  const worker = build => {
+    const w = new EventTarget();
+    w.state = 'activated';
+    w.postMessage = (data, transfer = []) => {
+      messages.push(data?.type);
+      const answer = () => {
+        const restarting = data?.type === 'restart' && w === waiting && acc.sw.windows === 1;
+        transfer[0]?.postMessage({ build, windows: acc.sw.windows, restarting });
+        if (!restarting) return;
+        setTimeout(() => {
+          waiting = null;
+          saved.build = build;
+          keep();
+          container.controller = w;
+          container.dispatchEvent(new Event('controllerchange'));
+        }, 0);
+      };
+      // A slow worker (P8S-13): the restart answered only after the delay a case sets.
+      if (data?.type === 'restart' && acc.sw.restartDelayMs > 0) setTimeout(answer, acc.sw.restartDelayMs);
+      else answer();
+    };
+    return w;
+  };
+  registration.installing = null;
+  Object.defineProperty(registration, 'waiting', { get: () => waiting });
+  container.controller = worker(saved.build);
+  container.register = () => Promise.resolve(registration);
+  container.getRegistration = () => Promise.resolve(registration);
+  container.ready = Promise.resolve(registration);
+  try { Object.defineProperty(navigator, 'serviceWorker', { configurable: true, get: () => container }); } catch { /* keep the real one */ }
+  acc.sw = {
+    loads: saved.loads,
+    messages,
+    windows: 1,
+    restartDelayMs: 0,
+    offerUpdate() {
+      const next = worker(`${saved.build}-next`);
+      next.state = 'installing';
+      registration.installing = next;
+      registration.dispatchEvent(new Event('updatefound'));
+      registration.installing = null;
+      waiting = next;
+      next.state = 'installed';
+      next.dispatchEvent(new Event('statechange'));
+    },
+  };
+}
+
+/**
+ * The 3D demo's own drawing (PERF01, D117): every WebGL draw call the page
+ * makes, counted. Only the demo draws with WebGL in this app, so this counts
+ * what it renders, whatever drives its loop.
+ */
+export function drawInit() {
+  const acc = (window.__acc = window.__acc || {});
+  if (acc.drawsInstalled) return;
+  acc.drawsInstalled = true;
+  acc.draws = 0;
+  for (const proto of [window.WebGLRenderingContext?.prototype, window.WebGL2RenderingContext?.prototype]) {
+    if (!proto) continue;
+    for (const name of ['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced', 'drawRangeElements']) {
+      const draw = proto[name];
+      if (typeof draw !== 'function') continue;
+      proto[name] = function counted(...args) {
+        acc.draws += 1;
+        return draw.apply(this, args);
+      };
+    }
+  }
 }
 
 /** Every key the page holds in web storage, for privacy and leftover checks. */

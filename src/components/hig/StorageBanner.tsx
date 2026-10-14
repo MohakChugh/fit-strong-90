@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRightIcon, TriangleAlertIcon } from 'lucide-react';
+import { TaskUrgent } from '@/screens/home/UrgentBanner';
 import { useStorageNotice } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { Group, Row } from './List';
@@ -52,7 +53,7 @@ export function StorageBanner({ inHeader = false }: { inHeader?: boolean }) {
       <button
         type="button"
         onClick={() => setDetails(true)}
-        className="press-feedback flex max-h-[30dvh] min-h-11 w-full items-center gap-2 overflow-hidden py-1 text-left pl-[max(min(1rem,20px),env(safe-area-inset-left))] pr-[max(min(1rem,20px),env(safe-area-inset-right))]"
+        className="press-feedback flex max-h-[30dvh] min-h-12 w-full items-center gap-2 overflow-hidden py-1 text-left pl-[max(min(1rem,20px),env(safe-area-inset-left))] pr-[max(min(1rem,20px),env(safe-area-inset-right))]"
       >
         <TriangleAlertIcon className="size-4 shrink-0" aria-hidden />
         <span className="line-clamp-2 min-w-0 flex-1 font-semibold leading-snug">
@@ -65,7 +66,7 @@ export function StorageBanner({ inHeader = false }: { inHeader?: boolean }) {
       <Sheet open={details} onOpenChange={setDetails} title={notice.title}>
         <p className="px-1 text-[length:var(--text-body)] leading-snug">{notice.detail}</p>
         <Group>
-          <Row as={Link} to="/you/data" viewTransition label="Data & offline" detail="Export a copy of your records, or remove older ones" chevron />
+          <Row as={Link} to="/me/data" viewTransition label="Data" detail="Export a copy of your records, or remove older ones" chevron />
         </Group>
       </Sheet>
     </div>
@@ -74,9 +75,9 @@ export function StorageBanner({ inHeader = false }: { inHeader?: boolean }) {
 
 /**
  * The frame for full-screen tasks outside the tab shell — first run, the
- * session player, a live walk: a main landmark and the storage notice, with
- * no tab bar to hit by accident. The notice scrolls away with the task here,
- * so it can say everything in place.
+ * session player, a live walk: a main landmark, the storage notice and the
+ * shared safety surface (B-02), with no tab bar to hit by accident. The
+ * notice scrolls away with the task here, so it can say everything in place.
  */
 export function TaskFrame({ children }: { children: ReactNode }) {
   // A task on screen ends the launch, as a screen does: a navigation from here
@@ -86,7 +87,7 @@ export function TaskFrame({ children }: { children: ReactNode }) {
     <TaskFrameContext.Provider value>
       <div className="min-h-dvh bg-grouped-bg">
         <StorageBanner />
-        <main>{children}</main>
+        <main><TaskUrgent>{children}</TaskUrgent></main>
       </div>
     </TaskFrameContext.Provider>
   );

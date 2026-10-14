@@ -18,8 +18,8 @@ export const NOW = Date.parse(NOW_ISO);
 export const MINUTE = 60_000;
 
 export const PROJECTS = [
-  { id: 'large-light', label: 'Large light', width: 430, height: 932, scheme: 'light' },
-  { id: 'large-dark', label: 'Large dark', width: 430, height: 932, scheme: 'dark' },
+  { id: 'large-light', label: 'Large light', width: 428, height: 926, scheme: 'light' },
+  { id: 'large-dark', label: 'Large dark', width: 428, height: 926, scheme: 'dark' },
   { id: 'small-light', label: 'Small light', width: 320, height: 568, scheme: 'light' },
   { id: 'small-dark', label: 'Small dark', width: 320, height: 568, scheme: 'dark' },
 ];
@@ -39,8 +39,13 @@ export function findChromium() {
 
 export const CHROMIUM_ARGS = ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
 
+/**
+ * FIT_SLOWMO=<ms> slows every tap, keypress and navigation by that much, so a
+ * recorded run (FIT_VIDEO_DIR, lib/harness.mjs) plays at a pace a person can follow.
+ */
 export function launch() {
-  return chromium.launch({ headless: true, executablePath: findChromium(), chromiumSandbox: false, args: CHROMIUM_ARGS });
+  const slowMo = Number(process.env.FIT_SLOWMO) || 0;
+  return chromium.launch({ headless: true, executablePath: findChromium(), chromiumSandbox: false, args: CHROMIUM_ARGS, ...(slowMo > 0 ? { slowMo } : {}) });
 }
 
 /** Artifacts live outside the repository (spec rule 5). */

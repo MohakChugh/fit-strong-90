@@ -19,9 +19,8 @@ import { focusOverrideFor } from '@/hooks/useGuided';
 import { swapOptions } from '@/session/manual';
 import type { SavedProgress } from '@/session/persistence';
 import type { StoreResult } from '@/store/db';
-import type { WizardResult } from '@/components/profile/ProfileWizard';
-import { answeredProfile } from '@/components/profile/wizardSteps';
-import { createDefaultProfile } from '@/profile/defaults';
+import type { JoinAnswers } from '@/types/setup';
+import { joinInitial, withJoinAnswers } from '@/programme/join';
 import { addDays, differenceInCalendarDays } from 'date-fns';
 import { parseDateString, toDateString, TOTAL_WEEKS } from '@/lib/utils';
 import { STATUS_LABEL, statusOn } from '@/health/status';
@@ -273,24 +272,15 @@ export async function swapToday(today: WeekDay, choice: DayFocus, fx: SwapEffect
  * explicit and optional, and membership itself is decided in one place for
  * the whole app (`isEnrolled`); these only write the record.
  */
-export function startDateProblem(date: string, today: string): string | null {
-  if (!isDay(date)) return 'Choose a start date.';
-  return date < today ? 'Choose today or a later day.' : null;
-}
-
-/** The record after joining: the programme's answers, and its start date. */
-export function withJoined(data: AppData, answers: { profile: UserProfile; useMetric: boolean }, startDate: string): AppData {
-  return {
-    ...data,
-    profile: answers.profile,
-    settings: { ...data.settings, startDate, currentWeight: answers.profile.weightKg, useMetric: answers.useMetric },
-  };
-}
+export { startDateProblem } from '@/programme/join';
 
 /** The record after leaving: no start date. Every session, check-in, swap and answer stays. */
 export function withLeft(data: AppData): AppData {
   return { ...data, settings: { ...data.settings, startDate: '' } };
 }
+
+/** "Start the 12 weeks again" (D116): week 1 from today, on the same training days. Nothing recorded changes. */
+export const withRestart = (today: string) => (data: AppData): AppData => ({ ...data, settings: { ...data.settings, startDate: today } });
 
 /**
  * The Join form's life (codex R02). The wizard stays open, with every answer
@@ -306,13 +296,13 @@ export interface JoinFlow {
   /** Why the last save was refused, as the person reads it. */
   error?: string;
   /** The answers last submitted and not yet saved. */
-  draft?: WizardResult;
+  draft?: JoinAnswers;
 }
 
 export type JoinAction =
   | { type: 'open' }
   | { type: 'cancel' }
-  | { type: 'submit'; draft: WizardResult }
+  | { type: 'submit'; draft: JoinAnswers }
   | { type: 'saved' }
   | { type: 'refused'; error: string };
 
@@ -336,16 +326,16 @@ export function joinFlow(state: JoinFlow, action: JoinAction): JoinFlow {
 export function joinController(
   write: (updater: (data: AppData) => AppData) => Promise<StoreResult>,
   dispatch: (action: JoinAction) => void,
-): (draft: WizardResult) => Promise<StoreResult | null> {
+): (draft: JoinAnswers) => Promise<StoreResult | null> {
   let saving = false;
   return async draft => {
     if (saving) return null;
     saving = true;
     dispatch({ type: 'submit', draft });
     try {
-      // Only the answers changed in this wizard, laid over the latest stored
-      // profile: another open copy's saved answers stay (scan D-03).
-      const result = await write(data => withJoined(data, { ...draft, profile: answeredProfile(data.profile, draft) }, draft.startDate));
+      // Only the programme's answers, over the latest stored profile: another
+      // open copy's saved answers stay (scan D-03).
+      const result = await write(data => withJoinAnswers(data, draft));
       dispatch(result.ok ? { type: 'saved' } : { type: 'refused', error: `That did not save. ${result.failure.message}` });
       return result;
     } catch {
@@ -359,13 +349,9 @@ export function joinController(
   };
 }
 
-/** What the Join wizard opens with: the unsaved answers if there are any, otherwise the stored profile and today. */
-export function joinSeed(state: JoinFlow, data: Pick<AppData, 'profile' | 'settings'>, today: string): WizardResult {
-  return state.draft ?? {
-    profile: data.profile ?? createDefaultProfile({ weightKg: data.settings.currentWeight || 0, needsHealthReview: true }),
-    startDate: today,
-    useMetric: data.settings.useMetric,
-  };
+/** What the Join flow opens with: the unsaved answers if there are any, otherwise the stored profile's, from today. */
+export function joinSeed(state: JoinFlow, data: Pick<AppData, 'profile' | 'settings'>, today: string): JoinAnswers {
+  return state.draft ?? joinInitial(data.profile, today);
 }
 
 /**

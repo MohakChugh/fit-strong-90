@@ -144,7 +144,10 @@ export function doseLine(m: CatalogMeta | undefined): string {
   return `${amount}${sets}${sides}`;
 }
 
-const LIBRARY = '/move/exercises';
+/** The library's own address: the Workout hub's in v2 (journey §19.2). */
+const LIBRARY = '/hub/workout/exercises';
+/** The list at that address, or at v1's `/move/exercises`, which redirects there with its query (§19.3). */
+const LIST = /^\/(?:hub\/workout|move)\/exercises(\?[^#]*)?$/;
 
 /**
  * The navigation state an exercise is opened with: the list it was opened
@@ -162,7 +165,7 @@ export function libraryState(pathname: string, search: string): { from: string }
  */
 export function libraryReturn(state: unknown): string {
   const from = (state as { from?: unknown } | null | undefined)?.from;
-  return typeof from === 'string' && /^\/move\/exercises(\?[^#]*)?$/.test(from) ? from : LIBRARY;
+  return typeof from === 'string' && LIST.test(from) ? from : LIBRARY;
 }
 
 /** Easier and harder versions, and what to do instead on a flare-up day. */

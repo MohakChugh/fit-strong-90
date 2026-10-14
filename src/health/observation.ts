@@ -30,6 +30,7 @@ export type ObservationKind =
   | 'bloodPressureDiastolic'
   | 'weight'
   | 'waist'
+  | 'height'
   | 'steps'
   | 'walkDistance'
   | 'walkDuration'
@@ -41,7 +42,9 @@ export type ObservationKind =
   | 'mood'
   | 'hba1c'
   | 'b12'
-  | 'vitaminD';
+  | 'vitaminD'
+  /** A walk's active-energy estimate (journey §12.4): kept with its walk, never summed into a day's movement. */
+  | 'activeEnergy';
 
 /**
  * When a reading was taken, relative to the thing that moves it.
@@ -94,6 +97,12 @@ export interface Observation {
   /** Set when a stored record is corrected; `at` keeps the original moment. */
   editedAt?: string;
   /**
+   * What earlier corrections replaced, oldest first: each version's value,
+   * unit and time, and when that version was itself corrected. Kept on the
+   * record it corrected, so the history is the reading's own (J§4.6).
+   */
+  was?: { value: number; unit: string; at: string; editedAt?: string }[];
+  /**
    * Commit order, stamped by the store on every write and shared by every open
    * copy of the app. It breaks ties between statements made at the same
    * instant, so "the later one wins" means the later *commit*, not whichever
@@ -101,10 +110,28 @@ export interface Observation {
    */
   seq?: number;
   /**
+   * When it was said: a number this device gives a statement as it is made,
+   * a correction included, which every copy keeps through a restore, a backup
+   * and a merge (board D110, Codex P8R-06). It orders two statements said at
+   * the same instant on whichever device they meet; `seq`, one database's
+   * commit order, decides only between statements that lack it, made before
+   * this release.
+   */
+  order?: number;
+  /**
    * The clock time in `at` is a stand-in: the source recorded only a date
    * (a v4 check-in, a body measurement). The day is exact; the time is not.
    */
   timeUnknown?: true;
+  /** Restored from Recently deleted (B-05): the id it had before it was deleted. */
+  restoredFrom?: string;
+  /**
+   * B-19, a glucose reading only: this device's clock generation when it was
+   * acquired here (`settings.walk.clock`), stamped by the screen that took it
+   * and kept through corrections; the store adds none (H6R-03, board D186).
+   * Absent: generation 0, or taken elsewhere (an import drops it).
+   */
+  gen?: number;
 }
 
 export interface KindSpec {
@@ -142,6 +169,7 @@ export const KINDS: Record<ObservationKind, KindSpec> = {
   bloodPressureDiastolic: { units: ['mmHg'], scopes: ['pointInTime'], tags: BP_TAGS, label: 'Diastolic' },
   weight: { units: ['kg'], scopes: ['pointInTime'], label: 'Weight' },
   waist: { units: ['cm'], scopes: ['pointInTime'], label: 'Waist' },
+  height: { units: ['cm'], scopes: ['pointInTime'], label: 'Height' },
   steps: { units: ['steps'], scopes: ['dayTotal', 'sessionObserved'], tags: ['afterMeal'], label: 'Steps' },
   walkDistance: { units: ['km'], scopes: ['sessionObserved', 'dayTotal'], tags: ['afterMeal'], label: 'Walking distance' },
   walkDuration: { units: ['min'], scopes: ['sessionObserved', 'dayTotal'], tags: ['afterMeal'], label: 'Walking time' },
@@ -154,6 +182,7 @@ export const KINDS: Record<ObservationKind, KindSpec> = {
   hba1c: { units: ['%', 'mmol/mol'], scopes: ['pointInTime'], label: 'HbA1c' },
   b12: { units: ['pg/mL', 'pmol/L'], scopes: ['pointInTime'], label: 'Vitamin B12' },
   vitaminD: { units: ['ng/mL', 'nmol/L'], scopes: ['pointInTime'], label: 'Vitamin D' },
+  activeEnergy: { units: ['kcal'], scopes: ['sessionObserved'], label: 'Active energy (estimate)' },
 };
 
 /** Kinds a walk records, which may carry the meal it followed. */
@@ -233,6 +262,16 @@ export function nowAt(now: Date = new Date()): string {
 }
 
 /**
+ * A measured time in this device's offset, written out even at UTC+0
+ * ("+00:00", never "Z"), for a reading kept as a time and not as an
+ * observation: a meter's HI or LO (H3-01). It keeps the clock it was taken
+ * on, and is told apart from the bare UTC stamps saved before it.
+ */
+export function measuredStamp(at: Date): string {
+  return format(at, "yyyy-MM-dd'T'HH:mm:ss.SSSxxx");
+}
+
+/**
  * An instant on a given local day, for a record whose clock time is unknown —
  * a v4 check-in stored only `date`.
  *
@@ -278,6 +317,8 @@ export interface ObservationInput {
   coverageMs?: number;
   /** The time in `at` is a stand-in for a date-only record. */
   timeUnknown?: boolean;
+  /** B-19: the clock generation it was acquired in (`Observation.gen`), stamped by the screen that took it (`acquiredIn`). */
+  gen?: number;
 }
 
 let lastStamp = 0;
@@ -300,6 +341,14 @@ function randomId(): string {
     ? crypto.randomUUID().slice(0, 8)
     : Math.random().toString(36).slice(2, 10);
   return `${now.toString(36).padStart(9, '0')}-${withinStamp.toString(36).padStart(4, '0')}-${noise}`;
+}
+
+let lastOrder = 0;
+
+/** A statement's place (P8R-06): the time it is said, in microseconds, and always later than the last one here. */
+export function nextOrder(now: number = Date.now()): number {
+  lastOrder = Math.max(now * 1000, lastOrder + 1);
+  return lastOrder;
 }
 
 const SCOPES: readonly Scope[] = ['pointInTime', 'dayTotal', 'sessionObserved'];
@@ -363,6 +412,13 @@ export function observationProblem(o: Observation): string | undefined {
   if (o.editedAt !== undefined && !isAt(o.editedAt)) return `editedAt is not an ISO instant with an offset: ${String(o.editedAt)}`;
   if (o.seq !== undefined && !(Number.isSafeInteger(o.seq) && o.seq >= 0)) return 'seq must be a whole number';
   if (o.timeUnknown !== undefined && o.timeUnknown !== true) return 'timeUnknown is either true or absent';
+  if (o.gen !== undefined && !(kind === 'glucose' && Number.isSafeInteger(o.gen) && o.gen >= 0)) return 'gen is a whole number, on a glucose reading only';
+  if (o.restoredFrom !== undefined && (typeof o.restoredFrom !== 'string' || o.restoredFrom === '')) return 'restoredFrom names the record it came from';
+  if (o.order !== undefined && !(Number.isSafeInteger(o.order) && o.order >= 0)) return 'order must be a whole number';
+  if (o.was !== undefined && !(Array.isArray(o.was) && o.was.length <= MAX_CORRECTIONS
+    && o.was.every(v => typeof v === 'object' && v !== null && Number.isFinite(v.value) && typeof v.unit === 'string' && isAt(v.at) && (v.editedAt === undefined || isAt(v.editedAt))))) {
+    return 'was lists the versions a correction replaced';
+  }
   return undefined;
 }
 
@@ -387,12 +443,14 @@ export function newObservation(input: ObservationInput): Observation {
     unit: input.unit ?? canonicalUnit(kind),
     scope,
     source,
+    order: nextOrder(),
     ...(input.context !== undefined ? { context: input.context } : {}),
     ...(input.tag !== undefined ? { tag: input.tag } : {}),
     ...(input.mealStartedAt !== undefined ? { mealStartedAt: input.mealStartedAt } : {}),
     ...(input.note !== undefined ? { note: input.note } : {}),
     ...(input.coverageMs !== undefined ? { coverageMs: input.coverageMs } : {}),
     ...(input.timeUnknown === true ? { timeUnknown: true as const } : {}),
+    ...(input.gen !== undefined ? { gen: input.gen } : {}),
   };
   const problem = observationProblem(record);
   if (problem !== undefined) throw new ObservationError(problem);
@@ -414,6 +472,9 @@ export interface ObservationRevision {
   mealStartedAt?: string | null;
 }
 
+/** A record keeps this many earlier versions; the oldest go first beyond it. */
+export const MAX_CORRECTIONS = 50;
+
 /**
  * Apply a correction, held to the same rules as a new record.
  *
@@ -423,6 +484,13 @@ export interface ObservationRevision {
  */
 export function reviseObservation(existing: Observation, patch: ObservationRevision, editedAt: string = nowAt()): Observation {
   const next: Observation = { ...existing };
+  // A changed measurement keeps the version it replaces (P8S-05); a note or a tag alone changes no measurement.
+  const changes = (patch.value !== undefined && patch.value !== existing.value) || (patch.unit !== undefined && patch.unit !== existing.unit)
+    || (typeof patch.at === 'string' && Date.parse(patch.at) !== Date.parse(existing.at));
+  if (changes) {
+    const prior = { value: existing.value, unit: existing.unit, at: existing.at, ...(existing.editedAt ? { editedAt: existing.editedAt } : {}) };
+    next.was = [...(existing.was ?? []), prior].slice(-MAX_CORRECTIONS);
+  }
   if (patch.value !== undefined) next.value = patch.value;
   if (patch.unit !== undefined) next.unit = patch.unit;
   if (patch.at !== undefined) {
@@ -438,8 +506,9 @@ export function reviseObservation(existing: Observation, patch: ObservationRevis
   else if (patch.mealStartedAt !== undefined) next.mealStartedAt = patch.mealStartedAt;
   if (next.tag !== 'afterMeal' && patch.mealStartedAt === undefined) delete next.mealStartedAt;
   next.editedAt = editedAt;
-  // A correction is a new statement; the store stamps its commit order.
+  // A correction is a new statement, with a place of its own; the store stamps its commit order.
   delete next.seq;
+  next.order = nextOrder();
 
   const problem = observationProblem(next);
   if (problem !== undefined) throw new ObservationError(problem);
@@ -514,6 +583,11 @@ function byId(a: Observation, b: Observation): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
+/** When it was said, when both records know it (P8R-06). */
+function byOrder(a: Observation, b: Observation): number {
+  return a.order !== undefined && b.order !== undefined ? order(a.order, b.order) : 0;
+}
+
 /** Commit order, when both records have one. */
 function bySeq(a: Observation, b: Observation): number {
   return a.seq !== undefined && b.seq !== undefined ? order(a.seq, b.seq) : 0;
@@ -547,11 +621,14 @@ export function compareObservations(a: Observation, b: Observation): number {
  * day-total replace rule: correcting this morning's entry at 23:00 is a newer
  * statement about today than the one typed at 22:00, even though the moment it
  * refers to is earlier. Two statements at the same instant are ordered by
- * commit, which is the same in every open copy of the app.
+ * when they were said (`order`, kept by every copy, P8R-06), and between
+ * statements made before this release by commit, which is the same in every
+ * open copy of the app.
  */
 export function compareStatements(a: Observation, b: Observation): number {
   return (
     order(Date.parse(a.editedAt ?? a.at), Date.parse(b.editedAt ?? b.at)) ||
+    byOrder(a, b) ||
     bySeq(a, b) ||
     order(Date.parse(a.at), Date.parse(b.at)) ||
     byId(a, b)

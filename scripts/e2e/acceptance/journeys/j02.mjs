@@ -6,8 +6,10 @@ import { MINUTE } from '../lib/env.mjs';
 import { docs } from '../lib/harness.mjs';
 import { C0, persona } from '../fixtures/personas.mjs';
 import * as ui from '../lib/ui.mjs';
+import * as data from '../lib/data.mjs';
 import * as move from '../lib/move.mjs';
 import * as player from '../lib/player.mjs';
+import * as setup from '../lib/setup.mjs';
 
 export const id = 'J02';
 export const title = 'Lossless upgrade and one resumable guided session';
@@ -95,11 +97,11 @@ export function comparable(snap) {
   };
 }
 
-/** Track → 25 September → the session → its Workout Log: the sets and both notes. */
+/** My Day (v1's Track, now Today's log) → 25 September → the session → its Workout Log: the sets and both notes. */
 async function legacyInTrack(t) {
   const page = t.page;
   const main = page.getByRole('main');
-  await ui.tab(page, 'Track');
+  await ui.legacyTab(page, 'Track');
   await ui.trackDay(page, '2026-09-25');
   const session = main.getByRole('link', { name: /^Upper A · Push & Row/ });
   await t.must(await session.count() === 1, `25 September does not list the legacy session once (${await session.count()})`);
@@ -123,41 +125,20 @@ async function assertLegacyLog(t, log) {
   await t.check(log.includes('Retain this exercise note'), 'the exercise note is not shown');
 }
 
-/** Answer the review the way step 3 says: no insulin, SU, SGLT2; metformin since 2019; no prior DKA. */
+/** Me → Profile & health → the review, answered as step 3 says (codex-acceptance J02). */
 async function reviewMedicines(t) {
   const page = t.page;
-  await t.goto('/you/profile');
-  const review = page.getByRole('button', { name: /^Your health answers need a review/ });
+  await t.goto('/me/profile');
+  const review = page.getByRole('link', { name: /^Your health answers need a review/ });
   await t.must(await review.count() === 1, 'Profile & health offers no health review');
   await ui.tap(review);
-  const d = page.getByRole('dialog', { name: 'Edit your answers' });
-  await d.waitFor();
-  const group = name => d.getByRole('radiogroup', { name, exact: true });
-  await ui.tap(ui.radio(group('Insulin'), 'No insulin'));
-  await ui.tap(ui.radio(group('Sulfonylurea or meglitinide? (e.g. gliclazide, glimepiride)'), 'No'));
-  await ui.tap(ui.radio(group('An SGLT2 inhibitor, for diabetes, heart or kidney? (e.g. empagliflozin, dapagliflozin)'), 'No'));
-  await ui.tap(ui.radio(group('Metformin?'), 'Yes'));
-  const year = d.getByRole('spinbutton', { name: 'Year you started metformin (optional)', exact: true });
-  await ui.type(year, '2019');
-  if (await year.inputValue() !== '2019') {
-    // Typed a digit at a time, as a phone keyboard does, the year never registers.
-    await t.check(false, `“Year you started metformin” does not accept typing: after keying 2019 it reads “${await year.inputValue()}” (each partial value is rejected and the field resets)`);
-    t.note('workaround: pasted the whole year at once (atomic fill) to carry on');
-    await year.fill('2019');
-  }
-  await ui.tap(ui.radio(group('Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?'), 'No'));
-  // The fixture's own explicit answers, which the review asks again.
-  const extra = [];
-  for (const [name, answer] of [['Beta-blocker? (e.g. bisoprolol, metoprolol)', 'No'], ['Diuretic or water pill?', 'No'], ['Has your care team told you to limit how much you drink?', 'No']]) {
-    const g = group(name);
-    if (await g.count() && !(await g.getByRole('radio', { checked: true }).count())) { await ui.tap(ui.radio(g, answer)); extra.push(`${name} ${answer}`); }
-  }
-  if (extra.length) t.note(`the review also required: ${extra.join('; ')}`);
+  await ui.heading(page, 'Your health');
+  const main = page.getByRole('main');
+  await t.check(await main.getByText('Your health answers need a review. Check each answer, then Save.', { exact: true }).count() === 1,
+    'the review does not open the three safety chapters together');
+  await setup.reviewAsP01(main);
   await t.checkpoint('health-review-answered');
-  const save = ui.button(d, 'Save');
-  await t.must(await save.isEnabled(), `Save stays disabled: ${(await d.getByRole('status').allInnerTexts()).join(' | ')}`);
-  await ui.tap(save);
-  await d.waitFor({ state: 'hidden' });
+  await setup.save(t);
 }
 
 export const cases = [
@@ -172,15 +153,22 @@ export const cases = [
       let baseline;
 
       await t.step(1, 'Load P01 with its legacy history', async () => {
-        await t.must(await t.route() === '/today', `the app opened ${await t.route()}, not Today (first-run setup repeated?)`);
-        const text = await main.innerText();
-        await t.check(/Week 3 of 12/.test(text), 'Today does not say “Week 3 of 12”');
-        const card = main.getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) });
+        await t.must(await t.route() === '/home', `the app opened ${await t.route()}, not Home (first-run setup repeated?)`);
+        const card = ui.rightNow(page);
         const why = (await card.innerText()).match(/Why this\?\s*([^\n]+)/);
         await t.check(!!why && /session|training day|plan/i.test(why[1]), `no visible “Why this?” explaining the scheduled session (${why?.[1] ?? 'none'})`);
+        const first = await page.evaluate(() => document.getElementById('right-now')?.nextElementSibling?.getAttribute('aria-label') ?? null);
+        await t.check(first === 'FitStrong has a new Home', `the element after Right now is “${first}”, not the new-Home row (§6.6)`);
+        // Home writes its first tile layout once, on the first v2 launch (journey §5.1): the
+        // record's baseline is taken after that write, so the reloads below compare like with like.
+        const layout = await data.waitDb(t, s => docs(s).settings?.home !== undefined, 'Home never stored its first layout (settings.home)').then(() => true, () => false);
+        await t.check(layout, 'Home did not store its first tile layout (settings.home) on the first v2 launch');
         const snap = await t.checkpoint('today-after-migration');
         for (const p of migratedProblems(seed, snap)) await t.check(false, p);
         baseline = comparable(snap);
+        // v1 showed the plan's week on Today; v2 shows it on the Workout hub (v1's Move), not on Home (journey §7.1).
+        await ui.legacyTab(page, 'Move');
+        await t.check(/Week 3 of 12/.test(await main.innerText()), 'the Workout hub does not say “Week 3 of 12”');
         await assertLegacyLog(t, await legacyInTrack(t));
       });
 
@@ -197,10 +185,10 @@ export const cases = [
       });
 
       let progressAtExit;
-      await t.step(4, 'Today’s primary action, normal answers with glucose blank, Start session', async () => {
-        await ui.tab(page, 'Today');
+      await t.step(4, 'Home’s primary action, normal answers with glucose blank, Start session', async () => {
+        await ui.tab(page, 'Home');
         const entry = await move.enter(t, 'guided', 'today');
-        await t.must(!!entry.sheet, `Today’s primary action did not open the check-in (${entry.route})`);
+        await t.must(!!entry.sheet, `Home’s primary action did not open the check-in (${entry.route})`);
         await ui.answerCheckIn(t, entry.sheet, ui.normalAnswers('P01'));
         await page.waitForTimeout(400);
         await t.checkpoint('check-in-outcome');
@@ -209,8 +197,11 @@ export const cases = [
         await ui.tap(start);
         await page.waitForTimeout(600);
         await t.must((await t.route()).startsWith('/session'), `Start session opened ${await t.route()}`);
+        // The sheet that started the session closes as the player loads; on a loaded machine its exit can
+        // outlast the navigation by seconds. Only a check-in still open over the player is a second one.
+        await move.checkInSheet(page).waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
         await t.check(await move.checkInSheet(page).count() === 0, 'a second check-in opened for the same session');
-        await t.check(!/Check again before you start|No session for now|Back to Today/.test(await main.innerText()), 'the player shows a second approval or a gate');
+        await t.check(!/Check again before you start|No session for now|Back to Home/.test(await main.innerText()), 'the player shows a second approval or a gate');
         await t.checkpoint('player-ready');
         const ready = player.control(page, 'Start');
         if (await ready.count()) t.note('the player opens on its own ready screen; its Start begins the run (not a second safety approval)');
@@ -252,10 +243,10 @@ export const cases = [
         await leave.waitFor();
         await t.checkpoint('leave-dialog');
         await ui.tap(ui.button(leave, 'Save and exit'));
-        await page.getByRole('heading', { level: 1, name: 'Today', exact: true }).waitFor();
-        const card = main.getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) });
+        await page.getByRole('heading', { level: 1, name: ui.HOME_TITLE }).waitFor();
+        const card = ui.rightNow(page);
         const cardText = await card.innerText();
-        await t.check(/Continue your session/.test(cardText) && await card.getByRole('button', { name: /^Continue$|continue$/ }).count() === 1, `Today does not offer Continue ahead of a new recommendation: ${cardText.replace(/\n/g, ' ⏎ ')}`);
+        await t.check(/Continue your session/.test(cardText) && await card.getByRole('button', { name: /^Continue$|continue$/ }).count() === 1, `Home does not offer Continue ahead of a new recommendation: ${cardText.replace(/\n/g, ' ⏎ ')}`);
         await t.checkpoint('today-continue');
         progressAtExit = await player.progress(page);
         await t.reload();
@@ -271,7 +262,7 @@ export const cases = [
 
       let sessionId;
       await t.step(6, 'Continue, finish with the rest skipped, save the summary', async () => {
-        const card = main.getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) });
+        const card = ui.rightNow(page);
         await ui.tap(card.getByRole('button'));
         await page.waitForTimeout(600);
         const sheet = move.checkInSheet(page);
@@ -311,19 +302,19 @@ export const cases = [
         await t.check(!cache || cache.state.status === 'done', 'the progress cache still holds an unfinished run after the save');
       }, { input: 'Continue; End session → Finish now; Save and finish' });
 
-      await t.step(7, 'Reload Track, open that session, return to Today', async () => {
-        await t.goto('/track');
+      await t.step(7, 'Reload Today’s log (v1’s Track), open that session, return to Home', async () => {
+        await t.goto('/day/today');
         const row = main.getByRole('link', { name: /Full Body|Guided session/ }).filter({ hasNotText: /Upper A/ });
-        await t.must(await row.count() === 1, `today’s Track lists ${await row.count()} new guided sessions, not 1`);
+        await t.must(await row.count() === 1, `Today’s log lists ${await row.count()} new guided sessions, not 1`);
         const rowText = await row.innerText();
-        await t.check(/Partial|Partly done/i.test(rowText) && !/Completed/i.test(rowText), `the attempt is not labelled partial in Track: ${rowText.replace(/\n/g, ' ')}`);
+        await t.check(/Partial|Partly done/i.test(rowText) && !/Completed/i.test(rowText), `the attempt is not labelled partial in Today’s log: ${rowText.replace(/\n/g, ' ')}`);
         await ui.tap(row);
         await page.waitForTimeout(500);
         const detail = await main.innerText();
         await t.checkpoint('new-session-record');
         await t.check(/Partial|Partly done/i.test(detail), 'the session record does not say it is partial');
         await t.check(!/(\d+) of \1 sets? done/.test(detail.replace(/1 of 1 set done/g, '')) || /1 of \d+ sets? done/.test(detail), `the record reads as all planned sets completed: ${detail.slice(0, 300)}`);
-        await ui.tab(page, 'Today');
+        await ui.tab(page, 'Home');
         const snap = await t.db();
         const sessions = snap.sessions ?? [];
         await t.check(sessions.length === 2 && sessions.some(s => s.id === sessionId), `${sessions.length} sessions stored (want the legacy one and ${sessionId})`);
@@ -352,9 +343,9 @@ export const cases = [
       const main = page.getByRole('main');
 
       await t.step(3, 'Attempt Guided session: a review hold; then review and the metformin-only branch', async () => {
-        await t.must(await t.route() === '/today', `opened ${await t.route()}`);
+        await t.must(await t.route() === '/home', `opened ${await t.route()}`);
         const todayText = await main.innerText();
-        t.note(`Today with an unreviewed profile: ${todayText.split('\n').slice(2, 6).join(' | ')}`);
+        t.note(`Home with an unreviewed profile: ${todayText.split('\n').slice(2, 6).join(' | ')}`);
         const entry = await move.enter(t, 'guided', 'move');
         if (entry.sheet) {
           await ui.answerCheckIn(t, entry.sheet, ui.normalAnswers('P01'));
@@ -387,7 +378,7 @@ export const cases = [
         } else {
           await t.checkpoint('guided-after-review');
           const text = await main.innerText();
-          await t.check((await t.route()).startsWith('/session') && await player.control(page, 'Start').count() === 1 && !/Back to Today/.test(text),
+          await t.check((await t.route()).startsWith('/session') && await player.control(page, 'Start').count() === 1 && !/Check again before you start|No session for now|Back to Home/.test(text),
             `after the review the guided session does not open its player: ${await t.route()} ${text.replace(/\s+/g, ' ').slice(0, 200)}`);
           t.note('after the review, the morning’s check-in (no glucose reading) let the session open directly');
         }

@@ -1,0 +1,68 @@
+/**
+ * Where setup stands (journey §6, §18.1, §19.1). A v1 record has no
+ * `settings.setup`, and one Plan 4 wrote has only `declined`. Its state is
+ * read from what v1 kept, and written the first time something changes it.
+ * There's no migration step and no interstitial (§6.6).
+ */
+import type { AppData, UserSettings } from '@/types';
+import type { FoodPreferences, UserProfile } from '@/types/profile';
+import type { ChapterId, SetupAnswers, SetupRecord, SetupState } from '@/types/setup';
+import { setupAllergyAnswer } from '@/food/allergens';
+
+/**
+ * The chapters a v1 record has new questions in: name; how insulin is taken,
+ * and ketone testing for "other" diabetes on insulin (K5R-07; board D195);
+ * food logging; and meal times for after-meal walks (§6.6, board D79).
+ */
+export function upgradeSkipped(settings: Pick<UserSettings, 'habits'>, profile: UserProfile): ChapterId[] {
+  const walk = settings.habits?.mealWalk;
+  const h = profile.health;
+  const medicines = (h.insulin === 'injections_or_pump' && h.insulinRegimen === undefined)
+    || (h.diabetes === 'other' && h.insulin !== 'none' && !h.sglt2i);
+  return [
+    ...(profile.name === undefined ? ['about' as const] : []),
+    ...(medicines ? ['medicines' as const] : []),
+    ...(profile.food?.level === undefined ? ['food' as const] : []),
+    ...(walk?.enabled && walk.meals.some(meal => !walk.finish?.[meal]) ? ['day' as const] : []),
+  ];
+}
+
+export function setupStateOf(settings: Pick<UserSettings, 'setup' | 'onboardingComplete' | 'habits'>, profile: UserProfile | undefined): SetupState {
+  const stored = settings.setup ?? {};
+  // Finished, with no profile (a backup whose health or pain answers couldn't be read): setup carries on, every
+  // movement held, as after Look around first, so its questions can be answered again (H5-17).
+  if (stored.stage !== undefined) return { ...stored, stage: stored.stage === 'done' && !profile ? 'lookAround' : stored.stage, skipped: stored.skipped ?? [] };
+  const declined = stored.declined?.length ? { declined: [...stored.declined] } : {};
+  if (!settings.onboardingComplete) return { stage: 'open', skipped: [], ...declined };
+  if (!profile) return { stage: 'lookAround', skipped: [], upgraded: true, ...declined };
+  return { stage: 'done', skipped: upgradeSkipped(settings, profile), upgraded: true, ...declined };
+}
+
+/** The answers so far, wherever they're kept. */
+export const answersOf = (s: SetupState): SetupAnswers => s.draft?.answers ?? s.answers ?? {};
+
+/**
+ * The food answers setup keeps for a food record not made yet (boards D164,
+ * D167): with "How do you eat?" skipped, the allergies
+ * (`setupAllergyAnswer`), the logging level and the screening answer wait in
+ * setup's answers. Each is read as the allergies are: this session's while
+ * setup goes on without saving, else the finished answers, else the
+ * draft's. Whatever sets the pattern later takes them all into the new
+ * record (H5R-10, K5R-01, H5-20; board D192).
+ */
+export function waitingFood(setup: SetupRecord | undefined, session?: { unsaved: boolean; answers: SetupAnswers }): Partial<FoodPreferences> {
+  const all = [session?.unsaved ? session.answers : undefined, setup?.answers, setup?.draft?.answers];
+  const level = all.find(a => a?.foodLevel !== undefined)?.foodLevel;
+  const hardBefore = all.find(a => a?.hardBefore !== undefined)?.hardBefore;
+  return { ...setupAllergyAnswer(setup, session), ...(level ? { level } : {}), ...(hardBefore ? { hardBefore } : {}) };
+}
+
+/** The one-time "FitStrong has a new Home" row (§6.6): once, for a record set up in v1, and never beside a safety state (motion rule 2). */
+export function showsNewHome(setup: SetupState, still: boolean): boolean {
+  return setup.stage === 'done' && setup.upgraded === true && setup.newHomeSeen !== true && !still;
+}
+
+/** The one-time "FitStrong has a new Home" row was answered (§6.6). */
+export function withNewHomeSeen(data: AppData): AppData {
+  return { ...data, settings: { ...data.settings, setup: { ...setupStateOf(data.settings, data.profile), newHomeSeen: true } } };
+}

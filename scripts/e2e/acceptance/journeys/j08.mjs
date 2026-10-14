@@ -5,6 +5,7 @@
 import { MINUTE } from '../lib/env.mjs';
 import { docs } from '../lib/harness.mjs';
 import { persona } from '../fixtures/personas.mjs';
+import * as hub from '../lib/hub.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as move from '../lib/move.mjs';
 import * as player from '../lib/player.mjs';
@@ -20,6 +21,8 @@ async function assertSetup(t, label) {
   const page = t.page;
   const main = page.getByRole('main');
   await page.getByRole('heading', { level: 1, name: 'Stretch', exact: true }).waitFor();
+  // The hub's skeleton has its title too: read the setup once its content is in.
+  await ui.loaded(page);
   await t.check(await main.getByRole('radiogroup', { name: 'Area' }).count() === 1, `${label}: no area (focus) choice`);
   await t.check(await main.getByRole('radiogroup', { name: 'Length' }).count() === 1, `${label}: no length choice`);
   const text = await main.innerText();
@@ -32,7 +35,7 @@ async function startTen(t) {
   const page = t.page;
   const main = page.getByRole('main');
   await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Length' }), '10 min'));
-  await ui.tap(ui.button(main, 'Start stretch'));
+  await ui.tap(hub.start(page));
   await page.waitForTimeout(500);
   const sheet = move.checkInSheet(page);
   if (await sheet.count()) {
@@ -58,42 +61,6 @@ async function assertRunning(t, label) {
   await t.check(await player.symptomStop(page).count() >= 1, `${label}: no symptom-stop control on the running stretch (controls: ${(await main.getByRole('button').evaluateAll(els => els.map(e => e.getAttribute('aria-label') || e.textContent.trim()))).join(', ')})`);
 }
 
-/**
- * Let each timed step run to its end: advance the clock by what the step has
- * left, so the runner completes it itself. Returns the running time advanced.
- */
-async function runToEnd(t, maxSteps = 30) {
-  const page = t.page;
-  let ran = 0;
-  for (let i = 0; i < maxSteps; i++) {
-    if (await page.getByRole('heading', { level: 1, name: /complete$/ }).count() && !(await player.control(page, 'Pause').count())) return ran;
-    const left = await player.stepRemainingMs(page);
-    if (left === undefined) {
-      if (await page.getByRole('heading', { level: 1, name: /^(Stretch|Session) complete$/ }).count()) return ran;
-      throw new Error(`no step timer on “${(await player.where(page)).title}”`);
-    }
-    const before = await player.where(page);
-    await t.advance(left + 300);
-    ran += left + 300;
-    await page.waitForTimeout(150);
-    const after = await page.getByRole('heading', { level: 1 }).innerText().catch(() => '');
-    if (after.trim() === before.title && (await player.stepRemainingMs(page)) !== undefined) {
-      // The tick that lands after the boundary may need one more beat.
-      await t.advance(300);
-      ran += 300;
-    }
-  }
-  throw new Error('the stretch never reached its end');
-}
-
-const save = async t => {
-  const page = t.page;
-  await page.getByRole('heading', { level: 1, name: 'Stretch complete' }).waitFor();
-  await t.checkpoint('stretch-summary');
-  await ui.tap(page.getByRole('button', { name: /Save and finish/ }));
-  await page.getByText('Saved', { exact: true }).waitFor({ timeout: 8000 });
-};
-
 export const cases = [
   {
     name: 'main',
@@ -105,8 +72,8 @@ export const cases = [
       let pauseCheck;
       let ranMs = 0;
 
-      await t.step(1, 'Choose something else → Stretch; again via Move → Stretch', async () => {
-        await t.must(await t.route() === '/today', `opened ${await t.route()}`);
+      await t.step(1, 'Something else → Stretch; again via Move → Stretch', async () => {
+        await t.must(await t.route() === '/home', `opened ${await t.route()}`);
         const entry = await move.enter(t, 'stretch', 'chooser');
         if (entry.sheet) {
           // The shared gate: no diabetes or blood-pressure readings for P02.
@@ -122,14 +89,19 @@ export const cases = [
           await ui.tap(go);
         }
         await assertSetup(t, 'chooser');
-        // Move → Stretch, to the setup (not its Start).
-        await ui.tab(page, 'Move');
-        await ui.tap(ui.row(main, 'Stretch', 'link'));
+        // Back names the opener, and Home's name is Home, not its greeting (journey §8.1): the
+        // chooser's row names no opener, nor does the check-in's start that may come between.
+        const back = ui.header(page).getByRole('button', { name: /^Back\b/ });
+        const named = (await back.count()) ? await back.getAttribute('aria-label') : 'no Back';
+        await t.check(named === 'Back to Home', `chooser: the Stretch setup’s Back is “${named}”, not “Back to Home”`);
+        // Move → Stretch is now Home's Stretch tile → the Stretch hub, to the setup (not its Start).
+        await hub.open(t, 'stretch');
         await assertSetup(t, 'move');
       });
 
       await t.step(2, 'Ten-minute routine, normal answers, Start stretch', async () => {
-        if (!(await t.route()).startsWith('/move/stretch')) await t.goto('/move/stretch');
+        // Stretch's setup is the Stretch hub, /hub/stretch (journey §19.2).
+        if (!(await t.route()).startsWith('/hub/stretch')) await t.goto('/hub/stretch');
         await startTen(t);
         await t.checkpoint('stretch-ready');
         await player.begin(page);
@@ -164,8 +136,10 @@ export const cases = [
       }, { input: 'Next; +20 s; Pause; +2 min; reload; Resume' });
 
       await t.step(4, 'Run each timed step to completion; save', async () => {
-        ranMs += await runToEnd(t);
-        await save(t);
+        ranMs += (await player.runStretchToEnd(t)).ran;
+        await page.getByRole('heading', { level: 1, name: 'Stretch complete' }).waitFor();
+        await t.checkpoint('stretch-summary');
+        await player.saveStretch(t);
         const summaryText = await main.innerText().catch(() => '');
         await t.check(!/programme|Session complete|Week \d+ of 12/i.test(summaryText), `the stretch summary talks about the strength programme: ${summaryText.slice(0, 200)}`);
         const snap = await t.checkpoint('after-stretch-save');
@@ -188,11 +162,11 @@ export const cases = [
         await t.check(!docs(snap).settings?.startDate, `startDate became ${docs(snap).settings?.startDate}`);
       });
 
-      await t.step(5, 'Track and the saved record; reload Today', async () => {
-        await page.waitForURL(/#\/(today|move)/, { timeout: 8000 }).catch(() => {});
-        await t.goto('/track');
+      await t.step(5, 'Today’s log (v1’s Track) and the saved record; reload Home', async () => {
+        await page.waitForURL(/#\/(home|hub)/, { timeout: 8000 }).catch(() => {});
+        await t.goto('/day/today');
         const rowLink = main.getByRole('link', { name: /stretch/i });
-        await t.must(await rowLink.count() === 1, `today’s Track lists ${await rowLink.count()} stretch records`);
+        await t.must(await rowLink.count() === 1, `Today’s log lists ${await rowLink.count()} stretch records`);
         const rowText = await rowLink.innerText();
         await t.check(!/Partly done|Partial/i.test(rowText), `the finished stretch reads as partial: ${rowText}`);
         await ui.tap(rowLink);
@@ -200,12 +174,12 @@ export const cases = [
         const detail = await main.innerText();
         await t.checkpoint('stretch-record');
         await t.check(!/Week \d+ of 12|Sets done/i.test(detail), `the stretch record reads as a programme workout: ${detail.slice(0, 200)}`);
-        await t.goto('/today');
-        const card = main.getByRole('region').filter({ has: page.getByRole('heading', { level: 3 }) });
+        await t.goto('/home');
+        const card = ui.rightNow(page);
         const cardText = (await card.innerText()).replace(/\n/g, ' ⏎ ');
         await t.checkpoint('today-after-stretch');
-        await t.check(!/Week \d+ of 12|Full Body|strength programme|Build my plan/i.test(cardText), `Today pushes the strength programme after a stretch: ${cardText}`);
-        t.note(`Today after the stretch: ${cardText}`);
+        await t.check(!/Week \d+ of 12|Full Body|strength programme|Build my plan/i.test(cardText), `Home pushes the strength programme after a stretch: ${cardText}`);
+        t.note(`Home after the stretch: ${cardText}`);
         const snap = await t.db();
         await t.check(!docs(snap).settings?.startDate, 'startDate is no longer empty');
         await t.check((snap.sessions ?? []).length === 1, `${(snap.sessions ?? []).length} sessions after reload`);
@@ -220,7 +194,7 @@ export const cases = [
     name: v.name,
     async run(t) {
       const page = await t.open({
-        seed: persona('P02'), route: '/move/stretch',
+        seed: persona('P02'), route: '/hub/stretch',
         ...(v.caps ? { capabilities: v.caps } : {}),
         ...(v.reducedMotion ? { reducedMotion: v.reducedMotion } : {}),
       });
@@ -283,7 +257,9 @@ export const cases = [
         const leave = page.getByRole('dialog', { name: 'Leave the session?' });
         await leave.waitFor();
         await ui.tap(ui.button(leave, 'Finish now'));
-        await save(t);
+        await page.getByRole('heading', { level: 1, name: 'Stretch complete' }).waitFor();
+        await t.checkpoint('stretch-summary');
+        await player.saveStretch(t);
         const snap = await t.checkpoint(`saved-${v.name}`);
         const s = (snap.sessions ?? [])[0];
         await t.check((snap.sessions ?? []).length === 1 && s?.planKind === 'stretch', `stored sessions: ${JSON.stringify((snap.sessions ?? []).map(x => [x.planKind, x.status]))}`);

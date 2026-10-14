@@ -17,7 +17,8 @@ import type { WalkIntent } from './live';
  */
 
 const ALL: WalkIntent[] = ['start', 'restart', 'live'];
-const settings = { currentWeight: 82 } as AppData['settings'];
+// Someone who has finished setting up (a record part-way through setup is held for its gap, H5-05).
+const settings = { currentWeight: 82, onboardingComplete: true } as AppData['settings'];
 const known = { medicinesReviewed: true, currentlyActive: true, clearance: 'moderate' as const, glucoseMonitor: 'meter' as const };
 const profiles: UserProfile[] = [
   createDefaultProfile({ health: { ...known, diabetes: 'type2', insulin: 'injections_or_pump' } }),

@@ -19,12 +19,17 @@
  */
 
 import type { AppData } from '@/types';
-import type { BpPartialReading, BpReading, CheckInRecord, DailyCheckIn, EmergencyFlag, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, SymptomReach } from '@/types/checkin';
+import type { BpPartialReading, BpReading, CheckInRecord, ClockHold, DailyCheckIn, EmergencyFlag, EpisodeAnswer, GlucoseDisplayReading, GlucoseEntry, GlucoseReading, GlucoseUnit, NewsItem, RedFlag, SymptomReach } from '@/types/checkin';
+import { isHeld, type HeldReading, type HoldFailure } from '@/store/db';
+import { toDateString } from '@/lib/utils';
 import type { UserProfile } from '@/types/profile';
-import { completes, evaluateCheckIn } from '@/engine/readiness';
-import { checkInDayOf, type Observation } from '@/health/observation';
+import { bpPartialId, completes, evaluateCheckIn, newsReadingId, stoppedIn } from '@/engine/readiness';
+import { checkInDayOf, measuredStamp, type Observation } from '@/health/observation';
+import { acquiredIn } from '@/walk/consent';
 import { pairBloodPressure } from '@/health/aggregate';
 import { carryForward, withoutGateFields } from './form';
+import { checkInReadingEntry, recentKey } from '@/store/recent';
+import type { UpdateOptions } from '@/store/useStore';
 
 /** What a check-in save did: the record as it was merged and stored, and whether the device kept it. */
 export interface SaveResult {
@@ -34,13 +39,21 @@ export interface SaveResult {
   stored: boolean;
 }
 
-/** The store's `update`, as `useAppData` hands it out. */
+/** The store's `update`, as `useAppData` hands it out, with its own options (a Recently deleted entry's included). */
 export type StoreUpdate = (
   updater: (previous: AppData) => AppData,
-  options?: { readings?: 'append' | 'correct'; removeObservations?: readonly string[] },
+  options?: UpdateOptions,
 ) => Promise<{ ok: boolean; failure?: { message: string } }>;
 
 const waiting = new Map<string, CheckInRecord>();
+/**
+ * Each date's records written before the one waiting now, oldest first, none
+ * of them stored yet (F-safety-01). Each still counts on its own, so a later
+ * answer the device hasn't kept releases nothing an earlier one holds, even
+ * with nothing stored for the day. They go once a write the device keeps
+ * covers them.
+ */
+const earlier = new Map<string, CheckInRecord[]>();
 /** Dates whose latest write was refused, as opposed to merely still on its way. */
 const refused = new Set<string>();
 /**
@@ -65,7 +78,7 @@ function mirror(): void {
   try {
     if (typeof localStorage === 'undefined') return;
     if (waiting.size === 0) localStorage.removeItem(MIRROR_KEY);
-    else localStorage.setItem(MIRROR_KEY, JSON.stringify({ waiting: [...waiting.values()], refused: [...refused] }));
+    else localStorage.setItem(MIRROR_KEY, JSON.stringify({ waiting: [...waiting.values()], refused: [...refused], earlier: [...earlier.values()].flat() }));
   } catch {
     // Full or unavailable: the answers still count for this visit.
   }
@@ -76,15 +89,18 @@ function restore(): void {
     if (typeof localStorage === 'undefined') return;
     const raw = localStorage.getItem(MIRROR_KEY);
     if (!raw) return;
-    const kept = JSON.parse(raw) as { waiting?: unknown; refused?: unknown };
-    for (const r of Array.isArray(kept.waiting) ? kept.waiting : []) {
+    const kept = JSON.parse(raw) as { waiting?: unknown; refused?: unknown; earlier?: unknown };
+    const readable = (r: unknown): r is CheckInRecord => {
       const c = r as CheckInRecord;
-      if (c && typeof c.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.date) && c.readiness && Array.isArray(c.news)) {
-        waiting.set(c.date, c);
-        restored.add(c.date);
-      }
+      return !!c && typeof c.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.date) && !!c.readiness && Array.isArray(c.news);
+    };
+    for (const c of Array.isArray(kept.waiting) ? kept.waiting : []) {
+      if (!readable(c)) continue;
+      waiting.set(c.date, c);
+      restored.add(c.date);
     }
     for (const d of Array.isArray(kept.refused) ? kept.refused : []) if (typeof d === 'string' && waiting.has(d)) refused.add(d);
+    for (const c of Array.isArray(kept.earlier) ? kept.earlier : []) if (readable(c) && waiting.has(c.date)) earlier.set(c.date, [...(earlier.get(c.date) ?? []), c]);
   } catch {
     // Unreadable: nothing to restore.
   }
@@ -124,6 +140,32 @@ function publish(): void {
   for (const l of [...listeners]) l();
 }
 
+/**
+ * `record` waits for `date` now. The record it replaces, unless it is this
+ * same write's own earlier plan (`own`), was never stored either, so it keeps
+ * counting on its own (`earlier`, F-safety-01).
+ */
+function setWaiting(date: string, record: CheckInRecord, own: CheckInRecord | undefined): void {
+  const before = waiting.get(date);
+  if (before && before !== own) earlier.set(date, [...(earlier.get(date) ?? []), before]);
+  waiting.set(date, record);
+}
+
+/**
+ * The device kept `record`: it holds everything written before it, so those
+ * stop waiting, and so does what waits now if `record` covers it.
+ */
+function keptStored(date: string, record: CheckInRecord): void {
+  refused.delete(date);
+  const list = earlier.get(date) ?? [];
+  const at = list.indexOf(record);
+  const left = at >= 0 ? list.slice(at + 1) : waiting.get(date) === record ? [] : list;
+  const still = waiting.get(date);
+  if (still && covers(record, still)) waiting.delete(date);
+  if (!waiting.has(date) || left.length === 0) earlier.delete(date);
+  else earlier.set(date, left);
+}
+
 /** Called whenever a waiting record appears, changes or is stored. */
 export function subscribePendingCheckIns(listener: () => void): () => void {
   listeners.add(listener);
@@ -148,6 +190,7 @@ export function unstoredCheckIn(date: string): CheckInRecord | null {
 /** Test seam: forget everything waiting. */
 export function resetPendingCheckInsForTests(): void {
   waiting.clear();
+  earlier.clear();
   refused.clear();
   restored.clear();
   publish();
@@ -156,6 +199,7 @@ export function resetPendingCheckInsForTests(): void {
 /** Test seam: read the kept copy again, as a reload would. */
 export function restorePendingCheckInsForTests(): void {
   waiting.clear();
+  earlier.clear();
   refused.clear();
   restored.clear();
   restore();
@@ -268,6 +312,78 @@ function strictest(stored: DailyCheckIn, pending: DailyCheckIn): DailyCheckIn {
   };
 }
 
+/**
+ * A day from elsewhere without its answers about readings this device holds
+ * (§4.6, P8-02): `known`, by the ids answers name them by. Whatever such an
+ * answer says — settled, a mistake, reopened — it neither settles nor
+ * reopens what this device holds; the device's own answers do. An answer
+ * also about readings this device doesn't hold keeps those.
+ */
+export function withoutAnswersAbout<T extends DailyCheckIn>(day: T, known: ReadonlySet<string>): T {
+  if (!day.resolutions?.length || known.size === 0) return day;
+  let changed = false;
+  const resolutions = day.resolutions.flatMap(a => {
+    const readings = a.readings.filter(id => !known.has(id));
+    if (readings.length === a.readings.length) return [a];
+    changed = true;
+    return readings.length ? [{ ...a, readings }] : [];
+  });
+  if (!changed) return day;
+  const { resolutions: _all, ...rest } = day;
+  void _all;
+  return (resolutions.length ? { ...rest, resolutions } : rest) as T;
+}
+
+/**
+ * Two copies of one day as one, never looser than `kept` (H6-03, P8-02):
+ * what an import keeps of this device's day beside the file's. `strictest`,
+ * with the device's copy as the newer one, so its readings stay current and
+ * every reading, answer and symptom either holds is kept; then the answers:
+ * the device's own, and the other's about anything but `known`, the readings
+ * this device holds, so nothing in it settles or reopens one of them; and the
+ * later "feeling low" moment of the two, so no reading between them answers it.
+ */
+export function neverLooser(kept: DailyCheckIn, other: DailyCheckIn, known: ReadonlySet<string>): DailyCheckIn {
+  const { resolutions: _theirs, ...merged } = strictest(withoutSettled(other, kept, known), kept);
+  void _theirs;
+  const mine = kept.resolutions ?? [];
+  const theirs = withoutAnswersAbout(other, known).resolutions ?? [];
+  const resolutions = [...mine, ...theirs.filter(a => !mine.some(k => JSON.stringify(k) === JSON.stringify(a)))];
+  const felt = [kept.lowSymptomsAt, other.lowSymptomsAt]
+    .filter((t): t is string => typeof t === 'string' && !Number.isNaN(Date.parse(t)))
+    .sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1);
+  return { ...merged, ...(resolutions.length ? { resolutions } : {}), ...(felt ? { lowSymptomsAt: felt } : {}) };
+}
+
+/** Where a back red flag is said in a day's answers, for `withoutSettled`. */
+const BACK_FLAG_FIELDS: Partial<Record<RedFlag, readonly (keyof NonNullable<DailyCheckIn['back']>)[]>> = {
+  // A record from before `newWeakness` was asked said it as `newNeuro`.
+  newWeakness: ['newWeakness', 'newNeuro'],
+  backFever: ['feverish'],
+  backSudden: ['suddenSevere'],
+};
+
+/**
+ * The other copy of a day without its reports of what this device knows
+ * (H6R-05, board D175): a news item or red flag the device holds, answered,
+ * or said and unticked since, is the device's to say, so the other copy's
+ * report of it from before, a file's raw news or back answers, reopens
+ * nothing. Anything the device doesn't know is kept, so the day is never
+ * looser for it.
+ */
+function withoutSettled(other: DailyCheckIn, kept: DailyCheckIn, known: ReadonlySet<string>): DailyCheckIn {
+  const knownFlag = (f: RedFlag) => known.has(`flag:${f}@${kept.date}`);
+  const knownNews = (n: NewsItem) => known.has(newsReadingId(kept.date, n)) || ((n === 'footProblem' || n === 'hotSwollenFoot') && knownFlag(n));
+  const news = other.news.filter(n => !knownNews(n));
+  const backFields = (Object.entries(BACK_FLAG_FIELDS) as [RedFlag, readonly (keyof NonNullable<DailyCheckIn['back']>)[]][])
+    .filter(([f]) => knownFlag(f)).flatMap(([, fields]) => fields);
+  if (news.length === other.news.length && !(other.back && backFields.length)) return other;
+  const back = other.back && backFields.length
+    ? { ...other.back, ...Object.fromEntries(backFields.map(k => [k, kept.back?.[k]])) } as NonNullable<DailyCheckIn['back']>
+    : other.back;
+  return { ...other, news, ...(back ? { back } : {}) };
+}
+
 const previousDate = (date: string) => {
   const [y, m, d] = date.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
@@ -309,6 +425,7 @@ export function loggedReadings(observations: readonly Observation[]): Map<string
     const reading: GlucoseReading = {
       value: o.value, unit, unitConfirmed: true, source: o.source === 'measured' ? 'sensor' : 'meter',
       ...(o.timeUnknown ? {} : { measuredAt: o.at }),
+      ...(o.gen !== undefined ? { gen: o.gen } : {}),
     };
     (day(o.day).glucose ??= []).push(reading);
   }
@@ -326,23 +443,83 @@ export function loggedReadings(observations: readonly Observation[]): Map<string
  * gates (`logged`, X2-01). A day with readings but no record gets one that
  * holds only them: evidence for every rule, never a check-in. Nothing here
  * is stored: a save reads the store's own records.
+ *
+ * `stored` is what the device has stored (`StoreState.stored`), never a
+ * change still on its way or one it refused, so an answer waiting to be
+ * stored can add to a day and never take from it (F-safety-01). Track's
+ * readings are counted as shown (`observations`), so one on its way counts
+ * at once, and a day read beside its stored ones (`storedObservations`, in
+ * `durable`): one still on its way releases nothing either (N-01).
  */
-export function effectiveCheckIns(stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[] = []): CheckInRecord[] {
-  const logged = observations.length ? loggedReadings(observations) : new Map<string, NonNullable<DailyCheckIn['logged']>>();
-  if (waiting.size === 0 && logged.size === 0) return [...stored];
-  const dates = new Set([...stored.map(c => c.date), ...waiting.keys(), ...logged.keys()]);
+export function effectiveCheckIns(
+  stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[] = [], clock?: ClockHold,
+  storedObservations: readonly Observation[] = observations,
+): CheckInRecord[] {
+  return withClockHold(effectiveDays(stored, profile, observations, true, storedObservations), clock);
+}
+
+/**
+ * The same, as stored: Track's readings attached and the phone's clock changes, without any answer still
+ * waiting. What the store's guard asks the engine about, before and after a change (board D119): a correction
+ * waiting for its own write is never read as standing beside the reading it corrects.
+ */
+export function storedCheckIns(
+  stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[] = [], clock?: ClockHold,
+): CheckInRecord[] {
+  return withClockHold(effectiveDays(stored, profile, observations, false), clock);
+}
+
+/**
+ * B-19: the changes to this phone's clock (`settings.walk.clock`), on every
+ * day the gates read, so each gate can tell a reading taken since the latest
+ * from one taken before it (board D174). The records as they are without one.
+ */
+export function withClockHold<T extends DailyCheckIn>(records: T[], clock: ClockHold | undefined): T[] {
+  return clock ? records.map(c => ({ ...c, clockHold: clock })) : records;
+}
+
+type Logged = Map<string, NonNullable<DailyCheckIn['logged']>>;
+
+function effectiveDays(
+  stored: readonly CheckInRecord[], profile: UserProfile, observations: readonly Observation[], waitingToo = true,
+  storedObservations: readonly Observation[] = observations,
+): CheckInRecord[] {
+  const logged: Logged = observations.length ? loggedReadings(observations) : new Map();
+  // Track's readings as stored: one still on its way releases nothing either (N-01, F-safety-01).
+  const loggedStored: Logged = storedObservations === observations ? logged : storedObservations.length ? loggedReadings(storedObservations) : new Map();
+  const pending = waitingToo ? [...waiting.keys()] : [];
+  if (pending.length === 0 && logged.size === 0 && loggedStored.size === 0) return [...stored];
+  const dates = new Set([...stored.map(c => c.date), ...pending, ...logged.keys(), ...loggedStored.keys()]);
   return [...dates].sort().flatMap(date => {
     const recent = stored.filter(c => c.date < date);
     const mine = stored.find(c => c.date === date);
-    const record = effectiveRecord(mine, waitingFor(date, mine), profile, recent);
+    const said = waitingToo ? waitingFor(date, mine) : undefined;
+    const record = effectiveRecord(mine, said, profile, recent);
+    // Every answer written before the one waiting, none of them stored: each still counts on its own (F-safety-01).
+    const unstored = said ? earlier.get(date) ?? [] : [];
     const readings = logged.get(date);
-    if (!readings) return record ? [record] : [];
+    const storedReadings = loggedStored.get(date);
+    if (!readings && !storedReadings && unstored.length === 0) return record ? [record] : [];
     const { readiness: _r, ...plain }: Partial<CheckInRecord> & DailyCheckIn = record ?? { date, urgentSymptoms: false, news: [], readingsOnly: true };
     void _r;
-    const day: DailyCheckIn = { ...plain, logged: readings };
+    // The day as stored, with the Track readings stored for it, whenever either is not what is shown.
+    const differs = readings !== storedReadings && JSON.stringify(readings ?? {}) !== JSON.stringify(storedReadings ?? {});
+    const base: DailyCheckIn | undefined = plain.durable ?? (differs ? (mine ? withoutReadiness(mine) : { date, urgentSymptoms: false, news: [], readingsOnly: true }) : undefined);
+    const day: DailyCheckIn = {
+      ...plain,
+      ...(readings ? { logged: readings } : {}),
+      ...(base ? { durable: { ...base, ...(readings || storedReadings ? { logged: storedReadings ?? {} } : {}) } } : {}),
+      ...(unstored.length ? { unstored: unstored.map(withoutReadiness) } : {}),
+    };
     return [{ ...day, readiness: evaluateCheckIn(profile, day, recent) }];
   });
 }
+
+const withoutReadiness = (c: CheckInRecord): DailyCheckIn => {
+  const { readiness: _r, ...rest } = c;
+  void _r;
+  return rest;
+};
 
 /** Everything in `pending` is already in `stored`. */
 function covers(stored: CheckInRecord, pending: CheckInRecord): boolean {
@@ -393,6 +570,15 @@ export interface SymptomReport {
   back?: Partial<NonNullable<DailyCheckIn['back']>>;
 }
 
+/** B-19: a report's reading as it is given, stamped with the clock generation it is acquired in (`acquiredIn`, H6R-03, board D186). */
+export function acquiredReport(r: SymptomReport, generation: number): SymptomReport {
+  return {
+    ...r,
+    ...(r.glucose ? { glucose: acquiredIn(r.glucose, generation) } : {}),
+    ...(r.glucoseDisplay ? { glucoseDisplay: acquiredIn(r.glucoseDisplay, generation) } : {}),
+  };
+}
+
 /**
  * Report symptoms into today's effective check-in and save it, the same way
  * from every screen. Built inside the store's updater, from the latest stored
@@ -405,10 +591,10 @@ export function reportSymptoms(
   deps: { profile: UserProfile; update: StoreUpdate; date: string },
   at: Date = new Date(),
 ): Promise<SaveResult> {
-  return saveWith(deps.date, today => applyReport(today, report, deps.date, at), deps);
+  return saveWith(deps.date, (today, recent) => applyReport(today, report, deps.date, at, recent), deps);
 }
 
-function applyReport(today: CheckInRecord | undefined, r: SymptomReport, date: string, at: Date): DailyCheckIn {
+function applyReport(today: CheckInRecord | undefined, r: SymptomReport, date: string, at: Date, recent: readonly DailyCheckIn[] = []): DailyCheckIn {
   // A day with no record yet — movement that ran past midnight — gets one
   // holding only what was said. Nothing else is filled in, and the
   // emergency question stays unanswered, so it is evidence for every rule
@@ -429,47 +615,74 @@ function applyReport(today: CheckInRecord | undefined, r: SymptomReport, date: s
     news,
     ...(emergency ? { emergency, urgentSymptoms: base.urgentSymptoms || emergency.length > 0 } : {}),
     ...(r.glucose ? { glucose: timed(r.glucose) } : {}),
-    ...(r.glucoseDisplay ? { glucoseDisplay: timed(r.glucoseDisplay) } : {}),
+    // A meter's HI or LO is kept only here, so in this phone's offset, written out (H3-01).
+    ...(r.glucoseDisplay ? { glucoseDisplay: { ...r.glucoseDisplay, measuredAt: r.glucoseDisplay.measuredAt ?? measuredStamp(at) } } : {}),
     ...(reportsLow ? { lowSymptomsAt: at.toISOString() } : {}),
     ...(r.lowRecovered !== undefined ? { lowRecovered: r.lowRecovered } : {}),
     ...(r.provoked?.length ? { provoked: [...new Set([...(base.provoked ?? []), ...r.provoked])] } : {}),
     // Laid over today's back answers; nothing is filled in that was not said (J03, J16).
     ...(r.back ? { back: { ...base.back, ...r.back } } : {}),
+    // An answer to "I need to stop" is kept as one, about every stop still
+    // open, today's and earlier days' (H6R-01): so it holds as history, and a
+    // stop coming back from an older copy of a day reopens nothing (H6R-05).
+    ...(gone.has('stopped') ? { resolutions: [...(base.resolutions ?? []), stopAnswered([...recent, base], at)] } : {}),
   };
+}
+
+/** The answer to every stop said and not yet answered, given now. */
+function stopAnswered(days: readonly DailyCheckIn[], at: Date): EpisodeAnswer {
+  const readings = [...new Set(days.filter(stoppedIn).map(c => newsReadingId(c.date, 'stopped')))];
+  return { kind: 'news', readings, resolution: 'resolved', at: at.toISOString() };
 }
 
 async function saveWith(
   date: string,
-  build: (today: CheckInRecord | undefined) => DailyCheckIn,
+  build: (today: CheckInRecord | undefined, recent: readonly CheckInRecord[]) => DailyCheckIn,
   deps: { profile: UserProfile; update: StoreUpdate },
 ): Promise<SaveResult> {
   const { profile, update } = deps;
   let record: CheckInRecord | undefined;
   let answers: DailyCheckIn | undefined;
+  /** This write's own plan, planned again only by the store: it replaces itself, not an earlier answer. */
+  let own: CheckInRecord | undefined;
   const written = update(prev => {
     const list = prev.checkIns ?? [];
     const recent = list.filter(x => x.date < date);
     const mine = list.find(x => x.date === date);
     const base = effectiveRecord(mine, waitingFor(date, mine), profile, recent);
-    answers = build(base);
+    answers = build(base, recent);
     record = toStore(profile, carryForward(base, answers), recent);
     // Given on this visit: from here it is answered, not merely kept.
     restored.delete(date);
-    waiting.set(date, record);
+    setWaiting(date, record, own);
+    own = record;
     return { ...prev, checkIns: [...list.filter(x => x.date !== date), record] };
   });
   publish();
   const result = await written;
-  const saved = record ?? toStore(profile, answers ?? build(undefined), []);
-  if (result.ok) {
-    refused.delete(date);
-    const still = waiting.get(date);
-    if (still && covers(saved, still)) waiting.delete(date);
-  } else {
-    refused.add(date);
-  }
+  const saved = record ?? toStore(profile, answers ?? build(undefined, []), []);
+  if (result.ok) keptStored(date, saved);
+  else refused.add(date);
   publish();
   return { record: saved, stored: result.ok };
+}
+
+/**
+ * "It was a mistake" (board D119): each held measurement, exactly as the
+ * refusal named it, answered as typed wrongly in today's check-in, as the
+ * check-in sheet's "I typed it wrongly" answers one. A later day's answer
+ * settles an earlier day's reading too, as the engine reads them, and it is
+ * kept like any answer: the reading's history is what was measured and what
+ * was said about it (J§4.6, K8-07).
+ */
+export function answerMistakes(held: readonly HeldReading[], deps: { profile: UserProfile; update: StoreUpdate }, now: Date = new Date()): Promise<SaveResult> {
+  const date = toDateString(now);
+  const at = now.toISOString();
+  const answers: EpisodeAnswer[] = held.map(h => ({ kind: h.kind, readings: [h.id], resolution: 'mistake', at }));
+  return saveWith(date, today => {
+    const base: DailyCheckIn = today ?? { date, urgentSymptoms: false, news: [] };
+    return { ...base, resolutions: [...(base.resolutions ?? []), ...answers] };
+  }, deps);
 }
 
 // ============================================================================
@@ -575,6 +788,10 @@ export interface CorrectionResult {
   stored: boolean;
   /** Why it was not stored. */
   failure?: string;
+  /** A restore that had nothing to put back (K8-06): the check-in holds it already, or has a newer answer. */
+  unchanged?: 'already' | 'newer';
+  /** Refused: it would lift a hold the engine hasn't released, or the phone's clock changed (D119). Nothing changed. */
+  held?: HoldFailure;
 }
 
 /**
@@ -595,7 +812,11 @@ export async function correctCheckInPressure(
 ): Promise<CorrectionResult> {
   const { profile, update, date } = deps;
   let record: CheckInRecord | undefined;
+  // What was waiting before this write, given back if it is refused (D119), and read by a plan made again.
+  const prior = { record: waiting.get(date), restored: restored.has(date), earlier: earlier.get(date) ?? [] };
+  let own: CheckInRecord | undefined;
   const written = update(prev => {
+    if (own !== undefined && waiting.get(date) === own) giveBack(date, own, prior);
     const list = prev.checkIns ?? [];
     const recent = list.filter(x => x.date < date);
     // The same reading of what waits as every other save (`saveWith`): a copy
@@ -606,19 +827,20 @@ export async function correctCheckInPressure(
     record = fixed ? toStore(profile, fixed, recent) : undefined;
     if (!record) return prev;
     restored.delete(date);
-    waiting.set(date, record);
+    setWaiting(date, record, own);
+    own = record;
     return { ...prev, checkIns: [...list.filter(x => x.date !== date), record] };
   }, { readings: 'correct' });
   publish();
   const result = await written;
-  if (!record) return { matched: false, stored: result.ok };
-  if (result.ok) {
-    refused.delete(date);
-    const still = waiting.get(date);
-    if (still && covers(record, still)) waiting.delete(date);
-  } else {
-    refused.add(date);
+  if (isHeld(result.failure)) {
+    giveBack(date, record, prior);
+    publish();
+    return { matched: record !== undefined, stored: false, failure: result.failure.message, held: result.failure };
   }
+  if (!record) return { matched: false, stored: result.ok };
+  if (result.ok) keptStored(date, record);
+  else refused.add(date);
   publish();
   return { matched: true, stored: result.ok, ...(result.ok ? {} : { failure: result.failure?.message ?? 'The device did not keep it.' }) };
 }
@@ -711,31 +933,39 @@ const average = (readings: readonly BpReading[]) => ({
   dia: Math.round(readings.reduce((a, r) => a + r.dia, 0) / readings.length),
 });
 
+/** What a check-in reading's delete took out, and where it stood, so a restore can put it back as it was (D110). */
+export type KeptReading =
+  | { kind: 'glucose'; slot: 'current' | 'earlier'; entry: GlucoseReading }
+  | { kind: 'pressure'; slot: 'readings' | 'earlier' | 'summary'; entry: BpReading; halves: BpPartialReading[] }
+  | { kind: 'backPain' | 'legPain'; value: number };
+
 /**
- * The record with one reading taken out, or undefined when it holds no such
- * reading: what deleting it in Track means, so the record cannot bring it
- * back. Deleting the latest glucose makes the one before it the latest
- * again, as it was before that reading was entered; deleting a current
+ * The record with one reading taken out, and what it took; undefined when it
+ * holds no such reading. What deleting it in Track means, so the record cannot
+ * bring it back. Deleting the latest glucose makes the one before it the
+ * latest again, as it was before that reading was entered; deleting a current
  * blood-pressure reading works the day's average out again from the rest.
  */
-export function withReadingRemoved(record: DailyCheckIn, r: CheckInReading): DailyCheckIn | undefined {
+export function takenOut(record: DailyCheckIn, r: CheckInReading): { record: DailyCheckIn; kept: KeptReading } | undefined {
   if (r.kind === 'glucose') {
     const where = findGlucose(record, r);
     if (!where) return undefined;
     const { glucose: _gone, glucoseEarlier: _list, ...rest } = record;
     void _gone; void _list;
     if ('earlier' in where) {
+      const entry = record.glucoseEarlier![where.earlier] as GlucoseReading;
       const glucoseEarlier = record.glucoseEarlier!.filter((_, j) => j !== where.earlier);
-      return { ...rest, ...(record.glucose ? { glucose: record.glucose } : {}), ...(glucoseEarlier.length ? { glucoseEarlier } : {}) };
+      return { record: { ...rest, ...(record.glucose ? { glucose: record.glucose } : {}), ...(glucoseEarlier.length ? { glucoseEarlier } : {}) }, kept: { kind: 'glucose', slot: 'earlier', entry } };
     }
     // The latest went; with no HI or LO shown after it, the one before it is the latest again.
     const earlier = [...(record.glucoseEarlier ?? [])];
     const before = record.glucoseDisplay ? undefined : earlier.pop();
     const promoted = before === undefined ? {} : 'display' in before ? { glucoseDisplay: before } : { glucose: before };
-    return { ...rest, ...promoted, ...(earlier.length ? { glucoseEarlier: earlier } : {}) };
+    return { record: { ...rest, ...promoted, ...(earlier.length ? { glucoseEarlier: earlier } : {}) }, kept: { kind: 'glucose', slot: 'current', entry: record.glucose! } };
   }
 
   if (r.kind === 'pressure') {
+    const halves = record.bpPartial ?? [];
     const said = (b: BpReading) => b.sys === r.sys && b.dia === r.dia;
     const tests: ((b: BpReading) => boolean)[] = [b => sameInstant(b.at, r.at) && said(b), b => b.at === undefined && said(b), b => sameInstant(b.at, r.at)];
     for (const test of tests) {
@@ -744,21 +974,23 @@ export function withReadingRemoved(record: DailyCheckIn, r: CheckInReading): Dai
         const bpReadings = record.bpReadings!.filter((_, j) => j !== i);
         const { bp: _bp, bpReadings: _all, ...rest } = record;
         void _bp; void _all;
-        return halvesWith(bpReadings.length ? { ...rest, bpReadings, bp: average(bpReadings) } : rest, record.bpReadings![i]);
+        const entry = record.bpReadings![i];
+        return { record: halvesWith(bpReadings.length ? { ...rest, bpReadings, bp: average(bpReadings) } : rest, entry), kept: { kind: 'pressure', slot: 'readings', entry, halves } };
       }
       const k = record.bpEarlier?.findIndex(test) ?? -1;
       if (k >= 0) {
         const bpEarlier = record.bpEarlier!.filter((_, j) => j !== k);
         const { bpEarlier: _list, ...rest } = record;
         void _list;
-        return halvesWith(bpEarlier.length ? { ...rest, bpEarlier } : rest, record.bpEarlier![k]);
+        const entry = record.bpEarlier![k];
+        return { record: halvesWith(bpEarlier.length ? { ...rest, bpEarlier } : rest, entry), kept: { kind: 'pressure', slot: 'earlier', entry, halves } };
       }
     }
     // An older record kept its one reading only as the day's summary.
     if (!record.bpReadings?.length && record.bp && said(record.bp)) {
       const { bp: _bp, ...rest } = record;
       void _bp;
-      return halvesWith(rest, record.bp);
+      return { record: halvesWith(rest, record.bp), kept: { kind: 'pressure', slot: 'summary', entry: record.bp, halves } };
     }
     return undefined;
   }
@@ -769,7 +1001,60 @@ export function withReadingRemoved(record: DailyCheckIn, r: CheckInReading): Dai
   void _score;
   const { back: _back, ...rest } = record;
   void _back;
-  return Object.keys(back).length ? { ...rest, back } : rest;
+  return { record: Object.keys(back).length ? { ...rest, back } : rest, kept: { kind: r.kind, value: r.value } };
+}
+
+export function withReadingRemoved(record: DailyCheckIn, r: CheckInReading): DailyCheckIn | undefined {
+  return takenOut(record, r)?.record;
+}
+
+/**
+ * A reading a delete took out, put back where it stood (D110): the latest
+ * again if it was, with the one promoted when it went back before it; a blood
+ * pressure reading among the day's again, its average worked out again and
+ * its half-entered numbers relinked. 'already' when the record holds it
+ * already; 'newer' when a pain score has been answered again since: that
+ * answer is the day's own (K8-06).
+ */
+export function withReadingPutBack(record: DailyCheckIn, k: KeptReading): DailyCheckIn | 'already' | 'newer' {
+  if (k.kind === 'glucose') {
+    const same = (e: GlucoseEntry) => !('display' in e) && e.value === k.entry.value && e.unit === k.entry.unit
+      && (sameInstant(e.measuredAt, k.entry.measuredAt) || (e.measuredAt === undefined && k.entry.measuredAt === undefined));
+    if ([...(record.glucoseEarlier ?? []), ...(record.glucose ? [record.glucose] : [])].some(same)) return 'already';
+    if (k.slot === 'current' && !record.glucoseDisplay) {
+      const earlier = [...(record.glucoseEarlier ?? []), ...(record.glucose ? [record.glucose] : [])];
+      return { ...record, glucose: k.entry, ...(earlier.length ? { glucoseEarlier: earlier } : {}) };
+    }
+    return { ...record, glucoseEarlier: [...(record.glucoseEarlier ?? []), k.entry] };
+  }
+  if (k.kind === 'pressure') {
+    const same = (b: BpReading) => b.sys === k.entry.sys && b.dia === k.entry.dia && (sameInstant(b.at, k.entry.at) || (b.at === undefined && k.entry.at === undefined));
+    if ([...(record.bpReadings ?? []), ...(record.bpEarlier ?? []), ...(record.bp && !record.bpReadings?.length ? [record.bp] : [])].some(same)) return 'already';
+    const byId = new Map((record.bpPartial ?? []).map(h => [bpPartialId(h, record.date), h] as const));
+    for (const h of k.halves) byId.set(bpPartialId(h, record.date), h);
+    const withHalves = byId.size ? { bpPartial: [...byId.values()] } : {};
+    if (k.slot === 'earlier') return { ...record, bpEarlier: [...(record.bpEarlier ?? []), k.entry], ...withHalves };
+    if (k.slot === 'summary' && !record.bpReadings?.length && !record.bp) return { ...record, bp: k.entry, ...withHalves };
+    const bpReadings = [...(record.bpReadings ?? []), k.entry];
+    return { ...record, bpReadings, bp: average(bpReadings), ...withHalves };
+  }
+  const field = k.kind === 'backPain' ? 'pain' : 'legPain';
+  if (record.back?.[field] === k.value) return 'already';
+  if (record.back?.[field] !== undefined) return 'newer';
+  return { ...record, back: { ...(record.back ?? {}), [field]: k.value } };
+}
+
+export const ALREADY_BACK = 'Already back in your check-in.';
+export const NEWER_STAYS = 'Your newer answer stays.';
+
+/** What waited for `date` before a write, back in place of the record that write set, when it is still that record's. */
+function giveBack(date: string, mine: CheckInRecord | undefined, prior: { record: CheckInRecord | undefined; restored: boolean; earlier: CheckInRecord[] }): void {
+  if (mine === undefined || waiting.get(date) !== mine) return;
+  if (prior.record) waiting.set(date, prior.record);
+  else waiting.delete(date);
+  if (prior.earlier.length) earlier.set(date, prior.earlier);
+  else earlier.delete(date);
+  if (prior.restored) restored.add(date);
 }
 
 /**
@@ -783,11 +1068,16 @@ export function withReadingRemoved(record: DailyCheckIn, r: CheckInReading): Dai
 async function reviseCheckIn(
   fix: (record: CheckInRecord) => DailyCheckIn | undefined,
   deps: { profile: UserProfile; update: StoreUpdate; date: string },
-  options: { readings?: 'append' | 'correct'; removeObservations?: readonly string[] },
+  options: NonNullable<Parameters<StoreUpdate>[1]>,
 ): Promise<CorrectionResult> {
   const { profile, update, date } = deps;
   let record: CheckInRecord | undefined;
+  // What was waiting before this write. A plan made again (a restore's, at its commit: P8S-09) reads that,
+  // never its own earlier plan's record, which would look like the change made already.
+  const prior = { record: waiting.get(date), restored: restored.has(date), earlier: earlier.get(date) ?? [] };
+  let own: CheckInRecord | undefined;
   const written = update(prev => {
+    if (own !== undefined && waiting.get(date) === own) giveBack(date, own, prior);
     const list = prev.checkIns ?? [];
     const recent = list.filter(x => x.date < date);
     const mine = list.find(x => x.date === date);
@@ -796,20 +1086,22 @@ async function reviseCheckIn(
     record = fixed ? toStore(profile, fixed, recent) : undefined;
     if (!record) return prev;
     restored.delete(date);
-    waiting.set(date, record);
+    setWaiting(date, record, own);
+    own = record;
     return { ...prev, checkIns: [...list.filter(x => x.date !== date), record] };
   }, options);
   publish();
   const result = await written;
+  if (isHeld(result.failure)) {
+    // Refused before anything was written (D119): what waited before waits again, and nothing else moved.
+    giveBack(date, record, prior);
+    publish();
+    return { matched: record !== undefined, stored: false, failure: result.failure.message, held: result.failure };
+  }
   const failure = result.ok ? {} : { failure: result.failure?.message ?? 'The device did not keep it.' };
   if (!record) return { matched: false, stored: result.ok, ...failure };
-  if (result.ok) {
-    refused.delete(date);
-    const still = waiting.get(date);
-    if (still && covers(record, still)) waiting.delete(date);
-  } else {
-    refused.add(date);
-  }
+  if (result.ok) keptStored(date, record);
+  else refused.add(date);
   publish();
   return { matched: true, stored: result.ok, ...failure };
 }
@@ -839,6 +1131,57 @@ export function removeCheckInReading(
   r: CheckInReading,
   observationIds: readonly string[],
   deps: { profile: UserProfile; update: StoreUpdate; date: string },
+  /** A routine delete (D111): kept in Recently deleted for 7 days, with the readings as Track showed them. */
+  recent?: { entry: string; at: string; observations: readonly Observation[] },
 ): Promise<CorrectionResult> {
-  return reviseCheckIn(record => withReadingRemoved(record, r), deps, { removeObservations: observationIds });
+  let kept: KeptReading | undefined;
+  return reviseCheckIn(record => {
+    const out = takenOut(record, r);
+    kept = out?.kept;
+    return out?.record;
+  }, deps, {
+    removeObservations: observationIds,
+    ...(recent ? {
+      edit: false as const,
+      content: () => (kept ? { put: { [recentKey(recent.entry)]: checkInReadingEntry(recent, deps.date, kept, recent.observations) } } : undefined),
+    } : {}),
+  });
+}
+
+/**
+ * A check-in's reading put back from Recently deleted (B-05, D110, D111,
+ * P8R-03): into its day's check-in where it stood, and its rows into the
+ * series under fresh ids with `restoredFrom`, the entry used up, in one
+ * write. What was measured is its identity, apart from any row's id (R5-01):
+ * `prepare` drops the measurement's deletion record as its row returns, and
+ * keeps the old id's, so an older backup can't bring the old row back beside
+ * it. When the check-in holds it already, or has a newer pain answer, nothing
+ * is put back and the entry goes all the same, with words to say so (K8-06).
+ */
+export async function restoreCheckInReading(
+  entry: { id: string; kept: KeptReading; observations?: readonly Observation[] },
+  deps: { profile: UserProfile; update: StoreUpdate; date: string },
+): Promise<CorrectionResult> {
+  let unchanged: 'already' | 'newer' | undefined;
+  // One stem for the whole reading, so a blood pressure's two halves stay one reading: letters and digits
+  // only, the token `checkInDayOf` reads after `#`, so the rows stay the check-in's (P8S-07).
+  const stem = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.replace(/[^0-9a-z]/g, '');
+  const rows = (entry.observations ?? []).map(o => ({
+    ...o,
+    id: `${stem}:${o.kind}`,
+    ...(o.context?.startsWith('bp:') ? { context: `bp:checkIn:${deps.date}#${stem}` } : {}),
+    restoredFrom: o.id,
+  }));
+  const result = await reviseCheckIn(record => {
+    const next = withReadingPutBack(record, entry.kept);
+    unchanged = typeof next === 'string' ? next : undefined;
+    return typeof next === 'string' ? undefined : next;
+  }, deps, {
+    readings: 'append',
+    edit: false,
+    entry: entry.id,
+    restored: () => (unchanged ? [] : rows),
+  });
+  // Nothing to put back: the entry was still used up, in that same write.
+  return unchanged ? { ...result, matched: true, unchanged } : result;
 }

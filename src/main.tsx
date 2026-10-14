@@ -5,26 +5,38 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
 import App from './App'
 import { RootError } from '@/components/hig/ErrorBoundary'
-import { backPending, followRouter, setPlaceCheck } from '@/components/hig/navigation'
-import { getState } from '@/store/useStore'
+import { backPending, cameFrom, followRouter, originOf, setPlaceCheck } from '@/components/hig/navigation'
+import { endUndos, followPlace } from '@/components/hig/undo'
+import { clockChangeWaiting, getState, holdNewWork, subscribeEdits, whenSettled } from '@/store/useStore'
+import { startUpdates, type ContainerLike } from '@/app/updates'
+import { underWay } from '@/app/underWay'
+import { shouldAnimate, transitionSkipped } from '@/design/motion'
 import { placeExists } from '@/places'
 import { applyTextSize } from '@/lib/textSize'
 import './index.css'
 
-// A deploy replaced the files this page was built from, so a screen it hasn't
-// loaded yet can't load: reload onto the new build (at most every 10 s, so a
-// real outage can't loop). A guided session resumes from its saved progress.
-window.addEventListener('vite:preloadError', () => {
-  const last = Number(sessionStorage.getItem('fit-reload-at') ?? 0);
-  if (Date.now() - last < 10_000) return;
-  sessionStorage.setItem('fit-reload-at', String(Date.now()));
-  window.location.reload();
-});
-
-// Production only: in dev a cached module would mask code changes.
+// Updates the platform's own way (J§21.2, B-21; board D106): a new release installs and
+// waits until no window runs this one, and Home says so. Nothing reloads by itself, not
+// even for a screen that didn't load: a window reads only its own release's files, which
+// stay until its last window closes, so that is a real failure, and its Try again is the
+// person's own (K8-02, K8-10). Production only: in development a cached module would mask
+// code changes.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {})
+  void startUpdates({
+    container: navigator.serviceWorker as unknown as ContainerLike,
+    swUrl: `${import.meta.env.BASE_URL}sw.js`,
+    storage: localStorage,
+    reload: () => window.location.reload(),
+    loaded: new Promise<void>(resolve => {
+      if (document.readyState === 'complete') resolve()
+      else window.addEventListener('load', () => resolve(), { once: true })
+    }),
+    mark: build => { document.documentElement.dataset.build = build },
+    underWay,
+    hold: holdNewWork,
+    settled: whenSettled,
+    // A change to the clock refused at first: the reload waits through its tries until it is stored (F-data-02).
+    safetyWaiting: clockChangeWaiting,
   })
 }
 
@@ -41,12 +53,19 @@ const router = createHashRouter([
         <div id="app">
           <App />
         </div>
-        {/* Above the tab bar on a phone and a tablet, not over it (see --toast-offset-bottom). */}
-        <Toaster
-          position="bottom-right"
-          offset={{ bottom: 'var(--toast-offset-bottom)' }}
-          mobileOffset={{ bottom: 'var(--toast-offset-bottom)' }}
-        />
+        {/* Above the tab bar on a phone and a tablet, not over it (see --toast-offset-bottom).
+            Expanded: both in full, the newer nearest the tab bar and the older above it
+            (board D111 as amended), so an older Undo stays in reach rather than tucked
+            behind (M19, B-04); one at a time where two would cover most of the screen. */}
+        {/* Held, hidden and inert, while a sheet or a menu owns the page (`claimModal`, B-03). */}
+        <div id="toasts">
+          <Toaster
+            expand
+            position="bottom-right"
+            offset={{ bottom: 'var(--toast-offset-bottom)' }}
+            mobileOffset={{ bottom: 'var(--toast-offset-bottom)' }}
+          />
+        </div>
       </TooltipProvider>
     ),
     errorElement: <RootError />,
@@ -58,19 +77,26 @@ const router = createHashRouter([
 // screen only while that record is still stored.
 followRouter(router)
 setPlaceCheck(place => placeExists(place.pathname, getState()))
+// An Undo belongs to its screen and the details opened from it (B-04, D113), and an edit ends it.
+router.subscribe(state => followPlace({ path: state.location.pathname, from: originOf(state.location.state)?.path ?? cameFrom() }))
+subscribeEdits(endUndos)
 
 // Every forward navigation animates, the way a navigation controller pushes.
 // The areas' screens live in their own <Routes>, which are not data routes, and
 // React Router 7.13's adapter for those drops the `viewTransition` option on
 // the way to the router — so it is added here, once. A pop replays its push's
 // transition, which the stack marks as going back. Replacements stay instant —
-// redirects — unless they are a Back with nothing to pop to; so does reduced motion.
+// redirects — unless they are a Back with nothing to pop to; so does reduced
+// motion, the system's or the app's own (motion rule 4, set on <html> by App).
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
 const navigate = router.navigate.bind(router)
-router.navigate = ((to: Parameters<typeof navigate>[0], opts?: Parameters<typeof navigate>[1]) =>
-  typeof to === 'number' || (opts?.replace && !backPending()) || reduceMotion.matches
-    ? navigate(to as never, opts)
-    : navigate(to, { viewTransition: true, ...opts })) as typeof router.navigate
+router.navigate = ((to: Parameters<typeof navigate>[0], opts?: Parameters<typeof navigate>[1]) => {
+  const plain = typeof to === 'number' || (opts?.replace && !backPending())
+    || !shouldAnimate({ systemReduced: reduceMotion.matches, appReduced: document.documentElement.dataset.reduceMotion !== undefined })
+  // A tile's morph (M3) belongs to an animated push; a plain navigation leaves no mark behind.
+  if (plain) delete document.documentElement.dataset.morph
+  return plain ? navigate(to as never, opts) : navigate(to, { viewTransition: true, ...opts })
+}) as typeof router.navigate
 
 // Safari's swipe-back already animates the page; a second, app-drawn
 // transition on top of it would show the move twice.
@@ -82,24 +108,46 @@ window.addEventListener('popstate', event => {
 // A second tap before a transition has started skips it, and a skipped
 // transition rejects `ready`, which React Router never observes: without this
 // every quick double navigation logs an uncaught "Transition was skipped".
+// While one runs, glass is drawn solid (`data-vt-running`, WebKit 302256).
+// `finished` settles whether it ran or was skipped; only the newest transition
+// clears the mark, since a skipped one can settle after its successor began.
+//
+// Safety pre-empts every effect (motion rule 2): while an urgent decision
+// stands (`data-urgent`, set by the shell) every screen shows it, so no
+// transition runs, and one already running when it arrives is skipped, its
+// old snapshot gone with it. A tap into a screen that opens on a hold asks
+// for its own transition to be skipped (`skipNextTransition`).
 if (document.startViewTransition) {
   const start = document.startViewTransition.bind(document)
+  let latest: ViewTransition | undefined
+  const urgent = () => document.documentElement.dataset.urgent !== undefined
   document.startViewTransition = ((update?: Parameters<typeof start>[0]) => {
+    document.documentElement.dataset.vtRunning = ''
     const transition = start(update)
+    latest = transition
     transition.ready.catch(() => {})
+    transition.finished
+      .finally(() => {
+        if (latest !== transition) return
+        delete document.documentElement.dataset.vtRunning
+        delete document.documentElement.dataset.morph
+      })
+      .catch(() => {})
     // The router starts the transition a few frames after the popstate.
-    if (performance.now() - browserAnimatedAt < 1000) {
-      browserAnimatedAt = -Infinity
-      transition.skipTransition()
-    }
+    const browserAnimated = performance.now() - browserAnimatedAt < 1000
+    if (browserAnimated) browserAnimatedAt = -Infinity
+    if (transitionSkipped({ urgent: urgent() }) || browserAnimated) transition.skipTransition()
     return transition
   }) as typeof document.startViewTransition
+  new MutationObserver(() => {
+    if (urgent() && document.documentElement.dataset.vtRunning !== undefined) latest?.skipTransition()
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-urgent'] })
 }
 
 // Follow the iOS text size before anything renders, and again on return to
 // the app, since the setting is changed outside it.
 applyTextSize()
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') applyTextSize() })
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') applyTextSize(document, getState().settings.display?.textScale) })
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

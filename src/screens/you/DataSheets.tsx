@@ -1,12 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { cn } from '@/lib/utils';
+import { TARGET } from '@/components/hig/targets';
+import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
-import { clearAllAndRestart, exportRecord, useStore } from '@/store/useStore';
+import { clearAllAndRestart, eraseRoutes, exportRecord, getState, useStore } from '@/store/useStore';
+import { walkSettings } from '@/walk/consent';
 import { deliver, deliveryMethod } from '@/store/transfer';
 import { showBadge } from '@/reminders/badge';
 import { clearReminders } from '@/reminders/pending';
-import { Notice, PlainButton, PrimaryButton } from './controls';
+import { Notice, PlainButton, PrimaryButton, Toggle } from './controls';
 import { settingsKey } from './backupFile';
-import { countsSentence, recordCounts } from './summaries';
+import { backupLine, backupState, fileSize } from './dataStatus';
+import { countsSentence, plural, recordCounts } from './summaries';
 import { recordExport } from './write';
 
 interface SheetProps {
@@ -14,10 +19,6 @@ interface SheetProps {
   onOpenChange: (open: boolean) => void;
   /** "iPhone", "iPad" or "device". */
   device: string;
-}
-
-function size(bytes: number): string {
-  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024)).toLocaleString()} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 // ============================================================================
@@ -40,6 +41,8 @@ interface Prepared {
   revision: number;
   /** The record it was made from (`version` below). */
   version: readonly unknown[];
+  /** The record is past a limit a restore applies; the file still holds everything (D108). */
+  warning?: string;
 }
 
 /**
@@ -55,29 +58,35 @@ interface Prepared {
 function BackupBody({ device }: { device: string }) {
   const state = useStore();
   const settings = useMemo(() => settingsKey(state.settings), [state.settings]);
+  // Routes go into a backup only when the person includes them (journey §18.3).
+  const [withRoutes, setWithRoutes] = useState(false);
+  const routes = state.records.routes.length;
   // Everything a backup holds. The store replaces a collection whenever it
   // changes, so a new version means the prepared file no longer matches.
   const version = useMemo(
-    () => [state.observations, state.sessions, state.checkIns, state.personalRecords, state.bodyMetrics, state.focusOverrides, state.contentState, state.profile, settings],
-    [state.observations, state.sessions, state.checkIns, state.personalRecords, state.bodyMetrics, state.focusOverrides, state.contentState, state.profile, settings],
+    () => [state.observations, state.sessions, state.checkIns, state.personalRecords, state.bodyMetrics, state.focusOverrides, state.contentState, state.records, state.profile, settings, withRoutes],
+    [state.observations, state.sessions, state.checkIns, state.personalRecords, state.bodyMetrics, state.focusOverrides, state.contentState, state.records, state.profile, settings, withRoutes],
   );
   const [prepared, setPrepared] = useState<Prepared>();
+  // Whether the prepared file has left the app: a new one has not, yet.
+  const [handed, setHanded] = useState(false);
   const [outcome, setOutcome] = useState<{ tone: 'status' | 'error'; text: string }>();
 
   useEffect(() => {
     let current = true;
-    void exportRecord().then(made => {
+    void exportRecord(withRoutes ? { include: ['routes'] } : {}).then(made => {
       if (!current) return;
       if (!made.ok) {
         setOutcome({ tone: 'error', text: `The backup could not be made. ${made.failure.message}` });
         return;
       }
-      const { bytes, name, type, exportedAt, revision } = made.value;
-      setPrepared({ file: new File([bytes as BlobPart], name, { type }), exportedAt, revision, version });
+      const { bytes, name, type, exportedAt, revision, warning } = made.value;
+      setPrepared({ file: new File([bytes as BlobPart], name, { type }), exportedAt, revision, version, ...(warning ? { warning } : {}) });
+      setHanded(false);
       setOutcome(previous => (previous?.tone === 'error' ? undefined : previous));
     });
     return () => { current = false; };
-  }, [version]);
+  }, [version, withRoutes]);
 
   // Only a file of the record as it is now can be handed over.
   const ready = prepared?.version === version ? prepared : undefined;
@@ -89,30 +98,45 @@ function BackupBody({ device }: { device: string }) {
       setOutcome({ tone: 'error', text: delivered.failure.message });
       return;
     }
-    if (delivered.value === 'cancelled') return;
+    if (delivered.value === 'cancelled') {
+      // A known cancellation never advances the backup's status (B-25).
+      setOutcome({ tone: 'status', text: `Not shared, so nothing has changed. ${backupLine(backupState(getState().settings.habits))}.` });
+      return;
+    }
+    setHanded(true);
     // What the file covers, not the moment it was handed over.
-    const saved = await recordExport({ at: exportedAt, revision });
+    const saved = await recordExport({ at: exportedAt, revision, via: delivered.value });
     setOutcome(saved.ok
       ? { tone: 'status', text: delivered.value === 'share'
-        ? 'Done. Keep the file somewhere private, such as Files or iCloud Drive.'
-        : 'Downloaded. You will find the file with your downloads.' }
+        ? 'Shared. Keep the file somewhere private, such as Files or iCloud Drive. To check it reads back, use Check a backup.'
+        : 'Downloaded. You will find the file with your downloads. To check it reads back, use Check a backup.' }
       : { tone: 'error', text: `The file was made, but the date of this backup did not save. ${saved.failure.message}` });
   };
 
   return (
     <>
       <p className="px-1 text-[length:var(--text-body)] leading-snug">
-        One file with your whole record: {countsSentence(recordCounts(state))}, your profile and health answers, and your settings. Restore it on this {device} or a new one.
+        One file with your whole record: {countsSentence({ ...recordCounts(state), routes: withRoutes ? routes : 0 })}, your profile and health answers, and your settings. Restore it on this {device} or a new one.
       </p>
       <p className="px-1 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
         The file is not encrypted. Anyone who has it can read your health record, so keep it somewhere private and think twice before sending it to anyone.
       </p>
+      {routes > 0 && (
+        <Group footer="A backup with routes shows where you walked to anyone who has the file.">
+          <Row
+            label="Include your routes"
+            detail={plural(routes, 'route')}
+            accessory={<Toggle label="Include your routes" checked={withRoutes} onChange={setWithRoutes} />}
+          />
+        </Group>
+      )}
       <div className="flex flex-col gap-2">
-        <PrimaryButton disabled={!ready} onClick={() => { if (ready) void hand(ready); }}>
+        {ready?.warning && <Notice tone="status">{ready.warning}</Notice>}
+        <PrimaryButton className={TARGET.primary} disabled={!ready} onClick={() => { if (ready) void hand(ready); }}>
           {!file ? 'Preparing the file…' : deliveryMethod(file) === 'share' ? 'Save or share' : 'Download'}
         </PrimaryButton>
         <p aria-live="polite" className="numeric px-4 text-[length:var(--text-footnote)] text-muted-foreground">
-          {file ? `${file.name}, ${size(file.size)}` : ''}
+          {file ? (handed ? `${file.name}, ${fileSize(file.size)}` : `Prepared: ${file.name}, ${fileSize(file.size)}. It hasn’t left this ${device} yet.`) : ''}
         </p>
         {outcome && <Notice tone={outcome.tone}>{outcome.text}</Notice>}
       </div>
@@ -124,20 +148,94 @@ function BackupBody({ device }: { device: string }) {
 // Delete everything
 // ============================================================================
 
-export function DeleteSheet({ open, onOpenChange, device }: SheetProps) {
+// ============================================================================
+// Erase all routes
+// ============================================================================
+
+/**
+ * "Erase all routes" (B-05), asked twice, as everything that cannot be undone
+ * is, in Delete everything's pattern (§20.4 rule 6, H6R-15, K6R-04, board
+ * D182). The sheet can't be closed while the erase is being written.
+ */
+export function EraseRoutesSheet({ open, onOpenChange, device, onErased }: SheetProps & { onErased: () => void }) {
+  const [busy, setBusy] = useState(false);
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title="Delete everything" detent="large">
-      {open && <DeleteBody device={device} close={() => onOpenChange(false)} />}
+    <Sheet open={open} onOpenChange={next => { if (!busy) onOpenChange(next); }} dismissible={!busy} title="Erase all routes" detent="large">
+      {open && <EraseRoutesBody device={device} busy={busy} setBusy={setBusy} close={() => onOpenChange(false)} onErased={onErased} />}
     </Sheet>
   );
 }
 
-function DeleteBody({ device, close }: { device: string; close: () => void }) {
-  const state = useStore();
-  const [busy, setBusy] = useState(false);
+function EraseRoutesBody({ device, busy, setBusy, close, onErased }: {
+  device: string; busy: boolean; setBusy: (busy: boolean) => void; close: () => void; onErased: () => void;
+}) {
+  const keeps = walkSettings(useStore().settings).saveRoutes === true;
+  const [step, setStep] = useState<'ask' | 'confirm'>('ask');
   const [problem, setProblem] = useState<string>();
+  const heading = useRef<HTMLParagraphElement>(null);
+  // The button pressed has gone: the second question takes focus (B-03).
+  useEffect(() => { if (step === 'confirm') heading.current?.focus(); }, [step]);
+  const erase = async () => {
+    setBusy(true);
+    setProblem(undefined);
+    const done = await eraseRoutes();
+    setBusy(false);
+    if (!done.ok) return setProblem(`The routes were not erased. ${done.failure.message}`);
+    onErased();
+    close();
+  };
+  const stop = cn('press-feedback w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white disabled:opacity-60', TARGET.primary);
+
+  if (step === 'ask') {
+    return (
+      <>
+        <p className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug">Erase all routes on this {device}?</p>
+        <p className="px-1 text-[length:var(--text-body)] leading-snug">
+          Every route on this {device} is erased: from saved walks, from a walk not yet saved, and from one you’re on now. The walks keep their time, distance and steps. This cannot be undone.
+        </p>
+        {/* What happens next, so erasing is never mistaken for turning routes off (K6R-11). */}
+        {keeps && <p className="px-1 text-[length:var(--text-body)] leading-snug">New walks still keep their route while Keep walk routes is on.</p>}
+        <div className={cn('flex flex-col', TARGET.gap)}>
+          <button type="button" onClick={() => setStep('confirm')} className={stop}>Erase routes</button>
+          <PlainButton className={TARGET.tap} onClick={close}>Keep my routes</PlainButton>
+        </div>
+      </>
+    );
+  }
+  return (
+    <>
+      <p ref={heading} tabIndex={-1} className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug outline-none">Erase every route for good?</p>
+      <p className="px-1 text-[length:var(--text-body)] leading-snug">This is the last step. No backup brings them back.</p>
+      {problem && <Notice tone="error">{problem}</Notice>}
+      <div className={cn('flex flex-col', TARGET.gap)}>
+        <button type="button" disabled={busy} onClick={() => void erase()} className={stop}>
+          {busy ? 'Erasing…' : 'Erase all routes'}
+        </button>
+        <PlainButton disabled={busy} className={TARGET.tap} onClick={close}>Keep my routes</PlainButton>
+      </div>
+    </>
+  );
+}
+
+export function DeleteSheet({ open, onOpenChange, device }: SheetProps) {
+  // While it erases nothing closes it, as Erase all routes: a refusal is said here (kiro FK-10).
+  const [busy, setBusy] = useState(false);
+  return (
+    <Sheet open={open} onOpenChange={next => { if (!busy) onOpenChange(next); }} dismissible={!busy} title="Delete everything" detent="large">
+      {open && <DeleteBody device={device} busy={busy} setBusy={setBusy} close={() => onOpenChange(false)} />}
+    </Sheet>
+  );
+}
+
+function DeleteBody({ device, busy, setBusy, close }: { device: string; busy: boolean; setBusy: (busy: boolean) => void; close: () => void }) {
+  const state = useStore();
+  const [step, setStep] = useState<'ask' | 'confirm'>('ask');
+  const [problem, setProblem] = useState<string>();
+  const heading = useRef<HTMLParagraphElement>(null);
   const counts = recordCounts(state);
   const any = counts.readings + counts.sessions + counts.checkIns + counts.bodyMetrics + counts.personalRecords > 0;
+  // The button pressed has gone: the second question takes focus (B-03).
+  useEffect(() => { if (step === 'confirm') heading.current?.focus(); }, [step]);
 
   const erase = async () => {
     setBusy(true);
@@ -154,22 +252,42 @@ function DeleteBody({ device, close }: { device: string; close: () => void }) {
     }
   };
 
+  if (step === 'ask') {
+    return (
+      <>
+        <p className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug">Delete everything on this {device}?</p>
+        <p className="px-1 text-[length:var(--text-body)] leading-snug">
+          This deletes everything the app keeps here: your profile and health answers{any ? `, ${countsSentence(counts)}` : ''}, your food preferences, your reminders and your settings. The app then starts again as new.
+        </p>
+        <p className="px-1 text-[length:var(--text-body)] font-medium leading-snug">It cannot be undone. If you might want any of it later, back up first.</p>
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setStep('confirm')}
+            className={cn('press-feedback w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white', TARGET.primary)}
+          >
+            Delete everything
+          </button>
+          <PlainButton onClick={close}>Keep my record</PlainButton>
+        </div>
+      </>
+    );
+  }
   return (
     <>
-      <p className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug">Delete everything on this {device}?</p>
+      <p ref={heading} tabIndex={-1} className="px-1 text-[length:var(--text-title-2)] font-semibold leading-snug outline-none">Erase all of it?</p>
       <p className="px-1 text-[length:var(--text-body)] leading-snug">
-        This deletes everything the app keeps here: your profile and health answers{any ? `, ${countsSentence(counts)}` : ''}, your food preferences, your reminders and your settings. The app then starts again as new.
+        This is the last step. Everything the app holds on this {device} goes, and only a backup can bring it back.
       </p>
-      <p className="px-1 text-[length:var(--text-body)] font-medium leading-snug">It cannot be undone. If you might want any of it later, back up first.</p>
       <div className="flex flex-col gap-2">
         {problem && <Notice tone="error">{problem}</Notice>}
         <button
           type="button"
           disabled={busy}
           onClick={() => void erase()}
-          className="press-feedback min-h-[3.25rem] w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white disabled:opacity-60"
+          className={cn('press-feedback w-full rounded-xl bg-stop-fill px-4 text-[length:var(--text-body)] font-semibold text-white disabled:opacity-60', TARGET.primary)}
         >
-          {busy ? 'Deleting…' : 'Delete everything'}
+          {busy ? 'Erasing…' : 'Erase all'}
         </button>
         <PlainButton disabled={busy} onClick={close}>Keep my record</PlainButton>
       </div>

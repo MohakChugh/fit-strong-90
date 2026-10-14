@@ -1,0 +1,91 @@
+import { describe, expect, it } from 'vitest';
+import type { DailyCheckIn } from '@/types/checkin';
+import { flagsIn } from '@/engine/readiness';
+import { neverLooser, takenOut, withReadingPutBack, withoutAnswersAbout } from './pending';
+
+const DAY = '2026-10-08';
+const at = (h: number, m: number) => new Date(2026, 9, 8, h, m).toISOString();
+const day = (over: Partial<DailyCheckIn> = {}): DailyCheckIn => ({ date: DAY, urgentSymptoms: false, emergency: [], news: [], ...over });
+const g = (value: number, h: number, m: number) => ({ value, unit: 'mg/dL' as const, measuredAt: at(h, m), source: 'meter' as const });
+
+describe('two copies of one day, never looser than this device’s (H6-03)', () => {
+  it('keeps the device’s readings current and the other’s as earlier ones', () => {
+    const merged = neverLooser(day({ glucose: g(60, 13, 30) }), day({ glucose: g(110, 13, 15) }), new Set());
+    expect(merged.glucose).toEqual(g(60, 13, 30));
+    expect(merged.glucoseEarlier).toEqual([g(110, 13, 15)]);
+  });
+
+  it('adds what either says, and neither settles nor reopens a reading this device holds with the other’s answers (P8-02)', () => {
+    const reading = 'g:x';
+    const mistake = { kind: 'severeLow' as const, readings: [reading], resolution: 'mistake' as const, at: at(13, 40) };
+    const reopened = { kind: 'severeLow' as const, readings: [reading], resolution: 'reopened' as const, at: at(13, 45) };
+    const known = new Set([reading]);
+    const merged = neverLooser(day({ news: ['stopped'] }), day({ news: ['dizzy'], urgentSymptoms: true, emergency: ['chest'], resolutions: [mistake, reopened] }), known);
+    expect(merged.news.sort()).toEqual(['dizzy', 'stopped']);
+    expect(merged.emergency).toEqual(['chest']);
+    expect(merged.urgentSymptoms).toBe(true);
+    expect(merged.resolutions).toBeUndefined();
+    const own = neverLooser(day({ resolutions: [mistake] }), day({ resolutions: [reopened] }), known);
+    expect(own.resolutions).toEqual([mistake]);
+    // The other's answers about its own readings come with them.
+    expect(neverLooser(day(), day({ resolutions: [mistake, reopened] }), new Set()).resolutions).toEqual([mistake, reopened]);
+  });
+
+  it('keeps this device’s standing for what it settled: the other’s raw report of an answered or unticked item reopens nothing (H6R-05)', () => {
+    const footAnswered = { kind: 'foot' as const, readings: [`flag:footProblem@${DAY}`], resolution: 'mistake' as const, at: at(13, 40) };
+    const kept = day({ flagsEarlier: ['footProblem', 'newWeakness'], resolutions: [footAnswered], back: { pain: 2, newWeakness: false, newNeuro: false } });
+    const known = new Set([`flag:footProblem@${DAY}`, `flag:newWeakness@${DAY}`, `news:fainted@${DAY}`]);
+    const other = day({ news: ['footProblem', 'fainted', 'dizzy'], back: { pain: 2, newWeakness: true, newNeuro: true } });
+    const merged = neverLooser({ ...kept, newsEarlier: ['fainted'] }, other, known);
+    // The device's: unticked and answered, unticked and still carried, said and unticked since.
+    expect(merged.news).toEqual(['dizzy']);
+    expect(merged.back?.newWeakness).toBe(false);
+    expect(merged.flagsEarlier).toEqual(expect.arrayContaining(['footProblem', 'newWeakness']));
+    expect(merged.newsEarlier).toEqual(['fainted']);
+    // What the device doesn't know is the other's to add.
+    expect(neverLooser(day(), other, new Set()).news.sort()).toEqual(['dizzy', 'fainted', 'footProblem']);
+    // And what the device reports now stays.
+    expect(neverLooser(day({ news: ['footProblem'] }), other, known).news).toContain('footProblem');
+    // A foot drop said the old way, before the question had its own answer, reopens nothing either.
+    const legacy = day({ back: { pain: 2, newNeuro: true } });
+    expect(flagsIn(neverLooser(day({ flagsEarlier: ['newWeakness'] }), legacy, known))).not.toContain('newWeakness');
+    expect(flagsIn(neverLooser(day(), legacy, new Set()))).toContain('newWeakness');
+  });
+
+  it('leaves out only the readings this device holds from an answer that names others too', () => {
+    const both = { kind: 'severeLow' as const, readings: ['g:mine', 'g:theirs'], resolution: 'mistake' as const, at: at(13, 40) };
+    expect(withoutAnswersAbout(day({ resolutions: [both] }), new Set(['g:mine'])).resolutions).toEqual([{ ...both, readings: ['g:theirs'] }]);
+    const kept = day({ resolutions: [both] });
+    expect(withoutAnswersAbout(kept, new Set(['g:other']))).toBe(kept);
+    expect(withoutAnswersAbout(kept, new Set(['g:mine', 'g:theirs'])).resolutions).toBeUndefined();
+  });
+
+  it('keeps the later “feeling low” moment, so no reading between the two answers it', () => {
+    const merged = neverLooser(day({ news: ['lowSymptoms'], lowSymptomsAt: at(13, 30) }), day({ news: ['lowSymptoms'], lowSymptomsAt: at(7, 0) }), new Set());
+    expect(merged.lowSymptomsAt).toBe(at(13, 30));
+    expect(neverLooser(day({ lowSymptomsAt: at(7, 0) }), day({ lowSymptomsAt: at(13, 30) }), new Set()).lowSymptomsAt).toBe(at(13, 30));
+  });
+});
+
+describe('a check-in reading taken out and put back as it was (D110, D111, K8-06)', () => {
+  const day = '2026-10-08';
+  const g = (value: number, hhmm: string) => ({ value, unit: 'mg/dL' as const, measuredAt: `${day}T${hhmm}:00.000+05:30`, source: 'meter' as const });
+  const rec = { date: day, urgentSymptoms: false, news: [], glucoseEarlier: [g(60, '08:00')], glucose: g(110, '08:20'), bpReadings: [{ sys: 190, dia: 100, at: `${day}T08:30:00.000+05:30` }], bp: { sys: 190, dia: 100 }, back: { pain: 6 } };
+
+  it('puts the latest glucose back as the latest, the one promoted back before it', () => {
+    const out = takenOut(rec, { kind: 'glucose', at: g(110, '08:20').measuredAt, value: 110, unit: 'mg/dL' })!;
+    expect(out.record.glucose?.value).toBe(60);
+    expect(withReadingPutBack(out.record, out.kept)).toMatchObject({ glucose: { value: 110 }, glucoseEarlier: [{ value: 60 }] });
+  });
+
+  it('puts a blood pressure reading back with its average, and a pain score unless it is there or answered again', () => {
+    const bp = takenOut(rec, { kind: 'pressure', at: rec.bpReadings[0].at, sys: 190, dia: 100 })!;
+    expect(bp.record.bpReadings).toBeUndefined();
+    expect(withReadingPutBack(bp.record, bp.kept)).toMatchObject({ bpReadings: [{ sys: 190, dia: 100 }], bp: { sys: 190, dia: 100 } });
+    const pain = takenOut(rec, { kind: 'backPain', value: 6 })!;
+    expect(withReadingPutBack(pain.record, pain.kept)).toMatchObject({ back: { pain: 6 } });
+    expect(withReadingPutBack({ ...pain.record, back: { pain: 2 } }, pain.kept)).toBe('newer');
+    expect(withReadingPutBack(rec, pain.kept)).toBe('already');
+    expect(withReadingPutBack(rec, bp.kept)).toBe('already');
+  });
+});

@@ -9,13 +9,16 @@
 import { useEffect, useId, useRef, useState, type Ref } from 'react';
 import { flushSync } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeftIcon, DumbbellIcon } from 'lucide-react';
+import { ChevronLeftIcon, DumbbellIcon, UtensilsIcon } from 'lucide-react';
+import { logsMeals } from '@/food/level';
+import { logHref } from '@/food/links';
 import { Sheet } from '@/components/hig/Sheet';
 import { Group, Row } from '@/components/hig/List';
 import { entryFor, summariseDay } from '@/health/aggregate';
 import { atOnDay, bpContext, nowAt, type ObservationInput, type ObservationTag } from '@/health/observation';
+import { acquiredIn } from '@/walk/consent';
 import {
-  addObservation, addObservations, addToDayTotal, editObservation, useStore,
+  acquisitionStamp, addObservation, addObservations, addToDayTotal, editObservation, useStore,
 } from '@/store/useStore';
 import { glucoseEscalation, meterEscalation, mostUrgent, pressureEscalation, type Escalation } from './escalation';
 import { Guidance, type Shown } from './Guidance';
@@ -28,6 +31,7 @@ import {
 import { NOT_ADVICE } from './targets';
 import { DayRow, TimeRow } from './WhenRows';
 import { saveWithGuidance } from './saving';
+import { stepsFromText } from './stepsDay';
 import { clearQuickLogDraft, draftStorage, keptDraft, storeQuickLogDraft, type QuickLogDraft } from './draft';
 import { ChoiceChips, EmergencySigns, ErrorText, Hint, NumberField, PrimaryButton, Segmented, UnitSwitch } from './ui';
 import { toCanonical, type GlucoseUnit } from './units';
@@ -136,8 +140,20 @@ export function QuickLog({ open, onOpenChange, initial, onSaved, prefs, day }: {
               // Only a navigation: closing the sheet first would also rewrite
               // My Day's address, and that second navigation could win the race
               // and bring the person straight back. Leaving My Day closes it.
-              onClick={() => navigate(pastDay ? `/track/workout?date=${pastDay}` : '/track/workout', { viewTransition: true })}
+              onClick={() => navigate(pastDay ? `/hub/workout/log?date=${pastDay}` : '/hub/workout/log', { viewTransition: true })}
             />
+            {logsMeals(profile?.food) && (
+              <Row
+                as="button"
+                type="button"
+                icon={<UtensilsIcon aria-hidden />}
+                label="Meal"
+                detail={pastDay ? `Log a meal for ${formatDayShort(pastDay, current)}` : 'What you ate, in Food'}
+                chevron
+                // As Workout: only a navigation. "Log a meal" opens over the Food hub, and closing it comes back here.
+                onClick={() => navigate(logHref(pastDay ? { day: pastDay } : {}), { viewTransition: true })}
+              />
+            )}
           </Group>
         </>
       )}
@@ -151,7 +167,7 @@ export function QuickLog({ open, onOpenChange, initial, onSaved, prefs, day }: {
                 if (keeps) clearQuickLogDraft(draftStorage());
                 setStep({ view: 'choose' });
               }}
-              className="press-feedback -my-2 -ml-1 flex min-h-11 items-center gap-0.5 self-start pr-2 text-[length:var(--text-body)] text-tint"
+              className="press-feedback -ml-1 flex min-h-12 items-center gap-0.5 self-start pr-2 text-[length:var(--text-body)] text-tint"
             >
               <ChevronLeftIcon className="size-5" strokeWidth={2.2} aria-hidden />
               All types
@@ -224,6 +240,8 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
   const [time, setTime] = useState<string | undefined>(kept?.time);
   // When Save was first tapped: what the time stands for while left at Now.
   const [savedAt, setSavedAt] = useState<string | undefined>(kept?.at);
+  // B-19: the clock generation it was acquired in, at that first Save, kept with it (H6R-03, board D186).
+  const [gen, setGen] = useState<number | undefined>(kept?.gen);
   const [refused, setRefused] = useState(kept?.refused === true);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -240,7 +258,7 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
     ? {
       kind: 'glucose', id, raw, unit,
       ...(tag ? { tag } : {}), ...(meal ? { meal } : {}), ...(time !== undefined ? { time } : {}),
-      ...(savedAt ? { at: savedAt } : {}), ...(refused ? { refused: true as const } : {}),
+      ...(savedAt ? { at: savedAt } : {}), ...(gen ? { gen } : {}), ...(refused ? { refused: true as const } : {}),
     }
     : undefined;
   useKeptDraft(draft);
@@ -253,6 +271,7 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
     const checked = checkValue('glucose', raw, unit);
     if (!checked.ok) return setError(checked.message);
     const moment = savedAt ?? nowAt();
+    const acquired = savedAt ? gen ?? 0 : acquisitionStamp();
     const when = time !== undefined ? resolveTime(time) : { ok: true as const, at: moment };
     if (!when.ok) return setError(when.message);
     let mealStartedAt: string | undefined;
@@ -268,11 +287,11 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
     const ask = time !== undefined || savedAt !== undefined;
     const shown = formatValue(checked.value, 'glucose', unit);
     const figure = shown.replace(` ${unit}`, '');
-    const input: ObservationInput = {
+    const input = acquiredIn<ObservationInput>({
       id, kind: 'glucose', value: checked.value, unit, scope: 'pointInTime', source: 'manual', at: when.at,
       ...(tag ? { tag } : {}),
       ...(mealStartedAt ? { mealStartedAt } : {}),
-    };
+    }, acquired);
     const attempt = async (): Promise<string | undefined> => {
       const result = await addObservation(input);
       if (!result.ok) {
@@ -284,6 +303,7 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
       return undefined;
     };
     setSavedAt(moment);
+    setGen(acquired || undefined);
     setError(undefined);
     setBusy(true);
     const failure = await saveWithGuidance({
@@ -304,7 +324,12 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
             ref={fieldRef}
             label="Reading"
             value={raw}
-            onChange={v => { setRaw(v); setError(undefined); }}
+            onChange={v => {
+              // Emptied, it is no longer the reading first saved: the next one is timed and stamped at its own Save (H6R-03).
+              if (!v.trim()) { setSavedAt(undefined); setGen(undefined); }
+              setRaw(v);
+              setError(undefined);
+            }}
             placeholder={unit === 'mg/dL' ? '112' : '6.2'}
             invalid={!!error}
             describedBy={error ? errorId : undefined}
@@ -319,7 +344,7 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
                 <button
                   type="button"
                   onClick={() => { setUnit(question.to); setError(undefined); }}
-                  className="press-feedback min-h-11 rounded-lg bg-grouped-card px-3 text-[length:var(--text-subhead)] font-medium text-tint"
+                  className="press-feedback min-h-12 rounded-lg bg-grouped-card px-3 text-[length:var(--text-subhead)] font-medium text-tint"
                 >
                   {question.to === 'mmol/L' ? `I meant ${raw.trim()} mmol/L` : `Use mg/dL`}
                 </button>
@@ -343,7 +368,7 @@ function GlucoseForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
         <button
           type="button"
           onClick={() => setAskDisplay(true)}
-          className="press-feedback -my-1 min-h-11 self-start px-1 text-[length:var(--text-body)] font-medium text-tint"
+          className="press-feedback -my-1 min-h-12 self-start px-1 text-[length:var(--text-body)] font-medium text-tint"
         >
           Meter shows HI or LO?
         </button>
@@ -374,7 +399,7 @@ function MealStartField({ value, onChange }: { value: string; onChange: (value: 
           type="time"
           value={value}
           onChange={e => onChange(e.target.value)}
-          className="numeric min-h-11 rounded-lg bg-grouped-bg px-2 text-right text-[length:var(--text-body)] text-foreground"
+          className="numeric min-h-12 rounded-lg bg-grouped-bg px-2 text-right text-[length:var(--text-body)] text-foreground"
         />
       </div>
     </Group>
@@ -521,9 +546,15 @@ function PressureForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
     : undefined;
   useKeptDraft(draft);
 
+  const secondField = useRef<HTMLInputElement>(null);
   const addSecond = () => {
-    if (time === undefined) setFirstEntered(nowAt());
-    setSecond(true);
+    // Rendered inside the tap, and its top number focused: the button goes as the fields come, so focus moves on to
+    // what is next instead of falling to the sheet, and iOS opens the number pad at once (V-J40).
+    flushSync(() => {
+      if (time === undefined) setFirstEntered(nowAt());
+      setSecond(true);
+    });
+    secondField.current?.focus();
   };
 
   const save = async () => {
@@ -610,6 +641,7 @@ function PressureForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
           {firstEntered && time === undefined && <RepeatWait since={firstEntered} />}
           <PressureFields
             legend="Second reading"
+            fieldRef={secondField}
             systolic={s2} diastolic={d2}
             onSystolic={v => { setS2(v); setError(undefined); }}
             onDiastolic={v => { setD2(v); setError(undefined); }}
@@ -627,7 +659,8 @@ function PressureForm({ fieldRef, onSaved, onGuidance, prefs }: FormProps) {
         <button
           type="button"
           onClick={addSecond}
-          className="press-feedback -my-1 min-h-11 self-start px-1 text-[length:var(--text-body)] font-medium text-tint"
+          // 48 px tall at the least, in rem so it grows with the text size (journey §20.4 rule 1).
+          className="press-feedback -my-1 min-h-12 self-start px-1 text-[length:var(--text-body)] font-medium text-tint"
         >
           Add a second reading
         </button>
@@ -910,6 +943,26 @@ function TotalForm({ kind, fieldRef, onSaved, prefs }: FormProps & { kind: 'step
         describedBy={error ? errorId : undefined}
         unit={spec.unit}
       />
+      {kind === 'steps' && typeof navigator !== 'undefined' && typeof navigator.clipboard?.readText === 'function' && (
+        <button
+          type="button"
+          onClick={() => {
+            // Asked from the tap, as iOS requires; nothing is read until the person taps Paste.
+            void navigator.clipboard.readText().then(
+              text => {
+                const n = stepsFromText(text);
+                if (n === undefined) setError('Nothing to paste: copy the step count first, then tap Paste.');
+                else { setRaw(String(n)); setError(undefined); }
+              },
+              () => setError('Paste isn’t available here. Type the number instead.'),
+            );
+          }}
+          // 48 by 48 at the least, in rem so it grows with the text size (journey §20.4 rule 1; codex H2-07).
+          className="press-feedback min-h-12 min-w-12 self-start rounded-full bg-tint/10 px-4 text-[length:var(--text-body)] font-semibold text-tint"
+        >
+          Paste
+        </button>
+      )}
       <Hint className="text-[length:var(--text-subhead)]">{spec.hint}</Hint>
       <DayRow value={day} onChange={setDay} label={spec.day} />
       <SaveBar error={error} busy={busy} onSave={save} errorId={errorId} />

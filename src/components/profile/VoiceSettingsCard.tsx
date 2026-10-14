@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Toggle } from '@/screens/you/controls';
+import { radioKeys } from '@/screens/you/radioKeys';
 import { cn } from '@/lib/utils';
 import { CheckIcon, MicIcon, PlayIcon, SquareIcon } from 'lucide-react';
 
@@ -51,36 +52,38 @@ export function VoiceSettingsCard({ voice, onChange }: { voice: VoiceSettings; o
   };
 
   const current = voice.pack ?? 'af_heart';
+  // One tab stop, and the arrow keys choose, as every radio group in setup (H5-23).
+  const keys = radioKeys(VOICE_PACKS.map(p => ({ value: p.id })), current, pack => onChange({ pack }));
   return (
     <Card className="p-4">
-      <div className="mb-4 flex items-center gap-2">
+      <div className="mb-4 flex items-center gap-3">
         <MicIcon className="size-5 text-muted-foreground" />
         <h2 className="text-lg font-semibold">Coach voice</h2>
       </div>
       <div className="flex flex-col gap-5">
-        <fieldset className="flex flex-col gap-2">
+        <fieldset className="flex flex-col gap-3">
           <legend className="mb-2 text-sm font-medium">Voice</legend>
-          <div role="radiogroup" aria-label="Voice" className="flex flex-col gap-2">
-            {VOICE_PACKS.map(p => {
+          <div role="radiogroup" aria-label="Voice" className="flex flex-col gap-3">
+            {VOICE_PACKS.map((p, i) => {
               const on = p.id === current;
               const status = recorded[p.id];
               return (
                 // At large text the Preview button moves under the name rather than off the screen (D-10).
-                <div key={p.id} className={cn('flex flex-wrap items-center gap-2 rounded-xl border p-1 pl-3', on && 'border-primary bg-primary/5')}>
-                  <button type="button" role="radio" aria-checked={on} onClick={() => onChange({ pack: p.id })}
-                    className="flex min-h-11 min-w-0 flex-1 basis-40 items-center gap-2 text-left [overflow-wrap:anywhere]">
+                <div key={p.id} className={cn('flex flex-wrap items-center gap-3 rounded-xl border p-1 pl-3', on && 'border-primary bg-primary/5')}>
+                  <button type="button" role="radio" aria-checked={on} {...keys(i)} onClick={() => onChange({ pack: p.id })}
+                    className="flex min-h-12 min-w-0 flex-1 basis-40 items-center gap-3 text-left [overflow-wrap:anywhere]">
                     <span className={cn('flex size-5 shrink-0 items-center justify-center rounded-full border', on && 'border-primary bg-primary text-primary-foreground')}>
                       {on && <CheckIcon className="size-3.5" />}
                     </span>
                     <span className="min-w-0">
                       <span className="block text-sm font-medium">{p.name}</span>
-                      <span className="block text-xs text-muted-foreground">
+                      <span className="block text-[length:var(--text-footnote)] text-muted-foreground">
                         {status === undefined ? 'Checking…' : status ? 'Recorded, natural voice' : 'Device voice fallback (not recorded yet)'}
                       </span>
                     </span>
                   </button>
                   <button type="button" onClick={() => preview(p.id)} aria-label={`${playing === p.id ? 'Stop' : 'Preview'} ${p.name}`}
-                    className="flex size-11 shrink-0 items-center justify-center rounded-full hover:bg-muted press-feedback">
+                    className="flex size-12 shrink-0 items-center justify-center rounded-full hover:bg-muted press-feedback">
                     {playing === p.id ? <SquareIcon className="size-4" /> : <PlayIcon className="size-4" />}
                   </button>
                 </div>
@@ -89,7 +92,7 @@ export function VoiceSettingsCard({ voice, onChange }: { voice: VoiceSettings; o
           </div>
         </fieldset>
 
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           <Label htmlFor="voice-rate">Device voice speed: {voice.rate.toFixed(2)}×</Label>
           <Slider id="voice-rate" min={0.8} max={1.1} step={0.05} value={[voice.rate]}
             onValueChange={v => { const r = Array.isArray(v) ? v[0] : v; if (typeof r === 'number') onChange({ rate: r }); }} />
@@ -105,11 +108,11 @@ export function VoiceSettingsCard({ voice, onChange }: { voice: VoiceSettings; o
           hint="Over my music keeps your music playing under the coach. On iPhone and iPad the coach then follows the silent switch, so keep silent mode off to hear it." />
 
         <div className="flex items-center justify-between gap-3">
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col">
             <span className="text-sm font-medium leading-none">Start sessions muted</span>
-            <span className="text-sm text-muted-foreground">Captions only; unmute any time during a session.</span>
+            <span className="mt-1 text-sm text-muted-foreground">Captions only; unmute any time during a session.</span>
           </div>
-          {/* The 44-point iOS switch the rest of You uses, named by its row. */}
+          {/* The 48 px iOS switch the rest of Me uses, named by its row. */}
           <Toggle checked={voice.muted} onChange={muted => onChange({ muted })} label="Start sessions muted" />
         </div>
       </div>

@@ -33,7 +33,8 @@ function radioKeys<T extends string>(ids: readonly T[], value: T, onChange: (val
 
 /**
  * iOS's segmented control: a radio group, because exactly one is chosen.
- * Each segment is a full 44 px tall target even though the pill looks slimmer.
+ * Each segment is a full 48 px tall target even though the pill looks slimmer
+ * (journey §20.4 rule 1, H3-19).
  */
 export function Segmented<T extends string>({ label, options, value, onChange, className }: {
   label: string;
@@ -48,7 +49,7 @@ export function Segmented<T extends string>({ label, options, value, onChange, c
       aria-label={label}
       // Segments keep their labels whole: when the text is too large for one
       // row, they wrap onto another rather than truncate or split a word.
-      className={cn('flex min-h-11 w-full flex-wrap gap-0.5 rounded-[0.6rem] bg-segment-track p-0.5', className)}
+      className={cn('flex min-h-12 w-full flex-wrap gap-0.5 rounded-[0.6rem] bg-segment-track p-0.5', className)}
     >
       {options.map(option => {
         const selected = option.id === value;
@@ -62,7 +63,7 @@ export function Segmented<T extends string>({ label, options, value, onChange, c
             onClick={() => onChange(option.id)}
             onKeyDown={radioKeys(options.map(o => o.id), value, onChange)}
             className={cn(
-              'min-h-11 min-w-fit flex-[1_1_0%] rounded-lg px-1.5 py-1 text-[length:var(--text-subhead)] leading-tight text-foreground transition-[background-color,box-shadow]',
+              'min-h-12 min-w-fit flex-[1_1_0%] rounded-lg px-1.5 py-1 text-[length:var(--text-subhead)] leading-tight text-foreground transition-[background-color,box-shadow]',
               selected ? 'bg-segment-thumb font-semibold shadow-[0_3px_8px_rgb(0_0_0/0.12),0_3px_1px_rgb(0_0_0/0.04)]' : 'font-medium',
             )}
           >
@@ -74,7 +75,13 @@ export function Segmented<T extends string>({ label, options, value, onChange, c
   );
 }
 
-/** Previous and next day around the day's name. There is no next from today. */
+/**
+ * Previous day and Next day, in words (§13, §20.4 rule 2, B-08; kiro
+ * FK-06), under the day's name, as Trends' week pager is. There is no next
+ * from today. Each one's name starts with its word, and says the day it goes
+ * to; the day's heading stays between them in the page's order, so it is read
+ * after Previous day, as before.
+ */
 export function DateStepper({ label, sublabel, previousLabel, nextLabel, onPrevious, onNext, nextDisabled }: {
   label: string;
   sublabel?: string;
@@ -84,28 +91,21 @@ export function DateStepper({ label, sublabel, previousLabel, nextLabel, onPrevi
   onNext: () => void;
   nextDisabled: boolean;
 }) {
+  // Side by side while both fit, each its own line when they don't (journey §20.4 rule 7).
+  const pager = 'press-feedback flex min-h-12 flex-[1_1_8rem] items-center justify-center gap-1 rounded-full bg-tint/10 px-3 text-[length:var(--text-subhead)] font-semibold leading-tight text-tint disabled:bg-transparent disabled:text-muted-foreground';
   return (
-    <div className="flex items-center justify-between gap-1">
-      <button
-        type="button"
-        onClick={onPrevious}
-        aria-label={previousLabel}
-        className="press-feedback flex size-[44px] shrink-0 items-center justify-center rounded-full text-tint"
-      >
-        <ChevronLeftIcon className="size-[24px]" strokeWidth={2.2} aria-hidden />
+    <div className="flex flex-wrap gap-3">
+      <button type="button" onClick={onPrevious} aria-label={previousLabel} className={cn(pager, 'order-1')}>
+        <ChevronLeftIcon className="size-5 shrink-0" strokeWidth={2.2} aria-hidden />
+        Previous day
       </button>
-      <h2 aria-live="polite" className="min-w-0 flex-1 break-words text-center leading-tight">
+      <h2 aria-live="polite" className="order-first min-w-0 basis-full break-words text-center leading-tight">
         <span className="block text-[length:var(--text-body)] font-semibold">{label}</span>
         {sublabel && <span className="block text-[length:var(--text-footnote)] text-muted-foreground">{sublabel}</span>}
       </h2>
-      <button
-        type="button"
-        onClick={onNext}
-        disabled={nextDisabled}
-        aria-label={nextLabel}
-        className="press-feedback flex size-[44px] shrink-0 items-center justify-center rounded-full text-tint disabled:text-muted-foreground/35"
-      >
-        <ChevronRightIcon className="size-[24px]" strokeWidth={2.2} aria-hidden />
+      <button type="button" onClick={onNext} disabled={nextDisabled} aria-label={nextLabel} className={cn(pager, 'order-2')}>
+        Next day
+        <ChevronRightIcon className="size-5 shrink-0" strokeWidth={2.2} aria-hidden />
       </button>
     </div>
   );
@@ -171,7 +171,7 @@ export function NumberField({ ref, label, value, onChange, mode = 'decimal', uni
   );
 }
 
-/** A two-way unit switch for a NumberField's label row. Targets stay 44 px at any text size. */
+/** A two-way unit switch for a NumberField's label row. Targets stay 48 px at any text size. */
 export function UnitSwitch<U extends string>({ units, value, onChange, label }: {
   units: readonly U[];
   value: U;
@@ -192,7 +192,7 @@ export function UnitSwitch<U extends string>({ units, value, onChange, label }: 
           className={cn(
             // Drawn as the segmented control is: body-colour labels on the
             // measured segment tokens (muted text on this track was 4.4:1 in dark).
-            'min-h-[44px] min-w-[44px] rounded-md px-2 text-[length:var(--text-subhead)] text-foreground transition-[background-color,box-shadow]',
+            'min-h-[48px] min-w-[48px] rounded-md px-2 text-[length:var(--text-subhead)] text-foreground transition-[background-color,box-shadow]',
             u === value ? 'bg-segment-thumb font-semibold shadow-[0_3px_8px_rgb(0_0_0/0.12),0_3px_1px_rgb(0_0_0/0.04)]' : 'font-medium',
           )}
         >
@@ -213,7 +213,7 @@ export function ChoiceChips<T extends string>({ legend, options, value, onChange
   return (
     <fieldset className="flex min-w-0 flex-col gap-2">
       <legend className="mb-2 px-1 text-[length:var(--text-subhead)] text-muted-foreground">{legend}</legend>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-3">
         {options.map(option => {
           const selected = option.id === value;
           return (
@@ -223,7 +223,8 @@ export function ChoiceChips<T extends string>({ legend, options, value, onChange
               aria-pressed={selected}
               onClick={() => onChange(selected ? undefined : option.id)}
               className={cn(
-                'press-feedback min-h-11 rounded-full px-4 text-[length:var(--text-subhead)] font-medium ring-1',
+                // 48 px tall at the least, in rem so it grows with the text size (journey §20.4 rule 1).
+                'press-feedback min-h-12 rounded-full px-4 text-[length:var(--text-subhead)] font-medium ring-1',
                 selected ? 'bg-tint text-on-tint ring-tint' : 'bg-grouped-card text-foreground ring-separator',
               )}
             >
@@ -250,7 +251,7 @@ export function PrimaryButton({ children, onClick, disabled, type = 'button', cl
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'press-feedback flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint disabled:opacity-50',
+        'press-feedback flex min-h-[3.75rem] w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint disabled:opacity-50',
         className,
       )}
     >
@@ -274,7 +275,7 @@ export function SecondaryButton({ children, onClick, tone = 'default', disabled,
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'press-feedback flex min-h-11 w-full items-center justify-center rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] font-medium disabled:text-muted-foreground',
+        'press-feedback flex min-h-12 w-full items-center justify-center rounded-xl bg-grouped-card px-4 text-[length:var(--text-body)] font-medium disabled:text-muted-foreground',
         tone === 'stop' ? 'text-stop' : 'text-tint',
         className,
       )}

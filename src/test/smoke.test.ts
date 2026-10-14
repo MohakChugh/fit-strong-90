@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createElement } from 'react';
+import { createElement, Fragment, useEffect, useSyncExternalStore } from 'react';
 import { render, type Host } from './host';
 import { createDefaultProfile } from '@/profile/defaults';
 import { fakeIndexedDB } from '@/store/fakeIdb';
@@ -28,7 +28,7 @@ afterEach(() => { host?.unmount(); vi.useRealTimers(); });
 describe('host smoke', () => {
   it('renders the real sheet over the real store and saves through useGuided', async () => {
     const profile = createDefaultProfile({ health: { diabetes: 'type2', insulin: 'injections_or_pump', insulinRegimen: 'basalOnly', medicinesReviewed: true, glucoseMonitor: 'meter', currentlyActive: true, clearance: 'vigorous' } });
-    await store.update(prev => ({ ...prev, profile }));
+    await store.update(prev => ({ ...prev, profile, settings: { ...prev.settings, onboardingComplete: true } }));
     const onStart = vi.fn();
     function Harness() {
       const g = useGuided();
@@ -43,5 +43,22 @@ describe('host smoke', () => {
     await host.click(host.button(/^Start/));
     expect(onStart).toHaveBeenCalledTimes(1);
     expect(store.getState().checkIns.find(c => c.date === '2026-10-09')?.glucose?.value).toBe(140);
+  });
+
+  it('is never drawn again once unmounted, as a React root isn’t: a change its own cleanups set off brings nothing back', async () => {
+    const listeners = new Set<() => void>();
+    let value = 0;
+    const subscribe = (l: () => void) => { listeners.add(l); return () => void listeners.delete(l); };
+    let renders = 0;
+    function Reader() { renders++; useSyncExternalStore(subscribe, () => value); return null; }
+    // Its cleanup changes what the Reader, unmounted after it, still listens to: a live walk's detach does.
+    function Writer() { useEffect(() => () => { value++; for (const l of [...listeners]) l(); }, []); return null; }
+    host = render(createElement(Fragment, null, createElement(Writer), createElement(Reader)));
+    const drawn = renders;
+    host.unmount();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(renders).toBe(drawn);
+    expect(host.tree).toEqual([]);
   });
 });

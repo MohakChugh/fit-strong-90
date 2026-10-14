@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ChevronLeftIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  backLabelFit, backTarget, markBack, markShown, setTitle, takeFocusRequest, useInTaskFrame, useNavStack,
+  backLabelFit, backTarget, markBack, markShown, ScreenTopContext, setTitle, takeFocusRequest, useInTaskFrame, useNavStack,
 } from './navigation';
 import { StorageBanner } from './StorageBanner';
 
@@ -20,23 +20,44 @@ import { StorageBanner } from './StorageBanner';
  * to) it replaces this entry with the opener the navigation state names, or
  * with `back` (see `backTarget`).
  */
-export function Screen({ title, subtitle, back, trailing, inline, children, className }: {
+export function Screen({ title, navTitle = title, subtitle, below, back, trailing, inline, children, className, wash, placeholder = false }: {
   title: string;
+  /**
+   * What the next screen's Back calls this one, when that is not its title:
+   * Home shows a greeting and is called Home (journey §8.1).
+   */
+  navTitle?: string;
   /** A quiet line under the large title, e.g. the date on Today. */
   subtitle?: ReactNode;
+  /** Part of the header, under the subtitle: Home's status button. The urgent surface comes after it. */
+  below?: ReactNode;
   /** The screen this one belongs under. */
   back?: { to: string; label: string };
-  /** Usually the `You` button on a root screen, or an Add button. */
+  /** An action for the bar, such as Add. */
   trailing?: ReactNode;
   /** A compact title from the start, for task screens that need the room. */
   inline?: boolean;
   children: ReactNode;
   className?: string;
+  /**
+   * A solid layer behind the bar and the large title, such as a hub's
+   * category wash (journey §8.1). `name` makes it a view-transition element
+   * while it is set (M3's `hub-card-bg`, B-27). Never glass (journey §20.1).
+   */
+  wash?: { background: string; name?: string };
+  /**
+   * A stand-in while the screen's own code loads (a hub's skeleton, journey
+   * §8.4): it leaves the title's focus to the screen it stands in for, which
+   * takes it when it comes.
+   */
+  placeholder?: boolean;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
   const stack = useNavStack();
   const framed = useInTaskFrame();
+  // The shell's urgent surface, first in every screen's content (journey §4.7).
+  const first = useContext(ScreenTopContext);
   const header = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
@@ -47,8 +68,8 @@ export function Screen({ title, subtitle, back, trailing, inline, children, clas
   // small title fades in as soon as the large one has gone.
   const [underBar, setUnderBar] = useState(false);
   // The bar's real height: the top safe area (notch), the storage notice when
-  // one shows, then the 44px bar. The title counts as gone once it is under it.
-  const [headerHeight, setHeaderHeight] = useState(44);
+  // one shows, then the 48 px bar. The title counts as gone once it is under it.
+  const [headerHeight, setHeaderHeight] = useState(48);
   const collapsed = inline || scrolled;
   const target = back ? backTarget(stack, back, location.state) : undefined;
 
@@ -81,19 +102,19 @@ export function Screen({ title, subtitle, back, trailing, inline, children, clas
   useEffect(() => {
     document.title = `${title} · FitStrong`;
     // So the Back button of the next screen can say where it goes.
-    setTitle(location.pathname, title);
-  }, [title, location.pathname, location.key]);
+    setTitle(location.pathname, navTitle);
+  }, [title, navTitle, location.pathname, location.key]);
 
   useEffect(() => {
     // After a navigation, move focus to the new screen's title so a screen
     // reader announces where the person now is. Not on launch, and never out
     // of a sheet that is open. Decided here, from the navigation itself, so
     // the order in which React runs effects cannot make it a screen late.
-    if (takeFocusRequest(location.pathname) && !document.activeElement?.closest('[role="dialog"]')) {
+    if (!placeholder && takeFocusRequest(location.pathname) && !document.activeElement?.closest('[role="dialog"]')) {
       heading.current?.focus({ preventScroll: true });
     }
     markShown();
-  }, [location.pathname]);
+  }, [location.pathname, placeholder]);
 
   const goBack = () => {
     if (!target) return;
@@ -103,16 +124,26 @@ export function Screen({ title, subtitle, back, trailing, inline, children, clas
   };
 
   return (
-    <div className={cn('bg-grouped-bg', className)}>
+    <div className={cn('relative isolate bg-grouped-bg', className)}>
+      {/* `isolate` keeps the layer above the page colour and below the content. */}
+      {wash && (
+        <div
+          aria-hidden
+          data-wash
+          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-56"
+          style={{ background: wash.background, ...(wash.name ? { viewTransitionName: wash.name } : {}) }}
+        />
+      )}
       <div ref={header} className="sticky top-0 z-30 pt-safe">
         {!framed && <StorageBanner inHeader />}
-        <div className={cn(
-          'grid h-11 items-center gap-2 px-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] transition-colors duration-200',
+        <div data-bar className={cn(
+          'grid h-12 items-center gap-2 px-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] transition-colors duration-200',
           // Equal sides centre the compact title; until it shows, Back may use
           // whatever the trailing items leave, so a parent's name fits more often.
           collapsed ? 'grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)_auto_auto]',
-          (collapsed || underBar) && 'bg-grouped-bg/85 backdrop-blur-xl supports-backdrop-filter:bg-grouped-bg/70',
-          collapsed && 'border-b border-separator',
+          // Glass once anything slides under it, solid while a transition runs, under Reduce
+          // transparency and with more contrast (journey §20.1, kiro KV-18).
+          (collapsed || underBar) && 'glass',
         )}>
           <div className="flex min-w-0 items-center">
             {target && <BackButton label={target.label} onClick={goBack} />}
@@ -137,14 +168,17 @@ export function Screen({ title, subtitle, back, trailing, inline, children, clas
       ) : (
         <>
           <div ref={topSentinel} aria-hidden className="h-px" />
-          <div className="mx-auto w-full max-w-2xl pb-4 pl-[max(min(1rem,20px),env(safe-area-inset-left))] pr-[max(min(1rem,20px),env(safe-area-inset-right))]">
-            <h1 ref={heading} tabIndex={-1} className="text-[length:var(--text-large-title)] font-bold leading-tight tracking-tight outline-none [overflow-wrap:break-word] hyphens-auto">
+          <div className="@container mx-auto w-full max-w-2xl pb-4 pl-[max(min(1rem,20px),env(safe-area-inset-left))] pr-[max(min(1rem,20px),env(safe-area-inset-right))]">
+            {/* Never wider than its words can stay whole: on a 320 px phone at 200% text the large title stops
+                growing at 13% of its width, so "Reminders" keeps one line rather than breaking mid-word. */}
+            <h1 ref={heading} tabIndex={-1} className="text-[length:min(var(--text-large-title),13cqi)] font-bold leading-tight tracking-tight outline-none [overflow-wrap:break-word] hyphens-auto">
               {title}
             </h1>
             {/* Straight under the title, not under the subtitle and padding:
                 the compact title shows as soon as the large one is under the bar. */}
             <div ref={sentinel} aria-hidden className="h-px" />
             {subtitle && <p className="text-[length:var(--text-subhead)] text-muted-foreground">{subtitle}</p>}
+            {below && <div className="pt-3">{below}</div>}
           </div>
         </>
       )}
@@ -156,6 +190,7 @@ export function Screen({ title, subtitle, back, trailing, inline, children, clas
         'pl-[max(min(1rem,20px),env(safe-area-inset-left))] pr-[max(min(1rem,20px),env(safe-area-inset-right))]',
         inline && 'pt-4',
       )}>
+        {first}
         {children}
       </div>
     </div>
@@ -202,7 +237,7 @@ function BackButton({ label, onClick }: { label: string; onClick: () => void }) 
       type="button"
       onClick={onClick}
       aria-label={label === 'Back' ? 'Back' : `Back to ${label}`}
-      className="press-feedback relative -ml-1 flex min-h-11 min-w-11 max-w-full items-center gap-0.5 pr-2 text-[length:var(--text-body)] text-tint"
+      className="press-feedback relative -ml-1 flex min-h-12 min-w-12 max-w-full items-center gap-0.5 pr-2 text-[length:var(--text-body)] text-tint"
     >
       <ChevronLeftIcon ref={chevron} className="size-6 shrink-0" strokeWidth={2.2} aria-hidden />
       {fit !== 'none' && <span className="min-w-0 truncate">{fit === 'full' ? label : 'Back'}</span>}

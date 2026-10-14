@@ -155,6 +155,7 @@ const TITLES: Record<ObservationKind, string> = {
   bloodPressureDiastolic: 'Diastolic',
   weight: 'Weight',
   waist: 'Waist',
+  height: 'Height',
   steps: 'Steps',
   walkDistance: 'Walking distance',
   walkDuration: 'Walking time',
@@ -167,6 +168,7 @@ const TITLES: Record<ObservationKind, string> = {
   hba1c: 'HbA1c',
   b12: 'Vitamin B12',
   vitaminD: 'Vitamin D',
+  activeEnergy: 'Active energy',
 };
 
 export function kindTitle(kind: ObservationKind): string {

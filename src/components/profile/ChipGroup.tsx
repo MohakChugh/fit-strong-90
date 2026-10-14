@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { radioKeys } from '@/screens/you/radioKeys';
 
 export interface ChipOption<T extends string> {
   value: T;
@@ -18,7 +19,7 @@ interface Props<T extends string> {
   className?: string;
 }
 
-/** Large, wrapping toggle chips: ≥ 44 px tall, readable at 320 px. */
+/** Large, wrapping toggle chips: 48 px tall and 12 px apart (H5-22), readable at 320 px; one chosen of several is a radio group (H5-23). */
 export function ChipGroup<T extends string>({ label, options, value, onChange, multiple, exclusive, hint, className }: Props<T>) {
   const toggle = (v: T) => {
     if (!multiple) return onChange([v]);
@@ -26,12 +27,13 @@ export function ChipGroup<T extends string>({ label, options, value, onChange, m
     const without = value.filter(x => x !== v && x !== exclusive);
     onChange(value.includes(v) ? without : [...without, v]);
   };
+  const keys = radioKeys(options, value[0], v => onChange([v]));
   return (
-    <fieldset className={cn('flex flex-col gap-2', className)}>
+    <fieldset className={cn('flex flex-col gap-3', className)}>
       <legend className="text-sm font-medium mb-2">{label}</legend>
-      {hint && <p className="text-xs text-muted-foreground -mt-1 mb-1">{hint}</p>}
-      <div className="flex flex-wrap gap-2" role={multiple ? 'group' : 'radiogroup'} aria-label={label}>
-        {options.map(o => {
+      {hint && <p className="text-[length:var(--text-footnote)] text-muted-foreground -mt-1 mb-1">{hint}</p>}
+      <div className="flex flex-wrap gap-3" role={multiple ? 'group' : 'radiogroup'} aria-label={label}>
+        {options.map((o, i) => {
           const on = value.includes(o.value);
           return (
             <button
@@ -39,9 +41,10 @@ export function ChipGroup<T extends string>({ label, options, value, onChange, m
               type="button"
               role={multiple ? 'checkbox' : 'radio'}
               aria-checked={on}
+              {...(multiple ? {} : keys(i))}
               onClick={() => toggle(o.value)}
               className={cn(
-                'min-h-11 px-4 rounded-full border text-sm font-medium transition-colors press-feedback',
+                'min-h-12 px-4 rounded-full border text-sm font-medium transition-colors press-feedback',
                 'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
                 on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border hover:bg-muted',
               )}

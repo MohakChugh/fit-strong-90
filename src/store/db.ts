@@ -12,18 +12,31 @@
  *   screen, not a swallowed promise (D16).
  * - **One logical change, one transaction.** `transact` spans every store, so
  *   a check-in and the readings lifted out of it, or an import's clear and
- *   its writes, commit together or not at all. `readAll` reads every store in
- *   one transaction, so an export is one moment even while another tab writes.
+ *   its writes, commit together or not at all. `readAll` reads every store of
+ *   the record in one transaction, so an export is one moment even while
+ *   another tab writes.
  * - **Every write moves `revision`.** It is the one row that tells a second
  *   open copy of the app that what it holds in memory is out of date.
  * - **The factory is an argument.** Vitest runs in node with no IndexedDB, so
  *   tests pass in a fake rather than the app taking a dependency.
  */
 
-export const DB_NAME = 'fit-strong';
-export const DB_VERSION = 1;
+import { RECORD_RULES, RECORD_STORES, type RecordStore } from './records';
+import { SUCCESSOR } from './successor';
+import type { EpisodeKind } from '@/types/checkin';
 
-export const STORE_NAMES = ['observations', 'sessions', 'settings', 'content-state'] as const;
+export const DB_NAME = 'fit-strong';
+/** The suite's successor build is one higher (board D121); `upgrade` creates whatever store is missing, so it needs nothing more. */
+export const DB_VERSION = 2 + SUCCESSOR;
+
+/** v1's four stores. */
+export const CORE_STORES = ['observations', 'sessions', 'settings', 'content-state'] as const;
+/**
+ * A walk's recovery state while it is recorded (Plan 6): retired in the
+ * transaction that saves the walk, never part of the record or a backup.
+ */
+export const JOURNAL_STORE = 'walkJournal';
+export const STORE_NAMES = [...CORE_STORES, ...RECORD_STORES, JOURNAL_STORE] as const;
 export type StoreName = (typeof STORE_NAMES)[number];
 
 /** Indexes on `observations`: the two things every screen groups by. */
@@ -43,6 +56,8 @@ export type FailureCode =
   | 'conflict'
   /** This copy was closed so a newer version could open the database; it must reload. */
   | 'stale'
+  /** A change to a clinical record refused: it would lift a hold the engine hasn't released, or the phone's clock changed (D119). Nothing was written. */
+  | 'held'
   /** Part of a multi-step action happened. The message says which part. */
   | 'partial'
   /** Stored records could not be read, so nothing new is written over them. */
@@ -68,6 +83,37 @@ export class StoreFailure extends Error {
     if (details !== undefined) this.details = details;
   }
 }
+
+export const HOLD_REFUSAL = 'This reading is keeping movement on hold, so it can’t be changed or removed yet.';
+export const MISTAKE_HINT = 'If it was typed wrongly, choose ‘It was a mistake’.';
+/** While the phone's clock change holds the device (Plan 6, board D174): no reading's age can be known (P8S-02). */
+export const CLOCK_REFUSAL = 'Your phone’s clock changed, so FitStrong can’t be sure when your readings were taken. For now, readings can’t be changed or removed. You can still add a new one.';
+
+/** A measurement, by the name the engine gives it (`glucoseReadingId`, `bpReadingId`, …), and the kind of incident it would be. */
+export interface HeldReading {
+  kind: EpisodeKind;
+  id: string;
+}
+
+/**
+ * A change refused because it would lift a hold (board D119). `held`: the
+ * measurements it takes away that "It was a mistake" can answer; none when
+ * the phone's clock change holds everything (`said` then gives the words),
+ * or when nothing it takes away is a measurement, as a check-in removed for
+ * its answers alone (`release`, the engine's own words, then follows).
+ */
+export class HoldFailure extends StoreFailure {
+  readonly held: readonly HeldReading[];
+  readonly release?: string;
+
+  constructor(held: readonly HeldReading[], release?: string, said?: string) {
+    super('held', said ?? [HOLD_REFUSAL, held.length > 0 ? MISTAKE_HINT : release].filter(Boolean).join(' '));
+    this.held = held;
+    if (release !== undefined) this.release = release;
+  }
+}
+
+export const isHeld = (failure: unknown): failure is HoldFailure => failure instanceof HoldFailure;
 
 export type StoreResult<T = void> = { ok: true; value: T } | { ok: false; failure: StoreFailure };
 
@@ -122,6 +168,8 @@ export interface Rows {
   /** `{ key, value }` documents, including `schemaVersion` and `revision`. */
   settings: unknown[];
   content: unknown[];
+  /** The v2 record stores (Plan 6 Task 1). Never the journal: it is not the record. */
+  records: Record<RecordStore, unknown[]>;
 }
 
 /**
@@ -150,7 +198,7 @@ export interface Db {
   put(store: StoreName, records: readonly object[]): Promise<StoreResult>;
   remove(store: StoreName, keys: readonly string[]): Promise<StoreResult>;
   clear(stores: readonly StoreName[]): Promise<StoreResult>;
-  /** Every store, in one readonly transaction. Rejects with a `StoreFailure`. */
+  /** Every store of the record (the walk journal is not), in one readonly transaction. Rejects with a `StoreFailure`. */
   readAll(): Promise<Rows>;
   /** One readwrite transaction across every store. Never rejects. */
   transact(run: (tx: TxHandle) => void): Promise<StoreResult>;
@@ -173,6 +221,12 @@ function upgrade(db: IDBDatabase): void {
   // `settings` and `content-state` are keyed documents: `{ key, value }`.
   if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
   if (!db.objectStoreNames.contains('content-state')) db.createObjectStore('content-state', { keyPath: 'key' });
+  // IndexedDB 2 (journey §18.3): every v2 store at once, additive, and no indexes.
+  // The store reads every row into its snapshot; an index added later would need version 3.
+  for (const store of RECORD_STORES) {
+    if (!db.objectStoreNames.contains(store)) db.createObjectStore(store, { keyPath: RECORD_RULES[store].keyPath });
+  }
+  if (!db.objectStoreNames.contains(JOURNAL_STORE)) db.createObjectStore(JOURNAL_STORE, { keyPath: 'id' });
 }
 
 export interface OpenOptions {
@@ -335,15 +389,17 @@ function wrap(db: IDBDatabase): Db {
     readAll: () => new Promise<Rows>((resolve, reject) => {
       let tx: IDBTransaction;
       try {
-        tx = db.transaction(STORE_NAMES as unknown as string[], 'readonly');
+        // Every store but the journal, which is not the record.
+        tx = db.transaction([...CORE_STORES, ...RECORD_STORES], 'readonly');
       } catch (error) {
         reject(toFailure(error, 'readFailed'));
         return;
       }
       // Every request is made before any result arrives: one transaction, one
       // moment, whatever another tab is doing.
-      const rows: Partial<Rows> = {};
-      const want: [StoreName, keyof Rows][] = [
+      const rows: Partial<Omit<Rows, 'records'>> = {};
+      const records = {} as Record<RecordStore, unknown[]>;
+      const want: [StoreName, keyof Omit<Rows, 'records'>][] = [
         ['observations', 'observations'], ['sessions', 'sessions'], ['settings', 'settings'], ['content-state', 'content'],
       ];
       let lastRequestError: unknown;
@@ -351,8 +407,12 @@ function wrap(db: IDBDatabase): Db {
         const req = tx.objectStore(store).getAll();
         req.onsuccess = () => { rows[slot] = req.result; };
       }
+      for (const store of RECORD_STORES) {
+        const req = tx.objectStore(store).getAll();
+        req.onsuccess = () => { records[store] = req.result; };
+      }
       tx.onerror = event => { lastRequestError = requestError(event) ?? lastRequestError; };
-      tx.oncomplete = () => resolve(rows as Rows);
+      tx.oncomplete = () => resolve({ ...(rows as Omit<Rows, 'records'>), records });
       tx.onabort = () => reject(toFailure(tx.error ?? lastRequestError ?? new DOMException('Aborted', 'AbortError'), 'readFailed'));
     }),
     transact,
@@ -379,6 +439,8 @@ export const DOC_KEYS = [
   'focusOverrides',
   /** Moves on every write; how a second open copy learns it is out of date. */
   'revision',
+  /** Moves on when the whole record is replaced or deleted (H5R-09). */
+  'generation',
 ] as const;
 
 export type DocKey = (typeof DOC_KEYS)[number];

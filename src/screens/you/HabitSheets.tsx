@@ -2,7 +2,8 @@ import { useId, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
-import { useStore } from '@/store/useStore';
+import { getState, useStore } from '@/store/useStore';
+import { discardClinical, saveClinical } from '@/setup/effective';
 import type { HabitSettings, Meal } from '@/types/habits';
 import type { MedicineAnswer } from '@/types/profile';
 import type { StoreResult } from '@/store/db';
@@ -28,7 +29,7 @@ import {
   windowProblem,
 } from './habitOptions';
 import { clockFormat, plural } from './summaries';
-import { changeHabits, setFluidRestriction } from './write';
+import { FLUID_CHANGED, changeHabits, setFluidRestriction } from './write';
 
 interface SheetProps {
   open: boolean;
@@ -40,10 +41,11 @@ const HOURS: Record<number, string> = { 60: '1 h', 90: '1½ h', 120: '2 h', 180:
 /** A sheet's save: closes it when the write lands, says why when it does not. */
 function useSave(close: () => void) {
   const [problem, setProblem] = useState<string>();
-  const save = async (write: () => Promise<StoreResult>) => {
+  const save = async (write: () => Promise<StoreResult>): Promise<StoreResult> => {
     const saved = await write();
     if (saved.ok) close();
     else setProblem(`That did not save. ${saved.failure.message}`);
+    return saved;
   };
   /** The common case: a change to the habits, worked out from the latest stored ones. */
   const run = (edit: (habits: HabitSettings) => HabitSettings) => save(() => changeHabits(edit));
@@ -129,6 +131,9 @@ function WaterBody({ close }: { close: () => void }) {
   const stored = habits?.water;
   const answered = fluidRestriction(profile, habits);
   const [limit, setLimit] = useState<MedicineAnswer | undefined>(answered);
+  // The answer this sheet showed, and the record it showed it for: a save never goes over another window's since (D196).
+  const [shown, setShown] = useState(answered);
+  const [generation] = useState(() => getState().epoch);
   const [glassMl, setGlass] = useState(stored?.glassMl ?? DEFAULT_WATER.glassMl);
   const [every, setEvery] = useState(stored?.everyMinutes ?? DEFAULT_WATER.everyMinutes);
   const [from, setFrom] = useState(stored?.from ?? DEFAULT_WATER.from);
@@ -208,7 +213,7 @@ function WaterBody({ close }: { close: () => void }) {
                 placeholder="None"
                 aria-invalid={!goal.ok}
                 onChange={e => setGoalText(e.target.value)}
-                className="numeric min-h-11 w-28 rounded-lg bg-muted/60 px-3 text-right text-[length:var(--text-body)] outline-none placeholder:text-muted-foreground focus-visible:ring-3 focus-visible:ring-tint/40"
+                className="numeric min-h-12 w-28 rounded-lg bg-muted/60 px-3 text-right text-[length:var(--text-body)] outline-none placeholder:text-muted-foreground focus-visible:ring-3 focus-visible:ring-tint/40"
               />
               <span className="text-[length:var(--text-body)] text-muted-foreground">ml</span>
             </label>
@@ -223,9 +228,21 @@ function WaterBody({ close }: { close: () => void }) {
         onPrimary={() => {
           if (limit === undefined) return;
           const dailyGoalMl = goal.ok ? goal.value : undefined;
-          void save(() => setFluidRestriction(limit, limit === false
-            ? { enabled: true, glassMl, everyMinutes: every, from, to, ...(dailyGoalMl ? { dailyGoalMl } : {}) }
-            : undefined));
+          const water = limit === false ? { enabled: true, glassMl, everyMinutes: every, from, to, ...(dailyGoalMl ? { dailyGoalMl } : {}) } : undefined;
+          // A changed fluid limit is a clinical answer (board D197; codex F-setup-02): held until stored, and refused, every
+          // movement holds and water reminders pause, the sheet closed or not, until it's stored or discarded.
+          const clinical = limit !== shown;
+          const write = () => setFluidRestriction(limit, water, { answer: shown },
+            clinical ? { hold: true, needsStorage: 'This phone isn’t storing data right now, so this answer isn’t saved.', generation } : {});
+          void save(clinical ? () => saveClinical(write, 'fluid') : write).then(saved => {
+            if (saved.ok || saved.failure.message !== FLUID_CHANGED) return;
+            // Another window's answer is the record's: shown here to choose again, and nothing of this one waits.
+            const now = getState();
+            const theirs = fluidRestriction(now.profile, now.settings.habits);
+            setShown(theirs);
+            setLimit(theirs);
+            discardClinical('fluid');
+          });
         }}
         {...(on && limit === false ? { onTurnOff: () => void save(() => changeHabits(h => (h.water ? { ...h, water: { ...h.water, enabled: false } } : h))) } : {})}
       />

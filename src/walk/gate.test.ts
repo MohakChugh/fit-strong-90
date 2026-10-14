@@ -2,21 +2,29 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppData } from '@/types';
 import type { CheckInRecord, DailyCheckIn, Readiness } from '@/types/checkin';
 import { createDefaultProfile } from '@/profile/defaults';
-import type { Permission, PermissionInput } from '@/engine/permission';
+import { PERMISSION_TEXT, type Permission, type PermissionInput } from '@/engine/permission';
 import { toDateString } from '@/lib/utils';
 import { resetPendingCheckInsForTests, saveCheckInRecord } from '@/components/checkin/pending';
-import { allowsMovement, clinicalGate, deviceClinical, walkInput, walkRefusal, watchClinical } from './gate';
+import { allowsMovement, clinicalGate, deviceClinical, deviceGate, heldBy, STATUS_HOLD, statusRefusal, storeStartPermission, walkInput, walkRefusal, watchClinical } from './gate';
+import { acquiredIn, clockGeneration, UNASKED, withClockChange, withPendingClock } from './consent';
+import { STOP_UNANSWERED } from '@/engine/readiness';
 import type { WalkIntent } from './live';
 
 /** The store's own change notifications, so a test can fire them. */
 const storeListeners = vi.hoisted(() => new Set<() => void>());
-vi.mock('@/store/useStore', async importOriginal => ({
-  ...(await importOriginal<typeof import('@/store/useStore')>()),
-  subscribe: (listener: () => void) => {
-    storeListeners.add(listener);
-    return () => void storeListeners.delete(listener);
-  },
-}));
+/** What the device holds, when a test sets it: the store's state otherwise. */
+const device = vi.hoisted(() => ({ state: undefined as unknown }));
+vi.mock('@/store/useStore', async importOriginal => {
+  const real = await importOriginal<typeof import('@/store/useStore')>();
+  return {
+    ...real,
+    getState: () => (device.state ?? real.getState()) as ReturnType<typeof real.getState>,
+    subscribe: (listener: () => void) => {
+      storeListeners.add(listener);
+      return () => void storeListeners.delete(listener);
+    },
+  };
+});
 
 const NOW = new Date('2026-10-08T19:40:00+05:30');
 const TODAY = toDateString(NOW);
@@ -116,7 +124,7 @@ describe('every day’s effective record (round 3, B01 and B04)', () => {
     vi.useRealTimers();
   });
 
-  const settings = { currentWeight: 82 } as AppData['settings'];
+  const settings = { currentWeight: 82, onboardingComplete: true } as AppData['settings'];
   const chest = (date: string): DailyCheckIn => ({ date, urgentSymptoms: true, emergency: ['chest'], news: [], sleep: 'gt7', energy: 4 });
   /** A save the device refuses, as the check-in sheet makes it. */
   const refusedSave = (answers: DailyCheckIn, stored: CheckInRecord[]) => saveCheckInRecord(answers, {
@@ -190,5 +198,168 @@ describe('every day’s effective record (round 3, B01 and B04)', () => {
     await refusedSave(chest(toDateString(new Date())), []);
     expect(heard.mock.calls.length).toBe(after);
     expect(storeListeners.size).toBe(0);
+  });
+});
+
+describe('a change to the phone’s clock mid-walk (B-19, the conservative path, held by the device: H6R-02, H6R-03, board D174)', () => {
+  const taken = { value: 140, unit: 'mg/dL' as const, measuredAt: minutesBefore(NOW, 10), source: 'meter' as const };
+  /** The device after a walk saw the change around today: its hold, on every day the gates read. */
+  const hold = withClockChange(UNASKED, [TODAY]).clock!;
+  const held = (c: CheckInRecord): CheckInRecord => ({ ...c, clockHold: hold });
+  const clinical = { profile: onInsulin, checkIns: [checkIn({ glucose: taken })] };
+  const after = { profile: onInsulin, checkIns: clinical.checkIns.map(held) };
+  /** A reading taken on this phone since the change: of its new clock generation. */
+  const since = { ...taken, value: 130, measuredAt: minutesBefore(NOW, 2), gen: hold.generation };
+
+  it('lets a restart go on a reading taken 10 minutes ago', () => {
+    expect(walkRefusal(walkInput(clinical, NOW), 'restart')).toBeUndefined();
+  });
+
+  it('holds a Track reading from before the change too, and lets one taken since go', () => {
+    const logged = (glucose: object) => ({ profile: onInsulin, checkIns: [held(checkIn({ logged: { glucose: [{ value: 120, unit: 'mg/dL', measuredAt: minutesBefore(NOW, 5), unitConfirmed: true, source: 'meter', ...glucose }] } }))] });
+    expect(walkRefusal(walkInput(logged({}), NOW), 'restart')?.reasons).toContain(PERMISSION_TEXT.clockChanged);
+    expect(walkRefusal(walkInput(logged({ gen: hold.generation }), NOW), 'restart')).toBeUndefined();
+  });
+
+  it('holds a restart on a reading from before the change, however its time reads now', () => {
+    expect(walkRefusal(walkInput(after, NOW), 'restart')?.reasons).toContain(PERMISSION_TEXT.clockChanged);
+    // Set back: the same reading timed a minute in the future, which the freshness rule alone would let pass.
+    const ahead = { profile: onInsulin, checkIns: [checkIn({ glucose: { ...taken, measuredAt: minutesBefore(NOW, -1) } })] };
+    expect(walkRefusal(walkInput(ahead, NOW), 'restart')).toBeUndefined();
+    expect(walkRefusal(walkInput({ ...ahead, checkIns: ahead.checkIns.map(held) }, NOW), 'restart')?.reasons).toContain(PERMISSION_TEXT.clockChanged);
+  });
+
+  it('holds walking under way too: carrying on needs a reading taken since the change (H6-02)', () => {
+    const live = walkRefusal(walkInput(after, NOW), 'live');
+    expect(live).toMatchObject({ allowed: false, disposition: 'hold', needsCheckIn: true });
+    expect(live?.reasons).toContain(PERMISSION_TEXT.clockChanged);
+  });
+
+  it('keeps a reading taken after the change', () => {
+    const fresh = { profile: onInsulin, checkIns: [held(checkIn({ glucose: since, glucoseEarlier: [taken] }))] };
+    expect(walkRefusal(walkInput(fresh, NOW), 'restart')).toBeUndefined();
+    expect(walkRefusal(walkInput(fresh, NOW), 'live')).toBeUndefined();
+  });
+
+  it('asks for a reading on a day the change reached with none, and for no one who needs none', () => {
+    // Walking on past midnight: the change reached the new day, which holds no record yet.
+    const tomorrow = toDateString(new Date(NOW.getTime() + 86_400_000));
+    const reached = { generation: 1, days: [TODAY, tomorrow] };
+    const night = new Date(`${tomorrow}T00:05:00+05:30`);
+    expect(walkRefusal(walkInput({ profile: onInsulin, checkIns: [{ ...checkIn({ glucose: taken }), clockHold: reached }] }, night), 'live')?.reasons).toContain(PERMISSION_TEXT.clockChanged);
+    expect(walkRefusal(walkInput({ profile: ordinary, checkIns: [held(checkIn())] }, NOW), 'live')).toBeUndefined();
+    expect(walkRefusal(walkInput({ profile: ordinary, checkIns: [held(checkIn())] }, NOW), 'restart')).toBeUndefined();
+  });
+
+  it('is asked of the device’s own gates with the change, as the live walk asks them, a new walk’s start included', () => {
+    // Setup is finished: a profile left part-way is held for its gap whatever the clock (H5-05).
+    const settings = (walk?: AppData['settings']['walk']) => ({ currentWeight: 70, onboardingComplete: true, ...(walk ? { walk } : {}) }) as AppData['settings'];
+    const state = (walk?: AppData['settings']['walk'], checkIns = clinical.checkIns) => ({ profile: onInsulin, checkIns, settings: settings(walk) });
+    expect(deviceGate(() => state(), () => NOW)('restart')).toBe(true);
+    const changedHere = withClockChange(UNASKED, [TODAY]);
+    for (const intent of ['start', 'restart', 'live'] as const) {
+      expect(deviceGate(() => state(changedHere), () => NOW)(intent), intent).toBe(false);
+      expect(clinicalGate(() => after, () => NOW)(intent), intent).toBe(false);
+    }
+    expect(deviceGate(() => state(changedHere, [checkIn({ glucose: since, glucoseEarlier: [taken] })]), () => NOW)('restart')).toBe(true);
+  });
+});
+
+describe('B-01’s final gate, asked of what the device holds at that moment', () => {
+  afterEach(() => { device.state = undefined; });
+  const reading = (minutes: number) => ({ glucose: { value: 140, unit: 'mg/dL' as const, measuredAt: minutesBefore(NOW, minutes), source: 'meter' as const } });
+
+  it('starts on a reading taken 10 minutes ago, and not on one taken 40 minutes ago', () => {
+    device.state = { profile: onInsulin, checkIns: [checkIn(reading(10))], settings: { currentWeight: 70, onboardingComplete: true }, observations: [] };
+    expect(allowsMovement(storeStartPermission(NOW))).toBe(true);
+    device.state = { profile: onInsulin, checkIns: [checkIn(reading(40))], settings: { currentWeight: 70, onboardingComplete: true }, observations: [] };
+    expect(allowsMovement(storeStartPermission(NOW))).toBe(false);
+  });
+
+  it('asks the start question, so no check-in today is no start', () => {
+    device.state = { profile: ordinary, checkIns: [], settings: { currentWeight: 70, onboardingComplete: true }, observations: [] };
+    const p = storeStartPermission(NOW);
+    expect(allowsMovement(p)).toBe(false);
+    expect(p.needsCheckIn).toBe(true);
+  });
+});
+
+describe('the device’s clock changes (B-19, board D174)', () => {
+  it('none until a walk sees one; each moves the generation on, so a reading taken between two changes is held after the second', () => {
+    expect(clockGeneration({})).toBe(0);
+    const once = withClockChange(UNASKED, [TODAY, TODAY]);
+    expect(once.clock).toEqual({ generation: 1, days: [TODAY] });
+    expect(clockGeneration({ walk: once })).toBe(1);
+    const twice = withClockChange(once, ['2026-10-09']);
+    expect(twice.clock).toEqual({ generation: 2, days: ['2026-10-09'] });
+    // The consents and markers stay as they were.
+    expect(withClockChange({ saveRoutes: true, map: 'off', erased: { generation: 1, walks: ['x'] } }, [TODAY])).toMatchObject({ saveRoutes: true, map: 'off', erased: { generation: 1, walks: ['x'] } });
+    const between = { value: 130, unit: 'mg/dL' as const, measuredAt: minutesBefore(NOW, 2), gen: 1 };
+    const day = { ...checkIn({ date: '2026-10-09', glucose: between }), clockHold: twice.clock };
+    expect(walkRefusal(walkInput({ profile: onInsulin, checkIns: [day] }, new Date('2026-10-09T19:40:00+05:30')), 'restart')?.reasons).toContain(PERMISSION_TEXT.clockChanged);
+  });
+
+  it('holds a change seen and not yet stored on its days too, of a generation past every one kept (H6F-02, board D188)', () => {
+    expect(withPendingClock(undefined, [])).toBeUndefined();
+    const kept = { generation: 2, days: [TODAY] };
+    expect(withPendingClock(kept, [])).toBe(kept);
+    expect(withPendingClock({ generation: 2, days: ['2026-10-05'] }, [['2026-10-09', TODAY], ['2026-10-01']])).toEqual({ generation: 3, days: ['2026-10-01', '2026-10-05', '2026-10-09', TODAY].sort() });
+    expect(withPendingClock(undefined, [[TODAY]])).toEqual({ generation: 1, days: [TODAY] });
+  });
+
+  it('stamps a reading as it is acquired with this phone’s generation; one already stamped keeps its own, and none before any change (H6R-03, board D186)', () => {
+    const glucose = { kind: 'glucose' as const, value: 120, unit: 'mg/dL', scope: 'pointInTime' as const, source: 'manual' as const };
+    expect(acquiredIn(glucose, 0)).toBe(glucose);
+    expect(acquiredIn(glucose, 2)).toEqual({ ...glucose, gen: 2 });
+    expect(acquiredIn({ ...glucose, gen: 1 }, 2)).toEqual({ ...glucose, gen: 1 });
+  });
+});
+
+describe('carrying a walk on asks the status first, as the hubs’ Continue does (H2-01, journey §4.8, A-34)', () => {
+  it('refuses a restart while Away or Unwell, and in a flare-up, in the hubs’ words', () => {
+    expect(statusRefusal('away', 'restart')).toMatchObject({ allowed: false, disposition: 'hold', reasons: [STATUS_HOLD.away], release: STATUS_HOLD.release, needsCheckIn: false });
+    expect(statusRefusal('unwell', 'restart')?.reasons).toEqual(['A walk isn’t carried on while you’re unwell.']);
+    expect(statusRefusal('flare', 'restart')?.reasons).toEqual(['During a flare-up only a stretch is carried on.']);
+    expect(statusRefusal('normal', 'restart')).toBeUndefined();
+  });
+
+  it('asks nothing of a new walk (“Start anyway”) or one recording now: the status changes only off the walk screen, and coming back is a restart', () => {
+    for (const status of ['away', 'unwell', 'flare'] as const) {
+      expect(statusRefusal(status, 'start')).toBeUndefined();
+      expect(statusRefusal(status, 'live')).toBeUndefined();
+    }
+  });
+
+  it('is asked by the live walk’s own gate, from the device’s status today', () => {
+    const settings = (statusPeriods?: { kind: 'unwell' | 'away' | 'flare'; from: string; to?: string }[]) =>
+      ({ currentWeight: 70, onboardingComplete: true, ...(statusPeriods ? { statusPeriods } : {}) }) as AppData['settings'];
+    const state = (s: AppData['settings']) => ({ profile: ordinary, checkIns: [checkIn()], settings: s });
+    const unwell = deviceGate(() => state(settings([{ kind: 'unwell', from: TODAY }])), () => NOW);
+    expect(unwell('restart')).toBe(false);
+    expect(unwell('start')).toBe(true);
+    expect(unwell('live')).toBe(true);
+    expect(deviceGate(() => state(settings([{ kind: 'unwell', from: '2026-10-01', to: '2026-10-07' }])), () => NOW)('restart')).toBe(true);
+    expect(deviceGate(() => state(settings()), () => NOW)('restart')).toBe(true);
+  });
+
+  it('shows a stop before the status, and the status before any other hold, as the hubs order them (§4.2)', () => {
+    const status = statusRefusal('unwell', 'restart')!;
+    const stop: Permission = { mode: 'walk', allowed: false, disposition: 'today', reasons: ['No exercise today.'], restrictions: [], needsCheckIn: false };
+    const hold: Permission = { ...stop, disposition: 'hold', reasons: ['Check in first.'], needsCheckIn: true };
+    expect(heldBy(stop, status)).toBe(stop);
+    expect(heldBy({ ...stop, disposition: 'emergency' }, status)?.disposition).toBe('emergency');
+    expect(heldBy(hold, status)).toBe(status);
+    expect(heldBy(hold, undefined)).toBe(hold);
+    expect(heldBy(undefined, status)).toBe(status);
+    expect(heldBy(undefined, undefined)).toBeUndefined();
+  });
+
+  it('shows an unanswered stop before the status too, so "Say what happened" is never hidden by Away, Unwell or a flare-up (K6R-02)', () => {
+    const status = statusRefusal('unwell', 'restart')!;
+    const stopped: Permission = { mode: 'walk', allowed: false, disposition: 'hold', reasons: [STOP_UNANSWERED.reason], release: STOP_UNANSWERED.release, restrictions: [], needsCheckIn: false };
+    expect(heldBy(stopped, status)).toBe(stopped);
+    // Among other reasons too.
+    const both = { ...stopped, reasons: ['Check in first.', STOP_UNANSWERED.reason] };
+    expect(heldBy(both, status)).toBe(both);
   });
 });

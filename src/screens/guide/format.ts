@@ -1,5 +1,8 @@
 import type { FoodPreferences } from '@/types/profile';
-import { PATTERN_LABEL, unmatchedAvoid, type SearchResult } from '@/content';
+import { ownAllergyReading, PATTERN_LABEL, unmatchedAvoid, type SearchResult } from '@/content';
+import { allergenList, allergenName } from '@/food/allergens';
+import { FOOD_COPY } from '@/food/copy';
+import { parseAvoid } from '@/setup/limits';
 
 /** "2026-10-08" → "8 October 2026", read as a local calendar date. */
 export function longDate(iso: string): string {
@@ -22,15 +25,32 @@ export const REGION_LABEL: Record<NonNullable<FoodPreferences['region']>, string
 export function foodSummary(food: FoodPreferences): string {
   const parts = [PATTERN_LABEL[food.pattern]];
   if (food.region && food.region !== 'mixed') parts.push(REGION_LABEL[food.region]);
+  const allergies = [...(food.allergies ?? []).map(allergenName), ...(food.customAllergies ?? [])];
+  if (allergies.length > 0) parts.push(`allergic to ${allergies.join(', ')}`);
   const unmatched = new Set(unmatchedAvoid(food.avoid, food.pattern));
   const left = food.avoid.filter(a => !unmatched.has(a));
   if (left.length > 0) parts.push(`no ${left.join(', ')}`);
   return parts.join(' · ');
 }
 
-/** The comma-separated "leave out" field, as the list the profile stores. */
-export function parseAvoid(text: string): string[] {
-  return [...new Set(text.split(/[,;\n]/).map(s => s.trim()).filter(Boolean))];
+export { parseAvoid } from '@/setup/limits';
+
+/** How many allergies in the person's own words a profile holds, and how long each may be: what an import reads back (`store/importCheck.ts`). */
+const OWN_ALLERGIES_MAX = 30;
+const OWN_ALLERGY_MAX_LENGTH = 60;
+
+/**
+ * The "Something else" allergy field, as the list the profile stores: no
+ * repeats, case aside, and within the import check's bounds, so a backup
+ * holding it always reads back rather than losing the food answers whole.
+ */
+export function parseAllergies(text: string): string[] {
+  const out: string[] = [];
+  for (const entry of parseAvoid(text)) {
+    const e = entry.replace(/\s+/g, ' ').slice(0, OWN_ALLERGY_MAX_LENGTH).trim();
+    if (e && out.length < OWN_ALLERGIES_MAX && !out.some(x => x.toLocaleLowerCase() === e.toLocaleLowerCase())) out.push(e);
+  }
+  return out;
 }
 
 /**
@@ -45,6 +65,25 @@ export function unmatchedNote(entries: readonly string[]): string | undefined {
   return entries.length === 1
     ? `Nothing was left out for ${list}: none of the meal ideas shown to you names it. A meal can still contain it under another name.`
     : `Nothing was left out for ${list}: none of the meal ideas shown to you names them. A meal can still contain them under other names.`;
+}
+
+/**
+ * How an allergy in the person's own words is read (K7R-02; board D200): "Read as milk", or, said with
+ * caution, that we don't know the word; nothing when our foods' words find it as written.
+ */
+export function ownAllergyStatus(entry: string): { text: string; unknown: boolean } | undefined {
+  const reading = ownAllergyReading(entry);
+  if (reading === 'unknown') return { text: FOOD_COPY.unknownWord, unknown: true };
+  return reading && { text: FOOD_COPY.readAs(allergenList(reading.allergens)), unknown: false };
+}
+
+/** The setup field's entries that have a status, as one note ("chaach: Read as milk."), and whether any word is unknown. */
+export function ownAllergyNote(entries: readonly string[]): { text: string; unknown: boolean } | undefined {
+  const read = entries.flatMap(e => {
+    const status = ownAllergyStatus(e);
+    return status ? [{ line: `${e}: ${status.text}.`, unknown: status.unknown }] : [];
+  });
+  return read.length > 0 ? { text: read.map(r => r.line).join(' '), unknown: read.some(r => r.unknown) } : undefined;
 }
 
 /** "“insulin”", or "“fasting” and “insulin”". */

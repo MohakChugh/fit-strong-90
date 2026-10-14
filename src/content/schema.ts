@@ -38,7 +38,7 @@ export interface Source {
   /** Who the document is written for. */
   population: string;
   accessed: IsoDate;
-  kind: 'guideline' | 'factsheet' | 'study' | 'label';
+  kind: 'guideline' | 'factsheet' | 'study' | 'label' | 'dataset';
   /** Attribution the licence asks for, shown with the source. */
   licence?: string;
   /**
@@ -195,15 +195,15 @@ export interface Topic {
 
 /** In-app destinations a card may hand off to. */
 export const ROUTES = {
-  walk: '/walk',
-  stretch: '/move/stretch',
-  reminders: '/you/habits',
-  meals: '/guide/meals',
-  week: '/guide/meals/week',
-  /** Track's own add forms, opened by its `add` parameter (`parseAddParam`). */
-  addGlucose: '/track?add=glucose',
-  addBloodPressure: '/track?add=bloodPressure',
-  addWaist: '/track?add=waist',
+  walk: '/hub/walk',
+  stretch: '/hub/stretch',
+  reminders: '/me/reminders',
+  meals: '/hub/food/ideas',
+  week: '/hub/food/week',
+  /** A reading's hub, with its own form open on arrival (`?add=`, `parseAddParam`). */
+  addGlucose: '/hub/glucose?add=glucose',
+  addBloodPressure: '/hub/bp?add=bloodPressure',
+  addWaist: '/hub/waist?add=waist',
 } as const;
 export type AppRoute = (typeof ROUTES)[keyof typeof ROUTES];
 

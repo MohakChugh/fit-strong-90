@@ -15,7 +15,7 @@
 import type { HabitSettings } from '@/types/habits';
 import type { UserProfile } from '@/types/profile';
 import { contextFromProfile, habitAdvice, type GuideContext, type HabitAdvice } from '@/content/personalise';
-import type { HabitId } from './schedule';
+import type { HabitId, ReminderKind } from './schedule';
 
 export type MovementHabit = Exclude<HabitId, 'water'>;
 
@@ -60,7 +60,9 @@ export function habitInstead(habit: HabitId, profile: UserProfile | undefined, h
  * The precautions that travel with this habit's prompt for this person, as
  * sentences: only those that could apply, and none for a prompt not offered.
  */
-export function habitPrecautions(habit: HabitId, profile: UserProfile | undefined, habits?: Pick<HabitSettings, 'fluidLimit'>): string[] {
+export function habitPrecautions(habit: ReminderKind, profile: UserProfile | undefined, habits?: Pick<HabitSettings, 'fluidLimit'>): string[] {
+  // The food prompt carries no movement precaution.
+  if (habit === 'foodLog') return [];
   return advice(habit, profile, habits)?.precautions.map(claim => claim.statement) ?? [];
 }
 

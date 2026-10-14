@@ -11,15 +11,33 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { BASE_PATH, MINUTE, NOW } from './env.mjs';
-import { capabilityInit, faultInit, readDatabase, readWebStorage, seedInit, sensorInit, visibilityInit } from './inpage.mjs';
+import { capabilityInit, clipInit, drawInit, faultInit, mediaInit, readDatabase, readWebStorage, seedInit, sensorInit, updateInit, visibilityInit } from './inpage.mjs';
 import { sweepInPage, unnamedControls } from './sweep.mjs';
 
 export const SEED_GUARD = '__acceptance:seeded';
 export const FAULT_KEY = '__acceptance:fault';
 
+/**
+ * Opt-in recording (docs/demo), off unless set. FIT_VIDEO_DIR: every page
+ * records a video, saved there under its journey, project and case, with a
+ * log of the voice clips it played and when each step began. FIT_VOICE=on:
+ * the persona's voice coach is on, as a person using the app has it (the
+ * personas keep it muted).
+ */
+const VIDEO_DIR = process.env.FIT_VIDEO_DIR ? path.resolve(process.env.FIT_VIDEO_DIR) : undefined;
+const VOICE_ON = process.env.FIT_VOICE === 'on';
+
 class StepFailed extends Error {}
 
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+
+/** The file under public/ a clip's address names: `/fit-strong-90/voice/af_heart/<key>.m4a` is public/voice/af_heart/<key>.m4a. */
+function publicFile(src) {
+  try {
+    const { pathname } = new URL(src);
+    return pathname.startsWith(BASE_PATH) ? path.posix.join('public', decodeURIComponent(pathname.slice(BASE_PATH.length))) : undefined;
+  } catch { return undefined; }
+}
 
 export class Case {
   constructor({ journey, name, project, browser, origin, root, log }) {
@@ -39,11 +57,14 @@ export class Case {
     this.console = [];
     this.requests = [];
     this.allowed = [];
+    this.consented = [];
     this.shots = 0;
     this.time = NOW;
     this.aborted = undefined;
     this.currentStep = undefined;
     this.started = Date.now();
+    this.recorded = [];
+    this.stepStarts = [];
   }
 
   get base() { return `${this.origin}${BASE_PATH}`; }
@@ -55,7 +76,8 @@ export class Case {
    * `route` is the logical hash route (`/today`), or '' for the app root.
    */
   async open({ seed = null, extraStorage, route = '', sensors, visibility = false, capabilities, faults = true,
-    reducedMotion = 'no-preference', contextOptions = {}, time = NOW, textScale, timeout = 12000 } = {}) {
+    reducedMotion = 'no-preference', contextOptions = {}, time = NOW, textScale, timeout = 12000,
+    media = false, updates = false, draws = false, zoneByCdp } = {}) {
     this.time = time;
     const p = this.project;
     this.context = await this.browser.newContext({
@@ -64,13 +86,17 @@ export class Case {
       isMobile: true,
       hasTouch: true,
       locale: 'en-IN',
-      timezoneId: contextOptions.timezoneId ?? 'Asia/Kolkata',
+      // A case that changes the zone mid-way sets it through its own CDP session (`setTimezone`):
+      // Chromium takes one zone override per page, and Playwright's own would be the one in force.
+      ...(zoneByCdp ? {} : { timezoneId: contextOptions.timezoneId ?? 'Asia/Kolkata' }),
       colorScheme: p.scheme,
       reducedMotion,
       acceptDownloads: true,
       serviceWorkers: contextOptions.serviceWorkers ?? 'block',
+      ...(VIDEO_DIR ? { recordVideo: { dir: path.join(VIDEO_DIR, '.recording'), size: { width: p.width, height: p.height } } } : {}),
       ...contextOptions,
     });
+    if (VIDEO_DIR) await this.recordClips();
     // Long enough for a software-rendered 3D demo on a loaded machine; a missing control still fails.
     this.context.setDefaultTimeout(timeout);
     this.context.setDefaultNavigationTimeout(30000);
@@ -78,21 +104,82 @@ export class Case {
     // timers keep running so the interface works (spec "Execution").
     await this.context.clock.install({ time });
     await this.context.clock.setFixedTime(time);
+    if (VOICE_ON && seed?.profile?.voice) seed = { ...seed, profile: { ...seed.profile, voice: { ...seed.profile.voice, muted: false } } };
     const blob = seed === null ? null : JSON.stringify(seed);
     await this.context.addInitScript(seedInit, { blob, extra: extraStorage ?? {}, guard: SEED_GUARD });
     if (faults) await this.context.addInitScript(faultInit);
     await this.context.addInitScript(sensorInit, sensors ?? {});
     if (visibility) await this.context.addInitScript(visibilityInit);
     if (capabilities) await this.context.addInitScript(capabilityInit, capabilities);
+    if (media) await this.context.addInitScript(mediaInit);
+    if (updates) await this.context.addInitScript(updateInit);
+    if (draws) await this.context.addInitScript(drawInit);
     if (textScale) {
       await this.context.addInitScript(scale => {
         document.addEventListener('DOMContentLoaded', () => { document.documentElement.style.fontSize = `${scale * 100}%`; });
       }, textScale);
     }
     this.page = await this.newPage();
+    if (zoneByCdp) {
+      this.cdp = await this.context.newCDPSession(this.page);
+      await this.cdp.send('Emulation.setTimezoneOverride', { timezoneId: zoneByCdp });
+    }
     await this.page.goto(`${this.base}${route ? `#${route}` : ''}`, { waitUntil: 'domcontentloaded' });
     await this.ready();
     return this.page;
+  }
+
+  /**
+   * A recorded run: each page's video, and each voice clip the page plays or
+   * stops, timed from the video's first frame (its time zero, which comes a
+   * few hundred ms after the page opens: the screencast's first frame says when).
+   * The steps' starts are timed the same way, so a film can be cut at a step.
+   */
+  async recordClips() {
+    this.context.on('page', page => {
+      const r = { page, openedAt: Date.now(), closedAt: undefined, firstFrameAt: undefined, clips: [] };
+      this.recorded.push(r);
+      page.on('close', () => { r.closedAt = Date.now(); });
+      void page.screencast?.start({
+        onFrame: ({ timestamp }) => {
+          if (r.firstFrameAt !== undefined) return;
+          r.firstFrameAt = timestamp;
+          void page.screencast.stop().catch(() => {});
+        },
+      }).catch(() => {});
+    });
+    await this.context.exposeBinding('__accClip', ({ page }, e) => {
+      const r = this.recorded.find(x => x.page === page);
+      if (r) r.clips.push({ wall: Date.now(), kind: e.kind, src: e.src, file: publicFile(e.src), element: e.element });
+    });
+    await this.context.addInitScript(clipInit);
+  }
+
+  /** After the last context closes: each page's video, named by journey, project and case, beside one log of its steps and clips. */
+  async saveVideos(status) {
+    const base = `${String(this.journey).replace(/[^A-Za-z0-9-]+/g, '-')}__${this.project.id}__${slug(this.name) || 'main'}`;
+    const videos = [];
+    for (const [i, r] of this.recorded.entries()) {
+      const video = r.page.video();
+      if (!video) continue;
+      const file = `${base}${i ? `__${i + 1}` : ''}.webm`;
+      try {
+        await video.saveAs(path.join(VIDEO_DIR, file));
+        await video.delete();
+      } catch (e) { this.note(`video ${file} was not saved: ${String(e).slice(0, 160)}`); continue; }
+      const zero = r.firstFrameAt ?? r.openedAt;
+      const open = ({ wall }) => wall >= r.openedAt && wall <= (r.closedAt ?? Infinity);
+      videos.push({
+        file, openedAt: new Date(r.openedAt).toISOString(), timedFrom: r.firstFrameAt === undefined ? 'page opened' : 'first frame',
+        steps: this.stepStarts.filter(open).map(({ wall, ...s }) => ({ at: Math.round(wall - zero), ...s })),
+        clips: r.clips.map(({ wall, ...c }) => ({ at: Math.round(wall - zero), ...c })),
+      });
+    }
+    fs.writeFileSync(path.join(VIDEO_DIR, `${base}.clips.json`), JSON.stringify({
+      journey: this.journey, case: this.name, project: this.project.id, status,
+      at: 'ms since the video started',
+      videos,
+    }, null, 1));
   }
 
   /** A page in this context with console, error and request capture. */
@@ -113,6 +200,8 @@ export class Case {
       const root = document.getElementById('root');
       if (!root || !root.firstElementChild) return false;
       if (root.querySelector(':scope > [aria-busy="true"]')) return false;
+      // A lazily loaded screen still on its skeleton has its title but not its content (v2's hubs, journey §8.4).
+      if (document.querySelector('main div[aria-busy="true"]')) return false;
       return !!document.querySelector('h1, [role="alert"]');
     }, null, { timeout: 30000 });
     await page.waitForTimeout(150);
@@ -163,6 +252,21 @@ export class Case {
     await this.advance(ms - this.time);
   }
 
+  /** The phone's clock set by hand, forwards or back (B-19, V-J41): `Date` jumps; timers and `performance.now()` keep their own time. */
+  async jumpClock(ms) {
+    this.time += ms;
+    await this.context.clock.setFixedTime(this.time);
+    // A second and a half of real time, so the walk's ticks see the jump.
+    await this.page.waitForTimeout(1500);
+  }
+
+  /** The phone moves to another time zone (V-J41). Only for a case opened with `zoneByCdp`. */
+  async setTimezone(zone) {
+    if (!this.cdp) throw new Error('open the case with zoneByCdp to change its time zone');
+    await this.cdp.send('Emulation.setTimezoneOverride', { timezoneId: zone });
+    await this.page.waitForTimeout(300);
+  }
+
   // ---------------------------------------------------------------- faults
 
   /** Rules that survive reload, stored under the test namespace. */
@@ -181,6 +285,14 @@ export class Case {
 
   /** A console error the fault itself causes, exempted by its exact marker only. */
   allowConsole(pattern) { this.allowed.push(pattern); }
+
+  /**
+   * Requests off the device that the person consented to, which the end of
+   * the case doesn't count as leaving it: only Plan 6's map pictures, once
+   * this phone said Yes to them (B-23, D91). Answered locally by the journey,
+   * so the suite never depends on the network.
+   */
+  allowRequests(pattern) { this.consented.push(pattern); }
 
   // ---------------------------------------------------------------- reading state
 
@@ -258,6 +370,7 @@ export class Case {
     this.currentStep = n;
     this.stepInput = input;
     this.stepTitle = title;
+    if (VIDEO_DIR) this.stepStarts.push({ wall: Date.now(), step: n, title });
     this.stepDb = await this.db().catch(() => undefined);
     this.log(`  ${this.journey} ${this.project.id} ${this.name} · step ${n}: ${title}`);
     try {
@@ -311,18 +424,24 @@ export class Case {
   // ---------------------------------------------------------------- end
 
   async close() {
+    // A recording ends a second later, so it ends on a screen at rest, not on a frame mid-animation.
+    if (VIDEO_DIR) await this.page?.waitForTimeout(1000).catch(() => {});
     // Console errors and off-origin requests are failures of their own.
     const allowed = text => this.allowed.some(p => (p instanceof RegExp ? p.test(text) : text.includes(p)));
     const stray = this.console.filter(c => !allowed(c.text));
     for (const c of stray) this.sweep.push({ check: 'console', detail: c.text.slice(0, 300), step: c.at, checkpoint: '(any)', route: '' });
-    const offOrigin = this.requests.filter(r => !r.url.startsWith(this.origin) && !/^(data|blob|about|chrome-extension):/.test(r.url));
+    const consented = url => this.consented.some(p => (p instanceof RegExp ? p.test(url) : url.startsWith(p)));
+    const offOrigin = this.requests.filter(r => !r.url.startsWith(this.origin) && !/^(data|blob|about|chrome-extension):/.test(r.url) && !consented(r.url));
     for (const r of offOrigin) this.failures.push({ journey: this.journey, case: this.name, project: this.project.id, step: r.at, message: `request left the device: ${r.method} ${r.url}`, input: '', visible: '', dbDiff: '' });
     await this.context?.close().catch(() => {});
+    const status = this.failures.length ? 'fail' : this.pendingItems.length ? 'pending' : 'pass';
+    const durationMs = Date.now() - this.started;
+    if (VIDEO_DIR) await this.saveVideos(status);
     return {
       journey: this.journey, case: this.name, project: this.project.id,
-      status: this.failures.length ? 'fail' : this.pendingItems.length ? 'pending' : 'pass',
+      status,
       failures: this.failures, pending: this.pendingItems, sweep: this.sweep, checkpoints: this.checkpoints, notes: this.notes,
-      abortedAt: this.aborted, durationMs: Date.now() - this.started, dir: this.dir,
+      abortedAt: this.aborted, durationMs, dir: this.dir,
     };
   }
 }

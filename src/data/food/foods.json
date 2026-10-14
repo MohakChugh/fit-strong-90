@@ -1,0 +1,5982 @@
+{
+ "format": "fit-strong-food",
+ "version": 1,
+ "source": {
+  "name": "USDA FoodData Central",
+  "url": "https://fdc.nal.usda.gov/",
+  "licence": "CC0 1.0 Universal (public domain)",
+  "credit": "U.S. Department of Agriculture, Agricultural Research Service, Beltsville Human Nutrition Research Center. FoodData Central. [Internet]. [cited 2026-10-11]. Available from https://fdc.nal.usda.gov/.",
+  "dataset": "SR Legacy",
+  "file": "FoodData_Central_sr_legacy_food_json_2018-04.json",
+  "extractedOn": "2026-10-11"
+ },
+ "foods": [
+  {
+   "id": "roti",
+   "rev": 1,
+   "name": "Roti (whole-wheat)",
+   "aliases": [
+    "roti",
+    "chapati",
+    "chapatti",
+    "chappati",
+    "chapathi",
+    "phulka",
+    "fulka",
+    "रोटी",
+    "चपाती"
+   ],
+   "shelf": "breads",
+   "slots": [
+    "breakfast",
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "piece",
+    "grams": 40,
+    "count": 1,
+    "noun": [
+     "roti",
+     "rotis"
+    ]
+   },
+   "per100g": {
+    "kcal": 255,
+    "carbsG": 54,
+    "carbsLowG": 48.6,
+    "carbsHighG": 59.4
+   },
+   "allergens": {
+    "contains": [
+     "wheat"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "atta",
+    "chapathi",
+    "chapati",
+    "chapatti",
+    "chappati",
+    "flour",
+    "fulka",
+    "gehun",
+    "phulka",
+    "roti",
+    "water",
+    "wheat",
+    "whole",
+    "गेहूं",
+    "चपाती",
+    "रोटी"
+   ],
+   "recipe": {
+    "note": "Plain phulka, no oil",
+    "hash": "67ea8e95",
+    "basis": "e618671f",
+    "ingredients": [
+     {
+      "key": "atta",
+      "name": "Whole-wheat flour (atta)",
+      "grams": 30,
+      "fdcId": 168893
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 18,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "paratha",
+   "rev": 1,
+   "name": "Plain paratha",
+   "aliases": [
+    "paratha",
+    "parantha",
+    "prantha",
+    "पराठा"
+   ],
+   "shelf": "breads",
+   "slots": [
+    "breakfast",
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "piece",
+    "grams": 60,
+    "count": 1,
+    "noun": [
+     "paratha",
+     "parathas"
+    ]
+   },
+   "per100g": {
+    "kcal": 300.3,
+    "carbsG": 48,
+    "carbsLowG": 43.2,
+    "carbsHighG": 52.8
+   },
+   "allergens": {
+    "contains": [
+     "wheat"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "atta",
+    "flour",
+    "gehun",
+    "oil",
+    "parantha",
+    "paratha",
+    "plain",
+    "prantha",
+    "sunflower",
+    "tel",
+    "water",
+    "wheat",
+    "whole",
+    "गेहूं",
+    "पराठा"
+   ],
+   "recipe": {
+    "note": "Home-style, 1 tsp oil",
+    "hash": "9c689ef8",
+    "basis": "2d11f4ad",
+    "ingredients": [
+     {
+      "key": "atta",
+      "name": "Whole-wheat flour (atta)",
+      "grams": 40,
+      "fdcId": 168893
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 5,
+      "fdcId": 171025
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 22,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "aloo-paratha",
+   "rev": 1,
+   "name": "Aloo paratha",
+   "aliases": [
+    "aloo paratha",
+    "alu paratha",
+    "potato paratha",
+    "आलू पराठा"
+   ],
+   "shelf": "breads",
+   "slots": [
+    "breakfast",
+    "lunch"
+   ],
+   "portion": {
+    "unit": "piece",
+    "grams": 110,
+    "count": 1,
+    "noun": [
+     "paratha",
+     "parathas"
+    ]
+   },
+   "per100g": {
+    "kcal": 205.1,
+    "carbsG": 35.76,
+    "carbsLowG": 31.23,
+    "carbsHighG": 40.3
+   },
+   "allergens": {
+    "contains": [
+     "wheat"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ],
+   "words": [
+    "aloo",
+    "alu",
+    "atta",
+    "boiled",
+    "chilli",
+    "cilantro",
+    "coriander",
+    "dhania",
+    "flour",
+    "gehun",
+    "green",
+    "kanda",
+    "leave",
+    "mirch",
+    "namak",
+    "oil",
+    "onion",
+    "paratha",
+    "potato",
+    "pyaz",
+    "salt",
+    "sunflower",
+    "tel",
+    "water",
+    "wheat",
+    "whole",
+    "आलू",
+    "गेहूं",
+    "धनिया",
+    "नमक",
+    "पराठा",
+    "प्याज",
+    "मिर्च",
+    "हरी"
+   ],
+   "recipe": {
+    "note": "Home-style, 1 tsp oil",
+    "hash": "f1570365",
+    "basis": "59ad6407",
+    "ingredients": [
+     {
+      "key": "atta",
+      "name": "Whole-wheat flour (atta)",
+      "grams": 40,
+      "fdcId": 168893
+     },
+     {
+      "key": "potato-boiled",
+      "name": "Boiled potato",
+      "grams": 50,
+      "fdcId": 170440
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 5,
+      "fdcId": 170000
+     },
+     {
+      "key": "coriander-leaves",
+      "name": "Coriander leaves",
+      "grams": 2,
+      "fdcId": 169997
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 5,
+      "fdcId": 171025
+     },
+     {
+      "key": "green-chilli",
+      "name": "Green chilli",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 15,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "jowar-roti",
+   "rev": 1,
+   "name": "Jowar roti (bhakri)",
+   "aliases": [
+    "jowar roti",
+    "jowar",
+    "bhakri",
+    "jolada rotti",
+    "ज्वार की रोटी"
+   ],
+   "shelf": "breads",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "piece",
+    "grams": 50,
+    "count": 1,
+    "noun": [
+     "roti",
+     "rotis"
+    ]
+   },
+   "per100g": {
+    "kcal": 287.2,
+    "carbsG": 61.28,
+    "carbsLowG": 55.15,
+    "carbsHighG": 67.41
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "bhakri",
+    "flour",
+    "jolada",
+    "jowar",
+    "roti",
+    "rotti",
+    "sorghum",
+    "water",
+    "की",
+    "ज्वार",
+    "रोटी"
+   ],
+   "recipe": {
+    "note": "Plain, no oil",
+    "hash": "58cc1d2d",
+    "basis": "7380127c",
+    "ingredients": [
+     {
+      "key": "jowar-flour",
+      "name": "Jowar flour",
+      "grams": 40,
+      "fdcId": 168943
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 20,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "rice",
+   "rev": 1,
+   "name": "Steamed rice",
+   "aliases": [
+    "rice",
+    "chawal",
+    "chaval",
+    "bhat",
+    "bhaat",
+    "plain rice",
+    "चावल",
+    "भात"
+   ],
+   "shelf": "breads",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 130,
+    "carbsG": 28.2,
+    "carbsLowG": 25.38,
+    "carbsHighG": 31.02
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "bhaat",
+    "bhat",
+    "chaval",
+    "chawal",
+    "cooked",
+    "plain",
+    "rice",
+    "steamed",
+    "white",
+    "चावल",
+    "भात"
+   ],
+   "recipe": {
+    "note": "Plain white rice, cooked without salt",
+    "hash": "91874b7e",
+    "basis": "0ee421b8",
+    "ingredients": [
+     {
+      "key": "rice-cooked",
+      "name": "Cooked white rice",
+      "grams": 150,
+      "fdcId": 169757
+     }
+    ]
+   }
+  },
+  {
+   "id": "idli",
+   "rev": 1,
+   "name": "Idli",
+   "aliases": [
+    "idli",
+    "idly",
+    "इडली"
+   ],
+   "shelf": "breakfast",
+   "slots": [
+    "breakfast"
+   ],
+   "portion": {
+    "unit": "piece",
+    "grams": 40,
+    "count": 2,
+    "noun": [
+     "idli",
+     "idlis"
+    ]
+   },
+   "per100g": {
+    "kcal": 143.6,
+    "carbsG": 29.9,
+    "carbsLowG": 26.91,
+    "carbsHighG": 32.89
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "black",
+    "chawal",
+    "dal",
+    "gram",
+    "idli",
+    "idly",
+    "namak",
+    "rice",
+    "salt",
+    "udad",
+    "urad",
+    "water",
+    "white",
+    "इडली",
+    "उड़द",
+    "चावल",
+    "नमक"
+   ],
+   "recipe": {
+    "note": "Steamed rice and urad dal batter",
+    "hash": "25c2a593",
+    "basis": "aae20973",
+    "ingredients": [
+     {
+      "key": "rice-raw",
+      "name": "White rice",
+      "grams": 24,
+      "fdcId": 169756
+     },
+     {
+      "key": "urad-dal",
+      "name": "Urad dal",
+      "grams": 8,
+      "fdcId": 174259
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 48,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "plain-dosa",
+   "rev": 1,
+   "name": "Plain dosa",
+   "aliases": [
+    "dosa",
+    "dosai",
+    "sada dosa",
+    "डोसा"
+   ],
+   "shelf": "breakfast",
+   "slots": [
+    "breakfast",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "piece",
+    "grams": 80,
+    "count": 1,
+    "noun": [
+     "dosa",
+     "dosas"
+    ]
+   },
+   "per100g": {
+    "kcal": 234.8,
+    "carbsG": 37.38,
+    "carbsLowG": 33.64,
+    "carbsHighG": 41.11
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "black",
+    "chawal",
+    "dal",
+    "dosa",
+    "dosai",
+    "gram",
+    "namak",
+    "oil",
+    "plain",
+    "rice",
+    "sada",
+    "salt",
+    "sunflower",
+    "tel",
+    "udad",
+    "urad",
+    "water",
+    "white",
+    "उड़द",
+    "चावल",
+    "डोसा",
+    "नमक"
+   ],
+   "recipe": {
+    "note": "Home-style, 1 tsp oil",
+    "hash": "7df7e5a1",
+    "basis": "ea4af5fb",
+    "ingredients": [
+     {
+      "key": "rice-raw",
+      "name": "White rice",
+      "grams": 30,
+      "fdcId": 169756
+     },
+     {
+      "key": "urad-dal",
+      "name": "Urad dal",
+      "grams": 10,
+      "fdcId": 174259
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 5,
+      "fdcId": 171025
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 40,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "poha",
+   "rev": 1,
+   "name": "Vegetable poha",
+   "aliases": [
+    "poha",
+    "pohe",
+    "aval",
+    "kanda poha",
+    "flattened rice",
+    "पोहा"
+   ],
+   "shelf": "breakfast",
+   "slots": [
+    "breakfast",
+    "snack"
+   ],
+   "portion": {
+    "unit": "plate",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 169.8,
+    "carbsG": 24.94,
+    "carbsLowG": 22.17,
+    "carbsHighG": 27.71
+   },
+   "allergens": {
+    "contains": [
+     "peanut",
+     "mustard"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ],
+   "words": [
+    "aval",
+    "beaten",
+    "chilli",
+    "curry",
+    "flattened",
+    "green",
+    "groundnut",
+    "haldi",
+    "juice",
+    "kadi",
+    "kanda",
+    "leave",
+    "lemon",
+    "matar",
+    "mirch",
+    "moongphali",
+    "mustard",
+    "namak",
+    "nimbu",
+    "oil",
+    "onion",
+    "patta",
+    "pea",
+    "peanut",
+    "poha",
+    "pohe",
+    "pyaz",
+    "rai",
+    "rice",
+    "salt",
+    "sarson",
+    "seed",
+    "sunflower",
+    "tel",
+    "turmeric",
+    "vegetable",
+    "water",
+    "कढ़ी",
+    "नमक",
+    "नींबू",
+    "पत्ता",
+    "पोहा",
+    "प्याज",
+    "मटर",
+    "मिर्च",
+    "मूंगफली",
+    "राई",
+    "हरी",
+    "हल्दी"
+   ],
+   "recipe": {
+    "note": "Home-style with peanuts, 1 tsp oil",
+    "hash": "f3ecfb13",
+    "basis": "b4a1ed86",
+    "ingredients": [
+     {
+      "key": "poha",
+      "name": "Flattened rice (poha)",
+      "grams": 40,
+      "fdcId": 169756,
+      "proxy": "FDC has no flattened rice. Poha is rice pressed flat, so raw white rice stands in."
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 25,
+      "fdcId": 170000
+     },
+     {
+      "key": "green-peas",
+      "name": "Green peas (matar)",
+      "grams": 10,
+      "fdcId": 170419
+     },
+     {
+      "key": "peanuts",
+      "name": "Peanuts",
+      "grams": 8,
+      "fdcId": 172430
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 5,
+      "fdcId": 171025
+     },
+     {
+      "key": "lemon-juice",
+      "name": "Lemon juice",
+      "grams": 5,
+      "fdcId": 167747
+     },
+     {
+      "key": "mustard-seeds",
+      "name": "Mustard seeds (rai)",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "turmeric",
+      "name": "Turmeric (haldi)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "curry-leaves",
+      "name": "Curry leaves",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "green-chilli",
+      "name": "Green chilli",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 50,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "upma",
+   "rev": 1,
+   "name": "Vegetable upma",
+   "aliases": [
+    "upma",
+    "uppittu",
+    "rava upma",
+    "sooji upma",
+    "उपमा"
+   ],
+   "shelf": "breakfast",
+   "slots": [
+    "breakfast"
+   ],
+   "portion": {
+    "unit": "plate",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 142.5,
+    "carbsG": 23.1,
+    "carbsLowG": 20.5,
+    "carbsHighG": 25.7
+   },
+   "allergens": {
+    "contains": [
+     "wheat",
+     "mustard"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ],
+   "words": [
+    "bean",
+    "black",
+    "carrot",
+    "chilli",
+    "curry",
+    "dal",
+    "french",
+    "gajar",
+    "gram",
+    "green",
+    "kadi",
+    "kanda",
+    "leave",
+    "mirch",
+    "mustard",
+    "namak",
+    "oil",
+    "onion",
+    "patta",
+    "phali",
+    "pyaz",
+    "rai",
+    "rava",
+    "salt",
+    "sarson",
+    "seed",
+    "semolina",
+    "sooji",
+    "suji",
+    "sunflower",
+    "tel",
+    "udad",
+    "upma",
+    "uppittu",
+    "urad",
+    "vegetable",
+    "water",
+    "उड़द",
+    "उपमा",
+    "कढ़ी",
+    "गाजर",
+    "नमक",
+    "पत्ता",
+    "प्याज",
+    "मिर्च",
+    "राई",
+    "हरी"
+   ],
+   "recipe": {
+    "note": "Home-style, 1 tsp oil",
+    "hash": "c0424d90",
+    "basis": "aa4e9273",
+    "ingredients": [
+     {
+      "key": "semolina",
+      "name": "Semolina (rava, sooji)",
+      "grams": 40,
+      "fdcId": 169715
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 20,
+      "fdcId": 170000
+     },
+     {
+      "key": "carrot",
+      "name": "Carrot",
+      "grams": 15,
+      "fdcId": 170393
+     },
+     {
+      "key": "green-beans",
+      "name": "Green beans",
+      "grams": 15,
+      "fdcId": 169961
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 5,
+      "fdcId": 171025
+     },
+     {
+      "key": "urad-dal",
+      "name": "Urad dal",
+      "grams": 2,
+      "fdcId": 174259
+     },
+     {
+      "key": "mustard-seeds",
+      "name": "Mustard seeds (rai)",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "curry-leaves",
+      "name": "Curry leaves",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "green-chilli",
+      "name": "Green chilli",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 60,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "vegetable-dalia",
+   "rev": 1,
+   "name": "Vegetable dalia with moong",
+   "aliases": [
+    "dalia",
+    "daliya",
+    "broken wheat",
+    "दलिया"
+   ],
+   "shelf": "breakfast",
+   "slots": [
+    "breakfast",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 122.1,
+    "carbsG": 21.88,
+    "carbsLowG": 19.44,
+    "carbsHighG": 24.32
+   },
+   "allergens": {
+    "contains": [
+     "milk",
+     "wheat"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ],
+   "words": [
+    "bean",
+    "broken",
+    "butter",
+    "clarified",
+    "cracked",
+    "cumin",
+    "dal",
+    "dalia",
+    "daliya",
+    "french",
+    "ghee",
+    "gram",
+    "green",
+    "jeera",
+    "matar",
+    "moong",
+    "mung",
+    "namak",
+    "pea",
+    "phali",
+    "salt",
+    "tamatar",
+    "tomato",
+    "vegetable",
+    "water",
+    "wheat",
+    "घी",
+    "जीरा",
+    "टमाटर",
+    "दलिया",
+    "नमक",
+    "मटर",
+    "मूंग"
+   ],
+   "recipe": {
+    "note": "About ½ tsp ghee, no onion or garlic",
+    "hash": "a6e52b55",
+    "basis": "d729af05",
+    "ingredients": [
+     {
+      "key": "bulgur",
+      "name": "Broken wheat (dalia)",
+      "grams": 30,
+      "fdcId": 170688,
+      "proxy": "FDC has no Indian dalia. Bulgur is cracked wheat from the same grain."
+     },
+     {
+      "key": "moong-dal",
+      "name": "Moong dal",
+      "grams": 10,
+      "fdcId": 174256
+     },
+     {
+      "key": "green-peas",
+      "name": "Green peas (matar)",
+      "grams": 15,
+      "fdcId": 170419
+     },
+     {
+      "key": "green-beans",
+      "name": "Green beans",
+      "grams": 15,
+      "fdcId": 169961
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 15,
+      "fdcId": 170457
+     },
+     {
+      "key": "ghee",
+      "name": "Ghee",
+      "grams": 3,
+      "fdcId": 173412
+     },
+     {
+      "key": "cumin",
+      "name": "Cumin (jeera)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 80,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "moong-dal-chilla",
+   "rev": 1,
+   "name": "Moong dal chilla",
+   "aliases": [
+    "chilla",
+    "cheela",
+    "pesarattu",
+    "moong chilla",
+    "चीला"
+   ],
+   "shelf": "breakfast",
+   "slots": [
+    "breakfast",
+    "snack"
+   ],
+   "portion": {
+    "unit": "piece",
+    "grams": 80,
+    "count": 1,
+    "noun": [
+     "chilla",
+     "chillas"
+    ]
+   },
+   "per100g": {
+    "kcal": 206.1,
+    "carbsG": 29.49,
+    "carbsLowG": 26.33,
+    "carbsHighG": 32.66
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ],
+   "words": [
+    "cheela",
+    "chilla",
+    "chilli",
+    "dal",
+    "gram",
+    "green",
+    "kanda",
+    "mirch",
+    "moong",
+    "mung",
+    "namak",
+    "oil",
+    "onion",
+    "palak",
+    "pesarattu",
+    "pyaz",
+    "salt",
+    "spinach",
+    "sunflower",
+    "tamatar",
+    "tel",
+    "tomato",
+    "water",
+    "चीला",
+    "टमाटर",
+    "नमक",
+    "पालक",
+    "प्याज",
+    "मिर्च",
+    "मूंग",
+    "हरी"
+   ],
+   "recipe": {
+    "note": "Home-style, about 1 tsp oil",
+    "hash": "46ccc176",
+    "basis": "1ea5c7f1",
+    "ingredients": [
+     {
+      "key": "moong-dal",
+      "name": "Moong dal",
+      "grams": 35,
+      "fdcId": 174256
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 10,
+      "fdcId": 170000
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 10,
+      "fdcId": 170457
+     },
+     {
+      "key": "spinach",
+      "name": "Spinach (palak)",
+      "grams": 10,
+      "fdcId": 168462
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 4,
+      "fdcId": 171025
+     },
+     {
+      "key": "green-chilli",
+      "name": "Green chilli",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 15,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "moong-dal-khichdi",
+   "rev": 1,
+   "name": "Moong dal khichdi",
+   "aliases": [
+    "khichdi",
+    "khichri",
+    "kichdi",
+    "pongal",
+    "खिचड़ी"
+   ],
+   "shelf": "dal",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 118.5,
+    "carbsG": 20.55,
+    "carbsLowG": 18.4,
+    "carbsHighG": 22.7
+   },
+   "allergens": {
+    "contains": [
+     "milk"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ],
+   "words": [
+    "butter",
+    "chawal",
+    "clarified",
+    "cumin",
+    "dal",
+    "ghee",
+    "gram",
+    "green",
+    "haldi",
+    "jeera",
+    "khichdi",
+    "khichri",
+    "kichdi",
+    "matar",
+    "moong",
+    "mung",
+    "namak",
+    "pea",
+    "pongal",
+    "rice",
+    "salt",
+    "turmeric",
+    "water",
+    "white",
+    "खिचड़ी",
+    "घी",
+    "चावल",
+    "जीरा",
+    "नमक",
+    "मटर",
+    "मूंग",
+    "हल्दी"
+   ],
+   "recipe": {
+    "note": "About ½ tsp ghee, no onion or garlic",
+    "hash": "46163be5",
+    "basis": "14b2a9a2",
+    "ingredients": [
+     {
+      "key": "rice-raw",
+      "name": "White rice",
+      "grams": 25,
+      "fdcId": 169756
+     },
+     {
+      "key": "moong-dal",
+      "name": "Moong dal",
+      "grams": 15,
+      "fdcId": 174256
+     },
+     {
+      "key": "green-peas",
+      "name": "Green peas (matar)",
+      "grams": 10,
+      "fdcId": 170419
+     },
+     {
+      "key": "ghee",
+      "name": "Ghee",
+      "grams": 3,
+      "fdcId": 173412
+     },
+     {
+      "key": "cumin",
+      "name": "Cumin (jeera)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "turmeric",
+      "name": "Turmeric (haldi)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 95,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "toor-dal",
+   "rev": 1,
+   "name": "Toor dal",
+   "aliases": [
+    "dal",
+    "daal",
+    "dhal",
+    "arhar dal",
+    "toor",
+    "tuvar",
+    "dal tadka",
+    "दाल",
+    "अरहर"
+   ],
+   "shelf": "dal",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 94.4,
+    "carbsG": 13.08,
+    "carbsLowG": 11.72,
+    "carbsHighG": 14.44
+   },
+   "allergens": {
+    "contains": [
+     "milk"
+    ],
+    "mayContain": [
+     "wheat"
+    ],
+    "complete": true,
+    "named": false
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ],
+   "words": [
+    "arhar",
+    "asafoetida",
+    "butter",
+    "chilli",
+    "clarified",
+    "cumin",
+    "daal",
+    "dal",
+    "dhal",
+    "ghee",
+    "green",
+    "haldi",
+    "hing",
+    "jeera",
+    "mirch",
+    "namak",
+    "pea",
+    "pigeon",
+    "salt",
+    "tadka",
+    "tamatar",
+    "tomato",
+    "toor",
+    "turmeric",
+    "tuvar",
+    "water",
+    "अरहर",
+    "घी",
+    "जीरा",
+    "टमाटर",
+    "दाल",
+    "नमक",
+    "मिर्च",
+    "हरी",
+    "हल्दी",
+    "हींग"
+   ],
+   "recipe": {
+    "note": "Jeera and tomato tadka, about 1 tsp ghee, no onion or garlic",
+    "hash": "ea7cb1fc",
+    "basis": "8609d263",
+    "ingredients": [
+     {
+      "key": "toor-dal",
+      "name": "Toor dal",
+      "grams": 30,
+      "fdcId": 172436
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 20,
+      "fdcId": 170457
+     },
+     {
+      "key": "ghee",
+      "name": "Ghee",
+      "grams": 4,
+      "fdcId": 173412
+     },
+     {
+      "key": "cumin",
+      "name": "Cumin (jeera)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "turmeric",
+      "name": "Turmeric (haldi)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "hing",
+      "name": "Hing (asafoetida)",
+      "grams": 0.1,
+      "fdcId": null
+     },
+     {
+      "key": "green-chilli",
+      "name": "Green chilli",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 100,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "moong-dal",
+   "rev": 1,
+   "name": "Yellow moong dal",
+   "aliases": [
+    "moong dal",
+    "mung dal",
+    "yellow dal",
+    "dal",
+    "मूंग दाल"
+   ],
+   "shelf": "dal",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 88.7,
+    "carbsG": 12.91,
+    "carbsLowG": 11.58,
+    "carbsHighG": 14.24
+   },
+   "allergens": {
+    "contains": [
+     "milk"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ],
+   "words": [
+    "butter",
+    "clarified",
+    "cumin",
+    "dal",
+    "ghee",
+    "gram",
+    "green",
+    "haldi",
+    "jeera",
+    "moong",
+    "mung",
+    "namak",
+    "salt",
+    "tamatar",
+    "tomato",
+    "turmeric",
+    "water",
+    "yellow",
+    "घी",
+    "जीरा",
+    "टमाटर",
+    "दाल",
+    "नमक",
+    "मूंग",
+    "हल्दी"
+   ],
+   "recipe": {
+    "note": "About ½ tsp ghee, no onion or garlic",
+    "hash": "e7db4b5d",
+    "basis": "b70c0f04",
+    "ingredients": [
+     {
+      "key": "moong-dal",
+      "name": "Moong dal",
+      "grams": 30,
+      "fdcId": 174256
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 15,
+      "fdcId": 170457
+     },
+     {
+      "key": "ghee",
+      "name": "Ghee",
+      "grams": 3,
+      "fdcId": 173412
+     },
+     {
+      "key": "cumin",
+      "name": "Cumin (jeera)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "turmeric",
+      "name": "Turmeric (haldi)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 105,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "sambar",
+   "rev": 1,
+   "name": "Sambar",
+   "aliases": [
+    "sambar",
+    "sambhar",
+    "saambar",
+    "सांबर"
+   ],
+   "shelf": "dal",
+   "slots": [
+    "breakfast",
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 80.3,
+    "carbsG": 12.42,
+    "carbsLowG": 10.78,
+    "carbsHighG": 14.07
+   },
+   "allergens": {
+    "contains": [
+     "mustard"
+    ],
+    "mayContain": [
+     "wheat"
+    ],
+    "complete": true,
+    "named": false
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ],
+   "words": [
+    "arhar",
+    "asafoetida",
+    "bottle",
+    "chilli",
+    "coriander",
+    "curry",
+    "dal",
+    "dhania",
+    "doodhi",
+    "drumstick",
+    "ghiya",
+    "gourd",
+    "hing",
+    "imli",
+    "kadi",
+    "kanda",
+    "lal",
+    "lauki",
+    "leave",
+    "mirch",
+    "moringa",
+    "mustard",
+    "namak",
+    "oil",
+    "onion",
+    "patta",
+    "pea",
+    "pigeon",
+    "pod",
+    "powder",
+    "pyaz",
+    "rai",
+    "red",
+    "saambar",
+    "sahjan",
+    "salt",
+    "sambar",
+    "sambhar",
+    "sarson",
+    "seed",
+    "sunflower",
+    "tamarind",
+    "tamatar",
+    "tel",
+    "tomato",
+    "toor",
+    "tuvar",
+    "water",
+    "अरहर",
+    "इमली",
+    "कढ़ी",
+    "टमाटर",
+    "नमक",
+    "पत्ता",
+    "प्याज",
+    "राई",
+    "लौकी",
+    "सांबर",
+    "हींग"
+   ],
+   "recipe": {
+    "note": "Home-style with drumstick and lauki, about ½ tsp oil",
+    "hash": "f0c3d9d5",
+    "basis": "8c32ceac",
+    "ingredients": [
+     {
+      "key": "toor-dal",
+      "name": "Toor dal",
+      "grams": 20,
+      "fdcId": 172436
+     },
+     {
+      "key": "drumstick",
+      "name": "Drumstick (moringa pods)",
+      "grams": 20,
+      "fdcId": 170483
+     },
+     {
+      "key": "lauki",
+      "name": "Bottle gourd (lauki)",
+      "grams": 15,
+      "fdcId": 169232
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 15,
+      "fdcId": 170000
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 15,
+      "fdcId": 170457
+     },
+     {
+      "key": "tamarind",
+      "name": "Tamarind",
+      "grams": 3,
+      "fdcId": 167763
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 3,
+      "fdcId": 171025
+     },
+     {
+      "key": "coriander-powder",
+      "name": "Coriander powder",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "chilli-powder",
+      "name": "Red chilli powder",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "mustard-seeds",
+      "name": "Mustard seeds (rai)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "hing",
+      "name": "Hing (asafoetida)",
+      "grams": 0.1,
+      "fdcId": null
+     },
+     {
+      "key": "curry-leaves",
+      "name": "Curry leaves",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 70,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "rajma",
+   "rev": 1,
+   "name": "Rajma",
+   "aliases": [
+    "rajma",
+    "rajmah",
+    "kidney beans",
+    "rajma masala",
+    "राजमा"
+   ],
+   "shelf": "dal",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 99.9,
+    "carbsG": 14.28,
+    "carbsLowG": 12.65,
+    "carbsHighG": 15.91
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ],
+   "words": [
+    "adrak",
+    "bean",
+    "chilli",
+    "coriander",
+    "cumin",
+    "dhania",
+    "garlic",
+    "ginger",
+    "jeera",
+    "kanda",
+    "kidney",
+    "lahsun",
+    "lal",
+    "masala",
+    "mirch",
+    "namak",
+    "oil",
+    "onion",
+    "powder",
+    "pyaz",
+    "rajma",
+    "rajmah",
+    "red",
+    "salt",
+    "sunflower",
+    "tamatar",
+    "tel",
+    "tomato",
+    "water",
+    "अदरक",
+    "जीरा",
+    "टमाटर",
+    "नमक",
+    "प्याज",
+    "राजमा",
+    "लहसुन"
+   ],
+   "recipe": {
+    "note": "Home-style, about 1 tsp oil",
+    "hash": "b3662077",
+    "basis": "df9ec8de",
+    "ingredients": [
+     {
+      "key": "rajma",
+      "name": "Rajma",
+      "grams": 30,
+      "fdcId": 173744
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 20,
+      "fdcId": 170000
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 30,
+      "fdcId": 170457
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 4,
+      "fdcId": 171025
+     },
+     {
+      "key": "ginger",
+      "name": "Ginger",
+      "grams": 2,
+      "fdcId": null
+     },
+     {
+      "key": "garlic",
+      "name": "Garlic",
+      "grams": 2,
+      "fdcId": null
+     },
+     {
+      "key": "cumin",
+      "name": "Cumin (jeera)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "coriander-powder",
+      "name": "Coriander powder",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "chilli-powder",
+      "name": "Red chilli powder",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 70,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "chana-masala",
+   "rev": 1,
+   "name": "Chana masala",
+   "aliases": [
+    "chana",
+    "chole",
+    "chhole",
+    "chickpeas",
+    "kabuli chana",
+    "छोले",
+    "चना"
+   ],
+   "shelf": "dal",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 108.1,
+    "carbsG": 14.62,
+    "carbsLowG": 12.96,
+    "carbsHighG": 16.29
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ],
+   "words": [
+    "adrak",
+    "chana",
+    "chhole",
+    "chickpea",
+    "chilli",
+    "chole",
+    "coriander",
+    "cumin",
+    "dhania",
+    "garbanzo",
+    "garlic",
+    "ginger",
+    "jeera",
+    "kabuli",
+    "kanda",
+    "lahsun",
+    "lal",
+    "masala",
+    "mirch",
+    "namak",
+    "oil",
+    "onion",
+    "powder",
+    "pyaz",
+    "red",
+    "salt",
+    "sunflower",
+    "tamatar",
+    "tel",
+    "tomato",
+    "water",
+    "अदरक",
+    "चना",
+    "छोले",
+    "जीरा",
+    "टमाटर",
+    "नमक",
+    "प्याज",
+    "लहसुन"
+   ],
+   "recipe": {
+    "note": "Home-style, about 1 tsp oil",
+    "hash": "0633b3cf",
+    "basis": "aa15e533",
+    "ingredients": [
+     {
+      "key": "chana",
+      "name": "Kabuli chana",
+      "grams": 30,
+      "fdcId": 173756
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 20,
+      "fdcId": 170000
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 30,
+      "fdcId": 170457
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 4,
+      "fdcId": 171025
+     },
+     {
+      "key": "ginger",
+      "name": "Ginger",
+      "grams": 2,
+      "fdcId": null
+     },
+     {
+      "key": "garlic",
+      "name": "Garlic",
+      "grams": 2,
+      "fdcId": null
+     },
+     {
+      "key": "cumin",
+      "name": "Cumin (jeera)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "coriander-powder",
+      "name": "Coriander powder",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "chilli-powder",
+      "name": "Red chilli powder",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 70,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "mixed-veg-sabzi",
+   "rev": 1,
+   "name": "Mixed vegetable sabzi",
+   "aliases": [
+    "sabzi",
+    "sabji",
+    "subzi",
+    "mixed veg",
+    "tarkari",
+    "सब्ज़ी",
+    "सब्जी"
+   ],
+   "shelf": "veg",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 100,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 83.3,
+    "carbsG": 7.74,
+    "carbsLowG": 6.19,
+    "carbsHighG": 9.28
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "bean",
+    "cauliflower",
+    "coriander",
+    "cumin",
+    "dhania",
+    "french",
+    "gobhi",
+    "gobi",
+    "green",
+    "haldi",
+    "jeera",
+    "matar",
+    "mixed",
+    "namak",
+    "oil",
+    "pea",
+    "phali",
+    "powder",
+    "sabji",
+    "sabzi",
+    "salt",
+    "subzi",
+    "sunflower",
+    "tamatar",
+    "tarkari",
+    "tel",
+    "tomato",
+    "turmeric",
+    "veg",
+    "vegetable",
+    "गोभी",
+    "जीरा",
+    "टमाटर",
+    "नमक",
+    "मटर",
+    "सब्ज़ी",
+    "सब्जी",
+    "हल्दी"
+   ],
+   "recipe": {
+    "note": "Dry sabzi, 1 tsp oil, no onion, garlic or potato",
+    "hash": "923fa61c",
+    "basis": "d4aab78f",
+    "ingredients": [
+     {
+      "key": "cauliflower",
+      "name": "Cauliflower (gobhi)",
+      "grams": 40,
+      "fdcId": 169986
+     },
+     {
+      "key": "green-beans",
+      "name": "Green beans",
+      "grams": 30,
+      "fdcId": 169961
+     },
+     {
+      "key": "green-peas",
+      "name": "Green peas (matar)",
+      "grams": 20,
+      "fdcId": 170419
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 20,
+      "fdcId": 170457
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 5,
+      "fdcId": 171025
+     },
+     {
+      "key": "cumin",
+      "name": "Cumin (jeera)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "turmeric",
+      "name": "Turmeric (haldi)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "coriander-powder",
+      "name": "Coriander powder",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "bhindi-sabzi",
+   "rev": 1,
+   "name": "Bhindi sabzi",
+   "aliases": [
+    "bhindi",
+    "okra",
+    "ladies finger",
+    "bhindi masala",
+    "भिंडी"
+   ],
+   "shelf": "veg",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 100,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 80.5,
+    "carbsG": 8.2,
+    "carbsLowG": 6.56,
+    "carbsHighG": 9.83
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "bhindi",
+    "chilli",
+    "coriander",
+    "dhania",
+    "finger",
+    "haldi",
+    "lady",
+    "lal",
+    "masala",
+    "mirch",
+    "namak",
+    "oil",
+    "okra",
+    "powder",
+    "red",
+    "sabzi",
+    "salt",
+    "sunflower",
+    "tel",
+    "turmeric",
+    "नमक",
+    "भिंडी",
+    "हल्दी"
+   ],
+   "recipe": {
+    "note": "Dry sabzi, 1 tsp oil, no onion",
+    "hash": "2f09672a",
+    "basis": "fe1cc111",
+    "ingredients": [
+     {
+      "key": "okra",
+      "name": "Okra (bhindi)",
+      "grams": 110,
+      "fdcId": 169260
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 5,
+      "fdcId": 171025
+     },
+     {
+      "key": "turmeric",
+      "name": "Turmeric (haldi)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "chilli-powder",
+      "name": "Red chilli powder",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "coriander-powder",
+      "name": "Coriander powder",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "aloo-gobhi",
+   "rev": 1,
+   "name": "Aloo gobhi",
+   "aliases": [
+    "aloo gobi",
+    "aloo gobhi",
+    "alu gobi",
+    "potato cauliflower",
+    "आलू गोभी"
+   ],
+   "shelf": "veg",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 100,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 97.2,
+    "carbsG": 11.68,
+    "carbsLowG": 9.35,
+    "carbsHighG": 14.02
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ],
+   "words": [
+    "aloo",
+    "alu",
+    "cauliflower",
+    "chilli",
+    "cumin",
+    "gobhi",
+    "gobi",
+    "haldi",
+    "jeera",
+    "kanda",
+    "lal",
+    "mirch",
+    "namak",
+    "oil",
+    "onion",
+    "potato",
+    "powder",
+    "pyaz",
+    "red",
+    "salt",
+    "sunflower",
+    "tamatar",
+    "tel",
+    "tomato",
+    "turmeric",
+    "आलू",
+    "गोभी",
+    "जीरा",
+    "टमाटर",
+    "नमक",
+    "प्याज",
+    "हल्दी"
+   ],
+   "recipe": {
+    "note": "Dry sabzi, 1 tsp oil",
+    "hash": "0cb0d045",
+    "basis": "d9bf7a51",
+    "ingredients": [
+     {
+      "key": "potato",
+      "name": "Potato",
+      "grams": 45,
+      "fdcId": 170026
+     },
+     {
+      "key": "cauliflower",
+      "name": "Cauliflower (gobhi)",
+      "grams": 50,
+      "fdcId": 169986
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 10,
+      "fdcId": 170000
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 10,
+      "fdcId": 170457
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 5,
+      "fdcId": 171025
+     },
+     {
+      "key": "turmeric",
+      "name": "Turmeric (haldi)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "cumin",
+      "name": "Cumin (jeera)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "chilli-powder",
+      "name": "Red chilli powder",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "palak-paneer",
+   "rev": 1,
+   "name": "Palak paneer",
+   "aliases": [
+    "palak paneer",
+    "saag paneer",
+    "spinach paneer",
+    "पालक पनीर"
+   ],
+   "shelf": "veg",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 130.3,
+    "carbsG": 4.54,
+    "carbsLowG": 3.71,
+    "carbsHighG": 5.37
+   },
+   "allergens": {
+    "contains": [
+     "milk"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian"
+   ],
+   "words": [
+    "adrak",
+    "cheese",
+    "cottage",
+    "cumin",
+    "garlic",
+    "ginger",
+    "jeera",
+    "kanda",
+    "lahsun",
+    "namak",
+    "oil",
+    "onion",
+    "palak",
+    "paneer",
+    "pyaz",
+    "saag",
+    "salt",
+    "spinach",
+    "sunflower",
+    "tamatar",
+    "tel",
+    "tomato",
+    "water",
+    "अदरक",
+    "जीरा",
+    "टमाटर",
+    "नमक",
+    "पनीर",
+    "पालक",
+    "प्याज",
+    "लहसुन"
+   ],
+   "recipe": {
+    "note": "Home-style, 1 tsp oil, no cream",
+    "hash": "a3ca31e8",
+    "basis": "e08f02fb",
+    "ingredients": [
+     {
+      "key": "spinach",
+      "name": "Spinach (palak)",
+      "grams": 100,
+      "fdcId": 168462
+     },
+     {
+      "key": "paneer",
+      "name": "Paneer",
+      "grams": 40,
+      "fdcId": 172223,
+      "proxy": "FDC has no paneer. Queso fresco, a fresh unripened cheese close in fat and protein, stands in."
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 15,
+      "fdcId": 170000
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 15,
+      "fdcId": 170457
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 5,
+      "fdcId": 171025
+     },
+     {
+      "key": "ginger",
+      "name": "Ginger",
+      "grams": 2,
+      "fdcId": null
+     },
+     {
+      "key": "garlic",
+      "name": "Garlic",
+      "grams": 2,
+      "fdcId": null
+     },
+     {
+      "key": "cumin",
+      "name": "Cumin (jeera)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 20,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "paneer-bhurji",
+   "rev": 1,
+   "name": "Paneer bhurji",
+   "aliases": [
+    "paneer bhurji",
+    "paneer",
+    "scrambled paneer",
+    "पनीर भुर्जी"
+   ],
+   "shelf": "veg",
+   "slots": [
+    "breakfast",
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 100,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 253.4,
+    "carbsG": 4.07,
+    "carbsLowG": 3.47,
+    "carbsHighG": 4.68
+   },
+   "allergens": {
+    "contains": [
+     "milk"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian"
+   ],
+   "words": [
+    "bhurji",
+    "cheese",
+    "chilli",
+    "cottage",
+    "green",
+    "haldi",
+    "kanda",
+    "mirch",
+    "namak",
+    "oil",
+    "onion",
+    "paneer",
+    "pyaz",
+    "salt",
+    "scrambled",
+    "sunflower",
+    "tamatar",
+    "tel",
+    "tomato",
+    "turmeric",
+    "टमाटर",
+    "नमक",
+    "पनीर",
+    "प्याज",
+    "भुर्जी",
+    "मिर्च",
+    "हरी",
+    "हल्दी"
+   ],
+   "recipe": {
+    "note": "Home-style, about 1 tsp oil",
+    "hash": "e5d8e7e7",
+    "basis": "aa1b33d6",
+    "ingredients": [
+     {
+      "key": "paneer",
+      "name": "Paneer",
+      "grams": 70,
+      "fdcId": 172223,
+      "proxy": "FDC has no paneer. Queso fresco, a fresh unripened cheese close in fat and protein, stands in."
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 15,
+      "fdcId": 170000
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 15,
+      "fdcId": 170457
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 4,
+      "fdcId": 171025
+     },
+     {
+      "key": "turmeric",
+      "name": "Turmeric (haldi)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "green-chilli",
+      "name": "Green chilli",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "poriyal",
+   "rev": 1,
+   "name": "Beans poriyal",
+   "aliases": [
+    "poriyal",
+    "thoran",
+    "beans poriyal",
+    "beans thoran"
+   ],
+   "shelf": "veg",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 100,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 93.2,
+    "carbsG": 8.38,
+    "carbsLowG": 6.77,
+    "carbsHighG": 10
+   },
+   "allergens": {
+    "contains": [
+     "mustard"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "bean",
+    "black",
+    "coconut",
+    "curry",
+    "dal",
+    "french",
+    "gram",
+    "grated",
+    "green",
+    "kadi",
+    "leave",
+    "mustard",
+    "namak",
+    "nariyal",
+    "oil",
+    "patta",
+    "phali",
+    "poriyal",
+    "rai",
+    "salt",
+    "sarson",
+    "seed",
+    "sunflower",
+    "tel",
+    "thoran",
+    "udad",
+    "urad",
+    "उड़द",
+    "कढ़ी",
+    "नमक",
+    "नारियल",
+    "पत्ता",
+    "राई"
+   ],
+   "recipe": {
+    "note": "With grated coconut, about ½ tsp oil",
+    "hash": "3ed6ddd5",
+    "basis": "37514048",
+    "ingredients": [
+     {
+      "key": "green-beans",
+      "name": "Green beans",
+      "grams": 90,
+      "fdcId": 169961
+     },
+     {
+      "key": "coconut",
+      "name": "Grated coconut",
+      "grams": 10,
+      "fdcId": 170169
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 3,
+      "fdcId": 171025
+     },
+     {
+      "key": "urad-dal",
+      "name": "Urad dal",
+      "grams": 1,
+      "fdcId": 174259
+     },
+     {
+      "key": "mustard-seeds",
+      "name": "Mustard seeds (rai)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "curry-leaves",
+      "name": "Curry leaves",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "cucumber-tomato-salad",
+   "rev": 1,
+   "name": "Cucumber and tomato salad",
+   "aliases": [
+    "salad",
+    "kachumber",
+    "kheera",
+    "cucumber",
+    "सलाद",
+    "खीरा"
+   ],
+   "shelf": "sides",
+   "slots": [
+    "lunch",
+    "dinner",
+    "snack"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 100,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 16.9,
+    "carbsG": 3.94,
+    "carbsLowG": 3.15,
+    "carbsHighG": 4.73
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "cucumber",
+    "juice",
+    "kachumber",
+    "kheera",
+    "lemon",
+    "namak",
+    "nimbu",
+    "salad",
+    "salt",
+    "tamatar",
+    "tomato",
+    "खीरा",
+    "टमाटर",
+    "नमक",
+    "नींबू",
+    "सलाद"
+   ],
+   "recipe": {
+    "note": "Kheera and tomato with lemon",
+    "hash": "b37ed981",
+    "basis": "860d07ac",
+    "ingredients": [
+     {
+      "key": "cucumber",
+      "name": "Cucumber (kheera)",
+      "grams": 60,
+      "fdcId": 168409
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 40,
+      "fdcId": 170457
+     },
+     {
+      "key": "lemon-juice",
+      "name": "Lemon juice",
+      "grams": 3,
+      "fdcId": 167747
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 0.5,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "dahi",
+   "rev": 1,
+   "name": "Dahi (curd)",
+   "aliases": [
+    "dahi",
+    "curd",
+    "yogurt",
+    "yoghurt",
+    "thayir",
+    "दही"
+   ],
+   "shelf": "sides",
+   "slots": [
+    "breakfast",
+    "lunch",
+    "dinner",
+    "snack"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 100,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 61,
+    "carbsG": 4.66,
+    "carbsLowG": 4.19,
+    "carbsHighG": 5.13
+   },
+   "allergens": {
+    "contains": [
+     "milk"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ],
+   "words": [
+    "curd",
+    "dahi",
+    "thayir",
+    "yoghurt",
+    "yogurt",
+    "दही"
+   ],
+   "recipe": {
+    "note": "Plain, whole milk",
+    "hash": "f9b890e4",
+    "basis": "6b485f93",
+    "ingredients": [
+     {
+      "key": "curd",
+      "name": "Curd (dahi)",
+      "grams": 100,
+      "fdcId": 171284
+     }
+    ]
+   }
+  },
+  {
+   "id": "raita",
+   "rev": 1,
+   "name": "Cucumber raita",
+   "aliases": [
+    "raita",
+    "kheera raita",
+    "रायता"
+   ],
+   "shelf": "sides",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 100,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 51.8,
+    "carbsG": 4.45,
+    "carbsLowG": 3.94,
+    "carbsHighG": 4.97
+   },
+   "allergens": {
+    "contains": [
+     "milk"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ],
+   "words": [
+    "cucumber",
+    "cumin",
+    "curd",
+    "dahi",
+    "jeera",
+    "kheera",
+    "namak",
+    "raita",
+    "salt",
+    "yogurt",
+    "खीरा",
+    "जीरा",
+    "दही",
+    "नमक",
+    "रायता"
+   ],
+   "recipe": {
+    "note": "Whole-milk curd with cucumber",
+    "hash": "34ac7443",
+    "basis": "1c16d332",
+    "ingredients": [
+     {
+      "key": "curd",
+      "name": "Curd (dahi)",
+      "grams": 80,
+      "fdcId": 171284
+     },
+     {
+      "key": "cucumber",
+      "name": "Cucumber (kheera)",
+      "grams": 20,
+      "fdcId": 168409
+     },
+     {
+      "key": "cumin",
+      "name": "Cumin (jeera)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 0.5,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "coconut-chutney",
+   "rev": 1,
+   "name": "Coconut chutney",
+   "aliases": [
+    "coconut chutney",
+    "nariyal chutney",
+    "chutney",
+    "नारियल चटनी"
+   ],
+   "shelf": "sides",
+   "slots": [
+    "breakfast"
+   ],
+   "portion": {
+    "unit": "tbsp",
+    "grams": 15,
+    "count": 2
+   },
+   "per100g": {
+    "kcal": 269.5,
+    "carbsG": 18.1,
+    "carbsLowG": 15.53,
+    "carbsHighG": 20.67
+   },
+   "allergens": {
+    "contains": [
+     "mustard"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "bhuna",
+    "chana",
+    "chickpea",
+    "chilli",
+    "chutney",
+    "coconut",
+    "curry",
+    "gram",
+    "grated",
+    "green",
+    "kadi",
+    "leave",
+    "mirch",
+    "mustard",
+    "namak",
+    "nariyal",
+    "oil",
+    "patta",
+    "rai",
+    "roasted",
+    "salt",
+    "sarson",
+    "seed",
+    "sunflower",
+    "tel",
+    "water",
+    "कढ़ी",
+    "चटनी",
+    "नमक",
+    "नारियल",
+    "पत्ता",
+    "मिर्च",
+    "राई",
+    "हरी"
+   ],
+   "recipe": {
+    "note": "With roasted chana and a mustard tadka",
+    "hash": "4b0914b0",
+    "basis": "caec792b",
+    "ingredients": [
+     {
+      "key": "coconut",
+      "name": "Grated coconut",
+      "grams": 15,
+      "fdcId": 170169
+     },
+     {
+      "key": "roasted-chana",
+      "name": "Roasted chana",
+      "grams": 5,
+      "fdcId": 173756,
+      "proxy": "FDC has no roasted chickpeas. Dry chickpeas, close in water and starch, stand in."
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 1,
+      "fdcId": 171025
+     },
+     {
+      "key": "green-chilli",
+      "name": "Green chilli",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "mustard-seeds",
+      "name": "Mustard seeds (rai)",
+      "grams": 0.3,
+      "fdcId": null
+     },
+     {
+      "key": "curry-leaves",
+      "name": "Curry leaves",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 8,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "mint-chutney",
+   "rev": 1,
+   "name": "Mint chutney",
+   "aliases": [
+    "mint chutney",
+    "pudina chutney",
+    "green chutney",
+    "hari chutney",
+    "पुदीना चटनी"
+   ],
+   "shelf": "sides",
+   "slots": [
+    "breakfast",
+    "snack"
+   ],
+   "portion": {
+    "unit": "tbsp",
+    "grams": 15,
+    "count": 2
+   },
+   "per100g": {
+    "kcal": 24.5,
+    "carbsG": 4.72,
+    "carbsLowG": 3.77,
+    "carbsHighG": 5.66
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "chilli",
+    "chutney",
+    "cilantro",
+    "coriander",
+    "dhania",
+    "green",
+    "hari",
+    "juice",
+    "leave",
+    "lemon",
+    "mint",
+    "mirch",
+    "namak",
+    "nimbu",
+    "pudina",
+    "salt",
+    "water",
+    "चटनी",
+    "धनिया",
+    "नमक",
+    "नींबू",
+    "पुदीना",
+    "मिर्च",
+    "हरी"
+   ],
+   "recipe": {
+    "note": "Mint and coriander with lemon, no onion",
+    "hash": "c4c0a901",
+    "basis": "29c03efb",
+    "ingredients": [
+     {
+      "key": "mint",
+      "name": "Mint (pudina)",
+      "grams": 10,
+      "fdcId": 173475
+     },
+     {
+      "key": "coriander-leaves",
+      "name": "Coriander leaves",
+      "grams": 10,
+      "fdcId": 169997
+     },
+     {
+      "key": "lemon-juice",
+      "name": "Lemon juice",
+      "grams": 3,
+      "fdcId": 167747
+     },
+     {
+      "key": "green-chilli",
+      "name": "Green chilli",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 6,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "egg-bhurji",
+   "rev": 1,
+   "name": "Egg bhurji",
+   "aliases": [
+    "egg bhurji",
+    "anda bhurji",
+    "scrambled eggs",
+    "अंडा भुर्जी"
+   ],
+   "shelf": "eggsMeat",
+   "slots": [
+    "breakfast",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 120,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 157.8,
+    "carbsG": 2.56,
+    "carbsLowG": 2.11,
+    "carbsHighG": 3.01
+   },
+   "allergens": {
+    "contains": [
+     "egg"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "eggetarian",
+    "nonVegetarian"
+   ],
+   "words": [
+    "anda",
+    "bhurji",
+    "chilli",
+    "egg",
+    "green",
+    "haldi",
+    "kanda",
+    "mirch",
+    "namak",
+    "oil",
+    "onion",
+    "palak",
+    "pyaz",
+    "salt",
+    "scrambled",
+    "spinach",
+    "sunflower",
+    "tamatar",
+    "tel",
+    "tomato",
+    "turmeric",
+    "अंडा",
+    "टमाटर",
+    "नमक",
+    "पालक",
+    "प्याज",
+    "भुर्जी",
+    "मिर्च",
+    "हरी",
+    "हल्दी"
+   ],
+   "recipe": {
+    "note": "Two eggs, about 1 tsp oil",
+    "hash": "b42700fc",
+    "basis": "650527bc",
+    "ingredients": [
+     {
+      "key": "egg",
+      "name": "Egg",
+      "grams": 100,
+      "fdcId": 171287
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 15,
+      "fdcId": 170000
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 15,
+      "fdcId": 170457
+     },
+     {
+      "key": "spinach",
+      "name": "Spinach (palak)",
+      "grams": 10,
+      "fdcId": 168462
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 4,
+      "fdcId": 171025
+     },
+     {
+      "key": "turmeric",
+      "name": "Turmeric (haldi)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "green-chilli",
+      "name": "Green chilli",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "boiled-egg",
+   "rev": 1,
+   "name": "Boiled egg",
+   "aliases": [
+    "boiled egg",
+    "egg",
+    "anda",
+    "ubla anda",
+    "अंडा"
+   ],
+   "shelf": "eggsMeat",
+   "slots": [
+    "breakfast",
+    "snack"
+   ],
+   "portion": {
+    "unit": "piece",
+    "grams": 50,
+    "count": 1,
+    "noun": [
+     "egg",
+     "eggs"
+    ]
+   },
+   "per100g": {
+    "kcal": 155,
+    "carbsG": 1.12,
+    "carbsLowG": 1.01,
+    "carbsHighG": 1.23
+   },
+   "allergens": {
+    "contains": [
+     "egg"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "eggetarian",
+    "nonVegetarian"
+   ],
+   "words": [
+    "anda",
+    "boiled",
+    "egg",
+    "ubla",
+    "अंडा"
+   ],
+   "recipe": {
+    "note": "One large egg",
+    "hash": "041fb0a4",
+    "basis": "7dafecd3",
+    "ingredients": [
+     {
+      "key": "egg-boiled",
+      "name": "Boiled egg",
+      "grams": 50,
+      "fdcId": 173424
+     }
+    ]
+   }
+  },
+  {
+   "id": "egg-curry",
+   "rev": 1,
+   "name": "Egg curry",
+   "aliases": [
+    "egg curry",
+    "anda curry",
+    "अंडा करी"
+   ],
+   "shelf": "eggsMeat",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 141.7,
+    "carbsG": 2.77,
+    "carbsLowG": 2.29,
+    "carbsHighG": 3.25
+   },
+   "allergens": {
+    "contains": [
+     "egg"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "eggetarian",
+    "nonVegetarian"
+   ],
+   "words": [
+    "adrak",
+    "anda",
+    "boiled",
+    "chilli",
+    "coriander",
+    "curry",
+    "dhania",
+    "egg",
+    "garlic",
+    "ginger",
+    "haldi",
+    "kanda",
+    "lahsun",
+    "lal",
+    "mirch",
+    "namak",
+    "oil",
+    "onion",
+    "powder",
+    "pyaz",
+    "red",
+    "salt",
+    "sunflower",
+    "tamatar",
+    "tel",
+    "tomato",
+    "turmeric",
+    "water",
+    "अंडा",
+    "अदरक",
+    "करी",
+    "टमाटर",
+    "नमक",
+    "प्याज",
+    "लहसुन",
+    "हल्दी"
+   ],
+   "recipe": {
+    "note": "Two eggs, 1 tsp oil",
+    "hash": "59d7d0eb",
+    "basis": "684bb080",
+    "ingredients": [
+     {
+      "key": "egg-boiled",
+      "name": "Boiled egg",
+      "grams": 100,
+      "fdcId": 173424
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 20,
+      "fdcId": 170000
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 30,
+      "fdcId": 170457
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 5,
+      "fdcId": 171025
+     },
+     {
+      "key": "ginger",
+      "name": "Ginger",
+      "grams": 2,
+      "fdcId": null
+     },
+     {
+      "key": "garlic",
+      "name": "Garlic",
+      "grams": 2,
+      "fdcId": null
+     },
+     {
+      "key": "turmeric",
+      "name": "Turmeric (haldi)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "chilli-powder",
+      "name": "Red chilli powder",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "coriander-powder",
+      "name": "Coriander powder",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 30,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "fish-curry",
+   "rev": 1,
+   "name": "Fish curry",
+   "aliases": [
+    "fish curry",
+    "machli",
+    "macher jhol",
+    "meen curry",
+    "मछली"
+   ],
+   "shelf": "eggsMeat",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 103.6,
+    "carbsG": 1.45,
+    "carbsLowG": 1.16,
+    "carbsHighG": 1.74
+   },
+   "allergens": {
+    "contains": [
+     "fish"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "nonVegetarian"
+   ],
+   "words": [
+    "adrak",
+    "another",
+    "carp",
+    "chilli",
+    "curry",
+    "fish",
+    "garlic",
+    "ginger",
+    "haldi",
+    "jhol",
+    "kanda",
+    "lahsun",
+    "lal",
+    "macher",
+    "machli",
+    "meen",
+    "mirch",
+    "namak",
+    "oil",
+    "onion",
+    "powder",
+    "pyaz",
+    "red",
+    "rohu",
+    "salt",
+    "sunflower",
+    "tamatar",
+    "tel",
+    "tomato",
+    "turmeric",
+    "water",
+    "अदरक",
+    "टमाटर",
+    "नमक",
+    "प्याज",
+    "मछली",
+    "लहसुन",
+    "हल्दी"
+   ],
+   "recipe": {
+    "note": "Rohu or another carp, 1 tsp sunflower oil",
+    "hash": "f6533706",
+    "basis": "c19ae217",
+    "ingredients": [
+     {
+      "key": "fish",
+      "name": "Fish (rohu or another carp)",
+      "grams": 80,
+      "fdcId": 171952
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 15,
+      "fdcId": 170000
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 20,
+      "fdcId": 170457
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 5,
+      "fdcId": 171025
+     },
+     {
+      "key": "ginger",
+      "name": "Ginger",
+      "grams": 2,
+      "fdcId": null
+     },
+     {
+      "key": "garlic",
+      "name": "Garlic",
+      "grams": 2,
+      "fdcId": null
+     },
+     {
+      "key": "turmeric",
+      "name": "Turmeric (haldi)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "chilli-powder",
+      "name": "Red chilli powder",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 50,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "chicken-curry",
+   "rev": 1,
+   "name": "Chicken curry",
+   "aliases": [
+    "chicken curry",
+    "murgh",
+    "murga",
+    "chicken",
+    "चिकन",
+    "मुर्गा"
+   ],
+   "shelf": "eggsMeat",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 121.7,
+    "carbsG": 2.52,
+    "carbsLowG": 2.04,
+    "carbsHighG": 2.99
+   },
+   "allergens": {
+    "contains": [
+     "milk"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "nonVegetarian"
+   ],
+   "words": [
+    "adrak",
+    "chicken",
+    "chilli",
+    "coriander",
+    "curd",
+    "curry",
+    "dahi",
+    "dhania",
+    "garlic",
+    "ginger",
+    "haldi",
+    "kanda",
+    "lahsun",
+    "lal",
+    "mirch",
+    "murga",
+    "murgh",
+    "namak",
+    "oil",
+    "onion",
+    "powder",
+    "pyaz",
+    "red",
+    "salt",
+    "sunflower",
+    "tamatar",
+    "tel",
+    "thigh",
+    "tomato",
+    "turmeric",
+    "water",
+    "yogurt",
+    "अदरक",
+    "चिकन",
+    "टमाटर",
+    "दही",
+    "नमक",
+    "प्याज",
+    "मुर्गा",
+    "लहसुन",
+    "हल्दी"
+   ],
+   "recipe": {
+    "note": "Thigh meat in a curd marinade, about 1 tsp oil",
+    "hash": "dd47e16f",
+    "basis": "38ca8bc7",
+    "ingredients": [
+     {
+      "key": "chicken",
+      "name": "Chicken (thigh)",
+      "grams": 90,
+      "fdcId": 173627
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 25,
+      "fdcId": 170000
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 25,
+      "fdcId": 170457
+     },
+     {
+      "key": "curd",
+      "name": "Curd (dahi)",
+      "grams": 10,
+      "fdcId": 171284
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 6,
+      "fdcId": 171025
+     },
+     {
+      "key": "ginger",
+      "name": "Ginger",
+      "grams": 2,
+      "fdcId": null
+     },
+     {
+      "key": "garlic",
+      "name": "Garlic",
+      "grams": 2,
+      "fdcId": null
+     },
+     {
+      "key": "turmeric",
+      "name": "Turmeric (haldi)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "chilli-powder",
+      "name": "Red chilli powder",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "coriander-powder",
+      "name": "Coriander powder",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 20,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "chicken-stew",
+   "rev": 1,
+   "name": "Chicken stew",
+   "aliases": [
+    "chicken stew",
+    "ishtu",
+    "kerala stew"
+   ],
+   "shelf": "eggsMeat",
+   "slots": [
+    "lunch",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 155,
+    "carbsG": 5.97,
+    "carbsLowG": 4.77,
+    "carbsHighG": 7.16
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "nonVegetarian"
+   ],
+   "words": [
+    "adrak",
+    "aloo",
+    "carrot",
+    "chicken",
+    "chilli",
+    "coconut",
+    "curry",
+    "gajar",
+    "ginger",
+    "green",
+    "ishtu",
+    "kadi",
+    "kanda",
+    "kerala",
+    "leave",
+    "milk",
+    "mirch",
+    "murgh",
+    "namak",
+    "nariyal",
+    "oil",
+    "onion",
+    "patta",
+    "potato",
+    "pyaz",
+    "salt",
+    "stew",
+    "sunflower",
+    "tel",
+    "thigh",
+    "अदरक",
+    "आलू",
+    "कढ़ी",
+    "गाजर",
+    "चिकन",
+    "नमक",
+    "पत्ता",
+    "प्याज",
+    "मिर्च",
+    "हरी"
+   ],
+   "recipe": {
+    "note": "Kerala style, with coconut milk",
+    "hash": "4ca19fe8",
+    "basis": "638d3c9a",
+    "ingredients": [
+     {
+      "key": "chicken",
+      "name": "Chicken (thigh)",
+      "grams": 70,
+      "fdcId": 173627
+     },
+     {
+      "key": "potato",
+      "name": "Potato",
+      "grams": 25,
+      "fdcId": 170026
+     },
+     {
+      "key": "carrot",
+      "name": "Carrot",
+      "grams": 10,
+      "fdcId": 170393
+     },
+     {
+      "key": "onion",
+      "name": "Onion",
+      "grams": 15,
+      "fdcId": 170000
+     },
+     {
+      "key": "coconut-milk",
+      "name": "Coconut milk",
+      "grams": 40,
+      "fdcId": 170172
+     },
+     {
+      "key": "oil",
+      "name": "Sunflower oil",
+      "grams": 3,
+      "fdcId": 171025
+     },
+     {
+      "key": "ginger",
+      "name": "Ginger",
+      "grams": 2,
+      "fdcId": null
+     },
+     {
+      "key": "green-chilli",
+      "name": "Green chilli",
+      "grams": 1,
+      "fdcId": null
+     },
+     {
+      "key": "curry-leaves",
+      "name": "Curry leaves",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 1,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "roasted-chana",
+   "rev": 1,
+   "name": "Roasted chana",
+   "aliases": [
+    "roasted chana",
+    "bhuna chana",
+    "roasted gram",
+    "भुना चना"
+   ],
+   "shelf": "snacks",
+   "slots": [
+    "snack"
+   ],
+   "portion": {
+    "unit": "handful",
+    "grams": 30,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 378,
+    "carbsG": 63,
+    "carbsLowG": 56.7,
+    "carbsHighG": 69.3
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "bhuna",
+    "chana",
+    "chickpea",
+    "gram",
+    "roasted",
+    "चना",
+    "भुना"
+   ],
+   "recipe": {
+    "note": "Plain, unsalted",
+    "hash": "a97e65ca",
+    "basis": "740af968",
+    "ingredients": [
+     {
+      "key": "roasted-chana",
+      "name": "Roasted chana",
+      "grams": 30,
+      "fdcId": 173756,
+      "proxy": "FDC has no roasted chickpeas. Dry chickpeas, close in water and starch, stand in."
+     }
+    ]
+   }
+  },
+  {
+   "id": "sprouts-chaat",
+   "rev": 1,
+   "name": "Cooked sprouts chaat",
+   "aliases": [
+    "sprouts",
+    "ankurit",
+    "moong sprouts",
+    "sprouts chaat",
+    "अंकुरित"
+   ],
+   "shelf": "snacks",
+   "slots": [
+    "breakfast",
+    "snack"
+   ],
+   "portion": {
+    "unit": "katori",
+    "grams": 100,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 20.3,
+    "carbsG": 4.27,
+    "carbsLowG": 3.41,
+    "carbsHighG": 5.12
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "ankurit",
+    "boiled",
+    "chaat",
+    "cooked",
+    "cucumber",
+    "cumin",
+    "jeera",
+    "juice",
+    "kheera",
+    "lemon",
+    "moong",
+    "namak",
+    "nimbu",
+    "salt",
+    "sprout",
+    "tamatar",
+    "tomato",
+    "अंकुरित",
+    "खीरा",
+    "जीरा",
+    "टमाटर",
+    "नमक",
+    "नींबू"
+   ],
+   "recipe": {
+    "note": "Boiled moong sprouts, no onion",
+    "hash": "8519266c",
+    "basis": "8864a8bc",
+    "ingredients": [
+     {
+      "key": "moong-sprouts",
+      "name": "Boiled moong sprouts",
+      "grams": 70,
+      "fdcId": 169137
+     },
+     {
+      "key": "tomato",
+      "name": "Tomato",
+      "grams": 15,
+      "fdcId": 170457
+     },
+     {
+      "key": "cucumber",
+      "name": "Cucumber (kheera)",
+      "grams": 15,
+      "fdcId": 168409
+     },
+     {
+      "key": "lemon-juice",
+      "name": "Lemon juice",
+      "grams": 3,
+      "fdcId": 167747
+     },
+     {
+      "key": "cumin",
+      "name": "Cumin (jeera)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 0.5,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "roasted-peanuts",
+   "rev": 1,
+   "name": "Roasted peanuts",
+   "aliases": [
+    "peanuts",
+    "moongphali",
+    "groundnuts",
+    "मूंगफली"
+   ],
+   "shelf": "snacks",
+   "slots": [
+    "snack"
+   ],
+   "portion": {
+    "unit": "handful",
+    "grams": 30,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 587,
+    "carbsG": 21.3,
+    "carbsLowG": 19.17,
+    "carbsHighG": 23.43
+   },
+   "allergens": {
+    "contains": [
+     "peanut"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "dry",
+    "groundnut",
+    "moongphali",
+    "peanut",
+    "roasted",
+    "मूंगफली"
+   ],
+   "recipe": {
+    "note": "Dry-roasted, unsalted",
+    "hash": "29002015",
+    "basis": "bbaf1b84",
+    "ingredients": [
+     {
+      "key": "peanuts-roasted",
+      "name": "Dry-roasted peanuts",
+      "grams": 30,
+      "fdcId": 173806
+     }
+    ]
+   }
+  },
+  {
+   "id": "chaas",
+   "rev": 1,
+   "name": "Chaas (buttermilk)",
+   "aliases": [
+    "chaas",
+    "chhachh",
+    "buttermilk",
+    "mattha",
+    "majjige",
+    "mor",
+    "छाछ"
+   ],
+   "shelf": "drinks",
+   "slots": [
+    "lunch",
+    "snack"
+   ],
+   "portion": {
+    "unit": "glass",
+    "grams": 200,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 18.3,
+    "carbsG": 1.4,
+    "carbsLowG": 1.26,
+    "carbsHighG": 1.54
+   },
+   "allergens": {
+    "contains": [
+     "milk"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ],
+   "words": [
+    "buttermilk",
+    "chaa",
+    "chhachh",
+    "cumin",
+    "curd",
+    "dahi",
+    "jeera",
+    "majjige",
+    "mattha",
+    "mor",
+    "namak",
+    "salt",
+    "water",
+    "yogurt",
+    "छाछ",
+    "जीरा",
+    "दही",
+    "नमक"
+   ],
+   "recipe": {
+    "note": "Thin, from whole-milk curd",
+    "hash": "97d94a7d",
+    "basis": "a3818e3e",
+    "ingredients": [
+     {
+      "key": "curd",
+      "name": "Curd (dahi)",
+      "grams": 60,
+      "fdcId": 171284
+     },
+     {
+      "key": "water",
+      "name": "Water",
+      "grams": 140,
+      "fdcId": null
+     },
+     {
+      "key": "cumin",
+      "name": "Cumin (jeera)",
+      "grams": 0.5,
+      "fdcId": null
+     },
+     {
+      "key": "salt",
+      "name": "Salt",
+      "grams": 0.5,
+      "fdcId": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "chai",
+   "rev": 1,
+   "name": "Chai with milk and sugar",
+   "aliases": [
+    "chai",
+    "tea",
+    "masala chai",
+    "चाय"
+   ],
+   "shelf": "drinks",
+   "slots": [
+    "breakfast",
+    "snack"
+   ],
+   "portion": {
+    "unit": "cup",
+    "grams": 150,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 33.9,
+    "carbsG": 5.13,
+    "carbsLowG": 4.97,
+    "carbsHighG": 5.29
+   },
+   "allergens": {
+    "contains": [
+     "milk"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ],
+   "words": [
+    "brewed",
+    "chai",
+    "cheeni",
+    "doodh",
+    "masala",
+    "milk",
+    "sugar",
+    "tea",
+    "whole",
+    "चाय",
+    "चीनी",
+    "दूध"
+   ],
+   "recipe": {
+    "note": "1 tsp sugar, a third milk",
+    "hash": "894c2db5",
+    "basis": "8c8cea7e",
+    "ingredients": [
+     {
+      "key": "tea",
+      "name": "Brewed tea",
+      "grams": 100,
+      "fdcId": 173227
+     },
+     {
+      "key": "milk",
+      "name": "Whole milk",
+      "grams": 50,
+      "fdcId": 171265
+     },
+     {
+      "key": "sugar",
+      "name": "Sugar",
+      "grams": 5,
+      "fdcId": 169655
+     }
+    ]
+   }
+  },
+  {
+   "id": "milk",
+   "rev": 1,
+   "name": "Milk",
+   "aliases": [
+    "milk",
+    "doodh",
+    "दूध"
+   ],
+   "shelf": "drinks",
+   "slots": [
+    "breakfast",
+    "snack",
+    "dinner"
+   ],
+   "portion": {
+    "unit": "glass",
+    "grams": 200,
+    "count": 1
+   },
+   "per100g": {
+    "kcal": 61,
+    "carbsG": 4.8,
+    "carbsLowG": 4.32,
+    "carbsHighG": 5.28
+   },
+   "allergens": {
+    "contains": [
+     "milk"
+    ],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ],
+   "words": [
+    "doodh",
+    "milk",
+    "whole",
+    "दूध"
+   ],
+   "recipe": {
+    "note": "Whole milk",
+    "hash": "363d20e6",
+    "basis": "ffb798c6",
+    "ingredients": [
+     {
+      "key": "milk",
+      "name": "Whole milk",
+      "grams": 200,
+      "fdcId": 171265
+     }
+    ]
+   }
+  },
+  {
+   "id": "banana",
+   "rev": 1,
+   "name": "Banana",
+   "aliases": [
+    "banana",
+    "kela",
+    "केला"
+   ],
+   "shelf": "fruit",
+   "slots": [
+    "breakfast",
+    "snack"
+   ],
+   "portion": {
+    "unit": "piece",
+    "grams": 100,
+    "count": 1,
+    "noun": [
+     "banana",
+     "bananas"
+    ]
+   },
+   "per100g": {
+    "kcal": 89,
+    "carbsG": 22.8,
+    "carbsLowG": 18.24,
+    "carbsHighG": 27.36
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "banana",
+    "kela",
+    "केला"
+   ],
+   "recipe": {
+    "note": "One medium banana, peeled",
+    "hash": "ee32bfc0",
+    "basis": "50127eef",
+    "ingredients": [
+     {
+      "key": "banana",
+      "name": "Banana",
+      "grams": 100,
+      "fdcId": 173944
+     }
+    ]
+   }
+  },
+  {
+   "id": "guava",
+   "rev": 1,
+   "name": "Guava",
+   "aliases": [
+    "guava",
+    "amrood",
+    "amrud",
+    "अमरूद"
+   ],
+   "shelf": "fruit",
+   "slots": [
+    "snack"
+   ],
+   "portion": {
+    "unit": "piece",
+    "grams": 100,
+    "count": 1,
+    "noun": [
+     "guava",
+     "guavas"
+    ]
+   },
+   "per100g": {
+    "kcal": 68,
+    "carbsG": 14.3,
+    "carbsLowG": 11.44,
+    "carbsHighG": 17.16
+   },
+   "allergens": {
+    "contains": [],
+    "mayContain": [],
+    "complete": true,
+    "named": true
+   },
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ],
+   "words": [
+    "amrood",
+    "amrud",
+    "guava",
+    "अमरूद"
+   ],
+   "recipe": {
+    "note": "One medium guava",
+    "hash": "fcca3857",
+    "basis": "c8443dfe",
+    "ingredients": [
+     {
+      "key": "guava",
+      "name": "Guava",
+      "grams": 100,
+      "fdcId": 173044
+     }
+    ]
+   }
+  }
+ ],
+ "ingredients": [
+  {
+   "key": "atta",
+   "name": "Whole-wheat flour (atta)",
+   "words": [
+    "atta",
+    "flour",
+    "gehun",
+    "wheat",
+    "whole",
+    "गेहूं"
+   ],
+   "contains": [
+    "wheat"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "rice-raw",
+   "name": "White rice",
+   "words": [
+    "chawal",
+    "rice",
+    "white",
+    "चावल"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "rice-cooked",
+   "name": "Cooked white rice",
+   "words": [
+    "bhat",
+    "chawal",
+    "cooked",
+    "rice",
+    "white",
+    "चावल"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "poha",
+   "name": "Flattened rice (poha)",
+   "words": [
+    "aval",
+    "beaten",
+    "flattened",
+    "poha",
+    "rice"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "semolina",
+   "name": "Semolina (rava, sooji)",
+   "words": [
+    "rava",
+    "semolina",
+    "sooji",
+    "suji"
+   ],
+   "contains": [
+    "wheat"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "bulgur",
+   "name": "Broken wheat (dalia)",
+   "words": [
+    "broken",
+    "cracked",
+    "dalia",
+    "wheat"
+   ],
+   "contains": [
+    "wheat"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "jowar-flour",
+   "name": "Jowar flour",
+   "words": [
+    "flour",
+    "jowar",
+    "sorghum",
+    "ज्वार"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "urad-dal",
+   "name": "Urad dal",
+   "words": [
+    "black",
+    "dal",
+    "gram",
+    "udad",
+    "urad",
+    "उड़द"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "toor-dal",
+   "name": "Toor dal",
+   "words": [
+    "arhar",
+    "dal",
+    "pea",
+    "pigeon",
+    "toor",
+    "tuvar",
+    "अरहर"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "moong-dal",
+   "name": "Moong dal",
+   "words": [
+    "dal",
+    "gram",
+    "green",
+    "moong",
+    "mung",
+    "मूंग"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "chana",
+   "name": "Kabuli chana",
+   "words": [
+    "chana",
+    "chickpea",
+    "chole",
+    "garbanzo",
+    "kabuli",
+    "छोले"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "rajma",
+   "name": "Rajma",
+   "words": [
+    "bean",
+    "kidney",
+    "rajma",
+    "राजमा"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "roasted-chana",
+   "name": "Roasted chana",
+   "words": [
+    "bhuna",
+    "chana",
+    "chickpea",
+    "gram",
+    "roasted"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "moong-sprouts",
+   "name": "Boiled moong sprouts",
+   "words": [
+    "ankurit",
+    "boiled",
+    "moong",
+    "sprout",
+    "अंकुरित"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "onion",
+   "name": "Onion",
+   "words": [
+    "kanda",
+    "onion",
+    "pyaz",
+    "प्याज"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ]
+  },
+  {
+   "key": "tomato",
+   "name": "Tomato",
+   "words": [
+    "tamatar",
+    "tomato",
+    "टमाटर"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "potato",
+   "name": "Potato",
+   "words": [
+    "aloo",
+    "potato",
+    "आलू"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ]
+  },
+  {
+   "key": "potato-boiled",
+   "name": "Boiled potato",
+   "words": [
+    "aloo",
+    "boiled",
+    "potato",
+    "आलू"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ]
+  },
+  {
+   "key": "spinach",
+   "name": "Spinach (palak)",
+   "words": [
+    "palak",
+    "spinach",
+    "पालक"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "cauliflower",
+   "name": "Cauliflower (gobhi)",
+   "words": [
+    "cauliflower",
+    "gobhi",
+    "gobi",
+    "गोभी"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "okra",
+   "name": "Okra (bhindi)",
+   "words": [
+    "bhindi",
+    "finger",
+    "lady",
+    "okra",
+    "भिंडी"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "carrot",
+   "name": "Carrot",
+   "words": [
+    "carrot",
+    "gajar",
+    "गाजर"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ]
+  },
+  {
+   "key": "green-beans",
+   "name": "Green beans",
+   "words": [
+    "bean",
+    "french",
+    "green",
+    "phali"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "green-peas",
+   "name": "Green peas (matar)",
+   "words": [
+    "green",
+    "matar",
+    "pea",
+    "मटर"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "cucumber",
+   "name": "Cucumber (kheera)",
+   "words": [
+    "cucumber",
+    "kheera",
+    "खीरा"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "drumstick",
+   "name": "Drumstick (moringa pods)",
+   "words": [
+    "drumstick",
+    "moringa",
+    "pod",
+    "sahjan"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "lauki",
+   "name": "Bottle gourd (lauki)",
+   "words": [
+    "bottle",
+    "doodhi",
+    "ghiya",
+    "gourd",
+    "lauki",
+    "लौकी"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "coriander-leaves",
+   "name": "Coriander leaves",
+   "words": [
+    "cilantro",
+    "coriander",
+    "dhania",
+    "leave",
+    "धनिया"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "mint",
+   "name": "Mint (pudina)",
+   "words": [
+    "mint",
+    "pudina",
+    "पुदीना"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "lemon-juice",
+   "name": "Lemon juice",
+   "words": [
+    "juice",
+    "lemon",
+    "nimbu",
+    "नींबू"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "tamarind",
+   "name": "Tamarind",
+   "words": [
+    "imli",
+    "tamarind",
+    "इमली"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "banana",
+   "name": "Banana",
+   "words": [
+    "banana",
+    "kela",
+    "केला"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "guava",
+   "name": "Guava",
+   "words": [
+    "amrood",
+    "guava",
+    "अमरूद"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "ginger",
+   "name": "Ginger",
+   "words": [
+    "adrak",
+    "ginger",
+    "अदरक"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ]
+  },
+  {
+   "key": "garlic",
+   "name": "Garlic",
+   "words": [
+    "garlic",
+    "lahsun",
+    "लहसुन"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan"
+   ]
+  },
+  {
+   "key": "green-chilli",
+   "name": "Green chilli",
+   "words": [
+    "chilli",
+    "green",
+    "mirch",
+    "मिर्च",
+    "हरी"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "curry-leaves",
+   "name": "Curry leaves",
+   "words": [
+    "curry",
+    "kadi",
+    "leave",
+    "patta",
+    "कढ़ी",
+    "पत्ता"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "mustard-seeds",
+   "name": "Mustard seeds (rai)",
+   "words": [
+    "mustard",
+    "rai",
+    "sarson",
+    "seed",
+    "राई"
+   ],
+   "contains": [
+    "mustard"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "cumin",
+   "name": "Cumin (jeera)",
+   "words": [
+    "cumin",
+    "jeera",
+    "जीरा"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "turmeric",
+   "name": "Turmeric (haldi)",
+   "words": [
+    "haldi",
+    "turmeric",
+    "हल्दी"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "chilli-powder",
+   "name": "Red chilli powder",
+   "words": [
+    "chilli",
+    "lal",
+    "mirch",
+    "powder",
+    "red"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "coriander-powder",
+   "name": "Coriander powder",
+   "words": [
+    "coriander",
+    "dhania",
+    "powder"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "hing",
+   "name": "Hing (asafoetida)",
+   "words": [
+    "asafoetida",
+    "hing",
+    "हींग"
+   ],
+   "contains": [],
+   "mayContain": [
+    "wheat"
+   ],
+   "blend": true,
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "salt",
+   "name": "Salt",
+   "words": [
+    "namak",
+    "salt",
+    "नमक"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "water",
+   "name": "Water",
+   "words": [
+    "water"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "oil",
+   "name": "Sunflower oil",
+   "words": [
+    "oil",
+    "sunflower",
+    "tel"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "ghee",
+   "name": "Ghee",
+   "words": [
+    "butter",
+    "clarified",
+    "ghee",
+    "घी"
+   ],
+   "contains": [
+    "milk"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ]
+  },
+  {
+   "key": "coconut",
+   "name": "Grated coconut",
+   "words": [
+    "coconut",
+    "grated",
+    "nariyal",
+    "नारियल"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "coconut-milk",
+   "name": "Coconut milk",
+   "words": [
+    "coconut",
+    "milk",
+    "nariyal"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "peanuts",
+   "name": "Peanuts",
+   "words": [
+    "groundnut",
+    "moongphali",
+    "peanut",
+    "मूंगफली"
+   ],
+   "contains": [
+    "peanut"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "peanuts-roasted",
+   "name": "Dry-roasted peanuts",
+   "words": [
+    "dry",
+    "groundnut",
+    "moongphali",
+    "peanut",
+    "roasted",
+    "मूंगफली"
+   ],
+   "contains": [
+    "peanut"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "milk",
+   "name": "Whole milk",
+   "words": [
+    "doodh",
+    "milk",
+    "whole",
+    "दूध"
+   ],
+   "contains": [
+    "milk"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ]
+  },
+  {
+   "key": "curd",
+   "name": "Curd (dahi)",
+   "words": [
+    "curd",
+    "dahi",
+    "yogurt",
+    "दही"
+   ],
+   "contains": [
+    "milk"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ]
+  },
+  {
+   "key": "paneer",
+   "name": "Paneer",
+   "words": [
+    "cheese",
+    "cottage",
+    "paneer",
+    "पनीर"
+   ],
+   "contains": [
+    "milk"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "jain"
+   ]
+  },
+  {
+   "key": "egg",
+   "name": "Egg",
+   "words": [
+    "anda",
+    "egg",
+    "अंडा"
+   ],
+   "contains": [
+    "egg"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "eggetarian",
+    "nonVegetarian"
+   ]
+  },
+  {
+   "key": "egg-boiled",
+   "name": "Boiled egg",
+   "words": [
+    "anda",
+    "boiled",
+    "egg",
+    "अंडा"
+   ],
+   "contains": [
+    "egg"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "eggetarian",
+    "nonVegetarian"
+   ]
+  },
+  {
+   "key": "chicken",
+   "name": "Chicken (thigh)",
+   "words": [
+    "chicken",
+    "murgh",
+    "thigh",
+    "चिकन"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "nonVegetarian"
+   ]
+  },
+  {
+   "key": "fish",
+   "name": "Fish (rohu or another carp)",
+   "words": [
+    "another",
+    "carp",
+    "fish",
+    "machli",
+    "rohu",
+    "मछली"
+   ],
+   "contains": [
+    "fish"
+   ],
+   "mayContain": [],
+   "patterns": [
+    "nonVegetarian"
+   ]
+  },
+  {
+   "key": "sugar",
+   "name": "Sugar",
+   "words": [
+    "cheeni",
+    "sugar",
+    "चीनी"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  },
+  {
+   "key": "tea",
+   "name": "Brewed tea",
+   "words": [
+    "brewed",
+    "chai",
+    "tea",
+    "चाय"
+   ],
+   "contains": [],
+   "mayContain": [],
+   "patterns": [
+    "vegetarian",
+    "eggetarian",
+    "nonVegetarian",
+    "vegan",
+    "jain"
+   ]
+  }
+ ]
+}

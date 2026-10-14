@@ -112,7 +112,7 @@ export function ExerciseScreen() {
           <Group header="Modifications" footer="General information, not medical advice.">
             <Row label={<Wrap>{note ?? 'Suits most backs'}</Wrap>} detail={c.backSafety.note} />
             {related.map(r => (
-              <Row key={r.label} as={Link} to={`/move/exercises/${r.id}`} state={{ from: origin, path: location.pathname, label: ex.name }} viewTransition label={<Wrap>{r.label}</Wrap>} detail={nameOf(r.id)} chevron />
+              <Row key={r.label} as={Link} to={`/hub/workout/exercises/${r.id}`} state={{ from: origin, path: location.pathname, label: ex.name }} viewTransition label={<Wrap>{r.label}</Wrap>} detail={nameOf(r.id)} chevron />
             ))}
           </Group>
 

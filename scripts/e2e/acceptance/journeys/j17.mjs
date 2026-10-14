@@ -10,8 +10,10 @@
  */
 import { MINUTE, NOW } from '../lib/env.mjs';
 import { docs } from '../lib/harness.mjs';
+import * as hub from '../lib/hub.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as mv from '../lib/move.mjs';
+import * as setup from '../lib/setup.mjs';
 import { persona } from '../fixtures/personas.mjs';
 import { atSummary, outcome, openApp } from '../lib/safety-c.mjs';
 
@@ -32,9 +34,9 @@ async function storageNotice(page) {
   return (await n.count()) ? (await n.allInnerTexts()).join(' | ') : '';
 }
 
-/** Track → Add a record → kind. */
+/** My Day (v1's Track, now Today's log) → Add a record → kind. */
 async function openAdd(t, kind, page = t.page) {
-  if (!/^\/track/.test(await t.route(page))) await t.goto('/track', page);
+  if (!/^\/day\//.test(await t.route(page))) await t.goto('/day/today', page);
   await ui.tap(ui.header(page).getByRole('button', { name: 'Add a record', exact: true }));
   const add = page.getByRole('dialog', { name: 'Add' });
   await add.waitFor();
@@ -60,11 +62,11 @@ function glucoseCase(action) {
   return {
     name: `glucose save fails (${action})`,
     async run(t) {
-      const page = await openApp(t, { seed: persona('P01'), route: '/track' });
+      const page = await openApp(t, { seed: persona('P01'), route: '/day/today' });
       t.allowConsole(MARK);
       const rule = [{ op: 'put', store: 'observations', match: { kind: 'glucose' }, action }];
       let before;
-      await t.step(1, 'Fail the next glucose write: Track → Add glucose 111 → Save', async () => {
+      await t.step(1, 'Fail the next glucose write: My Day → Add glucose 111 → Save', async () => {
         before = await t.checkpoint('p01-snapshot');
         await t.setFaults(rule);
         const form = await openAdd(t, 'Glucose');
@@ -127,9 +129,8 @@ function glucoseCase(action) {
 async function finishedWalk(t) {
   const page = t.page;
   const main = page.getByRole('main');
-  await ui.tab(page, 'Move');
-  await ui.tap(ui.row(main, 'Walk', 'link'));
-  await ui.tap(ui.button(main, 'Start walk'));
+  await hub.open(t, 'walk');
+  await ui.tap(hub.start(page));
   const sheet = mv.checkInSheet(page);
   await sheet.waitFor();
   await ui.answerCheckIn(t, sheet, ui.normalAnswers('P01'));
@@ -155,7 +156,8 @@ function walkCase(variant) {
   return {
     name: `walk partial save then ${variant}`,
     async run(t) {
-      const page = await openApp(t, { seed: persona('P01'), route: '/today' });
+      // The walk counts its minutes on the monotonic clock, run with the frozen wall clock (H6-09).
+      const page = await openApp(t, { seed: persona('P01'), route: '/home', sensors: { monotonic: 'wall' } });
       t.allowConsole(MARK);
       const main = page.getByRole('main');
       let walk;
@@ -251,7 +253,7 @@ export const cases = [
   {
     name: 'stretch session save fails',
     async run(t) {
-      const page = await openApp(t, { seed: persona('P01'), route: '/today' });
+      const page = await openApp(t, { seed: persona('P01'), route: '/home' });
       t.allowConsole(MARK);
       const main = page.getByRole('main');
       await t.step(5, 'Fail saving a finished Stretch session', async () => {
@@ -302,10 +304,10 @@ export const cases = [
         patch: { profile: { needsHealthReview: true } },
         remove: ['profile.health.medicinesReviewed', 'profile.health.metformin', 'profile.health.metforminSince', 'profile.health.priorDkaOrInsulinDeficiency'],
       });
-      const page = await openApp(t, { seed, route: '/today' });
+      const page = await openApp(t, { seed, route: '/home' });
       t.allowConsole(MARK);
       const startHeld = async label => {
-        await t.goto('/today');
+        await t.goto('/home');
         const r = await mv.enter(t, 'guided', 'move');
         const o = await outcome(page);
         const offered = r.sheet ? await mv.sheetStart(r.sheet).count() : 0;
@@ -323,32 +325,22 @@ export const cases = [
       await t.step(6, 'Fail the health update from unknown medicines to metformin-only; attempt Start before and after', async () => {
         const first = await startHeld('before');
         await t.check(first.held, `Start is not held while the medicines are unknown: ${first.text.slice(0, 200)}`);
-        await t.goto('/you/profile');
-        await ui.tap(page.getByRole('button', { name: 'Edit health' }));
-        const dialog = page.getByRole('dialog', { name: 'Edit your answers' });
-        await dialog.waitFor();
-        const pick = async (group, answer) => ui.tap(ui.radio(dialog.getByRole('radiogroup', { name: group, exact: true }), answer));
-        await pick('Insulin', 'No insulin');
-        await pick('Sulfonylurea or meglitinide? (e.g. gliclazide, glimepiride)', 'No');
-        await pick('An SGLT2 inhibitor, for diabetes, heart or kidney? (e.g. empagliflozin, dapagliflozin)', 'No');
-        await pick('Metformin?', 'Yes');
-        const since = dialog.getByRole('textbox', { name: /since|year/i });
-        if (await since.count()) await ui.type(since, '2019');
-        await pick('Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?', 'No');
-        for (const g of ['Beta-blocker? (e.g. bisoprolol, metoprolol)', 'Diuretic or water pill?', 'Has your care team told you to limit how much you drink?']) {
-          if (await dialog.getByRole('radiogroup', { name: g, exact: true }).count()) await pick(g, 'No');
-        }
+        const openReview = async () => {
+          await t.goto('/me/profile');
+          await ui.tap(page.getByRole('link', { name: /^Your health answers need a review/ }));
+          await ui.heading(page, 'Your health');
+          await setup.reviewAsP01(page.getByRole('main'));
+        };
+        await openReview();
         await t.setFaults([{ op: 'put', store: 'settings', match: { key: 'profile' }, action: 'quotaDom' }]);
-        const save = ui.button(dialog.getByRole('contentinfo'), 'Save');
-        await t.must(await save.isEnabled(), 'Save stays disabled after every medicine question was answered');
-        await ui.tap(save);
+        await setup.save(t, { expectSaved: false });
         await page.waitForTimeout(1000);
         const fired = await t.faultLog();
         await t.must(fired.some(f => f.store === 'settings'), `the profile write fault never fired: ${JSON.stringify(fired)}`);
         const text = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
         await t.checkpoint('profile-save-failed');
         await t.check(/did not save|not enough space|couldn.t save/i.test(text), `the failed profile update is not shown: ${text.slice(0, 200)}`);
-        await t.check(!/Saved\. Today uses your new answers/.test(text), 'the failed profile update was acknowledged as saved');
+        await t.check(!/Saved\. Home uses your new answers/.test(text), 'the failed profile update was acknowledged as saved');
         const snap = await t.db();
         const health = docs(snap).profile?.health ?? {};
         await t.check(health.medicinesReviewed !== true && health.metformin === undefined, `the uncommitted medicine answers are in the stored profile: ${JSON.stringify({ r: health.medicinesReviewed, m: health.metformin })}`);
@@ -356,23 +348,11 @@ export const cases = [
         await t.check(second.held, `Start was allowed on the uncommitted profile: ${second.text.slice(0, 200)}`);
         // Retry, now that the device can store it.
         await t.setFaults(null);
-        await t.goto('/you/profile');
-        await ui.tap(page.getByRole('button', { name: 'Edit health' }));
-        await dialog.waitFor();
-        await pick('Insulin', 'No insulin');
-        await pick('Sulfonylurea or meglitinide? (e.g. gliclazide, glimepiride)', 'No');
-        await pick('An SGLT2 inhibitor, for diabetes, heart or kidney? (e.g. empagliflozin, dapagliflozin)', 'No');
-        await pick('Metformin?', 'Yes');
-        if (await since.count()) await ui.type(since, '2019');
-        await pick('Ever had diabetic ketoacidosis (DKA), or been told your body makes too little insulin?', 'No');
-        for (const g of ['Beta-blocker? (e.g. bisoprolol, metoprolol)', 'Diuretic or water pill?', 'Has your care team told you to limit how much you drink?']) {
-          if (await dialog.getByRole('radiogroup', { name: g, exact: true }).count()) await pick(g, 'No');
-        }
-        await ui.tap(ui.button(dialog.getByRole('contentinfo'), 'Save'));
-        await page.getByText(/Saved\. Today uses your new answers/).waitFor({ timeout: 15000 });
+        await openReview();
+        await setup.save(t);
         const stored = docs(await t.db()).profile?.health ?? {};
         await t.check(stored.medicinesReviewed === true && stored.metformin === true, `the retried answers are not stored: ${JSON.stringify({ r: stored.medicinesReviewed, m: stored.metformin })}`);
-        await t.goto('/today');
+        await t.goto('/home');
         const r = await mv.enter(t, 'guided', 'move');
         if (r.sheet && await r.sheet.getByRole('heading', { name: 'Right now, any of these?', exact: true }).count()) {
           await ui.answerCheckIn(t, r.sheet, ui.normalAnswers('P01'));
@@ -388,13 +368,13 @@ export const cases = [
   {
     name: 'emergency save fails',
     async run(t) {
-      const page = await openApp(t, { seed: persona('P01'), route: '/today' });
+      const page = await openApp(t, { seed: persona('P01'), route: '/home' });
       t.allowConsole(MARK);
       const main = page.getByRole('main');
       await t.step(7, 'An emergency over an earlier safe check-in, with the save failing; other modes, reload, Resume', async () => {
         // A safe check-in and a resumable guided session first.
         const r = await mv.enter(t, 'guided', 'today');
-        await t.must(!!r.sheet, 'Today’s action opened no check-in');
+        await t.must(!!r.sheet, 'Home’s action opened no check-in');
         await ui.answerCheckIn(t, r.sheet, ui.normalAnswers('P01'));
         await page.waitForTimeout(500);
         await ui.tap(mv.sheetStart(r.sheet));
@@ -407,8 +387,9 @@ export const cases = [
         await t.checkpoint('safe-and-resumable');
         // Now the emergency, with the check-in write failing.
         await t.setFaults([{ op: 'put', store: 'settings', match: { key: 'checkIns' }, action: 'quotaDom' }]);
-        await t.hash('/move');
-        await t.hash('/today?checkin=guided');
+        // Away from Home (to the Workout hub, v1's Move), then Home's own check-in link.
+        await t.hash('/hub/workout');
+        await t.hash('/home?checkin=guided');
         const sheet = mv.checkInSheet(page);
         await sheet.waitFor({ timeout: 30000 });
         const change = ui.button(sheet, 'Change answers');
@@ -428,8 +409,8 @@ export const cases = [
         await t.check(!stored?.emergency?.length, 'the emergency was stored despite the fault (the fault missed)');
         await ui.tap(ui.button(sheet, 'Close'));
         // Other modes, without a reload (the unsaved answer lives in this page only).
-        await t.hash('/move');
-        await ui.tap(ui.row(main, 'Stretch', 'link'));
+        // Home → the Stretch tile, through the tabs: no reload, so the unsaved answer stays in this page.
+        await hub.open(t, 'stretch');
         // While the engine refuses, Stretch refuses before any tap (scan S-15): no Start, the reason, and the check-in one tap away.
         const refusal = await mv.setupRefusal(page, 'stretch');
         await t.check(!!refusal, 'Stretch still offers Start stretch over the unsaved emergency');
@@ -438,7 +419,7 @@ export const cases = [
           await t.check(refusal.review, 'the refusing Stretch setup offers no “Review today’s check-in”');
           if (refusal.review) await mv.reviewFromSetup(page);
         } else {
-          await ui.tap(ui.button(main, 'Start stretch'));
+          await ui.tap(hub.start(page));
         }
         await page.waitForTimeout(500);
         const st = await outcome(page);
@@ -452,10 +433,10 @@ export const cases = [
         await t.checkpoint('resume-after-reload');
         await t.check(!(await main.getByRole('button', { name: /^(Start|Resume)$/ }).count()), `after reload, Resume is offered over the unsaved emergency: ${resumeText.slice(0, 200)}`);
         await t.check(/Call emergency services now|emergency|help now/i.test(resumeText), `after reload, the resume does not show the emergency: ${resumeText.slice(0, 200)}`);
-        await t.goto('/today');
+        await t.goto('/home');
         const r2 = await mv.enter(t, 'walk', 'chooser');
         const w = await outcome(page);
-        const walkOffered = r2.sheet ? await mv.sheetStart(r2.sheet).count() > 0 : await ui.button(main, 'Start walk').count() > 0;
+        const walkOffered = r2.sheet ? await mv.sheetStart(r2.sheet).count() > 0 : await hub.start(page).count() > 0;
         await t.check(!walkOffered && /emergency/i.test(w.text), `after reload, Walk is offered over the unsaved emergency (${r2.sheet ? `sheet “${w.title}”` : `went straight to ${r2.route}, which offers Start walk`})`);
         await t.checkpoint('walk-after-reload');
         const snap = await t.db();
@@ -466,10 +447,10 @@ export const cases = [
   {
     name: 'two tabs',
     async run(t) {
-      const p1 = await openApp(t, { seed: persona('P01'), route: '/track' });
+      const p1 = await openApp(t, { seed: persona('P01'), route: '/day/today' });
       t.allowConsole(MARK);
       const p2 = await t.newPage();
-      await p2.goto(`${t.base}#/track`);
+      await p2.goto(`${t.base}#/day/today`);
       await t.ready(p2);
       await t.step(8, 'Two tabs add Water 250 at once; theme and food change while writes queue', async () => {
         const f1 = await openAdd(t, 'Water', p1);
@@ -484,16 +465,17 @@ export const cases = [
         await t.check(water.every(o => o.scope === 'dayTotal' && o.source === 'manual'), 'water is not a manual day total');
         // Both tabs show the effective 500.
         for (const [p, name] of [[p1, 'first'], [p2, 'second']]) {
-          await t.goto('/track', p);
+          await t.goto('/day/today', p);
           await t.check(/500 ml/.test(await p.getByRole('main').innerText()), `the ${name} tab does not show 500 ml`);
         }
         // A failed earlier write must not overwrite a later successful one.
-        await t.goto('/you/appearance', p1);
-        await t.goto('/you/food', p2);
+        // v1 You's Appearance and Food preferences are Me's Display and Food (journey §19.3).
+        await t.goto('/me/display', p1);
+        await t.goto('/me/food', p2);
         // Page-only rules: set after the navigation, which reloads the page.
         await t.setPageFaults([{ op: 'put', store: 'settings', match: { key: 'settings' }, action: 'quotaDom' }], p1);
         await Promise.all([
-          ui.tap(ui.radio(p1.getByRole('radiogroup', { name: 'Appearance' }), 'Dark')),
+          ui.tap(ui.radio(p1.getByRole('radiogroup', { name: 'Theme' }), 'Dark')),
           ui.tap(ui.radio(p2.getByRole('radiogroup', { name: 'What you eat' }), 'Vegan')),
         ]);
         await p1.waitForTimeout(1500);
@@ -504,8 +486,8 @@ export const cases = [
         await t.checkpoint('theme-failed', { page: p1 });
         await t.check(/did not save|not enough space/i.test(failText), `the first tab does not show its failed theme write: ${failText.slice(0, 200)}`);
         await t.setPageFaults(null, p1);
-        await ui.tap(ui.radio(p1.getByRole('radiogroup', { name: 'Appearance' }), 'Light'));
-        await ui.tap(ui.radio(p1.getByRole('radiogroup', { name: 'Appearance' }), 'Dark'));
+        await ui.tap(ui.radio(p1.getByRole('radiogroup', { name: 'Theme' }), 'Light'));
+        await ui.tap(ui.radio(p1.getByRole('radiogroup', { name: 'Theme' }), 'Dark'));
         await p1.waitForTimeout(1200);
         after = await t.db(p1);
         await t.check(docs(after).settings?.theme === 'dark' && docs(after).profile?.food?.pattern === 'vegan', `both acknowledged changes did not persist: theme ${docs(after).settings?.theme}, food ${docs(after).profile?.food?.pattern}`);
@@ -513,7 +495,7 @@ export const cases = [
         await p2.waitForTimeout(1500);
         const dark = await p2.evaluate(() => document.documentElement.classList.contains('dark'));
         await t.check(dark, 'the second tab did not resynchronise the new appearance');
-        await t.goto('/track', p2);
+        await t.goto('/day/today', p2);
         await t.check(/500 ml/.test(await p2.getByRole('main').innerText()), 'the second tab lost the water total');
       }, { input: 'two tabs: Water +250 each at once; tab 1 Dark (theme write fails, then retried); tab 2 Vegan' });
     },
@@ -521,9 +503,9 @@ export const cases = [
   {
     name: 'suspended check-in',
     async run(t) {
-      const p1 = await openApp(t, { seed: persona('P01'), route: '/today' });
+      const p1 = await openApp(t, { seed: persona('P01'), route: '/home' });
       const p2 = await t.newPage();
-      await p2.goto(`${t.base}#/you`);
+      await p2.goto(`${t.base}#/me`);
       await t.ready(p2);
       await t.step(9, 'Suspend a check-in with its BP and pain projections, reload, inspect, retry', async () => {
         const projections = snap => (snap?.observations ?? []).filter(o => o.context?.startsWith('checkIn:2026-10-08') || o.context?.startsWith('bp:checkIn:2026-10-08'));
@@ -563,9 +545,9 @@ export const cases = [
   {
     name: 'suspended write',
     async run(t) {
-      const p1 = await openApp(t, { seed: persona('P01'), route: '/track' });
+      const p1 = await openApp(t, { seed: persona('P01'), route: '/day/today' });
       const p2 = await t.newPage();
-      await p2.goto(`${t.base}#/you`);
+      await p2.goto(`${t.base}#/me`);
       await t.ready(p2);
       await t.step(9, 'Suspend a blood-pressure write before it commits, reload, inspect, retry', async () => {
         const bp = snap => (snap?.observations ?? []).filter(o => /^bloodPressure/.test(o.kind) && o.day === '2026-10-08');

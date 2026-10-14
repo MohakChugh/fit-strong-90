@@ -42,6 +42,8 @@ async function logWorkout(t) {
   const add = await data.openAdd(t);
   await ui.tap(ui.row(add, 'Workout'));
   await page.getByRole('heading', { name: 'Workout', exact: true }).waitFor();
+  // The Workout Log's skeleton has the Workout title too: read it once its content is in.
+  await ui.loaded(page);
   const checkIn = main.getByRole('button', { name: /^(Check in|Update today’s check-in)$/ });
   if (await checkIn.count()) {
     await ui.tap(checkIn);
@@ -74,7 +76,7 @@ async function toConfirm(t, file) {
 export const cases = [{
   name: 'backup, replace and clear',
   async run(t) {
-    const page = await t.open({ seed: persona('P01'), route: '/today' });
+    const page = await t.open({ seed: persona('P01'), route: '/home' });
     const main = page.getByRole('main');
     t.allowConsole('acceptance-injected');
     let B; let fileB; let A;
@@ -96,7 +98,7 @@ export const cases = [{
       B = data.decodeBackup(made.bytes);
       fileB = data.writeFixture(t, made.name, made.bytes);
       await t.checkpoint('backup-made');
-      await t.check(B.format === 'fit-strong-health-record' && B.version === 1 && B.schemaVersion === 5, `backup header: ${JSON.stringify({ format: B.format, version: B.version, schemaVersion: B.schemaVersion })}`);
+      await t.check(B.format === 'fit-strong-health-record' && B.version === 1 && B.schemaVersion === 6, `backup header: ${JSON.stringify({ format: B.format, version: B.version, schemaVersion: B.schemaVersion })}`);
       const diffs = data.compareLogical(data.logical(before), data.logicalFromDoc(B), { label: ['device', 'backup'] });
       await t.check(diffs.length === 0, `backup B does not hold the whole record: ${diffs.slice(0, 6).join(' | ')}`);
       await t.check(B.observations.some(o => o.kind === 'glucose' && o.value === 112) && B.observations.some(o => o.kind === 'steps' && o.value === 3000)
@@ -153,7 +155,8 @@ export const cases = [{
         await t.check(/Nothing was changed/.test(said), `the failed Replace does not say nothing changed: ${said.slice(0, 300)}`);
         await t.check(!/Restored\./.test(said), 'a failed Replace says Restored');
         const routes = await routesSeen(page);
-        await t.check(routes.every(r => !r.startsWith('#/welcome')), `the failed Replace routed through ${routes.join(' → ')}`);
+        // Welcome is first-run setup, at /setup in v2 (journey §19.2); its v1 address is checked too.
+        await t.check(routes.every(r => !/^#\/(setup|welcome)/.test(r)), `the failed Replace routed through ${routes.join(' → ')}`);
         const now = await t.db();
         const changed = data.sameSnapshot(A, now);
         await t.check(changed.length === 0, `the failed Replace changed the record: ${changed.slice(0, 4).join(' | ')}`);
@@ -208,6 +211,7 @@ export const cases = [{
       await watchRoutes(page);
       await t.setPageFaults([{ op: 'clear', action: 'abortAfterQueue' }]);
       await ui.tap(ui.button(sheet, 'Delete everything'));
+      await ui.tap(ui.button(sheet, 'Erase all'));
       await page.waitForTimeout(1500);
       await t.checkpoint('delete-failed');
       await t.setPageFaults(null);
@@ -219,7 +223,7 @@ export const cases = [{
       await t.check(after.local['fit-strong-90-data'] === storage.local['fit-strong-90-data'] && JSON.stringify(data.appKeys(after)) === JSON.stringify(data.appKeys(storage)),
         `the failed delete changed web storage: ${JSON.stringify(data.appKeys(storage))} → ${JSON.stringify(data.appKeys(after))}`);
       const routes = await routesSeen(page);
-      await t.check(routes.every(r => !r.startsWith('#/welcome') && !r.startsWith('#/onboarding')), `after the failed delete the app routed ${routes.join(' → ')} (the Welcome gate, then away from Data & offline)`);
+      await t.check(routes.every(r => !/^#\/(setup|welcome|onboarding)/.test(r)), `after the failed delete the app routed ${routes.join(' → ')} (the Welcome gate, then away from Data & offline)`);
       const where = await t.route();
       const visible = await t.visible();
       const said = (await sheet.count()) ? await say(sheet) : '';
@@ -243,16 +247,19 @@ export const cases = [{
       const sheet = page.getByRole('dialog', { name: 'Delete everything' });
       await sheet.waitFor();
       await ui.tap(ui.button(sheet, 'Delete everything'));
+      await ui.tap(ui.button(sheet, 'Erase all'));
       await page.getByRole('heading', { level: 1, name: 'Welcome', exact: true }).waitFor({ timeout: 15000 });
       await t.ready();
       await t.reload();
       await t.reload();
       const now = await t.checkpoint('after-clear-reloads');
-      await t.check(await t.route() === '/welcome', `after Delete everything and two reloads the app is at ${await t.route()}`);
+      await t.check(await t.route() === '/setup', `after Delete everything and two reloads the app is at ${await t.route()}`);
       await t.check((now.observations ?? []).length === 0 && (now.sessions ?? []).length === 0 && (now['content-state'] ?? []).length === 0,
         `stores not empty: ${JSON.stringify({ obs: now.observations?.length, sessions: now.sessions?.length, content: now['content-state']?.length })}`);
       const d = docs(now);
-      const leftover = Object.entries(d).filter(([k, v]) => !['schemaVersion', 'revision'].includes(k)
+      // Device bookkeeping, nothing of the person's: the record's generation outlasts the reset that moves it on,
+      // so every copy of the app drops what it held for the record before (Plan 5's board D191).
+      const leftover = Object.entries(d).filter(([k, v]) => !['schemaVersion', 'revision', 'generation'].includes(k)
         && !(Array.isArray(v) && v.length === 0) && !(v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0));
       await t.check(leftover.length === 0, `settings documents left after Delete everything: ${leftover.map(([k, v]) => `${k}=${JSON.stringify(v).slice(0, 80)}`).join(', ')}`);
       const s = await t.storage();
@@ -266,7 +273,7 @@ export const cases = [{
         try {
           const nav = JSON.parse(v);
           const entries = [...(nav.entries ?? []), ...Object.values(nav.places ?? {}), ...Object.values(nav.roots ?? {})].filter(Boolean);
-          return entries.every(e => typeof e.pathname === 'string' && e.pathname.startsWith('/welcome'));
+          return entries.every(e => typeof e.pathname === 'string' && e.pathname.startsWith('/setup'));
         } catch { return false; }
       };
       const session = Object.entries(s.session).filter(([k]) => /^fit|draft|progress|session/i.test(k) && !/^(remix-router|react-router)/.test(k))
@@ -290,7 +297,7 @@ export const cases = [{
       await t.check(diffs.length === 0, `restored from Welcome, the record is not B: ${diffs.slice(0, 6).join(' | ')}`);
       const settings = docs(now).settings ?? {};
       await t.check(settings.onboardingComplete === true && settings.focus === 'strength' && settings.startDate === '2026-09-24', `restored settings are not P01's onboarded settings: ${JSON.stringify(settings).slice(0, 200)}`);
-      await t.check(await t.route() === '/today' && await page.getByRole('heading', { level: 1, name: 'Today', exact: true }).count() === 1, `after restoring from Welcome the app is at ${await t.route()}`);
+      await t.check(await t.route() === '/home' && await page.getByRole('heading', { level: 1, name: ui.HOME_TITLE }).count() === 1, `after restoring from Welcome the app is at ${await t.route()}`);
     });
   },
 }];

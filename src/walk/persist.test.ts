@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { finishWalk, leaveWalk, pauseWalk, returnToWalk, startWalk, updateOpenSegment, type Walk } from './clock';
+import { finishWalk, leaveWalk, pauseWalk, returnToWalk, startWalk, updateOpenSegment, type Segment, type Walk } from './clock';
 import {
   clearWalk,
   draftStored,
@@ -189,8 +189,87 @@ describe('peekWalk', () => {
     const storage = memory();
     expect(peekWalk(storage)).toBeNull();
     storeWalk(storage, aWalk());
-    expect(peekWalk(storage)).toMatchObject({ state: 'inProgress', href: '/walk/live', id: 'mgh3k2x1-1a2b3c4d' });
+    expect(peekWalk(storage)).toMatchObject({ state: 'inProgress', href: '/walk/live', id: 'mgh3k2x1-1a2b3c4d', seenAt: T + 420_000 });
+    // Left for another screen: when it was left, which is when the live screen counts its time away from.
+    storeWalk(storage, leaveWalk(aWalk(), T + 480_000, 'left'));
+    expect(peekWalk(storage)?.seenAt).toBe(T + 480_000);
     storeWalk(storage, finishWalk(aWalk(), T + 500_000, 'finish'));
     expect(peekWalk(storage)).toMatchObject({ state: 'unsaved', href: '/walk/summary' });
+  });
+});
+
+describe('walks kept before B-19', () => {
+  const strip = (x: Segment) => {
+    const { accruedMs, accruedAt, day, offsetMin, ...rest } = x;
+    void accruedMs; void accruedAt; void day; void offsetMin;
+    return rest;
+  };
+
+  it('are read with their accrued time, day and offset filled in', () => {
+    // Seen a minute into its open segment.
+    const w = { ...aWalk(), seenAt: T + 480_000 };
+    const back = parseWalk(JSON.parse(JSON.stringify({ ...w, segments: w.segments.map(strip) })))!;
+    expect(back.segments[0].accruedMs).toBe(300_000);
+    expect(back.segments[0].accruedAt).toBe(T + 300_000);
+    expect(back.segments[1].accruedMs).toBe(w.seenAt - w.segments[1].start);
+    expect(back.segments[1].accruedAt).toBe(w.seenAt);
+    expect(back.segments[0].day).toBe(w.segments[0].day);
+    expect(back.segments[0].offsetMin).toBe(w.segments[0].offsetMin);
+  });
+
+  it('refuse an accrual, a day or an offset that cannot be read', () => {
+    const w = aWalk();
+    const withFirst = (patch: Record<string, unknown>) => parseWalk({ ...w, segments: [{ ...w.segments[0], ...patch }, w.segments[1]] });
+    expect(withFirst({ accruedMs: -1 })).toBeNull();
+    expect(withFirst({ accruedAt: 'soon' })).toBeNull();
+    expect(withFirst({ day: '2026-13-01' })).toBeNull();
+    expect(withFirst({ offsetMin: 15 * 60 })).toBeNull();
+    expect(withFirst({ offsetMin: 330.5 })).toBeNull();
+    expect(withFirst({ offsetMin: -14 * 60 })).not.toBeNull();
+  });
+
+  it('refuses a plan field this build does not know the shape of', () => {
+    const w = aWalk();
+    expect(parseWalk({ ...w, plan: { ...w.plan, from: '/elsewhere' } })).toBeNull();
+    expect(parseWalk({ ...w, plan: { ...w.plan, meal: { ...w.plan.meal, basis: 'ate' } } })).toBeNull();
+    expect(parseWalk({ ...w, plan: { ...w.plan, stepsDenied: false } })).toBeNull();
+    expect(parseWalk({ ...w, plan: { ...w.plan, stepsDenied: true } })).not.toBeNull();
+    expect(parseWalk({ ...w, plan: { ...w.plan, from: '/hub/walk', meal: { ...w.plan.meal, basis: 'had' } } })).not.toBeNull();
+  });
+
+  it('refuse a route consent that is not a yes or a no', () => {
+    const w = aWalk();
+    expect(parseWalk({ ...w, plan: { ...w.plan, keepRoute: true } })?.plan.keepRoute).toBe(true);
+    expect(parseWalk({ ...w, plan: { ...w.plan, keepRoute: 'yes' } })).toBeNull();
+  });
+
+  it('keep a segment closed by a change to the clock, and the change itself (B-19)', () => {
+    const w = aWalk();
+    const changed = { ...w, clockChangedAt: T + 300_000, segments: [{ ...w.segments[0], endedBy: 'clockChange' as const }, w.segments[1]] };
+    expect(parseWalk(JSON.parse(JSON.stringify(changed)))).toEqual(changed);
+    expect(parseWalk({ ...changed, clockChangedAt: 'then' })).toBeNull();
+  });
+
+  it('keep a segment closed by a change of time zone, so a reload after one keeps the walk (H6-10)', () => {
+    const w = aWalk();
+    const moved = { ...w, segments: [{ ...w.segments[0], endedBy: 'timeZone' as const }, { ...w.segments[1], offsetMin: 390 }] };
+    expect(parseWalk(JSON.parse(JSON.stringify(moved)))).toEqual(moved);
+  });
+
+  it('keep the readings a change to the clock left untimed, and only with the change (B-19, H6-02)', () => {
+    const w = aWalk();
+    const changed = { ...w, clockChangedAt: T + 300_000, untimedReadings: ['g:2026-10-08T12:50:00.000Z:140mg/dL'] };
+    expect(parseWalk(JSON.parse(JSON.stringify(changed)))?.untimedReadings).toEqual(changed.untimedReadings);
+    expect(parseWalk({ ...w, untimedReadings: ['g:x'] })).toBeNull();
+    expect(parseWalk({ ...changed, untimedReadings: [3] })).toBeNull();
+    expect(parseWalk({ ...changed, untimedReadings: 'g:x' })).toBeNull();
+  });
+
+  it('keep that a change to the clock is still to be stored by the device, and only with the change (H6F-03, board D189)', () => {
+    const w = aWalk();
+    const unkept = { ...w, clockChangedAt: T + 300_000, clockUnkept: true as const };
+    expect(parseWalk(JSON.parse(JSON.stringify(unkept)))?.clockUnkept).toBe(true);
+    expect(parseWalk({ ...w, clockUnkept: true })).toBeNull();
+    expect(parseWalk({ ...unkept, clockUnkept: 'yes' })).toBeNull();
   });
 });

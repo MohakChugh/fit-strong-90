@@ -1,10 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
-import type { CheckInRecord, Readiness } from '@/types/checkin';
-import type { WorkoutSession } from '@/types';
+import type { CheckInRecord, DailyCheckIn, Readiness } from '@/types/checkin';
+import { evaluateCheckIn, glucoseReadingId, STOP_UNANSWERED } from '@/engine/readiness';
+import { permission, PERMISSION_TEXT } from '@/engine/permission';
+import { effectiveCheckIns } from '@/components/checkin/pending';
+import { carryForward } from '@/components/checkin/form';
+import type { UserSettings, WorkoutSession } from '@/types';
 import { newObservation, type Observation } from '@/health/observation';
+import { routeRecord, type RouteLine } from '@/walk/routeRecord';
 import { doc, openDb, type Db } from './db';
 import { fakeIndexedDB } from './fakeIdb';
+import { SCHEMA_VERSION } from './migrate';
+import type { StoredRecord } from './records';
+import { commitChange, emptySnapshot, prepare } from './snapshot';
 import {
   TRANSFER_FORMAT,
   applyImport,
@@ -14,7 +22,12 @@ import {
   deliveryMethod,
   encode,
   planImport,
+  openIncidents,
   previewImport,
+  toTransferDoc,
+  wholeness,
+  withDeviceConsent,
+  type TransferDoc,
 } from './transfer';
 
 const readiness: Readiness = {
@@ -44,7 +57,8 @@ async function seeded(options: Parameters<typeof fakeIndexedDB>[0] = {}): Promis
   await db.put('observations', [glucose('g1', '2026-10-01', 132), glucose('g2', '2026-10-05', 118), steps('s1', '2026-10-01', 8100)]);
   await db.put('sessions', [session]);
   await db.put('settings', [
-    doc('schemaVersion', 5),
+    // A device running this build: its start stamps the current schema.
+    doc('schemaVersion', SCHEMA_VERSION),
     doc('settings', { theme: 'dark', defaultRestSeconds: 90 }),
     doc('profile', createDefaultProfile({ weightKg: 82 })),
     doc('checkIns', [checkIn]),
@@ -67,7 +81,8 @@ async function dump(db: Db) {
   return {
     observations: unstamped(await db.getAll<{ id: string; seq?: number }>('observations')).sort(byId),
     sessions: (await db.getAll<{ id: string }>('sessions')).sort(byId),
-    settings: (await db.getAll<{ key: string }>('settings')).filter(row => row.key !== 'revision').sort(byKey),
+    // The device's own bookkeeping: how many writes, and how many times the whole record was replaced here (H5R-09).
+    settings: (await db.getAll<{ key: string }>('settings')).filter(row => row.key !== 'revision' && row.key !== 'generation').sort(byKey),
     content: (await db.getAll<{ key: string }>('content-state')).sort(byKey),
   };
 }
@@ -81,7 +96,7 @@ describe('collect', () => {
 
     const exported = result.value;
     expect(exported.format).toBe(TRANSFER_FORMAT);
-    expect(exported.schemaVersion).toBe(5);
+    expect(exported.schemaVersion).toBe(SCHEMA_VERSION);
     expect(exported.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(Z|[+-]\d{2}:\d{2})$/);
     expect(exported.observations.map(o => o.id)).toEqual(['g1', 's1', 'g2']);
     expect(exported.sessions).toEqual([session]);
@@ -118,7 +133,10 @@ describe('encode and decode', () => {
     expect(file.name).toMatch(/^fit-strong-health-record-\d{4}-\d{2}-\d{2}\.json\.gz$/);
     expect([file.bytes[0], file.bytes[1]]).toEqual([0x1f, 0x8b]);
 
-    expect(await decode(file.bytes)).toEqual(collected.value);
+    // Every field comes back, and the manifest written with them says the file is whole (H4-02).
+    const { manifest, ...back } = await decode(file.bytes) as TransferDoc;
+    expect(back).toEqual(collected.value);
+    expect(wholeness({ ...back, manifest })).toBe('whole');
     db.close();
   });
 
@@ -251,7 +269,7 @@ describe('applyImport', () => {
     // one missing fields (review F22).
     expect(await db.get('settings', 'profile')).toMatchObject({ value: { weightKg: 70 } });
     expect(await db.get<{ value: { trainingDays: unknown[] } }>('settings', 'profile')).toMatchObject({ value: { trainingDays: expect.any(Array) } });
-    expect(await db.get('settings', 'schemaVersion')).toEqual(doc('schemaVersion', 5));
+    expect(await db.get('settings', 'schemaVersion')).toEqual(doc('schemaVersion', SCHEMA_VERSION));
     expect(await db.get('settings', 'focusOverrides')).toEqual(doc('focusOverrides', { '2026-10-09': 'upperA' }));
     db.close();
   });
@@ -478,7 +496,8 @@ describe('applyImport', () => {
     const db = await seeded();
     const before = await dump(db);
     const at = (time: string) => `2026-10-09T${time}:00+05:30`;
-    const day = (readings: { sys: number; dia: number; at?: string }[], completion: object, half: object = { sys: 190, at: at('09:10') }) => ({ ...incoming,
+    // Without the shared file's 999 mg/dL: once imported, it is an open incident here, and a Replace then keeps this device's copy of the day (H6-03).
+    const day = (readings: { sys: number; dia: number; at?: string }[], completion: object, half: object = { sys: 190, at: at('09:10') }) => ({ ...incoming, observations: [],
       checkIns: [{ ...checkIn, date: '2026-10-09', bpReadings: readings, bp: { sys: readings[0].sys, dia: readings[0].dia }, bpPartial: [{ ...half, completion }] }] });
     const notHeld = 'a blood pressure number linked to a reading the day does not hold';
     const otherNumbers = 'a blood pressure number linked to a reading without that number';
@@ -512,7 +531,7 @@ describe('applyImport', () => {
       day([{ sys: 190, dia: 100, at: at('09:10') }], { sys: 190, dia: 100, at: at('09:10') }),
       day([{ sys: 150, dia: 125, at: at('09:12') }], { sys: 150, dia: 125, at: at('09:12') }, { dia: 125, at: at('09:10') }),
       day([{ sys: 190, dia: 100, at: at('09:12') }], completion, { sys: 190 }),
-      { ...incoming, checkIns: [{ ...checkIn, date: '2026-10-09', bp: completion, bpPartial: [{ sys: 190, at: at('09:10'), completion }] }] },
+      { ...incoming, observations: [], checkIns: [{ ...checkIn, date: '2026-10-09', bp: completion, bpPartial: [{ sys: 190, at: at('09:10'), completion }] }] },
     ]) {
       expect(previewImport(raw)).toMatchObject({ ok: true, checkIns: 1, rejected: { checkIns: 0 } });
       for (const mode of ['replace', 'merge'] as const) {
@@ -646,3 +665,608 @@ function fakeDocument(clicks: string[]): Document {
     },
   } as unknown as Document;
 }
+
+describe('v2 record stores in a backup (Plan 6 Task 1)', () => {
+  const LINE: RouteLine = { start: 1_760_000_000_000, end: 1_760_000_020_000, coords: [[12.97, 77.59], [12.9705, 77.5902], [12.971, 77.5905]], ms: [0, 10_000, 20_000] };
+  const route = (walkId: string, shift = 0): StoredRecord => routeRecord(walkId, '2026-10-08T09:00:00.000+05:30',
+    [{ ...LINE, coords: LINE.coords.map(([a, b]): [number, number] => [a + shift, b]) }])! as unknown as StoredRecord;
+  const file = (over: Partial<TransferDoc> = {}) => ({ ...toTransferDoc(emptySnapshot()), ...over });
+  const withRoutes = (...routes: StoredRecord[]) => file({ stores: ['routes'], records: { routes } });
+  /** A phone that said Yes to keeping routes: the only kind that takes a file's (H6-05). */
+  const yes = prepare(emptySnapshot(), { settings: { patch: { walk: { saveRoutes: true, map: 'off' } } } }).next;
+  const holding = (...routes: StoredRecord[]) => prepare(yes, { records: { routes: { put: routes } } }).next;
+  const south = (r: StoredRecord) => (r.bbox as number[])[0];
+
+  it('leaves routes out unless they are included, and lists the stores it holds', () => {
+    const snap = holding(route('walk-aaaa'));
+    expect(toTransferDoc(snap).stores).toEqual(['meals', 'savedMeals', 'customFoods']);
+    expect(toTransferDoc(snap).records?.routes).toBeUndefined();
+    expect(toTransferDoc(snap, undefined, { include: ['routes'] }).records?.routes).toHaveLength(1);
+  });
+
+  it('never leaves out a store every backup holds when routes are included, and holds exactly the stores it lists', () => {
+    const snap = holding(route('walk-aaaa'));
+    for (const doc of [toTransferDoc(snap), toTransferDoc(snap, undefined, { include: ['routes'] })]) {
+      expect(Object.keys(doc.records ?? {})).toEqual(doc.stores);
+    }
+    expect(toTransferDoc(snap, undefined, { include: ['routes'] }).stores).toEqual(['routes', 'meals', 'savedMeals', 'customFoods']);
+  });
+
+  it('never carries the walk journal: it is recovery state, not the record', async () => {
+    const db = await openDb(fakeIndexedDB());
+    const written = await commitChange(db, undefined, () => ({
+      change: { records: { routes: { put: [route('walk-aaaa')] } }, journal: { put: [{ id: 'walk-aaaa', marker: 'journal-only' } as { id: string }] } },
+    }));
+    expect(written.ok).toBe(true);
+    expect(await db.getAll('walkJournal')).toHaveLength(1);
+    const collected = await collect(db, { include: ['routes'] });
+    if (!collected.ok) return expect.unreachable('collect failed');
+    expect(collected.value.records?.routes).toHaveLength(1);
+    expect(JSON.stringify(collected.value)).not.toMatch(/walkJournal|journal-only/);
+    db.close();
+  });
+
+  it('restores routes exactly with Replace', () => {
+    const plan = planImport(withRoutes(route('walk-aaaa')), 'replace', yes);
+    expect(prepare(yes, plan.change).next.records.routes).toEqual([route('walk-aaaa')]);
+    expect(plan.report.records).toEqual({ routes: 1 });
+  });
+
+  it('merges by walk: a new route is added, and a different copy is a conflict that keeps this phone’s unless told', () => {
+    const here = holding(route('walk-aaaa'));
+    const plan = planImport(withRoutes(route('walk-aaaa', 0.01), route('walk-bbbb')), 'merge', here);
+    expect(plan.report.conflicts?.routes).toBe(1);
+    const merged = prepare(here, plan.change).next.records.routes;
+    expect(merged.map(r => r.walkId)).toEqual(['walk-aaaa', 'walk-bbbb']);
+    expect(south(merged[0])).toBe(12.97);
+    const taken = prepare(here, planImport(withRoutes(route('walk-aaaa', 0.01)), 'merge', here, { onConflict: 'takeFile' }).change).next.records.routes;
+    expect(south(taken[0])).toBeCloseTo(12.98, 9);
+  });
+
+  it('never brings back a route deleted here, learns the file’s deletions, and never lets one remove a route held here', () => {
+    const deleted = prepare(holding(route('walk-aaaa')), { records: { routes: { remove: ['walk-aaaa'] } } }).next;
+    expect(prepare(deleted, planImport(withRoutes(route('walk-aaaa')), 'merge', deleted).change).next.records.routes).toEqual([]);
+    expect(previewImport(withRoutes(route('walk-aaaa')), deleted)).toMatchObject({ ok: true, deletedHere: 1 });
+    const told = file({ settings: { deleted: { records: { routes: ['walk-cccc'] } } } as UserSettings });
+    expect(prepare(deleted, planImport(told, 'merge', deleted).change).next.settings?.deleted?.records?.routes).toEqual(['walk-aaaa', 'walk-cccc']);
+    const kept = holding(route('walk-dddd'));
+    const deleting = file({ settings: { deleted: { records: { routes: ['walk-dddd'] } } } as UserSettings });
+    expect(prepare(kept, planImport(deleting, 'merge', kept).change).next.records.routes).toHaveLength(1);
+    // Nor is a route held here learned as deleted, on a phone with settings of its own.
+    const set = prepare(kept, { settings: { patch: { theme: 'light' } } }).next;
+    const merged = prepare(set, planImport(deleting, 'merge', set).change).next;
+    expect(merged.records.routes).toHaveLength(1);
+    expect(merged.settings?.deleted?.records?.routes ?? []).not.toContain('walk-dddd');
+  });
+
+  it('keeps every deletion this phone remembers when a merge teaches it others', () => {
+    const deleted = prepare(holding(route('walk-aaaa')), { records: { routes: { remove: ['walk-aaaa'] } } }).next;
+    const teaching = file({ settings: { deleted: { observations: ['g-old'] } } as UserSettings });
+    const merged = prepare(deleted, planImport(teaching, 'merge', deleted).change).next;
+    expect(merged.settings?.deleted).toMatchObject({ observations: ['g-old'], records: { routes: ['walk-aaaa'] } });
+    expect(prepare(merged, planImport(withRoutes(route('walk-aaaa')), 'merge', merged).change).next.records.routes).toEqual([]);
+  });
+
+  it('counts a file holding only routes as something to restore', () => {
+    expect(previewImport(withRoutes(route('walk-aaaa')))).toMatchObject({ ok: true, isEmpty: false, records: { routes: 1 } });
+    expect(previewImport(file())).toMatchObject({ ok: true, isEmpty: true });
+  });
+
+  it('refuses a damaged route unless asked to import the rest', () => {
+    const damaged = withRoutes(route('walk-aaaa'), { ...route('walk-bbbb'), bbox: [0, 0, 1, 1] });
+    expect(previewImport(damaged)).toMatchObject({ ok: true, rejected: { routes: 1 } });
+    expect(() => planImport(damaged, 'merge', yes)).toThrow(/could not be read/);
+    const rest = planImport(damaged, 'merge', yes, { allowRejected: true });
+    expect(prepare(yes, rest.change).next.records.routes.map(r => r.walkId)).toEqual(['walk-aaaa']);
+  });
+
+  it('keeps the first of two routes for one walk in a file, and refuses the second', () => {
+    const twice = withRoutes(route('walk-aaaa'), route('walk-aaaa', 0.01));
+    expect(previewImport(twice)).toMatchObject({ ok: true, records: { routes: 1 }, rejected: { routes: 1 } });
+    const rest = planImport(twice, 'replace', yes, { allowRejected: true });
+    expect(prepare(yes, rest.change).next.records.routes.map(south)).toEqual([12.97]);
+  });
+
+  it('refuses a store this build does not know, and more routes than a lifetime holds, before reading them', () => {
+    expect(previewImport(file({ stores: ['routes', 'diaries'] as never }))).toMatchObject({ ok: false, reason: expect.stringMatching(/cannot read/) });
+    const huge = withRoutes(...Array.from({ length: 100_001 }, () => ({}) as StoredRecord));
+    expect(previewImport(huge)).toMatchObject({ ok: false, reason: expect.stringMatching(/holds 1,00,001 walk routes/) });
+  });
+
+  it('refuses a file whose records are damaged rather than reading a named store as empty', () => {
+    expect(previewImport(file({ stores: ['routes'], records: {} }))).toMatchObject({ ok: false, reason: expect.stringMatching(/walk routes are not a list/) });
+    expect(previewImport(file({ stores: ['routes'], records: 'damaged' as never }))).toMatchObject({ ok: false, reason: expect.stringMatching(/records are not readable/) });
+    expect(previewImport(file({ stores: 'routes' as never }))).toMatchObject({ ok: false, reason: expect.stringMatching(/cannot read/) });
+  });
+
+  it('adds no routes to a phone that said No to keeping them, and says so first (Review Focus 4)', () => {
+    const no = prepare(emptySnapshot(), { settings: { patch: { walk: { saveRoutes: false, map: 'off' } } } }).next;
+    expect(previewImport(withRoutes(route('walk-aaaa')), no)).toMatchObject({ ok: true, records: { routes: 1 }, refusedStores: ['routes'] });
+    expect(prepare(no, planImport(withRoutes(route('walk-aaaa')), 'merge', no).change).next.records.routes).toEqual([]);
+    const replaced = planImport(withRoutes(route('walk-aaaa')), 'replace', no);
+    expect(prepare(no, replaced.change).next.records.routes).toEqual([]);
+    // What was written, not what the file held.
+    expect(replaced.report.records).toEqual({});
+  });
+
+  for (const [what, base] of [
+    ['a phone not asked yet', prepare(emptySnapshot(), { settings: { patch: { walk: { saveRoutes: 'unasked', map: 'unasked' } } } }).next],
+    ['a phone with no answers at all', emptySnapshot()],
+  ] as const) {
+    it(`adds no routes to ${what}, and says so first (H6-05, B-26)`, () => {
+      expect(previewImport(withRoutes(route('walk-aaaa')), base)).toMatchObject({ ok: true, records: { routes: 1 }, refusedStores: ['routes'] });
+      expect(prepare(base, planImport(withRoutes(route('walk-aaaa')), 'merge', base).change).next.records.routes).toEqual([]);
+      expect(prepare(base, planImport(withRoutes(route('walk-aaaa')), 'replace', base).change).next.records.routes).toEqual([]);
+    });
+  }
+
+  it('keeps erased routes erased: a file’s route this phone’s erase erased is left out, by its walk, and the preview counts it (B-05, H6R-08)', () => {
+    const erased = prepare(emptySnapshot(), { settings: { patch: { walk: { saveRoutes: true, map: 'off', erased: { generation: 1, walks: ['walk-aaaa'] } } } } }).next;
+    // Its clock says it began after any erase: the phone's clock was set back before it erased (H6R-08).
+    const before = { ...route('walk-aaaa'), startedAt: '2030-01-01T12:00:00.000+05:30' };
+    const after = { ...route('walk-bbbb'), startedAt: '2026-10-08T11:00:00.000+05:30' };
+    const both = withRoutes(before, after);
+    expect(previewImport(both, erased)).toMatchObject({ ok: true, records: { routes: 2 }, refusedStores: [], refusedRecords: { routes: 1 } });
+    for (const mode of ['merge', 'replace'] as const) {
+      const plan = planImport(both, mode, erased);
+      expect(prepare(erased, plan.change).next.records.routes.map(r => r.walkId)).toEqual(['walk-bbbb']);
+      expect(plan.report.records).toEqual({ routes: 1 });
+    }
+  });
+
+  it('says before a Replace that this phone’s routes will go, when the file has none (Review Focus 4)', () => {
+    const here = holding(route('walk-aaaa'), route('walk-bbbb'));
+    expect(previewImport(file(), here)).toMatchObject({ ok: true, replaceRemoves: { routes: 2 } });
+    expect(prepare(here, planImport(file(), 'replace', here).change).next.records.routes).toEqual([]);
+  });
+
+  it('keeps the routes this phone deleted deleted, with the file’s, whether or not the file has settings (H6F-07, board D210)', () => {
+    const device = { theme: 'light', walk: { saveRoutes: true, map: 'off' }, deleted: { records: { routes: ['walk-here'] } } } as UserSettings;
+    const theirs = { theme: 'dark', deleted: { observations: ['g-1'], records: { routes: ['walk-there'] } } } as UserSettings;
+    expect(withDeviceConsent(theirs, device)?.deleted).toEqual({ observations: ['g-1'], records: { routes: ['walk-there', 'walk-here'] } });
+    expect(withDeviceConsent(undefined, device)).toEqual({ walk: device.walk, deleted: { records: { routes: ['walk-here'] } } });
+    expect(withDeviceConsent(undefined, { deleted: { records: { routes: ['walk-here'] } } } as UserSettings)).toEqual({ deleted: { records: { routes: ['walk-here'] } } });
+    expect(withDeviceConsent(undefined, { theme: 'light' } as UserSettings)).toBeUndefined();
+  });
+
+  it('never switches map pictures or route keeping on from a file (B-26)', () => {
+    const theirs = { theme: 'dark', walk: { saveRoutes: true, map: 'on', stepCardSeen: true } } as UserSettings;
+    expect(withDeviceConsent(theirs, { walk: { saveRoutes: false, map: 'off' } } as UserSettings)?.walk).toEqual({ saveRoutes: false, map: 'off' });
+    expect(withDeviceConsent(theirs, undefined)?.walk).toEqual({ saveRoutes: 'unasked', map: 'unasked', stepCardSeen: true });
+    const replaced = prepare(emptySnapshot(), planImport(file({ settings: theirs }), 'replace', emptySnapshot()).change).next;
+    expect(replaced.settings?.walk).toEqual({ saveRoutes: 'unasked', map: 'unasked', stepCardSeen: true });
+    // A new phone set up by a merge asks too.
+    const merged = prepare(emptySnapshot(), planImport(file({ settings: theirs }), 'merge', emptySnapshot()).change).next;
+    expect(merged.settings).toMatchObject({ theme: 'dark', walk: { saveRoutes: 'unasked', map: 'unasked', stepCardSeen: true } });
+  });
+
+  it('keeps this phone’s own answers through a Replace and a merge, whatever the file holds (B-26)', () => {
+    const mine = prepare(emptySnapshot(), { settings: { patch: { theme: 'light', walk: { saveRoutes: false, map: 'off' } } } }).next;
+    const theirs = { theme: 'dark', walk: { saveRoutes: true, map: 'on' } } as UserSettings;
+    for (const over of [{ settings: theirs }, { settings: undefined }]) {
+      const replaced = prepare(mine, planImport(file(over), 'replace', mine).change).next;
+      expect(replaced.settings?.walk).toEqual({ saveRoutes: false, map: 'off' });
+    }
+    expect(prepare(mine, planImport(file({ settings: theirs }), 'merge', mine).change).next.settings?.walk).toEqual({ saveRoutes: false, map: 'off' });
+  });
+
+  it('refuses a food record it can’t read', () => {
+    expect(previewImport(file({ stores: ['meals'], records: { meals: [{ id: 'm1' }] } }))).toMatchObject({ ok: true, rejected: { meals: 1 } });
+  });
+});
+
+describe('Replace keeps this device’s open incidents (journey §4.6, H6-03)', () => {
+  const profile = createDefaultProfile({
+    weightKg: 72,
+    health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
+  });
+  const DAY = '2026-10-08';
+  const at = (h: number, m: number) => new Date(2026, 9, 8, h, m).toISOString();
+  const NOW = new Date(2026, 9, 8, 13, 40);
+  const day = (over: Partial<DailyCheckIn> = {}): CheckInRecord => {
+    const c: DailyCheckIn = { date: DAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over };
+    return { ...c, readiness: evaluateCheckIn(profile, c) };
+  };
+  /** The backup, made at 13:20: a normal reading at 13:15, recent enough to walk on. */
+  const backup = toTransferDoc({
+    ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings,
+    checkIns: [day({ glucose: { value: 110, unit: 'mg/dL', measuredAt: at(13, 15), source: 'meter' } })],
+  }, '2026-10-08T13:20:00.000+05:30');
+  /** The device after the backup was made: the same morning, then what happened at 13:30. */
+  const device = (later: Partial<DailyCheckIn>, observations: Observation[] = []) => ({
+    ...emptySnapshot(3), profile, settings: { theme: 'dark' } as UserSettings, observations,
+    checkIns: [day({ glucose: { value: 110, unit: 'mg/dL', measuredAt: at(13, 15), source: 'meter' }, ...later })],
+  });
+  /** What the gate says about a walk now, on the record Replace leaves: the real engine, Track's readings attached. */
+  const walkAfter = (base: ReturnType<typeof device>) => {
+    const next = prepare(base, planImport(backup, 'replace', base, { now: NOW }).change).next;
+    const all = effectiveCheckIns(next.checkIns, next.profile ?? profile, next.observations);
+    return permission({ profile: next.profile ?? profile, checkIn: all.find(c => c.date === DAY), recent: all, now: NOW }, 'walk');
+  };
+  const low60 = { value: 60, unit: 'mg/dL' as const, measuredAt: at(13, 30), source: 'meter' as const };
+
+  it('lets the file decide when this device holds nothing open', () => {
+    expect(walkAfter(device({})).allowed).toBe(true);
+  });
+
+  const incidents: [string, Partial<DailyCheckIn>, Observation[]?][] = [
+    ['a low reading, not re-checked yet', { glucose: low60, glucoseEarlier: [{ value: 110, unit: 'mg/dL', measuredAt: at(13, 15), source: 'meter' }] }],
+    ['“I feel low”, with no reading since', { news: ['lowSymptoms'], lowSymptomsAt: at(13, 30) }],
+    ['an emergency answer', { urgentSymptoms: true, emergency: ['chest'] }],
+    ['a stop not yet answered', { news: ['stopped'] }],
+    ['a red flag: new weakness in a leg', { back: { newWeakness: true, newNeuro: true } }],
+    ['a low logged in Track', {}, [newObservation({ id: 'track-low', kind: 'glucose', value: 60, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: at(13, 30) })]],
+  ];
+  it('keeps nothing of a day that held only on its own day', () => {
+    const yesterday = { ...day({ news: ['dizzy'] }), date: '2026-10-07' };
+    const base = { ...device({}), checkIns: [yesterday] };
+    expect(openIncidents(base, NOW)).toMatchObject({ checkIns: [], observations: [] });
+    const next = prepare(base, planImport(backup, 'replace', base, { now: NOW }).change).next;
+    expect(next.checkIns.map(c => c.date)).toEqual([DAY]);
+  });
+
+  it('never lets the file’s answer settle what this device holds open, and keeps what the file adds', () => {
+    // This device: a severe low at 13:30, unanswered. The file: the same reading, answered as a typing mistake, and chest pain.
+    const severe = { value: 40, unit: 'mg/dL' as const, measuredAt: at(13, 30), source: 'meter' as const, unitConfirmed: true };
+    const base = device({ glucose: severe });
+    const answered = toTransferDoc({
+      ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings,
+      checkIns: [day({
+        glucose: severe, urgentSymptoms: true, emergency: ['chest'],
+        resolutions: [{ kind: 'severeLow', readings: [glucoseReadingId(severe, DAY)], resolution: 'mistake', at: at(13, 35) }],
+      })],
+    }, '2026-10-08T13:36:00.000+05:30');
+    const next = prepare(base, planImport(answered, 'replace', base, { now: NOW }).change).next;
+    const today = next.checkIns.find(c => c.date === DAY)!;
+    expect(today.resolutions ?? []).toEqual([]);
+    // The low still counts as the low it is: the file's "mistake" settles nothing here.
+    expect(evaluateCheckIn(profile, today).reasons.map(r => r.code)).toContain('severeLow');
+    expect(today.emergency).toEqual(['chest']);
+    const after = permission({ profile, checkIn: today, recent: next.checkIns, now: NOW }, 'walk');
+    expect(after.disposition).toBe('emergency');
+  });
+
+  it('keeps the readings an incident’s release depends on, and only on its days', () => {
+    const trackLow = newObservation({ id: 'track-low', kind: 'glucose', value: 60, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: at(13, 30) });
+    const old = newObservation({ id: 'track-old', kind: 'glucose', value: 90, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: '2026-10-01T08:00:00.000+05:30' });
+    const steps1 = newObservation({ id: 'steps-today', kind: 'steps', value: 900, unit: 'steps', scope: 'dayTotal', source: 'manual', at: at(12, 0) });
+    const base = device({}, [old, trackLow, steps1]);
+    const open = openIncidents(base, NOW);
+    expect(open.observations.map(o => o.id)).toEqual(['track-low']);
+    const next = prepare(base, planImport(backup, 'replace', base, { now: NOW }).change).next;
+    expect(next.observations.map(o => o.id)).toEqual(['track-low']);
+  });
+
+  it('keeps a low logged in Track on a day with no check-in of its own here', () => {
+    const trackLow = newObservation({ id: 'track-low', kind: 'glucose', value: 60, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: at(13, 30) });
+    const base = { ...device({}, [trackLow]), checkIns: [] };
+    expect(openIncidents(base, NOW).observations.map(o => o.id)).toEqual(['track-low']);
+    // The reading is kept, never a made-up check-in for its day.
+    expect(openIncidents(base, NOW).checkIns).toEqual([]);
+    expect(walkAfter(base).allowed).toBe(false);
+  });
+
+  for (const [what, later, observations] of incidents) {
+    it(`keeps ${what}: the older file’s recent normal reading does not release it`, () => {
+      const before = device(later, observations);
+      const all = effectiveCheckIns(before.checkIns, profile, before.observations);
+      const was = permission({ profile, checkIn: all.find(c => c.date === DAY), recent: all, now: NOW }, 'walk');
+      expect(was.allowed).toBe(false);
+      const after = walkAfter(before);
+      expect(after.allowed).toBe(false);
+      expect(after.disposition).toBe(was.disposition);
+    });
+  }
+});
+
+describe('no import resolves or reopens this device’s incidents, in any mode (journey §4.6, H6-03, P8-02)', () => {
+  const profile = createDefaultProfile({
+    weightKg: 72,
+    health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
+  });
+  const TODAY = '2026-10-08';
+  const NOW = new Date(2026, 9, 8, 13, 40);
+  const at = (date: string, h: number, m = 0) => { const [y, mo, d] = date.split('-').map(Number); return new Date(y, mo - 1, d, h, m).toISOString(); };
+  const record = (date: string, over: Partial<DailyCheckIn> = {}): CheckInRecord => {
+    const c: DailyCheckIn = { date, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over };
+    return { ...c, readiness: evaluateCheckIn(profile, c) };
+  };
+  const fresh = (date: string, h: number, m = 0) => ({ glucose: { value: 110, unit: 'mg/dL' as const, measuredAt: at(date, h, m), source: 'meter' as const } });
+  const snapshot = (checkIns: CheckInRecord[]) => ({ ...emptySnapshot(3), profile, settings: { theme: 'dark' } as UserSettings, checkIns });
+  const file = (checkIns: CheckInRecord[], exportedAt: string) =>
+    toTransferDoc({ ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings, checkIns }, exportedAt);
+  const MODES = [
+    ['Replace', 'replace', undefined],
+    ['Merge, keeping this device’s', 'merge', 'keepDevice'],
+    ['Merge, taking the file’s', 'merge', 'takeFile'],
+  ] as const;
+  /** The walk's answer now, from the real engine, on the record an import leaves. */
+  const walkAfter = (base: ReturnType<typeof snapshot>, raw: TransferDoc, mode: 'replace' | 'merge', onConflict?: 'keepDevice' | 'takeFile') => {
+    const next = prepare(base, planImport(raw, mode, base, { now: NOW, ...(onConflict ? { onConflict } : {}) }).change).next;
+    const all = effectiveCheckIns(next.checkIns, next.profile ?? profile, next.observations);
+    return permission({ profile: next.profile ?? profile, checkIn: all.find(c => c.date === TODAY), recent: all, now: NOW }, 'walk');
+  };
+  const before = (base: ReturnType<typeof snapshot>) => permission({ profile, checkIn: base.checkIns.find(c => c.date === TODAY), recent: base.checkIns, now: NOW }, 'walk');
+
+  // A stop at 13:30, not answered yet; the file, from 13:20, holds the same morning without it.
+  const stopped = snapshot([record(TODAY, { ...fresh(TODAY, 13, 15), news: ['stopped'] })]);
+  const healthy = file([record(TODAY, fresh(TODAY, 13, 15))], '2026-10-08T13:20:00.000+05:30');
+
+  // 600 mg/dL on the 5th; the backup was made just after it, before it was answered as a typing mistake.
+  const g600 = { value: 600, unit: 'mg/dL' as const, measuredAt: at('2026-10-05', 8), source: 'meter' as const };
+  const mistake = { kind: 'extremeGlucose' as const, readings: [glucoseReadingId(g600, '2026-10-05')], resolution: 'mistake' as const, at: at('2026-10-05', 8, 10) };
+  const typedWrongly = snapshot([record('2026-10-05', { glucose: g600, resolutions: [mistake] }), record(TODAY, fresh(TODAY, 13, 15))]);
+  const unanswered = file([record('2026-10-05', { glucose: g600 })], '2026-10-05T08:05:00.000+05:30');
+
+  // 600 mg/dL on the 5th, answered on the 7th as dealt with at the time; the backup is from the 6th.
+  const dealtWith = { ...mistake, resolution: 'resolved' as const, at: at('2026-10-07', 9) };
+  const answeredLater = snapshot([record('2026-10-05', { glucose: g600 }), record('2026-10-07', { ...fresh('2026-10-07', 9), resolutions: [dealtWith] }), record(TODAY, fresh(TODAY, 13, 15))]);
+  const sixth = file([record('2026-10-05', { glucose: g600 }), record('2026-10-06', fresh('2026-10-06', 9))], '2026-10-06T10:00:00.000+05:30');
+
+  for (const [name, mode, onConflict] of MODES) {
+    it(`${name}: the open stop still holds`, () => {
+      expect(before(stopped).allowed).toBe(false);
+      const after = walkAfter(stopped, healthy, mode, onConflict);
+      expect(after).toMatchObject({ allowed: false, disposition: 'hold' });
+      expect(after.reasons.join(' ')).toContain(STOP_UNANSWERED.reason);
+    });
+
+    for (const [what, base, raw] of [['typed wrongly, answered on its day', typedWrongly, unanswered], ['dealt with at the time, answered two days on', answeredLater, sixth]] as const) {
+      it(`${name}: a 600 mg/dL ${what}, stays resolved`, () => {
+        expect(before(base).allowed).toBe(true);
+        const after = walkAfter(base, raw, mode, onConflict);
+        expect(after.allowed, after.reasons.join(' ')).toBe(true);
+        expect(after.reasons.join(' ')).not.toMatch(/600 mg\/dL|emergency assessment/);
+      });
+    }
+  }
+
+  it('keeps a low logged in Track as this device holds it, whatever correction the file holds under its id', () => {
+    const low = newObservation({ id: 'track-low', kind: 'glucose', value: 60, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: at(TODAY, 13, 30) });
+    const base = { ...snapshot([record(TODAY, fresh(TODAY, 13, 15))]), observations: [low] };
+    const corrected = toTransferDoc({
+      ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings,
+      observations: [{ ...low, value: 160, editedAt: '2026-10-08T13:38:00.000+05:30' }], checkIns: [record(TODAY, fresh(TODAY, 13, 15))],
+    }, '2026-10-08T13:39:00.000+05:30');
+    expect(before({ ...base, checkIns: effectiveCheckIns(base.checkIns, profile, base.observations) }).allowed).toBe(false);
+    for (const [name, mode, onConflict] of MODES) {
+      const next = prepare(base, planImport(corrected, mode, base, { now: NOW, ...(onConflict ? { onConflict } : {}) }).change).next;
+      expect(next.observations.find(o => o.id === 'track-low')?.value, name).toBe(60);
+      expect(walkAfter(base, corrected, mode, onConflict).allowed, name).toBe(false);
+    }
+  });
+
+  it('knows a reading by its time and value: the file’s copy of an answered one, under a fresh id, stays answered', () => {
+    const g = newObservation({ id: 'track-600', kind: 'glucose', value: 600, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: at('2026-10-05', 8) });
+    const answer = { kind: 'extremeGlucose' as const, readings: [glucoseReadingId({ value: 600, unit: 'mg/dL', measuredAt: g.at, source: 'meter' }, '2026-10-05')], resolution: 'mistake' as const, at: at('2026-10-06', 9) };
+    const base = { ...snapshot([record('2026-10-06', { ...fresh('2026-10-06', 9), resolutions: [answer] }), record(TODAY, fresh(TODAY, 13, 15))]), observations: [g] };
+    expect(before({ ...base, checkIns: effectiveCheckIns(base.checkIns, profile, base.observations) }).allowed).toBe(true);
+    const copy = toTransferDoc({
+      ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings, observations: [{ ...g, id: 'elsewhere-600' }],
+      checkIns: [record(TODAY, fresh(TODAY, 13, 15))],
+    }, '2026-10-08T13:39:00.000+05:30');
+    for (const [name, mode, onConflict] of MODES) {
+      const after = walkAfter(base, copy, mode, onConflict);
+      expect(after.allowed, `${name}: ${after.reasons.join(' ')}`).toBe(true);
+    }
+  });
+
+  it('drops the file’s answers about this device’s readings, either way, in any of its days: they neither settle nor reopen', () => {
+    // The file, from another device later on: the 600 reopened, on its own day and on a day this device doesn't hold.
+    const reopened = { ...mistake, resolution: 'reopened' as const, at: at(TODAY, 13, 35) };
+    for (const where of ['2026-10-05', '2026-10-06']) {
+      const other = file([
+        record('2026-10-05', { glucose: g600, ...(where === '2026-10-05' ? { resolutions: [reopened] } : {}) }),
+        ...(where === '2026-10-06' ? [record('2026-10-06', { ...fresh('2026-10-06', 9), resolutions: [reopened] })] : []),
+        record(TODAY, fresh(TODAY, 13, 15)),
+      ], '2026-10-08T13:36:00.000+05:30');
+      for (const [name, mode, onConflict] of MODES) {
+        expect(walkAfter(typedWrongly, other, mode, onConflict).allowed, `${name}, reopened on ${where}`).toBe(true);
+      }
+    }
+    // And the stop: the file's answer about it doesn't answer it here.
+    const said = { kind: 'news' as const, readings: [`news:stopped@${TODAY}`], resolution: 'mistake' as const, at: at(TODAY, 13, 35) };
+    const answeredStop = file([record(TODAY, { ...fresh(TODAY, 13, 15), resolutions: [said] })], '2026-10-08T13:36:00.000+05:30');
+    for (const [name, mode, onConflict] of MODES) {
+      expect(walkAfter(stopped, answeredStop, mode, onConflict).reasons.join(' '), name).toContain(STOP_UNANSWERED.reason);
+    }
+  });
+
+  it('lets no answer in the file settle a severe low logged in Track on a day with no check-in here', () => {
+    // Last night's severe low, logged in Track only: today's walk waits on an answer about it.
+    const low = newObservation({ id: 'track-low', kind: 'glucose', value: 40, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: at('2026-10-07', 21) });
+    const base = { ...snapshot([record(TODAY, fresh(TODAY, 13, 15))]), observations: [low] };
+    expect(before({ ...base, checkIns: effectiveCheckIns(base.checkIns, profile, base.observations) }).allowed).toBe(false);
+    const id = glucoseReadingId({ value: 40, unit: 'mg/dL', measuredAt: low.at, source: 'meter' }, '2026-10-07');
+    const typo = { kind: 'severeLow' as const, readings: [id], resolution: 'mistake' as const, at: at(TODAY, 13, 35) };
+    const answered = file([record(TODAY, { ...fresh(TODAY, 13, 15), resolutions: [typo] })], '2026-10-08T13:36:00.000+05:30');
+    for (const [name, mode, onConflict] of MODES) {
+      expect(walkAfter(base, answered, mode, onConflict).allowed, name).toBe(false);
+    }
+  });
+
+  it('keeps standing an answer about a reading this device no longer holds, when the file brings the reading back', () => {
+    // Answered on the 6th as a typing mistake, the reading itself gone from here; the file holds it, reopened later.
+    const base = snapshot([record('2026-10-06', { ...fresh('2026-10-06', 9), resolutions: [{ ...mistake, at: at('2026-10-06', 9) }] }), record(TODAY, fresh(TODAY, 13, 15))]);
+    const reopened = { ...mistake, resolution: 'reopened' as const, at: at(TODAY, 13, 35) };
+    const back = file([record('2026-10-05', { glucose: g600, resolutions: [reopened] }), record(TODAY, fresh(TODAY, 13, 15))], '2026-10-08T13:36:00.000+05:30');
+    expect(before(base).allowed).toBe(true);
+    for (const [name, mode, onConflict] of MODES) {
+      expect(walkAfter(base, back, mode, onConflict).allowed, name).toBe(true);
+    }
+  });
+});
+
+describe('an import keeps this device’s standing for each mode, and for each answer it gave (H6R-04, H6R-05, board D175)', () => {
+  const profile = createDefaultProfile({
+    weightKg: 72,
+    health: { diabetes: 'type2', metformin: true, glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
+  });
+  const TODAY = '2026-10-08';
+  const NOW = new Date(2026, 9, 8, 13, 40);
+  const at = (h: number, m = 0) => new Date(2026, 9, 8, h, m).toISOString();
+  const evaluated = (c: DailyCheckIn): CheckInRecord => ({ ...c, readiness: evaluateCheckIn(profile, c) });
+  const day = (over: Partial<DailyCheckIn> = {}): DailyCheckIn => ({ date: TODAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over });
+  const snapshot = (checkIns: CheckInRecord[]) => ({ ...emptySnapshot(3), profile, settings: { theme: 'dark' } as UserSettings, checkIns });
+  const file = (checkIns: CheckInRecord[]) => toTransferDoc({ ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings, checkIns }, '2026-10-08T13:20:00.000+05:30');
+  const MODES = [['Replace', 'replace', undefined], ['Merge, keeping this device’s', 'merge', 'keepDevice'], ['Merge, taking the file’s', 'merge', 'takeFile']] as const;
+  const after = (base: ReturnType<typeof snapshot>, raw: TransferDoc, mode: 'replace' | 'merge', onConflict?: 'keepDevice' | 'takeFile') => {
+    const next = prepare(base, planImport(raw, mode, base, { now: NOW, ...(onConflict ? { onConflict } : {}) }).change).next;
+    const all = effectiveCheckIns(next.checkIns, profile, next.observations);
+    return (m: 'walk' | 'stretch') => permission({ profile, checkIn: all.find(c => c.date === TODAY), recent: all, now: NOW }, m);
+  };
+
+  it('a foot sore said today, which refuses only walking, still refuses it after the file’s healthy copy of the day', () => {
+    const sore = snapshot([evaluated(day({ news: ['footProblem'] }))]);
+    const ask = (m: 'walk' | 'stretch') => permission({ profile, checkIn: sore.checkIns[0], recent: sore.checkIns, now: NOW }, m);
+    // Walking only: the day's own readiness is no hold.
+    expect(ask('walk').allowed).toBe(false);
+    expect(ask('stretch').allowed).toBe(true);
+    for (const [name, mode, onConflict] of MODES) {
+      const next = after(sore, file([evaluated(day())]), mode, onConflict);
+      expect(next('walk').allowed, name).toBe(false);
+      expect(next('walk').reasons.join(' '), name).toMatch(/foot/i);
+    }
+  });
+
+  it('walking that made the leg worse today still ends walking for the day after the file’s copy from before', () => {
+    const provoked = snapshot([evaluated(day({ provoked: ['brisk-walking'], back: { pain: 3, legPain: 4, reach: 'thigh' } }))]);
+    expect(permission({ profile, checkIn: provoked.checkIns[0], recent: provoked.checkIns, now: NOW }, 'walk').allowed).toBe(false);
+    for (const [name, mode, onConflict] of MODES) {
+      expect(after(provoked, file([evaluated(day({ back: { pain: 3, legPain: 4, reach: 'thigh' } }))]), mode, onConflict)('walk').allowed, name).toBe(false);
+    }
+  });
+
+  it('a foot sore this device answered as ticked by mistake stays answered, though the file still has it ticked', () => {
+    const mistake = { kind: 'foot' as const, readings: [`flag:footProblem@${TODAY}`], resolution: 'mistake' as const, at: at(13, 30) };
+    const answered = snapshot([evaluated({ ...carryForward(day({ news: ['footProblem'] }), day()), resolutions: [mistake] })]);
+    expect(permission({ profile, checkIn: answered.checkIns[0], recent: answered.checkIns, now: NOW }, 'walk').allowed).toBe(true);
+    for (const [name, mode, onConflict] of MODES) {
+      const next = after(answered, file([evaluated(day({ news: ['footProblem'] }))]), mode, onConflict);
+      expect(next('walk').allowed, `${name}: ${next('walk').reasons.join(' ')}`).toBe(true);
+    }
+  });
+
+  it('a stop this device answered stays answered, though the file still has it unanswered', () => {
+    const rested = { kind: 'news' as const, readings: [`news:stopped@${TODAY}`], resolution: 'resolved' as const, at: at(13, 30) };
+    const answered = snapshot([evaluated(day({ resolutions: [rested] }))]);
+    for (const [name, mode, onConflict] of MODES) {
+      const next = after(answered, file([evaluated(day({ news: ['stopped'] }))]), mode, onConflict);
+      expect(next('walk').reasons, name).not.toContain(STOP_UNANSWERED.reason);
+    }
+  });
+});
+
+describe('a file’s readings never release this device’s clock hold, in any mode (B-19, H6R-03, board D174)', () => {
+  const profile = createDefaultProfile({
+    weightKg: 72,
+    health: { diabetes: 'type2', insulin: 'injections_or_pump', glucoseMonitor: 'meter', currentlyActive: true, clearance: 'moderate', medicinesReviewed: true },
+  });
+  const TODAY = '2026-10-08';
+  const NOW = new Date(2026, 9, 8, 13, 40);
+  const at = (h: number, m = 0) => new Date(2026, 9, 8, h, m).toISOString();
+  const record = (over: Partial<DailyCheckIn> = {}): CheckInRecord => {
+    const c: DailyCheckIn = { date: TODAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, ...over };
+    return { ...c, readiness: evaluateCheckIn(profile, c) };
+  };
+  const old = { value: 110, unit: 'mg/dL' as const, measuredAt: at(13, 15), source: 'meter' as const };
+  /** Taken on this phone since its clock changed: of its new generation. */
+  const since = { value: 120, unit: 'mg/dL' as const, measuredAt: at(13, 38), source: 'meter' as const, gen: 1 };
+  const walkSettings = { saveRoutes: 'unasked' as const, map: 'unasked' as const, clock: { generation: 1, days: [TODAY] } };
+  const device = (checkIns: CheckInRecord[]) => ({ ...emptySnapshot(3), profile, settings: { theme: 'dark', walk: walkSettings } as UserSettings, checkIns });
+  const MODES = [['Replace', 'replace', undefined], ['Merge, keeping this device’s', 'merge', 'keepDevice'], ['Merge, taking the file’s', 'merge', 'takeFile']] as const;
+  const after = (base: ReturnType<typeof device>, raw: TransferDoc, mode: 'replace' | 'merge', onConflict?: 'keepDevice' | 'takeFile') => {
+    const plan = planImport(raw, mode, base, { now: NOW, ...(onConflict ? { onConflict } : {}) });
+    const next = prepare(base, plan.change).next;
+    const all = effectiveCheckIns(next.checkIns, profile, next.observations, next.settings?.walk?.clock);
+    return { next, plan, walk: permission({ profile, checkIn: all.find(c => c.date === TODAY), recent: all, now: NOW }, 'walk') };
+  };
+
+  it('a reading in the file, however new and whatever generation it says, is held as this phone’s clock hold holds it', () => {
+    const base = device([record({ glucose: old })]);
+    const track = newObservation({ id: 'track-since', kind: 'glucose', value: 118, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: at(13, 39), gen: 1 });
+    const raw = toTransferDoc({
+      ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings, observations: [track],
+      checkIns: [record({ glucose: since, glucoseEarlier: [old] })],
+    }, '2026-10-08T13:39:30.000+05:30');
+    for (const [name, mode, onConflict] of MODES) {
+      const { next, walk } = after(base, raw, mode, onConflict);
+      expect(walk.reasons, name).toContain(PERMISSION_TEXT.clockChanged);
+      expect(next.settings?.walk?.clock, name).toEqual(walkSettings.clock);
+      expect(next.observations.find(o => o.id === 'track-since')?.gen, name).toBeUndefined();
+    }
+  });
+
+  it('a newer severe low in the file is the current reading, by when it was taken, whatever this phone stamped its own (H6F-05, board D186)', () => {
+    const base = device([record({ glucose: since, glucoseEarlier: [old] })]);
+    const low = newObservation({ id: 'track-low', kind: 'glucose', value: 50, unit: 'mg/dL', scope: 'pointInTime', source: 'manual', at: at(13, 39) });
+    const raw = toTransferDoc({ ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings, observations: [low] }, '2026-10-08T13:39:30.000+05:30');
+    for (const [name, mode, onConflict] of MODES) {
+      const { next } = after(base, raw, mode, onConflict);
+      const today = effectiveCheckIns(next.checkIns, profile, next.observations, next.settings?.walk?.clock).find(c => c.date === TODAY)!;
+      const readiness = evaluateCheckIn(profile, today);
+      const codes = readiness.reasons.map(r => r.code);
+      // Treated as a low now, with its re-check: never as an episode from earlier, with the 120 standing as current.
+      expect(codes, name).toContain('severeLow');
+      expect(codes, name).not.toContain('severeLowEarlier');
+      expect(readiness.recheckAt, name).toBeDefined();
+    }
+  });
+
+  it('keeps this phone’s own reading taken since, when the file holds the same one: no conflict, and it still releases', () => {
+    const base = device([record({ glucose: since, glucoseEarlier: [old] })]);
+    const own = toTransferDoc({ ...emptySnapshot(), profile, settings: { theme: 'system' } as UserSettings, checkIns: [record({ glucose: since, glucoseEarlier: [old] })] }, '2026-10-08T13:39:30.000+05:30');
+    for (const [name, mode, onConflict] of MODES.filter(([, mode]) => mode === 'merge')) {
+      const { next, plan, walk } = after(base, own, mode, onConflict);
+      expect(plan.report.conflicts?.checkIns, name).toBe(0);
+      expect(next.checkIns.find(c => c.date === TODAY)?.glucose?.gen, name).toBe(1);
+      expect(walk.allowed, `${name}: ${walk.reasons.join(' ')}`).toBe(true);
+    }
+  });
+});
+
+describe('a backup that says what it holds (B-25, H4-02)', () => {
+  const doc = () => toTransferDoc({
+    ...emptySnapshot(), profile: createDefaultProfile({ weightKg: 70 }), settings: { theme: 'dark' } as UserSettings,
+    observations: [glucose('g1', '2026-10-01', 132)], sessions: [session], checkIns: [checkIn],
+  }, '2026-10-08T09:00:00.000+05:30');
+  const read = async (d: TransferDoc) => decode((await encode(d)).bytes) as Promise<Record<string, unknown>>;
+
+  it('writes a manifest of what it holds, and reads back whole', async () => {
+    const raw = await read(doc());
+    expect(raw.manifest).toMatchObject({ version: 1, counts: { observations: 1, sessions: 1, checkIns: 1 }, settings: true, profile: true });
+    expect(previewImport(raw)).toMatchObject({ ok: true, complete: 'whole' });
+  });
+
+  for (const [what, cut] of [
+    ['its sessions', (r: Record<string, unknown>) => { r.sessions = []; }],
+    ['its observations', (r: Record<string, unknown>) => { delete r.observations; }],
+    ['its profile', (r: Record<string, unknown>) => { delete r.profile; }],
+    ['a changed reading', (r: Record<string, unknown>) => { (r.observations as { value: number }[])[0].value = 99; }],
+  ] as const) {
+    it(`is not whole without ${what}, though it keeps its date`, async () => {
+      const raw = await read(doc());
+      cut(raw);
+      const preview = previewImport(raw);
+      expect(preview).toMatchObject({ ok: true, exportedAt: '2026-10-08T09:00:00.000+05:30', complete: 'partial' });
+    });
+  }
+
+  it('is not whole when its manifest itself is damaged or from a later version', async () => {
+    // A later version's manifest may be worked out another way: not trusted, even with this digest.
+    const later = await read(doc());
+    later.manifest = { ...(later.manifest as object), version: 2 };
+    expect(previewImport(later)).toMatchObject({ ok: true, complete: 'partial' });
+    for (const manifest of [{ version: 1 }, { version: 2, digest: 'x' }, { version: 1, digest: 7 }]) {
+      const raw = await read(doc());
+      raw.manifest = { ...(raw.manifest as object), ...manifest, ...('digest' in manifest ? {} : { digest: undefined }) };
+      expect(previewImport(raw), JSON.stringify(manifest)).toMatchObject({ ok: true, complete: 'partial' });
+    }
+  });
+
+  it('can’t be said to be whole when it holds no manifest at all', async () => {
+    const raw = await read(doc());
+    delete raw.manifest;
+    expect(previewImport(raw)).toMatchObject({ ok: true, complete: 'unknown' });
+  });
+});

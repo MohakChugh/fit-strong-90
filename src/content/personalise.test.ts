@@ -4,7 +4,7 @@ import { getCard, getClaim } from './library';
 import {
   actionFor, cardsForTopic, contextFromProfile, contextOf, habitAdvice, isForYou, topicsFor, visibleCards,
 } from './personalise';
-import type { Predicate, TopicId } from './schema';
+import { ROUTES, type Predicate, type TopicId } from './schema';
 import { TOPICS } from './topics';
 
 const profile = (input: ProfileInput) => createDefaultProfile(input);
@@ -166,7 +166,7 @@ describe('hand-offs the readiness engine rules out', () => {
 
   it('offers the walk otherwise', () => {
     const ctx = contextFromProfile(profile({ health: { diabetes: 'type2' } }));
-    expect(actionFor(getCard('card-after-meal-walk')!, ctx)?.to).toBe('/walk');
+    expect(actionFor(getCard('card-after-meal-walk')!, ctx)?.to).toBe(ROUTES.walk);
   });
 });
 
@@ -179,5 +179,14 @@ describe('every topic stays useful', () => {
 
   it.each(contexts)('leaves at least one card in every topic for %s', (_, ctx) => {
     for (const t of TOPICS) expect(cardsForTopic(t.id as TopicId, ctx).length).toBeGreaterThan(0);
+  });
+});
+
+describe('a Jain pattern (board D82)', () => {
+  it('is vegetarian for the Guide’s facts, in the person’s own words', () => {
+    const ctx = contextFromProfile(profile({ food: { pattern: 'jain', avoid: [] } }));
+    expect(ctx.facts.has('vegetarian')).toBe(true);
+    expect(ctx.facts.has('lowAnimalFood')).toBe(true);
+    expect(ctx.because.get('vegetarian')).toBe('You follow a Jain diet');
   });
 });

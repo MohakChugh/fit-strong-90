@@ -3,7 +3,7 @@
  *
  * The app does not ask "what do you want to do?" on launch; it already has a
  * suggestion, says why in a sentence that is always on screen, and keeps
- * "Choose something else" one tap away. The order of precedence is fixed:
+ * "Something else" one tap away. The order of precedence is fixed:
  *
  * 1. Safety: an emergency, a "get advice today", a pending glucose re-check or
  *    a hold on the mode that would be suggested. Nothing that starts movement.
@@ -18,6 +18,8 @@
  * 7. A habit: the same choice in the same part of the day on 3 of the last
  *    7 days, outside the hours the person usually trains.
  * 8. Today's scheduled programme session, when enrolled and not yet done.
+ *    Once the twelve weeks are over, nothing is planned: the choice of what
+ *    next is the person's.
  * 9. Done, or a rest day: something optional and easy.
  * 10. Too little to go on: the chosen focus, or the choice itself.
  *
@@ -31,14 +33,16 @@ import { DISPOSITION_ORDER } from '@/types/checkin';
 import type { Meal } from '@/types/habits';
 import type { SessionPlan } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
-import { checkedIn, PERMISSION_TEXT, type Mode, type Permission } from '@/engine/permission';
+import { checkedIn, FRESH_MINUTES, FUTURE_SLACK_MINUTES, PERMISSION_TEXT, type Mode, type Permission } from '@/engine/permission';
+import { withLogged } from '@/engine/readiness';
 import { profileGaps } from '@/engine/health';
 import { headline } from '@/components/checkin/copy';
 import { minutesLeft, resumeOffer, slotOf, type SavedProgress } from '@/session/persistence';
-import { specFromPlanId, stretchHref } from '@/engine/stretch';
+import { lastStretch, specFromPlanId, stretchHref } from '@/engine/stretch';
 import { format, parseISO } from 'date-fns';
-import { timeOf } from '@/lib/time';
-import { walkSetupHref } from '@/walk/plan';
+import { prefersHour12, timeOf } from '@/lib/time';
+import { programmeDone } from '@/lib/utils';
+import { afterMealSuggestion, walkSetupHref } from '@/walk/plan';
 import type { Observation } from './observation';
 import { daysBetween, periodOn, shiftDay, type Status } from './status';
 
@@ -64,10 +68,16 @@ export type RecommendationKind =
 export interface RecommendationAction {
   /** The button's words. */
   label: string;
-  /** A route, or a sheet on Today (`/today?…`). */
+  /** A route, or a sheet on Home (`/home?…`). */
   to: string;
   /** Set when the action starts movement, which then goes through the shared start gate. */
   mode?: Mode;
+  /**
+   * A walk to start at once (`HREF.liveWalk`): its address is made at the tap,
+   * with a new walk's id (`directWalkHref`). After a meal, the one the person
+   * confirmed and when (B-09).
+   */
+  walk?: { meal?: Meal; mealStartedAt?: number };
 }
 
 export interface Recommendation {
@@ -78,6 +88,8 @@ export interface Recommendation {
   /** "Why this?", in words, with its real inputs. Always shown (D20). */
   reason: string;
   action: RecommendationAction;
+  /** Other ways on, quieter than the one primary action: the after-meal card's "Different time" and "Just a walk" (B-09). */
+  more?: RecommendationAction[];
 }
 
 export interface RecommendInput {
@@ -94,21 +106,30 @@ export interface RecommendInput {
   saved: readonly SavedProgress[];
   /** The shared gate's answer for each mode, asked by the caller. */
   permissions: Record<Mode, Permission>;
+  /** Setup isn't finished ("Look around first", journey §6.4): the profile hold says so, and carries on setting up (L-20). */
+  setupOpen?: boolean;
 }
 
-/** Where actions go. Today's own sheets are addressed by query, so a link can open one. */
+/**
+ * Where actions go, at their v2 addresses (journey §19.3, K-55). Home's own
+ * sheets are addressed by query, so a link can open one.
+ */
 export const HREF = {
   guided: '/session',
   resume: '/session?resume=1',
-  stretch: '/move/stretch',
-  walk: '/walk',
-  plan: '/move/plan',
-  profile: '/you/profile',
-  day: '/track',
-  checkIn: (mode: Mode) => `/today?checkin=${mode}`,
-  status: '/today?status=1',
-  statusNormal: '/today?status=normal',
-  choose: '/today?choose=1',
+  stretch: '/hub/stretch',
+  walk: '/hub/walk',
+  plan: '/hub/workout/plan',
+  /** After the twelve weeks: Your plan's two choices (D116). */
+  next: '/hub/workout/plan?next=1',
+  /** A walk started at once, from the Right now card (journey §7.4, K-32). */
+  liveWalk: '/walk/live',
+  profile: '/me/profile',
+  day: '/day/today',
+  checkIn: (mode: Mode) => `/home?checkin=${mode}`,
+  status: '/home?status=1',
+  statusNormal: '/home?status=normal',
+  choose: '/home?choose=1',
 } as const;
 
 // ============================================================================
@@ -440,7 +461,7 @@ export function recommend(input: RecommendInput): Recommendation {
   };
 
   const suggestion = night(ctx) ?? resume(ctx) ?? statusSuggestion(ctx) ?? mealWalk(ctx) ?? preference(ctx) ?? habit(ctx)
-    ?? scheduled(ctx) ?? gentle(ctx) ?? fallback(ctx);
+    ?? finished(ctx) ?? scheduled(ctx) ?? gentle(ctx) ?? fallback(ctx);
   return safety(ctx, suggestion) ?? suggestion;
 }
 
@@ -516,7 +537,7 @@ function safety(ctx: Context, suggestion: Recommendation): Recommendation | unde
 
 /** A hold, in the gate's own words, with the check-in as the way to put a mistaken answer right. */
 function holdFor(ctx: Context, held: Permission): Recommendation {
-  if (ctx.profileGap) return profileFirst(ctx.gaps, held);
+  if (ctx.profileGap) return profileFirst(ctx.gaps, held, ctx.input.setupOpen === true);
   return {
     kind: 'hold',
     title: headline(held).title,
@@ -532,7 +553,17 @@ function holdFor(ctx: Context, held: Permission): Recommendation {
  * of Today until it is done, and it says exactly what is missing, in the
  * gate's own words.
  */
-export function profileFirst(gaps: ProfileGaps, held: Permission): Recommendation {
+export function profileFirst(gaps: ProfileGaps, held: Permission, setupOpen = false): Recommendation {
+  // Its action is the profile's address, which opens setup where it stopped while setup is unfinished (board D80).
+  if (setupOpen) {
+    return {
+      kind: 'hold',
+      title: 'Finish setting up',
+      detail: held.release ?? '',
+      reason: PERMISSION_TEXT.healthUnreviewed,
+      action: { label: 'Carry on setting up', to: HREF.profile },
+    };
+  }
   return gaps.healthUnreviewed
     ? {
       kind: 'hold',
@@ -677,7 +708,7 @@ function statusSuggestion(ctx: Context): Recommendation | undefined {
         title: 'A gentle stretch, or rest',
         detail: `Gentle mobility for your back and hips, or simply rest. Both are fine today.${beforeStart(ctx, 'stretch')}`,
         reason: `You marked a flare-up${when}. Only gentle movement is suggested until you change it.`,
-        action: { label: startLabel(ctx, 'stretch', 'Gentle stretch', 'stretch'), to: HREF.stretch, mode: 'stretch' },
+        action: { label: startLabel(ctx, 'stretch', 'Gentle stretch', 'stretch'), to: stretchNow(ctx), mode: 'stretch' },
       };
     case 'unwell':
       return {
@@ -698,6 +729,15 @@ function statusSuggestion(ctx: Context): Recommendation | undefined {
   }
 }
 
+/**
+ * The card's stretch runs at once (journey §7.4, K-32): the routine last
+ * recorded, as Stretch's setup would offer it, in the player, with no setup's
+ * second Start. A flare makes the player build its gentler version.
+ */
+function stretchNow(ctx: Context): string {
+  return stretchHref(lastStretch([...ctx.input.sessions]));
+}
+
 function stretchFor(ctx: Context, kind: RecommendationKind, reason: string): Recommendation {
   const part = PART_WORDS[ctx.part].adjective;
   return {
@@ -705,9 +745,12 @@ function stretchFor(ctx: Context, kind: RecommendationKind, reason: string): Rec
     title: `${part === 'afternoon' ? 'An' : part === 'evening' ? 'An' : 'A'} ${part} stretch`,
     detail: `Gentle mobility and supported movements.${beforeStart(ctx, 'stretch')}`,
     reason,
-    action: { label: startLabel(ctx, 'stretch', 'Stretch now', 'stretch'), to: HREF.stretch, mode: 'stretch' },
+    action: { label: startLabel(ctx, 'stretch', 'Stretch now', 'stretch'), to: stretchNow(ctx), mode: 'stretch' },
   };
 }
+
+/** The card's walk starts at once, "Just a walk" (journey §7.4, K-32). */
+const JUST_A_WALK = { to: HREF.liveWalk, mode: 'walk', walk: {} } as const satisfies Omit<RecommendationAction, 'label'>;
 
 function walkFor(ctx: Context, kind: RecommendationKind, reason: string): Recommendation {
   const part = PART_WORDS[ctx.part].adjective;
@@ -716,7 +759,7 @@ function walkFor(ctx: Context, kind: RecommendationKind, reason: string): Recomm
     title: `${part === 'afternoon' ? 'An' : part === 'evening' ? 'An' : 'A'} ${part} walk`,
     detail: `An easy pace: you can talk in full sentences.${beforeStart(ctx, 'walk')}`,
     reason,
-    action: { label: startLabel(ctx, 'walk', 'Walk now', 'walk'), to: HREF.walk, mode: 'walk' },
+    action: { label: startLabel(ctx, 'walk', 'Walk now', 'walk'), ...JUST_A_WALK },
   };
 }
 
@@ -738,12 +781,23 @@ function mealWalk(ctx: Context): Recommendation | undefined {
   const meal = mealWalkNow(habits, ctx.input.now);
   if (!meal || ctx.gates.walk === 'hold') return undefined;
   if (ctx.activities.some(a => a.mode === 'walk' && a.day === ctx.today && mealOfWalk(habits, a) === meal)) return undefined;
+  // The usual time, stated so the person can say it is right: a usual time is
+  // only a suggestion until confirmed, and "Different time" lets them say
+  // another (B-09). The walk then starts at once, tagged after that meal. The
+  // Walk hub's button says it the same way (`afterMealSuggestion`).
+  const finish = habits?.mealWalk?.finish?.[meal];
+  const said = afterMealSuggestion({ meal, ...(finish ? { finish } : {}), now: ctx.input.now.getTime(), hour12: prefersHour12() });
+  const had = said.at;
   return {
     kind: 'mealWalk',
     title: `A walk after ${MEAL_WORD[meal]}`,
     detail: `About 10 minutes, starting soon after you finish eating.${beforeStart(ctx, 'walk')}`,
     reason: `You asked for a walk after ${MEAL_WORD[meal]}. In a study of people with type 2 diabetes, a short walk after meals lowered the rise in glucose (Reynolds 2016).`,
-    action: { label: startLabel(ctx, 'walk', 'Walk now', 'walk'), to: walkSetupHref(meal), mode: 'walk' },
+    action: { label: said.label, to: HREF.liveWalk, mode: 'walk', walk: { meal, mealStartedAt: had } },
+    more: [
+      { label: 'Different time', to: walkSetupHref(meal) },
+      { label: 'Just a walk', ...JUST_A_WALK },
+    ],
   };
 }
 
@@ -775,6 +829,22 @@ function blocks(plan: SessionPlan): string {
   const names = (['mobility', 'strength', 'cardio'] as const).filter(b => plan.blockStarts[b] !== undefined);
   if (names.length <= 1) return names[0] ?? 'a guided session';
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * Priority 8, once the twelve weeks are over (J§17.2 #42, board D116): no
+ * session is planned, and nothing is invented after week 12. What comes next
+ * is the person's choice. Stretch and Walk carry on as before.
+ */
+function finished(ctx: Context): Recommendation | undefined {
+  if (!ctx.enrolled || !programmeDone(ctx.input.settings.startDate, ctx.today)) return undefined;
+  return {
+    kind: 'plan',
+    title: 'The 12 weeks are done',
+    detail: 'Stretch and Walk carry on as before.',
+    reason: 'Your 12-week programme has ended, so no new session is planned.',
+    action: { label: 'Choose what’s next', to: HREF.next },
+  };
 }
 
 /**
@@ -856,6 +926,50 @@ function fallback(ctx: Context): Recommendation {
 // Freezing
 // ============================================================================
 
+/** Where the day's parts change (`dayPartOf`), and midnight: 04:00, 12:00, 17:00 and 24:00, in hours. */
+const DAY_EDGES = [4, 12, 17, 24];
+
+/**
+ * The next moment Home's words can go stale with nothing else changing
+ * (journey §4.1, L-07, B-20): the next of 04:00, 12:00, 17:00 and midnight;
+ * today's glucose reading no longer being stamped in the future, or no longer
+ * being fresh (`FRESH_MINUTES`); a treated low's re-check falling due; and
+ * the edges of each after-meal walk window. Epoch milliseconds, always after
+ * `now`, since midnight always comes.
+ *
+ * It decides nothing: the gate and `recommend` decide exactly as before, only
+ * worked out again at this moment, so "Re-check at 1:45 pm" is never left on
+ * screen after 1:45 pm. A boundary that changes nothing costs one recompute.
+ */
+export function nextBoundary(now: Date, input: { checkIn?: CheckInRecord; habits?: UserSettings['habits'] }): number {
+  const t = now.getTime();
+  /** `minute` minutes after the local midnight that starts `day`; past 24:00 it rolls into the next day. */
+  const at = (day: Date, minute: number) => {
+    const d = new Date(day);
+    d.setHours(0, minute, 0, 0);
+    return d.getTime();
+  };
+  const times = DAY_EDGES.map(hour => at(now, hour * 60));
+  // The reading the freshness rule times: the newest, from any screen (X2-01).
+  const reading = input.checkIn ? withLogged(input.checkIn).glucose?.measuredAt : undefined;
+  const taken = reading ? Date.parse(reading) : Number.NaN;
+  if (!Number.isNaN(taken)) times.push(taken - FUTURE_SLACK_MINUTES * 60_000, taken + FRESH_MINUTES * 60_000);
+  const due = input.checkIn?.readiness.recheckAt ? Date.parse(input.checkIn.readiness.recheckAt) : Number.NaN;
+  if (!Number.isNaN(due)) times.push(due);
+  const walk = input.habits?.mealWalk;
+  if (walk?.enabled) {
+    // Yesterday's too: a window opened at 23:40 closes after midnight.
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    for (const meal of walk.meals) {
+      const finish = clockMinute(walk.finish?.[meal]);
+      if (finish === undefined) continue;
+      for (const day of [yesterday, now]) times.push(at(day, finish), at(day, finish + MEAL_WALK_WINDOW_MINUTES));
+    }
+  }
+  return Math.min(...times.filter(x => x > t));
+}
+
 /**
  * What makes Today work out its recommendation again: a new day, the end of
  * the small hours (whose "Rest well" must not outlast them), a return to the
@@ -863,6 +977,11 @@ function fallback(ctx: Context): Recommendation {
  * back. Anything else in the store can change while the person reads, and
  * the suggestion stays where it is; that includes the answer to the plan
  * offer, which is kept on the status periods but changes no suggestion.
+ *
+ * Home also passes the next time boundary (`nextBoundary`), so the choice is
+ * worked out again when a part of the day, a reading's freshness, a re-check
+ * or a meal window turns over (L-07, B-20): the boundary stays the same until
+ * that moment, and becomes the next one after it.
  */
 export function freezeKey(input: {
   now: Date;
@@ -872,8 +991,10 @@ export function freezeKey(input: {
   startDate: string;
   /** Bumped each time the person comes back to the screen. */
   visit: number;
+  /** `nextBoundary(now, …)`, which Home always passes. */
+  boundary?: number;
 }): string {
   const today = format(input.now, 'yyyy-MM-dd');
-  const parts = [today, smallHours(input.now), input.visit, input.startDate, input.checkIns.find(c => c.date === today) ?? null, input.statusPeriods ?? []];
+  const parts = [today, smallHours(input.now), input.visit, input.startDate, input.boundary ?? null, input.checkIns.find(c => c.date === today) ?? null, input.statusPeriods ?? []];
   return JSON.stringify(parts, (field, value: unknown) => (field === 'planShift' ? undefined : value));
 }

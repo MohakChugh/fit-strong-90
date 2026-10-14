@@ -10,6 +10,7 @@ import {
   hba1cIntervalMonths,
   latestStart,
   mostRelevantDue,
+  nextCheck,
   sessionOf,
   type CadenceInput,
 } from './cadence';
@@ -502,5 +503,79 @@ describe('the one most relevant item', () => {
 
   it('puts a missing first HbA1c last', () => {
     expect(kinds(input({ profile, observations: checkDay('2026-10-07') }))).toEqual(['b12', 'hba1cFirst']);
+  });
+});
+
+describe('nextCheck: when a hub says the next check comes (journey §8.2)', () => {
+  it('a blood pressure check day today is the item itself', () => {
+    expect(nextCheck(input(), 'bloodPressure')).toMatchObject({ due: true, title: 'Blood pressure check day' });
+  });
+
+  it('after a complete check day, the next is a week on, with the routine’s source', () => {
+    const r = nextCheck(input({ observations: checkDay('2026-10-06') }), 'bloodPressure');
+    expect(r).toMatchObject({ due: false, title: 'Next check day' });
+    expect(r?.detail).toBe('Tuesday 13 October: two readings in the morning and two in the evening, a minute apart.');
+    expect(r?.source).toMatch(/European Society of Hypertension/);
+  });
+
+  it('nothing to schedule without a home monitor or high blood pressure', () => {
+    expect(nextCheck(input({ profile: owner({ bpMonitor: false }) }), 'bloodPressure')).toBeUndefined();
+    expect(nextCheck(input({ profile: owner({ hypertension: 'none' }) }), 'bloodPressure')).toBeUndefined();
+  });
+
+  it('an untreated block on record: repeats are the clinician’s call', () => {
+    const block = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04'].flatMap(checkDay);
+    expect(nextCheck(input({ profile: owner({ hypertension: 'untreated' }), observations: block }), 'bloodPressure'))
+      .toMatchObject({ due: false, title: 'Your home readings are on record' });
+  });
+
+  it('HbA1c within goal: the month it is usually due, six months on', () => {
+    const r = nextCheck(input({ observations: [lab('hba1c', '2026-07-01', 6.5)] }), 'hba1c');
+    expect(r).toMatchObject({ due: false, title: 'Next HbA1c test' });
+    expect(r?.detail).toBe('Usually due in January 2027: about every 6 months while it is within your goal.');
+  });
+
+  it('HbA1c missing or due: the item itself; nothing for someone without diabetes', () => {
+    expect(nextCheck(input(), 'hba1c')).toMatchObject({ due: true, title: 'Add your last HbA1c' });
+    expect(nextCheck(input({ observations: [lab('hba1c', '2026-03-01', 7.5)] }), 'hba1c')).toMatchObject({ due: true, title: 'HbA1c due' });
+    expect(nextCheck(input({ profile: owner({ diabetes: 'none' }), observations: [lab('hba1c', '2026-07-01', 5.6)] }), 'hba1c')).toBeUndefined();
+  });
+
+  it('B12 after more than 4 years of metformin: a year after the last result; nothing without metformin', () => {
+    const p = owner({ metformin: true, metforminSince: '2019' });
+    const r = nextCheck(input({ profile: p, observations: [lab('b12', '2026-03-01', 320)] }), 'b12');
+    expect(r).toMatchObject({ due: false, title: 'Next vitamin B12 check' });
+    expect(r?.detail).toBe('Usually due in March 2027: once a year is usual after more than 4 years on metformin.');
+    expect(nextCheck(input(), 'b12')).toBeUndefined();
+  });
+});
+
+describe('nextCheck: the edges', () => {
+  it('a check day completed today: the next is a week from today', () => {
+    const r = nextCheck(input({ now: at('2026-10-08', '21:00'), observations: checkDay('2026-10-08') }), 'bloodPressure');
+    expect(r).toMatchObject({ due: false, title: 'Next check day' });
+    expect(r?.detail).toMatch(/^Thursday 15 October:/);
+  });
+
+  it('an untreated block under way, with today’s readings done: carry on tomorrow', () => {
+    const r = nextCheck(input({ now: at('2026-10-08', '21:00'), profile: owner({ hypertension: 'untreated' }), observations: checkDay('2026-10-08') }), 'bloodPressure');
+    expect(r).toMatchObject({ due: false, title: 'Blood pressure week' });
+    expect(r?.detail).toBe('Today’s readings are done. Carry on tomorrow: at least 4 days in a row, ideally 7.');
+    expect(r?.source).toMatch(/^NICE guideline NG136/);
+  });
+
+  it('HbA1c not yet within goal: about every 3 months, the clinician’s goal when one is recorded', () => {
+    expect(nextCheck(input({ observations: [lab('hba1c', '2026-08-01', 7.5)] }), 'hba1c')?.detail)
+      .toBe('Usually due in November 2026: about every 3 months until it is within your goal.');
+    const strict = owner({ clinicianTargets: { hba1cPercent: 6.5 } });
+    expect(nextCheck(input({ profile: strict, observations: [lab('hba1c', '2026-08-01', 6.8)] }), 'hba1c')?.detail)
+      .toBe('Usually due in November 2026: about every 3 months until it is within your goal.');
+  });
+
+  it('only full days count, and nothing is scheduled without a home monitor or a reason, whatever is on record', () => {
+    const part = session('2026-10-07', '07:30', 'morning');
+    expect(nextCheck(input({ observations: [...checkDay('2026-10-06'), ...part] }), 'bloodPressure')?.detail).toMatch(/^Tuesday 13 October:/);
+    expect(nextCheck(input({ profile: owner({ bpMonitor: false }), observations: checkDay('2026-10-06') }), 'bloodPressure')).toBeUndefined();
+    expect(nextCheck(input({ observations: [lab('b12', '2026-03-01', 320)] }), 'b12')).toBeUndefined();
   });
 });

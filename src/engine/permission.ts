@@ -20,12 +20,12 @@
  *   that needs protecting while seated work goes ahead.
  */
 
-import type { CheckInRecord, DailyCheckIn, Disposition, Mode, Modifier, Readiness } from '@/types/checkin';
+import type { CheckInRecord, DailyCheckIn, Disposition, GlucoseEntry, Mode, Modifier, Readiness } from '@/types/checkin';
 import { DISPOSITION_ORDER } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { toDateString } from '@/lib/utils';
 import { deriveHealth, profileGaps } from './health';
-import { durableView, EMERGENCY_CALL, evaluateCheckIn, profileOnlyReadiness, withLogged } from './readiness';
+import { CLINICAL_UNSAVED, durableView, EMERGENCY_CALL, evaluateCheckIn, profileOnlyReadiness, withLogged } from './readiness';
 
 export type { Disposition, Mode } from '@/types/checkin';
 
@@ -33,7 +33,11 @@ export interface PermissionInput {
   profile: UserProfile;
   checkIn?: CheckInRecord;
   now: Date;
-  /** Earlier check-ins, any order. Optional: only the two-days-running and spread rules read them. */
+  /**
+   * Earlier check-ins, any order. Optional: only the two-days-running and
+   * spread rules read them, and the device's clock changes (`clockHold`) the
+   * gates attach to every day.
+   */
   recent?: DailyCheckIn[];
 }
 
@@ -60,7 +64,7 @@ export interface Permission {
 /** D29(6): a pre-session reading for insulin or a sulfonylurea must be this recent. */
 export const FRESH_MINUTES = 30;
 /** Clock drift allowed for a reading stamped a little after "now". */
-const FUTURE_SLACK_MINUTES = 2;
+export const FUTURE_SLACK_MINUTES = 2;
 
 export const PERMISSION_TEXT = {
   /** The headline for an emergency, on every screen. */
@@ -75,6 +79,8 @@ export const PERMISSION_TEXT = {
   staleNoTime: 'Add the time you took your glucose reading: with insulin or a sulfonylurea it must be from the last 30 minutes.',
   future: 'Your glucose reading’s time is later than now. Check the time and enter it again.',
   footWalk: 'No walking today: your foot needs protecting. Seated and floor work can still go ahead.',
+  unsaved: CLINICAL_UNSAVED,
+  clockChanged: 'Your phone’s clock changed during a walk, so a reading from before the change can’t be timed. Check your glucose again before you move.',
 } as const;
 
 const RELEASES = {
@@ -201,13 +207,51 @@ function freshness(c: DailyCheckIn, now: Date): Block | undefined {
   return undefined;
 }
 
+/** The reading taken last, a number or the meter's HI or LO: the one the rules read as now. */
+function currentGlucose(c: DailyCheckIn): GlucoseEntry | undefined {
+  const t = (e: GlucoseEntry) => { const ms = e.measuredAt ? Date.parse(e.measuredAt) : Number.NaN; return Number.isNaN(ms) ? -Infinity : ms; };
+  return [c.glucose, c.glucoseDisplay].filter((e): e is GlucoseEntry => !!e).sort((a, b) => t(b) - t(a))[0];
+}
+
+/**
+ * B-19: after a change to the phone's clock, on the days either side of it,
+ * the current reading, the one taken last by its time as every rule reads it,
+ * must be one acquired since: stamped with this phone's latest clock
+ * generation, which a reading retimed, corrected or brought in by an import
+ * never has. Never by its time alone, which would mix two clocks; nor is a
+ * reading made current by its generation, so a newer one from a file is
+ * still treated as it says (H6F-05, board D186). The hold is the
+ * device's (`clockHold`, on every day the gates read), so it reaches every
+ * gate and outlasts the walk that saw the change (H6R-02, H6R-03, board
+ * D174). In the record the device stored as well as the effective one, so a
+ * newer reading it has not kept releases nothing (N-01).
+ */
+function clockBlock(input: PermissionInput, checkIn: CheckInRecord | undefined): Block | undefined {
+  const hold = checkIn?.clockHold ?? input.recent?.find(c => c.clockHold)?.clockHold;
+  if (!hold || !deriveHealth(input.profile.health).hypoRisk) return undefined;
+  if (!hold.days.includes(checkIn?.date ?? toDateString(input.now))) return undefined;
+  const stored = checkIn ? durableView(checkIn) : undefined;
+  const views = checkIn ? [checkIn, ...(stored ? [stored] : [])].map(withLogged) : [];
+  const since = views.length > 0 && views.every(v => {
+    const g = currentGlucose(v);
+    return g !== undefined && (g.gen ?? 0) >= hold.generation;
+  });
+  return since ? undefined : { disposition: 'hold', reasons: [PERMISSION_TEXT.clockChanged], release: RELEASES.fresh, needsCheckIn: true };
+}
+
 /** The profile on its own, with no check-in at all, refuses this mode. */
 function profileRefuses(profile: UserProfile, mode: Mode): boolean {
   const r = profileOnlyReadiness(profile);
   return r.reasons.some(x => x.refuses?.includes(mode)) || (mode === 'walk' && r.modifiers.includes('FOOT'));
 }
 
-function decide(input: PermissionInput, mode: Mode, opts: { fresh: boolean; needToday: boolean; onScreen?: boolean }): Permission {
+/**
+ * The day's clinical answer, as every gate reads it: today's check-in with
+ * the days before it, or with no check-in yet the profile alone, plus what
+ * earlier check-ins still ask of today. The shell's safety surface reads the
+ * same answer (journey §4.7).
+ */
+export function readinessFor(input: PermissionInput): Readiness {
   const { profile, now } = input;
   const today = toDateString(now);
   const checkIn = input.checkIn && input.checkIn.date === today ? input.checkIn : undefined;
@@ -217,7 +261,33 @@ function decide(input: PermissionInput, mode: Mode, opts: { fresh: boolean; need
   // collected here rather than read off an allowed answer (re-audit F02/R03).
   // With no check-in yet today, what earlier check-ins still ask of today
   // stands: a chest pain at 23:59 is still one at 00:01 (round 3 B01).
-  const r: Readiness = checkIn ? evaluateCheckIn(profile, checkIn, recent, now) : profileOnlyReadiness(profile, { date: today, recent, now });
+  return checkIn ? evaluateCheckIn(profile, checkIn, recent, now) : profileOnlyReadiness(profile, { date: today, recent, now });
+}
+
+type Opts = { fresh: boolean; needToday: boolean; onScreen?: boolean };
+
+/**
+ * A mode's answer for the profile every gate reads. While a clinical answer
+ * couldn't be stored, every mode holds (boards D197, D224): the day's own
+ * decisions, as the day's answer keeps them, then the pause, never instead of
+ * one, so a stop still asks what happened and advice today is still given.
+ * The holds a check-in or the profile answers give way to it, and no check-in
+ * lifts it. An emergency stays first, as it is.
+ */
+function decide(input: PermissionInput, mode: Mode, opts: Opts): Permission {
+  const r = readinessFor(input);
+  const decided = decideOne(input, mode, opts, r);
+  if (!input.profile.clinicalUnsaved || decided.disposition === 'emergency') return decided;
+  return {
+    mode, allowed: false, disposition: r.disposition ?? 'hold', reasons: r.reasons.map(x => x.message),
+    ...(r.release ? { release: r.release } : {}), restrictions: [], codes: [], needsCheckIn: false,
+  };
+}
+
+function decideOne(input: PermissionInput, mode: Mode, opts: Opts, r: Readiness): Permission {
+  const { profile, now } = input;
+  const today = toDateString(now);
+  const checkIn = input.checkIn && input.checkIn.date === today ? input.checkIn : undefined;
   const blocks: Block[] = [];
 
   if (rank(r.disposition ?? 'reassure') >= rank('hold')) {
@@ -261,6 +331,8 @@ function decide(input: PermissionInput, mode: Mode, opts: { fresh: boolean; need
       .find(s => s && (s.code === 'future' || (opts.fresh && deriveHealth(profile.health).hypoRisk)));
     if (stale) blocks.push(stale);
   }
+  const clock = clockBlock(input, checkIn);
+  if (clock) blocks.push(clock);
 
   if (blocks.length) {
     // Stable sort: equal dispositions keep the order above, check-in reasons first.

@@ -42,7 +42,7 @@ function lines(events: CalendarEvent[], habits: HabitSettings | undefined): Line
 
 /** A link that opens the app's Today screen, wherever it is served from. */
 function appLink(): string {
-  return new URL(`${import.meta.env.BASE_URL}#/today`, window.location.origin).href;
+  return new URL(`${import.meta.env.BASE_URL}#/home`, window.location.origin).href;
 }
 
 export function CalendarSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {

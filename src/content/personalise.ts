@@ -17,6 +17,11 @@ export interface GuideContext {
   /** The person's own answer restated, e.g. "You have type 2 diabetes". */
   because: ReadonlyMap<Predicate, string>;
   food?: FoodPreferences;
+  /**
+   * What the person is allergic to as far as it's known: the food record's, or setup's waiting answer
+   * without one (board D205). Absent is not known, never none: meal ideas ask first.
+   */
+  allergies?: Pick<FoodPreferences, 'allergies' | 'customAllergies'>;
 }
 
 /** A context from explicit facts: for tests, and for callers without a profile. */
@@ -150,8 +155,10 @@ export function contextFromProfile(
       eggetarian: 'You eat vegetarian food and eggs',
       vegan: 'You eat vegan food',
       nonVegetarian: 'You eat meat or fish',
+      jain: 'You follow a Jain diet',
     }[food.pattern];
-    add(food.pattern, reason);
+    // A Jain plate is vegetarian for everything the Guide says (B12, vitamin D).
+    add(food.pattern === 'jain' ? 'vegetarian' : food.pattern, reason);
     if (food.pattern !== 'nonVegetarian') add('lowAnimalFood', reason);
   }
 

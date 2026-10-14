@@ -4,6 +4,7 @@
  */
 import { MINUTE, NOW } from '../lib/env.mjs';
 import { persona } from '../fixtures/personas.mjs';
+import * as hub from '../lib/hub.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as walk from '../lib/walk.mjs';
 
@@ -16,7 +17,8 @@ const MEAL_AT = NOW - 20 * MINUTE; // 08:40 IST
 export const cases = [{
   name: 'after breakfast, location denied',
   async run(t) {
-    const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'deny' } });
+    // The voice on, so the start's tap is seen unlocking its audio (B-01).
+    const page = await t.open({ seed: persona('P03', { patch: { profile: { voice: { muted: false } } } }), route: '', sensors: { geo: 'deny', monotonic: 'wall' } });
     const main = page.getByRole('main');
     let walkId;
 
@@ -58,12 +60,20 @@ export const cases = [{
       await page.waitForTimeout(2000);
       const later = await walk.calls(page);
       await t.check(later.geolocation === 1, `location keeps being asked (${later.geolocation} calls)`);
-      await t.check(await ui.button(main, 'Start walk').isEnabled(), 'Start walk is not available after the denial');
+      // After "After a meal", Breakfast and "20 minutes ago" the start reads "I had breakfast at 8:40 am: walk now" (B-09).
+      await t.check(await hub.start(page).isEnabled(), 'the Walk hub’s start is not available after the denial');
       await t.checkpoint('walk-location-denied');
     }, { input: 'Measure distance and pace → permission denied; Count steps off' });
 
     await t.step(3, 'Glucose 110 and normal answers; start; two foreground minutes', async () => {
       await walk.start(t, ui.normalAnswers('P03'));
+      // Location was refused and steps are off: nothing to ask on the first walk, and no motion request (journey §9.1).
+      await t.check(t.asked.length === 0, `the walk asked ${t.asked.join(' | ')}`);
+      const c0 = await walk.calls(page);
+      await t.check(c0.motionRequests.length === 0, `motion was asked for with steps off (${c0.motionRequests.join(', ')})`);
+      // The voice's one audio element, unlocked inside the tap that started the walk (B-01, A-53).
+      const unlock = (await walk.played(page)).find(p => p.src.startsWith('data:audio/wav'));
+      await t.check(unlock?.during === 'click', `audio was not unlocked inside the tap that started the walk: ${JSON.stringify(unlock)}`);
       await t.checkpoint('walk-live-start');
       // Foreground: visible, a minute at a time.
       await t.advance(MINUTE);
@@ -81,33 +91,61 @@ export const cases = [{
       await t.checkpoint('walk-live-2-minutes');
     }, { input: 'glucose 110 mg/dL meter, now; +60 s; +60 s' });
 
-    await t.step(4, 'Finish, Finish walk, Save walk, Done', async () => {
+    await t.step(4, 'Finish, Finish walk, Back and return, Save walk, Done', async () => {
       await walk.finish(t);
       await t.checkpoint('walk-summary');
       const summary = (await main.innerText()).replace(/[\u00a0\u202f]/g, ' ');
       await t.check(/After breakfast/.test(summary) && /8:40/.test(summary), `the summary does not show the meal and its start: ${summary.replace(/\n/g, ' ⏎ ').slice(0, 300)}`);
+      await t.check(/No route: location was off for this walk\./.test(summary), `the summary does not say why there is no route: ${summary.replace(/\n/g, ' ⏎ ').slice(0, 300)}`);
+      // Two minutes: about 5 kcal, too little to state (J§12.4).
+      await t.check(/Energy \(estimate\)[^]{0,80}?No estimate/.test(summary) && /Too short for an energy estimate\./.test(summary), `the summary does not say the walk was too short for an estimate: ${summary.replace(/\n/g, ' ⏎ ').slice(0, 300)}`);
       await t.check(!/Saved on this/.test(summary), '“Saved” shows before saving');
+      // Every screen can be left by Back (journey §20.4 rule 10): the unsaved walk is kept, and the Walk hub offers it.
+      const back = ui.header(page).getByRole('button', { name: /^Back\b/ });
+      await t.check(await back.count() === 1, 'the walk summary has no Back');
+      if (await back.count() === 1) {
+        await ui.tap(back);
+        await page.waitForFunction(() => !location.hash.startsWith('#/walk/summary'), null, { timeout: 10000 }).catch(() => {});
+        await t.check((await walk.stored(page))?.id === walkId, 'leaving the summary by Back did not keep the walk to save');
+        await ui.heading(page, 'Walk');
+        const review = ui.button(main, 'Review and save');
+        await t.must(await review.count() === 1, `after Back the Walk hub does not offer the walk to save (${await t.route()})`);
+        await ui.tap(review);
+        await page.getByRole('heading', { level: 1, name: 'Your walk' }).waitFor();
+      }
       const atAck = await walk.save(t);
       const saved = walk.walkObservations(atAck);
       await t.check(saved.length === 2, `when “Saved on this device” shows, ${saved.length} walk observations are stored, not 2`);
       await t.checkpoint('walk-saved');
+      // Done returns to where the walk was started, the Walk hub (motion M12, Plan 6).
       await ui.tap(ui.button(main, 'Done'));
-      await page.getByRole('heading', { level: 1, name: 'Today', exact: true }).waitFor();
+      await ui.heading(page, 'Walk');
+      await t.check(await t.route() === '/hub/walk', `Done went to ${await t.route()}, not the Walk hub it was started from`);
+      // Back through history (M12): the hub's Back names what is really behind it, Home, never the summary that's gone.
+      const hubBack = ui.header(page).getByRole('button', { name: /^Back\b/ });
+      const named = await hubBack.getAttribute('aria-label').catch(() => null);
+      await t.check(named === 'Back to Home', `after Done the Walk hub’s Back reads “${named}”, not “Back to Home”`);
+      await ui.tap(hubBack);
+      await page.getByRole('heading', { level: 1, name: ui.HOME_TITLE }).waitFor();
+      await t.check(await t.route() === '/home', `the Walk hub’s Back went to ${await t.route()}, not Home`);
       const today = (await main.innerText()).replace(/\s+/g, ' ');
-      t.note(`Today after the walk: ${today.slice(0, 200)}`);
-      await t.goto('/track');
+      t.note(`Home after the walk: ${today.slice(0, 200)}`);
+      // v1's Track is Today's log, /day/today (journey §13).
+      await t.goto('/day/today');
       const rows = main.getByRole('link', { name: /walk/i });
-      await t.check(await rows.count() === 1, `today’s Track lists ${await rows.count()} walks`);
+      await t.check(await rows.count() === 1, `Today’s log lists ${await rows.count()} walks`);
       const row = (await rows.innerText()).replace(/\s+/g, ' ');
       await t.check(/after (a meal|breakfast)/i.test(row) && /2 min/.test(row), `the walk row is not a two-minute after-meal walk: ${row}`);
       await t.checkpoint('track-walk-row');
     });
 
-    await t.step(5, 'Reload Track and open the walk', async () => {
+    await t.step(5, 'Reload Today’s log (v1’s Track) and open the walk', async () => {
       await t.reload();
       const rows = main.getByRole('link', { name: /walk/i });
-      await t.must(await rows.count() === 1, `after reload Track lists ${await rows.count()} walks`);
+      await t.must(await rows.count() === 1, `after reload Today’s log lists ${await rows.count()} walks`);
       await ui.tap(rows);
+      // Read the record once its own screen is in: under load, half a second after the tap still showed My Day.
+      await ui.heading(page, 'Walk');
       await page.waitForTimeout(500);
       const detail = (await main.innerText()).replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ');
       await t.checkpoint('walk-record');
@@ -136,6 +174,7 @@ export const cases = [{
       const web = await t.storage();
       const leaks = [...walk.positionsIn(snap, 'db'), ...walk.positionsIn(web, 'web')];
       await t.check(!leaks.length, `positions stored: ${leaks.slice(0, 5).join(', ')}`);
+      await t.check(walk.routesIn(snap).length === 0 && walk.journalsIn(snap).length === 0, `a route or a journal is left: ${walk.routesIn(snap).length} routes, ${walk.journalsIn(snap).length} journals`);
       await t.check(!/calorie|kcal/i.test(detail), 'the walk record shows calories');
     });
   },

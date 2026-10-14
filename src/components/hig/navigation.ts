@@ -1,4 +1,4 @@
-import { createContext, useContext, useSyncExternalStore } from 'react';
+import { createContext, useContext, useSyncExternalStore, type ReactNode } from 'react';
 
 /**
  * The navigation state iOS keeps for free, kept once for the whole app.
@@ -21,18 +21,22 @@ import { createContext, useContext, useSyncExternalStore } from 'react';
  * reload, as history itself is kept.
  */
 
-export type Tab = 'today' | 'move' | 'track' | 'guide';
+export type Tab = 'home' | 'trends' | 'browse' | 'me';
 
-export const TAB_ROOT: Record<Tab, string> = { today: '/today', move: '/move', track: '/track', guide: '/guide' };
+export const TAB_ROOT: Record<Tab, string> = { home: '/home', trends: '/trends', browse: '/browse', me: '/me' };
 const TABS = Object.keys(TAB_ROOT) as Tab[];
-/** A walk has its own address but is part of Move. */
-const ALSO: Partial<Record<Tab, readonly string[]>> = { move: ['/walk'] };
+/**
+ * Hubs and Today's log belong to Home by their address (journey §5), and so do
+ * the record details the log opens, which keep their v1 addresses (§19.2): a
+ * tab can go back to one, while its record is still stored.
+ */
+const ALSO: Partial<Record<Tab, readonly string[]>> = { home: ['/hub', '/day', '/track'] };
 /** Full-screen tasks outside the tabs: a tab never returns to one by itself. */
-const TASKS = ['/session', '/walk/live', '/welcome'];
+const TASKS = ['/session', '/walk/live', '/walk/summary', '/setup'];
 
 export const within = (pathname: string, base: string) => pathname === base || pathname.startsWith(`${base}/`);
 
-/** The tab an address belongs to by itself. You belongs to none: it opens over any of them. */
+/** The tab an address belongs to by itself. A full-screen task belongs to none. */
 export function tabOf(pathname: string): Tab | undefined {
   return TABS.find(t => [TAB_ROOT[t], ...(ALSO[t] ?? [])].some(base => within(pathname, base)));
 }
@@ -85,8 +89,8 @@ const listeners = new Set<() => void>();
 let shown = false;
 /** The screen a navigation is waiting to focus. */
 let focusFor: string | undefined;
-/** What the next navigation is, when its kind alone cannot say: a Back that replaces, a tab. */
-let intent: { kind: 'back' | 'tab'; tab?: Tab; at: number } | undefined;
+/** What the next navigation is, when its kind alone cannot say: a Back that replaces, a tab, a screen's own new address. */
+let intent: { kind: 'back' | 'tab' | 'place'; tab?: Tab; at: number } | undefined;
 /** An intent belongs to the navigation it was set for; `history.go` is not instant, so allow a moment. */
 const INTENT_MS = 1000;
 
@@ -160,6 +164,15 @@ export function markTab(tab: Tab, now = Date.now()): void {
   intent = { kind: 'tab', tab, at: now };
 }
 
+/**
+ * The next navigation gives this screen a new address without leaving it, as
+ * paging Today's log from day to day does: focus stays on the control the
+ * person used, rather than moving to the title as a new screen's would.
+ */
+export function markInPlace(now = Date.now()): void {
+  intent = { kind: 'place', at: now };
+}
+
 /** A Back is on its way, so a replace may animate. */
 export function backPending(now = Date.now()): boolean {
   return intent?.kind === 'back' && now - intent.at < INTENT_MS;
@@ -189,10 +202,15 @@ export function record(location: LocationLike, action: Action, historyIndex: num
   // The same screen in the same entry: a reload, a return, a changed query.
   const same = known?.pathname === location.pathname ? known : undefined;
   const below = base[idx - 1];
+  // A replacement keeps the tab its entry was pushed in. An entry that has
+  // none and nothing below it was loaded at an address of no tab (a v1 one,
+  // whose redirect this is, journey §19.3, or a task falling back to its
+  // setup): the screen it becomes takes its own address's tab. A screen
+  // pushed from a task keeps the task's lack of one, so Back returns there.
   const tab = asked?.kind === 'tab' ? asked.tab
     : rootOf(location.pathname)
       ?? (action === 'PUSH' ? (below ? below.tab : tabOf(location.pathname))
-        : action === 'REPLACE' ? (known ? known.tab : below ? below.tab : tabOf(location.pathname))
+        : action === 'REPLACE' ? (known?.tab ?? (below ? below.tab : tabOf(location.pathname)))
           : same ? same.tab : tabOf(location.pathname));
   // A new entry, or another screen in this one, has not shown its title yet.
   const title = action !== 'PUSH' ? same?.title : undefined;
@@ -207,8 +225,9 @@ export function record(location: LocationLike, action: Action, historyIndex: num
   // A push discards whatever was ahead of it, as the browser does.
   const next = action === 'PUSH' ? base.slice(0, idx) : base.slice();
   next[idx] = entry;
-  const direction: Direction = action === 'POP' ? (!fresh && idx < index ? 'back' : 'forward') : asked?.kind ?? 'forward';
-  if (shown && action !== 'LAUNCH' && leaving?.pathname !== location.pathname) focusFor = location.pathname;
+  const direction: Direction = action === 'POP' ? (!fresh && idx < index ? 'back' : 'forward')
+    : asked?.kind === 'back' || asked?.kind === 'tab' ? asked.kind : 'forward';
+  if (shown && action !== 'LAUNCH' && leaving?.pathname !== location.pathname && asked?.kind !== 'place') focusFor = location.pathname;
   publish({
     entries: next,
     index: idx,
@@ -440,3 +459,42 @@ export const TaskFrameContext = createContext(false);
 export function useInTaskFrame(): boolean {
   return useContext(TaskFrameContext);
 }
+
+/**
+ * What every screen in the shell shows first in its content: the shared
+ * urgent surface (journey §4.7, B-02), which the shell provides. Nothing
+ * outside the shell, since a full-screen task shows its own stop.
+ */
+export const ScreenTopContext = createContext<ReactNode>(null);
+
+/** How the surface's way on leaves the sheet it is drawn in (codex W-05). */
+export interface SheetExit {
+  /**
+   * Close the sheet through its own close, then `go`, once it has closed. A
+   * sheet that must stay open, one saving, keeps the person and its save:
+   * `go` waits for the sheet to close, and is forgotten if the sheet can
+   * close again and doesn't (its save failed, and says so).
+   */
+  leave: (go: () => void) => void;
+  /** A leave is waiting for the sheet to finish. */
+  waiting: boolean;
+}
+
+/** The same surface at the top of an open sheet: the decision it is, and how to draw it there. */
+export interface SheetTop {
+  /**
+   * Which decision it is: its kind, headline and when. One arriving, or
+   * escalating, has a new key and is brought into view; its time coming due
+   * ("Re-check now") is the same decision, and moves nobody (codex W-02).
+   */
+  key: string;
+  /** The surface, with the sheet's way out (`SheetExit`). */
+  draw: (exit: SheetExit) => ReactNode;
+}
+
+/**
+ * The same surface at the top of an open sheet, which takes the whole page's
+ * attention (codex V1-02). Nothing while no urgent decision stands.
+ */
+export const SheetTopContext = createContext<SheetTop | null>(null);
+

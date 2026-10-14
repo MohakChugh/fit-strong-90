@@ -39,7 +39,9 @@ async function startGpsWalk(t) {
   await ui.tap(walk.gpsSwitch(page));
   await page.waitForFunction(() => document.querySelector('[role="switch"][aria-checked="true"]') !== null, null, { timeout: 5000 });
   await t.check(await walk.stepsSwitch(page).getAttribute('aria-checked') === 'false', 'Count steps is on');
-  await walk.start(t, ui.normalAnswers('P03'));
+  await walk.start(t, ui.normalAnswers('P03'), { keep: false });
+  // The first walk with location asks to keep the route; with "No" it asks nothing about map pictures (journey §9.1).
+  await t.check(t.asked.join(' | ') === 'Keep a record of your route on this phone?', `the first walk asked ${t.asked.join(' | ') || 'nothing'}`);
 }
 
 /**
@@ -73,7 +75,7 @@ export const cases = [
   {
     name: 'hidden gap, continue walking',
     async run(t) {
-      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant' }, visibility: true, capabilities: { share: 'absent' } });
+      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant', monotonic: 'wall' }, visibility: true, capabilities: { share: 'absent' } });
       const main = page.getByRole('main');
       let id0;
 
@@ -87,6 +89,8 @@ export const cases = [
         const live = await walk.stored(page);
         id0 = live?.id;
         await t.check(near(segDist(live?.segments?.[0]), 111.2, 3), `segment 1 distance ${segDist(live?.segments?.[0])} m, not about 111 m`);
+        await t.check(await walk.drawnLines(page) === 1, `the route is not drawn as one line: ${await walk.drawnLines(page)}`);
+        await t.check(!t.requests.some(r => r.url.includes('tile.openstreetmap.org')), 'a map picture was requested during a live walk (D18)');
         await t.checkpoint('gps-walk-2-minutes');
       }, { input: 'a fix every 10 s from 0 to 120 s, latitude 0 to 0.001, longitude 0, accuracy 3 m' });
 
@@ -116,6 +120,7 @@ export const cases = [
         const total = (live?.segments ?? []).reduce((a, x) => a + segDist(x), 0);
         await t.check(live?.segments?.length === 2 && near(segDist(live.segments[1]), 111.2, 3), `segment 2 is not a separate ~111 m: ${JSON.stringify(live?.segments)}`);
         await t.check(total < 300, `the ~111 km between the gap’s ends was added (${Math.round(total)} m)`);
+        await t.check(await walk.drawnLines(page) === 2, 'the gap is drawn joined, or a segment is missing (A-48)');
         await t.checkpoint('second-segment');
       }, { input: 'visible at 300 s; Continue walking; a fix every 10 s from 300 to 360 s, latitude 1 to 1.001' });
 
@@ -138,11 +143,21 @@ export const cases = [
         await t.check(mov.length === 2 && mov.map(o => o.coverageMs).join() === '120000,60000', `movementMinutes: ${JSON.stringify(mov.map(o => [o.value, o.coverageMs]))}`);
         await t.check(dist.length === 2 && dist.every(o => near(o.value, 0.111, 0.003)) && near(dist.reduce((a, o) => a + o.value, 0), 0.222, 0.006),
           `walkDistance: ${JSON.stringify(dist.map(o => o.value))}`);
-        await t.check(obs.length === 6, `${obs.length} walk observations, not 6`);
+        // Two minutes at about 2.1 mph and one at about 4.1 mph: (2.8 − 1) × 78 × 2/60 + (5.5 − 1) × 78 × 1/60 ≈ 10.5 kcal (J§12.4, B-18).
+        const energy = obs.filter(o => o.kind === 'activeEnergy');
+        await t.check(energy.length === 1 && near(energy[0].value, 10.5, 0.2) && energy[0].coverageMs === 180000 && /From 3 min with distance\./.test(energy[0].note ?? ''),
+          `activeEnergy: ${JSON.stringify(energy.map(o => [o.value, o.coverageMs, o.note]))}`);
+        await t.check(/Energy \(estimate\)[^]{0,120}?about 10 kcal/.test(summary), `the summary does not say about 10 kcal: ${summary.slice(0, 400)}`);
+        await t.check(obs.length === 7, `${obs.length} walk observations, not 7`);
+        // Done returns, through history, to the Walk hub the walk was started from (M12); its Back goes Home.
         await ui.tap(ui.button(main, 'Done'));
-        await page.getByRole('heading', { level: 1, name: 'Today', exact: true }).waitFor();
+        await ui.heading(page, 'Walk');
+        await t.check(await t.route() === '/hub/walk', `Done went to ${await t.route()}, not the Walk hub it was started from`);
+        await ui.tap(ui.back(page, 'Home'));
+        await page.getByRole('heading', { level: 1, name: ui.HOME_TITLE }).waitFor();
         const today = (await main.innerText()).replace(/\s+/g, ' ');
-        const week = today.match(/(\d+) min of movement recorded this week/);
+        // v1 Today's "N min of movement recorded this week" is Home's This week card, "N min moved this week" (journey §7.3).
+        const week = today.match(/(\d+) min moved this week/);
         await t.check(week?.[1] === '3', `this week’s movement reads ${week?.[0] ?? today.slice(0, 160)}, not 3 min`);
       });
 
@@ -152,6 +167,7 @@ export const cases = [
         const web = await t.storage();
         const leaks = [...walk.positionsIn(snap, 'db'), ...walk.positionsIn(web, 'web')];
         await t.check(!leaks.length, `positions stored: ${leaks.slice(0, 6).join(', ')}`);
+        await t.check(walk.routesIn(snap).length === 0, 'a route was kept after “No”');
         const backup = await walk.exportBackup(t);
         const inBackup = walk.positionsIn(backup.doc, 'backup');
         await t.check(!inBackup.length, `positions in the backup ${backup.name}: ${inBackup.slice(0, 6).join(', ')}`);
@@ -164,7 +180,7 @@ export const cases = [
   {
     name: 'reload while paused',
     async run(t) {
-      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant' }, visibility: true });
+      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant', monotonic: 'wall' }, visibility: true });
       const main = page.getByRole('main');
 
       await t.step(5, 'Pause after the first segment, reload, wait a minute, resume with a far-away fix', async () => {
@@ -203,7 +219,7 @@ export const cases = [
   {
     name: 'lost signal while visible',
     async run(t) {
-      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant' }, visibility: true });
+      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant', monotonic: 'wall' }, visibility: true });
       const main = page.getByRole('main');
 
       await t.step(8, 'A fix every 10 s for 60 s, 30 s of silence while visible, then fixes resume further on', async () => {
@@ -245,7 +261,7 @@ export const cases = [
   {
     name: 'add the away time',
     async run(t) {
-      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant' }, visibility: true, capabilities: { share: 'absent' } });
+      const page = await t.open({ seed: persona('P03'), route: '', sensors: { geo: 'grant', monotonic: 'wall' }, visibility: true, capabilities: { share: 'absent' } });
       const main = page.getByRole('main');
 
       await t.step(6, 'Explicitly add the three-minute away interval', async () => {
@@ -277,19 +293,20 @@ export const cases = [
         await t.check(!manual.some(o => o.kind === 'walkDistance') && !obs.some(o => o.kind === 'walkDistance' && o.source !== 'measured'), 'distance was invented for the added time');
         await t.check(measured.filter(o => o.kind === 'walkDuration').map(o => o.coverageMs).sort((a, b) => b - a).join() === '120000,60000', 'the measured segments are not 120000 and 60000 ms');
         await ui.tap(ui.button(main, 'Done'));
-        await t.goto('/track');
+        // v1's Track is Today's log, /day/today (journey §13).
+        await t.goto('/day/today');
         const row = main.getByRole('link', { name: /walk/i });
-        await t.must(await row.count() === 1, `Track lists ${await row.count()} walks`);
+        await t.must(await row.count() === 1, `Today’s log lists ${await row.count()} walks`);
         const rowText = (await row.innerText()).replace(/\s+/g, ' ');
         await ui.tap(row);
         await page.waitForTimeout(400);
         const detail = (await main.innerText()).replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ');
         await t.checkpoint('walk-record-added');
         await t.check(/3 min/.test(detail) && /added|entered by you|you added/i.test(detail), `the record does not show 3 measured + 3 added minutes: ${rowText} | ${detail.slice(0, 300)}`);
-        await t.check(!/\b6 min\b/.test(rowText) || /added/i.test(rowText), `Track shows 6 minutes without saying 3 were added: ${rowText}`);
-        await ui.tab(page, 'Today');
+        await t.check(!/\b6 min\b/.test(rowText) || /added/i.test(rowText), `My Day shows 6 minutes without saying 3 were added: ${rowText}`);
+        await ui.tab(page, 'Home');
         const today = (await main.innerText()).replace(/\s+/g, ' ');
-        const week = today.match(/(\d+) min of movement recorded this week/);
+        const week = today.match(/(\d+) min moved this week/);
         await t.check(week && week[1] !== '9' && (week[1] === '3' || /added|manual/i.test(today)), `this week’s movement reads ${week?.[0] ?? 'nothing'}`);
         const web = await t.storage();
         const leaks = [...walk.positionsIn(await t.db(), 'db'), ...walk.positionsIn(web, 'web')];

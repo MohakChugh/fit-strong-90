@@ -11,13 +11,13 @@ export default function TopicScreen() {
   const { topicId = '' } = useParams();
   const { ctx } = useGuide();
   const topic = getTopic(topicId);
-  if (!topic) return <Navigate to="/guide" replace />;
+  if (!topic) return <Navigate to="/hub/learn" replace />;
 
   const cards = cardsForTopic(topic.id as TopicId, ctx);
   const because = topicsFor(ctx).forYou.find(f => f.topic.id === topic.id)?.because;
 
   return (
-    <Screen title={topic.title} back={{ to: '/guide', label: 'Guide' }}>
+    <Screen title={topic.title} back={{ to: '/hub/learn', label: 'Learn' }}>
       <Lead>
         {because && <span className="font-semibold text-foreground">For you · {because}. </span>}
         {topic.summary}.
@@ -26,7 +26,7 @@ export default function TopicScreen() {
         <Group>
           <Row
             as={Link}
-            to="/guide/meals"
+            to="/hub/food/ideas"
             viewTransition
             icon={<UtensilsIcon aria-hidden />}
             label="Meal ideas"
@@ -37,7 +37,7 @@ export default function TopicScreen() {
       )}
       <Group footer={DISCLAIMER}>
         {cards.map(card => (
-          <Row key={card.id} as={Link} to={`/guide/card/${card.id}`} viewTransition label={card.title} detail={card.question} chevron />
+          <Row key={card.id} as={Link} to={`/hub/learn/card/${card.id}`} viewTransition label={card.title} detail={card.question} chevron />
         ))}
       </Group>
     </Screen>

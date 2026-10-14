@@ -1,0 +1,127 @@
+import { Group } from '@/components/hig/List';
+import { factsOf } from '@/setup/facts';
+import { FIGURES, figureFrom, pageDone, rawInvalid } from '@/setup/graph';
+import { textOf } from '@/setup/units';
+import { CONDITION_ROWS, TRI } from '../choices';
+import { Ask, Missing, NumberAnswer, TriChecklist, type PageProps } from '../controls';
+
+/** "Do you have any of these?": one checklist, "Not sure" on every row (journey §6.2 ch. 3; B-08). */
+export function HealthConditions({ a, set, tried }: PageProps) {
+  return (
+    <>
+      <p className="px-1 text-[length:var(--text-body)] leading-snug">Tick what applies. “Not sure” is a real answer: the app then plays safe.</p>
+      <TriChecklist label="Do you have any of these?" rows={CONDITION_ROWS} value={a.conditions} onChange={conditions => set({ conditions })}
+        all={{ label: 'None of these', to: 'no' }} tried={tried} />
+    </>
+  );
+}
+
+export function HealthDiabetes({ a, set, tried }: PageProps) {
+  return (
+    <Ask label="Which type of diabetes?" tried={tried} value={a.diabetesType} onChange={diabetesType => set({ diabetesType })}
+      options={[
+        { value: 'type1', label: 'Type 1' }, { value: 'type2', label: 'Type 2' }, { value: 'prediabetes', label: 'Prediabetes' },
+        { value: 'other', label: 'Another type' }, { value: 'unsure', label: 'Not sure' },
+      ]} />
+  );
+}
+
+export function HealthBp({ a, set, tried }: PageProps) {
+  return (
+    <Ask label="Do you take medicine for high blood pressure?" header="Do you take medicine for high blood pressure?" options={TRI}
+      value={a.bpMedicine} onChange={bpMedicine => set({ bpMedicine })} tried={tried} />
+  );
+}
+
+export function HealthFluid({ a, set, tried }: PageProps) {
+  return (
+    <>
+      {factsOf(a).kidney && (
+        <Ask label="Are you on dialysis, or have you had a kidney transplant?" header="Are you on dialysis, or have you had a kidney transplant?"
+          options={TRI} value={a.kidneyTreatment} onChange={kidneyTreatment => set({ kidneyTreatment })} tried={tried}
+          footer="“Not sure” is read as yes, so the app plays safe." />
+      )}
+      <Ask label="Has a doctor given you a fluid limit?" header="Has a doctor given you a fluid limit?" options={TRI}
+        value={a.fluidLimit} onChange={fluidLimit => set({ fluidLimit })} tried={tried} footer="It changes your rest-time and water advice." />
+    </>
+  );
+}
+
+export function HealthEyes({ a, set, tried }: PageProps) {
+  return (
+    <>
+      <Ask label="Eye treatment or surgery in the last 3 months?" header="Eye treatment or surgery in the last 3 months?" options={TRI}
+        value={a.eyeTreatment} onChange={eyeTreatment => set({ eyeTreatment })} tried={tried}
+        footer="Yes, or “Not sure”, means no exercise until your eye doctor says it’s fine." />
+      {a.eyeTreatment === 'no' && (
+        <Ask label="How bad is the eye disease from diabetes?" header="How bad is the eye disease from diabetes?" tried={tried}
+          value={a.eyeDisease} onChange={eyeDisease => set({ eyeDisease })} footer="As your eye doctor last said. “Not sure” is fine."
+          options={[{ value: 'mild', label: 'Mild, or none' }, { value: 'moderate', label: 'Moderate' }, { value: 'severe', label: 'Severe' }, { value: 'unsure', label: 'Not sure' }]} />
+      )}
+    </>
+  );
+}
+
+export function HealthFeet({ a, set, tried }: PageProps) {
+  return (
+    <>
+      <Ask label="Numbness or loss of feeling in your feet?" header="Numbness or loss of feeling in your feet?" options={TRI}
+        value={a.feetNumb} onChange={feetNumb => set({ feetNumb })} tried={tried} />
+      <Ask label="A wound, an ulcer, or a hot, swollen foot (Charcot foot)?" header="A wound, an ulcer, or a hot, swollen foot (Charcot foot)?" tried={tried}
+        value={a.footWound} onChange={footWound => set({ footWound })}
+        options={[{ value: 'now', label: 'Yes, now' }, { value: 'past', label: 'In the past' }, { value: 'no', label: 'No' }, { value: 'unsure', label: 'Not sure' }]}
+        footer="A wound now, or “Not sure”, keeps walks off until it has healed." />
+    </>
+  );
+}
+
+/** Two numbers that go together, kept as typed, an answer only once both are valid (H5R-15). */
+function BpPermission({ a, raw, set }: PageProps) {
+  const sys = textOf(raw, 'bpPermission.sys', a.bpPermission?.sys);
+  const dia = textOf(raw, 'bpPermission.dia', a.bpPermission?.dia);
+  const write = (s: string, d: string) => {
+    const [top, bottom] = [figureFrom(s, FIGURES.bpSys), figureFrom(d, FIGURES.bpDia)];
+    set({ bpPermission: top === undefined || bottom === undefined ? undefined : { sys: top, dia: bottom } }, { 'bpPermission.sys': s, 'bpPermission.dia': d });
+  };
+  return (
+    <>
+      <NumberAnswer label="Top number exercise is fine up to" text={sys} placeholder="170" onText={t => write(t, dia)} />
+      <NumberAnswer label="Bottom number exercise is fine up to" text={dia} placeholder="105" onText={t => write(sys, t)} />
+    </>
+  );
+}
+
+export function HealthLimits(props: PageProps) {
+  const { a, raw, set, tried } = props;
+  const f = factsOf(a);
+  const targets = f.bp || f.diabetic;
+  const stop = textOf(raw, 'bpStopSystolic', a.bpStopSystolic);
+  const hba1c = textOf(raw, 'hba1cPercent', a.hba1cPercent);
+  return (
+    <>
+      <Ask label="Has a doctor or nurse (clinician) cleared you to exercise?" header="Has a doctor or nurse (clinician) cleared you to exercise?" tried={tried}
+        value={a.clearance} onChange={clearance => set({ clearance })}
+        options={[
+          { value: 'none', label: 'Not yet' }, { value: 'moderate', label: 'Yes, for moderate exercise' },
+          { value: 'vigorous', label: 'Yes, for vigorous exercise' }, { value: 'unsure', label: 'Not sure' },
+        ]} />
+      {targets && (
+        <Ask label="Has a doctor or nurse (clinician) given you any limits or targets?" header="Has a doctor or nurse (clinician) given you any limits or targets?" options={TRI}
+          value={a.targets} onChange={t => set({ targets: t })} tried={tried} />
+      )}
+      {targets && a.targets === 'yes' && (
+        <Group header="Your limits and targets" footer="Only what your doctor or nurse gave you. Leave the rest empty.">
+          {f.bp && <NumberAnswer label="Stop exercise if the top number is above (optional)" placeholder="180" text={stop}
+            onText={t => set({ bpStopSystolic: figureFrom(t, FIGURES.bpStopSystolic) }, { bpStopSystolic: t })} />}
+          {f.bp && <BpPermission {...props} />}
+          {f.diabetic && <NumberAnswer label="Long-term blood sugar target (HbA1c), % (optional)" decimals placeholder="7" text={hba1c}
+            onText={t => set({ hba1cPercent: figureFrom(t, FIGURES.hba1cPercent) }, { hba1cPercent: t })} />}
+        </Group>
+      )}
+      <Missing show={tried && (rawInvalid('health.limits', a, raw)
+        || (a.clearance !== undefined && (!targets || a.targets !== undefined) && !pageDone('health.limits', a, props.ctx)))}>
+        Check the numbers: blood pressure between 90 and 250 over 50 and 150, and long-term blood sugar (HbA1c) between 4 and 15 %.
+      </Missing>
+    </>
+  );
+}

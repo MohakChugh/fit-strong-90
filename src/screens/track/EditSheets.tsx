@@ -6,9 +6,12 @@
 
 import { useId, useState } from 'react';
 import { Sheet } from '@/components/hig/Sheet';
+import { useSaveHold } from '@/components/hig/useSaveHold';
 import type { BpReading } from '@/health/aggregate';
 import { atOnDay, checkInDayOf, type Observation, type ObservationTag } from '@/health/observation';
 import { correctCheckInGlucose, correctCheckInPain, correctCheckInPressure, type CorrectionResult } from '@/components/checkin/pending';
+import { HeldProblem } from '@/components/checkin/HeldProblem';
+import { isHeld, type HoldFailure } from '@/store/db';
 import { editObservation, putBloodPressure, update, useStore, type ObservationPatch } from '@/store/useStore';
 import { glucoseEscalation, pressureEscalation } from './escalation';
 import { displayUnitOf, formatValue, hasClockTime, isLabKind, unitLabel, type DisplayPrefs } from './format';
@@ -36,6 +39,31 @@ function editUnits(kind: Observation['kind']): readonly string[] {
   }
 }
 
+/**
+ * A correction sheet's save, owned by the sheet (B-03, §4.5; codex F-ui-02):
+ * while one is being written, the form's or the guidance's retry, Close, a
+ * swipe, Escape and a Back wait for it. Refused, the form or the guidance
+ * stays with what it says; stored, a Back held meanwhile goes on.
+ */
+function useCorrectionSave(onOpenChange: (open: boolean) => void, onClose: () => void) {
+  const [saving, setSaving] = useState(0);
+  const settle = useSaveHold(saving > 0);
+  const track = (write: Promise<string | undefined>): Promise<string | undefined> => {
+    setSaving(n => n + 1);
+    const done = (stored: boolean) => {
+      setSaving(n => n - 1);
+      settle(stored);
+    };
+    return write.then(failure => { done(failure === undefined); return failure; }, (error: unknown) => { done(false); throw error; });
+  };
+  const close = (next: boolean) => {
+    if (!next && saving > 0) return;
+    if (!next) onClose();
+    onOpenChange(next);
+  };
+  return { saving: saving > 0, track, close };
+}
+
 export function EditReadingSheet({ open, onOpenChange, observation, prefs }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -43,15 +71,12 @@ export function EditReadingSheet({ open, onOpenChange, observation, prefs }: {
   prefs: DisplayPrefs;
 }) {
   const [shown, setShown] = useState<Shown>();
-  const close = (next: boolean) => {
-    if (!next) setShown(undefined);
-    onOpenChange(next);
-  };
+  const { saving, track, close } = useCorrectionSave(onOpenChange, () => setShown(undefined));
   return (
-    <Sheet open={open} onOpenChange={close} title={shown ? 'What to do' : 'Correct this record'} detent="large">
+    <Sheet open={open} onOpenChange={close} dismissible={!saving} title={shown ? 'What to do' : 'Correct this record'} detent="large">
       {open && (shown
         ? <Guidance shown={shown} onDone={() => close(false)} />
-        : <EditReadingForm observation={observation} prefs={prefs} onDone={() => close(false)} onGuidance={setShown} />)}
+        : <EditReadingForm observation={observation} prefs={prefs} onDone={() => close(false)} onGuidance={setShown} track={track} />)}
     </Sheet>
   );
 }
@@ -68,9 +93,11 @@ interface CorrectionProps {
   onDone: () => void;
   /** Shows the guidance, with the correction's write already started. */
   onGuidance: (shown: Shown) => void;
+  /** Each write, the guidance's retry included, as the sheet waits for it (codex F-ui-02). */
+  track: (write: Promise<string | undefined>) => Promise<string | undefined>;
 }
 
-function EditReadingForm({ observation: o, prefs, onDone, onGuidance }: { observation: Observation; prefs: DisplayPrefs } & CorrectionProps) {
+function EditReadingForm({ observation: o, prefs, onDone, onGuidance, track }: { observation: Observation; prefs: DisplayPrefs } & CorrectionProps) {
   const errorId = useId();
   const current = useToday();
   const { profile } = useStore();
@@ -96,13 +123,16 @@ function EditReadingForm({ observation: o, prefs, onDone, onGuidance }: { observ
   const [tag, setTag] = useState<ObservationTag | undefined>(o.tag);
   const [note, setNote] = useState(o.note ?? '');
   const [error, setError] = useState<string>();
+  // A change refused because the reading still holds movement (D119): said here, with its way out.
+  const [held, setHeld] = useState<HoldFailure>();
+  const clearProblem = () => { setError(undefined); setHeld(undefined); };
   const [busy, setBusy] = useState(false);
   const noteId = useId();
 
   const switchUnit = (next: string) => {
     if (!typed) setRaw(shownIn(next));
     setUnit(next);
-    setError(undefined);
+    clearProblem();
   };
 
   const save = async () => {
@@ -147,7 +177,10 @@ function EditReadingForm({ observation: o, prefs, onDone, onGuidance }: { observ
       if (checkInDay && profile && renumbered) {
         const result = await correctInCheckIn(o, value, storedUnit, { profile, update, date: checkInDay });
         if (result?.matched) {
-          if (!result.stored) return result.failure;
+          if (!result.stored) {
+            if (result.held) setHeld(result.held);
+            return result.failure;
+          }
           // The number went with the record; what is left is the reading's own.
           const { value: _value, unit: _unit, ...rest } = patch;
           void _value; void _unit;
@@ -156,16 +189,18 @@ function EditReadingForm({ observation: o, prefs, onDone, onGuidance }: { observ
       }
       if (Object.keys(own).length === 0) return undefined;
       const result = await editObservation(o.id, own);
-      return result.ok ? undefined : result.failure.message;
+      if (result.ok) return undefined;
+      if (isHeld(result.failure)) setHeld(result.failure);
+      return result.failure.message;
     };
-    setError(undefined);
+    clearProblem();
     setBusy(true);
     const failure = await saveWithGuidance({
       escalation,
-      write,
+      write: () => track(write()),
       show: pending => escalation && onGuidance({
         figure: formatValue(value, 'glucose', storedUnit).replace(` ${storedUnit}`, ''), unit: storedUnit, escalation,
-        ask: true, pending, retry: write, words: CORRECT_WORDS,
+        ask: true, pending, retry: () => track(write()), words: CORRECT_WORDS,
       }),
     });
     setBusy(false);
@@ -180,7 +215,7 @@ function EditReadingForm({ observation: o, prefs, onDone, onGuidance }: { observ
         label="Value"
         mode={Number.isInteger(o.value) && decimalsFor(o.kind, unit) === 0 ? 'numeric' : 'decimal'}
         value={raw}
-        onChange={v => { setRaw(v); setTyped(true); setError(undefined); }}
+        onChange={v => { setRaw(v); setTyped(true); clearProblem(); }}
         invalid={!!error}
         describedBy={error ? errorId : undefined}
         unit={unitLabel(unit)}
@@ -202,10 +237,12 @@ function EditReadingForm({ observation: o, prefs, onDone, onGuidance }: { observ
           maxLength={500}
           rows={2}
           onChange={e => setNote(e.target.value)}
-          className="min-h-11 rounded-xl bg-grouped-card px-4 py-3 text-[length:var(--text-body)] outline-none ring-1 ring-transparent focus:ring-tint"
+          className="min-h-12 rounded-xl bg-grouped-card px-4 py-3 text-[length:var(--text-body)] outline-none ring-1 ring-transparent focus:ring-tint"
         />
       </div>
-      {error && <ErrorText id={errorId}>{error}</ErrorText>}
+      {held
+        ? <HeldProblem failure={held} profile={profile} onAnswered={() => { setHeld(undefined); void save(); }} />
+        : error && <ErrorText id={errorId}>{error}</ErrorText>}
       <PrimaryButton onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save correction'}</PrimaryButton>
     </>
   );
@@ -234,20 +271,17 @@ export function EditPressureSheet({ open, onOpenChange, reading }: {
   reading: BpReading;
 }) {
   const [shown, setShown] = useState<Shown>();
-  const close = (next: boolean) => {
-    if (!next) setShown(undefined);
-    onOpenChange(next);
-  };
+  const { saving, track, close } = useCorrectionSave(onOpenChange, () => setShown(undefined));
   return (
-    <Sheet open={open} onOpenChange={close} title={shown ? 'What to do' : 'Correct this reading'} detent="large">
+    <Sheet open={open} onOpenChange={close} dismissible={!saving} title={shown ? 'What to do' : 'Correct this reading'} detent="large">
       {open && (shown
         ? <Guidance shown={shown} onDone={() => close(false)} />
-        : <EditPressureForm reading={reading} onDone={() => close(false)} onGuidance={setShown} />)}
+        : <EditPressureForm reading={reading} onDone={() => close(false)} onGuidance={setShown} track={track} />)}
     </Sheet>
   );
 }
 
-function EditPressureForm({ reading: r, onDone, onGuidance }: { reading: BpReading } & CorrectionProps) {
+function EditPressureForm({ reading: r, onDone, onGuidance, track }: { reading: BpReading } & CorrectionProps) {
   const errorId = useId();
   const { profile } = useStore();
   const whole = rewritable(r);
@@ -259,10 +293,13 @@ function EditPressureForm({ reading: r, onDone, onGuidance }: { reading: BpReadi
   const [time, setTime] = useState<string | undefined>(() => (hasClockTime(r.halves[0]) ? toLocalInput(r.at) : undefined));
   const [timeTouched, setTimeTouched] = useState(false);
   const [error, setError] = useState<string>();
+  // A change refused because the reading still holds movement (D119): said here, with its way out.
+  const [held, setHeld] = useState<HoldFailure>();
+  const clearProblem = () => { setError(undefined); setHeld(undefined); };
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
-    setError(undefined);
+    clearProblem();
     // Both numbers, when the reading has both; a missing half is never invented.
     let sys: number | null = r.systolic;
     let dia: number | null = r.diastolic;
@@ -304,7 +341,11 @@ function EditPressureForm({ reading: r, onDone, onGuidance }: { reading: BpReadi
           { profile, update, date: checkInDay },
         );
         // Not in the record (taken out since): only the readings are corrected.
-        if (result.matched) return result.stored ? undefined : result.failure;
+        if (result.matched) {
+          if (result.stored) return undefined;
+          if (result.held) setHeld(result.held);
+          return result.failure;
+        }
       }
       // Both numbers in one write, the reading's halves, context and metadata kept.
       if (sys !== null && dia !== null) {
@@ -313,21 +354,25 @@ function EditPressureForm({ reading: r, onDone, onGuidance }: { reading: BpReadi
           ...(at !== undefined ? { at } : {}),
           ...tagPatch,
         });
-        return result.ok ? undefined : result.failure.message;
+        if (result.ok) return undefined;
+        if (isHeld(result.failure)) setHeld(result.failure);
+        return result.failure.message;
       }
       const half = systolicHalf ?? diastolicHalf;
       if (!half) return undefined;
       const result = await editObservation(half.id, { value: (half === systolicHalf ? sys : dia) as number });
-      return result.ok ? undefined : result.failure.message;
+      if (result.ok) return undefined;
+      if (isHeld(result.failure)) setHeld(result.failure);
+      return result.failure.message;
     };
     // Judged on the corrected numbers, before the write (F01). Either number alone is enough.
     const escalation = changed ? pressureEscalation(sys ?? 0, dia ?? 0, profile) : undefined;
     setBusy(true);
     const failure = await saveWithGuidance({
       escalation,
-      write,
+      write: () => track(write()),
       show: pending => escalation && onGuidance({
-        figure: `${sys ?? '–'}/${dia ?? '–'}`, unit: 'mmHg', escalation, ask: true, pending, retry: write, words: CORRECT_WORDS,
+        figure: `${sys ?? '–'}/${dia ?? '–'}`, unit: 'mmHg', escalation, ask: true, pending, retry: () => track(write()), words: CORRECT_WORDS,
       }),
     });
     setBusy(false);
@@ -340,10 +385,10 @@ function EditPressureForm({ reading: r, onDone, onGuidance }: { reading: BpReadi
     <>
       <div className="grid grid-cols-[repeat(auto-fit,minmax(8rem,1fr))] gap-3">
         {systolicHalf || whole
-          ? <NumberField label="Top (systolic)" mode="numeric" value={s} onChange={v => { setS(v); setError(undefined); }} invalid={!!error} describedBy={error ? errorId : undefined} />
+          ? <NumberField label="Top (systolic)" mode="numeric" value={s} onChange={v => { setS(v); clearProblem(); }} invalid={!!error} describedBy={error ? errorId : undefined} />
           : <p className="self-end rounded-xl bg-grouped-card px-4 py-3 text-[length:var(--text-subhead)] text-muted-foreground">Top number not entered</p>}
         {diastolicHalf || whole
-          ? <NumberField label="Bottom (diastolic)" mode="numeric" value={d} onChange={v => { setD(v); setError(undefined); }} invalid={!!error} describedBy={error ? errorId : undefined} />
+          ? <NumberField label="Bottom (diastolic)" mode="numeric" value={d} onChange={v => { setD(v); clearProblem(); }} invalid={!!error} describedBy={error ? errorId : undefined} />
           : <p className="self-end rounded-xl bg-grouped-card px-4 py-3 text-[length:var(--text-subhead)] text-muted-foreground">Bottom number not entered</p>}
       </div>
       {whole && (
@@ -352,7 +397,9 @@ function EditPressureForm({ reading: r, onDone, onGuidance }: { reading: BpReadi
           <TimeRow value={time} onChange={v => { if (v !== undefined) { setTime(v); setTimeTouched(true); } }} />
         </>
       )}
-      {error && <ErrorText id={errorId}>{error}</ErrorText>}
+      {held
+        ? <HeldProblem failure={held} profile={profile} onAnswered={() => { setHeld(undefined); void save(); }} />
+        : error && <ErrorText id={errorId}>{error}</ErrorText>}
       <PrimaryButton onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save correction'}</PrimaryButton>
     </>
   );

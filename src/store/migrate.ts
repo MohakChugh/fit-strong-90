@@ -24,8 +24,13 @@
  * The old `localStorage` blob is deliberately left in place. Until the user
  * has exported once, deleting their only other copy to tidy up would be the
  * single worst thing this function could do.
+ *
+ * Schema 6 (Plan 6) is additive: IndexedDB 2 creates the v2 stores empty, a
+ * v4 device moves straight to 6, and a device at 5 is only stamped 6
+ * (`migrateToV6`), never moved from its v4 blob again.
  */
 
+import { customFoodsIn, keptReadable } from '@/food/records';
 import { migrateData } from '@/services/storage';
 import type { AppData, WorkoutSession } from '@/types';
 import type { CheckInRecord } from '@/types/checkin';
@@ -33,10 +38,22 @@ import type { Observation } from '@/health/observation';
 import { StoreFailure, readDoc, toFailure, type Db, type StoreResult } from './db';
 import { commitChange, emptySnapshot, prepare, type Change, type Snapshot } from './snapshot';
 import { liftBodyMetric, liftCheckIn, liftSessionPain, type SkippedRecord } from './project';
+import type { Records, StoredRecord } from './records';
+import { SUCCESSOR } from './successor';
 
 export type { SkippedRecord } from './project';
 
-export const SCHEMA_VERSION = 5;
+/**
+ * The data schema (journey §18.3): 6 adds the v2 record stores, which IndexedDB 2 creates empty. The suite's
+ * successor build is 7 (board D121): `migrateToV6` stamps it over any marker from 5 up, its empty migration.
+ */
+export const SCHEMA_VERSION = 6 + SUCCESSOR;
+/**
+ * The marker the v4 → v5 move first wrote. A device at or past it has moved,
+ * whatever the current schema is: running the move again would replace the
+ * record with v1's v4 blob, which is never deleted (Review Focus 1).
+ */
+export const V5_SCHEMA = 5;
 
 /** The key the v4 blob lives under. Mirrors `STORAGE_KEY` in services/storage.ts. */
 export const V4_KEY = 'fit-strong-90-data';
@@ -70,7 +87,19 @@ export interface Projection {
  */
 export function observationsFromCheckIn(record: CheckInRecord): Projection {
   const lifted = liftCheckIn(record, { existing: [] });
-  return { observations: lifted.put, skipped: lifted.skipped };
+  return { observations: lifted.put.map(unsaid), skipped: lifted.skipped };
+}
+
+/**
+ * A measurement lifted from an old record, not said now: no place of its own (`order`, P8R-06), so a
+ * conversion is the same however often it runs, and its commit order decides, as for every statement
+ * from before this release.
+ */
+function unsaid(o: Observation): Observation {
+  if (o.order === undefined) return o;
+  const { order: _now, ...rest } = o;
+  void _now;
+  return rest;
 }
 
 /**
@@ -107,7 +136,7 @@ export function projectV4(data: AppData): Projection {
     if (metric && typeof metric.date === 'string') take(liftBodyMetric(metric.date, metric, observations));
   }
 
-  return { observations, skipped };
+  return { observations: observations.map(unsaid), skipped };
 }
 
 /** The observations a v4 blob yields, without the skip report. */
@@ -236,10 +265,10 @@ export function legacySnapshot(raw: string | null): Snapshot | undefined {
   }
 }
 
-const isDone = (marker: unknown) => typeof marker === 'number' && marker >= SCHEMA_VERSION;
+const isDone = (marker: unknown) => typeof marker === 'number' && marker >= V5_SCHEMA;
 
 /**
- * Move this device from v4 to v5, once.
+ * Move this device from v4 to v5, once: it is stamped with the current schema.
  *
  * Pass `raw` to migrate a specific blob; omit it to read the one on this
  * device. Returns a failure rather than throwing, because the caller is app
@@ -273,4 +302,56 @@ export async function migrateToV5(db: Db, raw?: string | null): Promise<StoreRes
   if (!committed.ok) return { ok: false, failure: committed.failure };
   if (committed.value.resolution === null) return { ok: true, value: emptyReport({ alreadyDone: true }) };
   return { ok: true, value: plan.report };
+}
+
+/**
+ * Schema 5 → 6, once (Plan 6 Task 1). Additive: the v2 stores were created
+ * empty by IndexedDB 2, so only the marker is written. Asked of the marker
+ * first, so an upgraded device reads nothing else on start.
+ */
+export async function migrateToV6(db: Db): Promise<StoreResult<{ from: number; alreadyDone: boolean }>> {
+  let marker: unknown;
+  try {
+    marker = await readDoc<number>(db, 'schemaVersion');
+  } catch (error) {
+    return { ok: false, failure: toFailure(error, 'readFailed') };
+  }
+  if (typeof marker !== 'number' || marker >= SCHEMA_VERSION) return { ok: true, value: { from: typeof marker === 'number' ? marker : 0, alreadyDone: true } };
+  const committed = await commitChange(db, undefined, base =>
+    typeof base.schemaVersion === 'number' && base.schemaVersion >= V5_SCHEMA && base.schemaVersion < SCHEMA_VERSION
+      ? { change: { schemaVersion: SCHEMA_VERSION } }
+      : null);
+  if (!committed.ok) return { ok: false, failure: committed.failure };
+  return { ok: true, value: { from: marker, alreadyDone: committed.value.resolution === null } };
+}
+
+/** The meals and usual meals an item is kept readable in (`keptReadable`): an own food given its snapshot, a flat range none. Or nothing. */
+function snapshotsChange(records: Records): Change | null {
+  const give = keptReadable(customFoodsIn(records));
+  const changed = (list: readonly StoredRecord[]) => list.map(give).filter((r, i) => r !== list[i]) as StoredRecord[];
+  const meals = changed(records.meals);
+  const savedMeals = changed(records.savedMeals);
+  if (meals.length === 0 && savedMeals.length === 0) return null;
+  return { records: { ...(meals.length > 0 ? { meals: { put: meals } } : {}), ...(savedMeals.length > 0 ? { savedMeals: { put: savedMeals } } : {}) } };
+}
+
+/**
+ * Own-food items logged before snapshots, each given one once (board D146, H7R-01), and a table food held
+ * with equal carb ends given no carb estimate (H7F-03, D207): every meal, earlier
+ * version and usual meal in one transaction, planned again against what is stored if another copy wrote
+ * meanwhile. Schema 6 stays: the rows themselves say what's left to do, so there is nothing else to mark,
+ * and a start with none writes nothing. A device that can't write it now keeps its rows as they are, and
+ * tries again next start; meanwhile they're read as they'll be stored, so nothing leaves history for the
+ * session (H7R-01). The snapshot it leaves the store holding.
+ */
+export async function giveSnapshots(db: Db, known: Snapshot): Promise<Snapshot> {
+  if (snapshotsChange(known.records) === null) return known;
+  const committed = await commitChange(db, known, base => {
+    const change = snapshotsChange(base.records);
+    return change ? { change } : null;
+  });
+  if (committed.ok) return committed.value.next;
+  const base = committed.refreshed ?? known;
+  const change = snapshotsChange(base.records);
+  return change ? { ...base, records: prepare(base, change).next.records } : base;
 }

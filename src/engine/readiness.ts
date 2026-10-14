@@ -112,7 +112,9 @@ export function bpReadingId(r: BpReading, day?: string): string {
 export function bpPartialId(r: BpPartialReading, day?: string): string {
   return `bpp:${stampOf(r.at, day)}:${r.sys ?? ''}/${r.dia ?? ''}`;
 }
-const newsReadingId = (date: string, item: NewsItem) => `news:${item}@${date}`;
+export const newsReadingId = (date: string, item: NewsItem) => `news:${item}@${date}`;
+/** A record said "I need to stop" (journey §4.4): the incident stays open, whatever the day, until its own answer (H6R-01). */
+export const stoppedIn = (c: Pick<DailyCheckIn, 'news'>): boolean => c.news.includes('stopped');
 
 /**
  * What a reading has been settled as, by the latest answer that names it
@@ -185,7 +187,12 @@ const minutesApart = (a?: number, b?: number) => (a === undefined || b === undef
 
 // ─── Readings logged outside the check-in (scan X2-01) ──────────────────────
 
-/** Oldest first; one with no time first of all. */
+/**
+ * Oldest first; one with no time first of all. By when each was taken, and
+ * nothing else: a reading's clock generation (`gen`) says only whether it was
+ * acquired since a change to the phone's clock, never that it came after one
+ * from a file, which has none (H6F-05, board D186).
+ */
 const byMeasured = <T extends GlucoseEntry>(list: readonly T[]): T[] => [...list].sort((a, b) => (time(a.measuredAt) ?? -Infinity) - (time(b.measuredAt) ?? -Infinity));
 const byAt = (list: readonly BpReading[]): BpReading[] => [...list].sort((a, b) => (time(a.at) ?? -Infinity) - (time(b.at) ?? -Infinity));
 
@@ -462,6 +469,20 @@ const DAY_ENDING = {
 type DayEnding = keyof typeof DAY_ENDING;
 export const endsTheDay = (n: NewsItem): n is DayEnding => Object.hasOwn(DAY_ENDING, n);
 
+/**
+ * "I need to stop" said during movement, with nothing said since about what
+ * happened (journey §4.4): saved at the tap, it holds every movement until it
+ * is answered. Closing the guidance answers nothing, and nor does midnight: a
+ * stop from an earlier day carries until its own answer, by its id (H6R-01,
+ * board D170). An answer is recorded as one (`news:stopped@<day>`), so the
+ * stop coming back from an older copy of the day reopens nothing; a stop said
+ * again after its answer reopens it (`reopenedByReport`).
+ */
+export const STOP_UNANSWERED = {
+  reason: 'You stopped and haven’t said what happened yet. Say what happened before you move again.',
+  release: 'Say what happened, or change today’s answers once you’re ready to move again.',
+} as const;
+
 /** Those said earlier on the record's day and unticked since. Vomiting ends the day only with diabetes; without, it is a rest until it settles. */
 const newsSaidEarlier = (c: DailyCheckIn, d: DerivedHealth): DayEnding[] =>
   [...new Set(Array.isArray(c.newsEarlier) ? c.newsEarlier : [])].filter(endsTheDay).filter(n => !c.news.includes(n) && (n !== 'vomiting' || d.diabetic));
@@ -473,6 +494,9 @@ function newsRules(p: UserProfile, c: DailyCheckIn, d: DerivedHealth, recorded: 
   const has = (n: NewsItem) => c.news.includes(n) || earlier.includes(n);
   const limit = fluidLimit(p.health);
 
+  if (has('stopped') && settledAs(newsReadingId(c.date, 'stopped'), answers) === undefined) {
+    out.push({ outcome: 'red', disposition: 'hold', release: STOP_UNANSWERED.release, reason: R('stopped', STOP_UNANSWERED.reason, 'red', 'hold') });
+  }
   if (has('unwell')) {
     out.push({
       outcome: 'red', disposition: 'hold', release: 'Rest today. If you feel well again later, change today’s answers.',
@@ -1526,6 +1550,28 @@ const flagsOf = (c: DailyCheckIn): Flag[] => [...new Set([...flagsIn(c), ...flag
 const flagId = (flag: Flag, day: string) => `flag:${flag}@${day}`;
 
 /**
+ * Every name the engine can give what one record holds (§4.6, P8-02): its
+ * glucose readings, Track's included, its ketones, its blood pressure whole
+ * and in halves, its news and its red flags, by the ids answers use. What an
+ * import must leave this device's answers alone about: a reading's identity
+ * is its time and value, so the same reading under another record id is
+ * still the same one.
+ */
+export function readingIdsIn(record: DailyCheckIn): string[] {
+  const c = withLogged(record);
+  const day = c.date;
+  const ids = [
+    ...[...(c.glucoseEarlier ?? []), c.glucose, c.glucoseDisplay].filter((e): e is GlucoseEntry => !!e).map(e => glucoseReadingId(e, day)),
+    ...[...(c.ketonesEarlier ?? []), ...(c.ketones ? [c.ketones] : [])].map(k => ketoneReadingId(k, day)),
+    ...([...(c.bpEarlier ?? []), ...(c.bpReadings ?? []), ...(c.bp ? [c.bp] : [])] as BpReading[]).map(r => bpReadingId(r, day)),
+    ...(c.bpPartial ?? []).map(r => bpPartialId(r, day)),
+    ...[...c.news, ...(Array.isArray(c.newsEarlier) ? c.newsEarlier : [])].map(n => newsReadingId(day, n)),
+    ...flagsOf(c).map(f => flagId(f, day)),
+  ];
+  return [...new Set(ids)];
+}
+
+/**
  * An item said again today after an answer released it — a red flag, a foot
  * problem, or news that ends the day, ticked again — is a new report of it
  * (R5-01). These are the `reopened` answers that take each release back, so
@@ -1537,7 +1583,8 @@ export function reopenedByReport(saved: DailyCheckIn, next: DailyCheckIn): Episo
   const before = flagsIn(saved);
   const again: { kind: EpisodeKind; id: string }[] = [
     ...flagsIn(next).filter(f => !before.includes(f)).map(f => ({ kind: FLAGS[f].kind, id: flagId(f, next.date) })),
-    ...next.news.filter(n => endsTheDay(n) && !saved.news.includes(n)).map(n => ({ kind: 'news' as const, id: newsReadingId(next.date, n) })),
+    // A stop said again after its answer is a new one (journey §4.4, H6R-01).
+    ...next.news.filter(n => (endsTheDay(n) || n === 'stopped') && !saved.news.includes(n)).map(n => ({ kind: 'news' as const, id: newsReadingId(next.date, n) })),
   ];
   const answers = next.resolutions ?? [];
   return again.flatMap(({ kind, id }) => {
@@ -1688,6 +1735,14 @@ function carriedRules(profile: UserProfile, c: DailyCheckIn | undefined, date: s
         out.push(r.disposition === 'emergency'
           ? { outcome: 'urgent', disposition: 'emergency', unresolved: r.kind, reason: R(`carried:${r.kind}`, CARRY_MESSAGE[kind](r.label, unit, true), 'urgent', 'emergency') }
           : { outcome: 'red', disposition: 'today', release: 'Say what happened in today’s check-in.', unresolved: r.kind, reason: R(`carried:${r.kind}`, CARRY_MESSAGE[kind](r.label, unit, false), 'red', 'today') });
+      }
+    }
+    // A stop said on that day and never answered since (journey §4.4, H6R-01).
+    if (stoppedIn(record)) {
+      const id = newsReadingId(record.date, 'stopped');
+      const latest = standingAnswer(answers(id), id);
+      if (!latest || latest.resolution === 'reopened') {
+        out.push({ outcome: 'red', disposition: 'hold', release: STOP_UNANSWERED.release, reason: R('carried:stopped', STOP_UNANSWERED.reason, 'red', 'hold') });
       }
     }
     // Red flags and foot problems, by name, until their own release is given (X2-02, X2-03, R5-01).
@@ -1846,7 +1901,7 @@ function preparedHistory(profile: UserProfile, history: readonly DailyCheckIn[])
   const asked = sorted.map(() => [] as string[]);
   const unanswered = sorted.map((x, i) => seriousReadings(x, id => { asked[i].push(id); return []; }, ''));
   const flagged = sorted.map(x => flagsOf(x));
-  const carriers = sorted.flatMap((x, i) => (unanswered[i].length || (!x.readingsOnly && flagged[i].length) ? [i] : []));
+  const carriers = sorted.flatMap((x, i) => (unanswered[i].length || (!x.readingsOnly && flagged[i].length) || stoppedIn(x) ? [i] : []));
   const named: AnswerIndex = new Map();
   sorted.forEach((x, i) => indexAnswers(named, x.resolutions, i));
   /** For every prefix length, the last check-in that answered its questions and the last record saying how far leg symptoms reach. */
@@ -2007,7 +2062,42 @@ function profileContributions(profile: UserProfile): { contributions: Contributi
  * the check-in's day.
  */
 export function evaluateCheckIn(profile: UserProfile, checkIn: DailyCheckIn, recent: DailyCheckIn[] = [], now?: Date): Readiness {
-  return evaluateWith(profile, checkIn, listedBefore(recent, checkIn.date), now);
+  const r = evaluateWith(profile, checkIn, listedBefore(recent, checkIn.date), now);
+  return profile.clinicalUnsaved ? unsavedReadiness(r) : r;
+}
+
+/** Said while a clinical answer the person gave couldn't be stored (board D197). */
+export const CLINICAL_UNSAVED = 'Your health answers aren’t saved, so movement is paused.';
+export const CLINICAL_UNSAVED_RELEASE = 'Try again to save them, or discard the changes.';
+
+/**
+ * Holds that only ask for a reading to be given or typed again: the check-in
+ * says so, and the tiles say "check in first". Not a safety state of the
+ * person (journey §4.7: ordinary holds keep their own words), so neither the
+ * shared surface nor the pause beside it says them (board D224).
+ */
+export const ASKS_FOR_A_READING: ReadonlySet<string> = new Set(['noReading', 'readingInvalid', 'bpInvalid', 'ketonesInvalid']);
+
+/**
+ * The day's answer while a clinical answer couldn't be stored (boards D197,
+ * D224): every movement holds. What the day decides stands as it is, and the
+ * pause is said after it, never instead of it: a stop still asks what
+ * happened, a low is still treated and re-checked, advice today is still
+ * given. Nothing else is advised, since advice worked out from answers that
+ * aren't the person's could be wrong for them (H5F-02), and nothing asks for
+ * a reading to start with. An emergency stays as it is.
+ */
+function unsavedReadiness(r: Readiness): Readiness {
+  if (r.disposition === 'emergency') return r;
+  const outcome = OUTCOME_ORDER.indexOf(r.outcome) >= OUTCOME_ORDER.indexOf('amber') ? r.outcome : 'amber';
+  const decided = r.reasons.filter(x => rank(x.disposition ?? 'adjust') >= rank('hold') && !ASKS_FOR_A_READING.has(x.code));
+  return {
+    ...r, outcome, disposition: r.disposition === 'today' ? 'today' : 'hold', notices: [],
+    release: decided.length > 0 && r.release ? r.release : CLINICAL_UNSAVED_RELEASE,
+    awaitingReading: decided.length > 0 && r.awaitingReading === true,
+    reasons: [...decided, { code: 'clinicalUnsaved', message: CLINICAL_UNSAVED, outcome: 'amber', disposition: 'hold' }],
+    actions: r.actions.filter(action => action === TREAT),
+  };
 }
 
 function evaluateWith(profile: UserProfile, checkIn: DailyCheckIn, before: Before, now?: Date): Readiness {
@@ -2038,19 +2128,39 @@ function evaluateWith(profile: UserProfile, checkIn: DailyCheckIn, before: Befor
     ...base.contributions,
     ...dayRules(checkIn),
     ...(stored ? dayRules(stored) : []),
+    // So are the answers given before those, none stored yet: each on its own (F-safety-01).
+    ...unstoredViews(checkIn).flatMap(dayRules),
     ...carried.contributions,
   ], base.vigorousLocked, base.rpeOnly);
   const episodes = episodeSummaries(c, c.date, carried.readings, newsSaidEarlier(c, d));
   return episodes.length ? { ...r, episodes } : r;
 }
 
-/** The day as the device has stored it, with the same Track readings, when answers it has not stored are merged into `c` (N-01). */
+/**
+ * F-safety-01: what was answered for the day before the answers waiting now,
+ * none stored yet (`unstored`), each as its own day, with the Track readings
+ * the stored day reads.
+ */
+export function unstoredViews(c: DailyCheckIn): DailyCheckIn[] {
+  const logged = c.durable?.date === c.date ? c.durable.logged ?? c.logged : c.logged;
+  return (c.unstored ?? []).filter(v => v.date === c.date).map(v => {
+    const { unstored: _u, durable: _d, logged: _l, ...own } = v;
+    void _u; void _d; void _l;
+    return logged ? { ...own, logged } : own;
+  });
+}
+
+/**
+ * The day as the device has stored it, when answers or readings it has not
+ * stored are merged into `c` (N-01): with its own Track readings when it was
+ * given them, the stored ones (F-safety-01), and otherwise the day's.
+ */
 export function durableView(c: DailyCheckIn): DailyCheckIn | undefined {
   const d = c.durable;
   if (!d || d.date !== c.date) return undefined;
   const { durable: _nested, ...stored } = d;
   void _nested;
-  return c.logged ? { ...stored, logged: c.logged } : stored;
+  return stored.logged || !c.logged ? stored : { ...stored, logged: c.logged };
 }
 
 function defaultDisposition(c: Contribution): Disposition {
@@ -2141,6 +2251,7 @@ function merge(cs: Contribution[], vigorousLocked: boolean, rpeOnly: boolean): R
  * `recent` it is the profile alone.
  */
 export function profileOnlyReadiness(profile: UserProfile, day?: { date: string; recent: readonly DailyCheckIn[]; now?: Date }): Readiness {
+  if (profile.clinicalUnsaved) return unsavedReadiness(profileOnlyReadiness({ ...profile, clinicalUnsaved: undefined }, day));
   const base = profileContributions(profile);
   const carried = day ? carriedRules(profile, undefined, day.date, listedBefore(day.recent, day.date), day.now) : { contributions: [], readings: [] };
   const r = merge([...base.contributions, ...carried.contributions], base.vigorousLocked, base.rpeOnly);

@@ -1,13 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useLocation } from 'react-router-dom';
+import { foodPromptOfferedOn, noteFoodPromptsShown } from '@/food/prompts';
+import { mealsIn } from '@/food/records';
+import { useSetupSession } from '@/setup/draft';
+import { clinicalUnsavedVersion, gateProfile, subscribeClinicalUnsaved } from '@/setup/effective';
 import { useStore } from '@/store/useStore';
 import { statusOn } from '@/health/status';
 import { cn } from '@/lib/utils';
 import { showBadge } from './badge';
-import { prunePending, usePending, showReminders } from './pending';
+import { UrgentContext, useMovementHeld } from '@/screens/home/urgent';
+import { offeredNow, prunePending, usePending, showReminders } from './pending';
 import { ReminderBanner } from './ReminderBanner';
 import { startReminders, type Runner } from './runner';
-import { dailyTimes, stillDue, type ReminderContext } from './schedule';
+import { inAppTimes, stillDue, type ReminderContext } from './schedule';
 import { msToNextMinute, wallTimeOf, type WallTime } from './time';
 import { waterRecorded } from './water';
 import { habitPrecautions } from './advice';
@@ -23,10 +28,23 @@ const PAST_THE_MINUTE_MS = 25;
  * Today sets, which quiets every prompt on a day that is not Normal.
  */
 export function ReminderHost() {
-  const { status: storage, settings, profile, observations } = useStore();
+  const { status: storage, settings, profile: stored, observations, records } = useStore();
+  // The profile every gate reads, the stored one: its gap while setup is unfinished (K5R-10), and marked while a clinical
+  // answer isn't stored, when water reminders pause (board D197).
+  const session = useSetupSession();
+  const editing = useSyncExternalStore(subscribeClinicalUnsaved, clinicalUnsavedVersion, clinicalUnsavedVersion);
+  const profile = useMemo(
+    () => gateProfile({ profile: stored, settings }, session),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stored, settings, session, editing],
+  );
   const habits = settings.habits;
   const periods = settings.statusPeriods;
   const pending = usePending();
+  // While a safety decision stands, a walk or a stand-up is held back, not answered (kiro KV-09), and so it is while any
+  // hold on movement stands, raised on the shared surface or not (the shared held verdict, board D224).
+  const urgent = useContext(UrgentContext) !== undefined;
+  const held = useMovementHeld();
   const { pathname } = useLocation();
   // During a session or a live walk a prompt to stand or walk is noise: one
   // that comes due there is skipped, not saved for later. Today shows the
@@ -47,7 +65,10 @@ export function ReminderHost() {
     profile,
     status: day => statusOn(periods, day),
     waterOn: day => waterRecorded(day, observations),
-  }), [habits, profile, periods, observations]);
+    mealLogged: (day, meal) => mealsIn(records).some(m => m.day === day && m.meal === meal),
+    // At most one food prompt a day, remembered on this device (H7-21).
+    foodPromptOffered: day => foodPromptOfferedOn(day),
+  }), [habits, profile, periods, observations, records]);
   // Read fresh by the runner on every check, so a glass logged a moment ago
   // counts towards the goal without restarting anything.
   const context = useRef(current);
@@ -81,7 +102,7 @@ export function ReminderHost() {
   // showing now — a fluid limit or not knowing, a habit turned off, a day that
   // is no longer Normal, quiet hours, a goal met, a new day. Only what is
   // waiting goes; the water the person recorded stays.
-  const waiting = useMemo(() => pending.filter(p => stillDue(p.occurrence, now, current)), [pending, now, current]);
+  const waiting = useMemo(() => offeredNow(pending.filter(p => stillDue(p.occurrence, now, current)), { urgent, held }), [pending, now, current, urgent, held]);
   useEffect(() => {
     prunePending(p => stillDue(p.occurrence, now, current));
   }, [pending, now, current]);
@@ -92,7 +113,10 @@ export function ReminderHost() {
       now: () => new Date(),
       context: () => context.current,
       show: due => {
-        if (!route.current) showReminders(due);
+        if (!route.current) {
+          showReminders(due);
+          noteFoodPromptsShown(due);
+        }
         setNow(wallTimeOf(new Date()));
       },
       later: (run, ms) => {
@@ -120,7 +144,7 @@ export function ReminderHost() {
   // A changed schedule or Status starts the count again from now, so turning
   // a habit on, or coming back to Normal, never replays a reminder from the past.
   const schedule = useMemo(
-    () => JSON.stringify([periods ?? [], habits?.inApp, dailyTimes(habits, profile)]),
+    () => JSON.stringify([periods ?? [], habits?.inApp, inAppTimes({ habits, profile })]),
     [periods, habits, profile],
   );
   useEffect(() => {
@@ -146,7 +170,7 @@ export function ReminderHost() {
         // Never over navigation: just above the tab bar, or the sidebar's
         // content area on a wide screen, or above the bottom safe area.
         place === 'aboveTabBar'
-          ? 'bottom-[calc(3.0625rem+env(safe-area-inset-bottom)+0.5rem)] lg:bottom-[calc(env(safe-area-inset-bottom)+1rem)] lg:left-60'
+          ? 'bottom-[calc(4.5rem+max(0.5rem,env(safe-area-inset-bottom)))] lg:bottom-[calc(env(safe-area-inset-bottom)+1rem)] lg:left-60'
           : 'bottom-[calc(env(safe-area-inset-bottom)+0.75rem)]',
       )}
     >

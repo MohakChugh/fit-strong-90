@@ -41,11 +41,11 @@ export interface CadenceInput {
   observations: readonly Observation[];
 }
 
-/** Where each item's action lands: Track's quick log, opened on the right kind. */
+/** Where each item's action lands: that check's hub, with its own form open (journey §8.2, D55). */
 export const TRACK_ADD = {
-  bloodPressure: '/track?add=bloodPressure',
-  hba1c: '/track?add=hba1c',
-  b12: '/track?add=b12',
+  bloodPressure: '/hub/bp?add=bloodPressure',
+  hba1c: '/hub/labs?metric=hba1c&add=hba1c',
+  b12: '/hub/labs?metric=b12&add=b12',
 } as const;
 
 /** ADA 2026, 6.3a: under 7% for many adults. */
@@ -199,6 +199,11 @@ function closeNote(days: Map<string, Day>, today: string): string | undefined {
     : `On ${n} days this week your two readings were less than a minute apart, so they were not counted.`;
 }
 
+/** Where the weekly check day comes from (`weeklyCheck`, `nextCheck`). */
+const ESH_WEEKLY = 'Once a week is a low-effort routine within the European Society of Hypertension’s home monitoring advice (2021).';
+/** Where the diagnostic block comes from (`diagnosticWeek`, `nextCheck`). */
+const NICE_BLOCK = 'NICE guideline NG136, 1.2.7: readings at home over at least 4 days, ideally 7, which your clinician then reviews.';
+
 /** A weekly check day stays at the front for its first two days; after that it has been seen and set aside. */
 const FRESH_DAYS = 2;
 
@@ -234,7 +239,7 @@ function weeklyCheck(days: Map<string, Day>, last: string | undefined, today: st
     kind: 'bpCheckDay',
     title: 'Blood pressure check day',
     detail: [ask, closeNote(days, today)].filter(Boolean).join(' '),
-    source: 'Once a week is a low-effort routine within the European Society of Hypertension’s home monitoring advice (2021).',
+    source: ESH_WEEKLY,
     action: { label: 'Add a reading', to: TRACK_ADD.bloodPressure },
   };
 }
@@ -259,7 +264,7 @@ function diagnosticWeek(days: Map<string, Day>, today: string, evening: boolean)
     title: 'Blood pressure week',
     detail: [ask, done === 0 ? 'Aim for at least 4 days in a row, ideally 7.' : `${done} of at least 4 days in a row done.`, closeNote(days, today)]
       .filter(Boolean).join(' '),
-    source: 'NICE guideline NG136, 1.2.7: readings at home over at least 4 days, ideally 7, which your clinician then reviews.',
+    source: NICE_BLOCK,
     action: { label: 'Add a reading', to: TRACK_ADD.bloodPressure },
   };
 }
@@ -352,19 +357,21 @@ export function latestStart(since: string | undefined): string | undefined {
  * on metformin, or sooner with another risk such as a vegan diet. Shorter use
  * calls for "periodic" checks, which has no interval to remind on.
  */
-function b12Item(input: CadenceInput, profile: UserProfile): DueItem | undefined {
+/** Why B12 is checked once a year for this person, or nothing when it isn't (ADA 3.10). */
+function b12Why(profile: UserProfile, today: string): string | undefined {
   if (profile.health.metformin !== true) return undefined;
-
-  const today = dayOf(input.now);
   const start = latestStart(profile.health.metforminSince);
   const longTerm = start !== undefined && format(addYears(parseISO(start), 4), 'yyyy-MM-dd') < today;
-  const vegan = profile.food?.pattern === 'vegan';
-  if (!longTerm && !vegan) return undefined;
+  if (longTerm) return 'after more than 4 years on metformin';
+  return profile.food?.pattern === 'vegan' ? 'on metformin with a vegan diet' : undefined;
+}
 
+function b12Item(input: CadenceInput, profile: UserProfile): DueItem | undefined {
+  const today = dayOf(input.now);
+  const why = b12Why(profile, today);
+  if (!why) return undefined;
   const last = latest(input.observations, 'b12');
   if (last && format(addMonths(parseISO(last.day), 12), 'yyyy-MM-dd') > today) return undefined;
-
-  const why = longTerm ? 'after more than 4 years on metformin' : 'on metformin with a vegan diet';
   return {
     kind: 'b12',
     title: 'Vitamin B12 check',
@@ -373,5 +380,79 @@ function b12Item(input: CadenceInput, profile: UserProfile): DueItem | undefined
       : 'No result recorded yet.'}`,
     source: 'ADA Standards of Care 2026, recommendation 3.10.',
     action: { label: 'Add a result', to: TRACK_ADD.b12 },
+  };
+}
+
+// ============================================================================
+// When a hub says the next check comes
+// ============================================================================
+
+export interface NextCheck {
+  /** Due today: the item itself. Otherwise, when the model next asks for it. */
+  due: boolean;
+  title: string;
+  detail: string;
+  /** Where the interval comes from, in plain words. */
+  source: string;
+}
+
+/**
+ * When a check comes round next, for its hub (journey §8.2, "When to check
+ * next"): today's item when one is due, otherwise when the model next asks
+ * for it. Nothing for a check the model doesn't schedule: glucose without a
+ * clinician's plan, vitamin D, weight.
+ */
+export function nextCheck(input: CadenceInput, what: 'bloodPressure' | 'hba1c' | 'b12'): NextCheck | undefined {
+  const { profile } = input;
+  if (!profile) return undefined;
+  const today = dayOf(input.now);
+  const asItem = (item: DueItem): NextCheck => ({ due: true, title: item.title, detail: item.detail, source: item.source });
+
+  if (what === 'bloodPressure') {
+    const { hypertension, bpMonitor } = profile.health;
+    if (hypertension === 'none' || !bpMonitor) return undefined;
+    const due = bloodPressureItem(input, profile);
+    if (due) return asItem(due.item);
+    const days = byDay(pairBloodPressure([...input.observations]));
+    if (hypertension !== 'treated') {
+      const complete = [...days.keys()].some(d => [0, 1, 2, 3].every(i => fullDay(days.get(shiftDay(d, i)))));
+      return complete
+        ? { due: false, title: 'Your home readings are on record', detail: 'Your clinician decides whether you need another block of readings.', source: NICE_BLOCK }
+        : { due: false, title: 'Blood pressure week', detail: 'Today’s readings are done. Carry on tomorrow: at least 4 days in a row, ideally 7.', source: NICE_BLOCK };
+    }
+    const last = [...days].filter(([d, s]) => d <= today && fullDay(s)).map(([d]) => d).sort().at(-1);
+    if (last === undefined) return undefined;
+    return {
+      due: false, title: 'Next check day',
+      detail: `${format(parseISO(shiftDay(last, 7)), 'EEEE d MMMM')}: two readings in the morning and two in the evening, a minute apart.`,
+      source: ESH_WEEKLY,
+    };
+  }
+
+  if (what === 'hba1c') {
+    const item = hba1cItem(input, profile);
+    if (item) return asItem(item);
+    const { diabetes } = profile.health;
+    if (diabetes !== 'type1' && diabetes !== 'type2' && diabetes !== 'other') return undefined;
+    const last = latest(input.observations, 'hba1c');
+    if (!last) return undefined;
+    const target = clinicianHba1cGoal(profile);
+    const months = hba1cIntervalMonths(last, target !== undefined ? { value: target, unit: '%' } : ADA_HBA1C_GOAL);
+    return {
+      due: false, title: 'Next HbA1c test',
+      detail: `Usually due in ${format(addMonths(parseISO(last.day), months), 'MMMM yyyy')}: about every ${months} months ${months === 6 ? 'while it is within your goal' : 'until it is within your goal'}.`,
+      source: `${HBA1C_CADENCE_CITATION}.`,
+    };
+  }
+
+  const item = b12Item(input, profile);
+  if (item) return asItem(item);
+  const why = b12Why(profile, today);
+  const last = latest(input.observations, 'b12');
+  if (!why || !last) return undefined;
+  return {
+    due: false, title: 'Next vitamin B12 check',
+    detail: `Usually due in ${format(addMonths(parseISO(last.day), 12), 'MMMM yyyy')}: once a year is usual ${why}.`,
+    source: 'ADA Standards of Care 2026, recommendation 3.10.',
   };
 }

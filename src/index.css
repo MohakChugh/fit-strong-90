@@ -211,12 +211,20 @@ button, [role="button"], a {
 :root { color-scheme: light; }
 :root.dark { color-scheme: dark; }
 
-/* Toasts sit clear of the tab bar and the home indicator; beside the
-   sidebar (lg) there is no bar below them to clear. */
-:root { --toast-offset-bottom: calc(3.0625rem + env(safe-area-inset-bottom, 0px) + 0.5rem); }
+/* Toasts sit clear of the floating tab bar (4rem, above the home indicator,
+   TabBar.tsx); beside the sidebar (lg) there is no bar below them to clear. */
+:root { --toast-offset-bottom: calc(4.5rem + max(0.5rem, env(safe-area-inset-bottom, 0px))); }
 @media (min-width: 64rem) {
   :root { --toast-offset-bottom: 1.5rem; }
 }
+/* While a sheet or a menu owns the page, toasts wait, hidden, and come back as they were (B-03). */
+#toasts[data-held] { visibility: hidden; }
+/* A toast is a compact bar the screen's width: its words take the row, and its action moves under them
+   when the two don't fit side by side, as at 200% text on a 320 px phone, rather than leaving the words
+   one to a line beside it (M19). */
+#toasts [data-sonner-toast] { flex-wrap: wrap; row-gap: 0.5rem; }
+#toasts [data-sonner-toast] [data-content] { flex: 1 1 8rem; min-width: 0; }
+#toasts [data-sonner-toast] [data-button] { margin-inline-start: auto; }
 
 /* ==========================================================================
    Motion system
@@ -225,8 +233,8 @@ button, [role="button"], a {
    JS main thread. Only `transform` and `opacity` are animated, which are the
    two properties the browser can composite without layout or paint.
 
-   Every animation here is disabled under prefers-reduced-motion at the
-   bottom of this file.
+   Every animation here is disabled under prefers-reduced-motion, or the
+   app's own Reduce motion, further down this file.
    ========================================================================== */
 
 @theme inline {
@@ -423,6 +431,55 @@ button, [role="button"], a {
   }
 }
 
+/* The app's own Reduce motion while the system's is off: a push, Back or tab
+   change is a 200 ms fade instead of a slide (motion rule 4). As specific as
+   the rules above, so it wins by coming after them. The leaving screen fades
+   out, not in, so it never blinks away first. */
+:root[data-reduce-motion]::view-transition-old(root),
+:root[data-reduce-motion]::view-transition-new(root) {
+  animation: fs-fade-in 0.2s linear both;
+}
+:root[data-reduce-motion]::view-transition-old(root) {
+  animation-name: fs-nav-fade-out;
+}
+
+/* Setup's pages (M22): the incoming page slides 30% in from the trailing
+   edge and fades in, the outgoing one moves 30% the other way and fades, and
+   Back reverses both. The rest of the frame stays put: setup sets
+   data-task="setup" on <html>, and its own layer, setup-page, moves. The
+   spring's easing and length are set on <html> from design/motion.ts. */
+@keyframes setup-in-trailing { from { opacity: 0; transform: translate3d(30%, 0, 0); } }
+@keyframes setup-out-leading { to { opacity: 0; transform: translate3d(-30%, 0, 0); } }
+@keyframes setup-in-leading { from { opacity: 0; transform: translate3d(-30%, 0, 0); } }
+@keyframes setup-out-trailing { to { opacity: 0; transform: translate3d(30%, 0, 0); } }
+
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-task="setup"]::view-transition-old(root),
+  :root[data-task="setup"]::view-transition-new(root) {
+    animation: none;
+  }
+  ::view-transition-old(setup-page) {
+    animation: setup-out-leading var(--setup-ms, 588ms) var(--setup-ease, var(--ease-out-quart)) both;
+  }
+  ::view-transition-new(setup-page) {
+    animation: setup-in-trailing var(--setup-ms, 588ms) var(--setup-ease, var(--ease-out-quart)) both;
+  }
+  :root[data-nav="back"]::view-transition-old(setup-page) { animation-name: setup-out-trailing; }
+  :root[data-nav="back"]::view-transition-new(setup-page) { animation-name: setup-in-leading; }
+  .setup-capsule-fill { transition: width var(--setup-ms, 588ms) var(--setup-ease, var(--ease-out-quart)); }
+}
+
+/* Under Reduce Motion pages change with a fade (M22 RM; motion rule 4: reduced
+   motion replaces, it doesn't delete). The navigation runs no transition
+   then, so the arriving page fades itself in; the rules that cut every
+   animation to nothing, the system's and the app's own, are overridden for
+   this one. */
+.setup-page-fade { animation: fs-fade-in 200ms linear both; }
+@media (prefers-reduced-motion: reduce) {
+  .setup-page-fade { animation: fs-fade-in 200ms linear both !important; }
+}
+:root[data-reduce-motion] .setup-page-fade { animation: fs-fade-in 200ms linear both !important; }
+
 /* ==========================================================================
    Accessibility: honour the OS "reduce motion" setting.
    Content still appears, it just appears instantly instead of moving.
@@ -467,6 +524,40 @@ button, [role="button"], a {
     transition: none !important;
   }
 }
+
+/* The same rules for the app's own Reduce motion (`data-reduce-motion` on
+   <html>, set by App from Me → Display), for people whose system setting is
+   off. Keep the two in step: src/design/tokens.node.test.ts checks that every
+   rule above has its twin here. View transitions fade instead (see above). */
+:root[data-reduce-motion],
+:root[data-reduce-motion] *,
+:root[data-reduce-motion] *::before,
+:root[data-reduce-motion] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+:root[data-reduce-motion] .stagger-children > *,
+:root[data-reduce-motion] .animate-rise-in,
+:root[data-reduce-motion] .animate-fade-in,
+:root[data-reduce-motion] .animate-scale-in,
+:root[data-reduce-motion] .animate-slide-in-left {
+  animation-delay: 0ms !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+:root[data-reduce-motion] .press-feedback:active {
+  transform: none;
+}
+
+:root[data-reduce-motion] .exercise-anim * {
+  animation: none !important;
+  transition: none !important;
+}
+
 /* ==========================================================================
    Apple-style foundation
    --------------------------------------------------------------------------
@@ -513,6 +604,28 @@ button, [role="button"], a {
      the body colour on both, as on iOS (15:1 or better). */
   --segment-track: oklch(0.915 0.004 286);
   --segment-thumb: oklch(1 0 0);
+  /* Trends (B-15): the period before, drawn behind the current one in grey
+     and striped, 3:1 or more on the card (src/design/tokens.node.test.ts). */
+  --trend-previous: oklch(0.6 0 0);
+  /* v2 category colours (journey §20.3): graphics, then ink for text and icons.
+     Measured on the card, where tiles, rings and charts sit: graphics 3:1, ink
+     4.5:1 (src/design/tokens.node.test.ts). Food was 0.7, under 3:1. On the bare
+     page, Food and Learn graphics are under 3:1, so draw them on a card. */
+  --cat-move: oklch(0.6 0.2 30);        --cat-move-ink: oklch(0.5 0.18 30);
+  --cat-workout: oklch(0.66 0.17 50);   --cat-workout-ink: oklch(0.5 0.14 45);
+  --cat-stretch: oklch(0.6 0.11 190);   --cat-stretch-ink: oklch(0.46 0.09 190);
+  --cat-walk: oklch(0.6 0.15 150);      --cat-walk-ink: oklch(0.45 0.12 150);
+  --cat-steps: oklch(0.6 0.15 150);     --cat-steps-ink: oklch(0.45 0.12 150);
+  --cat-food: oklch(0.66 0.15 75);      --cat-food-ink: oklch(0.5 0.11 70);
+  --cat-glucose: oklch(0.56 0.17 300);  --cat-glucose-ink: oklch(0.46 0.16 300);
+  --cat-bp: oklch(0.58 0.19 10);        --cat-bp-ink: oklch(0.48 0.18 10);
+  --cat-back: oklch(0.56 0.16 320);     --cat-back-ink: oklch(0.46 0.15 320);
+  --cat-weight: oklch(0.6 0.12 215);    --cat-weight-ink: oklch(0.46 0.1 215);
+  --cat-waist: oklch(0.6 0.12 215);     --cat-waist-ink: oklch(0.46 0.1 215);
+  --cat-water: oklch(0.6 0.15 240);     --cat-water-ink: oklch(0.46 0.13 245);
+  --cat-sleep: oklch(0.52 0.15 275);    --cat-sleep-ink: oklch(0.44 0.14 275);
+  --cat-labs: oklch(0.58 0.08 60);      --cat-labs-ink: oklch(0.44 0.07 60);
+  --cat-learn: oklch(0.66 0.13 90);     --cat-learn-ink: oklch(0.46 0.1 85);
 }
 
 .dark {
@@ -532,6 +645,22 @@ button, [role="button"], a {
      text on it is 6:1. */
   --segment-track: oklch(0.26 0.003 286);
   --segment-thumb: oklch(0.5 0.004 286);
+  --trend-previous: oklch(0.62 0 0);
+  --cat-move: oklch(0.72 0.18 30);      --cat-move-ink: oklch(0.8 0.14 30);
+  --cat-workout: oklch(0.75 0.16 55);   --cat-workout-ink: oklch(0.82 0.13 60);
+  --cat-stretch: oklch(0.72 0.11 190);  --cat-stretch-ink: oklch(0.8 0.09 190);
+  --cat-walk: oklch(0.74 0.15 150);     --cat-walk-ink: oklch(0.82 0.12 150);
+  --cat-steps: oklch(0.74 0.15 150);    --cat-steps-ink: oklch(0.82 0.12 150);
+  --cat-food: oklch(0.8 0.14 80);       --cat-food-ink: oklch(0.85 0.12 85);
+  --cat-glucose: oklch(0.72 0.15 300);  --cat-glucose-ink: oklch(0.8 0.12 300);
+  --cat-bp: oklch(0.72 0.16 10);        --cat-bp-ink: oklch(0.8 0.13 10);
+  --cat-back: oklch(0.72 0.14 320);     --cat-back-ink: oklch(0.8 0.11 320);
+  --cat-weight: oklch(0.75 0.11 215);   --cat-weight-ink: oklch(0.82 0.09 215);
+  --cat-waist: oklch(0.75 0.11 215);    --cat-waist-ink: oklch(0.82 0.09 215);
+  --cat-water: oklch(0.72 0.13 240);    --cat-water-ink: oklch(0.8 0.11 240);
+  --cat-sleep: oklch(0.7 0.13 275);     --cat-sleep-ink: oklch(0.8 0.1 275);
+  --cat-labs: oklch(0.74 0.07 60);      --cat-labs-ink: oklch(0.82 0.06 60);
+  --cat-learn: oklch(0.8 0.12 95);      --cat-learn-ink: oklch(0.85 0.1 95);
 }
 
 @theme inline {
@@ -546,6 +675,36 @@ button, [role="button"], a {
   --color-stop-fill: var(--stop-fill);
   --color-segment-track: var(--segment-track);
   --color-segment-thumb: var(--segment-thumb);
+  --color-cat-move: var(--cat-move);
+  --color-cat-move-ink: var(--cat-move-ink);
+  --color-cat-workout: var(--cat-workout);
+  --color-cat-workout-ink: var(--cat-workout-ink);
+  --color-cat-stretch: var(--cat-stretch);
+  --color-cat-stretch-ink: var(--cat-stretch-ink);
+  --color-cat-walk: var(--cat-walk);
+  --color-cat-walk-ink: var(--cat-walk-ink);
+  --color-cat-steps: var(--cat-steps);
+  --color-cat-steps-ink: var(--cat-steps-ink);
+  --color-cat-food: var(--cat-food);
+  --color-cat-food-ink: var(--cat-food-ink);
+  --color-cat-glucose: var(--cat-glucose);
+  --color-cat-glucose-ink: var(--cat-glucose-ink);
+  --color-cat-bp: var(--cat-bp);
+  --color-cat-bp-ink: var(--cat-bp-ink);
+  --color-cat-back: var(--cat-back);
+  --color-cat-back-ink: var(--cat-back-ink);
+  --color-cat-weight: var(--cat-weight);
+  --color-cat-weight-ink: var(--cat-weight-ink);
+  --color-cat-waist: var(--cat-waist);
+  --color-cat-waist-ink: var(--cat-waist-ink);
+  --color-cat-water: var(--cat-water);
+  --color-cat-water-ink: var(--cat-water-ink);
+  --color-cat-sleep: var(--cat-sleep);
+  --color-cat-sleep-ink: var(--cat-sleep-ink);
+  --color-cat-labs: var(--cat-labs);
+  --color-cat-labs-ink: var(--cat-labs-ink);
+  --color-cat-learn: var(--cat-learn);
+  --color-cat-learn-ink: var(--cat-learn-ink);
 }
 
 /* Horizontal safe areas matter in landscape on a notched phone. */
@@ -557,3 +716,55 @@ button, [role="button"], a {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
 }
+
+/* ==========================================================================
+   Liquid Glass for the web (journey §20.1; design research §2.5).
+   Navigation layer only: tab bar, nav bars, sheet headers, the player's
+   control capsule. Never on content, never stacked, at most two on screen.
+   ========================================================================== */
+:root { --glass-fill: rgb(255 255 255 / .72); --glass-rim: rgb(255 255 255 / .55);
+        --glass-hi: rgb(255 255 255 / .6); --glass-drop: 0 1px 2px rgb(0 0 0 / .08), 0 8px 24px rgb(0 0 0 / .12); }
+.dark { --glass-fill: rgb(28 28 30 / .72); --glass-rim: rgb(255 255 255 / .14);
+        --glass-hi: rgb(255 255 255 / .10); --glass-drop: 0 8px 24px rgb(0 0 0 / .5); }
+.glass {
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid var(--glass-rim);
+  box-shadow: inset 0 1px 0 var(--glass-hi), var(--glass-drop);
+}
+/* Solid: the in-app setting, while a view transition runs (WebKit 302256), more contrast, or no support. */
+:root[data-glass="solid"] .glass,
+:root[data-vt-running] .glass { background: var(--grouped-card); -webkit-backdrop-filter: none; backdrop-filter: none; }
+@media (prefers-reduced-transparency: reduce) { .glass { background: var(--grouped-card); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+@media (prefers-contrast: more) { .glass { background: var(--grouped-card); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--foreground); box-shadow: none; } }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .glass { background: var(--grouped-card); } }
+/* A screen's nav bar: full width, so a hairline under it rather than a rim and a shadow. */
+.glass[data-bar] { border-width: 0 0 1px; border-color: var(--separator); border-radius: 0; box-shadow: none; }
+@media (prefers-contrast: more) { .glass[data-bar] { border-color: var(--foreground); } }
+
+/* ==========================================================================
+   Hubs (journey §8.1, §8.4; motion M3, M24).
+   ========================================================================== */
+/* The spring at 0.4 s, bounce 0, as a CSS curve (motion spec §3.1; design research §4.1). */
+:root { --spring-smooth: linear(0, 0.058, 0.18, 0.321, 0.455, 0.573, 0.671, 0.75, 0.812, 0.86, 0.897, 0.924, 0.945, 0.96, 0.971, 0.979, 0.985, 0.989, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 1); }
+
+@keyframes fs-hub-in {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The tile's plain background grows into the hub's wash; text stays out of it and cross-fades (M3, B-27). */
+  ::view-transition-group(hub-card-bg) { animation-duration: 588ms; animation-timing-function: var(--spring-smooth); }
+  ::view-transition-old(hub-card-bg),
+  ::view-transition-new(hub-card-bg) { height: 100%; }
+  /* The rest of the page fades rather than slides; the hub's content rises 8 px once the morph is half done. */
+  :root[data-morph]::view-transition-old(root) { animation: fs-nav-fade-out 0.2s linear both; }
+  :root[data-morph]::view-transition-new(root) { animation: fs-hub-in 0.3s var(--ease-out-quart) 0.29s both; }
+}
+
+/* Loading placeholders: after 150 ms, a shimmer of at most three cycles, and still under Reduce motion (B-29). */
+.hub-skeleton { opacity: 0; animation: fs-fade-in 0.2s linear 150ms both, hub-shimmer 1.2s ease-in-out 350ms 3; }
+@keyframes hub-shimmer { 50% { background-color: color-mix(in oklab, var(--grouped-card) 60%, var(--grouped-bg)); } }
+:root[data-reduce-motion] .hub-skeleton { animation: fs-fade-in 0.01ms linear 150ms both; }

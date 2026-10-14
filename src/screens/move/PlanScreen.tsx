@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   ChevronDownIcon, CircleCheckIcon, CircleDashedIcon, CircleDotIcon, CircleIcon, CirclePauseIcon, MoonIcon, type LucideIcon,
 } from 'lucide-react';
 import { Screen } from '@/components/hig/Screen';
 import { Group, Row } from '@/components/hig/List';
 import { Sheet } from '@/components/hig/Sheet';
-import { ProfileWizard } from '@/components/profile/ProfileWizard';
-import { WizardCover } from '@/screens/you/WizardCover';
+import { JoinFlow } from '@/programme/JoinFlow';
 import { useGuided } from '@/hooks/useGuided';
 import { isEnrolled } from '@/health/recommend';
 import { setFocusOverride } from '@/store/useStore';
@@ -18,8 +18,8 @@ import { toFailure, type StoreResult } from '@/store/db';
 import type { DayFocus } from '@/types/plan';
 import { ChoiceRows, PrimaryButton } from './controls';
 import {
-  canSwapToday, JOIN_CLOSED, joinController, joinFlow, joinSeed, PHASE_INFO, planView, programmeWeek, programmeWeekDates, startDateProblem,
-  STATUS_TEXT, swapChoices, swapToday, weekNote, weekView, withLeft, type DayStatus, type WeekDay,
+  canSwapToday, JOIN_CLOSED, joinController, joinFlow, joinSeed, PHASE_INFO, planView, programmeWeek, programmeWeekDates,
+  STATUS_TEXT, swapChoices, swapToday, weekNote, weekView, withLeft, withRestart, type DayStatus, type WeekDay,
 } from './plan';
 
 const WEEKDAY = (day: WeekDay['day']) => day.charAt(0).toUpperCase() + day.slice(1);
@@ -95,7 +95,20 @@ function Phases({ current }: { current?: string }) {
  */
 export function PlanScreen() {
   const { data, update, date } = useGuided();
-  const [flow, dispatch] = useReducer(joinFlow, JOIN_CLOSED);
+  const [params, setParams] = useSearchParams();
+  // "Join the 12-week programme" on the Workout hub opens the Join flow at once (D35): read on arrival, then taken out of the address.
+  const [flow, dispatch] = useReducer(joinFlow, params.get('join') === '1' && !isEnrolled(data.settings, data.profile) ? { ...JOIN_CLOSED, open: true } : JOIN_CLOSED);
+  // "Choose what's next", after the twelve weeks (D116): read on arrival as `join` is, so the plan's standing line takes focus.
+  const [nextAsked] = useState(() => params.get('next') === '1');
+  useEffect(() => {
+    if (!params.has('join') && !params.has('next')) return;
+    setParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('join');
+      next.delete('next');
+      return next;
+    }, { replace: true });
+  }, [params, setParams]);
   const submit = useMemo(() => joinController(update, dispatch), [update]);
   const [leaving, setLeaving] = useState(false);
   // A saved join or leave swaps the view from under its dialog, so the button
@@ -114,26 +127,19 @@ export function PlanScreen() {
   };
 
   return (
-    <Screen title="Your plan" back={{ to: '/move', label: 'Move' }}>
+    <Screen title="Your plan" back={{ to: '/hub/workout', label: 'Workout' }}>
       {planView(isEnrolled(data.settings, data.profile), { joining: flow.open, leaving }) === 'member'
-        ? <MemberPlan focusOnArrival={switched} onLeave={leave} />
+        ? <MemberPlan focusOnArrival={switched || nextAsked} onLeave={leave} />
         : <JoinPlan focusOnArrival={switched} unsaved={!flow.open && flow.draft !== undefined} onJoin={() => dispatch({ type: 'open' })} />}
 
-      <WizardCover open={flow.open} onClose={cancel} label="Join the 12-week programme">
-        <ProfileWizard
-          mode="edit"
-          steps={['about']}
-          programme
-          askStartDate
-          startDateRule={day => startDateProblem(day, date)}
-          submitLabel="Join the programme"
-          busy={flow.busy}
-          error={flow.error}
-          initial={joinSeed(flow, data, date)}
-          onCancel={cancel}
-          onComplete={answers => { void submit(answers).then(result => { if (result?.ok) setSwitched(true); }); }}
-        />
-      </WizardCover>
+      <JoinFlow
+        open={flow.open}
+        onOpenChange={next => { if (!next) cancel(); }}
+        initial={joinSeed(flow, data, date)}
+        busy={flow.busy}
+        {...(flow.error ? { error: flow.error } : {})}
+        onJoin={answers => { void submit(answers).then(result => { if (result?.ok) setSwitched(true); }); }}
+      />
     </Screen>
   );
 }
@@ -158,6 +164,7 @@ function MemberPlan({ focusOnArrival, onLeave }: { focusOnArrival: boolean; onLe
   const swappable = canSwapToday(plan, today);
   const [swapOpen, setSwapOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
+  const [restartOpen, setRestartOpen] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const phase = PHASE_INFO.find(p => p.phase === week.phase)!;
@@ -189,51 +196,72 @@ function MemberPlan({ focusOnArrival, onLeave }: { focusOnArrival: boolean; onLe
     // On success the screen becomes the way back in; nothing else to do.
   };
 
+  const restart = async () => {
+    if (saving) return;
+    setSaving(true);
+    setProblem(null);
+    const result = await update(withRestart(date));
+    setSaving(false);
+    if (result.ok) setRestartOpen(false);
+    else setProblem(result.failure.message);
+  };
+
   return (
     <>
       <section aria-label="Where the programme stands" className="flex flex-col gap-1 px-4">
         <p ref={standing} tabIndex={-1} className="numeric text-[length:var(--text-title-2)] font-semibold leading-tight outline-none">
-          {week.startsOn ? `Starts ${longDate(week.startsOn)}` : `Week ${week.week} of 12`}
+          {week.startsOn ? `Starts ${longDate(week.startsOn)}` : week.finished ? 'The 12 weeks are done' : `Week ${week.week} of 12`}
         </p>
         {/* The programme week's own dates: it counts from the start date, not Monday (J2-11). */}
-        {!week.startsOn && weekDates && <p className="text-[length:var(--text-subhead)]">{dates(weekDates.from, weekDates.to)}</p>}
+        {!week.startsOn && !week.finished && weekDates && <p className="text-[length:var(--text-subhead)]">{dates(weekDates.from, weekDates.to)}</p>}
         <p className="text-[length:var(--text-subhead)] text-muted-foreground">
           {phase.name} phase · weeks {phase.weeks[0]} to {phase.weeks[1]}
         </p>
-        {note && !week.startsOn && <p className="pt-1 text-[length:var(--text-subhead)] leading-snug">{note}</p>}
-        {week.finished && (
-          <p className="pt-1 text-[length:var(--text-subhead)] leading-snug">The 12 weeks are done. The plan stays on its final week.</p>
-        )}
+        {note && !week.startsOn && !week.finished && <p className="pt-1 text-[length:var(--text-subhead)] leading-snug">{note}</p>}
       </section>
 
-      <Group header={`This week, ${dates(days[0].date, days[days.length - 1].date)}`} footer="Heavy squat and hinge days are kept apart, so your back recovers between them.">
-        {days.map(d => {
-          const { icon: Icon, tint } = STATUS_ICON[d.status];
-          // A day in another programme week says which, so "This week" and "Week 3" cannot be confused (J2-11).
-          const otherWeek = !week.startsOn && d.week !== undefined && d.week !== week.week ? ` · Week ${d.week}` : '';
-          return (
-            <Row
-              key={d.date}
-              aria-current={d.isToday ? 'date' : undefined}
-              icon={<Icon className={cn(!tint && 'text-muted-foreground')} strokeWidth={2} />}
-              label={<span className={cn('whitespace-normal', d.isToday && 'font-semibold')}>{WEEKDAY(d.day)}</span>}
-              detail={`${dayDetail(d)}${otherWeek}`}
-            />
-          );
-        })}
-      </Group>
+      {week.finished && (
+        <Group header="What next?" footer="Your sessions and history stay either way. Stretch and Walk carry on as before.">
+          {/* The region's two main targets (D122, K8-04): marked, so the target sweep holds them to 60 px. */}
+          <Row data-main="" className="min-h-[3.75rem]" onClick={() => { setProblem(null); setRestartOpen(true); }} label={<span className="whitespace-normal text-tint">Start the 12 weeks again</span>} detail="Week 1 from today, on the same training days" />
+          <Row data-main="" className="min-h-[3.75rem]" onClick={() => { setProblem(null); setLeaveOpen(true); }} label={<span className="whitespace-normal text-stop">Leave the programme</span>} />
+        </Group>
+      )}
 
-      {swappable && today && (
+      {/* Nothing is planned after the twelve weeks, so no week, swap or second way to leave (D116). */}
+      {!week.finished && (
+        <Group header={`This week, ${dates(days[0].date, days[days.length - 1].date)}`} footer="Heavy squat and hinge days are kept apart, so your back recovers between them.">
+          {days.map(d => {
+            const { icon: Icon, tint } = STATUS_ICON[d.status];
+            // A day in another programme week says which, so "This week" and "Week 3" cannot be confused (J2-11).
+            const otherWeek = !week.startsOn && d.week !== undefined && d.week !== week.week ? ` · Week ${d.week}` : '';
+            return (
+              <Row
+                key={d.date}
+                aria-current={d.isToday ? 'date' : undefined}
+                icon={<Icon className={cn(!tint && 'text-muted-foreground')} strokeWidth={2} />}
+                label={<span className={cn('whitespace-normal', d.isToday && 'font-semibold')}>{WEEKDAY(d.day)}</span>}
+                detail={`${dayDetail(d)}${otherWeek}`}
+              />
+            );
+          })}
+        </Group>
+      )}
+
+      {!week.finished && swappable && today && (
         <Group>
           <Row onClick={() => { setProblem(null); setSwapOpen(true); }} label={<span className="whitespace-normal text-tint">{fromRest ? 'Train today instead' : 'Swap today’s workout'}</span>} />
         </Group>
       )}
 
-      <Phases current={week.phase} />
+      {/* After the twelve weeks no phase is the current one (D116). */}
+      <Phases {...(week.finished ? {} : { current: week.phase })} />
 
-      <Group footer="Your sessions and history stay. You can join again any time.">
-        <Row onClick={() => { setProblem(null); setLeaveOpen(true); }} label={<span className="whitespace-normal text-stop">Leave the programme</span>} />
-      </Group>
+      {!week.finished && (
+        <Group footer="Your sessions and history stay. You can join again any time.">
+          <Row onClick={() => { setProblem(null); setLeaveOpen(true); }} label={<span className="whitespace-normal text-stop">Leave the programme</span>} />
+        </Group>
+      )}
 
       {today && (
         <Sheet open={swapOpen} dismissible={!saving} onOpenChange={open => { if (!saving) setSwapOpen(open); }} title={fromRest ? 'Train today instead' : 'Swap today’s workout'} detent="large">
@@ -265,6 +293,14 @@ function MemberPlan({ focusOnArrival, onLeave }: { focusOnArrival: boolean; onLe
         >
           Leave the programme
         </button>
+        {problem && <p role="alert" className="px-4 text-[length:var(--text-subhead)] text-stop">That did not save. {problem}</p>}
+      </Sheet>
+
+      <Sheet open={restartOpen} dismissible={!saving} onOpenChange={open => { if (!saving) setRestartOpen(open); }} title="Start the 12 weeks again?">
+        <p className="px-4 text-[length:var(--text-body)] leading-snug">
+          Week 1 starts today, on your training days, at the gentlest phase. Every session and check-in so far stays on this device.
+        </p>
+        <PrimaryButton disabled={saving} onClick={() => { void restart(); }}>Start the 12 weeks again</PrimaryButton>
         {problem && <p role="alert" className="px-4 text-[length:var(--text-subhead)] text-stop">That did not save. {problem}</p>}
       </Sheet>
     </>

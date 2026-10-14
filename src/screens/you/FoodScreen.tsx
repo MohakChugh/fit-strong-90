@@ -1,10 +1,24 @@
-import { useId, useState, type FormEvent } from 'react';
-import { XIcon } from 'lucide-react';
+import { useId, useState, type FormEvent, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
-import { useStore } from '@/store/useStore';
-import type { FoodPreferences } from '@/types/profile';
-import { ChoiceRows, Notice, PlainButton, type Choice } from './controls';
+import { ALLERGENS, allergenName } from '@/food/allergens';
+import { FOOD_COPY, LEVEL_LABEL } from '@/food/copy';
+import { foodLevel, numbersView } from '@/food/level';
+import { promptDefault } from '@/food/prompts';
+import { LevelSheet } from '@/screens/food/LevelSheet';
+import { offerUndo } from '@/components/hig/undo';
+import { ownAllergyStatus } from '@/screens/guide/format';
+import { NoAllergiesRow } from '@/screens/guide/parts';
+import { formatDayShort } from '@/screens/track/format';
+import { ConfirmSheet, NumberField } from '@/screens/track/ui';
+import { useToday } from '@/screens/track/useToday';
+import { getSetupSession, useSetupSession } from '@/setup/draft';
+import { waitingFood } from '@/setup/state';
+import { getState, useStore } from '@/store/useStore';
+import type { Meal } from '@/types/habits';
+import { ALLERGEN_IDS, type AllergenId, type FoodPreferences } from '@/types/profile';
+import { CheckRows, ChoiceRows, Notice, PlainButton, Segmented, TimeField, type Choice } from './controls';
 import { AVOID_MAX_ITEMS, AVOID_MAX_LENGTH, FOOD_PATTERN, FOOD_REGION, addAvoid } from './summaries';
 import { changeProfile } from './write';
 
@@ -12,27 +26,98 @@ type Pattern = FoodPreferences['pattern'];
 type Region = NonNullable<FoodPreferences['region']>;
 
 const PATTERNS: Choice<Pattern>[] = (Object.keys(FOOD_PATTERN) as Pattern[]).map(value => ({ value, label: FOOD_PATTERN[value] }));
-
 const REGIONS: Choice<Region | 'none'>[] = [
   { value: 'none', label: 'No preference' },
   ...(Object.keys(FOOD_REGION) as Region[]).map(value => ({ value, label: FOOD_REGION[value] })),
 ];
+const ALLERGY_CHOICES: Choice<AllergenId>[] = ALLERGENS.map(a => ({ value: a.id, label: a.label }));
+const REMINDER_MEALS: { value: Meal | 'off'; label: string }[] = [
+  { value: 'off', label: FOOD_COPY.reminderOff },
+  { value: 'breakfast', label: 'Breakfast' },
+  { value: 'lunch', label: 'Lunch' },
+  { value: 'dinner', label: 'Dinner' },
+];
 
 /**
- * What meal ideas may include. Only what the person says: the app never
- * guesses a diet from anything else, and none of this leaves the device.
+ * What "Clear food preferences" leaves (board D137, K7-03): never the
+ * allergies, each removed on its own, nor the answer to "Has food or weight
+ * ever been hard for you?". The record needs an eating pattern, so what the
+ * person eats stays with them. With none of those, the record goes.
+ */
+function cleared(food: FoodPreferences | undefined): FoodPreferences | undefined {
+  if (!food || !keeps(food)) return undefined;
+  return {
+    pattern: food.pattern, avoid: [],
+    ...(food.allergies?.length ? { allergies: food.allergies } : {}),
+    ...(food.customAllergies?.length ? { customAllergies: food.customAllergies } : {}),
+    ...(food.hardBefore ? { hardBefore: food.hardBefore } : {}),
+  };
+}
+/** "Peanut", "Tree nuts", "Brinjal": the start of a sentence. */
+const opening = (text: string) => text.charAt(0).toLocaleUpperCase() + text.slice(1);
+
+/**
+ * An allergy in the person's own words put back by Undo as adding it puts one (`addAvoid`: 30 at most, and the
+ * same word in any case is there already), in its old place where there's room (H7F-04).
+ */
+function putBack(list: readonly string[], item: string, at: number): string[] {
+  const added = addAvoid(list, item);
+  if (added.length === list.length) return added;
+  const place = Math.min(Math.max(0, at), list.length);
+  return [...list.slice(0, place), added[added.length - 1], ...list.slice(place)];
+}
+
+/**
+ * A record that never answered allergies, as one from v1, with the answer setup keeps put in it first (board
+ * D205; codex F-food-06): what's shown is that answer, and a change to it is made to all of it, so one tick or one
+ * word never drops the rest.
+ */
+function withKnownAllergies(food: FoodPreferences, waiting: Partial<FoodPreferences>): FoodPreferences {
+  if (food.allergies !== undefined || food.customAllergies !== undefined) return food;
+  return { ...food, ...(waiting.allergies ? { allergies: waiting.allergies } : {}), ...(waiting.customAllergies ? { customAllergies: waiting.customAllergies } : {}) };
+}
+
+const keeps = (food: FoodPreferences) => (food.allergies?.length ?? 0) > 0 || (food.customAllergies?.length ?? 0) > 0 || food.hardBefore !== undefined;
+
+/** A whole number from a field, within bounds; blank is none; `null` can't be right. */
+function whole(text: string, max: number): number | undefined | null {
+  if (text.trim() === '') return undefined;
+  const n = Number(text);
+  return Number.isInteger(n) && n >= 1 && n <= max ? n : null;
+}
+
+/**
+ * Me → Food (journey §16): what meal ideas may include, allergies, the
+ * logging level, a target from the person's care team, and the reminder to
+ * log. Only what the person says: the app never guesses a diet, and none of
+ * this leaves the device.
  */
 export function FoodScreen() {
-  const { profile } = useStore();
-  const food = profile?.food;
-  const [typed, setTyped] = useState('');
+  const { profile, settings } = useStore();
+  const session = useSetupSession();
+  const record = profile?.food;
+  // The allergies as known (D205), shown and changed as the record's own (codex F-food-06).
+  const food = record && withKnownAllergies(record, waitingFood(settings.setup, session));
+  const level = foodLevel(food);
+  // A target and the prompt are for estimates only (journey §11.5, B-11).
+  const numbers = numbersView(profile);
+  const today = useToday();
+  const ids = { avoid: useId(), allergy: useId(), time: useId() };
   const [problem, setProblem] = useState<string>();
-  const inputId = useId();
+  const [choosing, setChoosing] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [kcal, setKcal] = useState(String(food?.careTeamTargets?.kcal ?? ''));
+  const [carbs, setCarbs] = useState(String(food?.careTeamTargets?.carbsG ?? ''));
+  // An allergy removed here can be put back until the person leaves, or makes another edit (K7R-01; §20.4 rule 6;
+  // the one Undo stack, board D113).
 
-  /** Each change is worked out from the stored preferences at the moment it is written. */
-  const edit = async (change: (food: FoodPreferences | undefined) => FoodPreferences | undefined) => {
-    const saved = await changeProfile(current => {
-      const next = change(current.food);
+  /**
+   * Each change is worked out from the stored preferences at the moment it is written, and with no record yet,
+   * the food answers setup keeps for one (board D192).
+   */
+  const edit = async (change: (food: FoodPreferences | undefined, waiting: Partial<FoodPreferences>) => FoodPreferences | undefined) => {
+    const saved = await changeProfile((current, stored) => {
+      const next = change(current.food, waitingFood(stored.setup, getSetupSession()));
       const edited = { ...current };
       if (next) edited.food = next;
       else delete edited.food;
@@ -42,66 +127,129 @@ export function FoodScreen() {
     return saved.ok;
   };
 
-  const add = async (event: FormEvent) => {
-    event.preventDefault();
-    const entry = typed;
-    // Cleared at once, so the next entry can be typed while this one saves;
-    // put back only if it did not save and nothing new has been typed.
-    setTyped('');
-    const saved = await edit(current => (current ? { ...current, avoid: addAvoid(current.avoid, entry) } : current));
-    if (!saved) setTyped(now => now || entry);
+  /**
+   * Undo for an allergy just removed, offered at once, standing until the person leaves Me → Food or clears
+   * their food choices. It's said to be back only once the stored record holds it, and otherwise says why: the
+   * record went with Clear, or there's no room (H7F-01, H7F-04; board D207).
+   */
+  const offerBack = (what: string, back: (food: FoodPreferences) => FoodPreferences, holds: (food: FoodPreferences) => boolean) => offerUndo({
+    text: FOOD_COPY.allergyRemoved(opening(what)),
+    restored: FOOD_COPY.allergyBack(opening(what)),
+    scope: '/me/food',
+    undo: async () => {
+      // Putting it back is no edit of its own: the Undo isn't ended by its own restore (D113).
+      const saved = await changeProfile(current => (current.food ? { ...current, food: back(current.food) } : current), { edit: false });
+      if (!saved.ok) return { done: false, problem: saved.failure.message };
+      const now = getState().profile?.food;
+      if (!now) return { done: false, problem: FOOD_COPY.allergyNoRecord };
+      return holds(now) ? { done: true } : { done: false, problem: FOOD_COPY.allergyNoRoom };
+    },
+  });
+
+  const saveTarget = () => {
+    const k = whole(kcal, 10_000);
+    const c = whole(carbs, 2_000);
+    if (k === null || c === null || (k === undefined && c === undefined)) {
+      setProblem(FOOD_COPY.targetBad);
+      return;
+    }
+    void edit(current => current && { ...current, careTeamTargets: { ...(k ? { kcal: k } : {}), ...(c ? { carbsG: c } : {}), setOn: today } });
+  };
+  const removeTarget = () => {
+    setKcal('');
+    setCarbs('');
+    void edit(current => {
+      if (!current) return current;
+      const next = { ...current };
+      delete next.careTeamTargets;
+      return next;
+    });
   };
 
   return (
-    <Screen title="Food preferences" back={{ to: '/you', label: 'You' }}>
-      <Group header="What you eat" footer="Meal ideas in Guide use this. The app only knows what you tell it.">
+    <Screen title="Food" back={{ to: '/me', label: 'Me' }}>
+      <Group header="What you eat" footer="Meal ideas use this. The app only knows what you tell it.">
         <ChoiceRows
           label="What you eat"
           options={PATTERNS}
           value={food?.pattern}
-          onChange={pattern => void edit(current => ({ avoid: [], ...current, pattern }))}
+          onChange={pattern => void edit((current, waiting) => ({ avoid: [], ...(current ?? waiting), pattern }))}
         />
       </Group>
 
+      {/* Its own group: a row that opens a screen doesn't belong among the choices above (D111, K7-11). */}
+      <Group>
+        <Row as={Link} to="/me/food/own" viewTransition label="Your own foods" detail="Foods you added while logging" chevron />
+      </Group>
+
       {food && (
-        <Group header="Leave out" footer="Allergies, or foods you do not eat, in your own words.">
-          {food.avoid.map(item => (
-            <Row
-              key={item}
-              label={item}
-              className="py-1"
-              accessory={
-                <button
-                  type="button"
-                  aria-label={`Remove ${item}`}
-                  onClick={() => void edit(current => (current ? { ...current, avoid: current.avoid.filter(a => a !== item) } : current))}
-                  className="press-feedback -mr-2 flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground"
-                >
-                  <XIcon className="size-5" aria-hidden />
-                </button>
-              }
-            />
-          ))}
-          {food.avoid.length < AVOID_MAX_ITEMS && (
-            <form onSubmit={event => void add(event)} className="flex min-h-[3.25rem] items-center gap-2 px-4 py-1.5">
-              <label htmlFor={inputId} className="sr-only">A food to leave out</label>
-              <input
-                id={inputId}
-                type="text"
-                value={typed}
-                maxLength={AVOID_MAX_LENGTH}
-                enterKeyHint="done"
-                autoComplete="off"
-                placeholder="For example, peanuts"
-                onChange={e => setTyped(e.target.value)}
-                className="min-h-11 min-w-0 flex-1 bg-transparent text-[length:var(--text-body)] outline-none placeholder:text-muted-foreground"
-              />
-              <button type="submit" disabled={!typed.trim()} className="press-feedback min-h-11 shrink-0 px-2 text-[length:var(--text-body)] font-semibold text-tint disabled:opacity-40">
-                Add
-              </button>
-            </form>
-          )}
+        <Group header={FOOD_COPY.allergiesGroup} footer={FOOD_COPY.allergiesFooter}>
+          {/* Never answered, as in a record from v1: not known, which isn't none, so it's one tap (owner decision; board D194). */}
+          {food.allergies === undefined && food.customAllergies === undefined && <NoAllergiesRow />}
+          <CheckRows
+            label={FOOD_COPY.allergiesGroup}
+            options={ALLERGY_CHOICES}
+            value={food.allergies ?? []}
+            onChange={allergies => {
+              const gone = (food.allergies ?? []).filter(a => !allergies.includes(a));
+              void edit((current, waiting) => current && { ...withKnownAllergies(current, waiting), allergies }).then(ok => {
+                if (ok) {
+                  for (const id of gone) {
+                    offerBack(allergenName(id), f => ({ ...f, allergies: ALLERGEN_IDS.filter(a => a === id || f.allergies?.includes(a)) }), f => f.allergies?.includes(id) === true);
+                  }
+                }
+              });
+            }}
+          />
         </Group>
+      )}
+
+      {food && (
+        <WordList
+          header={FOOD_COPY.somethingElse}
+          inputId={ids.allergy}
+          inputLabel={FOOD_COPY.somethingElse}
+          placeholder={FOOD_COPY.somethingElsePlaceholder}
+          items={food.customAllergies ?? []}
+          // How each is read: "Read as milk", or, in caution ink, that we don't know the word (K7R-02).
+          detailOf={item => {
+            const status = ownAllergyStatus(item);
+            return status && (status.unknown ? <span className="text-caution">{status.text}</span> : status.text);
+          }}
+          onAdd={entry => edit((current, waiting) => {
+            if (!current) return current;
+            const known = withKnownAllergies(current, waiting);
+            return { ...known, customAllergies: addAvoid(known.customAllergies ?? [], entry) };
+          })}
+          onRemove={item => {
+            const at = (food.customAllergies ?? []).indexOf(item);
+            void edit((current, waiting) => {
+              if (!current) return current;
+              const known = withKnownAllergies(current, waiting);
+              const left = (known.customAllergies ?? []).filter(a => a !== item);
+              const next: FoodPreferences = { ...known, customAllergies: left };
+              if (left.length === 0) delete next.customAllergies;
+              return next;
+            }).then(ok => {
+              // Back in its place, as adding it would be: never twice, never past the limit.
+              const same = (a: string) => a.toLocaleLowerCase() === item.toLocaleLowerCase();
+              if (ok) offerBack(item, f => ({ ...f, customAllergies: putBack(f.customAllergies ?? [], item, at) }), f => (f.customAllergies ?? []).some(same));
+            });
+          }}
+        />
+      )}
+
+      {food && (
+        <WordList
+          header="Leave out"
+          footer={FOOD_COPY.avoidFooter}
+          inputId={ids.avoid}
+          inputLabel="A food to leave out"
+          placeholder="For example, mushrooms"
+          items={food.avoid}
+          onAdd={entry => edit(current => current && { ...current, avoid: addAvoid(current.avoid, entry) })}
+          onRemove={item => void edit(current => current && { ...current, avoid: current.avoid.filter(a => a !== item) })}
+        />
       )}
 
       {food && (
@@ -110,17 +258,155 @@ export function FoodScreen() {
             label="Region"
             options={REGIONS}
             value={food.region ?? 'none'}
-            onChange={region => void edit(current => current && {
-              pattern: current.pattern,
-              avoid: current.avoid,
-              ...(region === 'none' ? {} : { region }),
+            // Every other preference stays: the level, allergies, a target, the reminder.
+            onChange={region => void edit(current => {
+              if (!current) return current;
+              const next = { ...current };
+              if (region === 'none') delete next.region;
+              else next.region = region;
+              return next;
             })}
           />
         </Group>
       )}
 
+      {food && (
+        <Group header={FOOD_COPY.levelGroup} footer={FOOD_COPY.levelFooter}>
+          <Row onClick={() => setChoosing(true)} label={FOOD_COPY.levelGroup} detail={LEVEL_LABEL[level]} chevron />
+        </Group>
+      )}
+
+      {food && numbers.show && (
+        <Group
+          header={FOOD_COPY.targetGroup}
+          footer={food.careTeamTargets ? `${FOOD_COPY.targetSetOn(formatDayShort(food.careTeamTargets.setOn, today))} ${FOOD_COPY.targetFooter}` : FOOD_COPY.targetFooter}
+        >
+          <div className="flex flex-col gap-3 px-4 py-3">
+            <NumberField label={FOOD_COPY.targetKcal} mode="numeric" unit="kcal" value={kcal} onChange={v => { setKcal(v); setProblem(undefined); }} />
+            <NumberField label={FOOD_COPY.targetCarbs} mode="numeric" unit="g" value={carbs} onChange={v => { setCarbs(v); setProblem(undefined); }} />
+            <PlainButton onClick={saveTarget}>{FOOD_COPY.targetSave}</PlainButton>
+            {food.careTeamTargets && <PlainButton tone="stop" onClick={removeTarget}>{FOOD_COPY.targetRemove}</PlainButton>}
+          </div>
+        </Group>
+      )}
+
+      {food && numbers.show && (
+        <Group header={FOOD_COPY.reminderGroup} footer={FOOD_COPY.reminderFooter}>
+          <div className="flex flex-col gap-3 px-4 py-3">
+            <Segmented
+              label={FOOD_COPY.reminderMeal}
+              options={REMINDER_MEALS}
+              value={food.logReminder?.meal ?? 'off'}
+              onChange={meal => void edit(current => {
+                if (!current) return current;
+                const next = { ...current };
+                if (meal === 'off') delete next.logReminder;
+                else next.logReminder = { meal, at: current.logReminder?.meal === meal ? current.logReminder.at : promptDefault(meal, settings.habits) };
+                return next;
+              })}
+            />
+            {food.logReminder && (
+              <TimeField
+                id={ids.time}
+                label={FOOD_COPY.reminderTime}
+                value={food.logReminder.at}
+                onChange={at => void edit(current => (current?.logReminder ? { ...current, logReminder: { ...current.logReminder, at } } : current))}
+              />
+            )}
+          </div>
+        </Group>
+      )}
+
       {problem && <Notice tone="error">{problem}</Notice>}
-      {food && <PlainButton tone="stop" onClick={() => void edit(() => undefined)}>Clear food preferences</PlainButton>}
+      {food && <PlainButton tone="stop" onClick={() => setClearing(true)}>Clear food preferences</PlainButton>}
+      {food && (
+        <ConfirmSheet
+          open={clearing}
+          onOpenChange={setClearing}
+          title={FOOD_COPY.clearTitle}
+          detail={[
+            keeps(food) ? FOOD_COPY.clearSome : FOOD_COPY.clearAll,
+            (food.allergies?.length ?? 0) + (food.customAllergies?.length ?? 0) > 0 ? FOOD_COPY.clearKeepsAllergies : undefined,
+            keeps(food) ? FOOD_COPY.clearKeepsPattern : undefined,
+          ].filter(Boolean).join(' ')}
+          confirm={FOOD_COPY.clearConfirm}
+          // Clearing is another edit: an allergy Undo standing ends with it, as §20.4 rule 6 has it (H7F-01):
+          // the store says so once it is stored (`subscribeEdits`).
+          // What it keeps is what it says it keeps: the allergies as shown, setup's included (codex F-food-06).
+          onConfirm={() => void edit((current, waiting) => cleared(current && withKnownAllergies(current, waiting))).then(ok => {
+            if (!ok) return;
+            setClearing(false);
+          })}
+          {...(problem ? { error: problem } : {})}
+        />
+      )}
+      <LevelSheet open={choosing} onOpenChange={setChoosing} />
     </Screen>
+  );
+}
+
+/** A list of the person's own words, each removable, with a field to add one. */
+function WordList({ header, footer, inputId, inputLabel, placeholder, items, detailOf, onAdd, onRemove }: {
+  header: string;
+  footer?: string;
+  inputId: string;
+  inputLabel: string;
+  placeholder: string;
+  items: readonly string[];
+  /** A line under an entry, when it has one. */
+  detailOf?: (item: string) => ReactNode;
+  onAdd: (entry: string) => Promise<boolean>;
+  onRemove: (item: string) => void;
+}) {
+  const [typed, setTyped] = useState('');
+  const add = async (event: FormEvent) => {
+    event.preventDefault();
+    const entry = typed;
+    // Cleared at once, so the next entry can be typed while this one saves;
+    // put back only if it did not save and nothing new has been typed.
+    setTyped('');
+    if (!(await onAdd(entry))) setTyped(now => now || entry);
+  };
+  return (
+    <Group header={header} {...(footer ? { footer } : {})}>
+      {items.map(item => (
+        <Row
+          key={item}
+          label={item}
+          {...(detailOf?.(item) ? { detail: detailOf(item) } : {})}
+          className="py-1"
+          accessory={
+            // "Remove" in words, at 48 px, the word named for VoiceOver (§20.4 rules 1, 2; board D141).
+            <button
+              type="button"
+              aria-label={`Remove ${item}`}
+              onClick={() => onRemove(item)}
+              className="press-feedback -mr-2 flex min-h-12 min-w-12 shrink-0 items-center justify-center rounded-full px-3 text-[length:var(--text-body)] font-medium text-stop"
+            >
+              Remove
+            </button>
+          }
+        />
+      ))}
+      {items.length < AVOID_MAX_ITEMS && (
+        <form onSubmit={event => void add(event)} className="flex min-h-[3.25rem] items-center gap-2 px-4 py-1.5">
+          <label htmlFor={inputId} className="sr-only">{inputLabel}</label>
+          <input
+            id={inputId}
+            type="text"
+            value={typed}
+            maxLength={AVOID_MAX_LENGTH}
+            enterKeyHint="done"
+            autoComplete="off"
+            placeholder={placeholder}
+            onChange={e => setTyped(e.target.value)}
+            className="min-h-12 min-w-0 flex-1 bg-transparent text-[length:var(--text-body)] outline-none placeholder:text-muted-foreground"
+          />
+          <button type="submit" disabled={!typed.trim()} className="press-feedback min-h-12 min-w-12 shrink-0 px-3 text-[length:var(--text-body)] font-semibold text-tint disabled:opacity-40">
+            Add
+          </button>
+        </form>
+      )}
+    </Group>
   );
 }

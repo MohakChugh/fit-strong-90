@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createElement as h, type ReactNode } from 'react';
+import { createElement as h, useState, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, type HostNode } from '@/test/host';
+import { render, textOf, type HostNode } from '@/test/host';
+import type { SheetExit } from './navigation';
+import { contrast } from '@/design/contrast';
 
 /**
  * The shell's own surfaces, as rendered: rows, groups, sheets, the storage
@@ -53,8 +55,14 @@ const { createSwipe, dragOffset, nextVelocity, releaseVelocity, shouldDismiss } 
 const nav = await import('./navigation');
 const { SourceList, ClaimText } = await import('@/screens/guide/parts');
 const { ChooserSheet } = await import('@/screens/today/ChooserSheet');
+const { RecommendationCard } = await import('@/screens/today/RecommendationCard');
 const { contextOf } = await import('@/content');
 const { BAR_COLOR, themeColorFor } = await import('@/lib/themeColor');
+const { ScreenLoading } = await import('./AppShell');
+const { OwnsUrgent, UrgentBanner } = await import('@/screens/home/UrgentBanner');
+const { UrgentContext, UrgentsContext } = await import('@/screens/home/urgent');
+const { Toggle } = await import('@/screens/you/controls');
+const { ChoiceChips } = await import('@/screens/track/ui');
 
 const ROOT = path.resolve(__dirname, '../../..');
 const read = (file: string) => fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -148,8 +156,8 @@ describe('sheets (S-04, S-19)', () => {
     const title = classOf(m, /<h2 class="([^"]*)"/);
     expect(title).not.toMatch(/line-clamp|truncate/);
     expect(title).toContain('[overflow-wrap:break-word]');
-    expect(m).toMatch(/class="flex min-h-11 items-center/);
-    expect(m).not.toMatch(/class="relative flex h-11/);
+    expect(m).toMatch(/class="flex min-h-12 items-center/);
+    expect(m).not.toMatch(/class="relative flex h-12/);
   });
 
   it('keep Close in the flow, and stack it above a full-width title when the text is large', () => {
@@ -157,6 +165,8 @@ describe('sheets (S-04, S-19)', () => {
     const close = classOf(m, /<button type="button" class="([^"]*)">Close<\/button>/);
     expect(close).not.toMatch(/\babsolute\b/);
     expect(close).toContain('@max-[16rem]:self-end');
+    // A 48 px target, as every other (journey §20.4 rule 1; K7-08).
+    expect(close.split(' ')).toEqual(expect.arrayContaining(['min-h-12', 'min-w-12']));
     expect(m).toMatch(/@max-\[16rem\]:flex-col-reverse/);
     // A mirror of Close keeps the title centred while they share the bar.
     expect(m).toMatch(/<span aria-hidden="true" class="invisible[^"]*@max-\[16rem\]:hidden">Close<\/span>/);
@@ -251,11 +261,104 @@ describe('a sheet that will not close yet (review C2-07)', () => {
     expect(t.panel.style.transform).toBe('');
   });
 
+  it('sizes every destructive confirmation as a main target, 60 px at least (§20.4 rule 1, H4-08)', () => {
+    const expected: Record<string, number> = {
+      // Delete everything's two steps, and Erase all routes' one style for its two (H6R-15).
+      'src/screens/you/DataSheets.tsx': 3, 'src/screens/you/RestoreFlow.tsx': 1, 'src/screens/you/DataScreen.tsx': 0, 'src/screens/you/ProgrammeGroup.tsx': 1,
+    };
+    for (const [file, count] of Object.entries(expected)) {
+      const buttons = read(file).split('\n').filter(line => line.includes('bg-stop-fill'));
+      expect(buttons, file).toHaveLength(count);
+      for (const line of buttons) {
+        expect(line, file).toContain('TARGET.primary');
+        expect(line, file).not.toContain('min-h-[3.25rem]');
+      }
+    }
+    expect(read('src/components/hig/targets.ts')).toMatch(/primary: 'min-h-\[60px\]'/);
+  });
+
+  it('sizes every primary button of Me → Data, Backup and Restore, as a main target, 60 px at least (§20.4 rule 1, H6R-13)', () => {
+    for (const [file, count] of Object.entries({ 'src/screens/you/DataSheets.tsx': 1, 'src/screens/you/RestoreFlow.tsx': 5 })) {
+      const buttons = read(file).split('\n').filter(line => line.includes('<PrimaryButton'));
+      expect(buttons, file).toHaveLength(count);
+      for (const line of buttons) expect(line, file).toContain('className={TARGET.primary}');
+    }
+  });
+
+  it('gives the first walk’s two consent answers the same weight, neither the primary one (§24, K6R-06)', () => {
+    const sheet = read('src/screens/walk/PreflightSheet.tsx');
+    for (const q of ['keepRoute', 'mapPictures']) {
+      expect(sheet, q).toMatch(new RegExp(`<SecondaryButton onClick=\\{\\(\\) => onAnswer\\(\\{ page, (keep|show): true \\}\\)\\}>\\{CONSENT\\.${q}\\.yes\\}</SecondaryButton>`));
+      expect(sheet, q).not.toMatch(new RegExp(`<PrimaryButton[^>]*>\\{CONSENT\\.${q}\\.(yes|no)\\}`));
+    }
+  });
+
+  it('sizes the stop questions’ every choice as a target, 48 px at least and 12 px apart (§20.4 rule 1, K6R-07)', () => {
+    const stop = read('src/screens/walk/StopSheet.tsx');
+    expect(stop).not.toMatch(/min-h-(?:8|9|10|11)\b|min-w-11|gap-1\.5/);
+    expect(stop).toMatch(/role="radiogroup" aria-labelledby="walk-leg-reach" className=\{cn\('flex flex-wrap', TARGET\.gap\)\}/);
+    expect(stop).toMatch(/className=\{cn\('rounded-lg px-3 text-\[length:var\(--text-subhead\)\]', TARGET\.tap,/);
+    expect(stop).toMatch(/<label key=\{q\.key\} className=\{cn\('flex items-start gap-3 px-4 py-3 text-\[length:var\(--text-body\)\] leading-snug', TARGET\.tap\)\}>/);
+  });
+
+  it('sizes every live walk control as a target, 48 px at least and 12 px apart, and the walk’s main buttons 60 px (§20.4 rule 1, H6-11, KH-10)', () => {
+    const live = read('src/screens/walk/LiveWalkScreen.tsx');
+    // Nothing tappable on the live walk under 48 px: Tailwind's 44 px and smaller are gone.
+    expect(live).not.toMatch(/min-h-(?:8|9|10|11)\b/);
+    const lines = live.split('\n');
+    /** The class line of the control whose label is `label`: the nearest line above it that opens one. */
+    const control = (label: string) => {
+      const at = lines.findIndex(l => l.trim() === label);
+      expect(at, label).toBeGreaterThan(0);
+      return lines.slice(0, at).reverse().find(l => /<button|<a /.test(l)) ?? '';
+    };
+    for (const label of ['Check in', 'Turn the voice on', 'Health questions', 'Allow motion and count steps', 'Say what happened', 'Done']) {
+      expect(control(label), label).toMatch(/TARGET\.(tap|primary)/);
+    }
+    // The one way on from a hold is the main target in its region (K6R-07).
+    for (const label of ['Say what happened', 'Change status', 'Check in', 'Health questions']) expect(control(label), label).toMatch(/TARGET\.primary/);
+    // The stop row and the gap notice's choices are main targets, side by side or stacked 12 px apart.
+    for (const label of ['I need to stop', 'I feel low', 'Continue walking', 'Finish']) expect(control(label), label).toMatch(/TARGET\.primary/);
+    const grids = lines.filter(l => l.includes("'grid grid-cols-1"));
+    expect(grids).toHaveLength(2);
+    for (const grid of grids) expect(grid).toContain('TARGET.gap');
+    // The walk's own primary and secondary buttons: main targets, from the one size.
+    const parts = read('src/screens/walk/parts.tsx');
+    expect(parts.match(/TARGET\.primary/g)).toHaveLength(2);
+    expect(parts).not.toMatch(/min-h-14/);
+  });
+
+  it('Me → Data changes both walk answers, erases every route in one call, and has no placeholder left (Task 14, H6-07, KH-07)', () => {
+    const data = read('src/screens/you/DataScreen.tsx');
+    // One answer at a time, against what is stored, never this screen's copy of both (H6R-07), and said when refused (K6R-09).
+    expect(data).toMatch(/<Toggle label="Keep walk routes" checked=\{walk\.saveRoutes === true\} onChange=\{on => answer\(\{ saveRoutes: on \}\)\} \/>/);
+    expect(data).toMatch(/<Toggle label="Map pictures under routes" checked=\{walk\.map === 'on'\} onChange=\{on => answer\(\{ map: on \? 'on' : 'off' \}\)\} \/>/);
+    expect(data).toMatch(/void setWalkSettings\(patch\)\.then\(/);
+    expect(data).not.toMatch(/setSettings\(\{ walk/);
+    expect(read('src/screens/you/DataSheets.tsx')).toMatch(/const done = await eraseRoutes\(\);/);
+    expect(data).not.toMatch(/Not in this version yet|Plan 6 replaces this group/);
+    expect(read('src/screens/you/DataSheets.tsx')).toMatch(/exportRecord\(withRoutes \? \{ include: \['routes'\] \} : \{\}\)/);
+    const hub = read('src/screens/hub/WalkHub.tsx');
+    expect(hub).toMatch(/<Row as=\{Link\} to="\/me\/data" viewTransition label="Routes" value=\{consentSummary\(walkSettings\(state\.settings\)\)\.routes\} chevron \/>/);
+    expect(hub).toMatch(/<Row as=\{Link\} to="\/me\/data" viewTransition label="Map pictures" value=\{consentSummary\(walkSettings\(state\.settings\)\)\.map\} chevron \/>/);
+  });
+
+  it('the restore preview says what happens to routes on this phone’s own answer, before anything changes (H6-05, B-26)', () => {
+    const flow = read('src/screens/you/RestoreFlow.tsx');
+    // Replace's confirmation counts this phone's routes once (K6R-10), in what Replace erases, whose counts
+    // sentence names them (`replaceErases`, H5-25; restore.test.ts pins "the 2 routes").
+    expect(flow).not.toMatch(/go too/);
+    expect(flow).toMatch(/This deletes \{erases \?\? 'what is here'\} on this \{device\}/);
+    expect(flow).toMatch(/saveRoutes=\{walkSettings\(state\.settings\)\.saveRoutes\}/);
+    expect(flow).toMatch(/\{routeNotes\(preview, saveRoutes\)\.map\(n => <Notice key=\{n\}>\{n\}<\/Notice>\)\}/);
+  });
+
   it('is told so by the sheets that refuse while they save', () => {
     expect(read('src/screens/you/RestoreFlow.tsx')).toMatch(/<Sheet open=\{open\} dismissible=\{!locked\}/);
     expect(read('src/screens/workout/sheets.tsx')).toMatch(/<Sheet open=\{open\} dismissible=\{!saving\}/);
-    expect(read('src/screens/move/PlanScreen.tsx').match(/dismissible=\{!saving\}/g)).toHaveLength(2);
-    expect(read('src/screens/you/FocusScreen.tsx')).toMatch(/<Sheet open=\{leaving\} dismissible=\{!busy\}/);
+    // Swap, leave, and after the twelve weeks starting them again (D116).
+    expect(read('src/screens/move/PlanScreen.tsx').match(/dismissible=\{!saving\}/g)).toHaveLength(3);
+    expect(read('src/screens/you/ProgrammeGroup.tsx')).toMatch(/<Sheet open=\{leaving\} dismissible=\{!busy\}/);
   });
 });
 
@@ -350,6 +453,20 @@ describe('Back, driven through the screen’s own button (S-09, S-10, S-12, S-02
     expect(nav.backPending()).toBe(true);
   });
 
+  it('names Back after a screen’s name, not the title it shows: Home shows its greeting and is called Home (journey §8.1)', () => {
+    nav.record(at('/home'), 'LAUNCH', 0);
+    router.location = at('/home');
+    const home = render(h(Screen, { title: 'Good morning', navTitle: 'Home', children: null }));
+    expect(home.all().find(n => n.type === 'h1')?.children).toEqual(['Good morning']);
+    home.unmount();
+    nav.markShown();
+    // The chooser's Stretch row: the setup's own parent is Move, and the row names no opener.
+    nav.record(at('/hub/stretch'), 'PUSH', 1);
+    router.location = at('/hub/stretch');
+    const host = render(h(Screen, { title: 'Stretch', back: { to: '/move', label: 'Move' }, children: null }));
+    expect(backButton(host.all())!.props['aria-label']).toBe('Back to Home');
+  });
+
   it('names a Guide card’s Back after the topic, not "Back" (the labels the Guide passes)', () => {
     for (const file of ['src/screens/guide/CardScreen.tsx', 'src/screens/guide/MealDetailScreen.tsx', 'src/screens/guide/SampleWeekScreen.tsx']) {
       expect(read(file), file).not.toMatch(/backLabel/);
@@ -364,37 +481,66 @@ describe('the tab bar (S-18)', () => {
   const click = (node: HostNode) => (node.props.onClick as (e: unknown) => void)({ button: 0, preventDefault() {}, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false });
 
   it('selects the tab a screen was opened in, and links every other tab to its place', () => {
-    nav.record(at('/today'), 'LAUNCH', 0);
-    nav.markTab('guide');
-    nav.record(at('/guide', null, '?q=dal'), 'PUSH', 1);
-    nav.record(at('/guide/card/card-dal'), 'PUSH', 2);
-    nav.setTitle('/guide/card/card-dal', 'Dal, chana and rajma');
-    nav.markTab('today');
-    nav.record(at('/today'), 'PUSH', 3);
-    nav.record(at('/track/metric/glucose', { path: '/today', label: 'Today' }), 'PUSH', 4);
-    router.location = at('/track/metric/glucose', { path: '/today', label: 'Today' });
+    nav.record(at('/home'), 'LAUNCH', 0);
+    nav.markTab('browse');
+    nav.record(at('/browse', null, '?q=dal'), 'PUSH', 1);
+    nav.record(at('/hub/learn/card/card-dal'), 'PUSH', 2);
+    nav.setTitle('/hub/learn/card/card-dal', 'Dal, chana and rajma');
+    nav.markTab('home');
+    nav.record(at('/home'), 'PUSH', 3);
+    nav.record(at('/trends/glucose', { path: '/home', label: 'Home' }), 'PUSH', 4);
+    router.location = at('/trends/glucose', { path: '/home', label: 'Home' });
     const host = render(h(TabBar));
-    const [today, , track, guide] = links(host.all());
-    expect(today.props['aria-current']).toBe('page');
-    expect(track.props['aria-current']).toBeUndefined();
-    expect(guide.props['data-to']).toBe('/guide/card/card-dal');
-    expect(track.props['data-to']).toBe('/track');
+    const [home, trends, browse] = links(host.all());
+    expect(home.props['aria-current']).toBe('page');
+    expect(trends.props['aria-current']).toBeUndefined();
+    expect(browse.props['data-to']).toBe('/hub/learn/card/card-dal');
+    expect(trends.props['data-to']).toBe('/trends');
   });
 
   it('pops the selected tab to its root through its own entries, then scrolls to the top', () => {
-    nav.record(at('/guide'), 'LAUNCH', 0);
-    nav.record(at('/guide/topic/b12'), 'PUSH', 1);
-    nav.record(at('/guide/card/card-b12-food'), 'PUSH', 2);
-    router.location = at('/guide/card/card-b12-food');
+    nav.record(at('/browse'), 'LAUNCH', 0);
+    nav.record(at('/hub/learn/topic/b12'), 'PUSH', 1);
+    nav.record(at('/hub/learn/card/card-b12-food'), 'PUSH', 2);
+    router.location = at('/hub/learn/card/card-b12-food');
     let host = render(h(TabBar));
-    click(links(host.all())[3]);
+    click(links(host.all())[2]);
     expect(router.navigate).toHaveBeenCalledWith(-2);
 
-    nav.record(at('/guide'), 'POP', 0);
-    router.location = at('/guide');
+    nav.record(at('/browse'), 'POP', 0);
+    router.location = at('/browse');
     host = render(h(TabBar));
-    click(links(host.all())[3]);
+    click(links(host.all())[2]);
     expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
+  });
+});
+
+describe('the tab bar’s selection slides (motion M5, kiro KV-19)', () => {
+  const at = (pathname: string) => ({ pathname, search: '', state: null, key: pathname });
+  const indicator = (nodes: HostNode[]) => nodes.find(n => n.props['data-tab-selection'] !== undefined);
+
+  it('one tinted selection, moved under the tapped tab by a transform, with spring-quick', () => {
+    nav.record(at('/trends'), 'LAUNCH', 0);
+    router.location = at('/trends');
+    const host = render(h(TabBar));
+    const pill = indicator(host.all())!;
+    expect(pill).toBeDefined();
+    expect(pill.props['aria-hidden']).toBe(true);
+    const style = pill.props.style as { transform: string; transition: string };
+    expect(style.transform).toBe('translateX(100%)');
+    expect(style.transition).toMatch(/^transform \d+ms linear\(/);
+    // On a phone the links have no fill of their own; the sidebar keeps its own.
+    const links = host.all().filter(n => n.type === 'a');
+    expect(String(links[1].props.className)).not.toMatch(/(^|\s)bg-tint\/15/);
+    expect(String(links[1].props.className)).toContain('lg:bg-tint/15');
+  });
+
+  it('jumps under Reduce motion', () => {
+    (document.documentElement.dataset as Record<string, string>).reduceMotion = '';
+    nav.record(at('/me'), 'LAUNCH', 0);
+    router.location = at('/me');
+    const pill = indicator(render(h(TabBar)).all())!;
+    expect((pill.props.style as { transform: string; transition: string })).toEqual({ transform: 'translateX(300%)', transition: 'none' });
   });
 });
 
@@ -407,19 +553,19 @@ describe('a tab never reopens a record that has gone (acceptance J18)', () => {
   };
 
   it('asks again at the tap, and opens the root when the place’s record went after the bar drew', () => {
-    nav.record(at('/track'), 'LAUNCH', 0);
+    nav.record(at('/trends'), 'LAUNCH', 0);
     nav.record(at('/track/workout/w1'), 'PUSH', 1);
     nav.setTitle('/track/workout/w1', 'Workout');
-    nav.markTab('today');
-    nav.record(at('/today'), 'PUSH', 2);
-    router.location = at('/today');
+    nav.markTab('home');
+    nav.record(at('/home'), 'PUSH', 2);
+    router.location = at('/home');
     const host = render(h(TabBar));
-    const track = host.all().filter(n => n.type === 'a')[2];
-    expect(track.props['data-to']).toBe('/track/workout/w1');
+    const trends = host.all().filter(n => n.type === 'a')[1];
+    expect(trends.props['data-to']).toBe('/track/workout/w1');
     nav.setPlaceCheck(() => false);
-    expect(click(track)).toBe(true);
+    expect(click(trends)).toBe(true);
     // Its root, as it was left.
-    expect(router.navigate).toHaveBeenCalledWith('/track', { state: { restoreScroll: '/track' } });
+    expect(router.navigate).toHaveBeenCalledWith('/trends', { state: { restoreScroll: '/trends' } });
   });
 
   it('is wired: the app checks places against the stored record, and forgets them all when nothing is set up', () => {
@@ -429,18 +575,518 @@ describe('a tab never reopens a record that has gone (acceptance J18)', () => {
 });
 
 describe('wiring that names the opener (S-10, S-11)', () => {
-  it('Today’s Glucose, Blood pressure and plan rows name Today', () => {
-    const today = read('src/screens/today/TodayScreen.tsx');
-    expect(today).toContain("const FROM_TODAY = { path: '/today', label: 'Today' };");
-    // Opened on every reading, so the one on the row always shows (scan J2-08).
-    expect(today).toMatch(/to="\/track\/metric\/glucose\?group=all" state=\{FROM_TODAY\}/);
-    expect(today).toMatch(/to="\/track\/metric\/bloodPressure" state=\{FROM_TODAY\}/);
-    expect(today).toMatch(/to=\{HREF\.plan\}\s+state=\{FROM_TODAY\}/);
+  it('Home’s tiles and its Today’s log row name Home (v1 Today’s reading and plan rows became tiles)', () => {
+    expect(read('src/screens/home/model.ts')).toContain("export const FROM_HOME = { path: '/home', label: 'Home' };");
+    // Glucose opens on every reading, so the one on the tile always shows (scan J2-08): see tileHref.
+    expect(read('src/screens/home/Tile.tsx')).toMatch(/to=\{href\}\s+state=\{FROM_HOME\}/);
+    expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/to=\{HREF\.day\} state=\{FROM_HOME\}/);
+  });
+
+  it('Home is called Home on the stack, so what it opens without naming it (the chooser, Right now, the check-in’s start) goes Back to "Home" (journey §8.1)', () => {
+    expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/<Screen\s+title=\{greeting\([\s\S]*?\)\}\s+navTitle=\{FROM_HOME\.label\}/);
+  });
+
+  it('a tile selects no text while it is pressed and held for its menu, nor shows the system callout (M18, kiro KV-20)', () => {
+    expect(read('src/screens/home/Tile.tsx')).toMatch(/className="block h-full select-none rounded-2xl \[-webkit-touch-callout:none\]"/);
+  });
+
+  it('a row into a movement screen that opens on its refusal skips the transition, asked at the tap (codex V1-05)', () => {
+    // Browse asks the gate in `held`, which each category row calls at the tap.
+    expect(read('src/screens/browse/BrowseScreen.tsx')).toMatch(/const held = \(id: CategoryId\) => \{\s*const \{ mode \} = categoryById\(id\);\s*return mode !== undefined && opensOnHold\(gateFor\(guided, mode\)\);/);
+    expect(read('src/screens/browse/BrowseList.tsx')).toContain('onClick={() => { if (held(id)) skipNextTransition(); }}');
+    // The Workout hub has no rows into Stretch or Walk: its "Stretch instead" is offered only while the stretch gate is open
+    // (`movementCard`), so the Stretch hub never opens on its refusal from there.
+    // Home's tiles ask the permission, not their line's tone.
+    expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/const opensOnHoldNow = \(id: CategoryId\) => \{\s*const \{ mode \} = categoryById\(id\);\s*return mode !== undefined && opensOnHold\(permissionFor\(mode\)\);/);
+  });
+
+  it('a reminder that invites movement is held back while a safety decision or any hold on movement stands, on Home and in the floating banner (kiro KV-09, board D224)', () => {
+    expect(read('src/screens/home/HomeScreen.tsx')).toContain('const waiting = offeredNow(usePending(), { urgent: urgent !== undefined, held: useMovementHeld() });');
+    const host = read('src/reminders/ReminderHost.tsx');
+    expect(host).toContain('const held = useMovementHeld();');
+    expect(host).toMatch(/offeredNow\(pending\.filter\(p => stillDue\(p\.occurrence, now, current\)\), \{ urgent, held \}\)/);
+  });
+
+  it('Home’s reading tiles show each last reading with its day, worked out with the day’s figures (kiro KV-17)', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    expect(home).toContain('last: lastReadings(observations, today, prefs),');
+    expect(home).toMatch(/readingLine\(id, \{ \.\.\.\(glucose \? \{ glucose \} : \{\}\), \.\.\.\(pressure \? \{ pressure \} : \{\}\), last \}\)/);
+  });
+
+  it('This week’s ring is drawn against the goal its own week had, and keyed by it, as each of Trends’ rings is (kiro KV-25, B-16, B-32)', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    // The week's own goal, never the goal last chosen (`weeklyMovementGoalMinutes`), which may wait for Monday.
+    expect(home).toContain('const goal = weeklyGoalOn(settings, today);');
+    expect(home).toMatch(/<WeekCard[^/]*?\{\.\.\.\(goal !== undefined \? \{ goal \} : \{\}\)\}/);
+    expect(home.match(/<WeekCard[\s\S]*?\/>/)?.[0]).not.toContain('weeklyMovementGoalMinutes');
+    expect(read('src/screens/home/WeekCard.tsx')).toContain('useRingValue(ringId(today, goal ?? 0), minutes, still || reduced)');
+    expect(read('src/screens/trends/yourWeek.ts')).toContain('const goal = weeklyGoalOn(settings, week);');
+  });
+
+  it('Home offers last week’s brief only when it has something to say and isn’t seen, and opening it keeps it seen (journey §12.6, B-20)', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    expect(home).toContain('return weekSentences(weekFacts({ week: addDays(mondayOf(today), -7), data, prefs, ctx }), prefs).length > 0;');
+    expect(home).toContain('const weekBrief = weekBriefFor({ now, seen: briefSeen(state.contentState[WEEK_BRIEF_KEY]), hasFacts: briefHasFacts });');
+    expect(home).toMatch(/pickPrompt\(\{[^}]*\.\.\.\(weekBrief \? \{ weekBrief \} : \{\}\)/);
+    expect(home).toContain("markTab('trends');\n      void setContentState(WEEK_BRIEF_KEY, withSeen(briefSeen(getState().contentState[WEEK_BRIEF_KEY]), week));");
+    expect(home).toContain('to={`/trends?week=${week}`} viewTransition onClick={open}');
+  });
+
+  it('Home’s movement tiles know whether the person is in the programme, so a flare names no programme on the Workout tile (D35, J16 step 1)', () => {
+    expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/movementLine\(\{\s+mode, permission, status, enrolled,/);
+  });
+
+  it('a hub with nothing to pop to goes Back to Home, and a Workout page to its hub at its own address (codex V1-09)', () => {
+    // A hub is framed by HubFrame, whose Back is HUB_BACK, Home (frame.test.ts).
+    expect(read('src/screens/hub/HubFrame.tsx')).toContain('back={HUB_BACK}');
+    for (const file of ['src/screens/hub/WorkoutHub.tsx', 'src/screens/hub/StretchHub.tsx', 'src/screens/hub/WalkHub.tsx']) expect(read(file), file).toMatch(/<HubFrame category=\{category\}/);
+    for (const file of ['src/screens/move/PlanScreen.tsx', 'src/screens/move/ExercisesScreen.tsx']) {
+      expect(read(file), file).toContain("back={{ to: '/hub/workout', label: 'Workout' }}");
+    }
+    // The Workout Log, at its own address in the hub (B-14, D51).
+    expect(read('src/screens/workout/TodayWorkoutScreen.tsx')).toContain("back={{ to: '/hub/workout', label: 'Workout' }}");
+    for (const file of ['src/screens/hub/StretchHub.tsx', 'src/screens/hub/WalkHub.tsx', 'src/screens/move/PlanScreen.tsx', 'src/screens/move/ExercisesScreen.tsx']) {
+      expect(read(file), file).not.toContain("to: '/move'");
+    }
+  });
+
+  it('the Walk hub carries a walk on only through status at the tap, then the gate, whose sheet it renders (codex H2-01, journey §4.1, §4.8)', () => {
+    const hub = read('src/screens/hub/WalkHub.tsx');
+    const pending = hub.slice(hub.indexOf('  if (pending) {'), hub.indexOf("held={card.state === 'held'"));
+    expect(pending).toMatch(/start: \(mode, href, label\) => \{ if \(resumeAllowed\(statusNow\(\), 'walk'\)\) g\.start\(mode, href, label\); \}/);
+    expect(pending).toContain('{g.sheet}');
+    expect(pending).not.toMatch(/navigate\(pending\.href/);
+  });
+
+  it('a hub’s Continue describes the run as the player will run it, from one reconciliation (codex H2-02, B-30)', () => {
+    for (const file of ['src/screens/hub/StretchHub.tsx', 'src/screens/hub/WorkoutHub.tsx']) {
+      const src = read(file);
+      expect(src, file).toMatch(/carriedOn\(saved, \{ data, checkIns, checkIn, profile, date, todayPlan/);
+      expect(src, file).not.toMatch(/minutesLeft\(saved\)/);
+    }
+    const stretch = read('src/screens/hub/StretchHub.tsx');
+    expect(stretch).toContain('const listed = resume ? { ...plan, steps: resume.left } : plan;');
+    expect(stretch).toContain('return { spec, minutesLeft: run.minutesLeft, label: saved.plan.label, href: resumeHref(saved), left: run.left };');
+    expect(stretch).toContain('saved: { minutesLeft: resume.minutesLeft, label: resume.label }');
+    expect(read('src/screens/hub/WorkoutHub.tsx')).toContain('saved: { minutesLeft: leftOf(saved, guided, now), label: saved.plan.label }');
+    // The player reconciles with the same dose and back checks.
+    const player = read('src/pages/SessionPage.tsx');
+    expect(player).toContain('todayDose(plan, { data, checkIns, checkIn, profile, date, todayPlan, spec })');
+    expect(player).toContain("import { todayDose, withBackChecks } from '@/session/carryOn';");
+  });
+
+  it('a stretch the builder can’t make keeps its choices on screen, with a way to them, and isn’t kept in the address (kiro KH-01)', () => {
+    const hub = read('src/screens/hub/StretchHub.tsx');
+    expect(hub).toContain('const offering = offersRoutines(card.state);');
+    expect(hub).toContain('local: chooseAnother,');
+    expect(hub).toMatch(/const chooseAnother = \(\) => \{\s+const radio = document\.getElementById\(AREA_ID\)\?\.querySelector<HTMLElement>\('\[role="radio"\]\[aria-checked="true"\]'\);\s+radio\?\.scrollIntoView\(\{ block: 'center' \}\);\s+radio\?\.focus\(\);/);
+    expect(hub).toContain('<div id={AREA_ID} className="contents">');
+    expect(hub).toContain("const letGo = useRef(chosen && card.state === 'unbuildable');");
+    expect(hub).toMatch(/if \(!letGo\.current\) return;\s+letGo\.current = false;\s+setParams\(new URLSearchParams\(\), \{ replace: true, preventScrollReset: true \}\);/);
+    // A saved run is held to its own steps when nothing new can be built, as the player holds it.
+    expect(hub).toContain("plan.kind === 'none' && g.permission.allowed && !resume ? { blocked:");
+  });
+
+  it('the walk summary, a full-screen task, can be left by Back, keeping the walk to save (codex V1-08, journey §20.4 rule 10)', () => {
+    // Back, like Done, returns to where the walk was started: the Walk hub, or Home (motion M12, Plan 6).
+    const summary = read('src/screens/walk/WalkSummary.tsx');
+    expect(summary).toContain("const origin = walk.plan.from ?? '/home';");
+    expect(summary).toContain("<Screen title=\"Your walk\" back={{ to: origin, label: origin === '/hub/walk' ? 'Walk' : 'Home' }}>");
   });
 
   it('a related card and a related exercise name the screen they were opened from', () => {
-    expect(read('src/screens/guide/CardScreen.tsx')).toContain('state={{ path: `/guide/card/${from.id}`, label: from.title }}');
+    expect(read('src/screens/guide/CardScreen.tsx')).toContain('state={{ path: `/hub/learn/card/${from.id}`, label: from.title }}');
     expect(read('src/screens/move/ExerciseScreen.tsx')).toContain('state={{ from: origin, path: location.pathname, label: ex.name }}');
+  });
+
+  it('Me’s Sources row opens Learn’s sources at their own address, not v1’s Guide through a redirect (Plan 2’s board note)', () => {
+    const me = read('src/screens/you/MeHome.tsx');
+    expect(me).toContain('<Row as={Link} to="/hub/learn/sources" viewTransition label="Sources and licences" chevron />');
+    expect(me).not.toMatch(/to="\/guide/);
+  });
+});
+
+describe('the safety surface wherever the person is (codex V1-02, V1-03, journey §4.7, B-02)', () => {
+  const banner = h('section', { 'data-urgent-kind': 'emergency' }, 'Call emergency services now');
+  const CHEST = 'Chest pain or pressure: call emergency services now.';
+  const emergency = { kind: 'emergency', tone: 'stop', headline: 'Call emergency services now', when: 'Emergency answer today', reasons: [CHEST] } as const;
+  const surfaces = (nodes: HostNode[]) => nodes.filter(n => n.props['data-urgent-kind'] !== undefined).length;
+  /** A full-screen task under the shell, as `UrgentProvider` hands it the decisions: the first, and every one. */
+  const task = (urgent: typeof emergency | { kind: 'low' }, child: ReactNode) =>
+    h(UrgentContext, { value: urgent as never }, h(UrgentsContext, { value: [urgent] as never }, h(nav.ScreenTopContext, { value: banner }, h(TaskFrame, null, child))));
+  /** The gate's answers a task's own screen may draw. */
+  const callNow = { allowed: false, disposition: 'emergency', reasons: [CHEST] } as const;
+  const checkInFirst = { allowed: false, disposition: 'hold', reasons: ['Check in first, so today’s movement fits how you are.'] } as const;
+
+  it('shows while a screen’s code is still loading', () => {
+    const m = html(h(nav.ScreenTopContext, { value: banner }, h(ScreenLoading)));
+    expect(m).toContain('data-urgent-kind="emergency"');
+    expect(m).toContain('aria-busy="true"');
+  });
+
+  it('shows above "This screen didn’t load"', () => {
+    const state = ErrorBoundary.getDerivedStateFromError(new TypeError('Failed to fetch dynamically imported module: /assets/a.js'));
+    const boundary = new ErrorBoundary({ children: null, before: banner });
+    boundary.state = { ...state, key: undefined };
+    expect(html(boundary.render() as never)).toMatch(/data-urgent-kind="emergency"[\s\S]*This screen didn’t load/);
+  });
+
+  it('the app watches the phone’s clock from the start, beside the store, walking or not (P8S-02, board D185)', () => {
+    expect(read('src/App.tsx')).toMatch(/void start\(\);\s*return startClockWatch\(\);/);
+  });
+
+  it('is owned once, above the routes, their loading and their failures; the shell only shows it', () => {
+    expect(read('src/App.tsx')).toMatch(/<UrgentProvider>[\s\S]*<Suspense fallback=\{<ScreenLoading full \/>\}>\s*<AppRoutes/);
+    const shell = read('src/components/hig/AppShell.tsx');
+    expect(shell).not.toContain('<UrgentProvider>');
+    expect(shell).toMatch(/<ErrorBoundary resetKey=\{pathname\} before=\{first\}>\s*<Suspense fallback=\{<ScreenLoading \/>\}>/);
+  });
+
+  it('is at the top of a full-screen task, once: a screen inside the task does not repeat it', () => {
+    const host = render(task(emergency, h(Screen, { title: 'Your walk', children: null })));
+    expect(surfaces(host.all())).toBe(1);
+  });
+
+  it('steps aside only while the task’s own screen draws the decision standing now (codex W-01)', () => {
+    expect(surfaces(render(task(emergency, h(OwnsUrgent, { shows: callNow }))).all())).toBe(0);
+    // A session opened before any check-in, its refusal still drawn, while an emergency is answered elsewhere: the surface stays.
+    expect(surfaces(render(task(emergency, h(OwnsUrgent, { shows: checkInFirst }))).all())).toBe(1);
+    // An emergency drawn earlier, for another reason, is not this one.
+    expect(surfaces(render(task(emergency, h(OwnsUrgent, { shows: { ...callNow, reasons: ['Glucose over 600 mg/dL.'] } }))).all())).toBe(1);
+    // A claim on a screen that has gone lets go.
+    const host = render(task(emergency, h(OwnsUrgent, { shows: callNow })));
+    host.update(task(emergency, null));
+    expect(surfaces(host.all())).toBe(1);
+  });
+
+  it('follows what the task’s screen draws as it changes: a refusal drawn again as it stands now claims the new decision', () => {
+    const host = render(task(emergency, h(OwnsUrgent, { shows: checkInFirst })));
+    expect(surfaces(host.all())).toBe(1);
+    host.update(task(emergency, h(OwnsUrgent, { shows: callNow })));
+    expect(surfaces(host.all())).toBe(0);
+    host.update(task(emergency, h(OwnsUrgent, { shows: checkInFirst })));
+    expect(surfaces(host.all())).toBe(1);
+  });
+
+  it('the session’s gate and reading screens, and the live walk, claim what they draw; the walk summary’s guidance for how it ended claims nothing', () => {
+    expect(read('src/components/checkin/SessionGate.tsx')).toContain('<OwnsUrgent shows={permission} />');
+    const session = read('src/pages/SessionPage.tsx');
+    // No claim for every kind, nor one for a decision the page does not draw.
+    expect(session).not.toMatch(/<OwnsUrgent \/>|\{halt && <OwnsUrgent/);
+    // Only the reading screen, which draws the decision with its timed re-check; not the check-in asked here, nor the done summary's strip.
+    expect(session.match(/<OwnsUrgent shows=\{drawnHere\((permission|guidance)\)\} \/>/g)).toEqual(['<OwnsUrgent shows={drawnHere(permission)} />']);
+    expect(session).toMatch(/\{permission && <OwnsUrgent shows=\{drawnHere\(permission\)\} \/>\}\s*\{permission\?\.reasons\.slice\(0, 2\)/);
+    expect(read('src/screens/walk/LiveWalkScreen.tsx')).toMatch(/\{refusal && <OwnsUrgent shows=\{refusal\} \/>\}/);
+    expect(read('src/screens/walk/WalkSummary.tsx')).not.toContain('OwnsUrgent');
+  });
+
+  it('is at the top of every sheet, and its way on closes the sheet first', async () => {
+    // The page a sheet makes inert, as the app's index.html has it.
+    Object.assign(document, { getElementById: () => null });
+    const onOpenChange = vi.fn();
+    const top = { key: 'emergency', draw: (exit: SheetExit) => h('button', { type: 'button', 'data-urgent-kind': 'emergency', onClick: () => exit.leave(() => {}) }, 'What to do') };
+    const host = render(h(nav.SheetTopContext, { value: top }, h(Sheet, { open: true, onOpenChange, title: 'Add to Home', children: h('p', null, 'Choose a tile') })));
+    const surface = host.all().find(n => n.props['data-urgent-kind'] !== undefined)!;
+    expect(surface).toBeDefined();
+    await host.click(surface);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    // The check-in sheet shows today's outcome itself.
+    const own = render(h(nav.SheetTopContext, { value: top }, h(Sheet, { open: true, onOpenChange, title: 'Check-in', ownsUrgent: true, children: null })));
+    expect(surfaces(own.all())).toBe(0);
+    // Only while its body draws the decision: its outcome, or an emergency answered here (F-safety-06).
+    // With answers not saved, a swipe resists and Close asks first (F-safety-07, K-46): the gesture itself is sheetGesture's.
+    expect(read('src/components/checkin/CheckInSheet.tsx')).toMatch(/dismissible=\{!dirty\} holdClose=\{holdClose\}/);
+    // While it asks "Keep your answers?" it draws no decision, so the surface stands then too (F-safety-07).
+    expect(read('src/components/checkin/CheckInSheet.tsx')).toMatch(/<Sheet open=\{props\.open\} onOpenChange=\{props\.onOpenChange\} title="Check-in" detent="large" ownsUrgent=\{draws && !asking\}/);
+  });
+
+  it('brings a decision arriving, or changing, into view in a sheet scrolled down, heading first, keeping the form under it (codex W-02)', () => {
+    Object.assign(document, { getElementById: () => null });
+    let mounts = 0;
+    function Draft() {
+      const [n] = useState(() => ++mounts);
+      return h('p', null, `Draft ${n}`);
+    }
+    const strip = (key: string, words: string) => ({ key, draw: () => h('section', { 'data-urgent-kind': 'emergency' }, words) });
+    const sheet = (top: { key: string; draw: () => ReactNode } | null, ownsUrgent = false) =>
+      h(nav.SheetTopContext, { value: top }, h(Sheet, { open: true, onOpenChange: () => {}, title: 'Add to Home', detent: 'large', ownsUrgent, children: h(Draft) }));
+    const host = render(sheet(null));
+    const body = host.all().find(n => n.props.tabIndex === -1)!.element!;
+    body.scrollTop = 640;
+    // A re-check is due while the person reads far down the sheet.
+    host.update(sheet(strip('recheck|Re-check your glucose|Low glucose at 1:30 pm', 'Re-check at 1:45 pm')));
+    expect(surfaces(host.all())).toBe(1);
+    expect(body.scrollTop).toBe(0);
+    // Reading on while it stands: nothing pulls the person back up, its time coming due included.
+    body.scrollTop = 300;
+    host.update(sheet(strip('recheck|Re-check your glucose|Low glucose at 1:30 pm', 'Re-check now')));
+    expect(host.text()).toContain('Re-check now');
+    expect(body.scrollTop).toBe(300);
+    // It escalates: an emergency is answered on another screen. Into view again.
+    host.update(sheet(strip('emergency|Call emergency services now|Emergency answer today', 'Call emergency services now')));
+    expect(body.scrollTop).toBe(0);
+    // The form under it was never drawn again from scratch.
+    expect(host.text()).toContain('Draft 1');
+    expect(mounts).toBe(1);
+    // The check-in sheet draws its own outcome, where it is.
+    body.scrollTop = 200;
+    host.update(sheet(strip('seekHelp|No exercise today. Get medical advice today.|Low glucose at 9:05 am', 'Something else'), true));
+    expect(body.scrollTop).toBe(200);
+  });
+
+  describe('its way on from a sheet goes only once the sheet has closed (codex W-05)', () => {
+    const urgent = { kind: 'emergency', tone: 'stop', headline: 'Call emergency services now', when: 'Emergency answer today', reasons: [] } as const;
+    const WAITING = 'Waiting for this to finish saving.';
+    const raf = globalThis.requestAnimationFrame;
+    beforeEach(() => {
+      Object.assign(document, { getElementById: () => null });
+      Object.assign(globalThis, { requestAnimationFrame: (f: () => void) => setTimeout(f, 0) });
+      router.location = { pathname: '/hub/workout', search: '', state: null, key: 'k1' };
+    });
+    afterEach(() => Object.assign(globalThis, { requestAnimationFrame: raf }));
+    const surface = { key: 'emergency|Call emergency services now|Emergency answer today', draw: (exit: SheetExit) => h(UrgentBanner, { urgent, exit }) };
+    /** The announcement a screen reader hears, in the page from the start. */
+    const live = (host: ReturnType<typeof render>) => host.all().find(n => n.props['aria-live'] === 'polite');
+    /** "Finish workout": it refuses closing while it saves, and closes once the save is stored. */
+    function Finish({ saving, saved = false }: { saving: boolean; saved?: boolean }) {
+      const [open, setOpen] = useState(true);
+      return h(nav.SheetTopContext, { value: surface },
+        h(Sheet, { open: open && !saved, dismissible: !saving, onOpenChange: (o: boolean) => { if (!saving) setOpen(o); }, title: 'Finish workout', children: h('p', null, saving ? 'Saving…' : 'Save workout') }));
+    }
+
+    it('while the sheet saves, What to do waits, and says so; the save goes on, and once stored and closed it goes Home', async () => {
+      const host = render(h(Finish, { saving: true }));
+      expect(live(host)).toBeDefined();
+      await host.click(host.button('What to do'));
+      await host.settle();
+      expect(router.navigate).not.toHaveBeenCalled();
+      expect(host.text()).toContain(WAITING);
+      expect(textOf(live(host)!.children)).toBe(WAITING);
+      expect(host.text()).toContain('Saving…');
+      host.update(h(Finish, { saving: false, saved: true }));
+      await host.settle();
+      expect(router.navigate).toHaveBeenCalledWith('/home');
+    });
+
+    it('a save that fails keeps the person with its result, and What to do is theirs to tap again', async () => {
+      const host = render(h(Finish, { saving: true }));
+      await host.click(host.button('What to do'));
+      // The save failed: the sheet can close again, and stays open with what it says.
+      host.update(h(Finish, { saving: false }));
+      await host.settle();
+      expect(router.navigate).not.toHaveBeenCalled();
+      expect(host.text()).not.toContain(WAITING);
+      expect(host.text()).toContain('Save workout');
+      // Tapped again, it closes the sheet through its own close, and then goes.
+      await host.click(host.button('What to do'));
+      await host.settle();
+      expect(router.navigate).toHaveBeenCalledWith('/home');
+    });
+
+    it('a sheet that can close goes Home once it has closed, not before', async () => {
+      const refuse = vi.fn();
+      const host = render(h(nav.SheetTopContext, { value: surface },
+        h(Sheet, { open: true, onOpenChange: refuse, title: 'Add to Home', children: null })));
+      await host.click(host.button('What to do'));
+      await host.settle();
+      // Its owner kept it open: nothing is left waiting to go later, out of the blue.
+      expect(refuse).toHaveBeenCalledWith(false);
+      expect(router.navigate).not.toHaveBeenCalled();
+      expect(host.text()).not.toContain(WAITING);
+      const closes = render(h(Finish, { saving: false }));
+      await closes.click(closes.button('What to do'));
+      await closes.settle();
+      expect(router.navigate).toHaveBeenCalledWith('/home');
+    });
+  });
+
+  it('sheets and menus own the page while open: the toasts wait in #toasts, hidden (codex V1-13)', () => {
+    expect(read('src/components/hig/Sheet.tsx')).toContain('claimModal()');
+    expect(read('src/components/hig/ActionMenu.tsx')).toContain('claimModal()');
+    expect(read('src/main.tsx')).toMatch(/<div id="toasts">\s*<Toaster/);
+    expect(read('src/index.css')).toMatch(/#toasts\[data-held\] \{ visibility: hidden; \}/);
+  });
+
+  it('is announced outside the part of the page a sheet makes inert', () => {
+    // A live region always in the page, so a decision arriving is announced; not an alert while it says nothing.
+    expect(read('src/screens/home/UrgentBanner.tsx')).toMatch(/createPortal\(\s*<div aria-live="assertive" aria-atomic="true" className="sr-only">[\s\S]*?<\/div>,\s*document\.body,?\s*\)/);
+  });
+});
+
+describe('Home’s targets and layout (kiro KV-08, KV-10, KV-11, KV-15, KV-18, KV-22)', () => {
+  it('every target on Home is at least 48 px: no min-h-11 left (journey §20.4 rule 1)', () => {
+    for (const file of ['src/screens/home/HomeScreen.tsx', 'src/screens/home/WeekCard.tsx', 'src/screens/home/RemindersCapsule.tsx']) {
+      expect(read(file), file).not.toMatch(/\bmin-h-11\b/);
+    }
+  });
+
+  it('the steps form’s Paste is at least 48 by 48, in rem so it grows with the text (journey §20.4 rule 1; codex H2-07, kiro KH-10)', () => {
+    const paste = /className="([^"]*)"\s*>\s*Paste\s*</.exec(read('src/screens/track/QuickLog.tsx'));
+    expect(paste?.[1]).toMatch(/\bmin-h-12\b/);
+    expect(paste?.[1]).toMatch(/\bmin-w-12\b/);
+    expect(paste?.[1]).not.toMatch(/\bmin-h-11\b/);
+  });
+
+  it('Me’s switch is at least 48 by 48, and all in rem, so it grows with the text and its thumb stays in its track (journey §20.4 rules 1 and 7)', () => {
+    for (const checked of [false, true]) {
+      const m = html(h(Toggle, { checked, onChange: () => {}, label: 'Water' }));
+      const root = classOf(m, /class="(group\/toggle [^"]*)"/).split(' ');
+      expect(root).toEqual(expect.arrayContaining(['min-h-12', 'min-w-12']));
+      expect(root).not.toContain('h-11');
+      // The track, its inset, the thumb and the thumb's travel are all in rem: none of it stays put while the rest grows.
+      expect(m).toContain('h-[1.9375rem] w-[3.1875rem]');
+      expect(m).toContain('size-[1.6875rem]');
+      expect(m).not.toMatch(/\[[\d.]+px\]/);
+    }
+  });
+
+  it('Reminders’ rows put the switch under the label once the two no longer fit side by side, as a list row does', () => {
+    const habits = read('src/screens/you/HabitsScreen.tsx');
+    expect(habits).toMatch(/<div key=\{habit\} className="flex min-h-\[3\.25rem\][^"]*@max-\[16rem\]:flex-wrap[^"]*"/);
+    expect(habits).toMatch(/onClick=\{\(\) => setOpen\(habit\)\}\s*className="[^"]*min-w-0 flex-1[^"]*@max-\[16rem\]:min-w-\[60%\]/);
+  });
+
+  it('QuickLog’s "Add a second reading" and its When chips are at least 48 px tall, in rem so they grow with the text (journey §20.4 rule 1)', () => {
+    const second = /className="([^"]*)"\s*>\s*Add a second reading\s*</.exec(read('src/screens/track/QuickLog.tsx'));
+    expect(second?.[1]).toMatch(/\bmin-h-12\b/);
+    expect(second?.[1]).not.toMatch(/\bmin-h-11\b/);
+    const m = html(h(ChoiceChips, { legend: 'When', options: [{ id: 'morning', label: 'Morning' }, { id: 'evening', label: 'Evening' }], value: 'morning', onChange: () => {} }));
+    const chips = [...m.matchAll(/<button[^>]*class="([^"]*)"[^>]*>(Morning|Evening)<\/button>/g)];
+    expect(chips.map(c => c[2])).toEqual(['Morning', 'Evening']);
+    for (const [, cls] of chips) {
+      expect(cls.split(' ')).toContain('min-h-12');
+      expect(cls).not.toMatch(/\bmin-h-11\b/);
+    }
+  });
+
+  it('a hub’s "Saved on this device" stands until the next Add, never on a timer (journey §20.4 rule 8; kiro KH-16)', () => {
+    for (const file of ['src/screens/hub/ReadingHub.tsx', 'src/screens/hub/StepsHub.tsx', 'src/screens/hub/BackHub.tsx']) {
+      const hub = read(file);
+      expect(hub, file).not.toMatch(/setTimeout\(\(\) => setNotice\(undefined\)/);
+      expect(hub, file).toMatch(/const add = \(\) => \{\s+setNotice\(undefined\);\s+setLogOpen\(true\);\s+\};/);
+      expect(hub, file).not.toMatch(/onClick=\{\(\) => setLogOpen\(true\)\}/);
+    }
+  });
+
+  it('Back & leg’s emergency signs are body text in normal ink, before History (kiro KH-11)', () => {
+    const hub = read('src/screens/hub/BackHub.tsx');
+    expect(hub).toMatch(/<div className="px-1 text-\[length:var\(--text-body\)\] leading-snug">\s*<p>A pain number never rules out an emergency\. Get emergency care now for any of these:<\/p>\s*<EmergencySigns/);
+    expect(hub.indexOf('<EmergencySigns')).toBeLessThan(hub.indexOf('<HistoryList'));
+  });
+
+  it('the Steps hub, while walking is held for the feet, says the hold and offers no walking advice or step goal (kiro KH-02)', () => {
+    const hub = read('src/screens/hub/StepsHub.tsx');
+    expect(hub).toContain("const held = feetHold(guided.profile, gateFor(guided, 'walk', now));");
+    expect(hub).toMatch(/\{held \? \([\s\S]*?Walking is on hold for your feet[\s\S]*?\) : \(\s*<Interpretation text=\{STEPS_NOTE\.text\}/);
+    expect(hub).toMatch(/\{!held && <Row as="button" type="button" label="Daily step goal"/);
+    expect(hub).toContain('(held || steps === undefined ? undefined : stepsProgress(');
+  });
+
+  it('an urgent decision takes a menu away at once, with no exit, and it stays closed while it stands (codex H4-01, journey §4.3, M18)', () => {
+    const menu = read('src/components/hig/ActionMenu.tsx');
+    expect(menu).toContain('const urgent = useContext(UrgentContext) !== undefined;');
+    expect(menu).toContain('if (!urgent && target && target !== shown) setShown(target);');
+    expect(menu).toContain('if (urgent && shown) setShown(null);');
+    expect(menu).toContain('const open = target !== null && !urgent;');
+    expect(menu).toContain('if (!shown || urgent) return null;');
+    // What it set off is still offered: it never finishes closing.
+    expect(menu).toMatch(/if \(urgent && drawn\.current\) \{\s+drawn\.current = false;\s+onClosed\?\.\(\);/);
+  });
+
+  it('Me holds each row’s answer above its lists until it is stored, and FinishRow keeps its props (codex H4-04, journey §4.5)', () => {
+    const me = read('src/screens/you/MeHome.tsx');
+    expect(me).toContain('function FinishRow({ chapter }: { chapter: OpenChapter }) {');
+    // Setup's answers as this session holds them name the chapter an unfinished setup still asks (K5-07).
+    expect(me).toMatch(/const finish = withHeld\(setupProgress\(\{ profile, settings, answers: setupAnswers \}\)/);
+    expect(me).toMatch(/\? withHeld\(newlyRelevant\(/);
+    expect(me).toMatch(/if \(saved\.ok\) \{\s+hold\(key, undefined\);/);
+    expect(me).not.toMatch(/const \[problem, setProblem\] = useState/);
+  });
+
+  it('Goals and Me read today from the shared clock, a new day at midnight (codex H4-06)', () => {
+    expect(read('src/screens/you/GoalsScreen.tsx')).toContain('const { day } = useLocalDay();');
+    const me = read('src/screens/you/MeHome.tsx');
+    expect(me).toContain('const { now, day } = useLocalDay();');
+    expect(me).not.toMatch(/now: new Date\(\)/);
+  });
+
+  it('Display follows the device’s settings while it is open (codex H4-07)', () => {
+    const display = read('src/screens/you/DisplayScreen.tsx');
+    expect(display).toContain('const [device] = useState(() => systemDisplayStore());');
+    expect(display).toContain('const system = useSyncExternalStore(device.subscribe, device.read, device.read);');
+  });
+
+  it('Sources and licences lists the licences of what the app is built from (kiro KH-17)', () => {
+    const sources = read('src/screens/guide/SourcesScreen.tsx');
+    expect(sources).toContain('<Group header="Licences">');
+    expect(sources).toMatch(/MakeHuman \(MPFB2\) assets', 'CC0 1\.0'/);
+    expect(sources).toMatch(/Kokoro-82M speech model', 'Apache License 2\.0'/);
+    expect(sources).toMatch(/\[ATTRIBUTION\.text, 'Map data under the Open Database Licence \(ODbL\)'\], href: ATTRIBUTION\.href/);
+  });
+
+  it('"2 reminders" sits in the header’s wrapping area beside the status, not in the fixed bar', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    expect(home).not.toMatch(/trailing=\{<RemindersCapsule/);
+    expect(home).toMatch(/below=\{\(\s*<div className="flex flex-wrap items-center justify-end gap-3">\s*<StatusButton[\s\S]*?<RemindersCapsule waiting=\{waiting\} \/>\s*<\/div>/);
+  });
+
+  it('This week opens Trends from the whole card only when no button is on it', () => {
+    expect(read('src/screens/home/WeekCard.tsx')).toMatch(/goal !== undefined && "after:absolute after:inset-0 after:rounded-2xl after:content-\[''\]"/);
+  });
+
+  it('the day marks grow with the text and wrap to more rows rather than being capped', () => {
+    const week = read('src/screens/home/WeekCard.tsx');
+    expect(week).not.toMatch(/min\(1\.25rem,20px\)|min\(var\(--text-footnote\),18px\)/);
+    expect(week).toContain('grid-cols-[repeat(auto-fit,minmax(min(1.75rem,100%),1fr))]');
+  });
+
+  it('the nav bar is glass, so a running transition, Reduce transparency and more contrast make it solid (journey §20.1)', () => {
+    const m = html(h(Screen, { title: 'Stretch', inline: true, children: null }));
+    expect(m).toMatch(/<div data-bar="true" class="[^"]*\bglass\b/);
+    expect(read('src/index.css')).toMatch(/\.glass\[data-bar\] \{ border-width: 0 0 1px; border-color: var\(--separator\); border-radius: 0; box-shadow: none; \}/);
+  });
+
+  it('a first layout the device would not store is said above the tiles, with Try again, as a refused change is (codex V1-11, V1-12)', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    expect(home).toContain("first.failed !== undefined ? { text: `Your Home tiles aren’t saved on this phone yet. ${first.failed}`, retry: first.retry }");
+    expect(home).toMatch(/\{unsaved && \([\s\S]*?role="alert"[\s\S]*?\{unsaved\.retry && \([\s\S]*?onClick=\{unsaved\.retry\}[\s\S]*?Try again/);
+  });
+
+  it('Right now’s quiet way on reads "Something else", and the chooser ends with "All categories" (journey §7.4, L-15)', () => {
+    expect(read('src/screens/home/HomeScreen.tsx')).toMatch(/>\s*Something else\s*<\/button>/);
+    const m = html(h(ChooserSheet, { open: true, onOpenChange: () => {}, rows: [], onChoose: () => {} }));
+    expect(m).toMatch(/<a href="#\/browse"[^>]*>[\s\S]*All categories/);
+  });
+});
+
+describe('the Right now card runs its action directly (journey §7.4, K-32, B-09, codex V1-07)', () => {
+  const card = {
+    kind: 'mealWalk', title: 'A walk after lunch', detail: '', reason: 'You asked for a walk after lunch.',
+    action: { label: 'I had lunch at 1:30 pm: walk now', to: '/walk/live', mode: 'walk', walk: { meal: 'lunch', mealStartedAt: 1 } },
+    more: [{ label: 'Different time', to: '/hub/walk?meal=lunch' }, { label: 'Just a walk', to: '/walk/live', mode: 'walk', walk: {} }],
+  } as const;
+
+  it('shows the after-meal card’s stated time as its one primary action, then "Different time" and "Just a walk", quieter', () => {
+    const m = html(h(RecommendationCard, { recommendation: card as never, eyebrow: 'Suggested for now', revision: 'r', changed: false, onAct: () => {} }));
+    const labels = [...m.matchAll(/<button[^>]*class="([^"]*)"[^>]*>([^<]*)<\/button>/g)].map(x => ({ cls: x[1], text: x[2] }));
+    expect(labels.map(l => l.text)).toEqual(['I had lunch at 1:30 pm: walk now', 'Different time', 'Just a walk']);
+    expect(labels[0].cls).toContain('bg-tint text-on-tint');
+    for (const l of labels.slice(1)) for (const c of ['min-h-12', 'bg-tint/10', 'text-tint']) expect(l.cls.split(' '), `${l.text}: ${c}`).toContain(c);
+  });
+
+  it('a walk from the card with another walk still on this device deals with that one first, and starts nothing (codex W-04)', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    // Before the shared start, which runs the walk's own flow and B-01's sequence (Plan 6 Task 8).
+    expect(home).toMatch(/if \(action\.walk\) \{[\s\S]*?const first = walkFirst\(peekWalk\(\), action\.walk, Date\.now\(\), HOUR12\);\s*if \(first\) \{\s*setWalkAhead\(\{ first, open: true \}\);\s*return;\s*\}[\s\S]*?start\('walk', directWalkHref\(action\.walk, Date\.now\(\), measure\), 'Start walk'\);/);
+    expect(home).toContain('onClick={() => navigate(walkAhead.first.action.to, { viewTransition: true })}');
+  });
+
+  it('a walk from the card starts at once through the shared start, with its id made at the tap; motion is asked in the tap that finally starts it (B-01)', () => {
+    const home = read('src/screens/home/HomeScreen.tsx');
+    expect(home).toMatch(/if \(action\.walk\) \{[\s\S]*?start\('walk', directWalkHref\(action\.walk, Date\.now\(\), measure\), 'Start walk'\);/);
+    // Not asked early from the card: the walk's own start sequence asks, in the tap that finally starts it (Plan 6 Task 8).
+    expect(home).not.toMatch(/requestMotion/);
+    expect(read('src/screens/walk/useWalkFlow.tsx')).toMatch(/createStarter\(\{\s*requestMotion,/);
   });
 });
 
@@ -493,9 +1139,16 @@ describe('toasts', () => {
     expect(main).toContain("offset={{ bottom: 'var(--toast-offset-bottom)' }}");
     expect(main).toContain("mobileOffset={{ bottom: 'var(--toast-offset-bottom)' }}");
     const css = read('src/index.css');
-    // The tab bar is 3.0625rem tall (TabBar.tsx), over the home indicator.
-    expect(css).toContain(':root { --toast-offset-bottom: calc(3.0625rem + env(safe-area-inset-bottom, 0px) + 0.5rem); }');
-    expect(read('src/components/hig/TabBar.tsx')).toContain('h-[3.0625rem]');
+    // The floating tab bar is at most 4rem tall (tabs of up to 3.5rem in 0.25rem of padding), at least 0.5rem over the home indicator.
+    expect(css).toContain(':root { --toast-offset-bottom: calc(4.5rem + max(0.5rem, env(safe-area-inset-bottom, 0px))); }');
+    const bar = read('src/components/hig/TabBar.tsx');
+    expect(bar).toContain('bottom-[max(0.5rem,env(safe-area-inset-bottom))]');
+    expect(bar).toContain('min-h-[min(3.5rem,72px)]');
+    // Positioned, so the labels paint above the sliding selection (M5).
+    expect(bar).toMatch(/<ul className="relative flex items-stretch p-1 /);
+    // The shell and the waiting reminder clear it the same way.
+    expect(read('src/components/hig/AppShell.tsx')).toContain('pb-[calc(4.5rem+max(0.5rem,env(safe-area-inset-bottom)))]');
+    expect(read('src/reminders/ReminderHost.tsx')).toContain('bottom-[calc(4.5rem+max(0.5rem,env(safe-area-inset-bottom)))]');
     expect(css).toMatch(/@media \(min-width: 64rem\) \{\s*:root \{ --toast-offset-bottom: 1\.5rem; \}/);
   });
 });
@@ -520,20 +1173,20 @@ describe('the bars follow the app’s theme (S-17)', () => {
 
 describe('Home Screen icons (S-22)', () => {
   const size = (file: string) => {
-    const png = fs.readFileSync(path.join(ROOT, 'public', file));
+    const png = fs.readFileSync(path.join(ROOT, file));
     expect(png.subarray(1, 4).toString('ascii'), file).toBe('PNG');
     return [png.readUInt32BE(16), png.readUInt32BE(20)];
   };
 
   it('ships PNGs at 180, 192 and 512, with a maskable one', () => {
-    expect(size('apple-touch-icon.png')).toEqual([180, 180]);
-    expect(size('pwa-192x192.png')).toEqual([192, 192]);
-    expect(size('pwa-512x512.png')).toEqual([512, 512]);
-    expect(size('pwa-maskable-512x512.png')).toEqual([512, 512]);
+    expect(size('src/assets/apple-touch-icon.png')).toEqual([180, 180]);
+    expect(size('public/pwa-192x192.png')).toEqual([192, 192]);
+    expect(size('public/pwa-512x512.png')).toEqual([512, 512]);
+    expect(size('public/pwa-maskable-512x512.png')).toEqual([512, 512]);
   });
 
   it('names them in index.html and the manifest', () => {
-    expect(read('index.html')).toContain('<link rel="apple-touch-icon" sizes="180x180" href="/fit-strong-90/apple-touch-icon.png" />');
+    expect(read('index.html')).toContain('<link rel="apple-touch-icon" sizes="180x180" href="/src/assets/apple-touch-icon.png" />');
     const icons: { src: string; type: string; purpose: string }[] = JSON.parse(read('public/manifest.webmanifest')).icons;
     expect(icons.filter(i => i.type === 'image/png').map(i => `${i.src} ${i.purpose}`)).toEqual([
       'pwa-192x192.png any', 'pwa-512x512.png any', 'pwa-maskable-512x512.png maskable',
@@ -541,21 +1194,9 @@ describe('Home Screen icons (S-22)', () => {
   });
 });
 
-/** WCAG contrast of two OKLCH colours ([L, C, h]), clipped into sRGB as the browser draws them. */
-function contrast(a: number[], b: number[]): number {
-  const [la, lb] = [luminance(a), luminance(b)];
-  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
-}
-function luminance([L, C, hue]: number[]): number {
-  const a = C * Math.cos((hue * Math.PI) / 180);
-  const b = C * Math.sin((hue * Math.PI) / 180);
-  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
-  const [r, g, bl] = [
-    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
-  ].map(v => Math.min(1, Math.max(0, v)));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
-}
+describe('the restart to update waits for the device’s safety record (F-data-02)', () => {
+  it('starts its updates with the clock change still waiting to be stored, through its tries, as what the reload waits for', () => {
+    // main.tsx can't run in node: its wiring is read. The barrier itself runs in restart.callers.test.ts.
+    expect(read('src/main.tsx')).toMatch(/settled: whenSettled,[\s\S]*safetyWaiting: clockChangeWaiting,/);
+  });
+});

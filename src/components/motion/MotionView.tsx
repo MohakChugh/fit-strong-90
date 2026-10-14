@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { PauseIcon, PlayIcon, XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MODEL_URL } from '@/motion/models';
 
 type Runtime = typeof import('@/motion/runtime');
 type Viewer = InstanceType<Runtime['MotionViewer']>;
@@ -66,7 +67,7 @@ export function MotionView({ exerciseId, name, side = 'left', mistake = null, pl
     let v: Viewer | null = null;
     loadRuntime().then(async mod => {
       if (cancelled || !host.current) return;
-      v = new mod.MotionViewer(host.current, { modelUrl: `${import.meta.env.BASE_URL}models/coach-${figure}.bin` });
+      v = new mod.MotionViewer(host.current, { modelUrl: MODEL_URL[figure] });
       await v.load();
       if (!cancelled) setApi({ mod, v });
     }).catch(() => { if (!cancelled) setFailed(true); });
@@ -108,13 +109,13 @@ export function MotionView({ exerciseId, name, side = 'left', mistake = null, pl
         aria-label={`3D demonstration${name ? ` of ${name}` : ''}${label ? `, showing what not to do: ${label}` : ''}${side === 'right' ? ', right side' : ''}. Drag sideways to look around.`} />
       {(!ready || failed) && <div className="absolute inset-0 bg-background">{fallback}</div>}
       {ready && label && (
-        <span className="pointer-events-none absolute left-2 top-2 flex items-center gap-1 rounded-full bg-[var(--safety)] px-2.5 py-1 text-xs font-semibold text-[var(--on-safety)] shadow">
+        <span className="pointer-events-none absolute left-2 top-2 flex items-center gap-1 rounded-full bg-[var(--safety)] px-2.5 py-1 text-[length:var(--text-footnote)] font-semibold text-[var(--on-safety)] shadow">
           <XIcon className="size-3.5" aria-hidden /> {label}
         </span>
       )}
       {ready && showControls && (
         <button type="button" onClick={() => setPaused(p => !p)} aria-label={paused ? 'Play demonstration' : 'Pause demonstration'}
-          className="absolute bottom-2 right-2 flex size-11 items-center justify-center rounded-full bg-background/80 shadow backdrop-blur">
+          className="absolute bottom-2 right-2 flex size-12 items-center justify-center rounded-full bg-background/90 shadow">
           {paused ? <PlayIcon className="size-5" /> : <PauseIcon className="size-5" />}
         </button>
       )}

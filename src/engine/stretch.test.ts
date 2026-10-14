@@ -6,6 +6,7 @@ import type { SessionPlan, Step, StretchFocus, StretchSpec } from '@/types/plan'
 import type { UserProfile } from '@/types/profile';
 import { EQUIPMENT_BY_ACCESS, getMeta, hasEquipment } from '@/data/catalog';
 import { getCoaching } from '@/data/coaching';
+import { reconcilePlan } from '@/session/gate';
 import { scriptFor } from '@/session/script';
 import { evaluateCheckIn } from './readiness';
 import { activeConditions, evaluateFlags } from './safety';
@@ -413,5 +414,37 @@ describe('a declared flare-up chooses the gentler routine on its own (coordinato
     const flaredSore = stretchPlanFor(data(flare, sore), profile, DATE, spec);
     expect(ids(flaredSore)).toEqual(ids(stretchPlanFor(data({}, sore), profile, DATE, spec)));
     expect(flaredSore.changes).not.toContain('A gentler routine: your back is in a flare-up.');
+  });
+});
+
+describe('B-30: a stretch saved before a flare and resumed during it (A-34)', () => {
+  const flare = { statusPeriods: [{ kind: 'flare' as const, from: DATE }] };
+  const data = (settings: object) =>
+    ({ settings: { startDate: START, ...settings }, sessions: [], checkIns: [] }) as unknown as Parameters<typeof stretchPlanFor>[0];
+  const moves = (steps: readonly Step[]) => steps.filter(s => s.kind === 'hold' || s.kind === 'drill') as (Step & { exerciseId: string })[];
+  const avoided = (id: string) => { const m = getMeta(id); return m?.kind === 'mobility' && m.status === 'avoidWhenIrritable'; };
+
+  it('the remaining work follows the gentler routine: nothing it leaves out runs', () => {
+    const profile = createDefaultProfile(BACK);
+    let leftOut = 0;
+    // Every routine the hub offers: at 10 minutes no routine for this profile holds a movement a flare leaves out.
+    for (const spec of OFFERED) {
+      const { focus } = spec;
+      const saved = stretchPlanFor(data({}), profile, DATE, spec);
+      const now = stretchPlanFor(data(flare), profile, DATE, spec);
+      // Saved just after it began, so almost all of it is still to run.
+      const at = 1;
+      const { plan, refused } = reconcilePlan(saved, at, now, { profile, now: new Date(2026, 9, 8, 9, 0), recent: [] });
+      const gentle = new Set(moves(now.steps).map(s => s.exerciseId));
+      for (const s of moves(plan.steps.slice(at)).filter(x => !refused.has(x.id))) {
+        expect(gentle.has(s.exerciseId), `${focus}: ${s.exerciseId} is not in the gentler routine`).toBe(true);
+        expect(avoided(s.exerciseId), `${focus}: ${s.exerciseId}`).toBe(false);
+      }
+      const dropped = moves(saved.steps.slice(at)).filter(s => avoided(s.exerciseId));
+      for (const s of dropped) expect(refused.has(s.id), `${focus}: ${s.exerciseId} still runs after the flare`).toBe(true);
+      leftOut += dropped.length;
+    }
+    // The rule was exercised: some routine held a movement a flare leaves out.
+    expect(leftOut).toBeGreaterThan(0);
   });
 });

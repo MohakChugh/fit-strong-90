@@ -279,8 +279,8 @@ const step6 = {
       await t.must(HOLD_OR_MORE('guided').includes(first), `190/80 was not refused (“${first}”)`);
       await s.closeSheet(page);
 
-      // A lower reading, entered as its own observation in Track.
-      await ui.tab(page, 'Track');
+      // A lower reading, entered as its own observation in My Day (v1's Track, now Today's log).
+      await ui.legacyTab(page, 'Track');
       await ui.tap(ui.header(page).getByRole('button', { name: 'Add a record', exact: true }));
       await ui.tap(ui.row(page.getByRole('dialog', { name: 'Add' }), 'Blood pressure'));
       const form = page.getByRole('dialog', { name: 'Blood pressure' });
@@ -317,7 +317,7 @@ const step6 = {
       const c2 = s.checkInOf(snap2);
       await t.check([...(c2?.bpEarlier ?? []), ...(c2?.bpReadings ?? [])].some(r => r.sys === 190 && r.dia === 80), `the replaced severe reading is gone from the check-in: ${JSON.stringify({ readings: c2?.bpReadings, earlier: c2?.bpEarlier })}`);
       await modesRefused(t, HOLD_OR_MORE, [['walk', 'move'], ['guided', 'move']]);
-    }, { input: 'P01; BP 190/80; then Track BP 120/80; reload; then the check-in changed to 120/80' });
+    }, { input: 'P01; BP 190/80; then My Day BP 120/80; reload; then the check-in changed to 120/80' });
   },
 };
 

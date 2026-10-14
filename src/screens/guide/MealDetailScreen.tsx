@@ -1,10 +1,13 @@
 import { Navigate, useLocation, useParams } from 'react-router-dom';
-import { Group } from '@/components/hig/List';
+import { Group, Row } from '@/components/hig/List';
 import { Screen } from '@/components/hig/Screen';
-import { componentsFor, DISCLAIMER, getMeal, idsShown, resolveGroups, SLOTS, suits } from '@/content';
+import { componentsFor, DISCLAIMER, getMeal, idsShown, mealAllowed, mealTags, resolveGroups, SLOTS, veganSwaps } from '@/content';
+import { allergenList, allergiesOf, allergyWarning } from '@/food/allergens';
+import { FOOD_COPY } from '@/food/copy';
 import { REGION_LABEL } from './format';
 import { componentDetail, measureClaimIds } from './mealText';
-import { ClaimGroup, Lead, Reviewed, SourcesGroup } from './parts';
+import { ClaimGroup, Lead, NoAllergiesRow, Reviewed, SourcesGroup } from './parts';
+import { RoughCarbs } from '@/screens/food/RoughCarbs';
 import { useGuide } from './useGuide';
 
 /** Where individual portions come from; on every meal, beside the meal. */
@@ -17,19 +20,27 @@ const OWN_PORTIONS = ['fd-personal-plan'];
 export default function MealDetailScreen() {
   const { mealId = '' } = useParams();
   const { state } = useLocation();
-  const { ctx, food } = useGuide();
+  const { ctx, food, allergies, filter } = useGuide();
   const meal = getMeal(mealId);
-  if (!meal) return <Navigate to="/guide/meals" replace />;
+  if (!meal) return <Navigate to="/hub/food/ideas" replace />;
 
   const from = (state as { from?: string } | null)?.from;
   const back = from === 'search'
-    ? { to: '/guide', label: 'Guide' }
+    ? { to: '/hub/learn', label: 'Learn' }
     : from === 'week'
-      ? { to: '/guide/meals/week', label: 'Sample week' }
-      : { to: '/guide/meals', label: 'Meal ideas' };
+      ? { to: '/hub/food/week', label: 'Sample week' }
+      : from === 'hub'
+        ? { to: '/hub/food', label: 'Food' }
+        : { to: '/hub/food/ideas', label: 'Meal ideas' };
 
   const pattern = food?.pattern;
   const parts = componentsFor(meal, pattern);
+  const tags = mealTags(meal, pattern);
+  // Why an idea is kept from this person's suggestions, in the allergy's own words (K7-14), with no food record from
+  // the allergies setup is keeping; with no answer at all, that they're not known, which is never none (board D205).
+  const warning = allergies ? allergyWarning(tags, allergiesOf(allergies)) : FOOD_COPY.allergiesFirst;
+  // A vegan plate's recipes, as the map makes them (H7-20).
+  const swapped = veganSwaps(meal, pattern).map(s => `${s.to} instead of ${s.from}`);
   // One pass over the screen: each claim and caution once, in reading order.
   const groups = resolveGroups(
     [meal.claimIds, measureClaimIds(meal, pattern, meal.claimIds), meal.swaps, [...meal.salt, ...meal.sugar], OWN_PORTIONS],
@@ -45,8 +56,9 @@ export default function MealDetailScreen() {
       <Lead>
         {slot}
         {where ? ` · ${where}` : ''}
-        {pattern && !suits(meal, pattern) ? ' · Outside the food choices you gave' : ''}
+        {filter && !mealAllowed(meal, filter) ? ' · Outside the food choices you gave' : ''}
       </Lead>
+      <RoughCarbs />
 
       <Group header="On the plate" footer={DISCLAIMER}>
         {parts.map(c => (
@@ -55,6 +67,15 @@ export default function MealDetailScreen() {
             <p className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{componentDetail(c)}</p>
           </div>
         ))}
+      </Group>
+
+      <Group header="Allergens in our recipes" footer={swapped.length > 0 ? `${FOOD_COPY.veganSwap(swapped.join(', '))} ${FOOD_COPY.recipeNote}` : FOOD_COPY.recipeNote}>
+        {warning && <p className="px-4 pt-3 text-[length:var(--text-body)] leading-snug text-caution">{warning}</p>}
+        {!allergies && <NoAllergiesRow />}
+        <Row
+          label={tags.contains.length > 0 ? FOOD_COPY.contains(allergenList(tags.contains)) : FOOD_COPY.noTaggedAllergens}
+          {...(tags.mayContain.length > 0 ? { detail: FOOD_COPY.mayContain(allergenList(tags.mayContain)) } : {})}
+        />
       </Group>
 
       <ClaimGroup header="How it’s built" claims={built} ctx={ctx} />

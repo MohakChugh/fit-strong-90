@@ -4,7 +4,7 @@
  *
  * The main case is the numbered sequence, all through the UI. The
  * supplementary rows enter through the app's canonical backup import
- * (You → Data & offline → Restore from a backup → Merge), as the spec allows
+ * (Me → Data & offline → Restore from a backup → Merge), as the spec allows
  * for observations v4 cannot represent, each in a fresh context.
  */
 import { C0, LEGACY_SESSION, persona } from '../fixtures/personas.mjs';
@@ -57,11 +57,12 @@ async function dayRows(page) {
 // ============================================================================
 
 async function sequence(t) {
-  const page = await t.open({ seed: persona('P01'), route: '/track' });
+  // v1's Track is v2's Today's log (journey §13).
+  const page = await t.open({ seed: persona('P01'), route: '/day/today' });
   const main = page.getByRole('main');
   let stepsIds = [];
 
-  await t.step(1, 'Track → Add → Steps 2000 for today, then 2500 for the same day', async () => {
+  await t.step(1, 'My Day → Add → Steps 2000 for today, then 2500 for the same day', async () => {
     await data.logTotal(t, 'steps', 2000);
     await data.logTotal(t, 'steps', 2500);
     const snap = await t.checkpoint('steps-2000-then-2500');
@@ -80,7 +81,7 @@ async function sequence(t) {
     await t.check((detail.match(/Manual entry/g) ?? []).length >= 2, `the statements are not both labelled Manual: ${detail.slice(0, 400)}`);
     await t.checkpoint('steps-detail');
     await ui.tap(main.getByRole('button', { name: /^Back to / }));
-    await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor();
+    await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor();
   }, { input: 'steps 2000 then 2500 for 2026-10-08' });
 
   await t.step(2, 'Add Water 250 ml, then 250 ml', async () => {
@@ -139,7 +140,7 @@ async function sequence(t) {
     await t.check(/ADA/.test(detail) && /after meals/.test(detail), `the after-meal framework (ADA) is not named: ${detail.slice(0, 400)}`);
     await t.checkpoint('after-meal-detail');
     await ui.tap(main.getByRole('button', { name: /^Back to / }));
-    await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor();
+    await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor();
     // The untagged one.
     const plain = main.getByRole('link').filter({ hasText: /8:40|08:40/ }).filter({ hasText: '150 mg/dL' });
     const rowText = flat(await text(plain));
@@ -151,7 +152,7 @@ async function sequence(t) {
     await t.check(!/above (the ADA|your clinician).{0,40}before meals|above.{0,30}(premeal|pre-meal)/i.test(untaggedDetail), `the untagged reading is judged against a premeal target: ${untaggedDetail.slice(0, 400)}`);
     await t.checkpoint('untagged-detail');
     await ui.tap(main.getByRole('button', { name: /^Back to / }));
-    await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor();
+    await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor();
   }, { input: 'glucose 150 mg/dL after a meal, meal 07:00, reading 08:30; glucose 150 at 08:40, no tag' });
 
   await t.step(5, 'Correct the first reading to 155, keeping its time; reload', async () => {
@@ -174,20 +175,23 @@ async function sequence(t) {
     const detail = flat(await text(main));
     await t.check(/155/.test(detail) && /Corrected/.test(detail) && /Meal started/.test(detail), `the corrected reading's detail lacks 155, its correction time or its meal context: ${detail.slice(0, 400)}`);
     await ui.tap(main.getByRole('button', { name: /^Back to / }));
-    await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor();
+    await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor();
   }, { input: 'correct 150 → 155' });
 
   await t.step(6, 'Trends, Back & leg, each record detail, and Back', async () => {
     // Trends: one row per measure, each opening one chart, Back to Trends.
-    await view(page, 'Trends');
+    await view(page, 'Measures');
     await t.checkpoint('trends');
     const trendLinks = await main.getByRole('link').evaluateAll(as => as.map(a => ({ href: a.getAttribute('href'), text: a.innerText.replace(/\s+/g, ' ').trim() })).filter(a => /#\/track\/(metric|back)/.test(a.href ?? '')));
     await t.check(trendLinks.length >= 6, `Trends lists ${trendLinks.length} measures: ${JSON.stringify(trendLinks.map(l => l.text))}`);
     for (const l of trendLinks) {
       await t.check(!/NaN|undefined/.test(l.text), `Trends row reads “${l.text}”`);
       await ui.tap(linkTo(main, l.href));
-      await waitRoute(t, /^\/track\/(metric|back)/);
-      await page.waitForFunction(() => !/^My Day$/.test(document.querySelector('main h1')?.textContent?.trim() ?? 'My Day'), null, { timeout: 15000 });
+      // A measure's v1 address goes on to its hub or its trend (journey §19.3).
+      await waitRoute(t, /^\/(hub|trends)\//);
+      await page.waitForFunction(() => !/^Today’s log$/.test(document.querySelector('main h1')?.textContent?.trim() ?? 'Today’s log'), null, { timeout: 15000 });
+      // A hub's skeleton has its title too: read the hub once its content is in.
+      await ui.loaded(page);
       const title = (await main.getByRole('heading', { level: 1 }).innerText()).trim();
       const body = flat(await text(main));
       const charts = await main.locator('figure').count();
@@ -210,9 +214,9 @@ async function sequence(t) {
       }
       await t.checkpoint(`metric-${title}`);
       await ui.tap(main.getByRole('button', { name: /^Back to / }));
-      const back = await waitRoute(t, '/track?view=trends');
-      await t.check(back === '/track?view=trends', `Back from ${title} went to ${back}, not to Trends (/track?view=trends)`);
-      await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor();
+      const back = await waitRoute(t, '/day/today?view=trends');
+      await t.check(back === '/day/today?view=trends', `Back from ${title} went to ${back}, not to Trends (/day/today?view=trends)`);
+      await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor();
     }
     // Back & leg, whether or not Trends listed it.
     if (!trendLinks.some(l => /#\/track\/back/.test(l.href))) {
@@ -224,7 +228,7 @@ async function sequence(t) {
     for (const r of rows) {
       await ui.tap(linkTo(main, r.href));
       await waitRoute(t, r.href);
-      await page.waitForFunction(() => !/^My Day$/.test(document.querySelector('main h1')?.textContent?.trim() ?? 'My Day'), null, { timeout: 15000 });
+      await page.waitForFunction(() => !/^Today’s log$/.test(document.querySelector('main h1')?.textContent?.trim() ?? 'Today’s log'), null, { timeout: 15000 });
       const title = (await main.getByRole('heading', { level: 1 }).innerText().catch(() => '?')).trim();
       const body = flat(await text(main));
       if (!/workout|session/.test(r.href)) {
@@ -233,17 +237,19 @@ async function sequence(t) {
       await t.check(!/NaN|undefined|\[object Object\]/.test(body), `${title} shows a broken value: ${body.slice(0, 200)}`);
       const backButton = main.getByRole('button', { name: /^Back to / });
       await ui.tap(backButton);
-      const back = await waitRoute(t, '/track');
-      await t.check(back === '/track', `Back from ${title} went to ${back}, not today's My Day`);
-      await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor();
+      const back = await waitRoute(t, '/day/today');
+      await t.check(back === '/day/today', `Back from ${title} went to ${back}, not today's My Day`);
+      await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor();
     }
   });
 
   let workoutId;
-  await t.step(7, 'Track → Add → Workout: first set 12 reps (or 20 s), 10 kg if offered; Done set; reload', async () => {
+  await t.step(7, 'My Day → Add → Workout: first set 12 reps (or 20 s), 10 kg if offered; Done set; reload', async () => {
     const add = await data.openAdd(t);
     await ui.tap(ui.row(add, 'Workout'));
     await page.getByRole('heading', { name: 'Workout', exact: true }).waitFor();
+    // The Workout Log's skeleton has the Workout title too: read it once its content is in.
+    await ui.loaded(page);
     await t.must(!/^\/session/.test(await t.route()), `Workout opened the guided player (${await t.route()})`);
     const checkIn = main.getByRole('button', { name: /^(Check in|Update today’s check-in)$/ });
     if (await checkIn.count()) {
@@ -278,12 +284,13 @@ async function sequence(t) {
       `completed sets after reload: ${JSON.stringify(done)}`);
     await t.check(fresh[0].sets.filter(s => s.status !== 'completed').every(s => s.actualReps === null || s.actualReps === undefined),
       'an unperformed set carries actual reps');
-    await t.check(/^\/track\/workout/.test(await t.route()) && await main.getByRole('button', { name: /^Set 1 .*Done$/ }).count() >= 1,
+    // The Workout Log is the Workout hub's, /hub/workout/log (D51); a saved workout keeps /track/workout/:id.
+    await t.check(/^\/hub\/workout\/log/.test(await t.route()) && await main.getByRole('button', { name: /^Set 1 .*Done$/ }).count() >= 1,
       `after reload the Workout Log is not back on the same attempt with set 1 done (${await t.route()})`);
     await t.check(!(await page.getByRole('button', { name: /^(Start|Pause)$/ }).count()), 'a guided player control appeared');
   }, { input: 'reps 12 (or 20 s), weight 10 kg if offered' });
 
-  await t.step(8, 'Finish workout, note “Manual acceptance set”, Save workout; open it from Track and return', async () => {
+  await t.step(8, 'Finish workout, note “Manual acceptance set”, Save workout; open it from My Day and return', async () => {
     await ui.tap(main.getByRole('button', { name: 'Finish workout', exact: true }));
     const finish = page.getByRole('dialog', { name: 'Finish workout' });
     await finish.waitFor();
@@ -295,13 +302,13 @@ async function sequence(t) {
     await t.ready();
     await t.check(/Saved on this device/.test(await text(main)), 'no save acknowledgement on the saved workout');
     await t.checkpoint('workout-saved');
-    // From Track.
-    await ui.tab(page, 'Track');
+    // From My Day (v1's Track).
+    await ui.legacyTab(page, 'Track');
     await data.trackDay(page, TODAY);
     const row = linkTo(main, `/track/workout/${encodeURIComponent(workoutId)}`);
-    await t.must(await row.count() === 1, `Track today has ${await row.count()} rows for the saved workout`);
+    await t.must(await row.count() === 1, `My Day today has ${await row.count()} rows for the saved workout`);
     const rowText = flat(await text(row));
-    await t.check(/Partly done/.test(rowText) && !/Completed/.test(rowText), `the Track row does not say partly done: ${rowText}`);
+    await t.check(/Partly done/.test(rowText) && !/Completed/.test(rowText), `the My Day row does not say partly done: ${rowText}`);
     await ui.tap(row);
     await page.waitForFunction(id => location.hash === `#/track/workout/${encodeURIComponent(id)}`, workoutId, { timeout: 15000 });
     await main.getByText(/^Sets done$/).waitFor({ timeout: 15000 });
@@ -313,10 +320,10 @@ async function sequence(t) {
     await t.reload();
     await t.check(await t.route() === `/track/workout/${encodeURIComponent(workoutId)}`, `reload moved to ${await t.route()}`);
     await ui.tap(main.getByRole('button', { name: /^Back to / }));
-    const back = await waitRoute(t, /^\/track(\?|$)/);
-    await t.check(back.startsWith('/track') && !back.includes('workout'), `Back from the workout went to ${back}`);
-    await page.getByRole('heading', { level: 1, name: 'My Day', exact: true }).waitFor({ timeout: 15000 });
-    await t.check(await data.trackDay(page, TODAY).then(h => h.includes('8 October')), 'Back did not return to the originating Track day');
+    const back = await waitRoute(t, /^\/day\//);
+    await t.check(back.startsWith('/day/') && !back.includes('workout'), `Back from the workout went to ${back}`);
+    await page.getByRole('heading', { level: 1, name: 'Today’s log', exact: true }).waitFor({ timeout: 15000 });
+    await t.check(await data.trackDay(page, TODAY).then(h => h.includes('8 October')), 'Back did not return to the originating My Day day');
     const snap = await t.checkpoint('after-workout-back');
     const sessions = snap.sessions ?? [];
     const mine = sessions.filter(s => s.id !== 'legacy-strength');
@@ -368,7 +375,7 @@ async function importFixture(t, name, doc) {
 }
 
 async function openDay(t, day) {
-  await ui.tab(t.page, 'Track');
+  await ui.legacyTab(t.page, 'Track');
   await view(t.page, 'Timeline');
   await data.trackDay(t.page, day);
   return flat(await text(t.page.getByRole('main')));
@@ -380,7 +387,7 @@ const fixtureCases = [
   {
     name: 'fixture: day steps 2500 and walk steps 300',
     async run(t) {
-      await t.open({ seed: persona('P01'), route: '/today' });
+      await t.open({ seed: persona('P01'), route: '/home' });
       const doc = data.transferDoc({
         observations: [
           data.obs({ id: 'fx-steps-day', kind: 'steps', value: 2500, scope: 'dayTotal', source: 'manual', at: at('08:00:00') }),
@@ -396,7 +403,7 @@ const fixtureCases = [
         await t.check(/Steps[^]*?2,500 steps/.test(body), `My Day's steps total is not 2,500: ${body.slice(0, 400)}`);
         await t.check(!/2,800/.test(body), `My Day shows 2,800 steps (day total plus the walk’s): ${body.slice(0, 400)}`);
         await t.check(/Walk[^]*?300 steps/.test(body), `the walk does not keep its own 300 measured steps: ${body.slice(0, 400)}`);
-        await view(t.page, 'Trends');
+        await view(t.page, 'Measures');
         const trends = flat(await text(t.page.getByRole('main')));
         await t.check(/Steps[^]*?2,500 steps/.test(trends) && !/2,800/.test(trends), `Trends steps is not 2,500: ${trends.slice(0, 300)}`);
         await t.checkpoint('trends-steps');
@@ -406,15 +413,16 @@ const fixtureCases = [
   {
     name: 'fixture: overlapping movement intervals',
     async run(t) {
-      const page = await t.open({ seed: persona('P01'), route: '/today' });
+      const page = await t.open({ seed: persona('P01'), route: '/home' });
       const main = page.getByRole('main');
       const walk = (w, start, minutes) => ['walkDuration', 'movementMinutes'].map(kind => data.obs({
         id: `fx-${w}-${kind}`, kind, value: minutes, scope: 'sessionObserved', source: 'measured', at: at(start), coverageMs: minutes * 60000, context: `walk:fx-${w}`,
       }));
       const doc = data.transferDoc({ observations: [...walk('a', '08:00:00', 10), ...walk('b', '08:05:00', 5)] });
       await t.step(1, 'Choose a weekly goal of 150 minutes, then import 10 min at 08:00 and 5 min at 08:05', async () => {
-        await ui.tab(page, 'Today');
-        await ui.tap(ui.row(main, 'Set a weekly goal'));
+        // v1 Today's "Set a weekly goal" row is the This week card's button on Home (journey §7.3).
+        await ui.tab(page, 'Home');
+        await ui.tap(ui.button(main, 'Set a weekly goal'));
         const goal = page.getByRole('dialog', { name: 'Weekly movement goal' });
         await ui.type(goal.getByRole('textbox', { name: 'Minutes each week', exact: true }), '150');
         await ui.tap(ui.button(goal, 'Save goal'));
@@ -428,9 +436,11 @@ const fixtureCases = [
         const ring = await main.getByRole('button', { name: /^Recorded movement:/ }).getAttribute('aria-label').catch(() => null);
         await t.check(ring !== null && !/\b15 of 150\b/.test(ring), `the ring is built from the invalid sum: ${ring}`);
         await t.check(!/\b15 min(utes)?\b/.test(body) || /overlap/i.test(body.match(/.{0,80}\b15 min(utes)?\b.{0,80}/)?.[0] ?? ''), `My Day claims 15 minutes recorded: ${body.match(/.{0,80}\b15 min(utes)?\b.{0,80}/)?.[0]}`);
-        await ui.tab(page, 'Today');
-        const today = flat(await text(page.getByRole('main')));
-        await t.check(!/\b15 (of 150 )?min/.test(today), `Today claims 15 minutes this week: ${today.match(/.{0,60}15.{0,60}/)?.[0]}`);
+        await ui.tab(page, 'Home');
+        // The week's minutes are Home's This week card (journey §7.3), v1 Today's ring: read there, since
+        // Home's tiles have their own lines (the Stretch tile's "10 or 15 min" is a routine's length).
+        const today = flat(await text(page.getByRole('main').getByRole('region', { name: 'This week', exact: true })));
+        await t.check(!/\b15 (of 150 )?min/.test(today), `Home claims 15 minutes this week: ${today.match(/.{0,60}15.{0,60}/)?.[0]}`);
         await t.checkpoint('overlap-today');
         t.note(`ring: ${ring}`);
       });
@@ -443,7 +453,7 @@ const fixtureCases = [
   ].map(row => ({
     name: row.name,
     async run(t) {
-      await t.open({ seed: persona('P01'), route: '/today' });
+      await t.open({ seed: persona('P01'), route: '/home' });
       // As an export writes them: in commit order, each with its device's seq.
       const first = data.obs({ id: row.ids[0], kind: 'steps', value: 2000, scope: 'dayTotal', source: 'manual', at: at('08:00:00'), seq: 41 });
       const second = data.obs({ id: row.ids[1], kind: 'steps', value: 2500, scope: 'dayTotal', source: 'manual', at: at('08:00:00'), seq: 42 });
@@ -467,7 +477,7 @@ const fixtureCases = [
   {
     name: 'fixture: imported glucose 110 mg/dL and 6 mmol/L',
     async run(t) {
-      await t.open({ seed: persona('P01'), route: '/today' });
+      await t.open({ seed: persona('P01'), route: '/home' });
       const doc = data.transferDoc({
         observations: [
           data.obs({ id: 'fx-glu-mg', kind: 'glucose', value: 110, unit: 'mg/dL', source: 'imported', at: at('08:00:00') }),
@@ -488,7 +498,7 @@ const fixtureCases = [
         const g = (snap.observations ?? []).filter(o => o.id.startsWith('fx-glu'));
         await t.check(g.length === 2 && g.every(o => o.source === 'imported') && g.find(o => o.id === 'fx-glu-mmol')?.unit === 'mmol/L' && g.find(o => o.id === 'fx-glu-mg')?.unit === 'mg/dL',
           `stored: ${JSON.stringify(g)}`);
-        await view(t.page, 'Trends');
+        await view(t.page, 'Measures');
         const trends = flat(await text(t.page.getByRole('main')));
         await t.check(!/Glucose[^]{0,40}\b58\b/.test(trends), `Trends shows an averaged glucose: ${trends.slice(0, 200)}`);
       });
@@ -497,7 +507,7 @@ const fixtureCases = [
   {
     name: 'fixture: BP halves from two readings at one instant',
     async run(t) {
-      await t.open({ seed: persona('P01'), route: '/today' });
+      await t.open({ seed: persona('P01'), route: '/home' });
       const half = (r, kind, value) => data.obs({ id: `fx-${r}:${kind}`, kind, value, unit: 'mmHg', source: 'manual', at: at('08:00:00'), context: `bp:fx-${r}` });
       const doc = data.transferDoc({
         observations: [
@@ -511,12 +521,14 @@ const fixtureCases = [
         await t.checkpoint('bp-day');
         await t.check(/130\/80 mmHg/.test(body) && /140\/90 mmHg/.test(body), `My Day does not show both 130/80 and 140/90: ${body.slice(0, 400)}`);
         await t.check(!/130\/90|140\/80/.test(body), `My Day mixes the halves: ${body.match(/1[34]0\/[89]0/g)}`);
-        await view(t.page, 'Trends');
+        await view(t.page, 'Measures');
         const trends = flat(await text(t.page.getByRole('main')));
         await t.check(!/130\/90|140\/80/.test(trends), `Trends mixes the halves: ${trends.slice(0, 300)}`);
         await ui.tap(t.page.getByRole('main').getByRole('link', { name: /^Blood pressure/ }));
-        await waitRoute(t, /^\/track\/metric/);
+        await waitRoute(t, /^\/hub\/bp/);
         await t.page.getByRole('heading', { level: 1, name: 'Blood pressure', exact: true }).waitFor();
+        // The hub's skeleton has its title too: read it once its content is in.
+        await ui.loaded(t.page);
         const detail = flat(await text(t.page.getByRole('main')));
         await t.check(!/130\/90|140\/80/.test(detail), `the blood pressure chart or list mixes the halves: ${detail.slice(0, 300)}`);
         await t.checkpoint('bp-metric');
@@ -527,7 +539,7 @@ const fixtureCases = [
     name: 'fixture: weights either side of local midnight, IST then New York',
     async run(t) {
       const NOW9 = Date.parse('2026-10-09T00:01:00+05:30');
-      await t.open({ seed: persona('P01'), route: '/today', time: NOW9 });
+      await t.open({ seed: persona('P01'), route: '/home', time: NOW9 });
       const doc = data.transferDoc({
         observations: [
           data.obs({ id: 'fx-w79', kind: 'weight', value: 79, unit: 'kg', source: 'manual', at: '2026-10-08T23:59:00.000+05:30' }),
@@ -564,7 +576,7 @@ const fixtureCases = [
   {
     name: 'fixture: two readings at the repeated 01:30 of a DST fall-back',
     async run(t) {
-      await t.open({ seed: persona('P01'), route: '/today', time: Date.parse('2026-11-02T09:00:00-05:00'), contextOptions: { timezoneId: 'America/New_York' } });
+      await t.open({ seed: persona('P01'), route: '/home', time: Date.parse('2026-11-02T09:00:00-05:00'), contextOptions: { timezoneId: 'America/New_York' } });
       const doc = data.transferDoc({
         observations: [
           data.obs({ id: 'fx-dst-1', kind: 'glucose', value: 110, unit: 'mg/dL', source: 'manual', at: '2026-11-01T01:30:00.000-04:00' }),

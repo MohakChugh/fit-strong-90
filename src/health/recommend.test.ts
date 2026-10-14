@@ -8,8 +8,9 @@ import type { HealthProfile, UserProfile } from '@/types/profile';
 import { PERMISSION_TEXT, permission, type Mode, type Permission } from '@/engine/permission';
 import { evaluateCheckIn } from '@/engine/readiness';
 import type { SavedProgress } from '@/session/persistence';
-import { timeOf } from '@/lib/time';
-import { mealFromSearch } from '@/walk/plan';
+import { prefersHour12, timeOf } from '@/lib/time';
+import { DEFAULT_STRETCH, stretchHref } from '@/engine/stretch';
+import { afterMealSuggestion, mealFromSearch } from '@/walk/plan';
 import { newObservation, type Observation, type ObservationInput } from './observation';
 import {
   HREF,
@@ -21,6 +22,7 @@ import {
   isEnrolled,
   mealOfWalk,
   mealWalkNow,
+  nextBoundary,
   recommend,
   resumeHref,
   savedRun,
@@ -242,6 +244,18 @@ describe('1. safety comes first', () => {
     });
   });
 
+  it('says “Finish setting up” while setup is unfinished, and carries on setting up (journey §6.4, L-20)', () => {
+    const permissions = every(m => ({ ...firstCheckIn(m), reasons: [PERMISSION_TEXT.healthUnreviewed, PERMISSION_TEXT.noCheckIn], release: 'Answer the health questions in your profile.' }));
+    expect(recommend(input({ profile: undefined, permissions, setupOpen: true }))).toEqual({
+      kind: 'hold',
+      title: 'Finish setting up',
+      detail: 'Answer the health questions in your profile.',
+      reason: PERMISSION_TEXT.healthUnreviewed,
+      action: { label: 'Carry on setting up', to: HREF.profile },
+    });
+    expect(recommend(input({ profile: owner({}, { needsHealthReview: true }), permissions })).title).toBe('Finish your health profile');
+  });
+
   it('asks about the diabetes medicines when a diabetic profile never answered them', () => {
     const profile = owner({ medicinesReviewed: undefined });
     const release = 'Answer the diabetes medicine questions in your health profile.';
@@ -386,7 +400,8 @@ describe('3. status', () => {
     const r = recommend(input({ settings: s }));
     expect(r.title).toBe('A gentle stretch, or rest');
     expect(r.reason).toBe('You marked a flare-up since 20 September. Only gentle movement is suggested until you change it.');
-    expect(r.action).toEqual({ label: 'Check in & stretch', to: HREF.stretch, mode: 'stretch' });
+    // Straight to the player, with no setup's second Start (journey §7.4, K-32, codex V1-07).
+    expect(r.action).toEqual({ label: 'Check in & stretch', to: stretchHref(DEFAULT_STRETCH), mode: 'stretch' });
   });
 
   it('suggests rest, not the same stretch again, once a flare-up’s stretch is done today', () => {
@@ -416,13 +431,20 @@ describe('4. a stated focus', () => {
   it('suggests a stretch for a stretch focus, even with training days in the profile', () => {
     const r = recommend(input({ settings: settings({ focus: 'stretch' }) }));
     expect(r).toMatchObject({ kind: 'preference', title: 'A morning stretch', reason: 'You chose stretching as your focus.' });
-    expect(r.action).toEqual({ label: 'Check in & stretch', to: HREF.stretch, mode: 'stretch' });
+    expect(r.action).toEqual({ label: 'Check in & stretch', to: stretchHref(DEFAULT_STRETCH), mode: 'stretch' });
+  });
+
+  it('starts the routine last recorded, as Stretch’s setup would offer it (codex V1-07)', () => {
+    const last = stretched('2026-10-06', '07:00', { planId: 'stretch:2026-10-06:neckShoulders:15' });
+    const r = recommend(input({ settings: settings({ focus: 'stretch' }), sessions: [last] }));
+    expect(r.action.to).toBe(stretchHref({ focus: 'neckShoulders', minutes: 15 }));
   });
 
   it('suggests a walk for a move focus', () => {
     const r = recommend(input({ settings: settings({ focus: 'move' }), permissions: every(allowed), checkIns: [checkIn()] }));
     expect(r).toMatchObject({ kind: 'preference', title: 'A morning walk', reason: 'You chose moving more as your focus.' });
-    expect(r.action).toEqual({ label: 'Walk now', to: HREF.walk, mode: 'walk' });
+    // Straight to the live walk, "Just a walk" (journey §7.4, K-32, codex V1-07).
+    expect(r.action).toEqual({ label: 'Walk now', to: '/walk/live', mode: 'walk', walk: {} });
   });
 
   it('does not push the chosen routine a second time in a day', () => {
@@ -804,6 +826,76 @@ describe('freezing', () => {
   });
 });
 
+describe('time boundaries (journey §4.1, L-07, B-20)', () => {
+  const next = (now: Date, c?: CheckInRecord, habits?: UserSettings['habits']) =>
+    new Date(nextBoundary(now, { ...(c ? { checkIn: c } : {}), ...(habits ? { habits } : {}) }));
+  const readAt = (time: string, over: Partial<Readiness> = {}): CheckInRecord =>
+    ({ ...checkIn(over), glucose: { value: 140, unit: 'mg/dL', measuredAt: at(TODAY, time).toISOString() } });
+  const lowAt1330 = () => readAt('13:30', { recheckAt: at(TODAY, '13:45').toISOString() });
+
+  it('is the next part of the day, or midnight', () => {
+    expect(next(at(TODAY, '02:30'))).toEqual(at(TODAY, '04:00'));
+    expect(next(at(TODAY, '04:00'))).toEqual(at(TODAY, '12:00'));
+    expect(next(NOW)).toEqual(at(TODAY, '12:00'));
+    expect(next(at(TODAY, '16:59'))).toEqual(at(TODAY, '17:00'));
+    expect(next(at(TODAY, '17:00'))).toEqual(at('2026-10-09', '00:00'));
+  });
+
+  it('is a reading going stale, a reading no longer ahead of the clock, or a re-check falling due, whichever is first', () => {
+    expect(next(at(TODAY, '09:10'), readAt('09:00'))).toEqual(at(TODAY, '09:30'));
+    // Stamped ahead of the clock: it is "later than now" until two minutes before its time.
+    expect(next(at(TODAY, '09:00'), readAt('09:20'))).toEqual(at(TODAY, '09:18'));
+    expect(next(at(TODAY, '13:32'), lowAt1330())).toEqual(at(TODAY, '13:45'));
+    expect(next(at(TODAY, '13:45'), lowAt1330())).toEqual(at(TODAY, '14:00'));
+    // Once all of them have passed, the day's own edges remain.
+    expect(next(at(TODAY, '14:00'), lowAt1330())).toEqual(at(TODAY, '17:00'));
+  });
+
+  it('quiet hours never hold a re-check (journey §4.9, §15)', () => {
+    // A re-check due at 13:45, inside quiet hours from 13:00 to 15:00.
+    expect(next(at(TODAY, '13:32'), lowAt1330(), { quietHours: { from: '13:00', to: '15:00' } })).toEqual(at(TODAY, '13:45'));
+  });
+
+  it('times a reading logged in Track, as the gate does (X2-01)', () => {
+    const logged: CheckInRecord = { ...checkIn(), logged: { glucose: [{ value: 150, unit: 'mg/dL', measuredAt: at(TODAY, '10:00').toISOString() }] } };
+    expect(next(at(TODAY, '10:05'), logged)).toEqual(at(TODAY, '10:30'));
+  });
+
+  it('is the edge of an after-meal walk window, yesterday’s included', () => {
+    const habits = { mealWalk: { enabled: true, meals: ['lunch', 'dinner'] as Meal[], finish: { lunch: '13:30', dinner: '23:40' } } };
+    expect(next(at(TODAY, '13:00'), undefined, habits)).toEqual(at(TODAY, '13:30'));
+    expect(next(at(TODAY, '13:30'), undefined, habits)).toEqual(at(TODAY, '14:15'));
+    expect(next(at(TODAY, '00:05'), undefined, habits)).toEqual(at(TODAY, '00:25'));
+    expect(next(at(TODAY, '13:00'), undefined, { mealWalk: { ...habits.mealWalk, enabled: false } })).toEqual(at(TODAY, '17:00'));
+  });
+
+  it('moves the frozen key at each boundary and holds it between them, as Home works it out', () => {
+    const key = (now: Date, c?: CheckInRecord) => freezeKey({
+      now, checkIns: c ? [c] : [], statusPeriods: [], startDate: START, visit: 0, boundary: nextBoundary(now, c ? { checkIn: c } : {}),
+    });
+    expect(key(at(TODAY, '09:00'))).toBe(key(at(TODAY, '11:59')));
+    expect(key(at(TODAY, '11:59'))).not.toBe(key(at(TODAY, '12:00')));
+    expect(key(at(TODAY, '12:00'))).toBe(key(at(TODAY, '16:59')));
+    expect(key(at(TODAY, '16:59'))).not.toBe(key(at(TODAY, '17:00')));
+    expect(key(at(TODAY, '13:32'), lowAt1330())).toBe(key(at(TODAY, '13:44'), lowAt1330()));
+    expect(key(at(TODAY, '13:44'), lowAt1330())).not.toBe(key(at(TODAY, '13:45'), lowAt1330()));
+  });
+
+  it('with the real gate: a treated low says when to re-check until then, and the decision stays the same', () => {
+    const p = owner({ metformin: true, glucoseMonitor: 'meter' });
+    const c: DailyCheckIn = { date: TODAY, urgentSymptoms: false, emergency: [], news: [], sleep: 'gt7', energy: 4, glucose: { value: 62, unit: 'mg/dL', measuredAt: at(TODAY, '13:30').toISOString() } };
+    const record: CheckInRecord = { ...c, readiness: evaluateCheckIn(p, c, []) };
+    expect(record.readiness.recheckAt).toBe(at(TODAY, '13:45').toISOString());
+    const shown = (time: string) => {
+      const now = at(TODAY, time);
+      return recommend(input({ now, profile: p, checkIns: [record], permissions: every(m => permission({ profile: p, checkIn: record, now, recent: [] }, m)) }));
+    };
+    expect(new Date(nextBoundary(at(TODAY, '13:32'), { checkIn: record }))).toEqual(at(TODAY, '13:45'));
+    expect(shown('13:32')).toMatchObject({ kind: 'recheck', detail: `Re-check at ${timeOf(at(TODAY, '13:45'))}, then enter the new reading.` });
+    expect(shown('13:45')).toMatchObject({ kind: 'recheck', detail: 'It is time to re-check. Enter the new reading.' });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // With the real gate
 // ---------------------------------------------------------------------------
@@ -965,12 +1057,24 @@ describe('a walk after a meal (D26; scan J2-07)', () => {
       title: 'A walk after lunch',
       detail: 'About 10 minutes, starting soon after you finish eating.',
       reason: 'You asked for a walk after lunch. In a study of people with type 2 diabetes, a short walk after meals lowered the rise in glucose (Reynolds 2016).',
-      action: { label: 'Check in & walk', to: '/walk?meal=lunch', mode: 'walk' },
+      // The usual time, stated, starts the walk after that meal; another time, or no meal, is one tap (B-09, codex V1-07).
+      action: { label: `I had lunch at ${timeOf(at(TODAY, '13:30').getTime())}: walk now`, to: '/walk/live', mode: 'walk', walk: { meal: 'lunch', mealStartedAt: at(TODAY, '13:30').getTime() } },
+      more: [
+        { label: 'Different time', to: '/hub/walk?meal=lunch' },
+        { label: 'Just a walk', to: '/walk/live', mode: 'walk', walk: {} },
+      ],
     });
     expect(meal({}, '13:35', 'stretch').title).toBe('A walk after lunch');
     // Before the meal's usual end, and once its 45 minutes are over, the focus is back.
     expect(meal({}, '13:29').title).toBe('An afternoon walk');
     expect(meal({}, '14:15').title).toBe('An afternoon walk');
+  });
+
+  it('states the same time as the Walk hub: the card uses afterMealSuggestion (B-09)', () => {
+    const r = meal({}, '13:40');
+    const said = afterMealSuggestion({ meal: 'lunch', finish: '13:30', now: at(TODAY, '13:40').getTime(), hour12: prefersHour12() });
+    expect(r.action.label).toBe(said.label);
+    expect(r.action.walk).toEqual({ meal: 'lunch', mealStartedAt: said.at });
   });
 
   it('comes before the day’s session as well, which waits for it', () => {
@@ -982,11 +1086,13 @@ describe('a walk after a meal (D26; scan J2-07)', () => {
     expect(meal({}, '20:40', 'explore').title).toBe('A walk after dinner');
   });
 
-  it('opens Walk on "After a meal" with that meal chosen', () => {
+  it('"Different time" opens Walk on "After a meal" with that meal chosen, to say when it was', () => {
     for (const [time, which] of [['08:40', 'breakfast'], ['13:40', 'lunch'], ['20:40', 'dinner']] as const) {
-      const url = new URL(meal({}, time).action.to, 'https://app.test');
+      const different = meal({}, time).more?.find(a => a.label === 'Different time');
+      const url = new URL(different!.to, 'https://app.test');
       expect(url.pathname).toBe(HREF.walk);
       expect(mealFromSearch(url.searchParams)).toBe(which);
+      expect(meal({}, time).action.walk?.meal).toBe(which);
     }
   });
 
@@ -1050,5 +1156,42 @@ describe('mealOfWalk', () => {
     expect(mealOfWalk(undefined, { minute: clock(8, 40) })).toBeUndefined();
     expect(mealOfWalk({ mealWalk: { enabled: true, meals: ['dinner'], finish: { breakfast: '08:30' } } }, { minute: clock(8, 40) })).toBeUndefined();
     expect(mealOfWalk(habits, {})).toBeUndefined();
+  });
+});
+
+describe('6b. after the twelve weeks (J§17.2 #42, D116)', () => {
+  const july = settings({ startDate: '2026-07-17' });
+
+  it('plans week 12’s session on its last day', () => {
+    expect(recommend(input({ settings: july, permissions: every(allowed), checkIns: [checkIn()] })).kind).toBe('scheduled');
+  });
+
+  it('then plans nothing, says so, and leaves the choice to the person', () => {
+    const day = '2026-10-09';
+    const r = recommend(input({ now: at(day, '09:00'), settings: july, plan: plan({ date: day }), permissions: every(allowed), checkIns: [checkIn({}, day)] }));
+    expect(r).toEqual({
+      kind: 'plan',
+      title: 'The 12 weeks are done',
+      detail: 'Stretch and Walk carry on as before.',
+      reason: 'Your 12-week programme has ended, so no new session is planned.',
+      action: { label: 'Choose what’s next', to: HREF.next },
+    });
+  });
+
+  it('on a rest day too, never “A rest day in your plan”', () => {
+    const day = '2026-10-10';
+    expect(recommend(input({ now: at(day, '09:00'), settings: july, plan: restDay(), permissions: every(allowed) })).title).toBe('The 12 weeks are done');
+  });
+
+  it('is only for someone in the programme: a start date without training days isn’t one', () => {
+    const day = '2026-10-09';
+    const r = recommend(input({ now: at(day, '09:00'), settings: july, profile: owner({}, { trainingDays: [] }), plan: plan({ date: day }), permissions: every(allowed) }));
+    expect(r.title).not.toBe('The 12 weeks are done');
+  });
+
+  it('still gives way to safety', () => {
+    const day = '2026-10-09';
+    const permissions = { ...every(allowed), walk: held('walk', { disposition: 'emergency', reasons: ['You reported chest pain.'], release: undefined }) };
+    expect(recommend(input({ now: at(day, '09:00'), settings: july, permissions })).kind).toBe('emergency');
   });
 });

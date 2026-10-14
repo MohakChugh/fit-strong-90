@@ -48,7 +48,7 @@ export function ExercisesScreen() {
 
   // An old Library link, `?ex=<id>`, opens that exercise.
   const legacy = params.get('ex');
-  if (legacy) return <Navigate to={`/move/exercises/${encodeURIComponent(legacy)}`} replace />;
+  if (legacy) return <Navigate to={`/hub/workout/exercises/${encodeURIComponent(legacy)}`} replace />;
 
   const summary = [
     kind !== 'all' && KINDS.find(k => k.value === kind)?.label,
@@ -58,16 +58,16 @@ export function ExercisesScreen() {
   return (
     <Screen
       title="Find an exercise"
-      back={{ to: '/move', label: 'Move' }}
+      back={{ to: '/hub/workout', label: 'Workout' }}
       trailing={(
         <button type="button" onClick={() => setFilterOpen(true)} aria-haspopup="dialog"
-          className="press-feedback flex min-h-11 items-center px-2 text-[length:var(--text-body)] text-tint">
+          className="press-feedback flex min-h-12 items-center px-2 text-[length:var(--text-body)] text-tint">
           Filter
         </button>
       )}
     >
       <div className="flex flex-col gap-2">
-        <label className="flex min-h-11 items-center gap-2 rounded-xl bg-grouped-card px-3 focus-within:ring-2 focus-within:ring-tint/40">
+        <label className="flex min-h-12 items-center gap-2 rounded-xl bg-grouped-card px-3 focus-within:ring-2 focus-within:ring-tint/40">
           <SearchIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden />
           <span className="sr-only">Search exercises</span>
           <input
@@ -77,7 +77,7 @@ export function ExercisesScreen() {
             placeholder="Name, muscle or equipment"
             value={query}
             onChange={e => { setQuery(e.target.value); store({ ...filters, query: e.target.value }); }}
-            className="min-w-0 flex-1 bg-transparent py-2.5 text-[length:var(--text-body)] outline-none placeholder:text-muted-foreground"
+            className="min-h-12 min-w-0 flex-1 bg-transparent py-2.5 text-[length:var(--text-body)] outline-none placeholder:text-muted-foreground"
           />
         </label>
         <p aria-live="polite" className="px-4 text-[length:var(--text-footnote)] text-muted-foreground">
@@ -85,7 +85,7 @@ export function ExercisesScreen() {
           {filtered && (
             <>
               {' · '}
-              <button type="button" onClick={() => store({ ...NO_FILTERS, query })} className="inline-flex min-h-11 items-center text-tint">
+              <button type="button" onClick={() => store({ ...NO_FILTERS, query })} className="inline-flex min-h-12 items-center text-tint">
                 Clear filter
               </button>
             </>
@@ -102,7 +102,7 @@ export function ExercisesScreen() {
         <Group key={g.kind} header={g.title}>
           {g.items.map(ex => (
             // The list as it is now, search and filters included, so the exercise's Back returns here.
-            <Row key={ex.id} as={Link} to={`/move/exercises/${ex.id}`} state={libraryState(location.pathname, location.search)} viewTransition icon={<KindIcon id={ex.id} />}
+            <Row key={ex.id} as={Link} to={`/hub/workout/exercises/${ex.id}`} state={libraryState(location.pathname, location.search)} viewTransition icon={<KindIcon id={ex.id} />}
               label={<Wrap>{ex.name}</Wrap>} detail={detailOf(ex) || undefined} chevron />
           ))}
         </Group>

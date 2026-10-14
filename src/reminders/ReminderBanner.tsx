@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArmchairIcon, FootprintsIcon, GlassWaterIcon } from 'lucide-react';
+import { ArmchairIcon, FootprintsIcon, GlassWaterIcon, UtensilsIcon } from 'lucide-react';
+import { FOOD_COPY } from '@/food/copy';
+import { logHref } from '@/food/links';
 import { addToDayTotal } from '@/store/useStore';
 import { cn } from '@/lib/utils';
-import { reminderText } from './copy';
+import { MEAL_LABEL, reminderText } from './copy';
 import { answerReminder, type Pending } from './pending';
 import { AUTO_HIDE_MS } from './place';
 import { timeOf } from '@/lib/time';
 import { walkSetupHref } from '@/walk/plan';
 
-const ICON = { water: GlassWaterIcon, sittingBreak: ArmchairIcon, mealWalk: FootprintsIcon } as const;
+const ICON = { water: GlassWaterIcon, sittingBreak: ArmchairIcon, mealWalk: FootprintsIcon, foodLog: UtensilsIcon } as const;
 
-const ACTION = 'press-feedback flex min-h-11 items-center justify-center rounded-xl px-4 text-[length:var(--text-body)] font-semibold';
+const ACTION = 'press-feedback flex min-h-12 items-center justify-center rounded-xl px-4 text-[length:var(--text-body)] font-semibold';
 
 /**
  * One waiting reminder, compact. Gentle on purpose: no sound, no countdown,
@@ -40,7 +42,7 @@ export function ReminderBanner({ item, glassMl, waterLine, precautions = [], onH
   variant?: 'floating' | 'inline';
 }) {
   const inline = variant === 'inline';
-  const primary = cn(ACTION, inline ? 'flex-1 text-tint' : 'flex-1 bg-tint text-on-tint');
+  const primary = cn(ACTION, inline ? 'flex-1 text-tint' : 'flex-1 min-h-[3.75rem] bg-tint text-on-tint');
   const { occurrence } = item;
   const text = reminderText(occurrence, glassMl);
   const Icon = ICON[occurrence.habit];
@@ -96,12 +98,17 @@ export function ReminderBanner({ item, glassMl, waterLine, precautions = [], onH
         </div>
       </div>
 
-      <div className="mt-2 flex shrink-0 gap-2">
+      <div className="mt-2 flex shrink-0 flex-wrap gap-2">
         {occurrence.habit === 'water' && glassMl ? (
           <button type="button" disabled={saving} onClick={() => void logGlass()} className={cn(primary, 'disabled:opacity-60')}>
             {/* The glass size is in the line above; the label stays short enough for one line at 320 px. */}
             {saving ? 'Saving…' : 'I had a glass'}
           </button>
+        ) : occurrence.habit === 'foodLog' && occurrence.meal ? (
+          // "Log a meal" opens on this reminder's meal (journey §7.4).
+          <Link to={logHref({ meal: occurrence.meal })} viewTransition onClick={() => answerReminder(occurrence.id)} className={primary}>
+            {FOOD_COPY.promptAction(MEAL_LABEL[occurrence.meal])}
+          </Link>
         ) : occurrence.habit === 'mealWalk' ? (
           // Walk opens on "After a meal" with this reminder's meal chosen (D26).
           <Link to={walkSetupHref(occurrence.meal)} viewTransition onClick={() => answerReminder(occurrence.id)} className={primary}>

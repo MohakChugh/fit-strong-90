@@ -11,19 +11,22 @@
  * Decisions live in `form.ts` and the engine; this file wires them up.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DailyCheckIn, EmergencyFlag, EpisodeKind, EpisodeResolution, GlucoseTrend, NewsItem, SymptomReach, UrineKetoneCategory } from '@/types/checkin';
 import type { CheckInRecord } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
 import { permission, type Mode } from '@/engine/permission';
-import { recordedLows, TREAT } from '@/engine/readiness';
+import { recordedLows, STOP_UNANSWERED, TREAT } from '@/engine/readiness';
 import { Sheet } from '@/components/hig/Sheet';
 import { Group, Row } from '@/components/hig/List';
+import { TARGET } from '@/components/hig/targets';
 import { cn } from '@/lib/utils';
+import { acquisitionStamp } from '@/store/useStore';
 import { CannotSwallow, OutcomeBanner } from './OutcomeBanner';
 import { CheckRow, NumberBox, PainScale, Segmented, Toggle, Wrap } from './parts';
 import { BACK_LABEL, EMERGENCY_LABEL, LOW_NEWS, NEWS_LABEL, URINE_LABEL, defaultStartLabel } from './copy';
 import { WORSENING } from './stop';
+import { useSayWhatHappened } from './sayWhatHappened';
 import {
   answerEpisode, buildCheckIn, episodeChoice, formSanity, saveOnEmergency, submitBlocked, visibleQuestions, withBpBox,
   type Answerable, type BackAnswers, type CheckInForm, type EpisodeChoice,
@@ -52,14 +55,86 @@ interface Props {
   mode?: Mode;
   /** Earlier check-ins, for the two-days-running and spread rules. */
   recent?: DailyCheckIn[];
+  /**
+   * Opens the stop's own questions for an unanswered "I need to stop"
+   * (journey §4.4, K6R-03). `CheckInSheet` closes itself first; without one,
+   * the stop is still said, with no box to untick.
+   */
+  onSayWhatHappened?: () => void;
+  /**
+   * Told whether the body draws the day's decision itself, its outcome or an
+   * emergency answered here (F-safety-06): only then may the sheet's shared
+   * surface step aside. While the questions are shown, it says every decision.
+   */
+  onDraws?: (draws: boolean) => void;
+  /** Told whether answers have been given since the last save (F-safety-07): Close then asks, and a swipe resists. */
+  onDirty?: (dirty: boolean) => void;
 }
 
 export function CheckInSheet(props: Props) {
+  const say = useSayWhatHappened();
+  // "Say what happened" closes the check-in, then opens the stop's own
+  // questions once it has closed and handed focus back: sheets never stack.
+  const [sayNext, setSayNext] = useState(false);
+  const [saying, setSaying] = useState<{ go: () => void } | null>(null);
+  if (sayNext && !props.open) {
+    setSayNext(false);
+    if (say) setSaying({ go: say });
+  } else if (sayNext) {
+    // It could have closed and didn't: nothing opens later, out of the blue.
+    setSayNext(false);
+  }
+  useEffect(() => {
+    if (saying) requestAnimationFrame(() => requestAnimationFrame(saying.go));
+  }, [saying]);
+  const onSayWhatHappened = say ? () => { setSayNext(true); props.onOpenChange(false); } : props.onSayWhatHappened;
+  // The shared surface steps aside only while the body draws the decision itself (F-safety-06, journey §4.7).
+  const [draws, setDraws] = useState(false);
+  // Answers given since the last save (journey §10, K-46, F-safety-07): a swipe resists, and Close asks first.
+  const [dirty, setDirty] = useState(false);
+  const [asking, setAsking] = useState(false);
+  if (asking && !props.open) setAsking(false);
+  /** Close or Escape: with answers not saved, "Keep your answers?" first; asked already, it is Discard. */
+  const holdClose = () => {
+    if (!dirty || asking) return false;
+    setAsking(true);
+    return true;
+  };
+  const discard = () => {
+    setAsking(false);
+    setDirty(false);
+    props.onOpenChange(false);
+  };
   return (
-    <Sheet open={props.open} onOpenChange={props.onOpenChange} title="Check-in" detent="large">
-      {/* Mounted per opening, so the form always starts from the latest saved answers. */}
-      {props.open && <CheckInBody {...props} />}
+    <Sheet open={props.open} onOpenChange={props.onOpenChange} title="Check-in" detent="large" ownsUrgent={draws && !asking} dismissible={!dirty} holdClose={holdClose}>
+      {asking && <KeepAnswers onKeep={() => setAsking(false)} onDiscard={discard} />}
+      {/* Mounted per opening, so the form always starts from the latest saved answers; kept, hidden, while it asks. */}
+      {props.open && (
+        <div className={asking ? 'hidden' : 'contents'}>
+          <CheckInBody {...props} {...(onSayWhatHappened ? { onSayWhatHappened } : {})} onDraws={setDraws} onDirty={setDirty} />
+        </div>
+      )}
     </Sheet>
+  );
+}
+
+/**
+ * "Keep your answers?" (journey §10, K-46): asked on Close with answers not
+ * saved. Keep goes back to them as they were; Discard drops only those:
+ * whatever was saved, and anything said about safety, stays (B-03).
+ */
+function KeepAnswers({ onKeep, onDiscard }: { onKeep: () => void; onDiscard: () => void }) {
+  const heading = useRef<HTMLParagraphElement>(null);
+  useEffect(() => { heading.current?.focus({ preventScroll: true }); }, []);
+  return (
+    <div className="flex flex-col gap-3">
+      <p ref={heading} tabIndex={-1} className="px-1 text-[length:var(--text-body)] font-semibold outline-none">Keep your answers?</p>
+      <p className="px-1 text-[length:var(--text-subhead)] text-muted-foreground">
+        Discard drops only the answers you haven’t saved. What you saved, and anything you said about your safety, stays.
+      </p>
+      <button type="button" onClick={onKeep} className={primary}>Keep</button>
+      <button type="button" onClick={onDiscard} className="press-feedback min-h-12 rounded-xl px-4 text-[length:var(--text-body)] font-semibold text-stop">Discard</button>
+    </div>
   );
 }
 
@@ -81,7 +156,7 @@ const hhmm = (iso: string | null | undefined) => {
   return Number.isNaN(d.getTime()) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
-const primary = 'press-feedback min-h-[3.25rem] w-full rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint';
+const primary = 'press-feedback min-h-[3.75rem] w-full rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint';
 
 /**
  * The protocol's minute between readings, counted from when the first was
@@ -181,7 +256,7 @@ const EPISODE_NOTE: Record<EpisodeKind, string> = {
   news: 'It ends exercise for the rest of today, even once it has passed.',
 };
 
-export function CheckInBody({ profile, date, initial, onSave, onStart, startLabel, mode = 'guided', recent }: Props) {
+export function CheckInBody({ profile, date, initial, onSave, onStart, startLabel, mode = 'guided', recent, onSayWhatHappened, onDraws, onDirty }: Props) {
   const [now, setNow] = useNow();
   const ctx: SheetContext = useMemo(() => ({ profile, date, mode, now, ...(recent ? { recent } : {}) }), [profile, date, mode, now, recent]);
   // Every transition goes through `sheetState`, which is where the rules about
@@ -209,6 +284,10 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
   // is said at once: no answer here can change it.
   const before = gate ? undefined : permission({ profile, now, ...(recent ? { recent } : {}) }, mode);
   const settled = before && !before.allowed && !before.needsCheckIn ? before : undefined;
+  // An unanswered "I need to stop", today's or an earlier day's: only its own
+  // questions answer it, so it is said here with the way to them, never as a
+  // box to untick (journey §4.4, K6R-03, board D173).
+  const stopOpen = form.news.includes('stopped') || !!(result ?? before)?.reasons.includes(STOP_UNANSWERED.reason);
   const v = visibleQuestions(profile, form, gate?.record ?? record, { date, recent: recent ?? [] });
   // The lows the app already holds count whatever is answered; the question says which (scan J2-01).
   const heldLows = recordedLows(gate?.record ?? recent?.find(r => r.date === date) ?? { date, urgentSymptoms: false, news: [] }, recent ?? [], now);
@@ -221,6 +300,13 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
   useEffect(() => {
     if (emergencyShown) top.current?.scrollIntoView({ block: 'start' });
   }, [emergencyShown, view]);
+  // What this body draws of the day's decision (F-safety-06): the outcome, or an emergency's banner over the questions.
+  const draws = !!result && !!gate && (view === 'outcome' || emergencyBanner);
+  useLayoutEffect(() => onDraws?.(draws), [draws, onDraws]);
+  useLayoutEffect(() => () => onDraws?.(false), [onDraws]);
+  // Answers given since the last save: what Close asks about (F-safety-07).
+  useLayoutEffect(() => onDirty?.(sheet.edited), [sheet.edited, onDirty]);
+  useLayoutEffect(() => () => onDirty?.(false), [onDirty]);
   // Asked of the clock as it is now: a reading timed as it was typed is never "later than now" (X2-15).
   const blocked = submitBlocked(form, { profile, ...(record ? { previous: record } : {}), now: new Date() });
   const sanity = useMemo(
@@ -262,9 +348,16 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
   // clearing the box, or a save, starts the next reading afresh.
   const typedAt = useRef<string | null>(null);
   const takenNow = () => (typedAt.current ??= new Date().toISOString());
+  // B-19: typed into an empty box, a new reading, stamped with the clock
+  // generation it is acquired in. Edited in its box, a reading stays the one
+  // it was, whatever it now says (H6F-06, H6R-03, board D186).
+  const fresh = () => ({ glucoseGen: acquisitionStamp() });
   const setGlucose = (text: string) => {
     if (!text.trim()) typedAt.current = null;
-    update({ glucose: text, glucoseDisplay: null, unitConfirmed: false, ...(timeSet ? {} : { glucoseAt: text.trim() ? takenNow() : null }) });
+    update({
+      glucose: text, glucoseDisplay: null, unitConfirmed: false, ...(timeSet ? {} : { glucoseAt: text.trim() ? takenNow() : null }),
+      ...(!form.glucose.trim() ? fresh() : {}),
+    });
   };
   const setGlucoseTime = (hm: string) => {
     if (!hm) { setTimeSet(false); update({ glucoseAt: null }); return; }
@@ -301,7 +394,8 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
   };
   // "None of these" clears only what is on screen; an answer the profile no longer asks stays saved.
   const noNews = () => {
-    setForm(f => ({ ...f, news: f.news.filter(n => !v.news.includes(n)) }));
+    // A stop stays until its own questions answer it.
+    setForm(f => ({ ...f, news: f.news.filter(n => n === 'stopped' || !v.news.includes(n)) }));
     answer('news');
   };
   const setBpSymptoms = (bpSymptoms: boolean) => {
@@ -341,7 +435,7 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
             </button>
           )}
           {result.needsCheckIn && <button type="button" onClick={newReading} className={primary}>Enter a new reading</button>}
-          <button type="button" onClick={() => setView('form')} className="press-feedback min-h-11 rounded-xl px-4 text-[length:var(--text-body)] text-tint">
+          <button type="button" onClick={() => setView('form')} className="press-feedback min-h-12 rounded-xl px-4 text-[length:var(--text-body)] text-tint">
             Change answers
           </button>
         </div>
@@ -389,9 +483,9 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
                 value={
                   <span className="flex items-center gap-1">
                     <NumberBox label="Glucose reading" value={form.glucose} onChange={setGlucose} placeholder="Reading"
-                      className="w-24" invalid={sanity === 'implausible' || sanity === 'suspectUnit'} />
+                      className="w-24 min-w-0" invalid={sanity === 'implausible' || sanity === 'suspectUnit'} />
                     <button type="button" onClick={() => update({ unit: form.unit === 'mg/dL' ? 'mmol/L' : 'mg/dL', unitConfirmed: false })}
-                      aria-label={`Unit: ${form.unit}. Tap to change.`} className="min-h-11 min-w-[4.25rem] rounded-lg px-1 text-[length:var(--text-subhead)] text-tint">
+                      aria-label={`Unit: ${form.unit}. Tap to change.`} className="min-h-12 min-w-[4.25rem] rounded-lg px-1 text-[length:var(--text-subhead)] text-tint">
                       {form.unit}
                     </button>
                   </span>
@@ -401,7 +495,7 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
                 <div role="alert" className="flex flex-col gap-2 px-4 py-3 text-[length:var(--text-subhead)]">
                   <p className="font-semibold text-stop">{TREAT}</p>
                   <CannotSwallow />
-                  <button type="button" onClick={() => update({ unit: 'mmol/L' })} className="min-h-11 self-start rounded-lg bg-muted px-3 text-tint">
+                  <button type="button" onClick={() => update({ unit: 'mmol/L' })} className="min-h-12 self-start rounded-lg bg-muted px-3 text-tint">
                     I meant {form.glucose} mmol/L
                   </button>
                 </div>
@@ -409,12 +503,12 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
               {sanity === 'suspectUnit' && (
                 <div role="alert" className="flex flex-col gap-2 px-4 py-3 text-[length:var(--text-subhead)]">
                   <p>That looks like mg/dL rather than mmol/L. Which does your meter show?</p>
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={() => update({ unit: 'mg/dL', unitConfirmed: false })} className="min-h-11 rounded-lg bg-muted px-3 text-tint">
+                  <div className="flex flex-wrap gap-3">
+                    <button type="button" onClick={() => update({ unit: 'mg/dL', unitConfirmed: false })} className="min-h-12 rounded-lg bg-muted px-3 text-tint">
                       {form.glucose} mg/dL
                     </button>
                     {/* A confirmed high mmol/L reading reaches the same rule as its mg/dL equal. */}
-                    <button type="button" onClick={() => update({ unitConfirmed: true })} className="min-h-11 rounded-lg bg-muted px-3 text-tint">
+                    <button type="button" onClick={() => update({ unitConfirmed: true })} className="min-h-12 rounded-lg bg-muted px-3 text-tint">
                       {form.glucose} mmol/L, really
                     </button>
                   </div>
@@ -426,7 +520,7 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
               <Row
                 label={<Wrap>Time measured</Wrap>}
                 value={<input type="time" aria-label="Time measured" value={hhmm(form.glucoseAt)} onChange={e => setGlucoseTime(e.target.value)}
-                  className="numeric h-11 rounded-lg bg-muted px-2 text-[length:var(--text-body)] outline-none focus-visible:ring-2 focus-visible:ring-tint/60" />}
+                  className="numeric h-12 rounded-lg bg-muted px-2 text-[length:var(--text-body)] outline-none focus-visible:ring-2 focus-visible:ring-tint/60" />}
               />
               {v.glucoseTrend && (
                 <div className="flex flex-col gap-2 px-4 py-3">
@@ -443,7 +537,7 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
                 <div className="flex flex-col gap-2 px-4 py-3">
                   <span className="text-[length:var(--text-body)]">What the meter shows</span>
                   <Segmented<'none' | 'HI' | 'LO'> label="What the meter shows" value={form.glucoseDisplay ?? 'none'}
-                    onChange={x => update(x === 'none' ? { glucoseDisplay: null } : { glucoseDisplay: x, glucose: '', ...(timeSet ? {} : { glucoseAt: takenNow() }) })}
+                    onChange={x => update(x === 'none' ? { glucoseDisplay: null } : { glucoseDisplay: x, glucose: '', ...fresh(), ...(timeSet ? {} : { glucoseAt: takenNow() }) })}
                     options={[{ value: 'none', label: 'A number' }, { value: 'HI', label: 'HI' }, { value: 'LO', label: 'LO' }]} />
                 </div>
               ) : (
@@ -516,8 +610,19 @@ export function CheckInBody({ profile, date, initial, onSave, onStart, startLabe
           )}
 
           <Group header="Anything else today?">
-            <CheckRow prominent label="None of these" checked={!!form.answered.news && !form.news.some(n => v.news.includes(n))} onToggle={noNews} />
-            {v.news.filter(n => !LOW_NEWS.includes(n)).map(n => <CheckRow key={n} label={NEWS_LABEL[n]} checked={form.news.includes(n)} onToggle={() => toggleNews(n)} />)}
+            {stopOpen && (
+              <div className={cn('flex flex-col px-4 py-3', TARGET.gap)}>
+                <p className="text-[length:var(--text-body)] leading-snug">You stopped and haven’t said what happened yet.</p>
+                {onSayWhatHappened && (
+                  <button type="button" onClick={onSayWhatHappened}
+                    className={cn('press-feedback w-full rounded-xl bg-tint px-4 text-[length:var(--text-body)] font-semibold text-on-tint', TARGET.primary)}>
+                    Say what happened
+                  </button>
+                )}
+              </div>
+            )}
+            <CheckRow prominent label="None of these" checked={!!form.answered.news && !form.news.some(n => n !== 'stopped' && v.news.includes(n))} onToggle={noNews} />
+            {v.news.filter(n => !LOW_NEWS.includes(n) && n !== 'stopped').map(n => <CheckRow key={n} label={NEWS_LABEL[n]} checked={form.news.includes(n)} onToggle={() => toggleNews(n)} />)}
             {LOW_NEWS.some(n => v.news.includes(n)) && (
               <div className="flex flex-col gap-2 px-4 py-3">
                 <span className="text-[length:var(--text-body)]">Lows in the last 24 hours</span>

@@ -3,7 +3,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import type { Segment, SessionPlan, SetStep, Step } from '@/types/plan';
 import type { RepSync } from '@/components/motion/MotionView';
 import type { RunnerState } from '@/session/runner';
@@ -12,8 +12,7 @@ import { useGuidedSession } from '@/hooks/useGuidedSession';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { loadProgress, loadExpiredProgress, rehydrate, clearProgress, setAside, slotOf, type ProgressSlot, type SavedProgress } from '@/session/persistence';
 import { redoseState, segmentsWithExtra } from '@/session/runner';
-import { buildSessionPlan } from '@/engine/session';
-import { getState, isSessionSaved, useStore } from '@/store/useStore';
+import { acquisitionStamp, getState, isSessionSaved, useStore } from '@/store/useStore';
 import { toWorkoutSession, withGuidedSession, activeSeconds, bankProgress, progressSettled } from '@/session/logging';
 import { getCoaching } from '@/data/coaching';
 import { nameOf } from '@/data/catalog';
@@ -21,7 +20,9 @@ import { deriveHealth } from '@/engine/health';
 import { CANNOT_SWALLOW, fluidLimit, glucoseReadingId, glucoseSanity, standingAnswer, TREAT, withLogged } from '@/engine/readiness';
 import { HOT_COOL_DOWN } from '@/engine/cardio';
 import { PERMISSION_TEXT, type Mode, type Permission, type PermissionInput } from '@/engine/permission';
-import { arrivalGate, liveGate, reconcilePlan, restartCapture, startGate } from '@/session/gate';
+import { arrivalGate, liveGate, reconcilePlan, restartCapture, startGate, withStatus } from '@/session/gate';
+import { statusOn } from '@/health/status';
+import { todayDose, withBackChecks } from '@/session/carryOn';
 import type { CheckInRecord, DailyCheckIn, EpisodeAnswer, GlucoseEntry, Readiness, SymptomReach } from '@/types/checkin';
 import type { SymptomReport } from '@/hooks/useGuided';
 import { recheckCountdown } from '@/components/checkin/copy';
@@ -29,14 +30,21 @@ import { CheckInBody } from '@/components/checkin/CheckInSheet';
 import type { SaveOutcome } from '@/components/checkin/sheetState';
 import { recordToStore } from '@/components/checkin/pending';
 import {
-  LEG_QUESTIONS, NO_LEG, REACH, REACH_LABEL, SPREAD_QUESTION, STOP_CHOICES, legReport, onChoice, type LegAnswers, type StopChoice,
+  LEG_QUESTIONS, NO_LEG, REACH, REACH_LABEL, SPREAD_QUESTION, STOP_CHOICES, legReport, type LegAnswers, type StopChoice,
 } from '@/components/checkin/stop';
 import { Segmented } from '@/components/checkin/parts';
+import { STOPPED, answering, stopAnswer } from '@/walk/stop';
 import type { UserProfile } from '@/types/profile';
 import { parseStretchSpec, specFromPlanId, stretchPlanFor } from '@/engine/stretch';
 import type { StretchSpec } from '@/types/plan';
 import { cameFrom } from '@/components/hig/navigation';
 import { SessionGate } from '@/components/checkin/SessionGate';
+import { measuredStamp } from '@/health/observation';
+import { HREF, nextBoundary } from '@/health/recommend';
+import { resumeAllowed } from '@/screens/hub/movement';
+import { AnsweringStop, OwnsUrgent } from '@/screens/home/UrgentBanner';
+import { useClock, useWakeAt } from '@/screens/today/clock';
+import { acquiredIn } from '@/walk/consent';
 import { displayToKg, generateId, kgToDisplay, toDateString } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -52,6 +60,7 @@ import {
   PlusIcon, MinusIcon, CheckIcon, CandyIcon, HeadphonesIcon, OctagonAlertIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAdmission } from './admission';
 
 /** Two stretch routines are the same when their area and length match. */
 function sameSpec(a: StretchSpec | null, b: StretchSpec): boolean {
@@ -67,7 +76,17 @@ interface Run {
   stale?: SavedProgress;
 }
 
+/**
+ * After the twelve weeks no guided session is planned (D116): a stale link or
+ * bookmark to one opens Your plan's choice instead. Decided once, when the
+ * page opens: a stretch, and a run saved part-way and still resumable, open
+ * as before, and a run under way at midnight stays (P8-19).
+ */
 export default function SessionPage() {
+  return useAdmission() ? <SessionRun /> : <Navigate to={HREF.next} replace />;
+}
+
+function SessionRun() {
   const { data, update, profile, date, plan: todayPlan, checkIn, checkIns, reportSymptoms, saveCheckIn } = useGuided();
   const [params] = useSearchParams();
   const navigate = useNavigate();
@@ -84,12 +103,16 @@ export default function SessionPage() {
     const saved = loadProgress(Date.now(), slot);
     const id = (p: SessionPlan) => `${p.kind === 'stretch' ? 'stretch' : 'guided'}-${p.date}-${generateId()}`;
     const sameRoutine = (p: SessionPlan) => !spec || sameSpec(specFromPlanId(p.id), spec);
-    if (saved && (params.get('resume') === '1' || (saved.plan.date === fresh.date && sameRoutine(saved.plan)))) {
+    // Carried on only as today's status allows (A-34; codex F-ui-01): while Away or Unwell, or a guided hour in a
+    // flare-up, opening the session plainly is a new run, Start anyway's, and the saved one is banked as below.
+    // Asked for by name (`?resume=1`) it is restored, and its arrival holds it on the status (F-safety-03).
+    const carries = resumeAllowed(statusOn(data.settings.statusPeriods, date), mode);
+    if (saved && (params.get('resume') === '1' || (carries && saved.plan.date === fresh.date && sameRoutine(saved.plan)))) {
       return { plan: saved.plan, resumeState: rehydrate(saved.state, saved.clockAt, Date.now(), saved.plan), sessionId: saved.sessionId ?? id(saved.plan) };
     }
-    // Progress from another day or another routine, or too old to resume,
-    // survives here only until the first autosave of this run, so bank its
-    // work before it goes (Review Focus #3).
+    // Progress from another day or another routine, too old to resume, or not
+    // carried on today, survives here only until the first autosave of this
+    // run, so bank its work before it goes (Review Focus #3).
     const old = saved ?? loadExpiredProgress(Date.now(), slot);
     return { plan: fresh, sessionId: id(fresh), ...(old ? { stale: old } : {}) };
   });
@@ -131,8 +154,8 @@ export default function SessionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stale]);
 
-  // Back where the person started (Move, Today), or Today after a fresh launch.
-  const exit = () => (cameFrom() ? navigate(-1) : navigate('/today', { replace: true }));
+  // Back where the person started (a hub, Home), or Home after a fresh launch.
+  const exit = () => (cameFrom() ? navigate(-1) : navigate('/home', { replace: true }));
 
   const input = useMemo(
     () => ({ profile, ...(checkIn ? { checkIn } : {}), now: new Date(), recent: checkIns }),
@@ -142,26 +165,10 @@ export default function SessionPage() {
   // What the app's own builders would prescribe now, for the same day and
   // focus, from today's answers: a saved plan's remaining work is held to it
   // (round 3 B05). For today's own plan it is that plan, so nothing changes.
-  const fresh = useMemo(() => {
-    if (plan.kind === 'stretch') {
-      const s = specFromPlanId(plan.id) ?? spec;
-      const built = s ? stretchPlanFor({ ...data, checkIns }, profile, date, s) : plan;
-      // A stretch that sent symptoms further down rules out a new stretch
-      // today, not the routine on screen (J2-04; acceptance J16 step 6). The
-      // builder has no routine to offer then, so the one under way is held to
-      // its own steps, less whatever today leaves out. Anything that stops the
-      // routine itself is the live gate's.
-      return built.kind === 'none' ? plan : built;
-    }
-    if (plan.date === date && plan.focus === todayPlan.focus) return todayPlan;
-    return buildSessionPlan({
-      profile, date: plan.date, startDate: data.settings.startDate,
-      sessions: data.sessions.filter(x => x.date < plan.date),
-      recentCheckIns: checkIns.filter(c => c.date < date),
-      ...(checkIn ? { checkIn } : {}),
-      focusOverride: plan.focus,
-    });
-  }, [plan, spec, data, checkIns, profile, date, todayPlan, checkIn]);
+  const fresh = useMemo(
+    () => todayDose(plan, { data, checkIns, checkIn, profile, date, todayPlan, spec }),
+    [plan, spec, data, checkIns, profile, date, todayPlan, checkIn],
+  );
   // Held to today's limits from where the runner stands (N-08): what it has
   // done keeps the steps it ran, and the plan it is running, not the one it
   // was saved with, is what today's limits re-dose.
@@ -182,9 +189,13 @@ export default function SessionPage() {
   // is asked — today's check-in, a recent enough reading (D29(6)), every
   // clinical condition and every profile rule. Saved progress is restored for
   // inspection either way; it is never permission to move (re-audit F02).
-  const [arrival] = useState(() => ({ now: input.now, permission: arrivalGate(input, mode, !!resumeState) }));
+  // Saved progress opened is carried on, so today's status is asked too (F-safety-03, journey §4.8).
+  const [arrival] = useState(() => ({ now: input.now, permission: arrivalGate(input, mode, !!resumeState, statusNow()) }));
   if (!arrival.permission.allowed || arrival.permission.needsCheckIn) {
-    return <SessionGate permission={arrival.permission} readiness={checkIn?.readiness} now={arrival.now} onBack={exit} />;
+    return (
+      <ArrivalGate arrival={arrival} input={input} mode={mode} resuming={!!resumeState} readiness={checkIn?.readiness} onBack={exit}
+        onCheckIn={() => navigate(HREF.checkIn(mode), { replace: true })} />
+    );
   }
   // Afterwards the question is only whether exercise may carry on: a newly
   // reported emergency, stop or low halts it at once; an ageing reading does
@@ -198,12 +209,14 @@ export default function SessionPage() {
         <div className="flex max-w-sm flex-col gap-4 text-center">
           <h1 className="text-[length:var(--text-title-2)] font-bold">{spec ? 'No stretch today' : 'No session today'}</h1>
           {plan.readiness.reasons.filter(r => r.outcome !== 'green').map(r => <p key={r.code} className="text-[length:var(--text-body)]">{r.message}</p>)}
-          <Button className="h-12" onClick={exit}>Back</Button>
+          <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" onClick={exit}>Back</Button>
         </div>
       </div>
     );
   }
 
+  // A decision that halts the session is the player's own screen, which says
+  // so where it draws it: its stop, its low, its reading (codex V1-03, W-01).
   return (
     <Player
       plan={reconciled.plan}
@@ -228,22 +241,53 @@ export default function SessionPage() {
   );
 }
 
-/** The refused steps, with the back check of every exercise that is left out altogether (scan J2-02). */
-function withBackChecks(plan: SessionPlan, refused: ReadonlySet<string>): ReadonlySet<string> {
-  const out = new Set(refused);
-  for (const s of plan.steps) {
-    if (s.kind !== 'checkpoint' || s.question !== 'backSymptoms' || !s.exerciseId) continue;
-    const work = plan.steps.filter(x => x.kind !== 'checkpoint' && 'exerciseId' in x && x.exerciseId === s.exerciseId);
-    if (work.length > 0 && work.every(x => refused.has(x.id))) out.add(s.id);
-  }
-  return out.size === refused.size ? refused : out;
+/**
+ * The arrival's refusal as it stands now (codex W-01, journey §4.1): worked
+ * out again as the answers change, and at each time boundary, so a decision
+ * made since, such as an emergency answered on another screen, is the one
+ * shown here, and the task's shared surface steps aside only for it. Once the
+ * refusal has lifted, the arrival's own stays: only a new arrival opens the
+ * player, never a change on another screen (re-audit F02).
+ */
+function ArrivalGate({ arrival, input, mode, resuming, readiness, onBack, onCheckIn }: {
+  arrival: { now: Date; permission: Permission };
+  input: PermissionInput;
+  mode: Mode;
+  resuming: boolean;
+  readiness?: Readiness;
+  onBack: () => void;
+  /** The shared check-in, for a refusal a check-in answers (kiro FK-02). */
+  onCheckIn: () => void;
+}) {
+  const { now } = useClock();
+  useWakeAt(nextBoundary(now, input.checkIn ? { checkIn: input.checkIn } : {}));
+  const { settings } = useStore();
+  const current = arrivalGate({ ...input, now }, mode, resuming, statusOn(settings.statusPeriods, toDateString(now)));
+  const shown = current.allowed && !current.needsCheckIn ? arrival : { now, permission: current };
+  return <SessionGate permission={shown.permission} {...(readiness ? { readiness } : {})} now={shown.now} onBack={onBack} backLabel={exitLabel()} onCheckIn={onCheckIn} />;
 }
+
+/** What the session's way out says, as `exit` goes: back to the screen it came from, or Home after a fresh launch (kiro FK-02). */
+const exitLabel = () => (cameFrom() ? 'Back' : 'Back to Home');
+
+/**
+ * What the player's reading screen draws of the gate's answer, with its own
+ * timed re-check: its first two reasons. The claim it makes, so the shared
+ * surface steps aside only while those say the decision standing now (codex
+ * W-01). Screens that show only reasons, without the decision's words and
+ * time (the check-in asked here, the done summary), claim nothing: the
+ * surface says the decision whole above them.
+ */
+const drawnHere = (p: Permission) => ({ allowed: p.allowed, disposition: p.disposition, reasons: p.reasons.slice(0, 2) });
+
+/** Today's status as the device holds it at this moment, set from Home: what carrying a run on asks first (journey §4.8). */
+const statusNow = () => statusOn(getState().settings.statusPeriods, toDateString(new Date()));
 
 /** What the start screen says about an earlier run the device would not bank (scan M-08). */
 function staleNote(stale: SavedProgress, how: 'kept' | 'lost'): string {
   const day = new Date(`${stale.plan.date}T12:00:00`).toLocaleDateString([], { weekday: 'long' });
   return how === 'kept'
-    ? `Your unfinished session from ${day} could not be added to your history: this device is not saving right now. It is kept here, and Today will add it once saving works again.`
+    ? `Your unfinished session from ${day} could not be added to your history: this device is not saving right now. It is kept here, and Home will add it once saving works again.`
     : `Your unfinished session from ${day} could not be saved: this device has no room for it. Starting now replaces it.`;
 }
 
@@ -376,7 +420,9 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
    * stopped is not asked again just because its reading has aged.
    */
   const mayResume = () => {
-    const p = startGate({ ...inputRef.current, now: new Date() }, mode);
+    // Carrying on asks today's status first, as it stands at the tap (F-safety-03, journey §4.8; codex F-ui-01):
+    // after a stop or worse, before any other hold, in the mode's words (`withStatus`, `carryOnRefusal`).
+    const p = withStatus(startGate({ ...inputRef.current, now: new Date() }, mode), statusNow());
     if (p.allowed && !p.needsCheckIn) {
       setRefusal(null);
       return true;
@@ -453,11 +499,14 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status]);
 
-  /** A report through the shared check-in path, the same as Walk's; the engine decides what may carry on. */
-  const report = async (r: SymptomReport, at?: Date): Promise<CheckInRecord> => {
-    const { record } = await onReport(r, at);
-    inputRef.current = { ...inputRef.current, checkIn: record };
-    return record;
+  /**
+   * A report through the shared check-in path, the same as Walk's; the engine decides what may carry on. Its
+   * whole result: whether the device stored it decides whether anything moves on (F-safety-05, journey §4.5).
+   */
+  const report = async (r: SymptomReport, at?: Date): Promise<{ record: CheckInRecord; stored: boolean }> => {
+    const result = await onReport(r, at);
+    inputRef.current = { ...inputRef.current, checkIn: result.record };
+    return result;
   };
 
   /** "I feel low": a stop from the moment it is said, until a reading taken after it settles it. */
@@ -470,9 +519,13 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     void report({ news: ['lowSymptoms'] }, new Date(since));
   };
 
-  /** A reading saved from the low, checkpoint or restart screen, then what it allows. */
-  const saveReading = async (reading: GlucoseEntry, extra: { neededHelp: boolean; recovered: boolean }) => {
-    const record = await report({
+  /**
+   * A reading saved from the low, checkpoint or restart screen, then what it allows. Its guidance follows the
+   * answer either way; the check is logged and the run moves on only once the device has stored it (F-safety-05).
+   * True once the reading is done with: stored, and nothing further asked of it here.
+   */
+  const saveReading = async (reading: GlucoseEntry, extra: { neededHelp: boolean; recovered: boolean }): Promise<boolean> => {
+    const { record, stored } = await report({
       // A meter's HI or LO is recorded as the check-in records it (`glucoseDisplay`).
       ...('display' in reading ? { glucoseDisplay: reading } : { glucose: reading }),
       ...(extra.neededHelp ? { news: ['lowSevere' as const] } : {}),
@@ -491,8 +544,10 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
       // still low at the re-check, an emergency: the run ends here and goes
       // into History now. The low's guidance stays on screen.
       if (endsToday(live, record.readiness)) { g.stopVoice(); act.finish(); }
-      return;
+      return stored;
     }
+    // Refused: still paused, the screen and its reading kept, with Try again (journey §4.5).
+    if (!stored) return false;
     const checkpoint = flow?.kind === 'checkpoint' ? flow.stepId : null;
     setFlow(null);
     if (checkpoint && !lowInRun()) {
@@ -502,6 +557,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     }
     // After a low in this run, carrying on is the cool-down only (spec §4.6).
     act.resume();
+    return true;
   };
 
   /** Worse back or leg symptoms: that exercise stops now, for the day, before anything is asked (B09). */
@@ -515,7 +571,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
 
   /** The answers after "Worse", the same builder as the stop control's and the walk's. */
   const saveSymptoms = async (a: LegAnswers) => {
-    const record = await report({
+    const { record } = await report({
       ...legReport(a, inputRef.current.checkIn?.back?.reach),
       ...(flow?.kind === 'symptoms' && flow.exerciseId ? { provoked: [flow.exerciseId] } : {}),
     });
@@ -525,12 +581,18 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     act.resume();
   };
 
-  /** "Stop: something's wrong": still, and quiet, before anything is asked. */
+  /**
+   * "Stop: something's wrong": still, and quiet, before anything is asked,
+   * and the stop saved at the tap through the shared path, as a walk's is
+   * (journey §4.4, D170): left unanswered, through a reload or a refused
+   * write, it holds every start until its own questions answer it.
+   */
   const openStop = () => {
     act.pause();
     g.stopVoice();
     setExitOpen(false);
     setStopping('choose');
+    void report(STOPPED);
   };
   /** An emergency ends the session; the stop screen shows what to do. */
   const endIfEmergency = (record: CheckInRecord) => {
@@ -538,10 +600,11 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     g.stopVoice();
     act.finish();
   };
+  /** Every answer answers the stop said at the tap; "Just need a rest" records only that (§4.4). */
   const stopChoice = async (choice: 'chest' | 'stroke' | 'breathless' | 'dizzy' | 'rest') => {
-    const { report: said, next } = onChoice(choice, health.hypoRisk);
+    const { report: said, next } = stopAnswer(choice, health.hypoRisk);
     setStopping(next === 'dizzy' ? 'dizzy' : null);
-    if (said) endIfEmergency(await report(said));
+    if (said) endIfEmergency((await report(said)).record);
   };
   /** Leg symptoms: reported, and the movement that brought them on is left out for the day. */
   const stopForLeg = async (a: LegAnswers) => {
@@ -551,7 +614,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
     // steps down and the Back & leg chart shows it (contract A-BACK, scan J2-02).
     if (provoking) act.log({ stepId: `stop-${provoking}`, kind: 'checkpoint', exerciseId: provoking, completed: true, answer: 'worse' });
     setStopping(null);
-    const record = await report({ ...legReport(a, inputRef.current.checkIn?.back?.reach), ...(provoking ? { provoked: [provoking] } : {}) });
+    const { record } = await report(answering({ ...legReport(a, inputRef.current.checkIn?.back?.reach), ...(provoking ? { provoked: [provoking] } : {}) }));
     // Leg symptoms that stop this mode stop it for the day: an emergency, new
     // weakness, a stretch that sent them further down. The run ends there, so
     // what was done and the worsening are in History now, not only when the
@@ -591,11 +654,12 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
         onSave={saveReading} onEnd={end} onLeave={onExit} />
     );
   }
-  if (stop) return <SessionGate permission={stop} readiness={inputRef.current.checkIn?.readiness} now={new Date()} onBack={onExit} />;
-  if (state.status === 'done') return <Summary plan={plan} state={state} onSave={onSave} onExit={onExit} {...(waiting ? { guidance: waiting } : {})} />;
-  if (stopping === 'choose') {
+  // The stop's own questions stay while that stop, said at the tap, is what holds: they answer it (§4.4).
+  if (stopping === 'choose' && !firm && state.status !== 'done') {
     return <StopScreen reach={inputRef.current.checkIn?.back?.reach} onChoice={c => void stopChoice(c)} onLeg={a => stopForLeg(a)} />;
   }
+  if (stop) return <SessionGate permission={stop} readiness={inputRef.current.checkIn?.readiness} now={new Date()} onBack={onExit} backLabel={exitLabel()} />;
+  if (state.status === 'done') return <Summary plan={plan} state={state} onSave={onSave} onExit={onExit} {...(waiting ? { guidance: waiting } : {})} />;
   if (reading || waiting) {
     const now = new Date();
     if (!reading && waiting && restartCapture({ ...inputRef.current, now }) === 'checkIn') {
@@ -637,19 +701,18 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
   const stepNo = blockSteps.indexOf(step) + 1;
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-background pt-safe pb-safe">
+    // Scrolls at a large text size on a small phone, so its controls stay in reach under the exercise.
+    <div className="fixed inset-0 flex flex-col overflow-y-auto bg-background pt-safe pb-safe">
       {/* Top bar */}
       <div className="flex items-center gap-3 px-3 pt-2">
-        <button type="button" aria-label="End session" onClick={() => { act.pause(); setExitOpen(true); }} className="flex size-11 items-center justify-center rounded-full hover:bg-muted">
-          <XIcon className="size-5" />
-        </button>
+        <IconButton word="End" label="End session" onClick={() => { act.pause(); setExitOpen(true); }}><XIcon aria-hidden /></IconButton>
         <div className="flex-1"><SessionProgress plan={plan} elapsedMs={pos.sessionElapsedMs} /></div>
         <span className="w-14 text-right text-sm font-medium tabular-nums" aria-label="Time left">{fmt(pos.sessionTotalMs - pos.sessionElapsedMs)}</span>
       </div>
-      <div className="flex items-center justify-between px-4 pt-1 text-xs font-semibold uppercase tracking-wider" style={{ color }}>
+      <div className="flex items-center justify-between px-4 pt-1 text-[length:var(--text-footnote)] font-semibold uppercase tracking-wider" style={{ color }}>
         <span>{BLOCK_LABEL[step.block]}{stepNo > 0 && step.kind !== 'talk' ? ` · ${stepNo} of ${blockSteps.length}` : ''}</span>
         {health.hypoRisk && (
-          <button type="button" onClick={reportLow} className="flex min-h-11 items-center gap-1 rounded-full px-3 normal-case tracking-normal text-[var(--safety)] font-semibold">
+          <button type="button" data-main="" onClick={reportLow} className="flex min-h-[3.75rem] items-center gap-1 rounded-full px-3 normal-case tracking-normal text-[var(--safety)] font-semibold">
             <CandyIcon className="size-4" /> I feel low
           </button>
         )}
@@ -658,26 +721,28 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
           pack arrived after Start): one tap inside a gesture brings it back. */}
       {g.voiceTrouble === 'blocked' && !g.muted && (
         <button type="button" onClick={act.unlockAudio}
-          className="mx-4 mt-2 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--block-strength-ink)] px-4 text-sm font-semibold text-[var(--on-ink)] press-feedback">
+          className="mx-4 mt-2 flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[var(--block-strength-ink)] px-4 text-sm font-semibold text-[var(--on-ink)] press-feedback">
           <Volume2Icon className="size-4" /> Tap to turn the coach’s voice back on
         </button>
       )}
       {g.voiceTrouble === 'failed' && !g.muted && (
-        <p role="status" className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-xs text-muted-foreground">
+        <p role="status" className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
           The recorded voice couldn’t play, so your phone’s own voice is reading the steps.
         </p>
       )}
       {g.voiceTrouble === 'silent' && !g.muted && (
-        <p role="status" className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-xs text-muted-foreground">
+        <p role="status" className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">
           The coach’s voice isn’t playing on this phone right now. Follow the captions below.
         </p>
       )}
       {paused && mixesWithMusic(profile) && (
-        <p className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-xs text-muted-foreground">{SILENT_SWITCH_NOTE}</p>
+        <p className="mx-4 mt-2 rounded-xl bg-muted px-4 py-2 text-[length:var(--text-subhead)] leading-snug text-muted-foreground">{SILENT_SWITCH_NOTE}</p>
       )}
 
       {/* Main */}
-      <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pt-2 landscape:flex-row landscape:gap-4">
+      {/* Never squeezed below what it holds: at a large text size the player scrolls instead, and the
+          exercise never sits over the Stop button. */}
+      <div className="flex flex-1 flex-col gap-3 px-4 pt-2 landscape:flex-row landscape:gap-4">
         <FigureSlot step={step} segment={seg} coaching={coaching} demoId={demoIdFor(plan, pos.stepIndex)} sync={repSync(step, seg, pos, segTotal)}
           playing={state.status === 'running'} figure={profile.figure}
           className="min-h-0 shrink-0 h-[min(34dvh,280px)] [@media(max-height:640px)_and_(orientation:portrait)]:h-[21dvh] landscape:h-auto landscape:w-1/2 landscape:shrink" />
@@ -689,7 +754,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
               <p className="text-sm text-muted-foreground">{subtitleFor(step, segLabel, fluids)}</p>
             </div>
             {seg.side && (
-              <span className="shrink-0 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide text-[var(--on-ink)]" style={{ background: color }}>
+              <span className="shrink-0 rounded-full px-3 py-1 text-[length:var(--text-footnote)] font-bold uppercase tracking-wide text-[var(--on-ink)]" style={{ background: color }}>
                 {seg.side}
               </span>
             )}
@@ -735,7 +800,7 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
       </div>
 
       {/* Always there while moving or paused: pauses at once, then asks what is wrong (J02, J08, J16). */}
-      <div className="px-4 pb-2 pt-1">
+      <div className="px-4 pb-2 pt-3">
         <button type="button" onClick={openStop}
           className="press-feedback flex min-h-12 w-full flex-col items-center justify-center rounded-xl bg-[var(--safety)]/10 px-4 py-1.5 text-[var(--safety)]">
           <span className="flex items-center gap-1.5 text-[length:var(--text-body)] font-semibold"><OctagonAlertIcon className="size-4" aria-hidden /> Stop: something’s wrong</span>
@@ -744,16 +809,21 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
       </div>
 
       {/* Controls */}
-      <div className="flex items-center justify-around gap-1 border-t px-2 py-2">
-        <IconButton label="Previous" onClick={act.previous}><SkipBackIcon /></IconButton>
-        <IconButton label="Add 15 seconds" onClick={() => act.addTime(15)}><PlusIcon /><span className="text-xs">15</span></IconButton>
-        <button type="button" aria-label={paused ? 'Resume' : 'Pause'} onClick={paused ? act.resume : act.pause}
-          className="flex size-16 items-center justify-center rounded-full text-[var(--on-ink)] shadow-lg press-feedback" style={{ background: color }}>
-          {paused ? <PlayIcon className="size-7" /> : <PauseIcon className="size-7" />}
+      {/* At 320 px, or a large text size, the row wraps rather than squeezing a control under 48 px. */}
+      <div className="flex flex-wrap items-center justify-around gap-1 border-t px-2 py-2">
+        <IconButton word="Previous" onClick={act.previous}><SkipBackIcon aria-hidden /></IconButton>
+        <IconButton word="Add 15 s" label="Add 15 seconds" onClick={() => act.addTime(15)}><PlusIcon aria-hidden /></IconButton>
+        <button type="button" onClick={paused ? act.resume : act.pause} className="flex shrink-0 flex-col items-center gap-0.5 rounded-xl px-1 press-feedback">
+          <span aria-hidden className="flex size-16 items-center justify-center rounded-full text-[var(--on-ink)] shadow-lg" style={{ background: color }}>
+            {paused ? <PlayIcon className="size-7" /> : <PauseIcon className="size-7" />}
+          </span>
+          <span className="text-[length:var(--text-footnote)] font-semibold leading-tight">{paused ? 'Resume' : 'Pause'}</span>
         </button>
-        <IconButton label="Next" onClick={() => act.next('skip')}><SkipForwardIcon /></IconButton>
-        <IconButton label={g.muted ? 'Unmute voice' : 'Mute voice'} onClick={() => act.setMuted(!g.muted)}>{g.muted ? <VolumeXIcon /> : <Volume2Icon />}</IconButton>
-        <IconButton label="How to do it" onClick={() => setInfoOpen(true)} disabled={!coaching}><InfoIcon /></IconButton>
+        <IconButton word="Next" onClick={() => act.next('skip')}><SkipForwardIcon aria-hidden /></IconButton>
+        <IconButton word={g.muted ? 'Unmute' : 'Mute'} label={g.muted ? 'Unmute voice' : 'Mute voice'} onClick={() => act.setMuted(!g.muted)}>
+          {g.muted ? <VolumeXIcon aria-hidden /> : <Volume2Icon aria-hidden />}
+        </IconButton>
+        <IconButton word="How to do it" onClick={() => setInfoOpen(true)} disabled={!coaching}><InfoIcon aria-hidden /></IconButton>
       </div>
 
       <InfoSheet open={infoOpen} onOpenChange={setInfoOpen} coaching={coaching} title={step.title} />
@@ -762,12 +832,12 @@ function Player({ plan, refused, resumeState, liveIndex, sessionId, profile, ses
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Leave the session?</DialogTitle>
-            <DialogDescription>Your progress is saved. You can resume from Today.</DialogDescription>
+            <DialogDescription>Your progress is saved. You can resume from Home.</DialogDescription>
           </DialogHeader>
-          <DialogFooter className="flex-col gap-2 sm:flex-row">
-            <Button className="h-12" onClick={() => { setExitOpen(false); act.resume(); }}>Keep going</Button>
-            <Button variant="outline" className="h-12" onClick={() => { g.stopVoice(); onExit(); }}>Save and exit</Button>
-            <Button variant="ghost" className="h-12" onClick={() => { g.stopVoice(); act.finish(); setExitOpen(false); }}>Finish now</Button>
+          <DialogFooter className="flex-col gap-3 sm:flex-row">
+            <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" onClick={() => { setExitOpen(false); act.resume(); }}>Keep going</Button>
+            <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={() => { g.stopVoice(); onExit(); }}>Save and exit</Button>
+            <Button variant="ghost" className="h-auto min-h-12 whitespace-normal py-2" onClick={() => { g.stopVoice(); act.finish(); setExitOpen(false); }}>Finish now</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -842,11 +912,17 @@ function subtitleFor(step: Step, segLabel: string, fluids: ReturnType<typeof flu
   }
 }
 
-function IconButton({ label, onClick, children, disabled }: { label: string; onClick: () => void; children: React.ReactNode; disabled?: boolean }) {
+/**
+ * A player control: its icon over its word, as the tab bar draws one (§20.4
+ * rule 2, B-08; kiro FK-01). `label` names it for VoiceOver where the word
+ * is short for it, and starts with the word, so a spoken "Mute" finds it.
+ */
+function IconButton({ word, label, onClick, children, disabled }: { word: string; label?: string; onClick: () => void; children: React.ReactNode; disabled?: boolean }) {
   return (
     <button type="button" aria-label={label} onClick={onClick} disabled={disabled}
-      className="flex size-12 items-center justify-center gap-0.5 rounded-full hover:bg-muted disabled:opacity-40 press-feedback [&_svg]:size-5">
+      className="flex min-h-12 min-w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl px-1.5 py-1 hover:bg-muted disabled:opacity-40 press-feedback [&_svg]:size-5">
       {children}
+      <span className="text-[length:var(--text-footnote)] font-medium leading-tight">{word}</span>
     </button>
   );
 }
@@ -861,9 +937,9 @@ function Stepper({ label, value, onChange, step, suffix }: { label: string; valu
     <div className="flex items-center justify-between gap-2 rounded-xl border px-2 py-1">
       <span className="text-sm text-muted-foreground pl-1">{label}</span>
       <div className="flex items-center gap-1">
-        <button type="button" aria-label={`Less ${label}`} className="flex size-11 items-center justify-center rounded-full hover:bg-muted" onClick={() => onChange(Math.max(0, +(value - step).toFixed(2)))}><MinusIcon className="size-4" /></button>
+        <IconButton word="Less" label={`Less ${label}`} onClick={() => onChange(Math.max(0, +(value - step).toFixed(2)))}><MinusIcon aria-hidden /></IconButton>
         <span className="min-w-14 text-center text-lg font-bold tabular-nums">{value}{suffix}</span>
-        <button type="button" aria-label={`More ${label}`} className="flex size-11 items-center justify-center rounded-full hover:bg-muted" onClick={() => onChange(+(value + step).toFixed(2))}><PlusIcon className="size-4" /></button>
+        <IconButton word="More" label={`More ${label}`} onClick={() => onChange(+(value + step).toFixed(2))}><PlusIcon aria-hidden /></IconButton>
       </div>
     </div>
   );
@@ -880,7 +956,7 @@ function SetPanel({ step, state, useMetric, onLog, onDone }: { step: SetStep; st
           value={kg === null ? 0 : kgToDisplay(kg, useMetric)} step={useMetric ? 2.5 : 5} suffix={useMetric ? ' kg' : ' lb'}
           onChange={v => onLog({ stepId: step.id, kind: 'set', completed: log?.completed ?? false, reps: log?.reps ?? step.reps, weightKg: displayToKg(v, useMetric), exerciseId: step.exerciseId })} />
       )}
-      <Button variant="outline" className="h-12 text-base" onClick={onDone}><CheckIcon /> Done — next</Button>
+      <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2 text-base" onClick={onDone}><CheckIcon /> Done — next</Button>
     </div>
   );
 }
@@ -895,7 +971,7 @@ function RestPanel({ plan, index, state, useMetric, onLog }: { plan: SessionPlan
   const base = { stepId: prev.id, kind: 'set' as const, completed: log?.completed ?? true, exerciseId: prev.exerciseId };
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Log the set you just did</p>
+      <p className="text-[length:var(--text-footnote)] font-semibold uppercase tracking-wider text-muted-foreground">Log the set you just did</p>
       {!prev.holdSeconds && !prev.carrySeconds && <Stepper label="Reps" value={reps} step={1} onChange={v => onLog({ ...base, reps: v, weightKg: kg })} />}
       {prev.load.note !== 'bodyweight' && (
         <Stepper label="Weight" value={kg === null ? 0 : kgToDisplay(kg, useMetric)} step={useMetric ? 2.5 : 5} suffix={useMetric ? ' kg' : ' lb'}
@@ -909,10 +985,10 @@ function RestPanel({ plan, index, state, useMetric, onLog }: { plan: SessionPlan
 function CheckpointPanel({ step, onAnswer }: { step: Extract<Step, { kind: 'checkpoint' }>; onAnswer: (a: string) => void }) {
   if (step.question === 'glucose') {
     // The number decides, so there is nothing else to tap (F08).
-    return <Button className="h-12 text-base" onClick={() => onAnswer('measured')}>Enter my glucose</Button>;
+    return <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2 text-base" onClick={() => onAnswer('measured')}>Enter my glucose</Button>;
   }
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-3 gap-3">
       {(['better', 'same', 'worse'] as const).map(a => (
         <Button key={a} variant={a === 'worse' ? 'outline' : 'secondary'} className={cn('h-14 text-base capitalize', a === 'worse' && 'border-[var(--safety)] text-[var(--safety)]')} onClick={() => onAnswer(a)}>{a}</Button>
       ))}
@@ -929,7 +1005,7 @@ function lastExerciseId(plan: SessionPlan, index: number): string | undefined {
   return undefined;
 }
 
-/** A row on a full-screen question: a whole-width tap target, never under 44 points. */
+/** A row on a full-screen question: a whole-width tap target, never under 48 px. */
 const ROW = 'flex min-h-12 w-full items-start gap-3 rounded-xl bg-grouped-card px-4 py-3 text-left text-[length:var(--text-subhead)]';
 
 /**
@@ -961,7 +1037,8 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
   /** The low left no exercise today and ended the run: what stays is the low's own care. */
   ended?: boolean;
   profile: UserProfile;
-  onSave: (reading: GlucoseEntry, extra: { neededHelp: boolean; recovered: boolean }) => Promise<void>;
+  /** True once the reading is done with; false when the device refused it, so it is kept here to try again. */
+  onSave: (reading: GlucoseEntry, extra: { neededHelp: boolean; recovered: boolean }) => Promise<boolean>;
   onEnd: () => void;
   onLeave: () => void;
 }) {
@@ -976,6 +1053,12 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
   const [neededHelp, setNeededHelp] = useState(false);
   const [recovered, setRecovered] = useState(false);
   const [busy, setBusy] = useState(false);
+  /**
+   * The reading the device refused, as it was given (F-safety-05): Try again
+   * sends that same measurement, its time and clock generation, while the
+   * answers on screen are the ones it was given with. Changed, it is a new one.
+   */
+  const [refused, setRefused] = useState<{ key: string; reading: GlucoseEntry } | null>(null);
   const heading = useFocusOnMount<HTMLHeadingElement>();
   const typed = value.trim();
   const n = Number(typed);
@@ -989,20 +1072,28 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
     // or the date has changed.
     ?? (kind === 'low' && due > now.getTime() ? { due, minutes: Math.ceil((due - now.getTime()) / 60_000) } : null);
   const countdown = wait ? `Measure again in ${wait.minutes} minute${wait.minutes === 1 ? '' : 's'}, at ${timeOf(wait.due)}.` : null;
+  const key = JSON.stringify([display, typed, unit, unitConfirmed, neededHelp, recovered]);
   const save = async () => {
     if (!usable || busy) return;
     setBusy(true);
     const source = profile.health.glucoseMonitor === 'cgm' ? 'sensor' as const : 'meter' as const;
-    const measuredAt = new Date().toISOString();
+    const taken = new Date();
+    const measuredAt = taken.toISOString();
+    const reading: GlucoseEntry = refused?.key === key ? refused.reading : acquiredIn(display
+      // A meter's HI or LO is kept only in the check-in, so in this phone's offset, written out (H3-01).
+      ? { display, measuredAt: measuredStamp(taken), source }
+      : { value: n, unit, measuredAt, source, ...(unitConfirmed ? { unitConfirmed: true } : {}) }, acquisitionStamp());
     try {
-      await onSave(display
-        ? { display, measuredAt, source }
-        : { value: n, unit, measuredAt, source, ...(unitConfirmed ? { unitConfirmed: true } : {}) }, { neededHelp, recovered });
+      const done = await onSave(reading, { neededHelp, recovered });
+      // Kept, with its time, until the device has stored it (journey §4.5).
+      setRefused(done ? null : { key, reading });
+      if (done) {
+        setValue('');
+        setUnitConfirmed(false);
+        setShows('number');
+      }
     } finally {
       setBusy(false);
-      setValue('');
-      setUnitConfirmed(false);
-      setShows('number');
     }
   };
   const title = kind === 'low' ? 'Treat the low first' : kind === 'checkpoint' ? 'Check your glucose' : 'Check your glucose before you carry on';
@@ -1020,6 +1111,7 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-4 px-5 py-6">
         <h1 ref={heading} tabIndex={-1} className="text-[length:var(--text-title-2)] font-bold leading-tight outline-none">{title}</h1>
         <p className="text-[length:var(--text-body)]">{lead}</p>
+        {permission && <OwnsUrgent shows={drawnHere(permission)} />}
         {permission?.reasons.slice(0, 2).map(r => <p key={r} className="text-[length:var(--text-subhead)] text-muted-foreground">{r}</p>)}
         {kind === 'low' && (
           <>
@@ -1039,19 +1131,22 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
         {countdown && <p role="status" className="text-[length:var(--text-subhead)] font-semibold">{countdown}</p>}
         {!display && (
           <>
-          <div className="flex items-center gap-2 rounded-xl bg-grouped-card px-4 py-3">
+          {/* The reading and its unit stay together, under the words when the two don't fit beside them (200% text). */}
+          <div className="flex flex-wrap items-center gap-2 rounded-xl bg-grouped-card px-4 py-3">
             <label htmlFor="session-glucose" className="flex-1 text-[length:var(--text-body)]">Glucose now</label>
+            <span className="ml-auto flex min-w-0 max-w-full items-center gap-2">
             <input id="session-glucose" type="text" inputMode="decimal" autoComplete="off" value={value} placeholder="Reading"
               onChange={e => { setValue(e.target.value.replace(',', '.')); setUnitConfirmed(false); }}
-              className="h-11 w-24 rounded-lg bg-muted px-3 text-right text-base tabular-nums outline-none" />
+              className="h-12 w-24 min-w-0 shrink rounded-lg bg-muted px-3 text-right text-base tabular-nums outline-none" />
             <button type="button" onClick={() => { setUnit(unit === 'mg/dL' ? 'mmol/L' : 'mg/dL'); setUnitConfirmed(false); }}
-              aria-label={`Unit: ${unit}. Tap to change.`} className="min-h-11 min-w-[4.25rem] rounded-lg px-1 text-sm text-tint">{unit}</button>
+              aria-label={`Unit: ${unit}. Tap to change.`} className="min-h-12 min-w-12 shrink-0 rounded-lg px-1 text-sm text-tint">{unit}</button>
+            </span>
           </div>
           {/* The check-in's unit question: over 34 mmol/L is past what a meter reads. */}
           {sanity === 'suspectUnit' && (
             <div role="alert" className="flex flex-col gap-2 rounded-xl bg-grouped-card px-4 py-3 text-[length:var(--text-subhead)]">
               <p>That looks like mg/dL rather than mmol/L. Which does your meter show?</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-3">
                 <button type="button" onClick={() => setUnit('mg/dL')} className={UNIT_CHOICE}>{typed} mg/dL</button>
                 <button type="button" onClick={() => setUnitConfirmed(true)} className={UNIT_CHOICE}>{typed} mmol/L, really</button>
               </div>
@@ -1061,7 +1156,7 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
           {sanity === 'ambiguousLow' && (
             <div role="alert" className="flex flex-col gap-2 rounded-xl bg-grouped-card px-4 py-3 text-[length:var(--text-subhead)]">
               <p>Check the unit. Which does your meter show?</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-3">
                 <button type="button" onClick={() => setUnitConfirmed(true)} className={UNIT_CHOICE}>{typed} mg/dL</button>
                 <button type="button" onClick={() => setUnit('mmol/L')} className={UNIT_CHOICE}>{typed} mmol/L</button>
               </div>
@@ -1081,7 +1176,7 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
             {display && <p className="text-[length:var(--text-subhead)] text-muted-foreground">{`A meter shows ${display} when the glucose is past what it can measure.`}</p>}
           </div>
         ) : (
-          <button type="button" onClick={() => setAskDisplay(true)} className="min-h-11 self-start px-1 text-[length:var(--text-body)] font-medium text-tint">
+          <button type="button" onClick={() => setAskDisplay(true)} className="min-h-12 self-start px-1 text-[length:var(--text-body)] font-medium text-tint">
             Meter shows HI or LO?
           </button>
         )}
@@ -1097,14 +1192,21 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
             <span>Someone else had to help me treat this low.</span>
           </label>
         )}
-        <div className="mt-auto flex flex-col gap-2">
-          <Button className="h-12" disabled={!usable || busy} onClick={() => void save()}>Save this reading</Button>
+        <div className="mt-auto flex flex-col gap-3">
+          {refused?.key === key && (
+            <p role="alert" className="rounded-xl bg-caution/15 px-4 py-3 text-[length:var(--text-subhead)] leading-snug">
+              This reading couldn’t be saved on this device. It still counts for now, and the session stays paused. Free up some space, then try again.
+            </p>
+          )}
+          <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" disabled={!usable || busy} onClick={() => void save()}>
+            {refused?.key === key ? 'Try again' : 'Save this reading'}
+          </Button>
           {ended ? (
-            <Button variant="outline" className="h-12" onClick={onLeave}>Back to Today</Button>
+            <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onLeave}>{exitLabel()}</Button>
           ) : (
             <>
-              <Button variant="outline" className="h-12" onClick={onEnd}>End session</Button>
-              <Button variant="ghost" className="h-12" onClick={onLeave}>Leave, and come back later</Button>
+              <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onEnd}>End session</Button>
+              <Button variant="ghost" className="h-auto min-h-12 whitespace-normal py-2" onClick={onLeave}>Leave, and come back later</Button>
             </>
           )}
         </div>
@@ -1113,8 +1215,8 @@ function ReadingScreen({ kind, permission, record, measured = false, ended = fal
   );
 }
 
-/** A unit answer on the reading screen: a tap target never under 44 points. */
-const UNIT_CHOICE = 'min-h-11 rounded-lg bg-muted px-3 text-tint';
+/** A unit answer on the reading screen: a tap target never under 48 px. */
+const UNIT_CHOICE = 'min-h-12 rounded-lg bg-muted px-3 text-tint';
 
 /**
  * Today's check-in, asked in the player when a restart needs it (scan M-01):
@@ -1146,9 +1248,9 @@ function CheckInScreen({ permission, profile, date, record, recent, mode, starti
         {permission.reasons.slice(0, 2).map(r => <p key={r} className="px-1 text-[length:var(--text-body)]">{r}</p>)}
         <CheckInBody open onOpenChange={() => {}} profile={profile} date={date} {...(record ? { initial: record } : {})} recent={recent}
           onSave={onSave} onStart={onCarryOn} mode={mode} {...(starting ? {} : { startLabel: 'Carry on' })} />
-        <div className="mt-auto flex flex-col gap-2">
-          <Button variant="outline" className="h-12" onClick={onEnd}>End session</Button>
-          <Button variant="ghost" className="h-12" onClick={onLeave}>Leave, and come back later</Button>
+        <div className="mt-auto flex flex-col gap-3">
+          <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onEnd}>End session</Button>
+          <Button variant="ghost" className="h-auto min-h-12 whitespace-normal py-2" onClick={onLeave}>Leave, and come back later</Button>
         </div>
       </div>
     </div>
@@ -1170,10 +1272,10 @@ function LegQuestions({ answers, setAnswers, reachAsked, spreadAsked }: {
       {reachAsked && (
         <div className="flex flex-col gap-2 rounded-xl bg-grouped-card px-4 py-3">
           <span id="leg-reach" className="text-[length:var(--text-body)]">How far down symptoms reach now</span>
-          <div role="radiogroup" aria-labelledby="leg-reach" className="flex flex-wrap gap-1.5">
+          <div role="radiogroup" aria-labelledby="leg-reach" className="flex flex-wrap gap-3">
             {REACH.map(r => (
               <button key={r} type="button" role="radio" aria-checked={answers.reach === r} onClick={() => setAnswers(x => ({ ...x, reach: r }))}
-                className={cn('min-h-11 min-w-11 rounded-lg px-3 text-[length:var(--text-subhead)]', answers.reach === r ? 'bg-tint font-semibold text-on-tint' : 'bg-muted')}>
+                className={cn('min-h-12 min-w-12 rounded-lg px-3 text-[length:var(--text-subhead)]', answers.reach === r ? 'bg-tint font-semibold text-on-tint' : 'bg-muted')}>
                 {REACH_LABEL[r]}
               </button>
             ))}
@@ -1218,9 +1320,9 @@ function SymptomsScreen({ profile, reach, onSave, onEnd }: {
         <h1 ref={heading} tabIndex={-1} className="text-[length:var(--text-title-2)] font-bold leading-tight outline-none">That exercise stops here</h1>
         <p className="text-[length:var(--text-body)]">It is left out for the rest of today. Before carrying on: is any of this true now?</p>
         <LegQuestions answers={a} setAnswers={setA} reachAsked={profile.pain.areas.includes('sciatica')} spreadAsked={false} />
-        <div className="mt-auto flex flex-col gap-2">
-          <Button className="h-12" disabled={busy} onClick={() => void save()}>Save, and carry on without it</Button>
-          <Button variant="outline" className="h-12" onClick={onEnd}>End session</Button>
+        <div className="mt-auto flex flex-col gap-3">
+          <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" disabled={busy} onClick={() => void save()}>Save, and carry on without it</Button>
+          <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onEnd}>End session</Button>
         </div>
       </div>
     </div>
@@ -1249,6 +1351,8 @@ function StopScreen({ reach, onChoice: choose, onLeg }: {
   const label = (c: StopChoice) => STOP_CHOICES.find(x => x.choice === c)!.label;
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="stop-title" className="flex min-h-dvh flex-col bg-grouped-bg pt-safe pb-safe">
+      {/* The task's surface says every decision but the stop these questions answer (H6F-01, board D212). */}
+      <AnsweringStop />
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-4 px-5 py-6">
         <h1 id="stop-title" ref={heading} tabIndex={-1} className="text-[length:var(--text-title-2)] font-bold leading-tight outline-none">Stop: something’s wrong</h1>
         <p className="text-[length:var(--text-body)]">The session is paused. What is happening?</p>
@@ -1263,7 +1367,7 @@ function StopScreen({ reach, onChoice: choose, onLeg }: {
         <fieldset className="flex flex-col gap-2">
           <legend className="pb-2 text-[length:var(--text-body)] font-semibold">{label('leg')}</legend>
           <LegQuestions answers={leg} setAnswers={setLeg} reachAsked spreadAsked />
-          <Button className="h-12" disabled={busy} onClick={() => { setBusy(true); void onLeg(leg).finally(() => setBusy(false)); }}>
+          <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2" disabled={busy} onClick={() => { setBusy(true); void onLeg(leg).finally(() => setBusy(false)); }}>
             Save, and leave this movement out today
           </Button>
         </fieldset>
@@ -1280,9 +1384,9 @@ function DizzyScreen({ onLow, onBack }: { onLow: () => void; onBack: () => void 
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-4 px-5 py-6">
         <h1 id="dizzy-title" ref={heading} tabIndex={-1} className="text-[length:var(--text-title-2)] font-bold leading-tight outline-none">Sit down</h1>
         <p className="text-[length:var(--text-body)]">With your medicines, dizziness can be a low. Check your glucose now.</p>
-        <div className="mt-auto flex flex-col gap-2">
-          <Button className="h-12" onClick={onLow}>I feel low</Button>
-          <Button variant="outline" className="h-12" onClick={onBack}>It is not a low</Button>
+        <div className="mt-auto flex flex-col gap-3">
+          <Button data-main="" className="h-auto min-h-[3.75rem] whitespace-normal py-2" onClick={onLow}>I feel low</Button>
+          <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={onBack}>It is not a low</Button>
         </div>
       </div>
     </div>
@@ -1295,13 +1399,13 @@ function StartScreen({ plan, voiceName, muted, setMuted, mix, note, onStart, onE
   return (
     <div className="min-h-dvh flex flex-col bg-background pt-safe pb-safe">
       <div className="flex items-center justify-between px-3 pt-2">
-        <button type="button" aria-label="Back" onClick={onExit} className="flex size-11 items-center justify-center rounded-full hover:bg-muted"><XIcon className="size-5" /></button>
+        <IconButton word="Back" onClick={onExit}><XIcon aria-hidden /></IconButton>
         <span className="text-sm text-muted-foreground">{Math.round(plan.totalSeconds / 60)} minutes</span>
-        <span className="size-11" />
+        <span className="size-12" />
       </div>
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-5 px-5 py-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{plan.kind === 'recovery' ? 'Recovery session' : plan.kind === 'stretch' ? 'Stretch' : 'Today'}</p>
+          <p className="text-[length:var(--text-footnote)] font-semibold uppercase tracking-wider text-muted-foreground">{plan.kind === 'recovery' ? 'Recovery session' : plan.kind === 'stretch' ? 'Stretch' : 'Today'}</p>
           <h1 className="text-3xl font-bold tracking-tight">{plan.label}</h1>
         </div>
         {note && <p role="status" className="rounded-xl bg-caution/15 px-4 py-3 text-[length:var(--text-subhead)] leading-snug">{note}</p>}
@@ -1320,16 +1424,17 @@ function StartScreen({ plan, voiceName, muted, setMuted, mix, note, onStart, onE
             </div>
           ))}
         </div>
-        <div className="flex items-center gap-3 rounded-xl bg-muted/60 p-3 text-sm">
+        {/* At a large text size Mute goes under the words rather than pushing the page wider than the phone. */}
+        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-muted/60 p-3 text-sm">
           <HeadphonesIcon className="size-5 shrink-0" />
-          <div className="flex-1">
+          <div className="min-w-0 flex-1 basis-40">
             <p className="font-medium">{muted ? 'Captions only' : voiceName ? `Voice: ${voiceName}` : 'Voice: captions until a voice loads'}</p>
             <p className="text-muted-foreground">Put your earphones in and keep the screen on.</p>
             {mix && !muted && <p className="text-muted-foreground">{SILENT_SWITCH_NOTE}</p>}
           </div>
-          <Button variant="outline" className="h-11" onClick={() => setMuted(!muted)}>{muted ? 'Unmute' : 'Mute'}</Button>
+          <Button variant="outline" className="h-auto min-h-12 whitespace-normal py-2" onClick={() => setMuted(!muted)}>{muted ? 'Unmute' : 'Mute'}</Button>
         </div>
-        <p className="text-xs text-muted-foreground">Stop and get help for chest pain, faintness or severe breathlessness. Stop any exercise that sends pain or tingling down your leg.</p>
+        <p className="text-[length:var(--text-subhead)] leading-snug text-muted-foreground">Stop and get help for chest pain, faintness or severe breathlessness. Stop any exercise that sends pain or tingling down your leg.</p>
         <div className="mt-auto">
           <Button className="h-16 w-full text-lg" onClick={onStart}><PlayIcon className="size-6" /> Start</Button>
         </div>
@@ -1406,18 +1511,18 @@ function Summary({ plan, state, guidance, onSave, onExit }: {
         {/* The wrap-up voice asks for this number, so the question is always here. */}
         <fieldset className="flex flex-col gap-2">
           <legend className="pb-2 text-[length:var(--text-body)] font-medium">How does your back feel now? <span className="text-muted-foreground">(0 = no pain)</span></legend>
-          {/* Keys never narrower than 44 points: at 320 they wrap to a second row. */}
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(2.75rem,1fr))] gap-1.5">
+          {/* Keys never narrower than 48 px, 12 px apart: at 320 they wrap to a second row. */}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(3rem,1fr))] gap-3">
             {Array.from({ length: 11 }, (_, i) => i).map(i => (
               <button key={i} type="button" onClick={() => setPain(i)} aria-pressed={pain === i}
-                className={cn('numeric h-11 min-w-11 rounded-lg text-[length:var(--text-body)] font-semibold', pain === i ? 'bg-tint text-on-tint' : 'bg-grouped-card active:bg-muted')}>{i}</button>
+                className={cn('numeric h-12 min-w-12 rounded-lg text-[length:var(--text-body)] font-semibold', pain === i ? 'bg-tint text-on-tint' : 'bg-grouped-card active:bg-muted')}>{i}</button>
             ))}
           </div>
         </fieldset>
-        <div className="mt-auto flex flex-col gap-2">
+        <div className="mt-auto flex flex-col gap-3">
           {notSaving && <p role="status" className="text-center text-[length:var(--text-subhead)]">This device isn’t saving right now, so this session is kept only until you close the app.</p>}
           {failed && <p role="alert" className="text-center text-[length:var(--text-subhead)] text-stop">This device couldn’t save just now. Your session is still here — try again.</p>}
-          <Button className="h-14 text-base" disabled={saving} onClick={() => void finish()}>
+          <Button className="h-auto min-h-[3.75rem] whitespace-normal py-2 text-base" disabled={saving} onClick={() => void finish()}>
             <CheckIcon /> {notSaving ? 'Finish' : 'Save and finish'}
           </Button>
         </div>

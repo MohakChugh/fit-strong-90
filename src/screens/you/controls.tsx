@@ -2,11 +2,13 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { Switch as SwitchPrimitive } from '@base-ui/react/switch';
 import { CheckIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { radioKeys } from './radioKeys';
 
 /**
  * The few controls these screens need beyond `hig`: the iOS switch, a list of
  * choices with a checkmark, a full-width primary action and a time field.
- * All at least 44 px tall, all labelled, all in the one accent colour.
+ * All at least 48 px tall (§20.4.1; H5-22), all labelled, all in the one
+ * accent colour.
  */
 
 export function PrimaryButton({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -14,7 +16,7 @@ export function PrimaryButton({ className, ...props }: ButtonHTMLAttributes<HTML
     <button
       type="button"
       className={cn(
-        'press-feedback flex min-h-[3.25rem] w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-center',
+        'press-feedback flex min-h-[3.75rem] w-full items-center justify-center gap-2 rounded-xl bg-tint px-4 text-center',
         'text-[length:var(--text-body)] font-semibold text-on-tint disabled:opacity-50 disabled:active:scale-100',
         className,
       )}
@@ -28,7 +30,7 @@ export function PlainButton({ className, tone = 'tint', ...props }: ButtonHTMLAt
     <button
       type="button"
       className={cn(
-        'press-feedback flex min-h-11 w-full items-center justify-center rounded-xl px-4 text-center text-[length:var(--text-body)] font-medium disabled:opacity-50',
+        'press-feedback flex min-h-12 w-full items-center justify-center rounded-xl px-4 text-center text-[length:var(--text-body)] font-medium disabled:opacity-50',
         tone === 'stop' ? 'text-stop' : 'text-tint',
         className,
       )}
@@ -38,10 +40,11 @@ export function PlainButton({ className, tone = 'tint', ...props }: ButtonHTMLAt
 }
 
 /**
- * The iOS switch: a 51 × 31 track, accent when on, inside a 51 × 44 control,
- * so the target is a full 44 points tall (acceptance tap targets). The thumb
- * carries no meaning on its own — the switch is announced as on or off with
- * its label.
+ * The iOS switch: a 51 × 31 track, accent when on, inside a control at least
+ * 48 × 48 (journey §20.4 rule 1; H5-22, D159). All of it is in rem, the track,
+ * its inset and the thumb's travel too, so it grows with the text size and the
+ * thumb stays inside the track at every size. The thumb carries no meaning on
+ * its own — the switch is announced as on or off with its label.
  */
 export function Toggle({ checked, onChange, label, disabled }: {
   checked: boolean;
@@ -56,20 +59,20 @@ export function Toggle({ checked, onChange, label, disabled }: {
       onCheckedChange={next => onChange(next)}
       disabled={disabled}
       aria-label={label}
-      className="group/toggle relative inline-flex h-11 w-[51px] shrink-0 items-center outline-none"
+      className="group/toggle relative inline-flex min-h-12 min-w-12 shrink-0 items-center outline-none"
     >
-      {/* The visible track, centred in the 44-point control. */}
+      {/* The visible track, 51 × 31 at 100% text, centred in the control's height. */}
       <span
         aria-hidden
         className={cn(
-          'flex h-[31px] w-full items-center rounded-full p-0.5 transition-colors duration-200',
+          'flex h-[1.9375rem] w-[3.1875rem] items-center rounded-full p-0.5 transition-colors duration-200',
           'bg-separator group-data-[checked]/toggle:bg-tint group-data-[disabled]/toggle:opacity-40',
           'group-focus-visible/toggle:ring-3 group-focus-visible/toggle:ring-tint/40',
         )}
       >
         <SwitchPrimitive.Thumb
           className={cn(
-            'block size-[27px] rounded-full bg-white shadow-sm transition-transform duration-200',
+            'block size-[1.6875rem] rounded-full bg-white shadow-sm transition-transform duration-200',
             'data-[checked]:translate-x-5 data-[unchecked]:translate-x-0',
           )}
         />
@@ -95,9 +98,10 @@ export function ChoiceRows<T extends string>({ label, options, value, onChange }
   value: T | undefined;
   onChange: (value: T) => void;
 }) {
+  const keys = radioKeys(options, value, onChange);
   return (
     <div role="radiogroup" aria-label={label} className="[&>*+*]:border-t [&>*+*]:border-separator">
-      {options.map(option => {
+      {options.map((option, i) => {
         const on = option.value === value;
         return (
           <button
@@ -105,6 +109,7 @@ export function ChoiceRows<T extends string>({ label, options, value, onChange }
             type="button"
             role="radio"
             aria-checked={on}
+            {...keys(i)}
             onClick={() => onChange(option.value)}
             className="press-feedback flex min-h-[3.25rem] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors active:bg-muted/60"
           >
@@ -159,9 +164,10 @@ export function Segmented<T extends string>({ label, options, value, onChange }:
   value: T | undefined;
   onChange: (value: T) => void;
 }) {
+  const keys = radioKeys(options, value, onChange);
   return (
     <div role="radiogroup" aria-label={label} className="grid grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] gap-1 rounded-xl bg-muted/70 p-1">
-      {options.map(option => {
+      {options.map((option, i) => {
         const on = option.value === value;
         return (
           <button
@@ -169,9 +175,10 @@ export function Segmented<T extends string>({ label, options, value, onChange }:
             type="button"
             role="radio"
             aria-checked={on}
+            {...keys(i)}
             onClick={() => onChange(option.value)}
             className={cn(
-              'numeric min-h-11 rounded-lg px-2 text-[length:var(--text-subhead)] font-medium transition-colors',
+              'numeric min-h-12 rounded-lg px-2 text-[length:var(--text-subhead)] font-medium transition-colors',
               on ? 'bg-grouped-card text-foreground ring-1 ring-separator' : 'text-muted-foreground',
             )}
           >
@@ -202,7 +209,7 @@ export function TimeField({ id, label, value, onChange }: {
         type="time"
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="numeric min-h-11 min-w-0 max-w-full rounded-lg bg-muted/60 px-[min(0.75rem,2vw)] text-[length:var(--text-body)] text-foreground outline-none focus-visible:ring-3 focus-visible:ring-tint/40"
+        className="numeric min-h-12 min-w-0 max-w-full rounded-lg bg-muted/60 px-[min(0.75rem,2vw)] text-[length:var(--text-body)] text-foreground outline-none focus-visible:ring-3 focus-visible:ring-tint/40"
       />
     </label>
   );

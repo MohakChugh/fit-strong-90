@@ -11,8 +11,11 @@
  * measured would be worse than no walk.
  */
 
-import type { EndedBy, Gap, PainAnswer, Segment, Walk, WalkPlan, WalkStatus } from './clock';
+import { isDay } from '@/health/observation';
+import { toDateString } from '@/lib/utils';
+import { lastSeen, type EndedBy, type Gap, type PainAnswer, type Segment, type Walk, type WalkPlan, type WalkStatus } from './clock';
 import { isMeal, isWalkId } from './plan';
+import { offsetAt } from './time';
 
 export const WALK_KEY = 'fit-strong-walk';
 /** The last walk id the live screen started, so going back in history cannot start it twice. */
@@ -21,8 +24,8 @@ export const LAST_WALK_KEY = 'fit-strong-walk-last';
 export type WalkStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 const STATUSES: readonly WalkStatus[] = ['running', 'paused', 'away', 'finished'];
-const ENDINGS: readonly EndedBy[] = ['finish', 'stop', 'low', 'emergency', 'stale'];
-const SEGMENT_ENDS: readonly string[] = ['paused', 'hidden', 'left', 'interrupted', 'midnight', 'finished'];
+const ENDINGS: readonly EndedBy[] = ['finish', 'stop', 'low', 'emergency', 'stale', 'interrupted'];
+const SEGMENT_ENDS: readonly string[] = ['paused', 'hidden', 'left', 'interrupted', 'midnight', 'clockChange', 'timeZone', 'finished'];
 const CAUSES: readonly Gap['cause'][] = ['hidden', 'interrupted', 'left'];
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -39,6 +42,11 @@ function isPlan(v: unknown): v is WalkPlan {
   } else if (v.meal !== undefined) {
     return false;
   }
+  if (v.keepRoute !== undefined && typeof v.keepRoute !== 'boolean') return false;
+  if (v.routeGen !== undefined && !(Number.isSafeInteger(v.routeGen) && (v.routeGen as number) >= 0)) return false;
+  if (v.stepsDenied !== undefined && v.stepsDenied !== true) return false;
+  if (v.from !== undefined && v.from !== '/home' && v.from !== '/hub/walk') return false;
+  if (isObject(v.meal) && v.meal.basis !== undefined && v.meal.basis !== 'had') return false;
   return true;
 }
 
@@ -53,10 +61,29 @@ function isSegment(v: unknown): v is Segment {
   if (v.end !== undefined && !(isTime(v.end) && v.end >= v.start)) return false;
   if ((v.end === undefined) !== (v.endedBy === undefined)) return false;
   if (v.endedBy !== undefined && !SEGMENT_ENDS.includes(v.endedBy as string)) return false;
+  // B-19's fields, when present. A draft from an older build has none; `upgraded` fills them in.
+  if (v.accruedMs !== undefined && !isAmount(v.accruedMs)) return false;
+  if (v.accruedAt !== undefined && !isTime(v.accruedAt)) return false;
+  if (v.day !== undefined && !isDay(v.day)) return false;
+  if (v.offsetMin !== undefined && !(Number.isInteger(v.offsetMin) && Math.abs(v.offsetMin as number) <= 14 * 60)) return false;
+  if (v.afterClockChange !== undefined && v.afterClockChange !== true) return false;
   return (
     Array.isArray(v.gps) && v.gps.every(isRun) &&
     Number.isInteger(v.steps) && (v.steps as number) >= 0 && typeof v.motion === 'boolean'
   );
+}
+
+/** A segment kept before B-19: its accrual is its span, its day and offset this device's. */
+function upgraded(s: Segment, seenAt: number): Segment {
+  const old = s as Partial<Segment> & Pick<Segment, 'start'>;
+  const reached = s.end ?? Math.max(s.start, seenAt);
+  return {
+    ...s,
+    accruedMs: old.accruedMs ?? reached - s.start,
+    accruedAt: old.accruedAt ?? reached,
+    day: old.day ?? toDateString(new Date(s.start)),
+    offsetMin: old.offsetMin ?? offsetAt(s.start),
+  };
 }
 
 function isGap(v: unknown): v is Gap {
@@ -77,10 +104,11 @@ export function parseWalk(raw: unknown): Walk | null {
 
   if (!Array.isArray(raw.segments) || raw.segments.length === 0 || !raw.segments.every(isSegment)) return null;
   const segments = raw.segments as Segment[];
-  // In order, not overlapping, and open only at the end while running.
+  // In order, not overlapping, and open only at the end while running. One that began after the clock was
+  // set back may start earlier by the wall clock than the one before it ended (F-walk-01, B-19).
   for (let i = 1; i < segments.length; i++) {
     const before = segments[i - 1];
-    if (before.end === undefined || segments[i].start < before.end) return null;
+    if (before.end === undefined || (segments[i].start < before.end && segments[i].afterClockChange !== true)) return null;
   }
   const open = segments[segments.length - 1].end === undefined;
   if (open !== (status === 'running')) return null;
@@ -103,8 +131,16 @@ export function parseWalk(raw: unknown): Walk | null {
     if (raw.pain.back !== undefined && !isPain(raw.pain.back)) return null;
     if (raw.pain.leg !== undefined && !isPain(raw.pain.leg)) return null;
   }
+  if (raw.clockChangedAt !== undefined && !isTime(raw.clockChangedAt)) return null;
+  if (raw.recordGen !== undefined && !(Number.isSafeInteger(raw.recordGen) && (raw.recordGen as number) >= 0)) return null;
+  if (raw.clockUnkept !== undefined && (raw.clockUnkept !== true || raw.clockChangedAt === undefined)) return null;
+  // The readings a clock change left untimed (B-19): a short list of ids, kept only with the change itself.
+  if (raw.untimedReadings !== undefined) {
+    if (raw.clockChangedAt === undefined || !Array.isArray(raw.untimedReadings) || raw.untimedReadings.length > 10_000) return null;
+    if (!raw.untimedReadings.every(id => typeof id === 'string' && id.length > 0 && id.length <= 200)) return null;
+  }
 
-  return raw as unknown as Walk;
+  return { ...(raw as unknown as Walk), segments: segments.map(s => upgraded(s, raw.seenAt as number)) };
 }
 
 /**
@@ -205,6 +241,8 @@ export interface WalkPeek {
   /** `inProgress`: return to it at `/walk/live`. `unsaved`: finished, review and save it at `/walk/summary`. */
   state: 'inProgress' | 'unsaved';
   href: '/walk/live' | '/walk/summary';
+  /** When this device last saw it recording (`lastSeen`): a walk in progress is left open once `leftOpen` says so. */
+  seenAt: number;
 }
 
 /**
@@ -221,5 +259,6 @@ export function peekWalk(storage: WalkStorage | undefined = sessionWalkStorage()
     startedAt: walk.startedAt,
     state: unsaved ? 'unsaved' : 'inProgress',
     href: unsaved ? '/walk/summary' : '/walk/live',
+    seenAt: lastSeen(walk),
   };
 }

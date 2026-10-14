@@ -6,10 +6,10 @@
  * monitoring situations step 1 says must be distinguished (basal insulin,
  * sulfonylurea, multiple daily injections); the HbA1c cadence rows; and the
  * interpretation boundary rows, each value in its own fresh context, entered
- * through Track → Add.
+ * through My Day → Add (v1's Track, now Today's log).
  */
 import { docs } from '../lib/harness.mjs';
-import { persona } from '../fixtures/personas.mjs';
+import { C0, persona } from '../fixtures/personas.mjs';
 import * as ui from '../lib/ui.mjs';
 import * as g from '../lib/guide.mjs';
 
@@ -21,14 +21,23 @@ const NOT_ADVICE = 'General information, not medical advice.';
 
 // ---------------------------------------------------------------- Guide helpers
 
-/** Type a query into Guide search and return the result titles and the page text. */
+/** Type a query into Guide search and return the result titles and the page text. Guide is the Learn hub, /hub/learn. */
 async function searchGuide(t, query) {
   const page = t.page;
-  if (!(await t.route()).startsWith('/guide')) await g.tabTo(t, 'Guide');
+  if (!(await t.route()).startsWith('/hub/learn')) await g.tabTo(t, 'Guide');
   const main = page.getByRole('main');
-  if (await t.route() !== '/guide' && !(await t.route()).startsWith('/guide?')) await g.tabTo(t, 'Guide');
-  await ui.type(main.getByRole('searchbox', { name: 'Search Guide' }), query);
-  await page.waitForTimeout(400);
+  if (await t.route() !== '/hub/learn' && !(await t.route()).startsWith('/hub/learn?')) await g.tabTo(t, 'Guide');
+  await ui.type(main.getByRole('searchbox', { name: 'Search Learn' }), query);
+  // The results follow each key: read them once they are the whole query's and have settled (under load they lag the typing).
+  await page.waitForFunction(q => new URLSearchParams(location.hash.split('?')[1] ?? '').get('q') === q, query, { timeout: 10000 }).catch(() => {});
+  await page.evaluate(() => new Promise(done => {
+    const main = document.querySelector('main');
+    let timer = setTimeout(stop, 300);
+    const watch = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(stop, 300); });
+    function stop() { watch.disconnect(); done(); }
+    watch.observe(main, { childList: true, subtree: true });
+    setTimeout(stop, 5000);
+  }));
   const links = await main.getByRole('link').all();
   const results = [];
   for (const l of links) {
@@ -43,7 +52,7 @@ async function openTopic(t, topic) {
   const page = t.page;
   await g.tabTo(t, 'Guide');
   const main = page.getByRole('main');
-  const search = main.getByRole('searchbox', { name: 'Search Guide' });
+  const search = main.getByRole('searchbox', { name: 'Search Learn' });
   if (await search.inputValue()) await ui.tap(ui.button(main, 'Clear search'));
   await ui.tap(ui.row(main, topic, 'link'));
   await page.getByRole('heading', { level: 1, name: topic, exact: true }).waitFor();
@@ -87,7 +96,7 @@ function cleanHrefs(sources) {
 // ---------------------------------------------------------------- the main journey
 
 async function main(t) {
-  const page = await t.open({ seed: persona('P01'), route: '/today' });
+  const page = await t.open({ seed: persona('P01'), route: '/home' });
   const mainEl = page.getByRole('main');
   const labsBefore = { count: 0 };
 
@@ -119,10 +128,10 @@ async function main(t) {
         'the monitoring guidance does not distinguish basal insulin, sulfonylurea and multiple-injection situations');
       await t.check(card.sources.every(s => /\d{4}|edition|Published|reviewed|updated/i.test(s.name)), 'a monitoring source has no edition');
     }
-    // Today must not invent a daily glucose mandate for confirmed metformin-only treatment.
-    await g.tabTo(t, 'Today');
+    // Home (v1's Today) must not invent a daily glucose mandate for confirmed metformin-only treatment.
+    await g.tabTo(t, 'Home');
     const today = (await mainEl.innerText()).replace(/\s+/g, ' ');
-    await t.check(!/check (your )?(blood )?(glucose|sugar) (every|each) (day|morning)|daily (fasting )?glucose/i.test(today), `Today asks a metformin-only person for a daily glucose check: ${today.slice(0, 200)}`);
+    await t.check(!/check (your )?(blood )?(glucose|sugar) (every|each) (day|morning)|daily (fasting )?glucose/i.test(today), `Home asks a metformin-only person for a daily glucose check: ${today.slice(0, 200)}`);
   }, { input: 'searches: glucose monitoring, diabetes monitoring, how often check glucose, blood sugar test, glucose' });
 
   await t.step(2, 'BP guidance and its measurement instructions', async () => {
@@ -143,7 +152,8 @@ async function main(t) {
     await t.checkpoint('bp-form');
     await ui.tap(ui.button(form, 'Close'));
     await form.waitFor({ state: 'hidden' });
-    await t.goto('/track/metric/bloodPressure');
+    // The BP chart is the Blood pressure hub's (journey §19.3).
+    await t.goto('/hub/bp');
     corpus += ` ${(await mainEl.innerText()).replace(/\s+/g, ' ')}`;
     await t.checkpoint('bp-metric');
     const required = [
@@ -157,13 +167,13 @@ async function main(t) {
       ['two readings at least one minute apart', /two readings[^.]*(a|one|1) minute apart|readings[^.]*(a|one|1) minute apart/i],
     ];
     const missing = required.filter(([, re]) => !re.test(corpus)).map(([name]) => name);
-    await t.check(missing.length === 0, `BP measurement instructions are missing: ${missing.join('; ')} (searched the Guide “blood pressure” answers, Track → Add → Blood pressure and the BP chart)`);
+    await t.check(missing.length === 0, `BP measurement instructions are missing: ${missing.join('; ')} (searched the Guide “blood pressure” answers, My Day → Add → Blood pressure and the BP chart)`);
     const nice = /135\/85/.test(corpus);
     const clinic = /140\/90/.test(corpus);
     const ada = /130\/80/.test(corpus) && /ADA|American Diabetes/i.test(corpus);
     await t.check(nice && clinic && ada,
       `NICE home 135/85 ${nice ? 'shown' : 'missing'}, clinic 140/90 ${clinic ? 'shown' : 'missing'}, ADA diabetes goal ${ada ? 'shown' : 'missing'}: the three are not distinguished side by side`);
-  }, { input: 'Guide search “blood pressure”, Track → Add → Blood pressure, Track → Blood pressure' });
+  }, { input: 'Guide search “blood pressure”, My Day → Add → Blood pressure, the Blood pressure hub' });
 
   await t.step(3, 'Add HbA1c 6.5%, B12 350 pg/mL, D 50.1 ng/mL; open their details', async () => {
     labsBefore.count = (await t.db()).observations?.length ?? 0;
@@ -195,9 +205,9 @@ async function main(t) {
     await back(t);
 
     // The labs alone are no acute exercise emergency.
-    await g.tabTo(t, 'Today');
-    const card = (await mainEl.getByRole('region').first().innerText()).replace(/\s+/g, ' ');
-    await t.check(!/emergency|No exercise today|Check again before you start/i.test(card), `the lab results changed Today into a stop: “${card.slice(0, 200)}”`);
+    await g.tabTo(t, 'Home');
+    const card = (await ui.rightNow(page).innerText()).replace(/\s+/g, ' ');
+    await t.check(!/emergency|No exercise today|Check again before you start/i.test(card), `the lab results changed Home into a stop: “${card.slice(0, 200)}”`);
     const snap = await t.checkpoint('today-after-labs');
     const lab = (kind, value, unit) => g.ofKind(snap, kind).filter(o => o.value === value && o.unit === unit && o.source === 'manual' && o.scope === 'pointInTime' && o.day === '2026-10-08');
     await t.check(lab('hba1c', 6.5, '%').length === 1 && lab('b12', 350, 'pg/mL').length === 1 && lab('vitaminD', 50.1, 'ng/mL').length === 1,
@@ -241,21 +251,22 @@ async function main(t) {
   await t.step(5, 'BMI and waist for 78 kg, 175 cm and waist 90 cm, with the framework comparisons', async () => {
     await g.tabTo(t, 'Track');
     await g.addMeasure(t, 'Waist', '90');
-    await t.goto('/track/metric/weight');
+    // Weight and waist charts are their hubs' (journey §19.3).
+    await t.goto('/hub/weight');
     const weight = (await mainEl.innerText()).replace(/\s+/g, ' ');
     await t.checkpoint('weight-metric');
     await t.check(/BMI 25\.[45]\b/.test(weight), `BMI for 78 kg at 175 cm is not shown as about 25.5: ${weight.match(/BMI [\d.]+[^.]*/)?.[0] ?? 'no BMI line'}`);
     await t.check(/RSSDI-ESI 2020/.test(weight), 'the BMI line does not name the RSSDI-ESI 2020 Indian cut-offs');
     await t.check(/ICMR-NIN 2024(?:[^.]|\.\d)*above 27\.5/.test(weight), 'NIN 2024’s different above-27.5 obesity definition is not explained');
     await t.check(!/obes\w* \(30 or more\)|BMI[^.]*30 or more[^.]*only/i.test(weight), 'WHO’s 30 is given as the only obesity answer');
-    await t.goto('/track/metric/waist');
+    await t.goto('/hub/waist');
     const waist = (await mainEl.innerText()).replace(/\s+/g, ' ');
     await t.checkpoint('waist-metric');
     await t.check(/90 cm or more for men/.test(waist) && /RSSDI-ESI 2020/.test(waist), `the men’s 90 cm RSSDI threshold is not stated: ${waist.slice(0, 200)}`);
     await t.check(/NIN[^.]*(above|more than|over) 90/i.test(waist), 'waist: NIN 2024’s strict above-90 cm wording is not explained beside RSSDI’s 90-or-more');
     await t.check(!/(you|your waist)[^.]*(are|is) (at|above)[^.]*(men|male)/i.test(waist) && /women/.test(waist),
       'the waist flag is applied by sex without an explicit clinical sex answer (the demo figure is not one)');
-  }, { input: 'Waist 90 cm via Track → Add → Waist; weight 78 kg and height 175 cm from the profile' });
+  }, { input: 'Waist 90 cm via My Day → Add → Waist; weight 78 kg and height 175 cm from the profile' });
 
   await t.step(6, 'Guide → Meal ideas, vegetarian North Indian; a roti/dal meal and its Sources', async () => {
     await openTopic(t, 'Food & diabetes');
@@ -296,7 +307,8 @@ async function main(t) {
     await t.check(meal.sources.some(s => /ICMR–National Institute of Nutrition · 2024/.test(s.name)) && meal.sources.some(s => /American Diabetes Association/.test(s.name)),
       `the meal’s Sources do not name ADA and ICMR-NIN 2024: ${meal.sources.map(s => s.name.slice(0, 60)).join(' | ')}`);
     await t.reload();
-    await t.goto('/guide/meals');
+    // Meal ideas is the Food hub's (journey §19.3).
+    await t.goto('/hub/food/ideas');
     const prefs = (await mainEl.innerText()).replace(/\s+/g, ' ');
     const snap = await t.checkpoint('meals-after-reload');
     const food = docs(snap).profile?.food;
@@ -369,7 +381,7 @@ function monitoringCase(row) {
   return {
     name: row.name,
     async run(t) {
-      const page = await t.open({ seed: row.seed(), route: '/guide' });
+      const page = await t.open({ seed: row.seed(), route: '/hub/learn' });
       await t.step(1, 'Guide search for glucose monitoring for this treatment', async () => {
         let corpus = '';
         const counts = [];
@@ -406,22 +418,24 @@ function cadenceCase(row) {
     name: row.name,
     async run(t) {
       const seed = persona('P01', row.goal ? { patch: { profile: { health: { clinicianTargets: { hba1cPercent: row.goal } } } } } : {});
-      const page = await t.open({ seed, route: '/track' });
-      await t.step(1, `Enter HbA1c ${row.value}% dated ${row.day} through Track → Add → Lab result`, async () => {
+      const page = await t.open({ seed, route: '/day/today' });
+      await t.step(1, `Enter HbA1c ${row.value}% dated ${row.day} through My Day → Add → Lab result`, async () => {
         await g.addLab(t, 'HbA1c', row.value, { unit: '%', day: row.day });
         await t.checkpoint('hba1c-saved');
       }, { input: `HbA1c ${row.value} %, Date of test ${row.day}${row.goal ? `, clinician goal ${row.goal}%` : ''}` });
-      await t.step(2, 'Today names the next test as a conditional suggestion from ADA 2026 recommendation 6.2', async () => {
-        await g.tabTo(t, 'Today');
+      await t.step(2, 'Home names the next test as a conditional suggestion from ADA 2026 recommendation 6.2', async () => {
+        await g.tabTo(t, 'Home');
         const today = (await page.getByRole('main').innerText()).replace(/\s+/g, ' ');
         await t.checkpoint('today-hba1c-due');
-        await t.check(row.re.test(today), `Today does not say ${row.months} months for this result: “${today.match(/HbA1c[^]*?(usual[^.]*\.|$)/)?.[0]?.slice(0, 220) ?? 'no HbA1c prompt'}”`);
+        await t.check(row.re.test(today), `Home does not say ${row.months} months for this result: “${today.match(/HbA1c[^]*?(usual[^.]*\.|$)/)?.[0]?.slice(0, 220) ?? 'no HbA1c prompt'}”`);
         await t.check(/ADA Standards of Care 2026, recommendation 6\.2/.test(today), 'the HbA1c suggestion does not cite ADA 2026 recommendation 6.2');
         await t.check(!/must|required|overdue!/i.test(today.match(/HbA1c due[^]*?Add a result/)?.[0] ?? ''), 'the HbA1c suggestion is phrased as a mandate');
       });
       await t.step(3, 'The HbA1c chart states both conditions and identifies recommendation 6.2', async () => {
-        await t.goto('/track/metric/hba1c');
-        await ui.tap(ui.radio(page.getByRole('main').getByRole('radiogroup', { name: 'Period' }), 'Year'));
+        // v1's HbA1c chart said this under the result. In v2 the result's interpretation and cadence are the Labs
+        // hub's, under its latest result; the Labs trend is the dated results alone (Plan 3, journey §12.2, A-45).
+        await t.goto('/hub/labs?metric=hba1c');
+        await ui.loaded(page);
         const text = (await page.getByRole('main').innerText()).replace(/\s+/g, ' ');
         await t.checkpoint('hba1c-metric');
         await t.check(/twice a year|6 months/.test(text) && /3 months/.test(text) && /treatment change/.test(text),
@@ -446,7 +460,7 @@ function labCase(row) {
   return {
     name: row.name,
     async run(t) {
-      const page = await t.open({ seed: persona('P01'), route: '/track' });
+      const page = await t.open({ seed: persona('P01'), route: '/day/today' });
       await t.step(1, `Enter ${row.lab} ${row.value} ${row.unit} and open its detail`, async () => {
         await g.addLab(t, row.lab, row.value, { unit: row.unit });
         await ui.trackDay(page, '2026-10-08');
@@ -475,7 +489,7 @@ function bmiCase(row) {
     name: `BMI exactly ${row.bmi}: ${row.label}`,
     async run(t) {
       // Height 200 cm makes the BMI boundaries whole kilograms: 92, 100 and 110 kg.
-      const page = await t.open({ seed: persona('P01', { patch: { profile: { heightCm: 200 } } }), route: '/track' });
+      const page = await t.open({ seed: persona('P01', { patch: { profile: { heightCm: 200 } } }), route: '/day/today' });
       await t.step(1, `Enter weight ${row.kg} kg (BMI ${row.bmi} at 200 cm) and open its detail`, async () => {
         await g.addMeasure(t, 'Weight', row.kg);
         await ui.trackDay(page, '2026-10-08');
@@ -491,8 +505,51 @@ function bmiCase(row) {
   };
 }
 
+// ---------------------------------------------------------------- Trends: a meter's LO and HI, in mmol/L (Kiro KT-16)
+
+/**
+ * P01 reading in mmol/L: 6.0 on Monday to Wednesday last week and 6.6 this
+ * week, a meter LO on Tuesday at 1 pm and a HI on Wednesday at 9 pm, each in
+ * the day's check-in (the store files the numbers as readings; the HI and
+ * LO stay in the check-in, K-11). Glucose's Week keeps the LO and HI out of
+ * the average and says so above it in caution ink, hides the change because
+ * of the LO (B-15), and judges them at ADA's 3.9 and 13.9 mmol/L.
+ */
+async function meterTrend(t) {
+  const at = (day, time) => `${day}T${time}:00.000+05:30`;
+  const day = (date, value, display) => ({
+    ...structuredClone(C0), date, glucose: { value, unit: 'mmol/L', measuredAt: at(date, '07:30') },
+    ...(display ? { glucoseDisplay: { display: display[0], measuredAt: at(date, display[1]), source: 'meter' } } : {}),
+  });
+  const seed = persona('P01', {
+    patch: {
+      profile: { health: { glucoseUnit: 'mmol/L' } },
+      checkIns: [
+        day('2026-09-28', 6), day('2026-09-29', 6), day('2026-09-30', 6),
+        day('2026-10-05', 6.6), day('2026-10-06', 6.6, ['LO', '13:00']), day('2026-10-07', 6.6, ['HI', '21:00']),
+      ],
+    },
+  });
+  const page = await t.open({ seed, route: '/trends/glucose' });
+  const main = page.getByRole('main');
+  await t.step(1, 'Trends → Glucose, this week: the LO and HI out of the average, said in caution ink; no change; the lines in mmol/L', async () => {
+    await ui.heading(page, 'Glucose');
+    const text = (await main.innerText()).replace(/\s+/g, ' ');
+    const meter = main.getByText('Not in the average: 1 LO and 1 HI. The meter showed these instead of a number.', { exact: true });
+    await t.check(await meter.count() === 1, `the meter's LO and HI aren't said above the average: ${text.slice(0, 400)}`);
+    await t.check(/\btext-caution\b/.test((await meter.first().getAttribute('class')) ?? ''), 'the meter line isn’t in caution ink');
+    await t.check(text.includes('5 readings: 3 with a number, 1 meter LO and 1 meter HI'), `the count doesn’t say which readings are numeric: ${text.slice(0, 400)}`);
+    await t.check(text.includes('No change shown: a meter LO has no number, so an average would leave out the lowest reading.') && !/Higher than|Lower than|The same as/.test(text),
+      `a change is shown beside a LO: ${text.slice(0, 400)}`);
+    await t.check(/Below 3\.9 mmol\/L 1\b/.test(text) && /Above 13\.9 mmol\/L 1\b/.test(text), `the lows and highs aren’t counted at 3.9 and 13.9 mmol/L: ${text.slice(0, 500)}`);
+    await t.check(text.includes('6.6') && !/\bmg\/dL\b/.test(text), `the readings aren’t in mmol/L: ${text.slice(0, 300)}`);
+    await t.checkpoint('trends-meter-mmol');
+  }, { input: 'P01 in mmol/L; 6.0 on 28–30 Sep, 6.6 on 5–7 Oct; LO 6 Oct 1:00 pm, HI 7 Oct 9:00 pm' });
+}
+
 export const cases = [
   { name: 'P01 main', run: main },
+  { name: 'Trends: a meter’s LO and HI in mmol/L (KT-16)', run: meterTrend },
   ...MONITORING.map(monitoringCase),
   ...CADENCE.map(cadenceCase),
   ...LABS.map(labCase),

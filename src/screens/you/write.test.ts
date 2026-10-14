@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeIndexedDB } from '@/store/fakeIdb';
 import { createDefaultProfile } from '@/profile/defaults';
-import type { WizardResult } from '@/components/profile/ProfileWizard';
 
 // The store sweeps localStorage on clear-all; node has none, so give it one.
 const local = new Map<string, string>();
@@ -14,8 +13,10 @@ globalThis.localStorage = {
   get length() { return local.size; },
 } as Storage;
 
+import { JOIN } from '@/setup/fixtures';
+
 const store = await import('@/store/useStore');
-const { changeHabits, changeProfile, forgetCalendarEvents, joinProgramme, leaveProgramme, recordCalendarExport, recordExport, saveProfileAnswers, setFluidRestriction } = await import('./write');
+const { changeDisplay, changeHabits, changeProfile, forgetCalendarEvents, joinProgramme, leaveProgramme, recordBackupCheck, recordCalendarExport, recordExport, setFluidRestriction } = await import('./write');
 const { fluidRestriction } = await import('@/reminders/water');
 const { backupMark, backupNudge } = await import('@/reminders/backup');
 const { isEnrolled } = await import('@/health/recommend');
@@ -137,50 +138,15 @@ describe('setFluidRestriction', () => {
   });
 });
 
-describe('saveProfileAnswers', () => {
-  const answers = (over: Partial<WizardResult> = {}): WizardResult => ({
-    profile: createDefaultProfile({ weightKg: 81.5, trainingDays: ['monday', 'thursday'] }),
-    startDate: '2026-10-05',
-    useMetric: true,
-    ...over,
-  });
-
-  it('keeps the programme start date when the date was asked and changed', async () => {
-    await store.setSettings({ startDate: '2026-09-28' });
-    expect((await saveProfileAnswers(answers(), { startDate: true })).ok).toBe(true);
-    const after = await reloadFromDevice();
-    expect(after.settings.startDate).toBe('2026-10-05');
-    expect(after.settings.currentWeight).toBe(81.5);
-    expect(after.profile?.weightKg).toBe(81.5);
-  });
-
-  it('leaves the start date alone when the edit did not ask it', async () => {
-    await store.setSettings({ startDate: '2026-09-28' });
-    expect((await saveProfileAnswers(answers({ startDate: '2026-10-08' }), { startDate: false })).ok).toBe(true);
-    expect((await reloadFromDevice()).settings.startDate).toBe('2026-09-28');
-  });
-
-  it('reports a failed write and stores nothing of it', async () => {
-    await store.setProfile(createDefaultProfile({ weightKg: 70 }));
-    factory.control.setWriteError(() => new DOMException('Storage full', 'QuotaExceededError'));
-    const saved = await saveProfileAnswers(answers(), { startDate: true });
-    expect(saved.ok).toBe(false);
-    factory.control.setWriteError(undefined);
-    const after = await reloadFromDevice();
-    expect(after.profile?.weightKg).toBe(70);
-    expect(after.settings.startDate).not.toBe('2026-10-05');
-  });
-});
-
 describe('joining and leaving the programme', () => {
   const joined = createDefaultProfile({ weightKg: 80, trainingDays: ['monday', 'wednesday', 'friday'] });
 
   it('joins with the programme answers and a start date', async () => {
     await store.setSettings({ startDate: '', focus: 'stretch' });
-    expect((await joinProgramme({ profile: joined, useMetric: true }, '2026-10-12')).ok).toBe(true);
+    expect((await joinProgramme({ ...JOIN, startDate: '2026-10-12' })).ok).toBe(true);
     const after = await reloadFromDevice();
     expect(after.settings.startDate).toBe('2026-10-12');
-    expect(after.profile?.trainingDays).toEqual(['monday', 'wednesday', 'friday']);
+    expect(after.profile?.trainingDays).toEqual(JOIN.days);
     expect(isEnrolled(after.settings, after.profile)).toBe(true);
     // Joining is not a change of focus.
     expect(after.settings.focus).toBe('stretch');
@@ -196,7 +162,7 @@ describe('joining and leaving the programme', () => {
   });
 
   it('leaves by clearing the start date, keeping every record and answer', async () => {
-    await joinProgramme({ profile: joined, useMetric: true }, '2026-10-12');
+    await joinProgramme({ ...JOIN, startDate: '2026-10-12' });
     await store.addObservation({ kind: 'water', value: 250, unit: 'mL', at: '2026-10-08T10:00:00.000+05:30', scope: 'dayTotal' } as never);
     const before = await reloadFromDevice();
     expect((await leaveProgramme()).ok).toBe(true);
@@ -225,5 +191,46 @@ describe('recordCalendarExport / forgetCalendarEvents (D-01)', () => {
     expect((await reloadFromDevice()).settings.habits?.calendarExport).toEqual({ mealWalk: walk });
     expect((await forgetCalendarEvents(['mealWalk'])).ok).toBe(true);
     expect((await reloadFromDevice()).settings.habits).not.toHaveProperty('calendarExport');
+  });
+});
+
+describe('changeDisplay', () => {
+  it('changes one display setting and keeps the others', async () => {
+    await changeDisplay(d => ({ ...d, reduceMotion: true }));
+    await changeDisplay(d => ({ ...d, textScale: 1.3 }));
+    expect((await reloadFromDevice()).settings.display).toEqual({ reduceMotion: true, textScale: 1.3 });
+  });
+});
+
+describe('the backup ledger (B-25)', () => {
+  it('records how the backup left; a new backup is not checked until its own file is', async () => {
+    await recordExport({ at: '2026-10-01T10:00:00.000+05:30', revision: 3, via: 'download' });
+    await recordBackupCheck('2026-10-01T10:00:00.000+05:30');
+    expect((await reloadFromDevice()).settings.habits?.lastCheckedExportAt).toBe('2026-10-01T10:00:00.000+05:30');
+    await recordExport({ at: '2026-10-08T10:00:00.000+05:30', revision: 9, via: 'share' });
+    const habits = (await reloadFromDevice()).settings.habits;
+    expect(habits?.lastExportVia).toBe('share');
+    expect(habits?.lastCheckedExportAt).toBeUndefined();
+  });
+  it('checks only the latest backup: another file’s time changes nothing (Review Focus 5)', async () => {
+    await recordExport({ at: '2026-10-08T10:00:00.000+05:30', revision: 9, via: 'share' });
+    await recordBackupCheck('2026-10-01T10:00:00.000+05:30');
+    expect((await reloadFromDevice()).settings.habits?.lastCheckedExportAt).toBeUndefined();
+  });
+  it('a check never counts as new data for the backup nudge (Review Focus 5)', async () => {
+    const made = await store.exportRecord();
+    if (!made.ok) throw new Error('export failed');
+    await recordExport({ at: made.value.exportedAt, revision: made.value.revision, via: 'share' });
+    await recordBackupCheck(made.value.exportedAt);
+    const month = new Date(Date.parse(made.value.exportedAt) + 31 * 86_400_000);
+    const span = { first: Date.parse('2026-01-01T00:00:00Z'), last: Date.parse('2026-01-02T00:00:00Z') };
+    const due = () => {
+      const s = store.getState();
+      return backupNudge(month, backupMark(s.settings.habits), span, s.revision).due;
+    };
+    expect(store.getState().settings.habits?.lastCheckedExportAt).toBe(made.value.exportedAt);
+    expect(due()).toBe(false);
+    await changeProfile(p => ({ ...p, weightKg: 81 }));
+    expect(due()).toBe(true);
   });
 });

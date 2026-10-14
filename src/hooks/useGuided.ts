@@ -1,17 +1,18 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import {
-  effectiveCheckIns, pendingCheckInsVersion, reportSymptoms as reportInto, resetPendingCheckInsForTests, saveCheckInRecord,
+  acquiredReport, effectiveCheckIns, pendingCheckInsVersion, reportSymptoms as reportInto, resetPendingCheckInsForTests, saveCheckInRecord,
   subscribePendingCheckIns, unstoredCheckIn, type SymptomReport,
 } from '@/components/checkin/pending';
 import { useAppData } from '@/hooks/useLocalStorage';
-import { useStore } from '@/store/useStore';
+import { acquisitionStamp, useStore } from '@/store/useStore';
 import { evaluateCheckIn } from '@/engine/readiness';
 import type { AppData } from '@/types';
 import type { CheckInRecord, DailyCheckIn } from '@/types/checkin';
 import { DISPOSITION_ORDER } from '@/types/checkin';
 import type { DayFocus, SessionPlan } from '@/types/plan';
 import type { UserProfile } from '@/types/profile';
-import { createDefaultProfile } from '@/profile/defaults';
+import { useSetupSession } from '@/setup/draft';
+import { clinicalUnsavedVersion, gateProfile, subscribeClinicalUnsaved } from '@/setup/effective';
 import { buildSessionPlan } from '@/engine/session';
 import { swapOptions } from '@/session/manual';
 import { toDateString, todayString } from '@/lib/utils';
@@ -65,19 +66,26 @@ export function planFor(data: AppData, profile: UserProfile, date: string): Sess
 /** Today's profile, check-in and plan, rebuilt whenever any input changes. */
 export function useGuided(date: string = todayString()) {
   const [data, update] = useAppData();
+  const session = useSetupSession();
+  const editing = useSyncExternalStore(subscribeClinicalUnsaved, clinicalUnsavedVersion, clinicalUnsavedVersion);
+  // The one profile every gate reads, the stored one: with its gap while setup is unfinished (H5-05), and holding every
+  // movement while a clinical answer couldn't be stored (board D197).
   const profile: UserProfile = useMemo(
-    () => data.profile ?? createDefaultProfile({ weightKg: data.settings.currentWeight || 0, needsHealthReview: true }),
-    [data.profile, data.settings.currentWeight],
+    () => gateProfile({ profile: data.profile, settings: data.settings }, session),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data.profile, data.settings, session, editing],
   );
   // Answers the device has not stored yet count everywhere, for every day,
   // the moment they are given (round 3 B04).
   const pending = useSyncExternalStore(subscribePendingCheckIns, pendingCheckInsVersion, pendingCheckInsVersion);
-  // Readings logged in Track reach every gate as the check-in's own do (scan X2-01).
-  const { observations } = useStore();
+  // Readings logged in Track reach every gate as the check-in's own do (scan X2-01),
+  // and so do the changes to this phone's clock, from the moment one is seen (B-19, board D174, D188).
+  // Read on what is stored: a change still on its way can add to it, never release it (F-safety-01).
+  const { observations, clockHold: clock, stored } = useStore();
   const checkIns = useMemo(
-    () => effectiveCheckIns(data.checkIns ?? [], profile, observations),
+    () => effectiveCheckIns(stored.checkIns, profile, observations, clock, stored.observations),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data.checkIns, profile, pending, observations],
+    [stored, profile, pending, observations, clock],
   );
   // Today's, evaluated against the profile as it is now: advice stored with
   // the record can be out of date, such as extra water after a fluid limit
@@ -104,9 +112,11 @@ export function useGuided(date: string = todayString()) {
    * said on, the same way from every screen (`reportSymptoms`). The day comes
    * from the moment of the report, not from this screen's last render: a
    * session left open across midnight files 00:05 on the new day (scan M-01).
+   * A reading in it is taken as it is given, so it carries the clock
+   * generation of that moment (B-19, H6R-03, board D186).
    */
   const reportSymptoms = useCallback(
-    (report: SymptomReport, at: Date = new Date()) => reportInto(report, { profile, update, date: toDateString(at) }, at),
+    (report: SymptomReport, at: Date = new Date()) => reportInto(acquiredReport(report, acquisitionStamp()), { profile, update, date: toDateString(at) }, at),
     [profile, update],
   );
 

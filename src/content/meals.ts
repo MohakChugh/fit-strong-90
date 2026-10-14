@@ -27,6 +27,9 @@ export const SLOT_NOTES: Partial<Record<Slot, string[]>> = {
   snack: ['fd-two-three-meals', 'fd-healthy-snacks'],
 };
 
+/** Shown wherever estimates are explained (the Food hub's "How estimates work"). */
+export const FOOD_DATA_NOTES = ['fd-estimates-basis'];
+
 export const SLOTS: { id: Slot; title: string }[] = [
   { id: 'breakfast', title: 'Breakfast' },
   { id: 'lunch', title: 'Lunch' },
@@ -412,4 +415,14 @@ export const PATTERN_LABEL: Record<Pattern, string> = {
   eggetarian: 'Vegetarian with eggs',
   nonVegetarian: 'Non-vegetarian',
   vegan: 'Vegan',
+  jain: 'Jain',
+};
+
+/** What each pattern means here, shown wherever it is chosen (board D82 for Jain). */
+export const PATTERN_DETAIL: Record<Pattern, string> = {
+  vegetarian: 'Dairy, but no eggs, fish or meat',
+  eggetarian: 'Dairy and eggs, but no fish or meat',
+  nonVegetarian: 'Eggs, fish, chicken or meat',
+  vegan: 'No dairy, eggs, fish or meat',
+  jain: 'Dairy, but no eggs, fish, meat or honey, and no root vegetables such as onion, garlic or potato',
 };

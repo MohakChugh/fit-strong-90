@@ -6,7 +6,7 @@
  * not-advice line.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle2Icon, PlusIcon } from 'lucide-react';
@@ -79,10 +79,13 @@ const GLUCOSE_VIEW_NAMES: Record<GlucoseView, string> = {
 
 const PERIOD_NAMES: Record<Period, string> = { week: 'last 7 days', month: 'last month', quarter: 'last 3 months', year: 'last year' };
 
-export function MetricDetail() {
-  const { kind } = useParams();
+export function MetricDetail({ kind }: {
+  /** The metric or stored kind to show; by default the address's `:kind`. */
+  kind?: string;
+}) {
+  const params = useParams();
   const location = useLocation();
-  const metric = metricFromParam(kind);
+  const metric = metricFromParam(kind ?? params.kind);
   if (metric === 'backLeg') return <Navigate to="/track/back" replace state={location.state} />;
   // `movementMinutes` is counted by the week on My Day (D31), so it has no chart of its own.
   if (!metric) return <Navigate to="/track" replace />;
@@ -107,12 +110,12 @@ function MetricScreen({ metric }: { metric: MetricId }) {
   const [notice, setNotice] = useState<string>();
   const list = useRef<HTMLDivElement>(null);
 
-  // A brief confirmation, as on My Day. The reading itself stays in the list.
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(undefined), 4000);
-    return () => clearTimeout(timer);
-  }, [notice]);
+  // "Saved on this device", until the next Add or until the screen is left: never on a timer (§20.4 rule 8;
+  // kiro FK-05, as the hubs' KH-16).
+  const add = () => {
+    setNotice(undefined);
+    setLogOpen(true);
+  };
 
   const own = useMemo(() => state.observations.filter(o => spec.kinds.includes(o.kind)), [state.observations, spec.kinds]);
   const glucoseView: GlucoseView = metric === 'glucose'
@@ -159,9 +162,9 @@ function MetricScreen({ metric }: { metric: MetricId }) {
       trailing={request && (
         <button
           type="button"
-          onClick={() => setLogOpen(true)}
+          onClick={add}
           aria-label={`Add ${spec.title.toLowerCase()}`}
-          className="press-feedback flex size-[44px] items-center justify-center rounded-full text-tint"
+          className="press-feedback flex size-[48px] items-center justify-center rounded-full text-tint"
         >
           <PlusIcon className="size-[28px]" strokeWidth={2} aria-hidden />
         </button>
@@ -193,7 +196,7 @@ function MetricScreen({ metric }: { metric: MetricId }) {
             <button
               type="button"
               onClick={() => set(metric === 'glucose' ? { group: 'all', period: 'year' } : { period: 'year' })}
-              className="press-feedback min-h-11 text-[length:var(--text-body)] font-medium text-tint"
+              className="press-feedback min-h-12 text-[length:var(--text-body)] font-medium text-tint"
             >
               {metric === 'glucose' ? 'Show all readings for the year' : 'Show the last year'}
             </button>
@@ -205,7 +208,7 @@ function MetricScreen({ metric }: { metric: MetricId }) {
         <div className="flex flex-col items-center gap-5 px-2 pt-4 text-center">
           <p className="text-[length:var(--text-body)] text-muted-foreground">Not entered in the {PERIOD_NAMES[period]}.</p>
           {request && (
-            <PrimaryButton onClick={() => setLogOpen(true)} className="max-w-xs">
+            <PrimaryButton onClick={add} className="max-w-xs">
               <PlusIcon className="size-5" aria-hidden />
               {ADD_LABEL[metric] ?? 'Add a reading'}
             </PrimaryButton>

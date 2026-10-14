@@ -24,12 +24,12 @@ const iso = ms => {
   return `${d.toISOString().slice(0, 23)}+05:30`;
 };
 
-/** Open the glucose reading `value` from Track → Trends → Glucose and correct it to `to`. */
+/** Open the glucose reading `value` from My Day (v1's Track) → Trends → Glucose and correct it to `to`. */
 async function correctGlucose(t, value, to) {
   const page = t.page;
   const main = page.getByRole('main');
-  await ui.tab(page, 'Track');
-  await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Trends'));
+  await ui.legacyTab(page, 'Track');
+  await ui.tap(ui.radio(main.getByRole('radiogroup', { name: 'Show' }), 'Measures'));
   await ui.tap(main.getByRole('link', { name: /^Glucose/ }));
   await page.getByRole('heading', { level: 1, name: 'Glucose', exact: true }).waitFor();
   await ui.tap(main.getByRole('link').filter({ hasText: new RegExp(`^${value} mg/dL`) }));
@@ -65,7 +65,7 @@ const NEWER = /newer version of this app\. Update the app/;
 const sequence = {
   name: 'merge, conflicts, malformed and unsupported files',
   async run(t) {
-    const page = await t.open({ seed: persona('P01'), route: '/today' });
+    const page = await t.open({ seed: persona('P01'), route: '/home' });
     let B; let fileB; let mine; let corrected;
 
     await t.step(1, 'Export B; correct an existing reading (newer editedAt); add another; merge B twice', async () => {
@@ -179,7 +179,8 @@ const sequence = {
     });
 
     await t.step(7, 'A later schema, an Apple Health XML export and a ZIP are refused honestly', async () => {
-      await rejectFile(t, 'schema-6', data.writeFixture(t, 'schema6.json', { ...B, schemaVersion: 6 }), NEWER);
+      // The app writes schema 6 since the storage foundation (IndexedDB 2, ce27299): 7 is the later one.
+      await rejectFile(t, 'schema-7', data.writeFixture(t, 'schema7.json', { ...B, schemaVersion: 7 }), NEWER);
       const xml = '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE HealthData>\n<HealthData locale="en_IN"><Record type="HKQuantityTypeIdentifierStepCount" value="4200" unit="count" startDate="2026-10-07 08:00:00 +0530"/></HealthData>\n';
       await rejectFile(t, 'apple-health-xml', data.writeFixture(t, 'export.xml', xml), UNREADABLE);
       const zip = Buffer.concat([Buffer.from('PK\x03\x04\x14\x00\x00\x00\x08\x00', 'binary'), Buffer.from('apple_health_export/export.xml'), Buffer.alloc(40, 7)]);
@@ -194,7 +195,7 @@ const noCompression = {
   name: 'export without CompressionStream, restore in a fresh context',
   async run(t) {
     const capabilities = { compression: 'absent', share: 'capture' };
-    await t.open({ seed: persona('P01'), route: '/today', capabilities });
+    await t.open({ seed: persona('P01'), route: '/home', capabilities });
     let made; let doc;
     await t.step(5, 'Without CompressionStream the backup is plain .json, labelled as JSON', async () => {
       await t.must(await t.page.evaluate(() => typeof CompressionStream === 'undefined'), 'CompressionStream is still present');
@@ -225,7 +226,7 @@ const noCompression = {
 const shareCase = (name, share, expect) => ({
   name,
   async run(t) {
-    await t.open({ seed: persona('P01'), route: '/today', capabilities: { share } });
+    await t.open({ seed: persona('P01'), route: '/home', capabilities: { share } });
     await t.step(6, `${name}`, async () => {
       const before = await t.db();
       const made = await data.backup(t);
@@ -243,7 +244,7 @@ const shareCase = (name, share, expect) => ({
         await t.check(data.sameSnapshot(before, after).length === 0, 'a cancelled share changed the record');
         const main = await data.openData(t);
         const row = await say(ui.row(main, 'Back up your record'));
-        await t.check(/No backup yet|not made one yet/i.test(row), `after a cancelled share the backup row says “${row}”`);
+        await t.check(/Last backup: never/.test(row), `after a cancelled share the backup row says “${row}”`);
         await t.reload();
         await t.check(docs(await t.db()).settings?.habits?.lastExportAt === undefined, 'after reload the cancelled share counts as a backup');
       }

@@ -18,15 +18,22 @@
  * still fit when the text is enlarged. The SVG is hidden from assistive
  * technology and a table with the same facts stands in for it; when there is
  * no room to draw, the facts are shown in its place, a day at a time.
+ *
+ * As the trend chart is (B-15, H3-16), the whole plot is one slider: a tap or
+ * a drag anywhere chooses the day under it, and the arrow keys, Home, End and
+ * Escape do the same. The chosen day is outlined and said above the plot,
+ * where nothing can be pressed, and "Show as list" opens the day-by-day list.
  */
 
-import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
-import { labelWidth, placeLabels, scaleLinear, textSize, thinLabels } from '@/components/hig/scale';
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { labelWidth, placeLabels, scaleLinear, thinLabels } from '@/components/hig/scale';
+import { useMeasure } from '@/components/hig/useMeasure';
+import { slotAt, stepValue } from '@/screens/trends/chart';
 import type { LadderLevel } from '@/types/catalog';
 import {
-  REACH_LABELS, REACH_ORDER, backLegTable, dayOffset, loadingRuns, painRuns, type BackLegData, type LoadPoint, type PainPoint,
+  REACH_LABELS, REACH_ORDER, backLegDayText, backLegTable, dayOffset, loadingRuns, painRuns, type BackLegData, type BackLegTableRow, type LoadPoint, type PainPoint,
 } from './backLegSeries';
-import { formatDayShort } from './format';
+import { formatDayLong, formatDayShort } from './format';
 import { addDays, daysBetween } from './periods';
 
 /** Below this the plot is too narrow to read; the table stands in for it. */
@@ -45,27 +52,6 @@ function layout(fontPx: number) {
     gap: Math.ceil(fontPx),
     axis: Math.ceil(fontPx * 2.2),
   };
-}
-
-/** Width (floored, never rounded up) and text size, measured before paint, as the hig charts do. */
-function useMeasure<T extends HTMLElement>(): [RefObject<T | null>, number, number] {
-  const ref = useRef<T>(null);
-  const [width, setWidth] = useState(0);
-  const [fontPx, setFontPx] = useState(13);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const update = (px: number) => {
-      setWidth(Math.floor(px));
-      setFontPx(textSize(parseFloat(getComputedStyle(el).fontSize)));
-    };
-    update(el.getBoundingClientRect().width);
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(([entry]) => update(entry.contentRect.width));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  return [ref, width, fontPx];
 }
 
 function path(points: { x: number; y: number }[]): string {
@@ -126,8 +112,31 @@ function LoadingLane({ track, title, top, data, x, gutter, plot, height, titleRo
   );
 }
 
+/** The day-by-day list: one block a day, not six columns, which would break every word at large text sizes. */
+function DayList({ caption, table, current }: { caption: string; table: BackLegTableRow[]; current: string }) {
+  return (
+    <section aria-label={caption} className="flex flex-col gap-3">
+      <p className="text-muted-foreground">{caption}</p>
+      <ol className="flex flex-col">
+        {table.map(r => (
+          <li key={r.day} className="flex flex-col gap-0.5 border-t border-separator py-2 first:border-t-0 first:pt-0">
+            <span className="font-semibold">{formatDayShort(r.day, current)}</span>
+            <span>Back pain {r.back.length > 0 ? r.back.join(', ') : 'not entered'} · Leg pain {r.leg.length > 0 ? r.leg.join(', ') : 'not entered'}</span>
+            {r.reach && <span>Reached: {REACH_LABELS[r.reach]}</span>}
+            {r.sessions.length > 0 && <span>Session: {r.sessions.join('; ')}</span>}
+            {r.worse && <span className="font-semibold text-caution">Worse during a session</span>}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 export function BackLegChart({ data, current }: { data: BackLegData; current: string }) {
   const [frame, width, fontPx] = useMeasure<HTMLDivElement>();
+  const root = useRef<HTMLElement>(null);
+  const [choice, setChoice] = useState<{ range: string; index: number }>();
+  const [listOpen, setListOpen] = useState(false);
   const L = layout(fontPx);
   const days = daysBetween(data.range.from, data.range.to) + 1;
   const plot = width - L.gutter - RIGHT;
@@ -163,8 +172,43 @@ export function BackLegChart({ data, current }: { data: BackLegData; current: st
   const table = backLegTable(data);
   const caption = `Back and leg pain, how far symptoms reached, and spinal loading by day, ${formatDayShort(data.range.from, current)} to ${formatDayShort(data.range.to, current)}. Days with nothing recorded are left out.`;
 
+  // Days up to today can be chosen; days to come have nothing yet.
+  const max = current < data.range.from ? 0 : Math.min(days, daysBetween(data.range.from, current) + 1);
+  // A choice belongs to the range it was made in: another period starts with none, as the trend chart's does
+  // (M21), so the words and the slider never point past the range shown (codex F-ui-05).
+  const range = `${data.range.from}:${data.range.to}`;
+  const chosen = choice?.range === range && choice.index < max ? choice.index : undefined;
+  const rows = new Map(table.map(r => [r.day, r]));
+  const said = (i: number) => {
+    const day = addDays(data.range.from, i);
+    return `${formatDayLong(day, current)}: ${backLegDayText(rows.get(day))}.`;
+  };
+  const choose = (i: number | undefined) => setChoice(i === undefined ? undefined : { range, index: Math.min(i, max - 1) });
+  // A tap anywhere outside the chart puts the choice down, as the trend chart's does (M21).
+  useEffect(() => {
+    if (chosen === undefined) return;
+    const away = (e: PointerEvent) => {
+      if (e.target instanceof Node && !root.current?.contains(e.target)) setChoice(undefined);
+    };
+    document.addEventListener('pointerdown', away);
+    return () => document.removeEventListener('pointerdown', away);
+  }, [chosen]);
+  const pick = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (max === 0) return;
+    const i = slotAt(e.clientX - e.currentTarget.getBoundingClientRect().left, { left: L.gutter, width: plot }, days);
+    if (i !== undefined) choose(i);
+  };
+  const keys = (e: KeyboardEvent<HTMLDivElement>) => {
+    const now = chosen === undefined ? 0 : chosen + 1;
+    const next = stepValue(e.key, now, max);
+    // Escape with nothing chosen is the page's, not the chart's.
+    if (next === undefined || (e.key === 'Escape' && now === 0)) return;
+    e.preventDefault();
+    choose(next === 0 ? undefined : next - 1);
+  };
+
   return (
-    <figure className="m-0 flex flex-col gap-3 rounded-xl bg-grouped-card px-3 py-3 text-[length:var(--text-footnote)]">
+    <figure ref={root} className="m-0 flex flex-col gap-3 rounded-xl bg-grouped-card px-3 py-3 text-[length:var(--text-footnote)]">
       <ul aria-hidden className="flex flex-wrap gap-x-4 gap-y-1.5 text-muted-foreground">
         <li className="flex items-center gap-1.5"><svg width="20" height="8"><line x1="0" x2="20" y1="4" y2="4" stroke="currentColor" strokeWidth="2.5" className="text-tint" /></svg>Back pain</li>
         <li className="flex items-center gap-1.5"><svg width="20" height="8"><line x1="0" x2="20" y1="4" y2="4" stroke="currentColor" strokeWidth="2" strokeDasharray="4 3" className="text-foreground" /></svg>Leg pain</li>
@@ -174,9 +218,30 @@ export function BackLegChart({ data, current }: { data: BackLegData; current: st
         <li className="flex items-center gap-1.5"><svg width="6" height="10"><line x1="3" x2="3" y1="1" y2="9" stroke="currentColor" strokeWidth="1.5" className="text-muted-foreground" /></svg>A session</li>
       </ul>
 
+      {/* The chosen day in words, above the plot; a hint until one is chosen. Nothing here can be pressed: at large
+          text the words can grow and push the plot down under a finger mid-tap, as the trend chart learned. */}
+      {drawable && (
+        <p className={chosen === undefined ? 'min-h-[2lh] text-[length:var(--text-subhead)] leading-snug text-muted-foreground' : 'min-h-[2lh] text-[length:var(--text-subhead)] font-medium leading-snug [overflow-wrap:break-word]'}>
+          {chosen === undefined ? 'Tap or drag across the chart, or use the arrow keys, to read a day.' : said(chosen)}
+        </p>
+      )}
+
       {/* Measured inside the card's padding, so the plot is exactly as wide as the room it has. */}
       <div ref={frame}>
         {drawable && (
+          <div
+            role="slider"
+            tabIndex={0}
+            aria-label={`Pain against loading, ${formatDayShort(data.range.from, current)} to ${formatDayShort(data.range.to, current)}`}
+            aria-valuemin={0}
+            aria-valuemax={max}
+            aria-valuenow={chosen === undefined ? 0 : chosen + 1}
+            aria-valuetext={chosen === undefined ? 'Nothing chosen' : said(chosen)}
+            onKeyDown={keys}
+            onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); pick(e); }}
+            onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) pick(e); }}
+            className="touch-pan-y touch-pinch-zoom rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-tint"
+          >
           <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden className="block">
             <text x={0} y={fontPx} fill="currentColor" fontWeight={600} className="text-muted-foreground">Pain, 0 to 10</text>
             <g className="numeric text-muted-foreground">
@@ -232,14 +297,32 @@ export function BackLegChart({ data, current }: { data: BackLegData; current: st
                 <text key={index} x={lx} y={height - Math.ceil(fontPx * 0.35)} textAnchor="middle" fill="currentColor">{dayLabels[index]}</text>
               ))}
             </g>
+            {chosen !== undefined && (
+              <rect
+                x={L.gutter + (chosen * plot) / days} y={1}
+                width={Math.max(2, plot / days)} height={ticksAt + 4} rx={3}
+                fill="none" style={{ stroke: 'var(--foreground)' }} strokeWidth={2}
+              />
+            )}
           </svg>
+          </div>
         )}
       </div>
+      {drawable && (
+        <button
+          type="button"
+          aria-expanded={listOpen}
+          onClick={() => setListOpen(open => !open)}
+          className="press-feedback min-h-12 self-start rounded-full bg-tint/10 px-4 text-[length:var(--text-subhead)] font-semibold text-tint"
+        >
+          {listOpen ? 'Hide list' : 'Show as list'}
+        </button>
+      )}
 
       {/* The same facts, behind the picture as a table. With no room to draw,
           they are shown instead — one block a day, not six columns, which
           would break every word at large text sizes. */}
-      {drawable ? (
+      {drawable && !listOpen ? (
         <div className="sr-only">
           <table>
             <caption>{caption}</caption>
@@ -268,20 +351,7 @@ export function BackLegChart({ data, current }: { data: BackLegData; current: st
           </table>
         </div>
       ) : (
-        <section aria-label={caption} className="flex flex-col gap-3">
-          <p className="text-muted-foreground">{caption}</p>
-          <ol className="flex flex-col">
-            {table.map(r => (
-              <li key={r.day} className="flex flex-col gap-0.5 border-t border-separator py-2 first:border-t-0 first:pt-0">
-                <span className="font-semibold">{formatDayShort(r.day, current)}</span>
-                <span>Back pain {r.back.length > 0 ? r.back.join(', ') : 'not entered'} · Leg pain {r.leg.length > 0 ? r.leg.join(', ') : 'not entered'}</span>
-                {r.reach && <span>Reached: {REACH_LABELS[r.reach]}</span>}
-                {r.sessions.length > 0 && <span>Session: {r.sessions.join('; ')}</span>}
-                {r.worse && <span className="font-semibold text-caution">Worse during a session</span>}
-              </li>
-            ))}
-          </ol>
-        </section>
+        <DayList caption={caption} table={table} current={current} />
       )}
     </figure>
   );

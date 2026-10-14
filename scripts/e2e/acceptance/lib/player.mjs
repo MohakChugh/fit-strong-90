@@ -107,3 +107,42 @@ export const caption = page => playerMain(page).locator('p[aria-live="polite"]')
 export function sheetStart(sheet) {
   return sheet.getByRole('button', { name: /^(Start session|Start recovery session|Start stretch|Start walk|Continue|Continue session|Continue stretch|Continue to stretch|Continue to walk)$/ });
 }
+
+/**
+ * Let each timed step run to its end: advance the clock by what the step has
+ * left, so the runner completes it itself. Returns the time advanced and
+ * each step title shown, in order.
+ */
+export async function runStretchToEnd(t, maxSteps = 30) {
+  const page = t.page;
+  let ran = 0;
+  const seen = [];
+  for (let i = 0; i < maxSteps; i++) {
+    if (await page.getByRole('heading', { level: 1, name: /complete$/ }).count() && !(await control(page, 'Pause').count())) return { ran, seen };
+    const left = await stepRemainingMs(page);
+    if (left === undefined) {
+      if (await page.getByRole('heading', { level: 1, name: /^(Stretch|Session) complete$/ }).count()) return { ran, seen };
+      throw new Error(`no step timer on “${(await where(page)).title}”`);
+    }
+    const before = await where(page);
+    if (seen.at(-1) !== before.title) seen.push(before.title);
+    await t.advance(left + 300);
+    ran += left + 300;
+    await page.waitForTimeout(150);
+    const after = await page.getByRole('heading', { level: 1 }).innerText().catch(() => '');
+    if (after.trim() === before.title && (await stepRemainingMs(page)) !== undefined) {
+      // The tick that lands after the boundary may need one more beat.
+      await t.advance(300);
+      ran += 300;
+    }
+  }
+  throw new Error('the stretch never reached its end');
+}
+
+/** The summary's "Save and finish", once "Saved" shows. */
+export async function saveStretch(t) {
+  const page = t.page;
+  await page.getByRole('heading', { level: 1, name: /complete$/ }).waitFor();
+  await ui.tap(page.getByRole('button', { name: /Save and finish/ }));
+  await page.getByText('Saved', { exact: true }).waitFor({ timeout: 8000 });
+}

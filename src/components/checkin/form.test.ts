@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultProfile } from '@/profile/defaults';
+import { measuredStamp } from '@/health/observation';
 import { evaluateCheckIn, glucoseSanity } from '@/engine/readiness';
 import type { CheckInRecord, DailyCheckIn } from '@/types/checkin';
 import type { UserProfile } from '@/types/profile';
@@ -276,5 +277,79 @@ describe('scan C2-06: clearing one blood-pressure reading leaves the other as it
     const changed = carryForward(saved, build({ ...form, bp: { ...form.bp, s1: '148', at1: at(30) } }, plain, saved));
     expect(changed.bpReadings).toEqual([{ sys: 148, dia: 95, at: at(30) }, { sys: 182, dia: 100, at: at(58) }]);
     expect(changed.bpEarlier).toEqual([{ sys: 150, dia: 95, at: at(60) }]);
+  });
+});
+
+describe('a meter’s HI or LO keeps the clock it was measured on (H3-01, J§4.10)', () => {
+  const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
+
+  it('is saved in this phone’s offset, written out, at the instant it was measured', () => {
+    const lo = build({ ...emptyForm(diabetic), emergency: [], glucoseDisplay: 'LO', glucoseAt: at(5) }, diabetic);
+    expect(lo.glucoseDisplay?.measuredAt).toBe(measuredStamp(new Date(Date.parse(at(5)))));
+    expect(lo.glucoseDisplay?.measuredAt).toMatch(/T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/);
+    expect(Date.parse(lo.glucoseDisplay!.measuredAt!)).toBe(Date.parse(at(5)));
+    // With no time chosen, it is timed at the save.
+    expect(build({ ...emptyForm(diabetic), emergency: [], glucoseDisplay: 'HI' }, diabetic).glucoseDisplay?.measuredAt).toBe(measuredStamp(NOW));
+  });
+
+  it('writes UTC+0 out as +00:00, so it is never taken for a bare UTC stamp saved before', () => {
+    const zone = env.TZ;
+    env.TZ = 'Europe/London';
+    try {
+      expect(measuredStamp(new Date('2026-01-10T07:00:00.000Z'))).toBe('2026-01-10T07:00:00.000+00:00');
+      expect(measuredStamp(new Date('2026-07-10T07:00:00.000Z'))).toBe('2026-07-10T08:00:00.000+01:00');
+    } finally {
+      if (zone === undefined) delete env.TZ;
+      else env.TZ = zone;
+    }
+  });
+});
+
+describe('a stop said during movement, in the check-in (journey §4.4, H6-01)', () => {
+  it('is never asked, and shows while it stands, so today’s answers can change it', () => {
+    expect(visibleQuestions(plain, emptyForm(plain)).news).not.toContain('stopped');
+    expect(visibleQuestions(diabetic, emptyForm(diabetic)).news).not.toContain('stopped');
+    const said = formFromRecord(record(plain, { ...base, news: ['stopped'] }), plain);
+    expect(visibleQuestions(plain, said).news[0]).toBe('stopped');
+    // Kept by a save that leaves it as it is.
+    expect(build(said, plain).news).toContain('stopped');
+  });
+});
+
+describe('F-safety-04: the same measurement, its context corrected', () => {
+  const cgm = createDefaultProfile({ health: { diabetes: 'type2', insulin: 'injections_or_pump', insulinRegimen: 'basalOnly', medicinesReviewed: true, glucoseMonitor: 'cgm', glucoseUnit: 'mg/dL' } });
+  const saved = (g: Partial<NonNullable<DailyCheckIn['glucose']>>) =>
+    record(cgm, { ...base, glucose: { value: 120, unit: 'mg/dL', measuredAt: at(5), source: 'sensor', ...g } });
+  const again = (prev: CheckInRecord, change: Partial<ReturnType<typeof emptyForm>>) => build({ ...formFromRecord(prev, cgm), ...change }, cgm, prev);
+
+  it('says more: a falling arrow and rapid insulin apply to the reading as it was measured, never a second reading', () => {
+    const prev = saved({ trend: 'flat' });
+    const next = again(prev, { trend: 'fastFall', rapid: true });
+    expect(next.glucose).toEqual({ ...prev.glucose, trend: 'fastFall', rapidInsulinLast2h: true });
+    expect(next.glucoseEarlier).toBeUndefined();
+    expect(evaluateCheckIn(cgm, next).reasons.map(r => r.code)).toContain('falling');
+  });
+
+  it('says less: a falling arrow corrected to steady, or rapid insulin taken back, leaves the saved word standing', () => {
+    const prev = saved({ trend: 'fastFall', rapidInsulinLast2h: true });
+    const next = again(prev, { trend: 'flat', rapid: false });
+    expect(next.glucose).toBe(prev.glucose);
+  });
+
+  it('an arrow the sheet doesn’t ask (a meter reading) is left as it was', () => {
+    const meter = createDefaultProfile({ health: { diabetes: 'type2', insulin: 'injections_or_pump', insulinRegimen: 'basalOnly', medicinesReviewed: true, glucoseMonitor: 'meter', glucoseUnit: 'mg/dL' } });
+    const prev = record(meter, { ...base, glucose: { value: 120, unit: 'mg/dL', measuredAt: at(5), source: 'meter' } });
+    expect(build({ ...formFromRecord(prev, meter), trend: 'fastFall' }, meter, prev).glucose).toBe(prev.glucose);
+  });
+
+  it('its unit confirmed in the same save, the corrected arrow comes with it', () => {
+    const prev = saved({ value: 40, unit: 'mmol/L', trend: 'flat' });
+    const next = again(prev, { unitConfirmed: true, trend: 'fastFall' });
+    expect(next.glucose).toEqual({ ...prev.glucose, unitConfirmed: true, trend: 'fastFall' });
+  });
+
+  it('nothing changed: the same reading, the same object', () => {
+    const prev = saved({ trend: 'slowFall' });
+    expect(again(prev, {}).glucose).toBe(prev.glucose);
   });
 });
